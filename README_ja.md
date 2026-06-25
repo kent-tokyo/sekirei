@@ -51,32 +51,32 @@ crates/
 
 | 技術 | 状態 |
 |------|------|
-| アルファ・ベータ（Negamax） | ✅ |
-| PVS + YBW並列探索（rayon） | ✅ |
-| 反復深化 | ✅ |
-| ロックフリー置換表（深さ優先） | ✅ |
-| 静止探索 + Delta Pruning | ✅ |
-| キラームーブ（ply毎に2手） | ✅ |
-| ヒストリーヒューリスティック | ✅ |
-| アスピレーションウィンドウ | ✅ |
-| Late Move Reduction（LMR） | ✅ |
-| Null Move Pruning（R=3） | ✅ |
-| Reverse Futility Pruning（depth ≤ 3） | ✅ |
-| Futility Pruning（depth 1） | ✅ |
-| Late Move Pruning（depth ≤ 2） | ✅ |
-| 投機的先読み探索 | ✅ |
-| NNUE評価 | ✅ `cargo run -p usi -- weights.bin` で有効化 |
+| アルファ・ベータ（Negamax） | yes |
+| PVS + YBW並列探索（rayon） | yes |
+| 反復深化 | yes |
+| ロックフリー置換表（深さ優先） | yes |
+| 静止探索 + Delta Pruning | yes |
+| キラームーブ（ply毎に2手） | yes |
+| ヒストリーヒューリスティック | yes |
+| アスピレーションウィンドウ | yes |
+| Late Move Reduction（LMR） | yes |
+| Null Move Pruning（R=3） | yes |
+| Reverse Futility Pruning（depth ≤ 3） | yes |
+| Futility Pruning（depth 1） | yes |
+| Late Move Pruning（depth ≤ 2） | yes |
+| 投機的先読み探索 | yes |
+| NNUE評価 | `cargo run -p usi -- weights.bin` で有効化 |
 
 ## ロードマップ
 
 | フェーズ | 目標 | 状態 |
 |---------|------|------|
-| 1 | 基盤構築：Bitboard MoveGen・do/undoムーブ・Perft | ✅ 完了 |
-| 2 | ロックフリー置換表 & YBW並列探索 | ✅ 完了 |
-| 2.5 | 探索最適化（killer・history・LMR・NMP・RFP・futility・LMP） | ✅ 完了 |
-| 3 | 投機的エンジン（先読みスポーン・RAIIキャンセル） | ✅ 完了 |
-| 4 | NNUE統合（重みI/O・eval配線・訓練パイプライン） | ✅ 完了 |
-| 5 | プロトコル & 実戦（CSA/floodgate・マッチ管理・リリース） | ✅ 完了 |
+| 1 | 基盤構築：Bitboard MoveGen・do/undoムーブ・Perft | 完了 |
+| 2 | ロックフリー置換表 & YBW並列探索 | 完了 |
+| 2.5 | 探索最適化（killer・history・LMR・NMP・RFP・futility・LMP） | 完了 |
+| 3 | 投機的エンジン（先読みスポーン・RAIIキャンセル） | 完了 |
+| 4 | NNUE統合（重みI/O・eval配線・訓練パイプライン） | 完了 |
+| 5 | プロトコル & 実戦（CSA/floodgate・マッチ管理・リリース） | 完了 |
 
 ## ビルドと実行
 

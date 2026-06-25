@@ -49,32 +49,32 @@ crates/
 
 | Technique | Status |
 |-----------|--------|
-| Alpha-Beta (Negamax) | ✅ |
-| PVS + YBW Parallel Search (rayon) | ✅ |
-| Iterative Deepening | ✅ |
-| Lock-Free TT (depth-preferred) | ✅ |
-| Quiescence Search + Delta Pruning | ✅ |
-| Killer Move Heuristic (2/ply) | ✅ |
-| History Heuristic | ✅ |
-| Aspiration Window | ✅ |
-| Late Move Reduction (LMR) | ✅ |
-| Null Move Pruning (R=3) | ✅ |
-| Reverse Futility Pruning (depth ≤ 3) | ✅ |
-| Futility Pruning (depth 1) | ✅ |
-| Late Move Pruning (depth ≤ 2) | ✅ |
-| Speculative Preemptive Search | ✅ |
-| NNUE Evaluation | ✅ load via `cargo run -p usi -- weights.bin` |
+| Alpha-Beta (Negamax) | yes |
+| PVS + YBW Parallel Search (rayon) | yes |
+| Iterative Deepening | yes |
+| Lock-Free TT (depth-preferred) | yes |
+| Quiescence Search + Delta Pruning | yes |
+| Killer Move Heuristic (2/ply) | yes |
+| History Heuristic | yes |
+| Aspiration Window | yes |
+| Late Move Reduction (LMR) | yes |
+| Null Move Pruning (R=3) | yes |
+| Reverse Futility Pruning (depth ≤ 3) | yes |
+| Futility Pruning (depth 1) | yes |
+| Late Move Pruning (depth ≤ 2) | yes |
+| Speculative Preemptive Search | yes |
+| NNUE Evaluation | load via `cargo run -p usi -- weights.bin` |
 
 ## Roadmap
 
 | Phase | Goal | Status |
 |-------|------|--------|
-| 1 | Foundation: Bitboard MoveGen, do/undo move, Perft | ✅ Complete |
-| 2 | Lock-Free TT & YBW Parallel Search | ✅ Complete |
-| 2.5 | Search Optimization (killer, history, LMR, NMP, RFP, futility, LMP) | ✅ Complete |
-| 3 | Speculative Engine (preemptive spawning, RAII cancel) | ✅ Complete |
-| 4 | NNUE Integration (weight I/O, eval wiring, training pipeline) | ✅ Complete |
-| 5 | Protocol & Competition (CSA/floodgate, match runner, release) | ✅ Complete |
+| 1 | Foundation: Bitboard MoveGen, do/undo move, Perft | Complete |
+| 2 | Lock-Free TT & YBW Parallel Search | Complete |
+| 2.5 | Search Optimization (killer, history, LMR, NMP, RFP, futility, LMP) | Complete |
+| 3 | Speculative Engine (preemptive spawning, RAII cancel) | Complete |
+| 4 | NNUE Integration (weight I/O, eval wiring, training pipeline) | Complete |
+| 5 | Protocol & Competition (CSA/floodgate, match runner, release) | Complete |
 
 ## Building & Running
 
