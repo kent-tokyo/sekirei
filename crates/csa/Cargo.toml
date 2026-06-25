@@ -1,0 +1,11 @@
+[package]
+name = "csa"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "janos-csa"
+path = "src/main.rs"
+
+[dependencies]
+shogi-core = { path = "../shogi-core" }

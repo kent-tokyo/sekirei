@@ -1,0 +1,11 @@
+[package]
+name = "match-runner"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "janos-match"
+path = "src/main.rs"
+
+[dependencies]
+shogi-core = { path = "../shogi-core" }

@@ -1,0 +1,19 @@
+[package]
+name = "bench"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+shogi-core = { path = "../shogi-core" }
+rayon = "1"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "movegen"
+harness = false
+
+[[bin]]
+name = "sync_overhead"
+path = "src/bin/sync_overhead.rs"
