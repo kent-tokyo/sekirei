@@ -1,0 +1,7 @@
+tasks/
+AGENTS.md
+.claude/
+memo.txt
+data/
+target/
+.env
