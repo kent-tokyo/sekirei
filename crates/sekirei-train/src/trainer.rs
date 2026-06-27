@@ -145,7 +145,7 @@ impl Trainer {
 
     /// Train on a single game.  Samples every `sample_every` plies.
     pub fn train_game(&mut self, game: &CsaGame, sample_every: usize) {
-        let black_result = match game.result {
+        let _black_result = match game.result {
             GameResult::BlackWin => 1.0f32,
             GameResult::WhiteWin => -1.0,
             _ => 0.0,

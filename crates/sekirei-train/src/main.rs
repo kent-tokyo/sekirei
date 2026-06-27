@@ -163,8 +163,8 @@ fn main() {
             if args.min_rate <= 0.0 {
                 return true;
             }
-            g.black_rate.map_or(false, |r| r >= args.min_rate)
-                && g.white_rate.map_or(false, |r| r >= args.min_rate)
+            g.black_rate.is_some_and(|r| r >= args.min_rate)
+                && g.white_rate.is_some_and(|r| r >= args.min_rate)
         })
         .collect();
     eprintln!("{} games loaded (min_rate={})", games.len(), args.min_rate);

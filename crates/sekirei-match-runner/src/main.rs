@@ -249,7 +249,7 @@ fn run_game(
         // Verify legality
         let legal_moves = generate_legal_moves(&mut board);
         let parsed = move_from_usi(&mv_str, &board).ok();
-        let is_legal = parsed.map_or(false, |m| legal_moves.contains(&m));
+        let is_legal = parsed.is_some_and(|m| legal_moves.contains(&m));
 
         if !is_legal {
             eprintln!(

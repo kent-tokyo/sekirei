@@ -73,12 +73,12 @@ fn main() {
             }
 
             "isready" => {
-                if let Some(ref path) = eval_file {
-                    if !sekirei_core::nnue::weights_active() {
-                        match sekirei_core::nnue::load_weights(Path::new(path)) {
-                            Ok(()) => println!("info string NNUE weights loaded from {path}"),
-                            Err(e) => println!("info string weight load failed: {e}"),
-                        }
+                if let Some(ref path) = eval_file
+                    && !sekirei_core::nnue::weights_active()
+                {
+                    match sekirei_core::nnue::load_weights(Path::new(path)) {
+                        Ok(()) => println!("info string NNUE weights loaded from {path}"),
+                        Err(e) => println!("info string weight load failed: {e}"),
                     }
                 }
                 println!("readyok");
@@ -102,10 +102,10 @@ fn main() {
                     }
                 } else if parts.get(1) == Some(&"EvalFile") {
                     // value may contain spaces (e.g. paths with spaces)
-                    if let Some(val) = rest.split_once("value ").map(|(_, v)| v.trim()) {
-                        if !val.is_empty() {
-                            eval_file = Some(val.to_string());
-                        }
+                    if let Some(val) = rest.split_once("value ").map(|(_, v)| v.trim())
+                        && !val.is_empty()
+                    {
+                        eval_file = Some(val.to_string());
                     }
                 }
             }

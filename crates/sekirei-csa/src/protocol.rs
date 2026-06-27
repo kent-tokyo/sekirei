@@ -172,24 +172,24 @@ impl CsaClient {
 
         loop {
             let line = self.recv()?;
-            if line.starts_with("Game_ID:") {
-                game_summary_id = line["Game_ID:".len()..].to_string();
+            if let Some(rest) = line.strip_prefix("Game_ID:") {
+                game_summary_id = rest.to_string();
             } else if line.starts_with("Your_Turn:") {
                 our_color = if line.ends_with('+') {
                     Color::Black
                 } else {
                     Color::White
                 };
-            } else if line.starts_with("Total_Time:") {
-                if let Ok(s) = line["Total_Time:".len()..].parse::<u64>() {
+            } else if let Some(rest) = line.strip_prefix("Total_Time:") {
+                if let Ok(s) = rest.parse::<u64>() {
                     total_time_ms = Some(s * 1000);
                 }
-            } else if line.starts_with("Byoyomi:") {
-                if let Ok(s) = line["Byoyomi:".len()..].parse::<u64>() {
+            } else if let Some(rest) = line.strip_prefix("Byoyomi:") {
+                if let Ok(s) = rest.parse::<u64>() {
                     byoyomi_from_header = Some(s * 1000);
                 }
-            } else if line.starts_with("Increment:") {
-                if let Ok(s) = line["Increment:".len()..].parse::<u64>() {
+            } else if let Some(rest) = line.strip_prefix("Increment:") {
+                if let Ok(s) = rest.parse::<u64>() {
                     increment_ms = Some(s * 1000);
                     if s > 0 {
                         is_fischer = true;
