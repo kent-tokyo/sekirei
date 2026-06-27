@@ -6,21 +6,19 @@
 
 **JANOS** = *Jet-speed Ancestry Node Optimizer of Shogi*
 
-Rust-based shogi AI engine exploring speculative parallel search and NNUE-style evaluation. Aiming for competitive strength on floodgate.
+Janos is an experimental Rust shogi engine exploring speculative parallel search
+and NNUE-style evaluation. It can play on floodgate/CSA and via USI, but its
+strength, time management, and evaluation quality are still under active development.
 
-Rust's ownership and type system make it possible to implement **speculative parallel search with safe instant-cancel** — a pattern difficult to implement safely in C++.
+The project is motivated by how Rust's ownership model enables safe concurrent search
+— speculative parallel search with instant-cancel via atomics, without unsafe code.
 
-## Name Origin
+## Current Status
 
-The name pays tribute to three Hungarians named János, each embodying a defining quality of this project:
-
-| Figure | Quality | Maps to |
-|--------|---------|---------|
-| **John von Neumann** (Margittai Neumann János) — founder of game theory | Precise, rigorous logic | Mathematically correct search tree |
-| **Béla Bartók** (Bartók Béla Viktor János) — dismantled tradition, weaponized dissonance to forge a new musical language | Destruction of the old paradigm, creation of the new | Breaking C++'s dominance via safe Rust |
-| **Háry János** (hero of Kodály's opera) — the baron of tall tales, boundless in imagination and daring | Bold, beyond-common-sense ambition | Speculative preemptive search: betting on moves before knowing they're right |
-
-> 「緻密なロジック」「既存パラダイムの破壊と創造」「常識を超える大胆な大局観（投機的先読み）」
+- USI-compatible; works with ShogiGUI and similar GUIs
+- CSA client for floodgate (connected as `janos_20260623`)
+- NNUE-style evaluation available; weights not bundled — train from CSA data or use material fallback
+- Floodgate rating is volatile (active testing)
 
 ## Principles
 
@@ -34,7 +32,7 @@ crates/
   shogi-core/   — engine library
     board.rs    — position representation + do_move/undo_move/do_null_move
     movegen.rs  — legal move generation (generate_legal_moves, generate_legal_captures)
-    search.rs   — YBW parallel alpha-beta + full search optimization suite
+    search.rs   — YBW parallel alpha-beta + common search optimizations
     eval.rs     — NNUE evaluation (material fallback when weights not loaded)
     nnue.rs     — NNUE accumulator (incremental, SIMD-friendly, runtime weight loading)
     tt.rs       — lock-free transposition table (XOR-trick, depth-preferred)
@@ -47,7 +45,7 @@ crates/
   bench/        — microbenchmarks (movegen, perft, search, evaluate)
 ```
 
-## Search Features
+## Search (currently includes)
 
 | Technique | Status |
 |-----------|--------|
@@ -76,7 +74,7 @@ crates/
 | 2.5 | Search Optimization (killer, history, LMR, NMP, RFP, futility, LMP) | Complete |
 | 3 | Speculative Engine (preemptive spawning, RAII cancel) | Complete |
 | 4 | NNUE Integration (weight I/O, eval wiring, training pipeline) | Complete |
-| 5 | Protocol & Competition (CSA/floodgate, match runner, release) | Complete |
+| 5 | Protocol & Competition (CSA/floodgate, match runner) | In progress |
 
 ## Building & Running
 
@@ -131,11 +129,20 @@ Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).
 | Search NPS with NNUE (10 s time control) | ~1.1M nps, depth 13 |
 | Test suite | 15 tests pass |
 
-floodgate match results: pending (engine currently connecting as `janos_20260623`).
+floodgate status: active testing as `janos_20260623`; rating is currently volatile.
 
 ## Current Limitations
 
 - NNUE weights are not bundled; train from floodgate CSA data or use the material eval fallback
-- floodgate match history pending (engine registered as `janos_20260623`)
 - `setoption EvalFile` not yet supported (reload requires engine restart)
 - No pondering support
+
+## Name Origin
+
+The name pays tribute to three Hungarians named János:
+
+| Figure | Quality | Maps to |
+|--------|---------|---------|
+| **John von Neumann** (Neumann János) — founder of game theory | Precise, rigorous logic | Search correctness and reproducibility |
+| **Béla Bartók** (Bartók János) — dismantled tradition, forged a new musical language | Destruction of old paradigms, creation of new | Exploring Rust as an implementation language for shogi engines |
+| **Háry János** (hero of Kodály's opera) — the baron of tall tales, boundless in imagination | Bold, beyond-common-sense ambition | Speculative preemptive search: betting on moves before knowing they're right |
