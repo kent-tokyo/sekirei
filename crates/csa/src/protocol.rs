@@ -161,6 +161,11 @@ impl CsaClient {
         // Read game header until START
         let mut our_color = Color::Black;
         let mut game_summary_id = String::new();
+        // Parse time control from Game_Summary (authoritative over game_id heuristics)
+        let mut total_time_ms: Option<u64> = None;
+        let mut increment_ms: Option<u64> = None;
+        let mut byoyomi_from_header: Option<u64> = None;
+        let mut is_fischer = false;
 
         loop {
             let line = self.recv()?;
@@ -168,6 +173,21 @@ impl CsaClient {
                 game_summary_id = line["Game_ID:".len()..].to_string();
             } else if line.starts_with("Your_Turn:") {
                 our_color = if line.ends_with('+') { Color::Black } else { Color::White };
+            } else if line.starts_with("Total_Time:") {
+                if let Ok(s) = line["Total_Time:".len()..].parse::<u64>() {
+                    total_time_ms = Some(s * 1000);
+                }
+            } else if line.starts_with("Byoyomi:") {
+                if let Ok(s) = line["Byoyomi:".len()..].parse::<u64>() {
+                    byoyomi_from_header = Some(s * 1000);
+                }
+            } else if line.starts_with("Increment:") {
+                if let Ok(s) = line["Increment:".len()..].parse::<u64>() {
+                    increment_ms = Some(s * 1000);
+                    if s > 0 {
+                        is_fischer = true;
+                    }
+                }
             } else if line == "END Game_Summary" {
                 self.send(&format!("AGREE:{}", game_summary_id))?;
             } else if line.starts_with("START:") {
@@ -175,23 +195,25 @@ impl CsaClient {
             } else if line.starts_with('#') {
                 return Ok(GameResult::Aborted);
             }
-            // Skip P1..P9, PI, +/- declarations, time/position blocks
+            // Skip P1..P9, PI, +/- declarations, position blocks
         }
 
         eprintln!("[csa] game started, we are {:?}", our_color);
 
         let mut board = Board::startpos();
         board.refresh_acc();
-        let mut time_left_ms: u64 = self.initial_time_from_game_id();
-        let byoyomi_ms: u64 = self.byoyomi_from_game_id();
-        let is_fischer = self.config.game_id
-            .rfind('-')
-            .is_some_and(|p| self.config.game_id[p + 1..].ends_with('F'));
+
+        // Use server-provided time values; fall back to game_id heuristics if missing
+        let mut time_left_ms: u64 = total_time_ms.unwrap_or_else(|| self.initial_time_from_game_id());
+        let increment_or_byoyomi_ms: u64 = increment_ms
+            .or(byoyomi_from_header)
+            .unwrap_or_else(|| self.byoyomi_from_game_id());
 
         eprintln!(
-            "[csa] time budget: {}s main + {}s byoyomi",
+            "[csa] time budget: {}s main + {}s {}",
             time_left_ms / 1000,
-            byoyomi_ms / 1000
+            increment_or_byoyomi_ms / 1000,
+            if is_fischer { "increment" } else { "byoyomi" }
         );
 
         let mut resigned = false;
@@ -204,17 +226,17 @@ impl CsaClient {
                     &mut board,
                     our_color,
                     time_left_ms,
-                    byoyomi_ms,
+                    increment_or_byoyomi_ms,
                 )?;
                 if result.move_made.is_some() {
-                    // Read T{sec} from server and deduct used time from our bank
+                    // Read T{sec} from server echo (e.g. "+9796FU,T18") and deduct
                     if let Ok(t_line) = self.recv_time_or_move()
-                        && let Some(used_sec) = parse_time_line(&t_line)
+                        && let Some(used_sec) = parse_time_from_echo(&t_line)
                     {
                         let used_ms = used_sec * 1000;
                         time_left_ms = time_left_ms.saturating_sub(used_ms);
                         if is_fischer {
-                            time_left_ms = time_left_ms.saturating_add(byoyomi_ms);
+                            time_left_ms = time_left_ms.saturating_add(increment_or_byoyomi_ms);
                         }
                         eprintln!(
                             "[csa] used {}s, remaining {}s",
@@ -349,7 +371,8 @@ fn parse_game_end(line: &str) -> GameResult {
     }
 }
 
-/// Parse a CSA `T{n}` line (seconds used for the last move) → Some(n).
-fn parse_time_line(line: &str) -> Option<u64> {
-    line.strip_prefix('T')?.parse().ok()
+/// Parse seconds from a CSA time echo: "T18" or "+9796FU,T18" → Some(18).
+fn parse_time_from_echo(line: &str) -> Option<u64> {
+    let t_part = line.rsplit(',').next().unwrap_or(line);
+    t_part.strip_prefix('T')?.parse().ok()
 }
