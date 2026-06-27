@@ -1,6 +1,6 @@
 [package]
 name = "sekirei"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "USI shogi engine binary (Sekirei)"
 license = "MIT OR Apache-2.0"
