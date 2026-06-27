@@ -22,3 +22,16 @@ jobs:
         run: cargo test --release
       - name: build
         run: cargo build --release
+
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: smoke — check README binary crates
+        run: |
+          cargo check -p sekirei
+          cargo check -p sekirei-csa
+          cargo check -p sekirei-train
+          cargo check -p sekirei-match-runner

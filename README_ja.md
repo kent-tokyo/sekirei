@@ -130,7 +130,7 @@ floodgate: 実戦テスト中（レートは計測中）。
 ## 現在の制限事項
 
 - NNUE 重みファイルは同梱なし。floodgate CSA データから訓練するかマテリアル評価にフォールバック
-- `setoption EvalFile` 未対応（重み再ロードにはエンジン再起動が必要）
+- `setoption EvalFile` 対応済み。ゲーム中の重み再ロードにはエンジン再起動が必要
 - Pondering 未対応
 
 ## 名前の由来

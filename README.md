@@ -132,7 +132,7 @@ floodgate status: active testing; rating is currently volatile.
 ## Current Limitations
 
 - NNUE weights are not bundled; train from floodgate CSA data or use the material eval fallback
-- `setoption EvalFile` not yet supported (reload requires engine restart)
+- `setoption EvalFile` supported; in-game weight reload requires engine restart
 - No pondering support
 
 ## Name Origin

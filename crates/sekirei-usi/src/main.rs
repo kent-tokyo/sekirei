@@ -1,6 +1,6 @@
 //! Sekirei — USI (Universal Shogi Interface) engine binary.
 //!
-//! Run: `cargo run --release -p usi`
+//! Run: `cargo run --release -p sekirei`
 //! Then paste USI commands on stdin.
 
 use std::io::{self, BufRead, Write};
@@ -41,6 +41,7 @@ fn main() {
 
     let mut hash_mb = DEFAULT_HASH_MB;
     let mut searcher = make_searcher(hash_mb);
+    let mut eval_file: Option<String> = None;
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
@@ -65,23 +66,39 @@ fn main() {
                 println!("id name {ENGINE_NAME}");
                 println!("id author {ENGINE_AUTHOR}");
                 println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
+                println!("option name EvalFile type string default ");
                 println!("usiok");
                 stdout.lock().flush().ok();
             }
 
             "isready" => {
+                if let Some(ref path) = eval_file {
+                    if !sekirei_core::nnue::weights_active() {
+                        match sekirei_core::nnue::load_weights(Path::new(path)) {
+                            Ok(()) => println!("info string NNUE weights loaded from {path}"),
+                            Err(e) => println!("info string weight load failed: {e}"),
+                        }
+                    }
+                }
                 println!("readyok");
                 stdout.lock().flush().ok();
             }
 
             "setoption" => {
-                // "setoption name Hash value 256"
+                // "setoption name <Name> value <Value>"
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.get(1) == Some(&"Hash")
                     && let Some(mb) = parts.get(3).and_then(|s| s.parse().ok())
                 {
                     hash_mb = mb;
                     searcher = make_searcher(hash_mb);
+                } else if parts.get(1) == Some(&"EvalFile") {
+                    // value may contain spaces (e.g. paths with spaces)
+                    if let Some(val) = rest.split_once("value ").map(|(_, v)| v.trim()) {
+                        if !val.is_empty() {
+                            eval_file = Some(val.to_string());
+                        }
+                    }
                 }
             }
 
