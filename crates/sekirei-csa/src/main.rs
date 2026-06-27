@@ -132,7 +132,7 @@ fn parse_args() -> Result<Config, String> {
     }
 
     if cfg.user == "anonymous"
-        && let Ok(user) = std::env::var("FLLODGATE_ACCOUNT")
+        && let Ok(user) = std::env::var("FLOODGATE_ACCOUNT")
     {
         cfg.user = user;
     }
@@ -140,7 +140,7 @@ fn parse_args() -> Result<Config, String> {
     if let Some(t) = trip {
         cfg.password = format!("{},{}", cfg.game_id, t);
     } else if cfg.password == Config::default().password
-        && let Ok(t) = std::env::var("FLLODGATE_TRIP")
+        && let Ok(t) = std::env::var("FLOODGATE_TRIP")
     {
         cfg.password = format!("{},{}", cfg.game_id, t);
     }
@@ -160,7 +160,8 @@ fn arg(argv: &[String], i: usize) -> Result<String, String> {
 fn print_usage() {
     eprintln!("Usage: sekirei-csa --user <name> [--trip <secret> | --password <pass>] [OPTIONS]");
     eprintln!();
-    eprintln!("  Trip (recommended): set SEKIREI_TRIP env var or use --trip <secret>");
+    eprintln!("  Account: set FLOODGATE_ACCOUNT env var or use --user <name>");
+    eprintln!("  Trip (recommended): set FLOODGATE_TRIP env var or use --trip <secret>");
     eprintln!("  Password is built automatically as \"<game-id>,<trip>\"");
     eprintln!();
     eprintln!("  --server <host>    floodgate server (default: wdoor.c.u-tokyo.ac.jp)");

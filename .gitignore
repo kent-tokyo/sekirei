@@ -5,3 +5,4 @@ memo.txt
 data/
 target/
 .env
+.DS_Store

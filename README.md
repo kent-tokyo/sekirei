@@ -14,7 +14,7 @@ The project is motivated by how Rust's ownership model enables safe concurrent s
 ## Current Status
 
 - USI-compatible; works with ShogiGUI and similar GUIs
-- CSA client for floodgate (account set via `FLLODGATE_ACCOUNT` in `.env`)
+- CSA client for floodgate (account set via `FLOODGATE_ACCOUNT` in `.env`)
 - NNUE-style evaluation available; weights not bundled — train from CSA data or use material fallback
 - Floodgate rating is volatile (active testing)
 
@@ -27,20 +27,20 @@ The project is motivated by how Rust's ownership model enables safe concurrent s
 
 ```
 crates/
-  shogi-core/   — engine library
-    board.rs    — position representation + do_move/undo_move/do_null_move
-    movegen.rs  — legal move generation (generate_legal_moves, generate_legal_captures)
-    search.rs   — YBW parallel alpha-beta + common search optimizations
-    eval.rs     — NNUE evaluation (material fallback when weights not loaded)
-    nnue.rs     — NNUE accumulator (incremental, SIMD-friendly, runtime weight loading)
-    tt.rs       — lock-free transposition table (XOR-trick, depth-preferred)
+  sekirei-core/   — engine library
+    board.rs      — position representation + do_move/undo_move/do_null_move
+    movegen.rs    — legal move generation (generate_legal_moves, generate_legal_captures)
+    search.rs     — YBW parallel alpha-beta + common search optimizations
+    eval.rs       — NNUE evaluation (material fallback when weights not loaded)
+    nnue.rs       — NNUE accumulator (incremental, SIMD-friendly, runtime weight loading)
+    tt.rs         — lock-free transposition table (XOR-trick, depth-preferred)
     speculative.rs — preemptive speculation + RAII cancel
-    policy.rs   — lightweight move scorer for speculation
-  usi/          — USI server → binary: sekirei
-  csa/          — floodgate CSA client → binary: sekirei-csa
-  match-runner/ — USI-vs-USI strength test manager → binary: sekirei-match
-  train/        — NNUE training pipeline (CSA parser, Adam SGD, weight I/O)
-  bench/        — microbenchmarks (movegen, perft, search, evaluate)
+    policy.rs     — lightweight move scorer for speculation
+  sekirei-usi/          — USI server → binary: sekirei
+  sekirei-csa/          — floodgate CSA client → binary: sekirei-csa
+  sekirei-match-runner/ — USI-vs-USI strength test manager → binary: sekirei-match
+  sekirei-train/        — NNUE training pipeline (CSA parser, Adam SGD, weight I/O)
+  sekirei-bench/        — microbenchmarks (movegen, perft, search, evaluate)
 ```
 
 ## Search (currently includes)
@@ -61,7 +61,7 @@ crates/
 | Futility Pruning (depth 1) | yes |
 | Late Move Pruning (depth ≤ 2) | yes |
 | Speculative Preemptive Search | yes |
-| NNUE Evaluation | load via `cargo run -p usi -- weights.bin` |
+| NNUE Evaluation | load via `cargo run -p sekirei -- weights.bin` |
 
 ## Roadmap
 
@@ -90,29 +90,29 @@ cargo test
 cargo bench --bench movegen
 
 # USI engine (material eval fallback)
-cargo run --release -p usi
+cargo run --release -p sekirei
 
 # USI engine with NNUE weights
-cargo run --release -p usi -- weights.bin
+cargo run --release -p sekirei -- weights.bin
 
 # Connect to floodgate (CSA)
-cargo run --release -p csa -- --user <name> --password <pass> --loop
+cargo run --release -p sekirei-csa -- --user <name> --password <pass> --loop
 
 # Strength test: sekirei vs sekirei (10 games, 1 sec byoyomi)
-cargo run --release -p match-runner -- \
+cargo run --release -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei \
   --engine2 ./target/release/sekirei \
   --games 10 --byoyomi 1000
 
 # Strength test: sekirei vs external USI engine
-cargo run --release -p match-runner -- \
+cargo run --release -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei \
   --engine2 /path/to/suisho5 \
   --games 100 --byoyomi 10000
 
 # Train NNUE from floodgate CSA files
 # Download data from http://wdoor.c.u-tokyo.ac.jp/shogi/
-cargo run --release -p train -- --games /path/to/csa_dir --output weights.bin --epochs 3
+cargo run --release -p sekirei-train -- --games /path/to/csa_dir --output weights.bin --epochs 3
 ```
 
 ## Benchmarks
