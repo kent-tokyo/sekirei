@@ -7,6 +7,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread::JoinHandle;
 use std::time::Duration;
 
 use sekirei_core::{
@@ -46,8 +47,9 @@ fn main() {
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
 
-    // Abort flag for the currently running search (None if no search in flight)
+    // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
+    let mut search_handle: Option<JoinHandle<()>> = None;
 
     for raw in stdin.lock().lines() {
         let Ok(line) = raw else { break };
@@ -111,6 +113,12 @@ fn main() {
             }
 
             "usinewgame" => {
+                if let Some(a) = search_abort.take() {
+                    a.store(true, Ordering::Relaxed);
+                }
+                if let Some(h) = search_handle.take() {
+                    h.join().ok();
+                }
                 board = Board::startpos();
             }
 
@@ -120,9 +128,12 @@ fn main() {
             },
 
             "go" => {
-                // Abort any in-flight search before starting a new one
+                // Abort any in-flight search and join before starting a new one
                 if let Some(prev) = search_abort.take() {
                     prev.store(true, Ordering::Relaxed);
+                }
+                if let Some(h) = search_handle.take() {
+                    h.join().ok();
                 }
                 let config = parse_go(rest, board.side_to_move);
                 let abort = searcher.abort_flag();
@@ -131,7 +142,7 @@ fn main() {
                 let searcher2 = Arc::clone(&searcher);
                 let mut board2 = board.clone();
 
-                std::thread::spawn(move || {
+                search_handle = Some(std::thread::spawn(move || {
                     let info = searcher2.search(&mut board2, config);
 
                     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
@@ -155,12 +166,15 @@ fn main() {
                         .unwrap_or_else(|| "resign".to_string());
                     println!("bestmove {best}");
                     io::stdout().lock().flush().ok();
-                });
+                }));
             }
 
             "stop" => {
                 if let Some(a) = search_abort.take() {
                     a.store(true, Ordering::Relaxed);
+                }
+                if let Some(h) = search_handle.take() {
+                    h.join().ok();
                 }
             }
 
@@ -169,6 +183,9 @@ fn main() {
             "quit" => {
                 if let Some(a) = search_abort.take() {
                     a.store(true, Ordering::Relaxed);
+                }
+                if let Some(h) = search_handle.take() {
+                    h.join().ok();
                 }
                 break;
             }
