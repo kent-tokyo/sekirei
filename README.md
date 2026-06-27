@@ -139,10 +139,11 @@ floodgate status: active testing as `janos_20260623`; rating is currently volati
 
 ## Name Origin
 
-The name pays tribute to three Hungarians named János:
+**Janos** is inspired by the Hungarian name **János**.
 
-| Figure | Quality | Maps to |
-|--------|---------|---------|
-| **John von Neumann** (Neumann János) — founder of game theory | Precise, rigorous logic | Search correctness and reproducibility |
-| **Béla Bartók** (Bartók János) — dismantled tradition, forged a new musical language | Destruction of old paradigms, creation of new | Exploring Rust as an implementation language for shogi engines |
-| **Háry János** (hero of Kodály's opera) — the baron of tall tales, boundless in imagination | Bold, beyond-common-sense ambition | Speculative preemptive search: betting on moves before knowing they're right |
+It nods to John von Neumann, whose work in computing and game theory resonates
+with game-tree search, and to Béla Bartók, who transformed tradition into a new
+language of his own.
+
+Janos follows established shogi-engine ideas while exploring Rust as a safer,
+more maintainable implementation language.
