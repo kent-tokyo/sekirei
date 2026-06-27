@@ -137,8 +137,8 @@ floodgate status: active testing; rating is currently volatile.
 
 ## Name Origin
 
-**Sekirei** (セキレイ) is the Japanese word for wagtail — a small, nimble bird
-known for its quick, darting movement.
+**SEKIREI** — *Shogi Engine for Kifu-Informed Reasoning and Efficient Inference*
 
-The name reflects the engine's focus on fast, speculative search: committing to
-moves early, then correcting course as the tree develops.
+Also the Japanese word for wagtail — a small, nimble bird known for its quick,
+darting movement. The name reflects the engine's focus on fast, speculative
+search: committing to moves early, then correcting course as the tree develops.

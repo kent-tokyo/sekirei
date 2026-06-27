@@ -135,7 +135,9 @@ floodgate: 実戦テスト中（レートは計測中）。
 
 ## 名前の由来
 
-**Sekirei**（セキレイ）は、ハクセキレイなどに代表される小型の鳥で、
+**SEKIREI** — *Shogi Engine for Kifu-Informed Reasoning and Efficient Inference*
+
+セキレイは、ハクセキレイなどに代表される小型の鳥で、
 尾をリズミカルに上下に振りながら素早く動き回ることで知られています。
 
 小さく俊敏で、常に動き続ける——
