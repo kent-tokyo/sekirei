@@ -128,7 +128,12 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
     if moves.is_empty() {
         return None;
     }
-    Some(CsaGame { moves, result, black_rate, white_rate })
+    Some(CsaGame {
+        moves,
+        result,
+        black_rate,
+        white_rate,
+    })
 }
 
 // ---- Helpers ----

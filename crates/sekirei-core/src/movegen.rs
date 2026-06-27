@@ -506,7 +506,10 @@ pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = Vec::with_capacity(pseudos.len());
     for m in pseudos {
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
-        if board.piece_at(m.to).is_some_and(|p| p.kind == PieceKind::Ou) {
+        if board
+            .piece_at(m.to)
+            .is_some_and(|p| p.kind == PieceKind::Ou)
+        {
             continue;
         }
         let tok = board.do_move(m);
@@ -531,7 +534,11 @@ pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
         .into_iter()
         .filter(|m| m.from.is_some() && enemy.contains(m.to))
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
-        .filter(|m| board.piece_at(m.to).map_or(true, |p| p.kind != PieceKind::Ou))
+        .filter(|m| {
+            board
+                .piece_at(m.to)
+                .map_or(true, |p| p.kind != PieceKind::Ou)
+        })
         .collect::<Vec<_>>();
 
     let mut legals = Vec::with_capacity(pseudos.len());

@@ -44,15 +44,15 @@ fn main() {
     let mut attempts = 0u32;
     loop {
         match CsaClient::connect(config.clone()) {
-            Ok(mut client) => {
-                match client.run() {
-                    Ok(()) => { attempts = 0; }
-                    Err(e) => {
-                        attempts += 1;
-                        eprintln!("[csa] connection error: {e}");
-                    }
+            Ok(mut client) => match client.run() {
+                Ok(()) => {
+                    attempts = 0;
                 }
-            }
+                Err(e) => {
+                    attempts += 1;
+                    eprintln!("[csa] connection error: {e}");
+                }
+            },
             Err(e) => {
                 attempts += 1;
                 eprintln!("[csa] connect failed (attempt {attempts}): {e}");
@@ -173,4 +173,3 @@ fn print_usage() {
     eprintln!("  --depth <n>        max search depth (default: 50)");
     eprintln!("  --loop             reconnect after each game");
 }
-

@@ -155,7 +155,10 @@ impl Trainer {
 
         for (ply, &mv) in game.moves.iter().enumerate() {
             if ply % sample_every == 0 {
-                let config = SearchConfig { max_depth: 1, time_limit: None };
+                let config = SearchConfig {
+                    max_depth: 1,
+                    time_limit: None,
+                };
                 let info = self.searcher.search(&mut board, config);
                 let teacher = (info.score as f32).clamp(-600.0, 600.0);
                 self.train_position(&board, teacher);

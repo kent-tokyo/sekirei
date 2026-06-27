@@ -61,23 +61,62 @@ fn parse_args() -> Result<Args, String> {
 
     while i < argv.len() {
         match argv[i].as_str() {
-            "--engine1" => { i += 1; engine1 = Some(get(&argv, i)?); }
-            "--engine2" => { i += 1; engine2 = Some(get(&argv, i)?); }
+            "--engine1" => {
+                i += 1;
+                engine1 = Some(get(&argv, i)?);
+            }
+            "--engine2" => {
+                i += 1;
+                engine2 = Some(get(&argv, i)?);
+            }
             "--args1" => {
                 i += 1;
-                args1 = get(&argv, i)?.split_whitespace().map(str::to_string).collect();
+                args1 = get(&argv, i)?
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
             }
             "--args2" => {
                 i += 1;
-                args2 = get(&argv, i)?.split_whitespace().map(str::to_string).collect();
+                args2 = get(&argv, i)?
+                    .split_whitespace()
+                    .map(str::to_string)
+                    .collect();
             }
-            "--games" => { i += 1; games = get(&argv, i)?.parse().map_err(|e| format!("--games: {e}"))?; }
-            "--byoyomi" => { i += 1; byoyomi = get(&argv, i)?.parse().map_err(|e| format!("--byoyomi: {e}"))?; }
-            "--output" => { i += 1; output = Some(PathBuf::from(get(&argv, i)?)); }
-            "--max-moves" => { i += 1; max_mv = get(&argv, i)?.parse().map_err(|e| format!("--max-moves: {e}"))?; }
-            "--positions" => { i += 1; positions_file = Some(PathBuf::from(get(&argv, i)?)); }
-            "--json" => { i += 1; json_file = Some(PathBuf::from(get(&argv, i)?)); }
-            "--help" | "-h" => { print_usage(); std::process::exit(0); }
+            "--games" => {
+                i += 1;
+                games = get(&argv, i)?
+                    .parse()
+                    .map_err(|e| format!("--games: {e}"))?;
+            }
+            "--byoyomi" => {
+                i += 1;
+                byoyomi = get(&argv, i)?
+                    .parse()
+                    .map_err(|e| format!("--byoyomi: {e}"))?;
+            }
+            "--output" => {
+                i += 1;
+                output = Some(PathBuf::from(get(&argv, i)?));
+            }
+            "--max-moves" => {
+                i += 1;
+                max_mv = get(&argv, i)?
+                    .parse()
+                    .map_err(|e| format!("--max-moves: {e}"))?;
+            }
+            "--positions" => {
+                i += 1;
+                positions_file = Some(PathBuf::from(get(&argv, i)?));
+            }
+            "--json" => {
+                i += 1;
+                json_file = Some(PathBuf::from(get(&argv, i)?));
+            }
+            "--help" | "-h" => {
+                print_usage();
+                std::process::exit(0);
+            }
             other => return Err(format!("unknown option: {other}")),
         }
         i += 1;
@@ -86,7 +125,9 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         engine1_path: engine1.ok_or("--engine1 is required")?,
         engine2_path: engine2.ok_or("--engine2 is required")?,
-        args1, args2, games,
+        args1,
+        args2,
+        games,
         byoyomi_ms: byoyomi,
         output_dir: output,
         max_moves: max_mv,
@@ -96,7 +137,9 @@ fn parse_args() -> Result<Args, String> {
 }
 
 fn get(argv: &[String], i: usize) -> Result<String, String> {
-    argv.get(i).cloned().ok_or_else(|| "missing argument value".to_string())
+    argv.get(i)
+        .cloned()
+        .ok_or_else(|| "missing argument value".to_string())
 }
 
 fn print_usage() {
@@ -157,10 +200,11 @@ fn run_game(
         format!("position sfen {start_pos}")
     };
 
-    let mut board = match parse_position_cmd(pos_prefix.strip_prefix("position ").unwrap_or("startpos")) {
-        Ok(b) => b,
-        Err(_) => Board::startpos(),
-    };
+    let mut board =
+        match parse_position_cmd(pos_prefix.strip_prefix("position ").unwrap_or("startpos")) {
+            Ok(b) => b,
+            Err(_) => Board::startpos(),
+        };
     *hash_counts.entry(board.hash()).or_insert(0) += 1;
 
     for ply in 0..max_moves {
@@ -176,17 +220,29 @@ fn run_game(
         let mv_str = match mover.go(&pos_cmd, &go_cmd) {
             Ok(m) => m,
             Err(_) => {
-                let outcome = if e1_turn { Outcome::E2Win } else { Outcome::E1Win };
+                let outcome = if e1_turn {
+                    Outcome::E2Win
+                } else {
+                    Outcome::E1Win
+                };
                 return (outcome, moves, EndReason::EngineError);
             }
         };
 
         if mv_str == "resign" {
-            let outcome = if e1_turn { Outcome::E2Win } else { Outcome::E1Win };
+            let outcome = if e1_turn {
+                Outcome::E2Win
+            } else {
+                Outcome::E1Win
+            };
             return (outcome, moves, EndReason::Resign);
         }
         if mv_str == "win" {
-            let outcome = if e1_turn { Outcome::E1Win } else { Outcome::E2Win };
+            let outcome = if e1_turn {
+                Outcome::E1Win
+            } else {
+                Outcome::E2Win
+            };
             return (outcome, moves, EndReason::Win);
         }
 
@@ -200,7 +256,11 @@ fn run_game(
                 "  [match] illegal move '{mv_str}' by {} at ply {ply}",
                 if e1_turn { &e1.name } else { &e2.name }
             );
-            let outcome = if e1_turn { Outcome::E2Win } else { Outcome::E1Win };
+            let outcome = if e1_turn {
+                Outcome::E2Win
+            } else {
+                Outcome::E1Win
+            };
             return (outcome, moves, EndReason::IllegalMove);
         }
 
@@ -236,7 +296,10 @@ fn load_positions(path: &PathBuf) -> Vec<String> {
 struct Lcg(u64);
 impl Lcg {
     fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
         self.0
     }
     fn pick<'a>(&mut self, items: &'a [String]) -> &'a str {
@@ -258,7 +321,8 @@ fn main() {
         fs::create_dir_all(dir).ok();
     }
 
-    let positions: Vec<String> = args.positions_file
+    let positions: Vec<String> = args
+        .positions_file
         .as_ref()
         .map(load_positions)
         .unwrap_or_default();
@@ -273,8 +337,14 @@ fn main() {
         std::process::exit(1);
     });
 
-    e1.initialize().unwrap_or_else(|e| { eprintln!("engine1 init failed: {e}"); std::process::exit(1); });
-    e2.initialize().unwrap_or_else(|e| { eprintln!("engine2 init failed: {e}"); std::process::exit(1); });
+    e1.initialize().unwrap_or_else(|e| {
+        eprintln!("engine1 init failed: {e}");
+        std::process::exit(1);
+    });
+    e2.initialize().unwrap_or_else(|e| {
+        eprintln!("engine2 init failed: {e}");
+        std::process::exit(1);
+    });
 
     println!("Engine1: {}", e1.name);
     println!("Engine2: {}", e2.name);
@@ -297,15 +367,33 @@ fn main() {
         };
 
         let (outcome, moves, reason) = run_game(
-            &mut e1, &mut e2, e1_is_black, args.byoyomi_ms, args.max_moves, &start_pos,
+            &mut e1,
+            &mut e2,
+            e1_is_black,
+            args.byoyomi_ms,
+            args.max_moves,
+            &start_pos,
         );
 
-        let (e1_color, e2_color) = if e1_is_black { ("Black", "White") } else { ("White", "Black") };
+        let (e1_color, e2_color) = if e1_is_black {
+            ("Black", "White")
+        } else {
+            ("White", "Black")
+        };
 
         let result_str = match outcome {
-            Outcome::E1Win => { e1_wins += 1; format!("{} Win", e1.name) }
-            Outcome::E2Win => { e2_wins += 1; format!("{} Win", e2.name) }
-            Outcome::Draw  => { draws += 1; "Draw".to_string() }
+            Outcome::E1Win => {
+                e1_wins += 1;
+                format!("{} Win", e1.name)
+            }
+            Outcome::E2Win => {
+                e2_wins += 1;
+                format!("{} Win", e2.name)
+            }
+            Outcome::Draw => {
+                draws += 1;
+                "Draw".to_string()
+            }
         };
 
         let reason_tag = match reason {
@@ -319,8 +407,14 @@ fn main() {
 
         println!(
             "Game {:>4}: {} ({}) vs {} ({}) → {}{}  ({} moves)",
-            game_num, e1.name, e1_color, e2.name, e2_color,
-            result_str, reason_tag, moves.len()
+            game_num,
+            e1.name,
+            e1_color,
+            e2.name,
+            e2_color,
+            result_str,
+            reason_tag,
+            moves.len()
         );
 
         if let Some(dir) = &args.output_dir {
@@ -345,16 +439,26 @@ fn main() {
 
     // Summary
     let total = e1_wins + e2_wins + draws;
-    let e1_pct = if total > 0 { (e1_wins as f64 * 100.0 + draws as f64 * 50.0) / total as f64 } else { 0.0 };
+    let e1_pct = if total > 0 {
+        (e1_wins as f64 * 100.0 + draws as f64 * 50.0) / total as f64
+    } else {
+        0.0
+    };
     let e2_pct = 100.0 - e1_pct;
     let elo = elo::elo_diff(e1_wins, draws, e2_wins);
-    let ci  = elo::elo_ci(e1_wins, draws, e2_wins);
+    let ci = elo::elo_ci(e1_wins, draws, e2_wins);
     let los = elo::los(e1_wins, draws, e2_wins);
 
     println!();
     println!("=== Results after {total} games ===");
-    println!("  {}: {}W {}D {}L  ({:.1}%)", e1.name, e1_wins, draws, e2_wins, e1_pct);
-    println!("  {}: {}W {}D {}L  ({:.1}%)", e2.name, e2_wins, draws, e1_wins, e2_pct);
+    println!(
+        "  {}: {}W {}D {}L  ({:.1}%)",
+        e1.name, e1_wins, draws, e2_wins, e1_pct
+    );
+    println!(
+        "  {}: {}W {}D {}L  ({:.1}%)",
+        e2.name, e2_wins, draws, e1_wins, e2_pct
+    );
     println!();
     println!("Elo difference: {:+.0} ± {:.0} (95% CI)", elo, ci);
     println!("LOS: {:.1}%", los * 100.0);
@@ -375,9 +479,12 @@ fn main() {
   "los": {:.4}
 }}
 "#,
-            e1.name, e2.name,
+            e1.name,
+            e2.name,
             e1_pct / 100.0,
-            elo, ci, los
+            elo,
+            ci,
+            los
         );
         if let Err(e) = fs::write(json_path, &json) {
             eprintln!("JSON write failed: {e}");

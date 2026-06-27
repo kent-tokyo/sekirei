@@ -1052,7 +1052,11 @@ pub struct SpeculativeSearcher {
 
 impl SpeculativeSearcher {
     pub fn new(tt: Arc<Tt>, top_n: usize) -> Self {
-        SpeculativeSearcher { tt, top_n, external_abort: Arc::new(AtomicBool::new(false)) }
+        SpeculativeSearcher {
+            tt,
+            top_n,
+            external_abort: Arc::new(AtomicBool::new(false)),
+        }
     }
 
     /// Returns a clone of the abort flag; set to `true` to stop an in-progress search.

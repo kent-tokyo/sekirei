@@ -385,7 +385,8 @@ impl NnueAcc {
         let mut relu_them = [0.0f32; L1];
         for j in 0..L1 {
             relu_us[j] = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-            relu_them[j] = self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            relu_them[j] =
+                self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
         }
 
         // L2 forward (input-first loop for cache-friendly access to l2[j])

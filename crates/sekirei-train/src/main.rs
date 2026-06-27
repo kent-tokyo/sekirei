@@ -105,7 +105,9 @@ fn print_usage() {
     eprintln!("  --epochs <n>        Training epochs (default: 3)");
     eprintln!("  --sample <n>        Sample every N plies per game (default: 4)");
     eprintln!("  --best-every <n>    Save best-loss checkpoint every N games (default: 0 = off)");
-    eprintln!("  --min-rate <r>      Minimum rating for both players (default: 1500, 0 = no filter)");
+    eprintln!(
+        "  --min-rate <r>      Minimum rating for both players (default: 1500, 0 = no filter)"
+    );
     eprintln!();
     eprintln!("Data: download floodgate archives from http://wdoor.c.u-tokyo.ac.jp/shogi/");
 }

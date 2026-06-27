@@ -120,7 +120,10 @@ impl CsaClient {
         let mut line = String::new();
         let n = self.reader.read_line(&mut line)?;
         if n == 0 {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "connection closed"));
+            return Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "connection closed",
+            ));
         }
         let trimmed = line.trim_end().to_string();
         eprintln!("[csa] << {trimmed}");
@@ -172,7 +175,11 @@ impl CsaClient {
             if line.starts_with("Game_ID:") {
                 game_summary_id = line["Game_ID:".len()..].to_string();
             } else if line.starts_with("Your_Turn:") {
-                our_color = if line.ends_with('+') { Color::Black } else { Color::White };
+                our_color = if line.ends_with('+') {
+                    Color::Black
+                } else {
+                    Color::White
+                };
             } else if line.starts_with("Total_Time:") {
                 if let Ok(s) = line["Total_Time:".len()..].parse::<u64>() {
                     total_time_ms = Some(s * 1000);
@@ -204,7 +211,8 @@ impl CsaClient {
         board.refresh_acc();
 
         // Use server-provided time values; fall back to game_id heuristics if missing
-        let mut time_left_ms: u64 = total_time_ms.unwrap_or_else(|| self.initial_time_from_game_id());
+        let mut time_left_ms: u64 =
+            total_time_ms.unwrap_or_else(|| self.initial_time_from_game_id());
         let increment_or_byoyomi_ms: u64 = increment_ms
             .or(byoyomi_from_header)
             .unwrap_or_else(|| self.byoyomi_from_game_id());
