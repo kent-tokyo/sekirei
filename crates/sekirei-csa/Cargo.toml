@@ -11,5 +11,5 @@ name = "sekirei-csa"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core" }
+sekirei-core = { path = "../sekirei-core", version = "0.1.0" }
 dotenvy = "0.15"

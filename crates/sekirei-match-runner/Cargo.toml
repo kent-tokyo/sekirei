@@ -11,4 +11,4 @@ name = "sekirei-match"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core" }
+sekirei-core = { path = "../sekirei-core", version = "0.1.0" }
