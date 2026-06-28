@@ -182,6 +182,29 @@ cargo run --release -p sekirei-match-runner -- \
   --games 400 --byoyomi 1000 --json result.json
 ```
 
+## 棋力回帰テスト
+
+変更が本当に棋力向上につながったかを確認するには、既知のベースラインと対局して Elo gate を通してください。重みの変更は必ず gate を通過してから採用します。
+
+```bash
+# ワンショット回帰（ビルド → 400局 → PASS/FAIL/INCONCLUSIVE を出力）
+bash scripts/strength_regression.sh weights_new.bin weights_base.bin
+
+# または既存の result JSON に対して gate を手動実行
+cargo run --release -p sekirei-match-runner -- gate result.json \
+  --pass-elo 20 --pass-los 0.95 --fail-elo -10
+```
+
+Gate 基準（デフォルト値）：
+
+| 判定 | 条件 |
+|------|------|
+| **PASS** | Elo ≥ +20 かつ LOS ≥ 95% |
+| **FAIL** | Elo ≤ −10 |
+| **INCONCLUSIVE** | それ以外 — 局数を増やして再試験 |
+
+result JSON には `elo_diff`、`elo_ci_low`、`elo_ci_high`、`los` が含まれます。
+
 ## ベンチマーク
 
 Apple M4 Pro での実測値（`cargo build --release`、`target-cpu=native`）。

@@ -184,6 +184,30 @@ cargo run --release -p sekirei-match-runner -- \
   --games 400 --byoyomi 1000 --json result.json
 ```
 
+## Strength Regression
+
+To verify that a change actually improves play strength, run a match against a known baseline and
+apply the Elo gate. Every weight change should clear the gate before being promoted.
+
+```bash
+# One-shot regression (builds, runs 400 games, prints PASS/FAIL/INCONCLUSIVE)
+bash scripts/strength_regression.sh weights_new.bin weights_base.bin
+
+# Or run the gate manually on an existing result JSON
+cargo run --release -p sekirei-match-runner -- gate result.json \
+  --pass-elo 20 --pass-los 0.95 --fail-elo -10
+```
+
+Gate criteria (defaults):
+
+| Verdict | Condition |
+|---------|-----------|
+| **PASS** | Elo ≥ +20 and LOS ≥ 95% |
+| **FAIL** | Elo ≤ −10 |
+| **INCONCLUSIVE** | everything else — run more games |
+
+The result JSON includes `elo_diff`, `elo_ci_low`, `elo_ci_high`, and `los` for downstream tooling.
+
 ## Benchmarks
 
 Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).

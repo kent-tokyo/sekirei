@@ -320,7 +320,110 @@ impl Lcg {
 
 // ---- Main ----
 
+// ---- gate subcommand ----
+
+/// Extract a f64 value from a JSON string by key name (no serde dependency).
+fn json_f64(json: &str, key: &str) -> Option<f64> {
+    let needle = format!("\"{key}\":");
+    let start = json.find(&needle)? + needle.len();
+    let rest = json[start..].trim_start();
+    let end = rest
+        .find(|c: char| c != '-' && c != '+' && c != '.' && !c.is_ascii_digit())
+        .unwrap_or(rest.len());
+    rest[..end].trim().parse().ok()
+}
+
+fn run_gate(argv: &[String]) {
+    let mut pass_elo = 20.0f64;
+    let mut pass_los = 0.95f64;
+    let mut fail_elo = -10.0f64;
+    let mut json_path: Option<String> = None;
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--pass-elo" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    pass_elo = v.parse().unwrap_or(pass_elo);
+                }
+            }
+            "--pass-los" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    pass_los = v.parse().unwrap_or(pass_los);
+                }
+            }
+            "--fail-elo" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    fail_elo = v.parse().unwrap_or(fail_elo);
+                }
+            }
+            other if !other.starts_with("--") => json_path = Some(other.to_string()),
+            _ => {}
+        }
+        i += 1;
+    }
+    let path = match json_path {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10]"
+            );
+            std::process::exit(2);
+        }
+    };
+    let content = match fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("gate: cannot read {path}: {e}");
+            std::process::exit(2);
+        }
+    };
+    let elo = match json_f64(&content, "elo_diff") {
+        Some(v) => v,
+        None => {
+            eprintln!("gate: cannot parse elo_diff from {path}");
+            std::process::exit(2);
+        }
+    };
+    let los = match json_f64(&content, "los") {
+        Some(v) => v,
+        None => {
+            eprintln!("gate: cannot parse los from {path}");
+            std::process::exit(2);
+        }
+    };
+    let games = json_f64(&content, "games").map(|v| v as u64).unwrap_or(0);
+    if elo >= pass_elo && los >= pass_los {
+        println!(
+            "PASS   elo={elo:+.1}  los={:.1}%  games={games}",
+            los * 100.0
+        );
+        std::process::exit(0);
+    } else if elo <= fail_elo {
+        println!(
+            "FAIL   elo={elo:+.1}  los={:.1}%  games={games}",
+            los * 100.0
+        );
+        std::process::exit(1);
+    } else {
+        println!(
+            "INCONCLUSIVE  elo={elo:+.1}  los={:.1}%  games={games}",
+            los * 100.0
+        );
+        std::process::exit(2);
+    }
+}
+
 fn main() {
+    // Dispatch gate subcommand before normal arg parsing
+    let argv0: Vec<String> = std::env::args().skip(1).collect();
+    if argv0.first().map(|s| s.as_str()) == Some("gate") {
+        run_gate(&argv0[1..]);
+        return;
+    }
+
     let args = parse_args().unwrap_or_else(|e| {
         eprintln!("error: {e}");
         print_usage();
@@ -508,7 +611,9 @@ fn main() {
         let json = format!(
             r#"{{
   "engine1": {:?},
+  "engine1_command": {:?},
   "engine2": {:?},
+  "engine2_command": {:?},
   "games": {total},
   "engine1_wins": {e1_wins},
   "draws": {draws},
@@ -516,14 +621,20 @@ fn main() {
   "engine1_score": {:.4},
   "elo_diff": {:.2},
   "elo_ci_95": {:.2},
+  "elo_ci_low": {:.2},
+  "elo_ci_high": {:.2},
   "los": {:.4}
 }}
 "#,
             e1.name,
+            args.engine1_path,
             e2.name,
+            args.engine2_path,
             e1_pct / 100.0,
             elo,
             ci,
+            elo - ci,
+            elo + ci,
             los
         );
         if let Err(e) = fs::write(json_path, &json) {
