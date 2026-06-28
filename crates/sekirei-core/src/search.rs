@@ -451,12 +451,17 @@ fn root_search_inner(
     }
 
     if let Some(m) = best_move {
+        let bound = if alpha >= hi {
+            Bound::Lower // fail-high: true score ≥ alpha, exact unknown
+        } else {
+            Bound::Exact
+        };
         state.tt.store(
             board.hash(),
             TtEntry {
-                score: score_to_tt(alpha, 0), // ply=0 at root; adjust for consistency
+                score: score_to_tt(alpha, 0), // ply=0 at root
                 depth: depth as u8,
-                bound: Bound::Exact,
+                bound,
                 mv: Some(m),
             },
         );

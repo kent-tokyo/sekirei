@@ -263,13 +263,17 @@ fn parse_go(args: &str, side: Color, overhead_ms: u64, pondering: bool) -> Searc
         i += 1;
     }
 
+    let has_clock = btime.is_some() || wtime.is_some() || byoyomi.is_some() || movetime.is_some();
+
     let time_limit = if infinite || pondering {
         None
     } else if let Some(mt) = movetime {
         Some(Duration::from_millis(
             mt.saturating_sub(overhead_ms).max(50),
         ))
-    } else {
+    } else if depth.is_some() && !has_clock {
+        None // pure depth search — no time cap
+    } else if has_clock {
         let our_time = match side {
             Color::Black => btime.unwrap_or(0),
             Color::White => wtime.unwrap_or(0),
@@ -287,6 +291,8 @@ fn parse_go(args: &str, side: Color, overhead_ms: u64, pondering: bool) -> Searc
         };
         let alloc = alloc.saturating_sub(overhead_ms).max(50);
         Some(Duration::from_millis(alloc))
+    } else {
+        None // bare `go` with no args → infinite
     };
 
     SearchConfig {

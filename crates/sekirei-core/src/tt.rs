@@ -129,8 +129,7 @@ impl Tt {
     /// `size_mb` is in mebibytes; each slot is 16 bytes.
     pub fn new(size_mb: usize) -> Arc<Self> {
         let bytes = size_mb.max(1) * 1024 * 1024;
-        let count = (bytes / 16).next_power_of_two() >> 1; // largest power-of-2 ≤ bytes/16
-        let count = count.max(1);
+        let count = floor_pow2((bytes / 16).max(1));
         let table: Box<[TtSlot]> = (0..count)
             .map(|_| TtSlot {
                 key: AtomicU64::new(0),
@@ -194,5 +193,14 @@ impl Tt {
             .filter(|s| s.data.load(Ordering::Relaxed) != 0)
             .count();
         (used * 1000 / sample) as u32
+    }
+}
+
+/// Largest power of two ≤ n (returns 1 for n == 0).
+fn floor_pow2(n: usize) -> usize {
+    if n <= 1 {
+        1
+    } else {
+        1usize << (usize::BITS - 1 - n.leading_zeros())
     }
 }
