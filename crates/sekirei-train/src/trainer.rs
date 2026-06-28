@@ -406,10 +406,11 @@ impl Trainer {
     }
 
     pub fn avg_loss(&self) -> f64 {
-        if self.total_count == 0 {
-            return 0.0;
+        if self.total_weight > 0.0 {
+            self.total_loss / self.total_weight
+        } else {
+            0.0
         }
-        self.total_loss / self.total_count as f64
     }
 
     pub fn reset_stats(&mut self) {

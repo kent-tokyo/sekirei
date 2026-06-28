@@ -507,6 +507,8 @@ name = "sekirei-train"
 version = "0.2.3"
 dependencies = [
  "sekirei-core",
+ "serde",
+ "serde_json",
  "tempfile",
 ]
 

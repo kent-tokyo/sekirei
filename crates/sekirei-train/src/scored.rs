@@ -2,6 +2,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+struct ScoredRow {
+    sample_id: String,
+    stability_score: f32,
+}
+
 /// Load a quietset scored JSONL into a map of sfen → stability_score.
 /// Duplicate SFENs are averaged. Invalid scores (NaN/inf/out-of-range) are skipped.
 /// Only entries with mean stability_score >= min_stability are kept.
@@ -14,7 +22,6 @@ pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
         }
     };
 
-    // Accumulate (sum, count) per SFEN to average duplicates
     let mut accum: HashMap<String, (f64, u32)> = HashMap::new();
     let mut invalid = 0usize;
     let mut dup_count = 0usize;
@@ -24,20 +31,23 @@ pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
         if line.is_empty() {
             continue;
         }
-        if let (Some(id), Some(raw)) = (
-            extract_str(line, "sample_id"),
-            extract_f32(line, "stability_score"),
-        ) {
-            if !raw.is_finite() || !(0.0f32..=1.0).contains(&raw) {
+        match serde_json::from_str::<ScoredRow>(line) {
+            Ok(row) => {
+                let s = row.stability_score;
+                if !s.is_finite() || !(0.0f32..=1.0).contains(&s) {
+                    invalid += 1;
+                    continue;
+                }
+                let e = accum.entry(row.sample_id).or_insert((0.0, 0));
+                if e.1 > 0 {
+                    dup_count += 1;
+                }
+                e.0 += s as f64;
+                e.1 += 1;
+            }
+            Err(_) => {
                 invalid += 1;
-                continue;
             }
-            let e = accum.entry(id).or_insert((0.0, 0));
-            if e.1 > 0 {
-                dup_count += 1;
-            }
-            e.0 += raw as f64;
-            e.1 += 1;
         }
     }
 
@@ -54,7 +64,7 @@ pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
         .collect();
 
     if invalid > 0 {
-        eprintln!("warn: {invalid} invalid stability_score values skipped (NaN/inf/out-of-range)");
+        eprintln!("warn: {invalid} invalid/unparseable lines skipped");
     }
     if dup_count > 0 {
         eprintln!("warn: {dup_count} duplicate SFENs — stability_score averaged");
@@ -65,22 +75,6 @@ pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
         path.display()
     );
     map
-}
-
-fn extract_str(line: &str, key: &str) -> Option<String> {
-    let needle = format!("\"{}\":\"", key);
-    let start = line.find(&needle)? + needle.len();
-    let rest = &line[start..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
-}
-
-fn extract_f32(line: &str, key: &str) -> Option<f32> {
-    let needle = format!("\"{}\":", key);
-    let start = line.find(&needle)? + needle.len();
-    let rest = line[start..].trim_start();
-    let end = rest.find([',', '}', ' ']).unwrap_or(rest.len());
-    rest[..end].parse().ok()
 }
 
 #[cfg(test)]
@@ -126,6 +120,7 @@ mod tests {
             r#"{"sample_id":"good","stability_score":0.9}"#,
             r#"{"sample_id":"too_high","stability_score":1.2}"#,
             r#"{"sample_id":"negative","stability_score":-0.1}"#,
+            r#"not valid json"#,
         ]);
         let map = load_scored(f.path(), 0.0);
         assert_eq!(map.len(), 1);
@@ -141,5 +136,13 @@ mod tests {
         let map = load_scored(f.path(), 0.85);
         assert!(map.contains_key("high"));
         assert!(!map.contains_key("low"));
+    }
+
+    #[test]
+    fn test_spaced_json_parses() {
+        // serde_json handles optional whitespace around colon/comma
+        let f = write_jsonl(&[r#"{"sample_id": "sfen_a", "stability_score": 0.9}"#]);
+        let map = load_scored(f.path(), 0.0);
+        assert!(map.contains_key("sfen_a"));
     }
 }
