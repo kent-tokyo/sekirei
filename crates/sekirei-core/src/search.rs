@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use crate::board::Board;
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate};
-use crate::movegen::{generate_legal_captures, generate_legal_moves, is_attacked, is_in_check};
+use crate::movegen::{generate_legal_captures, generate_legal_moves, is_in_check};
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::speculative::{SpecGroup, SpecState};
@@ -1431,34 +1431,37 @@ fn update_quiet_heuristics(
 /// This correctly handles the common "undefended piece" case where a heavy piece
 /// captures a lighter one that is actually free (no defender).
 #[inline]
-fn see_score(board: &Board, m: Move) -> i32 {
+fn see_score(board: &mut Board, m: Move) -> i32 {
     // Only board moves can be captures; drops never are
     if m.from.is_none() {
         return 0;
     }
 
-    let cap = match board.piece_at(m.to) {
-        Some(p) => p,
-        None => return 0,
-    };
+    let Some(cap) = board.piece_at(m.to) else { return 0 };
 
     let victim_val = PIECE_VALUE[cap.kind.index()];
-    let attacker_val = PIECE_VALUE[m.piece_kind.index()];
+    // Use the post-move piece value: attacker may promote when landing on m.to.
+    let attacker_kind = if m.promote { m.piece_kind.promoted() } else { m.piece_kind };
+    let attacker_val = PIECE_VALUE[attacker_kind.index()];
     let gain_1 = victim_val - attacker_val;
 
     if gain_1 >= 0 {
-        // Winning or equal trade — safe even after recapture
+        // Winning or equal trade — safe even after recapture.
         return gain_1;
     }
 
-    // Potentially losing: only losing if opponent CAN actually recapture.
-    // Check on the current board (approximation — discovered attackers after our move
-    // are conservatively ignored, making this a slight underestimate of SEE quality).
-    let opp = board.side_to_move.flip();
-    if is_attacked(board, m.to, opp) {
-        gain_1 // Opponent recaptures: truly losing, sort to end
+    // Potentially losing: only truly losing if opponent can recapture.
+    // Check POST-move so that X-ray attackers unblocked by our piece moving are visible.
+    let tok = board.do_move(m);
+    let opp_can_recapture = generate_legal_captures(board)
+        .iter()
+        .any(|r| r.to == m.to);
+    board.undo_move(tok);
+
+    if opp_can_recapture {
+        gain_1
     } else {
-        victim_val // No recapture: free piece! sort as winning
+        victim_val // No recapture available: free piece
     }
 }
 
@@ -1514,7 +1517,7 @@ fn lmr_reduce(
 }
 
 fn order_moves(
-    board: &Board,
+    board: &mut Board,
     mut moves: Vec<Move>,
     tt_mv: Option<Move>,
     killers: [Option<Move>; 2],
