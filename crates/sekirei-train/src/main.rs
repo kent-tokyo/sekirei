@@ -11,14 +11,17 @@
 //! Extract .csa files into a directory and pass it as --games.
 
 mod csa;
+mod exporter;
 mod trainer;
 
-use std::fs;
+use std::fs::{self, File};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use sekirei_core::nnue::save_weights;
 
 use csa::parse_csa;
+use exporter::export_game;
 use trainer::Trainer;
 
 // ---- CLI argument parsing ----
@@ -27,12 +30,14 @@ struct Args {
     games_dir: PathBuf,
     output: PathBuf,
     epochs: usize,
-    sample: usize,     // sample every N plies per game
-    best_every: usize, // save best-loss checkpoint every N games (0 = disabled)
-    min_rate: f32,     // minimum rating for both players (0 = no filter)
-    quiet: bool,       // skip check / capture positions
-    min_ply: usize,    // skip early-game plies
-    label_depth: u32,  // search depth for teacher label
+    sample: usize,           // sample every N plies per game
+    best_every: usize,       // save best-loss checkpoint every N games (0 = disabled)
+    min_rate: f32,           // minimum rating for both players (0 = no filter)
+    quiet: bool,             // skip check / capture positions
+    min_ply: usize,          // skip early-game plies
+    label_depth: u32,        // search depth for teacher label
+    export: Option<PathBuf>, // --export: write observations JSONL for quietset
+    depths: Vec<u32>,        // --depths: comma-separated depths for export (default: 4,6,8)
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -46,6 +51,8 @@ fn parse_args() -> Result<Args, String> {
     let mut quiet = false;
     let mut min_ply = 0usize;
     let mut label_depth = 1u32;
+    let mut export: Option<PathBuf> = None;
+    let mut depths: Vec<u32> = vec![4, 6, 8];
     let mut i = 0;
 
     while i < argv.len() {
@@ -99,6 +106,16 @@ fn parse_args() -> Result<Args, String> {
                     label_depth = s.parse().unwrap_or(1);
                 }
             }
+            "--export" => {
+                i += 1;
+                export = argv.get(i).map(PathBuf::from);
+            }
+            "--depths" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    depths = s.split(',').filter_map(|d| d.parse().ok()).collect();
+                }
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -118,6 +135,8 @@ fn parse_args() -> Result<Args, String> {
         quiet,
         min_ply,
         label_depth,
+        export,
+        depths,
     })
 }
 
@@ -135,6 +154,8 @@ fn print_usage() {
     eprintln!("  --quiet             Skip positions in check or where next move is a capture");
     eprintln!("  --min-ply <n>       Skip the first N plies per game (default: 0)");
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
+    eprintln!("  --export <path>     Export observations JSONL for quietset (skips training)");
+    eprintln!("  --depths <list>     Comma-separated depths for export (default: 4,6,8)");
     eprintln!();
     eprintln!("Data: download floodgate archives from http://wdoor.c.u-tokyo.ac.jp/shogi/");
 }
@@ -199,6 +220,31 @@ fn main() {
     if games.is_empty() {
         eprintln!("No valid games parsed — check CSA format");
         std::process::exit(1);
+    }
+
+    // Export mode: write observations JSONL for quietset, then exit
+    if let Some(export_path) = &args.export {
+        eprintln!("Export mode → {:?}  depths={:?}", export_path, args.depths);
+        let file = match File::create(export_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Cannot create export file: {e}");
+                std::process::exit(1);
+            }
+        };
+        let mut out = BufWriter::new(file);
+        for game in &games {
+            export_game(
+                game,
+                args.sample,
+                args.quiet,
+                args.min_ply,
+                &args.depths,
+                &mut out,
+            );
+        }
+        eprintln!("Export done → {:?}", export_path);
+        return;
     }
 
     let mut trainer = Trainer::new();
