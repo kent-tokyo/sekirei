@@ -1,13 +1,13 @@
 [package]
 name = "sekirei-bench"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 description = "Benchmarks for the Sekirei shogi engine"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/kent-tokyo/sekirei"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.2.2" }
+sekirei-core = { path = "../sekirei-core", version = "0.2.3" }
 rayon = "1"
 
 [dev-dependencies]
