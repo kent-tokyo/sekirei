@@ -12,6 +12,8 @@
 //!
 //! FT weights are quantised to i16 at save time; L2/out stay f32.
 
+use std::collections::HashMap;
+
 use sekirei_core::{
     board::Board,
     color::Color,
@@ -19,6 +21,7 @@ use sekirei_core::{
     nnue::{INPUT, L1, L2, NnueWeights, feature_index, hand_feature_index},
     piece::PieceKind,
     search::{SearchConfig, Searcher},
+    sfen::board_to_sfen,
     tt::Tt,
 };
 
@@ -145,6 +148,7 @@ impl Trainer {
     }
 
     /// Train on a single game.  Samples every `sample_every` plies.
+    #[allow(clippy::too_many_arguments)]
     pub fn train_game(
         &mut self,
         game: &CsaGame,
@@ -152,6 +156,8 @@ impl Trainer {
         quiet: bool,
         min_ply: usize,
         label_depth: u32,
+        scored: &HashMap<String, f32>,
+        stability_weighted: bool,
     ) {
         let mut board = Board::startpos();
 
@@ -174,20 +180,40 @@ impl Trainer {
                 }
             }
 
+            // quietset filter / weighting
+            let weight = if scored.is_empty() {
+                1.0f32
+            } else {
+                let sfen = board_to_sfen(&board);
+                match scored.get(&sfen) {
+                    Some(&s) => {
+                        if stability_weighted {
+                            s
+                        } else {
+                            1.0
+                        }
+                    }
+                    None => {
+                        board.do_move(mv);
+                        continue; // not in keep set
+                    }
+                }
+            };
+
             let config = SearchConfig {
                 max_depth: label_depth,
                 time_limit: None,
             };
             let info = self.searcher.search(&mut board, config);
             let teacher = (info.score as f32).clamp(-600.0, 600.0);
-            self.train_position(&board, teacher);
+            self.train_position(&board, teacher, weight);
 
             board.do_move(mv);
         }
     }
 
-    /// One SGD step on a single position.
-    fn train_position(&mut self, board: &Board, teacher: f32) {
+    /// One SGD step on a single position. `weight` scales the loss (quietset stability).
+    fn train_position(&mut self, board: &Board, teacher: f32, weight: f32) {
         let stm = board.side_to_move;
         let w = &self.weights;
 
@@ -243,12 +269,12 @@ impl Trainer {
         // ── Loss ──────────────────────────────────────────────────────────────
 
         let err = score - teacher;
-        self.total_loss += (err * err) as f64;
+        self.total_loss += (weight as f64) * (err * err) as f64;
         self.total_count += 1;
 
         // ── Backward pass ─────────────────────────────────────────────────────
 
-        let d_score = 2.0 * err;
+        let d_score = weight * 2.0 * err;
         let d_output = d_score / 64.0;
 
         // Output layer gradients

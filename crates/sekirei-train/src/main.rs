@@ -12,8 +12,10 @@
 
 mod csa;
 mod exporter;
+mod scored;
 mod trainer;
 
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
@@ -22,6 +24,7 @@ use sekirei_core::nnue::save_weights;
 
 use csa::parse_csa;
 use exporter::export_game;
+use scored::load_scored;
 use trainer::Trainer;
 
 // ---- CLI argument parsing ----
@@ -30,14 +33,17 @@ struct Args {
     games_dir: PathBuf,
     output: PathBuf,
     epochs: usize,
-    sample: usize,           // sample every N plies per game
-    best_every: usize,       // save best-loss checkpoint every N games (0 = disabled)
-    min_rate: f32,           // minimum rating for both players (0 = no filter)
-    quiet: bool,             // skip check / capture positions
-    min_ply: usize,          // skip early-game plies
-    label_depth: u32,        // search depth for teacher label
-    export: Option<PathBuf>, // --export: write observations JSONL for quietset
-    depths: Vec<u32>,        // --depths: comma-separated depths for export (default: 4,6,8)
+    sample: usize,                // sample every N plies per game
+    best_every: usize,            // save best-loss checkpoint every N games (0 = disabled)
+    min_rate: f32,                // minimum rating for both players (0 = no filter)
+    quiet: bool,                  // skip check / capture positions
+    min_ply: usize,               // skip early-game plies
+    label_depth: u32,             // search depth for teacher label
+    export: Option<PathBuf>,      // --export: write observations JSONL for quietset
+    depths: Vec<u32>,             // --depths: comma-separated depths for export (default: 4,6,8)
+    scored_path: Option<PathBuf>, // --scored: quietset scored JSONL
+    min_stability: f32,           // --min-stability (default: 0.85)
+    stability_weighted: bool,     // --stability-weighted
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -53,6 +59,9 @@ fn parse_args() -> Result<Args, String> {
     let mut label_depth = 1u32;
     let mut export: Option<PathBuf> = None;
     let mut depths: Vec<u32> = vec![4, 6, 8];
+    let mut scored_path: Option<PathBuf> = None;
+    let mut min_stability = 0.85f32;
+    let mut stability_weighted = false;
     let mut i = 0;
 
     while i < argv.len() {
@@ -116,6 +125,19 @@ fn parse_args() -> Result<Args, String> {
                     depths = s.split(',').filter_map(|d| d.parse().ok()).collect();
                 }
             }
+            "--scored" => {
+                i += 1;
+                scored_path = argv.get(i).map(PathBuf::from);
+            }
+            "--min-stability" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    min_stability = s.parse().unwrap_or(0.85);
+                }
+            }
+            "--stability-weighted" => {
+                stability_weighted = true;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -137,6 +159,9 @@ fn parse_args() -> Result<Args, String> {
         label_depth,
         export,
         depths,
+        scored_path,
+        min_stability,
+        stability_weighted,
     })
 }
 
@@ -156,6 +181,9 @@ fn print_usage() {
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
     eprintln!("  --export <path>     Export observations JSONL for quietset (skips training)");
     eprintln!("  --depths <list>     Comma-separated depths for export (default: 4,6,8)");
+    eprintln!("  --scored <path>     quietset scored JSONL — train only stable samples");
+    eprintln!("  --min-stability <f> Minimum stability_score to include (default: 0.85)");
+    eprintln!("  --stability-weighted  Weight loss by stability_score instead of binary keep/drop");
     eprintln!();
     eprintln!("Data: download floodgate archives from http://wdoor.c.u-tokyo.ac.jp/shogi/");
 }
@@ -247,6 +275,11 @@ fn main() {
         return;
     }
 
+    let scored: HashMap<String, f32> = match &args.scored_path {
+        Some(p) => load_scored(p, args.min_stability),
+        None => HashMap::new(),
+    };
+
     let mut trainer = Trainer::new();
     let mut best_loss = f64::MAX;
 
@@ -263,6 +296,8 @@ fn main() {
                 args.quiet,
                 args.min_ply,
                 args.label_depth,
+                &scored,
+                args.stability_weighted,
             );
 
             let game_num = i + 1;

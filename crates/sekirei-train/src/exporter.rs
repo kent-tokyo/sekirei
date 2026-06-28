@@ -3,6 +3,7 @@ use std::io::Write;
 use sekirei_core::{
     board::Board,
     movegen::is_in_check,
+    nnue::weights_active,
     search::{SearchConfig, Searcher},
     sfen::board_to_sfen,
     tt::Tt,
@@ -32,6 +33,7 @@ pub fn export_game<W: Write>(
         }
 
         let sfen = board_to_sfen(&board);
+        let model_id = if weights_active() { "nnue" } else { "material" };
 
         for &depth in depths {
             let config = SearchConfig {
@@ -40,20 +42,21 @@ pub fn export_game<W: Write>(
             };
             let info = searcher.search(&mut board, config);
             let score = info.score as f64 / 600.0;
-            let label = if info.score > 50 {
+            let label = if info.score > 120 {
                 "adv"
-            } else if info.score < -50 {
+            } else if info.score < -120 {
                 "disadv"
             } else {
-                "draw"
+                "equal"
             };
             let _ = writeln!(
                 out,
-                r#"{{"sample_id":{},"label":"{}","score":{:.4},"evaluator_id":"sekirei","budget":{}}}"#,
+                r#"{{"sample_id":{},"label":"{}","score":{:.4},"evaluator_id":"sekirei-search","budget":{},"model_id":"{}"}}"#,
                 json_string(&sfen),
                 label,
                 score,
-                depth
+                depth,
+                model_id
             );
         }
 
