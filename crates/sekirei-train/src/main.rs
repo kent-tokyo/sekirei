@@ -532,6 +532,19 @@ fn main() {
                         missing_rate * 100.0
                     );
                 }
+                if trainer.total_count == 0 && trainer.dropped_missing > 0 {
+                    eprintln!(
+                        "error: scored file loaded ({} entries) but 0 positions matched.",
+                        scored.len()
+                    );
+                    eprintln!(
+                        "hint: --export and --scored must cover the same --games / --sample / --quiet / --min-ply / --min-rate."
+                    );
+                    eprintln!(
+                        "hint: check `head -1 scored.jsonl` — sample_id or sfen must be a SFEN string."
+                    );
+                    std::process::exit(1);
+                }
             }
             let avg_final_weight = if trainer.total_count > 0 {
                 trainer.total_weight / trainer.total_count as f64
@@ -714,6 +727,17 @@ fn main() {
                     "  warn: missing_rate={:.1}% is high — SFEN mismatch or incomplete scored file?",
                     missing_rate * 100.0
                 );
+            }
+            if trainer.total_count == 0 && trainer.dropped_missing > 0 {
+                eprintln!(
+                    "error: scored file loaded ({} entries) but 0 positions matched.",
+                    scored.len()
+                );
+                eprintln!("hint: scored.jsonl must cover the same games used for training.");
+                eprintln!(
+                    "hint: check `head -1 scored.jsonl` — sample_id or sfen must be a SFEN string."
+                );
+                std::process::exit(1);
             }
         }
         eprintln!(

@@ -2,15 +2,8 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
-use serde::Deserialize;
-
-#[derive(Deserialize)]
-struct ScoredRow {
-    sample_id: String,
-    stability_score: f32,
-}
-
 /// Load a quietset scored JSONL into a map of sfen → stability_score.
+/// Key resolution: uses "sfen" field if present, otherwise "sample_id".
 /// Duplicate SFENs are averaged. Invalid scores (NaN/inf/out-of-range) are skipped.
 /// Only entries with mean stability_score >= min_stability are kept.
 pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
@@ -31,24 +24,34 @@ pub fn load_scored(path: &Path, min_stability: f32) -> HashMap<String, f32> {
         if line.is_empty() {
             continue;
         }
-        match serde_json::from_str::<ScoredRow>(line) {
-            Ok(row) => {
-                let s = row.stability_score;
-                if !s.is_finite() || !(0.0f32..=1.0).contains(&s) {
-                    invalid += 1;
-                    continue;
-                }
-                let e = accum.entry(row.sample_id).or_insert((0.0, 0));
-                if e.1 > 0 {
-                    dup_count += 1;
-                }
-                e.0 += s as f64;
-                e.1 += 1;
-            }
-            Err(_) => {
-                invalid += 1;
-            }
+        let Ok(val) = serde_json::from_str::<serde_json::Value>(line) else {
+            invalid += 1;
+            continue;
+        };
+        // Key: "sfen" field takes priority over "sample_id" for forward-compat
+        let Some(key) = val
+            .get("sfen")
+            .and_then(|v| v.as_str())
+            .or_else(|| val.get("sample_id").and_then(|v| v.as_str()))
+        else {
+            invalid += 1;
+            continue;
+        };
+        let Some(s) = val.get("stability_score").and_then(|v| v.as_f64()) else {
+            invalid += 1;
+            continue;
+        };
+        let s = s as f32;
+        if !s.is_finite() || !(0.0f32..=1.0).contains(&s) {
+            invalid += 1;
+            continue;
         }
+        let e = accum.entry(key.to_string()).or_insert((0.0, 0));
+        if e.1 > 0 {
+            dup_count += 1;
+        }
+        e.0 += s as f64;
+        e.1 += 1;
     }
 
     let map: HashMap<String, f32> = accum
@@ -144,6 +147,32 @@ mod tests {
         let f = write_jsonl(&[r#"{"sample_id": "sfen_a", "stability_score": 0.9}"#]);
         let map = load_scored(f.path(), 0.0);
         assert!(map.contains_key("sfen_a"));
+    }
+
+    #[test]
+    fn sfen_field_takes_priority_over_sample_id() {
+        let f = write_jsonl(&[
+            r#"{"sample_id":"wrong_key","sfen":"correct_sfen","stability_score":0.9}"#,
+        ]);
+        let map = load_scored(f.path(), 0.0);
+        assert!(
+            map.contains_key("correct_sfen"),
+            "sfen field should be used as key"
+        );
+        assert!(
+            !map.contains_key("wrong_key"),
+            "sample_id should be ignored when sfen is present"
+        );
+    }
+
+    #[test]
+    fn sample_id_used_when_no_sfen_field() {
+        let f = write_jsonl(&[r#"{"sample_id":"my_sfen","stability_score":0.9}"#]);
+        let map = load_scored(f.path(), 0.0);
+        assert!(
+            map.contains_key("my_sfen"),
+            "sample_id should be key when no sfen field"
+        );
     }
 
     #[test]
