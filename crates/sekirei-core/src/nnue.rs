@@ -165,8 +165,14 @@ pub fn weights_active() -> bool {
 }
 
 /// Load weights from a SEKIRW01 binary file and activate NNUE evaluation.
+///
+/// Also accepts the legacy `JANOSW03` magic: the project rename (Janos → Sekirei)
+/// only changed the 8-byte magic string, not the binary layout, so those weights
+/// load and evaluate identically. (Older `JANOSW02` differs in layout and is not
+/// accepted — the size check below also rejects it.)
 pub fn load_weights(path: &Path) -> io::Result<()> {
     const MAGIC: &[u8] = b"SEKIRW01";
+    const MAGIC_LEGACY: &[u8] = b"JANOSW03";
     let ft_bytes = INPUT * L1 * 2;
     let bias_bytes = L1 * 2;
     let l2_bytes = 2 * L1 * L2 * 4;
@@ -185,11 +191,11 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
             ),
         ));
     }
-    if &data[..8] != MAGIC {
+    if &data[..8] != MAGIC && &data[..8] != MAGIC_LEGACY {
         return Err(Error::new(
             ErrorKind::InvalidData,
             format!(
-                "bad magic — expected SEKIRW01, got {:?}. Weights from an older version need retraining.",
+                "bad magic — expected SEKIRW01 or JANOSW03, got {:?}. Weights from an older version need retraining.",
                 &data[..8]
             ),
         ));
