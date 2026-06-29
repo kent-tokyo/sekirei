@@ -1092,6 +1092,15 @@ fn quiescence(
 ) -> i32 {
     state.nodes.fetch_add(1, Ordering::Relaxed);
 
+    // Enforce the hard time limit here too: a heavy qsearch subtree (quiet checks
+    // + recursive SEE) can run for many seconds without returning to alpha_beta,
+    // which is the only other place that sets the abort flag.
+    if state.nodes.load(Ordering::Relaxed) & 0xFFF == 0
+        && let Some(lim) = state.time_limit
+        && state.start.elapsed() >= lim
+    {
+        state.abort.store(true, Ordering::Relaxed);
+    }
     if state.abort.load(Ordering::Relaxed) || state.external_abort.load(Ordering::Relaxed) {
         return 0;
     }
