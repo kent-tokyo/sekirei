@@ -15,6 +15,7 @@
 #   MAX_PLY=160         maximum ply for extract   (default: 160)
 #   EVERY_N_PLIES=16    extract every N plies     (default: 16)
 #   MAX_POSITIONS=200000 cap positions after extract (default: 200000)
+#   JOBS=N              parallel label workers    (default: physical cores - 2)
 #   SHOGIESA=path       path to shogiesa binary   (default: auto-detect)
 #
 # Exit: 0 if both B and C pass the Elo gate, non-zero otherwise
@@ -29,6 +30,10 @@ MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
 EVERY_N_PLIES=${EVERY_N_PLIES:-16}
 MAX_POSITIONS=${MAX_POSITIONS:-200000}
+# Parallel label workers — labeling is throughput-bound at ~3 pos/sec regardless,
+# so size to logical cores - 2 (min 1). The real speed knob is MAX_POSITIONS.
+JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
+[ "$JOBS" -lt 1 ] && JOBS=1
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR="data/runs/bc_redo_$TIMESTAMP"
 
@@ -82,18 +87,23 @@ cat "$RUN_DIR/stage1"/pos_*.jsonl | shuf -n "$MAX_POSITIONS" > "$RUN_DIR/stage1/
 echo "  -> $(wc -l < "$RUN_DIR/stage1/positions.jsonl") positions"
 
 # ---- Stage 2: label at depths 2,4 -------------------------------------------
-echo "[2/5] shogiesa label  (depths 2,4)"
+echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
 "$SHOGIESA" label \
   --input "$RUN_DIR/stage1/positions.jsonl" \
   --engine "./target/release/sekirei" \
   --depths 2,4 \
   --timeout-ms 10000 \
+  --jobs "$JOBS" \
   --out "$RUN_DIR/stage2/observations.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations"
 
-# ---- Stage 3: score ---------------------------------------------------------
-echo "[3/5] quietset score  (profile=game-ai)"
-quietset score "$RUN_DIR/stage2/observations.jsonl" \
+# ---- Stage 3: flatten + score -----------------------------------------------
+# shogiesa 0.3.0 `label` emits nested per-position records; quietset 0.8.0 `score`
+# wants one flat row per observation keyed by sample_id. Bridge with the flattener.
+echo "[3/5] flatten label -> quietset, then score  (profile=game-ai)"
+python3 "$(dirname "$0")/flatten_label_to_quietset.py" \
+  < "$RUN_DIR/stage2/observations.jsonl" > "$RUN_DIR/stage3/flat.jsonl"
+quietset score "$RUN_DIR/stage3/flat.jsonl" \
   --profile game-ai \
   > "$RUN_DIR/stage3/scored_d4.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage3/scored_d4.jsonl") scored positions"
@@ -128,13 +138,13 @@ RESULT_B="results/${TIMESTAMP}_B.json"
 RESULT_C="results/${TIMESTAMP}_C.json"
 
 cargo run --release -q -p sekirei-match-runner -- \
-  --engine1 "./target/release/sekirei $OUT_B" \
-  --engine2 "./target/release/sekirei $BASELINE" \
+  --engine1 ./target/release/sekirei --args1 "$OUT_B" \
+  --engine2 ./target/release/sekirei --args2 "$BASELINE" \
   --games "$GAMES" --byoyomi 1000 --json "$RESULT_B"
 
 cargo run --release -q -p sekirei-match-runner -- \
-  --engine1 "./target/release/sekirei $OUT_C" \
-  --engine2 "./target/release/sekirei $BASELINE" \
+  --engine1 ./target/release/sekirei --args1 "$OUT_C" \
+  --engine2 ./target/release/sekirei --args2 "$BASELINE" \
   --games "$GAMES" --byoyomi 1000 --json "$RESULT_C"
 
 cat > "$RUN_DIR/manifest.json" <<EOF
