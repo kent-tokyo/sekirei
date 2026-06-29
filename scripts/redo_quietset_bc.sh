@@ -122,10 +122,14 @@ echo "  -> $OUT_B"
 
 # ---- Train C ----------------------------------------------------------------
 echo "[4b/5] train C  (--stability-weighted)"
+# --min-stability 0: keep every scored position and weight its loss by
+# stability_score; otherwise the 0.85 default drops the same positions as B,
+# collapsing C into B and making the comparison meaningless.
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
   --scored "$RUN_DIR/stage3/scored_d4.jsonl" \
   --stability-weighted \
+  --min-stability 0 \
   --validation-ratio 0.1 \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_c" \

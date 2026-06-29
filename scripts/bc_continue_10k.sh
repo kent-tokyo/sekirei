@@ -48,10 +48,13 @@ cargo run --release -q -p sekirei-train -- \
   --min-stability 0.85 --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_b" --output "$OUT_B"
 
-echo "[4b/5] train C (stability-weighted)"
+echo "[4b/5] train C (stability-weighted, keep ALL positions)"
+# --min-stability 0: keep every scored position and weight its loss by
+# stability_score. Without this it inherits the 0.85 default and drops the
+# same positions B does, collapsing C into B.
 cargo run --release -q -p sekirei-train -- \
   --positions "$POS" --scored "$RUN_DIR/stage3/scored_10k.jsonl" \
-  --stability-weighted --seed 42 \
+  --stability-weighted --min-stability 0 --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_c" --output "$OUT_C"
 
 echo "[5/5] gates ($GAMES games, byoyomi ${BYOYOMI}ms) — low power, directional only"
