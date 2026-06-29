@@ -582,7 +582,7 @@ fn alpha_beta(
     }
 
     if depth == 0 {
-        return quiescence(state, board, alpha, beta, ply);
+        return quiescence(state, board, alpha, beta, ply, 0);
     }
 
     // TT probe
@@ -704,7 +704,27 @@ fn alpha_beta(
         board.undo_null_move(null_tok);
 
         if null_score >= beta {
-            return null_score; // fail-soft: tighter lower bound than beta
+            if depth >= 6 {
+                // Verification search: confirm with a real (non-null) shallow search.
+                // Guards against zugzwang-like horizon effects common in shogi.
+                let verify = alpha_beta(
+                    state,
+                    board,
+                    beta - 1,
+                    beta,
+                    depth - 1 - NMP_R,
+                    ply,
+                    false,
+                    prev_mv,
+                    None,
+                );
+                if verify >= beta {
+                    return null_score;
+                }
+                // verification failed — fall through to normal search
+            } else {
+                return null_score;
+            }
         }
     }
 
@@ -849,7 +869,7 @@ fn alpha_beta(
                 if lab.load(Ordering::Relaxed) || ctx.abort.load(Ordering::Relaxed) {
                     return None;
                 }
-                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv);
+                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm);
                 let tok = b.do_move(m);
                 let ext = check_ext(&b, ply + 1);
                 let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
@@ -964,7 +984,7 @@ fn alpha_beta(
                 }
             }
 
-            let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv);
+            let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm);
             let tok = board.do_move(m);
             let ext = check_ext(board, ply + 1);
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
@@ -1045,13 +1065,13 @@ fn alpha_beta(
 
 /// Resolve captures until the position is "quiet" before calling evaluate.
 /// Uses stand-pat as a lower bound; only searches captures (board moves to enemy squares).
-#[allow(clippy::only_used_in_recursion)] // ply passed through for future extensions
 fn quiescence(
     state: &Arc<SearchState>,
     board: &mut Board,
     mut alpha: i32,
     beta: i32,
     ply: u32,
+    qply: u32,
 ) -> i32 {
     state.nodes.fetch_add(1, Ordering::Relaxed);
 
@@ -1071,9 +1091,9 @@ fn quiescence(
         if stand_pat > alpha {
             alpha = stand_pat;
         }
-        // Delta Pruning: if even capturing the highest-value piece cannot improve alpha, skip.
-        // Ryu (promoted rook) ≈ 1300cp is the maximum gain from a single capture.
-        const DELTA_MARGIN: i32 = 1_300;
+        // Delta Pruning: if even the best possible capture+promotion cannot improve alpha, skip.
+        // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
+        const DELTA_MARGIN: i32 = 1_800;
         if stand_pat + DELTA_MARGIN < alpha {
             return alpha;
         }
@@ -1099,7 +1119,7 @@ fn quiescence(
 
     for m in ordered {
         let tok = board.do_move(m);
-        let score = -quiescence(state, board, -beta, -alpha, ply + 1);
+        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
         board.undo_move(tok);
 
         if state.abort.load(Ordering::Relaxed) {
@@ -1116,7 +1136,7 @@ fn quiescence(
     // Quiet checks: at the shallowest qsearch level, search a handful of
     // non-capture moves that give check and have non-negative SEE.
     // Drops that give check (e.g. 飛打ち王手) are included naturally.
-    if !in_check && ply == 0 {
+    if !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
         for m in generate_legal_moves(board) {
@@ -1135,7 +1155,7 @@ fn quiescence(
                 board.undo_move(tok);
                 continue;
             }
-            let score = -quiescence(state, board, -beta, -alpha, ply + 1);
+            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
             board.undo_move(tok);
 
             if state.abort.load(Ordering::Relaxed) {
@@ -1479,6 +1499,7 @@ fn check_ext(board: &Board, ply: u32) -> u32 {
 /// Compute Late Move Reduction amount for a move.
 /// Returns 0 if the move should not be reduced.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn lmr_reduce(
     board: &Board,
     m: Move,
@@ -1486,6 +1507,8 @@ fn lmr_reduce(
     depth: u32,
     killers: &[Option<Move>; 2],
     tt_mv: Option<Move>,
+    history: &HistoryTable,
+    stm: Color,
 ) -> u32 {
     if depth < 3 {
         return 0;
@@ -1513,7 +1536,15 @@ fn lmr_reduce(
     // Depth × move-index scaling: conservative at shallow depth, more aggressive deeper.
     // Formula: floor(1 + ln(depth) * ln(move_idx) / 2)
     let r = 1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0;
-    r as u32
+    let mut r = r as u32;
+    // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
+    let hist = history.get(stm, m.piece_kind, m.to);
+    if hist > 3_000 {
+        r = r.saturating_sub(1);
+    } else if hist < -3_000 && depth >= 5 {
+        r += 1;
+    }
+    r
 }
 
 fn order_moves(
