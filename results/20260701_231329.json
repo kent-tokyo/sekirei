@@ -1,0 +1,16 @@
+{
+  "engine1": "Sekirei",
+  "engine1_command": "./target/release/sekirei",
+  "engine2": "Sekirei",
+  "engine2_command": "./target/release/sekirei",
+  "games": 60,
+  "engine1_wins": 26,
+  "draws": 0,
+  "engine2_wins": 34,
+  "engine1_score": 0.4333,
+  "elo_diff": -46.60,
+  "elo_ci_95": 88.71,
+  "elo_ci_low": -135.31,
+  "elo_ci_high": 42.10,
+  "los": 0.1487
+}
