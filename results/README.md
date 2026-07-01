@@ -11,6 +11,7 @@ Filename patterns (all timestamped, `${TIMESTAMP}` = `date +%Y%m%d_%H%M%S`):
 | `scripts/strength_regression.sh` | `${TIMESTAMP}.json` |
 | `scripts/train_with_shogiesa_quietset.sh` | `${TIMESTAMP}.json` |
 | `scripts/redo_quietset_bc.sh` | `${TIMESTAMP}_B.json`, `${TIMESTAMP}_C.json` |
+| `cargo run -p sekirei-bench --bin sync_overhead --release` | `${TIMESTAMP}_sync_overhead.txt` (raw stdout, prefixed with the commit hash it was measured against; not JSON — this tool only prints text) |
 
 ## Convention
 
