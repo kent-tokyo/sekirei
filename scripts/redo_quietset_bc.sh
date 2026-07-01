@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Redo quietset B/C experiment with full game coverage at depths 2,4.
 #
+# Verified against: shogiesa @ 295ddd3 (github.com/kent-tokyo/shogiesa),
+# quietset-cli 0.8.0. Neither tool has a --version flag; if this script
+# breaks on `label`/`score` output shape, check for a schema change against
+# those versions first (see commit dddb33a for a prior instance of this).
+#
 # B = --min-stability 0.85  (hard filter, was weights_keep085)
 # C = --stability-weighted  (soft weighting, was weights_weighted)
 #
