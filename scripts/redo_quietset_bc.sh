@@ -22,6 +22,11 @@
 #   MAX_POSITIONS=200000 cap positions after extract (default: 200000)
 #   JOBS=N              parallel label workers    (default: physical cores - 2)
 #   SHOGIESA=path       path to shogiesa binary   (default: auto-detect)
+#   LABEL_DEPTH=4       sekirei-train teacher re-search depth (default: 4, matches
+#                       the deeper of the shogiesa --depths 2,4 label pass below).
+#                       Must be passed explicitly: sekirei-train's teacher score is
+#                       its own --label-depth re-search, NOT shogiesa's label depth
+#                       (see tasks/lessons.md "shogiesa/quietset teacher-depth bug").
 #
 # Exit: 0 if both B and C pass the Elo gate, non-zero otherwise
 set -e
@@ -35,6 +40,7 @@ MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
 EVERY_N_PLIES=${EVERY_N_PLIES:-16}
 MAX_POSITIONS=${MAX_POSITIONS:-200000}
+LABEL_DEPTH=${LABEL_DEPTH:-4}
 # Parallel label workers — labeling is throughput-bound at ~3 pos/sec regardless,
 # so size to logical cores - 2 (min 1). The real speed knob is MAX_POSITIONS.
 JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
@@ -119,6 +125,7 @@ cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
   --scored "$RUN_DIR/stage3/scored_d4.jsonl" \
   --min-stability 0.85 \
+  --label-depth "$LABEL_DEPTH" \
   --validation-ratio 0.1 \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_b" \
@@ -135,6 +142,7 @@ cargo run --release -q -p sekirei-train -- \
   --scored "$RUN_DIR/stage3/scored_d4.jsonl" \
   --stability-weighted \
   --min-stability 0 \
+  --label-depth "$LABEL_DEPTH" \
   --validation-ratio 0.1 \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_c" \
@@ -157,7 +165,7 @@ cargo run --release -q -p sekirei-match-runner -- \
   --games "$GAMES" --byoyomi 1000 --json "$RESULT_C"
 
 cat > "$RUN_DIR/manifest.json" <<EOF
-{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","baseline":"$BASELINE","depths":"2,4","out_b":"$OUT_B","out_c":"$OUT_C","result_b":"$RESULT_B","result_c":"$RESULT_C"}
+{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","baseline":"$BASELINE","depths":"2,4","label_depth":"$LABEL_DEPTH","out_b":"$OUT_B","out_c":"$OUT_C","result_b":"$RESULT_B","result_c":"$RESULT_C"}
 EOF
 
 echo ""

@@ -11,6 +11,11 @@
 #
 # Environment overrides:
 #   DEPTHS=2,4,6         search depths for shogiesa label (default: 2,4)
+#   LABEL_DEPTH=4        sekirei-train teacher re-search depth (default: 4). Must be
+#                        passed explicitly: sekirei-train's teacher score is its own
+#                        --label-depth re-search, NOT shogiesa's --depths label (see
+#                        tasks/lessons.md "shogiesa/quietset teacher-depth bug").
+#                        Keep it aligned with (typically the deepest of) DEPTHS.
 #   GAMES=400            games for Elo comparison (default: 400)
 #   MIN_PLY=20           minimum ply to extract (default: 20)
 #   MAX_PLY=160          maximum ply to extract (default: 160)
@@ -30,6 +35,7 @@ CSA_DIR=${1:-./data/csa}
 OUTPUT=${2:-data/weights_new.bin}
 BASELINE=${3:-data/weights_v7.bin}
 DEPTHS=${DEPTHS:-2,4}
+LABEL_DEPTH=${LABEL_DEPTH:-4}
 GAMES=${GAMES:-400}
 MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
@@ -99,6 +105,7 @@ cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
   --scored "$SCORED" \
   --stability-weighted \
+  --label-depth "$LABEL_DEPTH" \
   --validation-ratio 0.1 \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints" \
@@ -117,7 +124,7 @@ cargo run --release -q -p sekirei-match-runner -- \
 
 # ---- Manifest ------------------------------------------------------------
 cat > "$RUN_DIR/manifest.json" <<EOF
-{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","output":"$OUTPUT","baseline":"$BASELINE","depths":"$DEPTHS","games":"$GAMES","extra_scored":"$EXTRA_SCORED","result":"$OUT_JSON"}
+{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","output":"$OUTPUT","baseline":"$BASELINE","depths":"$DEPTHS","label_depth":"$LABEL_DEPTH","games":"$GAMES","extra_scored":"$EXTRA_SCORED","result":"$OUT_JSON"}
 EOF
 echo "  -> manifest: $RUN_DIR/manifest.json"
 

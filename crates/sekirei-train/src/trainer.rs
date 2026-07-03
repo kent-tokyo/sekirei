@@ -65,7 +65,11 @@ impl TrainWeights {
             // Non-zero bias ensures ClippedReLU inputs are > 0 so gradients flow
             ft_bias: vec![0.5; L1],
             l2: vec![0.0; l2_len],
-            l2_bias: vec![0.0; L2],
+            // Same reason as ft_bias: with l2 zero-initialized, a zero l2_bias makes
+            // l2_acc land exactly on the ClippedReLU dead zone (== 0.0, gate is `> 0.0`),
+            // permanently blocking gradient flow to l2/ft — every past run silently
+            // trained out_bias only (verified: ft/l2/out stayed all-zero in saved weights).
+            l2_bias: vec![0.5; L2],
             out: vec![0.0; out_len],
             out_bias: 0.0,
 
