@@ -88,7 +88,12 @@ fn main() {
                     && !sekirei_core::nnue::weights_active()
                 {
                     match sekirei_core::nnue::load_weights(Path::new(path)) {
-                        Ok(()) => println!("info string NNUE weights loaded from {path}"),
+                        Ok(()) => {
+                            println!("info string NNUE weights loaded from {path}");
+                            // `board` (constructed at startup, before this load) has a
+                            // stale accumulator baked from the pre-load fallback weights.
+                            board.refresh_acc();
+                        }
                         Err(e) => println!("info string weight load failed: {e}"),
                     }
                 }

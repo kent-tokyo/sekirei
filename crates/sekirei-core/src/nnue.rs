@@ -165,12 +165,22 @@ impl NnueWeights {
 // ============================================================
 
 static WEIGHTS: OnceLock<NnueWeights> = OnceLock::new();
+static DEFAULT_WEIGHTS: OnceLock<NnueWeights> = OnceLock::new();
 static NNUE_ACTIVE: AtomicBool = AtomicBool::new(false);
 
-/// Return the active weight set. Initialises with LCG defaults on first call.
+/// Return the active weight set. Falls back to (separately cached) LCG defaults
+/// until `load_weights()` succeeds.
+///
+/// Kept as a distinct `OnceLock` from `WEIGHTS`: any board constructed before a
+/// real load (e.g. `Board::startpos()` at USI startup, before `isready`/`setoption
+/// EvalFile` are processed) calls this and must not permanently pin `WEIGHTS` to
+/// the LCG garbage — `OnceLock::set` only ever succeeds once, so if `weights()`
+/// itself initialised `WEIGHTS`, a later `load_weights()` would silently no-op.
 #[inline]
 pub fn weights() -> &'static NnueWeights {
-    WEIGHTS.get_or_init(NnueWeights::default_lcg)
+    WEIGHTS
+        .get()
+        .unwrap_or_else(|| DEFAULT_WEIGHTS.get_or_init(NnueWeights::default_lcg))
 }
 
 /// True once `load_weights()` has succeeded.
