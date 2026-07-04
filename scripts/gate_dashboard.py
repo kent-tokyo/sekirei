@@ -44,6 +44,7 @@ import re
 import subprocess
 import sys
 import time
+import urllib.parse
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -57,6 +58,27 @@ RESULTS_DIR = os.path.dirname(os.path.abspath(RESULT_JSON)) or "."
 REPO_ROOT = os.path.dirname(RESULTS_DIR)
 TODO_MD = os.path.join(REPO_ROOT, "tasks", "todo.md")
 TODO_PHASE_HEADING = "Strength Measurement"
+DATA_DIR = os.path.join(REPO_ROOT, "data")
+MATERIAL_SENTINEL = "__material__"
+
+# Registry of runs the dashboard knows about -- the CLI-arg-supplied run is
+# "default"; runs started from the dashboard itself (see start_run()) get
+# their own entry with a real `pid` so their liveness can be checked
+# precisely instead of via the pgrep-based heuristic below. Deliberately
+# in-memory only (not persisted): restarts are rare once this is running,
+# and re-passing the same CLI args after a restart already covers reattaching
+# to the "default" run.
+RUNS = {
+    "default": {
+        "label": os.path.basename(RESULT_JSON),
+        "log_file": LOG_FILE,
+        "result_json": RESULT_JSON,
+        "kifu_dir": KIFU_DIR,
+        "pid": None,
+        "started_at": None,
+    }
+}
+_next_run_seq = 1
 
 GAME_RE = re.compile(r"^Game\s+(\d+):\s+(.*)$")
 GAME_DETAIL_RE = re.compile(
@@ -74,14 +96,60 @@ def verdict_of(elo, los):
     return "INCONCLUSIVE"
 
 
-def is_running():
+def pid_is_running(pid):
+    try:
+        out = subprocess.run(["ps", "-p", str(pid)], capture_output=True, text=True)
+        return out.returncode == 0 and str(pid) in out.stdout
+    except Exception:
+        return False
+
+
+def _known_pids():
+    return {r["pid"] for r in RUNS.values() if r.get("pid") is not None}
+
+
+def _default_pid():
+    # Legacy heuristic for the CLI-launched "default" run, whose PID we never
+    # had -- matches any sekirei-match process, EXCLUDING pids already
+    # claimed by a run we launched ourselves (tracked via a real `pid` in
+    # RUNS), so a dashboard-started run doesn't make "default" look running
+    # too. Still ambiguous if the user has launched *multiple* untracked
+    # sekirei-match processes outside the dashboard at once.
     try:
         out = subprocess.run(
             ["pgrep", "-f", "sekirei-match "], capture_output=True, text=True
         )
-        return bool(out.stdout.strip())
+        known = _known_pids()
+        for p in out.stdout.split():
+            if p and int(p) not in known:
+                return p
+        return None
     except Exception:
-        return False
+        return None
+
+
+def _default_is_running():
+    return _default_pid() is not None
+
+
+def run_is_running(run):
+    if run.get("pid") is not None:
+        return pid_is_running(run["pid"])
+    return _default_is_running()
+
+
+def run_elapsed_seconds(run):
+    """Elapsed wall time of a run's match process, or None."""
+    pid = run.get("pid") or _default_pid()
+    if not pid:
+        return None
+    try:
+        ps_out = subprocess.run(
+            ["ps", "-o", "etime=", "-p", str(pid)], capture_output=True, text=True
+        )
+        return parse_etime(ps_out.stdout)
+    except Exception:
+        return None
 
 
 # ponytail: the log has no per-line timestamp, so we stamp each game the
@@ -89,22 +157,25 @@ def is_running():
 # within one poll interval for a live-running gate; if the dashboard is
 # (re)started after a gate already finished, every line gets the same
 # "just now" stamp since they're all seen for the first time at once.
+# Keyed by run_id since multiple runs' logs are watched concurrently and
+# each has its own independent game numbering.
 GAME_FIRST_SEEN = {}
 
 
-def read_progress():
+def read_progress(run_id, log_file):
     games = []
     total = None
+    first_seen = GAME_FIRST_SEEN.setdefault(run_id, {})
     try:
-        with open(LOG_FILE, "r", errors="replace") as f:
+        with open(log_file, "r", errors="replace") as f:
             for line in f:
                 line = line.strip()
                 m = GAME_RE.match(line)
                 if m:
                     n, desc = int(m.group(1)), m.group(2)
-                    if n not in GAME_FIRST_SEEN:
-                        GAME_FIRST_SEEN[n] = time.time()
-                    seen_at = GAME_FIRST_SEEN[n]
+                    if n not in first_seen:
+                        first_seen[n] = time.time()
+                    seen_at = first_seen[n]
                     d = GAME_DETAIL_RE.match(desc)
                     if d:
                         games.append(
@@ -147,37 +218,21 @@ def parse_etime(s):
     return days * 86400 + hh * 3600 + mm * 60 + ss
 
 
-def elapsed_seconds():
-    """Elapsed wall time of the running sekirei-match-runner process, or None."""
+def read_result(result_json):
     try:
-        pid_out = subprocess.run(
-            ["pgrep", "-f", "sekirei-match "], capture_output=True, text=True
-        )
-        pid = pid_out.stdout.strip().split("\n")[0]
-        if not pid:
-            return None
-        ps_out = subprocess.run(
-            ["ps", "-o", "etime=", "-p", pid], capture_output=True, text=True
-        )
-        return parse_etime(ps_out.stdout)
-    except Exception:
-        return None
-
-
-def read_result():
-    try:
-        with open(RESULT_JSON) as f:
+        with open(result_json) as f:
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError):
         return None
 
 
-def get_status_data():
-    running = is_running()
-    games, total = read_progress()
-    result = read_result()
+def get_status_data(run_id):
+    run = RUNS[run_id]
+    running = run_is_running(run)
+    games, total = read_progress(run_id, run["log_file"])
+    result = read_result(run["result_json"])
     completed = len(games)
-    elapsed = elapsed_seconds() if running else None
+    elapsed = run_elapsed_seconds(run) if running else None
 
     eta_seconds = None
     avg_seconds = None
@@ -199,9 +254,97 @@ def get_status_data():
         "games": games,
         "result": result,
         "verdict": verdict,
-        "log_file": LOG_FILE,
-        "kifu_available": bool(KIFU_DIR and os.path.isdir(KIFU_DIR)),
+        "log_file": run["log_file"],
+        "kifu_available": bool(run["kifu_dir"] and os.path.isdir(run["kifu_dir"])),
     }
+
+
+def get_runs_data():
+    entries = []
+    for run_id, run in RUNS.items():
+        entries.append(
+            {
+                "id": run_id,
+                "label": run["label"],
+                "running": run_is_running(run),
+                "has_result": os.path.isfile(run["result_json"]),
+                "started_at": run["started_at"],
+            }
+        )
+    entries.sort(key=lambda e: (e["started_at"] is None, e["started_at"] or 0), reverse=True)
+    return {"runs": entries}
+
+
+def list_weights():
+    try:
+        return sorted(os.path.basename(p) for p in glob.glob(os.path.join(DATA_DIR, "*.bin")))
+    except OSError:
+        return []
+
+
+def start_run(payload):
+    """Launches a new sekirei-match gate run; returns the new run_id.
+
+    Raises ValueError for bad input, RuntimeError if the binaries aren't built.
+    """
+    weights = list_weights()
+    e1 = payload.get("engine1_weights") or ""
+    e2 = payload.get("engine2_weights") or ""
+    for w in (e1, e2):
+        if w and w != MATERIAL_SENTINEL and w not in weights:
+            raise ValueError(f"unknown weights file: {w}")
+    try:
+        games = int(payload.get("games", 60))
+        byoyomi = int(payload.get("byoyomi", 1000))
+    except (TypeError, ValueError):
+        raise ValueError("games/byoyomi must be integers")
+    if games <= 0 or byoyomi <= 0:
+        raise ValueError("games/byoyomi must be positive")
+
+    sekirei_match = os.path.join(REPO_ROOT, "target", "release", "sekirei-match")
+    sekirei_bin = os.path.join(REPO_ROOT, "target", "release", "sekirei")
+    if not (os.path.isfile(sekirei_match) and os.access(sekirei_match, os.X_OK)):
+        raise RuntimeError("target/release/sekirei-match not built -- run: cargo build --release")
+
+    def stem_part(w):
+        return "material" if not w or w == MATERIAL_SENTINEL else os.path.splitext(w)[0]
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    stem = f"{timestamp}_{stem_part(e1)}_vs_{stem_part(e2)}"
+    log_path = os.path.join(RESULTS_DIR, "logs", f"{stem}.log")
+    json_path = os.path.join(RESULTS_DIR, f"{stem}.json")
+    kifu_dir = os.path.join(RESULTS_DIR, "kifu", stem)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    os.makedirs(kifu_dir, exist_ok=True)
+
+    args = [sekirei_match, "--engine1", sekirei_bin]
+    if e1 and e1 != MATERIAL_SENTINEL:
+        args += ["--args1", os.path.join(DATA_DIR, e1)]
+    args += ["--engine2", sekirei_bin]
+    if e2 and e2 != MATERIAL_SENTINEL:
+        args += ["--args2", os.path.join(DATA_DIR, e2)]
+    args += [
+        "--games", str(games),
+        "--byoyomi", str(byoyomi),
+        "--output", kifu_dir,
+        "--json", json_path,
+    ]
+
+    log_f = open(log_path, "w")
+    proc = subprocess.Popen(args, stdout=log_f, stderr=subprocess.STDOUT, cwd=REPO_ROOT)
+
+    global _next_run_seq
+    run_id = f"run{_next_run_seq}"
+    _next_run_seq += 1
+    RUNS[run_id] = {
+        "label": stem,
+        "log_file": log_path,
+        "result_json": json_path,
+        "kifu_dir": kifu_dir,
+        "pid": proc.pid,
+        "started_at": time.time(),
+    }
+    return run_id
 
 
 TODO_TAG_RE = re.compile(r"\s*#(code|match)\s*$")
@@ -295,7 +438,10 @@ def get_history_data():
         elo = r.get("elo_diff")
         los = r.get("los")
         if elo is None or los is None:
-            entries.append({"file": name, "mtime": mtime, "mtime_str": mtime_iso, "error": "not_a_gate_result"})
+            # Valid JSON that just isn't a gate result (e.g. a shogiesa/quietset
+            # manifest sharing the same directory) -- unlike parse_error, this
+            # isn't a broken gate output worth flagging, so skip it rather than
+            # cluttering the history list with an irrelevant row.
             continue
         entries.append(
             {
@@ -304,6 +450,8 @@ def get_history_data():
                 "mtime_str": mtime_iso,
                 "verdict": verdict_of(elo, los),
                 "elo_diff": elo,
+                "elo_ci_low": r.get("elo_ci_low"),
+                "elo_ci_high": r.get("elo_ci_high"),
                 "los": los,
                 "games": r.get("games"),
                 "engine1_wins": r.get("engine1_wins"),
@@ -353,13 +501,14 @@ SHELL_HTML = """<!doctype html>
 <body>
 <div id="root"></div>
 <script type="text/babel" data-type="module" data-presets="react">
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Box, Drawer, List, ListItemButton, ListItemText, Toolbar, Typography,
   Button, Chip, LinearProgress, Card,
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
-  TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip
+  TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
+  MenuItem
 } from "@mui/material";
 
 const TRANSLATIONS = {
@@ -377,9 +526,17 @@ const TRANSLATIONS = {
     noResults: "結果ファイルがありません。",
     colFile: "ファイル", colModified: "更新日時", colCompared: "比較対象", unknownCompared: "不明(旧形式)", colVerdict: "判定",
     colElo: "elo_diff", colLos: "los", colGames: "games", colWdl: "W/D/L",
-    parseError: "パースエラー", notGateResult: "elo_diff/los が無い (gate 以外の JSON)",
+    parseError: "パースエラー",
+    ciChartTitle: "信頼区間チャート (elo_diff ± 95% CI)",
+    whatIfCaption: "⚠ ドラッグ中はしきい値を仮に動かした場合の判定プレビューです(実際のゲート判定はサーバー側で固定)。",
+    resetThreshold: "しきい値をリセット",
+    searchLabel: "検索(ファイル名・比較対象)",
     // status page
     statusTitle: "実行状況",
+    startGateTitle: "新しいゲートを開始",
+    engine1Label: "Engine1 の重み", engine2Label: "Engine2 の重み", materialEval: "(material eval / 重みなし)",
+    gamesLabel: "局数", byoyomiLabel: "秒読み(ms)", startButton: "実行",
+    enableNotify: "通知を有効にする",
     stateRunning: "実行中", stateDone: "完了", stateStopped: "停止 (結果待ちまたは終了)",
     progress: "進行", etaEstimating: "残り時間: 推定中 (1局目が終わるまで待機)…",
     etaSoon: "残り時間: まもなく終了 (結果集計中)",
@@ -394,6 +551,10 @@ const TRANSLATIONS = {
     anchorLabel: "アンカー(基準側の推定絶対レート)",
     anchorHelp: "自己対局の Elo はこの値に対する相対値でしかありません。tasks/competitive_analysis.md の見積もり(material eval で floodgate 1700〜2000)を参考にデフォルト値を置いています。実測ではないので鵜呑みにしないこと。",
     colEstRating: "推定レート",
+    trendTitle: "推定レート推移",
+    trendCaveat: "⚠ 各点は異なる比較(候補×基準の組み合わせ)です。1つのモデルの継続的な成長を表すグラフではありません。",
+    resetZoom: "ズームをリセット",
+    legendWin: "勝ち", legendDraw: "分け", legendLoss: "負け",
     strengthActionsTitle: "レート向上のための次の施策",
     strengthActionsSource: "出典",
     noTodoItems: "該当する未完了項目が見つかりませんでした。",
@@ -419,8 +580,16 @@ const TRANSLATIONS = {
     noResults: "No result files found.",
     colFile: "File", colModified: "Modified", colCompared: "Compared", unknownCompared: "unknown (old format)", colVerdict: "Verdict",
     colElo: "elo_diff", colLos: "los", colGames: "games", colWdl: "W/D/L",
-    parseError: "parse error", notGateResult: "no elo_diff/los (not a gate result)",
+    parseError: "parse error",
+    ciChartTitle: "Confidence interval chart (elo_diff ± 95% CI)",
+    whatIfCaption: "⚠ Dragging previews verdicts under a hypothetical threshold (the actual gate decision is fixed server-side).",
+    resetThreshold: "Reset threshold",
+    searchLabel: "Search (file / compared)",
     statusTitle: "Execution status",
+    startGateTitle: "Start a new gate",
+    engine1Label: "Engine1 weights", engine2Label: "Engine2 weights", materialEval: "(material eval / no weights)",
+    gamesLabel: "Games", byoyomiLabel: "Byoyomi (ms)", startButton: "Start",
+    enableNotify: "Enable notifications",
     stateRunning: "Running", stateDone: "Done", stateStopped: "Stopped (awaiting result or finished)",
     progress: "Progress", etaEstimating: "ETA: estimating (waiting for game 1 to finish)…",
     etaSoon: "ETA: finishing up (tallying result)",
@@ -434,6 +603,10 @@ const TRANSLATIONS = {
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
     anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
     colEstRating: "Est. rating",
+    trendTitle: "Est. rating trend",
+    trendCaveat: "⚠ Each point is a different comparison (candidate/baseline pair) -- this is not one model's continuous progress.",
+    resetZoom: "Reset zoom",
+    legendWin: "Win", legendDraw: "Draw", legendLoss: "Loss",
     strengthActionsTitle: "Next actions to raise the rating",
     strengthActionsSource: "Source",
     noTodoItems: "No matching open items found.",
@@ -450,12 +623,291 @@ const TRANSLATIONS = {
 
 const VERDICT_COLOR = { PASS: "success", FAIL: "error", INCONCLUSIVE: "warning" };
 const VERDICT_TIP_KEY = { PASS: "tipPass", FAIL: "tipFail", INCONCLUSIVE: "tipInconclusive" };
+// Raw SVG can't use MUI's theme color tokens ("success"/"error"/"warning")
+// directly -- this is the hex equivalent for the chart components below.
+const VERDICT_COLOR_HEX = { PASS: "#2e7d32", FAIL: "#d32f2f", INCONCLUSIVE: "#ed6c02" };
+
+// Mirrors veridict's CI-decision logic (crates/sekirei-match-runner/src/main.rs
+// veridict_decide / the upstream verdict.rs::decide): pass only if the CI's
+// pessimistic bound already clears the threshold, fail only if the optimistic
+// bound doesn't reach it. Used client-side to preview "what if the threshold
+// were different" while dragging -- not a re-run of the real gate.
+function decideCi(ciLow, ciHigh, passElo, failElo) {
+  if (ciLow >= passElo) return "PASS";
+  if (ciHigh <= failElo) return "FAIL";
+  return "INCONCLUSIVE";
+}
+
+// Scrolls a table row into view given the `file` value used to build its
+// `row-<file>` id (see SortableTable). Plain DOM, not React state -- the
+// highlight styling itself is state owned by whichever page calls this.
+function scrollToRow(file) {
+  const el = document.getElementById(`row-${file}`);
+  if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+// Small floating tooltip that follows the mouse, replacing the browser's
+// native (delayed, unstyled) SVG <title> tooltip. `containerRef` must be
+// attached to a `position: relative` ancestor of both the SVG and this
+// component so the absolute-positioned Paper lines up with the cursor.
+function useChartTooltip() {
+  const containerRef = useRef(null);
+  const [tooltip, setTooltip] = useState(null);
+  const showAt = (evt, lines) => {
+    const rect = containerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    setTooltip({ x: evt.clientX - rect.left, y: evt.clientY - rect.top, lines });
+  };
+  const hide = () => setTooltip(null);
+  return { containerRef, tooltip, showAt, hide };
+}
+
+function ChartTooltip({ tooltip }) {
+  if (!tooltip) return null;
+  return (
+    <Paper
+      elevation={3}
+      sx={{
+        position: "absolute", left: tooltip.x + 12, top: tooltip.y + 12,
+        p: 1, pointerEvents: "none", zIndex: 10, fontSize: 12, maxWidth: 280,
+      }}
+    >
+      {tooltip.lines.map((l, i) => <div key={i}>{l}</div>)}
+    </Paper>
+  );
+}
 
 function VerdictChip({ verdict, t, size }) {
   return (
     <Tooltip title={t[VERDICT_TIP_KEY[verdict]] || ""} arrow>
       <Chip size={size || "medium"} label={verdict} color={VERDICT_COLOR[verdict]} />
     </Tooltip>
+  );
+}
+
+// Compact (showLabels=false) or full-size-with-legend (showLabels=true)
+// win/draw/loss stacked bar. No charting library -- three <rect>s sized
+// proportionally.
+function WdlBar({ wins, draws, losses, width, height, showLabels, t }) {
+  width = width || 80;
+  height = height || 14;
+  const total = wins + draws + losses;
+  if (total === 0) return null;
+  const wW = (wins / total) * width;
+  const dW = (draws / total) * width;
+  const lW = (losses / total) * width;
+  const bar = (
+    <svg width={width} height={height} style={{ display: "block" }}>
+      <rect x={0} y={0} width={wW} height={height} fill={VERDICT_COLOR_HEX.PASS} />
+      <rect x={wW} y={0} width={dW} height={height} fill="#9e9e9e" />
+      <rect x={wW + dW} y={0} width={lW} height={height} fill={VERDICT_COLOR_HEX.FAIL} />
+    </svg>
+  );
+  if (!showLabels) return bar;
+  return (
+    <Stack direction="row" spacing={2} alignItems="center">
+      {bar}
+      <Stack direction="row" spacing={1.5}>
+        <Typography variant="caption"><span style={{ color: VERDICT_COLOR_HEX.PASS }}>■</span> {t.legendWin} {wins}</Typography>
+        <Typography variant="caption"><span style={{ color: "#9e9e9e" }}>■</span> {t.legendDraw} {draws}</Typography>
+        <Typography variant="caption"><span style={{ color: VERDICT_COLOR_HEX.FAIL }}>■</span> {t.legendLoss} {losses}</Typography>
+      </Stack>
+    </Stack>
+  );
+}
+
+// Chronological line chart of est_rating. `points`: [{ y, verdict, file, tooltipLines }].
+// Zoom (wheel / +- buttons) widens the chart inside a horizontally
+// scrolling box; pan is the box's native scroll, plus a manual
+// drag-to-scroll handler for mouse users without a trackpad. Clicking a
+// point jumps to that point's row in the table below via `onSelect`.
+function RatingTrendChart({ points, onSelect, t }) {
+  const [zoom, setZoom] = useState(1);
+  const scrollRef = useRef(null);
+  const dragRef = useRef(null);
+  const { containerRef, tooltip, showAt, hide } = useChartTooltip();
+
+  if (points.length === 0) return null;
+  const baseWidth = 820, height = 200, padL = 50, padR = 20, padT = 16, padB = 12;
+  const width = Math.round(baseWidth * zoom);
+  const innerW = width - padL - padR, innerH = height - padT - padB;
+  const ys = points.map((p) => p.y);
+  const yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const yPad = Math.max(10, (yMax - yMin) * 0.15);
+  const y0 = yMin - yPad, y1 = yMax + yPad;
+  const xFor = (i) => (points.length === 1 ? padL + innerW / 2 : padL + (i / (points.length - 1)) * innerW);
+  const yFor = (v) => padT + innerH - ((v - y0) / (y1 - y0 || 1)) * innerH;
+  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i)} ${yFor(p.y)}`).join(" ");
+
+  const onWheel = (evt) => {
+    evt.preventDefault();
+    setZoom((z) => Math.min(5, Math.max(1, +(z + (evt.deltaY < 0 ? 0.25 : -0.25)).toFixed(2))));
+  };
+  const onMouseDown = (evt) => {
+    dragRef.current = { startX: evt.clientX, startScroll: scrollRef.current.scrollLeft };
+  };
+  const onMouseMove = (evt) => {
+    if (!dragRef.current) return;
+    scrollRef.current.scrollLeft = dragRef.current.startScroll - (evt.clientX - dragRef.current.startX);
+  };
+  const endDrag = () => { dragRef.current = null; };
+
+  return (
+    <Box>
+      <Stack direction="row" spacing={1} sx={{ mb: 0.5 }}>
+        <Button size="small" variant="outlined" onClick={() => setZoom((z) => Math.min(5, z + 0.5))}>+</Button>
+        <Button size="small" variant="outlined" onClick={() => setZoom((z) => Math.max(1, z - 0.5))}>−</Button>
+        <Button size="small" variant="outlined" onClick={() => setZoom(1)}>{t.resetZoom}</Button>
+      </Stack>
+      <Box
+        ref={scrollRef}
+        onWheel={onWheel}
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+        sx={{ overflowX: "auto", cursor: "grab" }}
+      >
+        <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
+          <svg width={width} height={height}>
+            {[y0, (y0 + y1) / 2, y1].map((v, i) => (
+              <g key={i}>
+                <line x1={padL} x2={width - padR} y1={yFor(v)} y2={yFor(v)} stroke="#eee" />
+                <text x={padL - 8} y={yFor(v) + 4} fontSize="11" textAnchor="end" fill="#666">{Math.round(v)}</text>
+              </g>
+            ))}
+            <line x1={padL} x2={padL} y1={padT} y2={padT + innerH} stroke="#999" />
+            <line x1={padL} x2={width - padR} y1={padT + innerH} y2={padT + innerH} stroke="#999" />
+            {points.length > 1 && <path d={linePath} fill="none" stroke="#1976d2" strokeWidth="2" />}
+            {points.map((p, i) => (
+              <circle
+                key={i} cx={xFor(i)} cy={yFor(p.y)} r={6}
+                fill={VERDICT_COLOR_HEX[p.verdict] || "#1976d2"}
+                style={{ cursor: p.file ? "pointer" : "default" }}
+                onMouseMove={(e) => showAt(e, p.tooltipLines)}
+                onMouseLeave={hide}
+                onClick={() => p.file && onSelect && onSelect(p.file)}
+              />
+            ))}
+          </svg>
+          <ChartTooltip tooltip={tooltip} />
+        </div>
+      </Box>
+    </Box>
+  );
+}
+
+// One horizontal whisker (elo_ci_low..elo_ci_high) per row, with a tick at
+// the elo_diff point estimate, plus draggable reference lines at the gate's
+// pass/fail thresholds (grab the small handle at the top of a dashed line)
+// so a whisker clearing +20 reads as an obvious PASS. Dragging recolors
+// every row live via `decideCi` -- a client-side "what if" preview, not a
+// re-run of the real gate (that only happens server-side via
+// `sekirei-match gate`). Clicking a row jumps to its table row via `onSelect`.
+function CiBarChart({ rows, passElo, failElo, t, onSelect }) {
+  const [livePass, setLivePass] = useState(passElo);
+  const [liveFail, setLiveFail] = useState(failElo);
+  const [dragging, setDragging] = useState(null); // "pass" | "fail" | null
+  const { containerRef, tooltip, showAt, hide } = useChartTooltip();
+
+  if (rows.length === 0) return null;
+  const rowH = 26, labelW = 200, width = 820, padT = 10, padB = 20;
+  const chartW = width - labelW - 20;
+  const height = padT + padB + rows.length * rowH;
+  const allLo = rows.map((r) => (r.elo_ci_low ?? r.elo_diff));
+  const allHi = rows.map((r) => (r.elo_ci_high ?? r.elo_diff));
+  let xMin = Math.min(...allLo, failElo, 0);
+  let xMax = Math.max(...allHi, passElo, 0);
+  const xPad = (xMax - xMin) * 0.1 || 10;
+  xMin -= xPad;
+  xMax += xPad;
+  const xFor = (v) => labelW + ((v - xMin) / (xMax - xMin)) * chartW;
+  const valueFor = (x) => xMin + ((x - labelW) / chartW) * (xMax - xMin);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (evt) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const v = Math.round(valueFor(evt.clientX - rect.left));
+      if (dragging === "pass") setLivePass(v);
+      else setLiveFail(v);
+    };
+    const onUp = () => setDragging(null);
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, [dragging]);
+
+  const thresholdsChanged = livePass !== passElo || liveFail !== failElo;
+  const thresholds = [
+    { v: 0, key: "zero" },
+    { v: livePass, key: "pass", drag: "pass" },
+    { v: liveFail, key: "fail", drag: "fail" },
+  ];
+
+  return (
+    <Box>
+      <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
+        <svg width={width} height={height}>
+          {thresholds.map((th) => (
+            <g key={th.key}>
+              <line
+                x1={xFor(th.v)} x2={xFor(th.v)} y1={padT} y2={height - padB}
+                stroke={th.v === 0 ? "#999" : "#bbb"} strokeDasharray={th.v === 0 ? "" : "4 3"}
+              />
+              {th.drag && (
+                <rect
+                  x={xFor(th.v) - 5} y={padT - 6} width={10} height={12} rx={2} fill="#616161"
+                  style={{ cursor: "ew-resize" }}
+                  onMouseDown={(evt) => { evt.preventDefault(); setDragging(th.drag); }}
+                />
+              )}
+            </g>
+          ))}
+          {rows.map((r, i) => {
+            const y = padT + i * rowH + rowH / 2;
+            const lo = r.elo_ci_low ?? r.elo_diff, hi = r.elo_ci_high ?? r.elo_diff;
+            // Default coloring matches the table's own verdict column (LOS-based,
+            // see verdict_of() in this file's Python half) so the chart agrees
+            // with the table until the user actually drags a threshold -- only
+            // then does it switch to the live CI-based preview, which can
+            // legitimately disagree (a wide CI can straddle +20 even when the
+            // LOS-based check already passes).
+            const verdict = thresholdsChanged ? decideCi(lo, hi, livePass, liveFail) : r.verdict;
+            const color = VERDICT_COLOR_HEX[verdict] || "#1976d2";
+            const label = r.compared || r.file;
+            const tipLines = [label, `elo_diff=${r.elo_diff.toFixed(1)}`, `95% CI=[${lo.toFixed(1)}, ${hi.toFixed(1)}]`, verdict];
+            return (
+              <g
+                key={i}
+                style={{ cursor: r.file ? "pointer" : "default" }}
+                onMouseMove={(e) => showAt(e, tipLines)}
+                onMouseLeave={hide}
+                onClick={() => r.file && onSelect && onSelect(r.file)}
+              >
+                <text x={0} y={y + 4} fontSize="11" fill="#333">
+                  {label.length > 28 ? label.slice(0, 27) + "…" : label}
+                </text>
+                <line x1={xFor(lo)} x2={xFor(hi)} y1={y} y2={y} stroke={color} strokeWidth="3" />
+                <circle cx={xFor(r.elo_diff)} cy={y} r={4} fill={color} />
+              </g>
+            );
+          })}
+          <text x={xFor(0)} y={height - 4} fontSize="10" textAnchor="middle" fill="#999">0</text>
+        </svg>
+        <ChartTooltip tooltip={tooltip} />
+      </div>
+      {thresholdsChanged && (
+        <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 0.5 }}>
+          {t.whatIfCaption} (pass={livePass}, fail={liveFail}){" "}
+          <Button size="small" onClick={() => { setLivePass(passElo); setLiveFail(failElo); }}>{t.resetThreshold}</Button>
+        </Typography>
+      )}
+    </Box>
   );
 }
 
@@ -498,7 +950,7 @@ function useSortableData(rows, initialKey, initialDir) {
   return { sorted, sortKey, sortDir, requestSort };
 }
 
-function SortableTable({ columns, rows, initialKey, initialDir, renderCell }) {
+function SortableTable({ columns, rows, initialKey, initialDir, renderCell, highlightKey }) {
   const { sorted, sortKey, sortDir, requestSort } = useSortableData(rows, initialKey, initialDir);
   return (
     <TableContainer component={Paper} variant="outlined">
@@ -524,7 +976,12 @@ function SortableTable({ columns, rows, initialKey, initialDir, renderCell }) {
         </TableHead>
         <TableBody>
           {sorted.map((row, i) => (
-            <TableRow key={i} hover>
+            <TableRow
+              key={i}
+              hover
+              id={row.file ? `row-${row.file}` : undefined}
+              sx={row.file && row.file === highlightKey ? { backgroundColor: "action.selected" } : undefined}
+            >
               {columns.map((c) => (
                 <TableCell key={c.key}>{renderCell ? renderCell(c.key, row) : row[c.key]}</TableCell>
               ))}
@@ -559,10 +1016,31 @@ function SecondsAgo({ updatedAt, t }) {
   return <Typography variant="caption" color="text.secondary">{t.lastUpdated}: {secs}{t.ago}</Typography>;
 }
 
+const VERDICT_OPTIONS = ["PASS", "FAIL", "INCONCLUSIVE"];
+
 function HistoryPage({ t }) {
   const { data, updatedAt, refresh } = useApi("/api/history", 8000);
   const entries = data?.entries || [];
   const hasUnknown = entries.some((e) => !e.error && !e.compared);
+  const [highlight, setHighlight] = useState(null);
+  const [search, setSearch] = useState("");
+  const [verdictFilter, setVerdictFilter] = useState([]);
+  const selectRow = (file) => {
+    setHighlight(file);
+    scrollToRow(file);
+    setTimeout(() => setHighlight((h) => (h === file ? null : h)), 1800);
+  };
+  const toggleVerdict = (v) => {
+    setVerdictFilter((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
+  };
+
+  const needle = search.trim().toLowerCase();
+  const filteredEntries = entries.filter((e) => {
+    if (verdictFilter.length > 0 && (e.error || !verdictFilter.includes(e.verdict))) return false;
+    if (needle && !`${e.file} ${e.compared || ""}`.toLowerCase().includes(needle)) return false;
+    return true;
+  });
+  const gateRows = filteredEntries.filter((e) => !e.error);
 
   return (
     <Box>
@@ -574,7 +1052,29 @@ function HistoryPage({ t }) {
         </Stack>
       </Stack>
       {hasUnknown && <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>⚠ {t.historyNote}</Typography>}
-      {entries.length === 0 ? (
+      <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", rowGap: 1 }}>
+        <TextField
+          size="small" label={t.searchLabel} value={search}
+          onChange={(e) => setSearch(e.target.value)} sx={{ minWidth: 240 }}
+        />
+        <Stack direction="row" spacing={1}>
+          {VERDICT_OPTIONS.map((v) => (
+            <Chip
+              key={v} label={v} size="small"
+              color={verdictFilter.includes(v) ? VERDICT_COLOR[v] : "default"}
+              variant={verdictFilter.includes(v) ? "filled" : "outlined"}
+              onClick={() => toggleVerdict(v)}
+            />
+          ))}
+        </Stack>
+      </Stack>
+      {gateRows.length > 0 && (
+        <Box sx={{ mb: 3, overflowX: "auto" }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.ciChartTitle}</Typography>
+          <CiBarChart rows={gateRows} passElo={20} failElo={-10} t={t} onSelect={selectRow} />
+        </Box>
+      )}
+      {filteredEntries.length === 0 ? (
         <Typography><em>{t.noResults}</em></Typography>
       ) : (
         <SortableTable
@@ -588,19 +1088,25 @@ function HistoryPage({ t }) {
             { key: "los", label: t.colLos, tooltip: t.tipLos },
             { key: "games", label: t.colGames },
           ]}
-          rows={entries}
+          rows={filteredEntries}
+          highlightKey={highlight}
           renderCell={(key, row) => {
             if (row.error) {
               if (key === "file") return row.file;
               if (key === "mtime_str") return row.mtime_str;
-              if (key === "verdict") return <em>{row.error === "parse_error" ? t.parseError : t.notGateResult}</em>;
+              if (key === "verdict") return <em>{t.parseError}</em>;
               return "";
             }
             if (key === "compared") return row.compared || <em title={t.historyNote}>{t.unknownCompared}</em>;
             if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" />;
             if (key === "elo_diff") return row.elo_diff.toFixed(1);
             if (key === "los") return (row.los * 100).toFixed(1) + "%";
-            if (key === "games") return `${row.games} (${row.engine1_wins}/${row.draws}/${row.engine2_wins})`;
+            if (key === "games") return (
+              <Stack spacing={0.5}>
+                <span>{`${row.games} (${row.engine1_wins}/${row.draws}/${row.engine2_wins})`}</span>
+                <WdlBar wins={row.engine1_wins} draws={row.draws} losses={row.engine2_wins} />
+              </Stack>
+            );
             return row[key];
           }}
         />
@@ -609,8 +1115,99 @@ function HistoryPage({ t }) {
   );
 }
 
+function RunPicker({ runs, selectedRunId, onSelect }) {
+  if (runs.length === 0) return null;
+  return (
+    <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", rowGap: 1 }}>
+      {runs.map((r) => (
+        <Chip
+          key={r.id}
+          label={r.label}
+          color={r.running ? "success" : (r.id === selectedRunId ? "primary" : "default")}
+          variant={r.id === selectedRunId ? "filled" : "outlined"}
+          onClick={() => onSelect(r.id)}
+        />
+      ))}
+    </Stack>
+  );
+}
+
+function StartGateForm({ t, onStarted }) {
+  const { data: weightsData } = useApi("/api/weights", null);
+  const weights = weightsData?.weights || [];
+  const [e1, setE1] = useState("");
+  const [e2, setE2] = useState("");
+  const [games, setGames] = useState(60);
+  const [byoyomi, setByoyomi] = useState(1000);
+  const [starting, setStarting] = useState(false);
+  const [error, setError] = useState(null);
+
+  const start = () => {
+    setStarting(true);
+    setError(null);
+    fetch("/api/runs", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ engine1_weights: e1, engine2_weights: e2, games, byoyomi }),
+    })
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        setStarting(false);
+        if (!ok) { setError(body.error || "error"); return; }
+        onStarted(body.run_id);
+      })
+      .catch((e) => { setStarting(false); setError(String(e)); });
+  };
+
+  return (
+    <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>{t.startGateTitle}</Typography>
+      <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
+        <TextField select size="small" label={t.engine1Label} value={e1} onChange={(e) => setE1(e.target.value)} sx={{ minWidth: 200 }}>
+          <MenuItem value="">{t.materialEval}</MenuItem>
+          {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+        </TextField>
+        <TextField select size="small" label={t.engine2Label} value={e2} onChange={(e) => setE2(e.target.value)} sx={{ minWidth: 200 }}>
+          <MenuItem value="">{t.materialEval}</MenuItem>
+          {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+        </TextField>
+        <TextField type="number" size="small" label={t.gamesLabel} value={games} onChange={(e) => setGames(Number(e.target.value) || 0)} sx={{ width: 100 }} />
+        <TextField type="number" size="small" label={t.byoyomiLabel} value={byoyomi} onChange={(e) => setByoyomi(Number(e.target.value) || 0)} sx={{ width: 120 }} />
+        <Button variant="contained" disabled={starting} onClick={start}>{starting ? "…" : t.startButton}</Button>
+      </Stack>
+      {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
+    </Card>
+  );
+}
+
 function StatusPage({ t }) {
-  const { data, updatedAt, refresh } = useApi("/api/status", 4000);
+  const [selectedRunId, setSelectedRunId] = useState("default");
+  const { data: runsData, refresh: refreshRuns } = useApi("/api/runs", 5000);
+  const runs = runsData?.runs || [];
+  const { data, updatedAt, refresh } = useApi(`/api/status?run=${selectedRunId}`, 4000);
+
+  const prevRunning = useRef(false);
+  const [notifyEnabled, setNotifyEnabled] = useState(
+    typeof Notification !== "undefined" && Notification.permission === "granted"
+  );
+  useEffect(() => {
+    if (!data) return;
+    if (prevRunning.current && !data.running && data.result && notifyEnabled) {
+      new Notification(`sekirei: ${data.verdict}`, {
+        body: `elo_diff=${data.result.elo_diff?.toFixed(1)}  games=${data.result.games}`,
+      });
+    }
+    prevRunning.current = data.running;
+  }, [data, notifyEnabled]);
+
+  const handleStarted = (runId) => {
+    setSelectedRunId(runId);
+    refreshRuns();
+  };
+  const enableNotifications = () => {
+    Notification.requestPermission().then((perm) => setNotifyEnabled(perm === "granted"));
+  };
+
   if (!data) return <Typography>Loading…</Typography>;
 
   const { running, completed, total, eta_seconds, avg_seconds, elapsed_seconds, games, result, verdict } = data;
@@ -627,9 +1224,15 @@ function StatusPage({ t }) {
         <Typography variant="h5">{t.statusTitle}</Typography>
         <Stack direction="row" spacing={2} alignItems="center">
           <SecondsAgo updatedAt={updatedAt} t={t} />
+          {typeof Notification !== "undefined" && !notifyEnabled && (
+            <Button variant="outlined" size="small" onClick={enableNotifications}>🔔 {t.enableNotify}</Button>
+          )}
           <Button variant="outlined" size="small" onClick={refresh}>⟳ {t.refresh}</Button>
         </Stack>
       </Stack>
+
+      <StartGateForm t={t} onStarted={handleStarted} />
+      <RunPicker runs={runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
         <Chip label={stateLabel} color={stateColor} />
@@ -659,6 +1262,9 @@ function StatusPage({ t }) {
               ={(result.los * 100).toFixed(1)}% games={result.games}
               {" "}(e1_wins={result.engine1_wins} draws={result.draws} e2_wins={result.engine2_wins})
             </Typography>
+            <Box sx={{ mt: 1 }}>
+              <WdlBar wins={result.engine1_wins} draws={result.draws} losses={result.engine2_wins} width={200} height={16} showLabels t={t} />
+            </Box>
           </CardContent>
         </Card>
       ) : (
@@ -685,7 +1291,7 @@ function StatusPage({ t }) {
           rows={gameRows}
           renderCell={(key, row) => {
             if (key === "time") return row.time ? new Date(row.time * 1000).toLocaleTimeString() : "";
-            if (key === "kifu") return <a href={`/kifu/${row.n}`} target="_blank" rel="noreferrer">{t.viewKifu}</a>;
+            if (key === "kifu") return <a href={`/kifu/${selectedRunId}/${row.n}`} target="_blank" rel="noreferrer">{t.viewKifu}</a>;
             if (row.raw) return key === "n" ? row.n : (key === "result" ? row.raw : "");
             if (key === "e1") return `${row.e1} (${row.c1})`;
             if (key === "e2") return `${row.e2} (${row.c2})`;
@@ -709,6 +1315,21 @@ function StrengthPage({ t }) {
   const entries = (historyData?.entries || []).filter((e) => !e.error);
   const rows = entries.map((e) => ({ ...e, est_rating: anchor + e.elo_diff }));
   const items = todoData?.items || [];
+  const [highlight, setHighlight] = useState(null);
+  const selectRow = (file) => {
+    setHighlight(file);
+    scrollToRow(file);
+    setTimeout(() => setHighlight((h) => (h === file ? null : h)), 1800);
+  };
+  const trendPoints = rows
+    .slice()
+    .sort((a, b) => a.mtime - b.mtime)
+    .map((r) => ({
+      y: r.est_rating,
+      verdict: r.verdict,
+      file: r.file,
+      tooltipLines: [`${r.file} (${r.mtime_str})`, r.compared || t.unknownCompared, `${t.colEstRating}: ${Math.round(r.est_rating)}`],
+    }));
 
   return (
     <Box>
@@ -730,6 +1351,16 @@ function StrengthPage({ t }) {
         sx={{ mb: 3, width: 420 }}
       />
 
+      {trendPoints.length > 0 && (
+        <Box sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.trendTitle}</Typography>
+          <RatingTrendChart points={trendPoints} onSelect={selectRow} t={t} />
+        </Box>
+      )}
+      {trendPoints.length > 0 && (
+        <Typography variant="caption" color="warning.main" sx={{ display: "block", mb: 3 }}>{t.trendCaveat}</Typography>
+      )}
+
       {rows.length === 0 ? (
         <Typography sx={{ mb: 3 }}><em>{t.noResults}</em></Typography>
       ) : (
@@ -743,6 +1374,7 @@ function StrengthPage({ t }) {
             { key: "est_rating", label: t.colEstRating },
           ]}
           rows={rows}
+          highlightKey={highlight}
           renderCell={(key, row) => {
             if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" />;
             if (key === "elo_diff") return row.elo_diff.toFixed(1);
@@ -781,11 +1413,32 @@ function StrengthPage({ t }) {
   );
 }
 
+const PAGES = ["history", "status", "strength"];
+
+function pageFromUrl() {
+  const p = new URLSearchParams(window.location.search).get("page");
+  return PAGES.includes(p) ? p : "history";
+}
+
 function App() {
-  const [page, setPage] = useState("history");
+  const [page, setPageState] = useState(pageFromUrl);
   const [lang, setLang] = useState(() => localStorage.getItem("sekirei_dash_lang") || "ja");
   useEffect(() => { localStorage.setItem("sekirei_dash_lang", lang); }, [lang]);
   const t = TRANSLATIONS[lang];
+
+  // ?page= in the URL is the source of truth for which sidebar item is
+  // selected, so a refresh/bookmark/shared link lands on the same page.
+  const setPage = (p) => {
+    setPageState(p);
+    const url = new URL(window.location);
+    url.searchParams.set("page", p);
+    window.history.pushState({}, "", url);
+  };
+  useEffect(() => {
+    const onPopState = () => setPageState(pageFromUrl());
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const NAV = [
     { key: "history", label: t.navHistory },
@@ -842,23 +1495,29 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def _send_json(self, obj):
+    def _send_json(self, obj, status=200):
         body = json.dumps(obj).encode("utf-8")
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        # Without an explicit no-store, a bare GET with no validators can
+        # still get reused by the browser's HTTP cache for these
+        # unchanging-URL polling endpoints, showing stale run status.
+        self.send_header("Cache-Control", "no-store")
         self.end_headers()
         self.wfile.write(body)
 
-    def _send_kifu(self, n_str):
+    def _send_kifu(self, run_id, n_str):
         # n_str must be a plain integer -- reject anything else so it can't
-        # be used to escape KIFU_DIR (e.g. "../../etc/passwd").
-        if not KIFU_DIR or not n_str.isdigit():
+        # be used to escape kifu_dir (e.g. "../../etc/passwd").
+        run = RUNS.get(run_id)
+        kifu_dir = run["kifu_dir"] if run else None
+        if not kifu_dir or not n_str.isdigit():
             self.send_response(404)
             self.end_headers()
             self.wfile.write(b"not found")
             return
-        path = os.path.join(KIFU_DIR, f"game{int(n_str):04d}.txt")
+        path = os.path.join(kifu_dir, f"game{int(n_str):04d}.txt")
         try:
             with open(path, "rb") as f:
                 body = f.read()
@@ -874,9 +1533,21 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_GET(self):
-        path = self.path.split("?")[0]
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+        qs = urllib.parse.parse_qs(parsed.query)
         if path == "/api/status":
-            self._send_json(get_status_data())
+            run_id = qs.get("run", ["default"])[0]
+            if run_id not in RUNS:
+                self._send_json({"error": "unknown run"}, status=404)
+                return
+            self._send_json(get_status_data(run_id))
+            return
+        if path == "/api/runs":
+            self._send_json(get_runs_data())
+            return
+        if path == "/api/weights":
+            self._send_json({"weights": list_weights()})
             return
         if path == "/api/history":
             self._send_json(get_history_data())
@@ -885,7 +1556,13 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(get_todo_items())
             return
         if path.startswith("/kifu/"):
-            self._send_kifu(path[len("/kifu/") :])
+            parts = path[len("/kifu/") :].split("/", 1)
+            if len(parts) == 2:
+                self._send_kifu(parts[0], parts[1])
+            else:
+                self.send_response(404)
+                self.end_headers()
+                self.wfile.write(b"not found")
             return
         if path in ("/", "/status", "/history", "/strength"):
             body = SHELL_HTML.encode("utf-8")
@@ -894,6 +1571,22 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return
+        self.send_response(404)
+        self.end_headers()
+        self.wfile.write(b"not found")
+
+    def do_POST(self):
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/api/runs":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(body)
+                run_id = start_run(payload)
+                self._send_json({"run_id": run_id})
+            except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as e:
+                self._send_json({"error": str(e)}, status=400)
             return
         self.send_response(404)
         self.end_headers()
