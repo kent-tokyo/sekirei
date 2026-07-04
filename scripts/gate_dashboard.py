@@ -41,10 +41,13 @@ import glob
 import json
 import os
 import re
+import ssl
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -59,6 +62,30 @@ REPO_ROOT = os.path.dirname(RESULTS_DIR)
 TODO_MD = os.path.join(REPO_ROOT, "tasks", "todo.md")
 TODO_PHASE_HEADING = "Strength Measurement"
 DATA_DIR = os.path.join(REPO_ROOT, "data")
+
+
+def _load_dotenv(path):
+    """Minimal KEY=VALUE .env reader -- no python-dotenv dependency for one
+    file of `NAME=value` lines. Same convention as .env.example: not committed
+    (see .gitignore), values never logged or echoed back to the frontend."""
+    env = {}
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                env[k.strip()] = v.strip()
+    except OSError:
+        pass
+    return env
+
+
+_DOTENV = _load_dotenv(os.path.join(REPO_ROOT, ".env"))
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or _DOTENV.get("ANTHROPIC_API_KEY")
+ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or _DOTENV.get("ANTHROPIC_MODEL") or "claude-sonnet-5"
+ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MATERIAL_SENTINEL = "__material__"
 
 # Registry of runs the dashboard knows about -- the CLI-arg-supplied run is
@@ -104,43 +131,30 @@ def pid_is_running(pid):
         return False
 
 
-def _known_pids():
-    return {r["pid"] for r in RUNS.values() if r.get("pid") is not None}
-
-
-def _default_pid():
-    # Legacy heuristic for the CLI-launched "default" run, whose PID we never
-    # had -- matches any sekirei-match process, EXCLUDING pids already
-    # claimed by a run we launched ourselves (tracked via a real `pid` in
-    # RUNS), so a dashboard-started run doesn't make "default" look running
-    # too. Still ambiguous if the user has launched *multiple* untracked
-    # sekirei-match processes outside the dashboard at once.
+def _pid_for_result_json(result_json):
+    # For a run with no recorded `pid` (the CLI-launched "default" run, or
+    # one attached via /api/runs/attach for a process started outside the
+    # dashboard): every sekirei-match invocation's `--json <result_json>` is
+    # a unique string, so matching on it (rather than the generic
+    # "sekirei-match " pattern used before) finds *that* run's specific
+    # process instead of any/the-wrong one once multiple runs exist.
     try:
-        out = subprocess.run(
-            ["pgrep", "-f", "sekirei-match "], capture_output=True, text=True
-        )
-        known = _known_pids()
-        for p in out.stdout.split():
-            if p and int(p) not in known:
-                return p
-        return None
+        out = subprocess.run(["pgrep", "-f", result_json], capture_output=True, text=True)
+        pid = out.stdout.strip().split("\n")[0]
+        return pid or None
     except Exception:
         return None
-
-
-def _default_is_running():
-    return _default_pid() is not None
 
 
 def run_is_running(run):
     if run.get("pid") is not None:
         return pid_is_running(run["pid"])
-    return _default_is_running()
+    return _pid_for_result_json(run["result_json"]) is not None
 
 
 def run_elapsed_seconds(run):
     """Elapsed wall time of a run's match process, or None."""
-    pid = run.get("pid") or _default_pid()
+    pid = run.get("pid") or _pid_for_result_json(run["result_json"])
     if not pid:
         return None
     try:
@@ -347,6 +361,33 @@ def start_run(payload):
     return run_id
 
 
+def attach_run(payload):
+    """Registers a gate that's already running outside the dashboard (e.g.
+    launched directly via a shell command) so its progress can be watched
+    without restarting the server. Its liveness is checked by matching
+    `--json <result_json>` in the process list (see _pid_for_result_json),
+    since we don't have its pid the way start_run()'s own launches do.
+    """
+    log_file = (payload.get("log_file") or "").strip()
+    result_json = (payload.get("result_json") or "").strip()
+    kifu_dir = (payload.get("kifu_dir") or "").strip() or None
+    if not log_file or not result_json:
+        raise ValueError("log_file and result_json are required")
+
+    global _next_run_seq
+    run_id = f"run{_next_run_seq}"
+    _next_run_seq += 1
+    RUNS[run_id] = {
+        "label": os.path.basename(result_json),
+        "log_file": log_file,
+        "result_json": result_json,
+        "kifu_dir": kifu_dir,
+        "pid": None,
+        "started_at": time.time(),
+    }
+    return run_id
+
+
 TODO_TAG_RE = re.compile(r"\s*#(code|match)\s*$")
 TODO_BULLET_RE = re.compile(r"^(\s*)- \[([ x])\] (.+)$")
 TODO_GAME_COUNT_RE = re.compile(r"(\d+)\s*(?:局|games?\b|-game\b)")
@@ -473,6 +514,118 @@ def compared_label(r):
     return f"{e1} vs {e2}"
 
 
+def build_chat_context(page=None, run_id=None):
+    """Snapshot of what's currently on the dashboard (history, the run the
+    user is actually looking at, open todo items) so the AI assistant can
+    answer questions about any of it -- rebuilt fresh per chat request
+    rather than cached, since the underlying data changes while a gate is
+    running. `page`/`run_id` describe what's on screen right now (sent by
+    the frontend's ChatWidget) so the status section reflects that run
+    instead of always defaulting to the CLI-launched one.
+    """
+    history = get_history_data()["entries"]
+    gate_rows = [e for e in history if not e.get("error")]
+    gate_rows.sort(key=lambda e: e["mtime"])
+    history_lines = [
+        "- {mtime}: {file} -- {cmp} -- verdict={v} elo_diff={elo:+.1f} los={los:.1f}% "
+        "games={g} (W{w}/D{d}/L{l})".format(
+            mtime=e["mtime_str"],
+            file=e["file"],
+            cmp=e.get("compared") or "(unknown/pre-audit-fix format)",
+            v=e["verdict"],
+            elo=e["elo_diff"],
+            los=e["los"] * 100,
+            g=e["games"],
+            w=e["engine1_wins"],
+            d=e["draws"],
+            l=e["engine2_wins"],
+        )
+        for e in gate_rows
+    ]
+
+    effective_run_id = run_id if run_id in RUNS else "default"
+    status = get_status_data(effective_run_id)
+    status_line = (
+        f"run={effective_run_id} ({RUNS[effective_run_id]['label']}) "
+        f"running={status['running']} completed={status['completed']}/{status['total']} "
+        f"verdict={status['verdict']} result={status['result']}"
+    )
+
+    todo = get_todo_items()["items"]
+    todo_lines = [f"- [{i['category']}] {i['text']}" for i in todo]
+
+    viewing_line = f"The user is currently viewing the '{page}' page of the dashboard.\n\n" if page else ""
+
+    return (
+        "You are an assistant embedded in a local dashboard for Sekirei, a shogi "
+        "(Japanese chess) engine project. You can see the following live data; use "
+        "it to answer whatever the user asks (a specific past result, the overall "
+        "strength trend, what to do next, etc). Rows in the gate history often "
+        "compare *different* candidate/baseline pairs, not one model's continuous "
+        "progress -- don't imply a single smooth trend unless the data supports it.\n\n"
+        + viewing_line
+        + "## Gate result history (chronological)\n"
+        + ("\n".join(history_lines) if history_lines else "(none yet)")
+        + "\n\n## Status of the run currently on screen\n"
+        + status_line
+        + "\n\n## Open strength-improvement action items (tasks/todo.md)\n"
+        + ("\n".join(todo_lines) if todo_lines else "(none)")
+    )
+
+
+def _https_context():
+    # The python.org macOS installer ships without a working default CA
+    # bundle until "Install Certificates.command" is run, which breaks
+    # urlopen() over https with CERTIFICATE_VERIFY_FAILED. Point at the
+    # system's own bundle instead of adding a certifi dependency for this
+    # one call -- still full certificate verification, just against a
+    # bundle that's actually populated.
+    if os.path.isfile("/etc/ssl/cert.pem"):
+        return ssl.create_default_context(cafile="/etc/ssl/cert.pem")
+    return ssl.create_default_context()
+
+
+def call_anthropic(system, messages):
+    if not ANTHROPIC_API_KEY:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set (see .env.example, then set it in .env)")
+    body = json.dumps(
+        {
+            "model": ANTHROPIC_MODEL,
+            "max_tokens": 1024,
+            "system": system,
+            "messages": messages,
+        }
+    ).encode("utf-8")
+    req = urllib.request.Request(
+        ANTHROPIC_API_URL,
+        data=body,
+        headers={
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60, context=_https_context()) as resp:
+            data = json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        detail = e.read().decode("utf-8", "replace")
+        raise RuntimeError(f"Anthropic API error {e.code}: {detail[:300]}")
+    return "".join(b.get("text", "") for b in data.get("content", []) if b.get("type") == "text")
+
+
+def chat_reply(payload):
+    messages = payload.get("messages")
+    if not isinstance(messages, list) or not messages:
+        raise ValueError("messages must be a non-empty list")
+    for m in messages:
+        if m.get("role") not in ("user", "assistant") or not isinstance(m.get("content"), str):
+            raise ValueError("each message needs a role (user/assistant) and string content")
+    context = build_chat_context(payload.get("page"), payload.get("run_id"))
+    return call_anthropic(context, messages)
+
+
 SHELL_HTML = """<!doctype html>
 <html>
 <head>
@@ -504,11 +657,11 @@ SHELL_HTML = """<!doctype html>
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Box, Drawer, List, ListItemButton, ListItemText, Toolbar, Typography,
+  Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography,
   Button, Chip, LinearProgress, Card,
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
-  MenuItem
+  MenuItem, Fab, IconButton, TablePagination
 } from "@mui/material";
 
 const TRANSLATIONS = {
@@ -537,6 +690,15 @@ const TRANSLATIONS = {
     engine1Label: "Engine1 の重み", engine2Label: "Engine2 の重み", materialEval: "(material eval / 重みなし)",
     gamesLabel: "局数", byoyomiLabel: "秒読み(ms)", startButton: "実行",
     enableNotify: "通知を有効にする",
+    attachRunTitle: "外部の実行を追加",
+    attachRunHelp: "ダッシュボードの外(ターミナル等)で直接起動した sekirei-match をここに追加すると、サーバーを再起動せずに進捗を確認できます。",
+    logFileLabel: "ログファイルのパス", resultJsonLabel: "result JSON のパス", kifuDirLabel: "棋譜ディレクトリ(任意)",
+    attachButton: "追加",
+    chatTitle: "AIアシスタント",
+    chatHelp: "過去のゲート結果一覧・実行状況・todo.mdの未完了項目を見た上で答えます(サーバー側の .env に ANTHROPIC_API_KEY が必要)。個別の対局から全体の傾向まで、何でも聞けます。",
+    chatEmpty: "まだメッセージがありません。例:「直近の結果を要約して」「エンジンは強くなっている?」",
+    chatPlaceholder: "質問を入力…(Enterで改行、Cmd/Ctrl+Enterまたは送信ボタンで送信)",
+    chatSend: "送信",
     stateRunning: "実行中", stateDone: "完了", stateStopped: "停止 (結果待ちまたは終了)",
     progress: "進行", etaEstimating: "残り時間: 推定中 (1局目が終わるまで待機)…",
     etaSoon: "残り時間: まもなく終了 (結果集計中)",
@@ -590,6 +752,15 @@ const TRANSLATIONS = {
     engine1Label: "Engine1 weights", engine2Label: "Engine2 weights", materialEval: "(material eval / no weights)",
     gamesLabel: "Games", byoyomiLabel: "Byoyomi (ms)", startButton: "Start",
     enableNotify: "Enable notifications",
+    attachRunTitle: "Attach an external run",
+    attachRunHelp: "Add a sekirei-match run started outside the dashboard (e.g. from a terminal) to watch its progress here without restarting the server.",
+    logFileLabel: "Log file path", resultJsonLabel: "Result JSON path", kifuDirLabel: "Kifu dir (optional)",
+    attachButton: "Attach",
+    chatTitle: "AI assistant",
+    chatHelp: "Answers using the gate result history, current execution status, and open tasks/todo.md items (needs ANTHROPIC_API_KEY set in .env server-side). Ask about anything from one specific game to the overall trend.",
+    chatEmpty: "No messages yet. Try: \\"Summarize the recent results\\" or \\"Is the engine getting stronger?\\"",
+    chatPlaceholder: "Ask a question… (Enter for a new line, Cmd/Ctrl+Enter or the Send button to send)",
+    chatSend: "Send",
     stateRunning: "Running", stateDone: "Done", stateStopped: "Stopped (awaiting result or finished)",
     progress: "Progress", etaEstimating: "ETA: estimating (waiting for game 1 to finish)…",
     etaSoon: "ETA: finishing up (tallying result)",
@@ -950,8 +1121,14 @@ function useSortableData(rows, initialKey, initialDir) {
   return { sorted, sortKey, sortDir, requestSort };
 }
 
-function SortableTable({ columns, rows, initialKey, initialDir, renderCell, highlightKey }) {
+function SortableTable({ columns, rows, initialKey, initialDir, renderCell, highlightKey, paginated, rowsPerPageOptions }) {
   const { sorted, sortKey, sortDir, requestSort } = useSortableData(rows, initialKey, initialDir);
+  const pageSizes = rowsPerPageOptions || [10, 25, 50];
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(pageSizes[0]);
+  useEffect(() => { setPage(0); }, [sortKey, sortDir, rows.length]);
+  const pageRows = paginated ? sorted.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage) : sorted;
+
   return (
     <TableContainer component={Paper} variant="outlined">
       <Table size="small">
@@ -975,7 +1152,7 @@ function SortableTable({ columns, rows, initialKey, initialDir, renderCell, high
           </TableRow>
         </TableHead>
         <TableBody>
-          {sorted.map((row, i) => (
+          {pageRows.map((row, i) => (
             <TableRow
               key={i}
               hover
@@ -989,6 +1166,17 @@ function SortableTable({ columns, rows, initialKey, initialDir, renderCell, high
           ))}
         </TableBody>
       </Table>
+      {paginated && (
+        <TablePagination
+          component="div"
+          count={sorted.length}
+          page={page}
+          onPageChange={(e, newPage) => setPage(newPage)}
+          rowsPerPage={rowsPerPage}
+          onRowsPerPageChange={(e) => { setRowsPerPage(parseInt(e.target.value, 10)); setPage(0); }}
+          rowsPerPageOptions={pageSizes}
+        />
+      )}
     </TableContainer>
   );
 }
@@ -1180,8 +1368,46 @@ function StartGateForm({ t, onStarted }) {
   );
 }
 
-function StatusPage({ t }) {
-  const [selectedRunId, setSelectedRunId] = useState("default");
+function AttachRunForm({ t, onAttached }) {
+  const [logFile, setLogFile] = useState("");
+  const [resultJson, setResultJson] = useState("");
+  const [kifuDir, setKifuDir] = useState("");
+  const [attaching, setAttaching] = useState(false);
+  const [error, setError] = useState(null);
+
+  const attach = () => {
+    setAttaching(true);
+    setError(null);
+    fetch("/api/runs/attach", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ log_file: logFile, result_json: resultJson, kifu_dir: kifuDir }),
+    })
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        setAttaching(false);
+        if (!ok) { setError(body.error || "error"); return; }
+        onAttached(body.run_id);
+      })
+      .catch((e) => { setAttaching(false); setError(String(e)); });
+  };
+
+  return (
+    <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
+      <Typography variant="subtitle1" sx={{ mb: 1 }}>{t.attachRunTitle}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>{t.attachRunHelp}</Typography>
+      <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
+        <TextField size="small" label={t.logFileLabel} value={logFile} onChange={(e) => setLogFile(e.target.value)} sx={{ minWidth: 260 }} />
+        <TextField size="small" label={t.resultJsonLabel} value={resultJson} onChange={(e) => setResultJson(e.target.value)} sx={{ minWidth: 260 }} />
+        <TextField size="small" label={t.kifuDirLabel} value={kifuDir} onChange={(e) => setKifuDir(e.target.value)} sx={{ minWidth: 200 }} />
+        <Button variant="outlined" disabled={attaching || !logFile || !resultJson} onClick={attach}>{attaching ? "…" : t.attachButton}</Button>
+      </Stack>
+      {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
+    </Card>
+  );
+}
+
+function StatusPage({ t, selectedRunId, onSelectRun }) {
   const { data: runsData, refresh: refreshRuns } = useApi("/api/runs", 5000);
   const runs = runsData?.runs || [];
   const { data, updatedAt, refresh } = useApi(`/api/status?run=${selectedRunId}`, 4000);
@@ -1201,7 +1427,7 @@ function StatusPage({ t }) {
   }, [data, notifyEnabled]);
 
   const handleStarted = (runId) => {
-    setSelectedRunId(runId);
+    onSelectRun(runId);
     refreshRuns();
   };
   const enableNotifications = () => {
@@ -1232,7 +1458,8 @@ function StatusPage({ t }) {
       </Stack>
 
       <StartGateForm t={t} onStarted={handleStarted} />
-      <RunPicker runs={runs} selectedRunId={selectedRunId} onSelect={setSelectedRunId} />
+      <AttachRunForm t={t} onAttached={handleStarted} />
+      <RunPicker runs={runs} selectedRunId={selectedRunId} onSelect={onSelectRun} />
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
         <Chip label={stateLabel} color={stateColor} />
@@ -1279,6 +1506,7 @@ function StatusPage({ t }) {
       ) : hasDetail ? (
         <SortableTable
           initialKey="n" initialDir="desc"
+          paginated rowsPerPageOptions={[10, 25, 50]}
           columns={[
             { key: "n", label: t.colGame },
             { key: "time", label: t.colTime },
@@ -1413,6 +1641,271 @@ function StrengthPage({ t }) {
   );
 }
 
+// Minimal hand-rolled markdown -> JSX for chat replies: **bold**, `code`,
+// *italic*, and GFM-style pipe tables (reusing the Table components already
+// imported for SortableTable). Not a general CommonMark parser -- just
+// enough for what an LLM reply typically uses, without a markdown library.
+function parseInlineMd(text, keyPrefix) {
+  const parts = [];
+  const re = /(\\*\\*(.+?)\\*\\*|`(.+?)`|\\*(.+?)\\*)/g;
+  let last = 0, i = 0;
+  for (const m of text.matchAll(re)) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    if (m[2] !== undefined) {
+      parts.push(<strong key={`${keyPrefix}-${i++}`}>{m[2]}</strong>);
+    } else if (m[3] !== undefined) {
+      parts.push(
+        <code
+          key={`${keyPrefix}-${i++}`}
+          style={{ background: "rgba(0,0,0,0.06)", padding: "1px 4px", borderRadius: 4, fontSize: "0.9em" }}
+        >
+          {m[3]}
+        </code>
+      );
+    } else if (m[4] !== undefined) {
+      parts.push(<em key={`${keyPrefix}-${i++}`}>{m[4]}</em>);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return parts;
+}
+
+function isTableSeparatorLine(line) {
+  return /^\\s*\\|?\\s*:?-+:?\\s*(\\|\\s*:?-+:?\\s*)+\\|?\\s*$/.test(line);
+}
+
+function parseMarkdownTable(lines) {
+  const toCells = (line) => line.trim().replace(/^\\||\\|$/g, "").split("|").map((c) => c.trim());
+  const header = toCells(lines[0]);
+  const rows = lines.slice(2).map(toCells);
+  return (
+    <TableContainer component={Paper} variant="outlined" sx={{ my: 1 }}>
+      <Table size="small">
+        <TableHead>
+          <TableRow>
+            {header.map((h, i) => <TableCell key={i}>{parseInlineMd(h, `h${i}`)}</TableCell>)}
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {rows.map((row, ri) => (
+            <TableRow key={ri}>
+              {row.map((c, ci) => <TableCell key={ci}>{parseInlineMd(c, `r${ri}c${ci}`)}</TableCell>)}
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </TableContainer>
+  );
+}
+
+function renderMarkdown(text) {
+  const lines = text.split("\\n");
+  const blocks = [];
+  let para = [];
+  const flushPara = () => {
+    if (para.length === 0) return;
+    blocks.push(
+      <Typography key={blocks.length} variant="body2" component="div" sx={{ mb: 1 }}>
+        {para.map((l, li) => (
+          <React.Fragment key={li}>
+            {li > 0 && <br />}
+            {parseInlineMd(l, `p${blocks.length}-${li}`)}
+          </React.Fragment>
+        ))}
+      </Typography>
+    );
+    para = [];
+  };
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.includes("|") && i + 1 < lines.length && isTableSeparatorLine(lines[i + 1])) {
+      flushPara();
+      const tableLines = [line, lines[i + 1]];
+      i += 2;
+      while (i < lines.length && lines[i].includes("|") && lines[i].trim() !== "") {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      blocks.push(<Box key={blocks.length}>{parseMarkdownTable(tableLines)}</Box>);
+      continue;
+    }
+    if (line.trim() === "") {
+      flushPara();
+      i++;
+      continue;
+    }
+    para.push(line);
+    i++;
+  }
+  flushPara();
+  return blocks;
+}
+
+// Floating chat widget (bottom-right FAB + popup panel), mounted once at the
+// App level so it's available on every page and keeps its conversation state
+// across page switches instead of resetting per-page.
+function ChatWidget({ t, page, statusRunId }) {
+  const [open, setOpen] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [input, setInput] = useState("");
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState(null);
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (open) bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, open]);
+
+  const send = () => {
+    const text = input.trim();
+    if (!text || sending) return;
+    const next = [...messages, { role: "user", content: text }];
+    setMessages(next);
+    setInput("");
+    setSending(true);
+    setError(null);
+    fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // `page`/`run_id`: what's actually on screen right now, so the
+      // assistant answers about the run the user is looking at instead of
+      // only ever the "default" one.
+      body: JSON.stringify({ messages: next, page, run_id: page === "status" ? statusRunId : undefined }),
+    })
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        setSending(false);
+        if (!ok) { setError(body.error || "error"); return; }
+        setMessages((cur) => [...cur, { role: "assistant", content: body.reply }]);
+      })
+      .catch((e) => { setSending(false); setError(String(e)); });
+  };
+
+  // Enter inserts a newline like a normal textarea; Cmd/Ctrl+Enter sends
+  // (the explicit Send button is the primary way, this is just a shortcut).
+  const onKeyDown = (e) => {
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      send();
+    }
+  };
+
+  return (
+    <>
+      {open && (
+        <Paper
+          elevation={6}
+          sx={{
+            position: "fixed", bottom: 96, right: 24, width: 360, height: 480,
+            display: "flex", flexDirection: "column", zIndex: 1300, overflow: "hidden",
+          }}
+        >
+          <Box sx={{ p: 1.5, borderBottom: "1px solid", borderColor: "divider", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <Typography variant="subtitle2">{t.chatTitle}</Typography>
+            <IconButton size="small" onClick={() => setOpen(false)}><IconClose size={18} /></IconButton>
+          </Box>
+          <Typography variant="caption" color="text.secondary" sx={{ px: 1.5, pt: 1 }}>{t.chatHelp}</Typography>
+          <Box sx={{ flex: 1, overflowY: "auto", p: 1.5 }}>
+            {messages.length === 0 && <Typography variant="body2" color="text.secondary"><em>{t.chatEmpty}</em></Typography>}
+            <Stack spacing={1.5}>
+              {messages.map((m, i) => (
+                <Box key={i} sx={{ textAlign: m.role === "user" ? "right" : "left" }}>
+                  <Paper
+                    variant="outlined"
+                    sx={{
+                      display: "inline-block", p: 1, maxWidth: m.role === "user" ? "85%" : "100%", textAlign: "left",
+                      backgroundColor: m.role === "user" ? "action.hover" : "background.paper",
+                      fontSize: 14,
+                    }}
+                  >
+                    {m.role === "assistant"
+                      ? renderMarkdown(m.content)
+                      : <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>{m.content}</Typography>}
+                  </Paper>
+                </Box>
+              ))}
+            </Stack>
+            <div ref={bottomRef} />
+          </Box>
+          {error && <Typography variant="caption" color="error.main" sx={{ px: 1.5, display: "block" }}>{error}</Typography>}
+          <Box sx={{ p: 1, borderTop: "1px solid", borderColor: "divider", display: "flex", gap: 1 }}>
+            <TextField
+              fullWidth multiline minRows={3} maxRows={3} size="small"
+              placeholder={t.chatPlaceholder}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={onKeyDown}
+            />
+            <Button variant="contained" size="small" disabled={sending || !input.trim()} onClick={send}>
+              {sending ? "…" : t.chatSend}
+            </Button>
+          </Box>
+        </Paper>
+      )}
+      <Fab
+        color="primary"
+        onClick={() => setOpen((o) => !o)}
+        sx={{ position: "fixed", bottom: 24, right: 24, zIndex: 1300 }}
+        aria-label={t.chatTitle}
+      >
+        {open ? <IconClose /> : <IconChat />}
+      </Fab>
+    </>
+  );
+}
+
+// Small hand-rolled SVG icons (currentColor-based, so they inherit MUI's
+// text/selected color automatically) -- matches this dashboard's existing
+// no-new-dependency approach (the charts are hand-rolled SVG too) rather
+// than pulling in the full @mui/icons-material package for five glyphs.
+function IconHistory() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M13 3a9 9 0 1 0 9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+      <path d="M13 3v5h5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 8v5l3 3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconStatus() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" />
+      <path d="M10 8l6 4-6 4V8z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconStrength() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <path d="M4 16l5-5 4 4 7-8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M15 7h5v5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconChat({ size }) {
+  size = size || 24;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M4 5h16v10H8l-4 4V5z" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconClose({ size }) {
+  size = size || 20;
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 const PAGES = ["history", "status", "strength"];
 
 function pageFromUrl() {
@@ -1422,6 +1915,9 @@ function pageFromUrl() {
 
 function App() {
   const [page, setPageState] = useState(pageFromUrl);
+  // Lifted out of StatusPage so the chat widget can tell the backend which
+  // run is actually on screen right now, not just a generic snapshot.
+  const [statusRunId, setStatusRunId] = useState("default");
   const [lang, setLang] = useState(() => localStorage.getItem("sekirei_dash_lang") || "ja");
   useEffect(() => { localStorage.setItem("sekirei_dash_lang", lang); }, [lang]);
   const t = TRANSLATIONS[lang];
@@ -1441,9 +1937,9 @@ function App() {
   }, []);
 
   const NAV = [
-    { key: "history", label: t.navHistory },
-    { key: "status", label: t.navStatus },
-    { key: "strength", label: t.navStrength },
+    { key: "history", label: t.navHistory, Icon: IconHistory },
+    { key: "status", label: t.navStatus, Icon: IconStatus },
+    { key: "strength", label: t.navStrength, Icon: IconStrength },
   ];
 
   return (
@@ -1456,6 +1952,7 @@ function App() {
         <List>
           {NAV.map((item) => (
             <ListItemButton key={item.key} selected={page === item.key} onClick={() => setPage(item.key)}>
+              <ListItemIcon sx={{ minWidth: 36 }}><item.Icon /></ListItemIcon>
               <ListItemText primary={item.label} />
             </ListItemButton>
           ))}
@@ -1477,9 +1974,10 @@ function App() {
       </Drawer>
       <Box component="main" sx={{ flexGrow: 1, p: 3, maxWidth: 960 }}>
         {page === "history" && <HistoryPage t={t} />}
-        {page === "status" && <StatusPage t={t} />}
+        {page === "status" && <StatusPage t={t} selectedRunId={statusRunId} onSelectRun={setStatusRunId} />}
         {page === "strength" && <StrengthPage t={t} />}
       </Box>
+      <ChatWidget t={t} page={page} statusRunId={statusRunId} />
     </Box>
   );
 }
@@ -1578,13 +2076,27 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         parsed = urllib.parse.urlparse(self.path)
-        if parsed.path == "/api/runs":
+        if parsed.path in ("/api/runs", "/api/runs/attach"):
             length = int(self.headers.get("Content-Length", 0) or 0)
             body = self.rfile.read(length) if length else b"{}"
             try:
                 payload = json.loads(body)
-                run_id = start_run(payload)
+                run_id = (
+                    attach_run(payload)
+                    if parsed.path == "/api/runs/attach"
+                    else start_run(payload)
+                )
                 self._send_json({"run_id": run_id})
+            except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as e:
+                self._send_json({"error": str(e)}, status=400)
+            return
+        if parsed.path == "/api/chat":
+            length = int(self.headers.get("Content-Length", 0) or 0)
+            body = self.rfile.read(length) if length else b"{}"
+            try:
+                payload = json.loads(body)
+                reply = chat_reply(payload)
+                self._send_json({"reply": reply})
             except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as e:
                 self._send_json({"error": str(e)}, status=400)
             return
