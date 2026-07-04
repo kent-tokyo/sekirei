@@ -114,7 +114,9 @@ echo "  -> $OUTPUT"
 
 # ---- Elo comparison -------------------------------------------------------
 echo "[5/5] strength regression  ($GAMES games)"
-OUT_JSON="results/${TIMESTAMP}.json"
+# Naming convention: <timestamp>_<candidate>_vs_<baseline>.json -- matches
+# scripts/strength_regression.sh and scripts/redo_quietset_bc.sh.
+OUT_JSON="results/${TIMESTAMP}_$(basename "$OUTPUT" .bin)_vs_$(basename "$BASELINE" .bin).json"
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 "./target/release/sekirei $OUTPUT" \
   --engine2 "./target/release/sekirei $BASELINE" \

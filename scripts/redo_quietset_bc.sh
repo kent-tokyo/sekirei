@@ -151,8 +151,11 @@ echo "  -> $OUT_C"
 
 # ---- Gate B and C -----------------------------------------------------------
 echo "[5/5] strength gate  ($GAMES games each)"
-RESULT_B="results/${TIMESTAMP}_B.json"
-RESULT_C="results/${TIMESTAMP}_C.json"
+# Naming convention: <timestamp>_<candidate>_vs_<baseline>.json -- matches
+# scripts/strength_regression.sh, so the filename alone says what was compared.
+BASELINE_STEM=$(basename "$BASELINE" .bin)
+RESULT_B="results/${TIMESTAMP}_$(basename "$OUT_B" .bin)_vs_${BASELINE_STEM}.json"
+RESULT_C="results/${TIMESTAMP}_$(basename "$OUT_C" .bin)_vs_${BASELINE_STEM}.json"
 
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUT_B" \

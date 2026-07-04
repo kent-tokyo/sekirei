@@ -20,7 +20,16 @@ GAMES=${3:-400}
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p results
-OUT="results/${TIMESTAMP}.json"
+# Naming convention: <timestamp>_<candidate>_vs_<baseline>.json -- so the
+# filename alone says what was compared (previously just the timestamp,
+# leaving which weights were tested unrecoverable from results/ alone).
+NEW_STEM=$(basename "$NEW" .bin)
+BASE_STEM=$(basename "$BASE" .bin)
+OUT="results/${TIMESTAMP}_${NEW_STEM}_vs_${BASE_STEM}.json"
+# Per-game kifu (USI position/moves records) for scripts/gate_dashboard.py's
+# kifu viewer -- pass this directory as the dashboard's 4th argument.
+KIFU_DIR="results/kifu/${TIMESTAMP}_${NEW_STEM}_vs_${BASE_STEM}"
+mkdir -p "$KIFU_DIR"
 
 echo "=== Strength regression: $NEW vs $BASE ($GAMES games) ==="
 cargo build --release -q -p sekirei-match-runner -p sekirei
@@ -29,6 +38,7 @@ cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$NEW" \
   --engine2 ./target/release/sekirei --args2 "$BASE" \
   --games "$GAMES" --byoyomi 1000 \
+  --output "$KIFU_DIR" \
   --json "$OUT"
 
 echo ""
