@@ -638,14 +638,20 @@ fn main() {
             ("White", "Black")
         };
 
+        // Positional ("Engine1"/"Engine2"), not the engine's own label: when
+        // both sides share a base name (e.g. two Sekirei binaries with
+        // different weight files, or plain material eval with no args at
+        // all), "{label} Win" collapses to the same ambiguous text for
+        // either winner. The engine identity is already shown earlier in
+        // this same line ("<e1_label> (Black) vs <e2_label> (White)").
         let result_str = match outcome {
             Outcome::E1Win => {
                 e1_wins += 1;
-                format!("{e1_label} Win")
+                "Engine1 Win".to_string()
             }
             Outcome::E2Win => {
                 e2_wins += 1;
-                format!("{e2_label} Win")
+                "Engine2 Win".to_string()
             }
             Outcome::Draw => {
                 draws += 1;
