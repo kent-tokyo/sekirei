@@ -24,10 +24,11 @@
 
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::time::Duration;
 
 use crate::board::Board;
+use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate};
 use crate::movegen::{generate_legal_captures, generate_legal_moves, is_in_check};
@@ -294,19 +295,11 @@ pub struct SearchInfo {
 
 struct SearchState {
     tt: Arc<Tt>,
-    nodes: AtomicU64,
-    /// Set by the time-check inside alpha_beta
-    abort: AtomicBool,
-    /// External stop signal (e.g. USI "stop" command)
-    external_abort: Arc<AtomicBool>,
-    start: Instant,
-    time_limit: Option<Duration>,
+    budget: Arc<Budget>,
     killers: KillerTable,
     history: HistoryTable,
     countermoves: CountermoveTable,
 }
-
-// SAFETY: All fields are either atomic types (Sync), Arc (Sync), or Instant/Option<Duration> (Sync).
 
 // ============================================================
 // Searcher
@@ -340,11 +333,7 @@ impl Searcher {
 
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
-            nodes: AtomicU64::new(0),
-            abort: AtomicBool::new(false),
-            external_abort: self.external_abort.clone(),
-            start: Instant::now(),
-            time_limit: config.time_limit,
+            budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -358,7 +347,7 @@ impl Searcher {
         for depth in 1..=config.max_depth {
             let (m, score) = root_search(&state, board, depth, best_score, &[]);
 
-            if state.abort.load(Ordering::Relaxed) {
+            if state.budget.should_abort() {
                 break;
             }
 
@@ -370,12 +359,12 @@ impl Searcher {
                 break;
             }
 
-            if depth >= 2
-                && config
-                    .soft_limit
-                    .is_some_and(|soft| state.start.elapsed() >= soft)
-                && best_move == prev_best
-            {
+            if soft_limit_expired(
+                &state.budget,
+                config.soft_limit,
+                depth,
+                best_move == prev_best,
+            ) {
                 break;
             }
             prev_best = best_move;
@@ -385,8 +374,8 @@ impl Searcher {
             best_move,
             score: best_score,
             depth: done_depth,
-            nodes: state.nodes.load(Ordering::Relaxed),
-            elapsed: state.start.elapsed(),
+            nodes: state.budget.nodes(),
+            elapsed: state.budget.elapsed(),
             hashfull: self.tt.hashfull(),
         }
     }
@@ -494,7 +483,7 @@ fn root_search(
     loop {
         let (m, score) = root_search_inner(state, board, depth, &ordered, lo, hi);
 
-        if state.abort.load(Ordering::Relaxed) {
+        if state.budget.should_abort() {
             return (m, score);
         }
 
@@ -535,7 +524,7 @@ fn root_search_inner(
         let score = -alpha_beta(state, board, -hi, -alpha, depth - 1, 1, true, Some(m), None);
         board.undo_move(tok);
 
-        if state.abort.load(Ordering::Relaxed) {
+        if state.budget.should_abort() {
             break;
         }
 
@@ -584,15 +573,7 @@ fn alpha_beta(
     prev_mv: Option<Move>, // the move that led to this position (for countermove heuristic)
     skip_move: Option<Move>, // excluded move for singular extension search (None normally)
 ) -> i32 {
-    state.nodes.fetch_add(1, Ordering::Relaxed);
-
-    if state.nodes.load(Ordering::Relaxed) & 0xFFF == 0
-        && let Some(lim) = state.time_limit
-        && state.start.elapsed() >= lim
-    {
-        state.abort.store(true, Ordering::Relaxed);
-    }
-    if state.abort.load(Ordering::Relaxed) || state.external_abort.load(Ordering::Relaxed) {
+    if state.budget.tick() {
         return 0;
     }
 
@@ -685,7 +666,7 @@ fn alpha_beta(
         caps.sort_by_cached_key(|&m| -see_score(board, m));
         let pc_depth = (depth - 4).min(3); // cap at 3 to keep the probe cheap
         for cap in caps {
-            if state.abort.load(Ordering::Relaxed) {
+            if state.budget.should_abort() {
                 break;
             }
             let tok = board.do_move(cap);
@@ -831,7 +812,7 @@ fn alpha_beta(
     );
     board.undo_move(tok);
 
-    if state.abort.load(Ordering::Relaxed) {
+    if state.budget.should_abort() {
         return 0;
     }
 
@@ -894,7 +875,7 @@ fn alpha_beta(
         let nw_results: Vec<(Move, i32, usize)> = work
             .into_par_iter()
             .filter_map(|(m, idx, mut b, ctx, lab)| {
-                if lab.load(Ordering::Relaxed) || ctx.abort.load(Ordering::Relaxed) {
+                if lab.load(Ordering::Relaxed) || ctx.budget.should_abort() {
                     return None;
                 }
                 let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm);
@@ -920,7 +901,7 @@ fn alpha_beta(
 
         // Sequential pass: handle fail-highs, update heuristics, apply history malus
         for (m, nw_score, _idx) in nw_results {
-            if state.abort.load(Ordering::Relaxed) {
+            if state.budget.should_abort() {
                 break;
             }
 
@@ -994,7 +975,7 @@ fn alpha_beta(
 
         for (j, &m) in rest[seq_start..].iter().enumerate() {
             let i = seq_start + j;
-            if state.abort.load(Ordering::Relaxed) {
+            if state.budget.should_abort() {
                 break;
             }
 
@@ -1109,18 +1090,10 @@ fn quiescence(
     ply: u32,
     qply: u32,
 ) -> i32 {
-    state.nodes.fetch_add(1, Ordering::Relaxed);
-
     // Enforce the hard time limit here too: a heavy qsearch subtree (quiet checks
     // + recursive SEE) can run for many seconds without returning to alpha_beta,
-    // which is the only other place that sets the abort flag.
-    if state.nodes.load(Ordering::Relaxed) & 0xFFF == 0
-        && let Some(lim) = state.time_limit
-        && state.start.elapsed() >= lim
-    {
-        state.abort.store(true, Ordering::Relaxed);
-    }
-    if state.abort.load(Ordering::Relaxed) || state.external_abort.load(Ordering::Relaxed) {
+    // which is the only other place that ticks the budget.
+    if state.budget.tick() {
         return 0;
     }
 
@@ -1177,7 +1150,7 @@ fn quiescence(
         let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
         board.undo_move(tok);
 
-        if state.abort.load(Ordering::Relaxed) {
+        if state.budget.should_abort() {
             return 0;
         }
         if score >= beta {
@@ -1222,7 +1195,7 @@ fn quiescence(
             let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
             board.undo_move(tok);
 
-            if state.abort.load(Ordering::Relaxed) {
+            if state.budget.should_abort() {
                 return 0;
             }
             if score >= beta {
@@ -1303,42 +1276,34 @@ impl SpeculativeSearcher {
     /// candidate replies, returning the best line plus speculation statistics.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {
         self.external_abort.store(false, Ordering::Relaxed);
-        let global_abort = Arc::new(AtomicBool::new(false));
 
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
-            nodes: AtomicU64::new(0),
-            abort: AtomicBool::new(false),
-            external_abort: self.external_abort.clone(),
-            start: Instant::now(),
-            time_limit: config.time_limit,
+            budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
         });
 
+        // Spec tasks share the *same* Budget as the main search (not an
+        // independent copy) so a USI stop or the watchdog firing is visible
+        // to both without hand-syncing a separate flag between them.
         let spec_state = Arc::new(SpecState {
             tt: self.tt.clone(),
-            abort: global_abort.clone(),
-            nodes: AtomicU64::new(0),
-            start: state.start,
-            time_limit: config.time_limit,
+            budget: state.budget.clone(),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
         // rayon scheduling. The per-node elapsed checks rely on a thread getting
         // scheduled to run them; when spec tasks + nested YBW saturate the pool,
         // that can be starved and the move blows past its byoyomi. An OS timer
-        // thread is immune. It targets the per-search flags (recreated every
-        // call), so a late fire after an early return is harmless — and it must
-        // never touch `external_abort`, which is shared across searches.
+        // thread is immune. It targets the per-search budget (recreated every
+        // call), so a late fire after an early return is harmless.
         if let Some(lim) = config.time_limit {
-            let st = state.clone();
-            let ga = global_abort.clone();
+            let budget = state.budget.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(lim);
-                st.abort.store(true, Ordering::Relaxed);
-                ga.store(true, Ordering::Relaxed);
+                budget.abort_now();
             });
         }
 
@@ -1366,7 +1331,7 @@ impl SpeculativeSearcher {
             let mut excluded: Vec<Move> = Vec::new();
             for _ in 0..config.multi_pv {
                 let (m, score) = root_search(&state, board, depth, best_score, &excluded);
-                if state.abort.load(Ordering::Relaxed) {
+                if state.budget.should_abort() {
                     break;
                 }
                 match m {
@@ -1380,11 +1345,7 @@ impl SpeculativeSearcher {
             let m = depth_pv.first().map(|&(mv, _)| mv);
             let score = depth_pv.first().map(|&(_, s)| s).unwrap_or(NEG_INF);
 
-            let timed_out = state.abort.load(Ordering::Relaxed);
-
-            if timed_out {
-                global_abort.store(true, Ordering::Relaxed);
-            }
+            let timed_out = state.budget.should_abort();
 
             if let Some(ref mut sg) = spec_group
                 && let Some(winner) = m
@@ -1419,29 +1380,25 @@ impl SpeculativeSearcher {
             }
 
             // Soft limit: exit after a completed depth when bestmove is stable.
-            // ponytail: 1.5x extension on instability; tune if LOS drops
-            let effective_soft = if best_move != prev_best && depth >= 3 {
-                config.soft_limit.map(|s| s.mul_f32(1.5))
-            } else {
-                config.soft_limit
-            };
-            if depth >= 2
-                && effective_soft.is_some_and(|soft| state.start.elapsed() >= soft)
-                && best_move == prev_best
-            {
+            if soft_limit_expired(
+                &state.budget,
+                config.soft_limit,
+                depth,
+                best_move == prev_best,
+            ) {
                 break;
             }
             prev_best = best_move;
         }
 
-        global_abort.store(true, Ordering::Relaxed);
+        state.budget.abort_now();
 
         SpecSearchInfo {
             best_move,
             score: best_score,
             depth: done_depth,
-            nodes: state.nodes.load(Ordering::Relaxed),
-            elapsed: state.start.elapsed(),
+            nodes: state.budget.nodes(),
+            elapsed: state.budget.elapsed(),
             hashfull: self.tt.hashfull(),
             spec_hits,
             spec_total,
@@ -1730,6 +1687,7 @@ fn order_moves(
 mod see_tests {
     use super::*;
     use crate::board::Board;
+    use std::time::Instant;
 
     // Black rook on 5g captures a white pawn on 5e defended by a white pawn on 5d.
     // RxP wins a pawn (100) but loses the rook (1040) to PxR → SEE = 100 - 1040 = -940.
@@ -1796,11 +1754,7 @@ mod regression_tests {
     fn fresh_state(tt: Arc<Tt>) -> Arc<SearchState> {
         Arc::new(SearchState {
             tt,
-            nodes: AtomicU64::new(0),
-            abort: AtomicBool::new(false),
-            external_abort: Arc::new(AtomicBool::new(false)),
-            start: Instant::now(),
-            time_limit: None,
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -1828,6 +1782,62 @@ mod regression_tests {
             .probe(hash)
             .expect("root_search_inner should have stored a TT entry");
         assert_eq!(entry.bound, Bound::Lower);
+    }
+
+    // Regression: `external_abort` (USI "stop") used to only be checked at
+    // alpha_beta/quiescence's own node-entry, never at loop-level call sites
+    // like root_search_inner's move loop. A search stopped mid-flight would
+    // have every node return 0 immediately, but the loop itself didn't
+    // recognize the stop (it only read the internal deadline flag) — so it
+    // could pick the first ordered move at a spurious score of 0 and store a
+    // corrupted `Bound::Exact` entry over a genuine earlier result, at a
+    // *deeper* depth that a depth-preferred TT would then refuse to
+    // overwrite with the real re-search. `should_abort()` now ORs both flags
+    // at every such site, so a pre-set `external_abort` must make the loop
+    // bail before ever touching the TT.
+    #[test]
+    fn external_abort_does_not_corrupt_existing_tt_entry() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let tt = Tt::new(1);
+        let hash = board.hash();
+
+        // A genuine, unaborted search populates a real TT entry.
+        root_search_inner(
+            &fresh_state(tt.clone()),
+            &mut board,
+            2,
+            &moves,
+            NEG_INF,
+            POS_INF,
+        );
+        let genuine = tt
+            .probe(hash)
+            .expect("first call should have stored a genuine TT entry");
+
+        // A second call, at a deeper depth, with external_abort already set —
+        // simulating a USI "stop" that arrived before this root search began.
+        let aborted_state = Arc::new(SearchState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(true)))),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+        root_search_inner(&aborted_state, &mut board, 7, &moves, NEG_INF, POS_INF);
+
+        let after = tt
+            .probe(hash)
+            .expect("TT entry must still be present after the aborted call");
+        assert_eq!(
+            after.depth, genuine.depth,
+            "an aborted call must not overwrite the genuine entry with a fake deeper depth"
+        );
+        assert_eq!(
+            after.score, genuine.score,
+            "an aborted call must not overwrite the genuine entry's score"
+        );
+        assert_eq!(after.bound, genuine.bound);
     }
 
     // Two hand-built, hand-verified positions for the mate-direction regression

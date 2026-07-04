@@ -5,6 +5,7 @@
 
 pub mod bitboard;
 pub mod board;
+mod budget;
 pub mod color;
 pub mod eval;
 pub mod hand;

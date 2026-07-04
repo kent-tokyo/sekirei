@@ -9,10 +9,10 @@
 //! poisoning entries that the main search later reads.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use crate::board::Board;
+use crate::budget::Budget;
 use crate::movegen::generate_legal_moves;
 use crate::mv::Move;
 use crate::piece::PieceKind;
@@ -28,14 +28,11 @@ const RUNNING: i32 = i32::MAX;
 pub struct SpecState {
     /// Transposition table shared with the main search.
     pub tt: Arc<Tt>,
-    /// Set when the whole search session ends; tasks must check this too.
-    pub abort: Arc<AtomicBool>,
-    /// Shared node counter, used to throttle the time-limit check.
-    pub nodes: AtomicU64,
-    /// Search start; with `time_limit` lets tasks self-abort at the deadline.
-    pub start: Instant,
-    /// Optional deadline for the whole search, relative to `start`.
-    pub time_limit: Option<Duration>,
+    /// The *same* budget instance the main search uses, not an independent
+    /// copy — a USI stop or the watchdog firing must be visible to spec
+    /// tasks without a separately hand-synced flag (see `search.rs`'s
+    /// `SpeculativeSearcher::search`).
+    pub(crate) budget: Arc<Budget>,
 }
 
 // ---- Per-task handle ----
@@ -74,7 +71,7 @@ impl SpecGroup {
 
                 rayon::spawn(move || {
                     // Check abort flags before doing any work
-                    if abort_c.load(Ordering::Relaxed) || state_c.abort.load(Ordering::Relaxed) {
+                    if abort_c.load(Ordering::Relaxed) || state_c.budget.should_abort() {
                         result_c.store(0, Ordering::Relaxed);
                         return;
                     }
@@ -99,7 +96,7 @@ impl SpecGroup {
                     // Only write to TT if the search completed without abort.
                     // An aborted search may have propagated score=0 up the tree,
                     // which would poison TT entries read by the main search.
-                    if !abort_c.load(Ordering::Relaxed) && !state_c.abort.load(Ordering::Relaxed) {
+                    if !abort_c.load(Ordering::Relaxed) && !state_c.budget.should_abort() {
                         state_c.tt.store(
                             b.hash(),
                             TtEntry {
@@ -169,18 +166,14 @@ fn spec_alpha_beta(
     depth: u32,
     ply: u32,
 ) -> i32 {
-    // Self-abort at the hard deadline. Without this, speculative tasks run an
-    // unbounded fixed-depth search and saturate the shared rayon pool, starving
-    // the main search that is supposed to set the abort flag — a pool-starvation
-    // hang. Throttled by node count to keep Instant::now() off the hot path.
-    if state.nodes.fetch_add(1, Ordering::Relaxed) & 0xFFF == 0
-        && let Some(lim) = state.time_limit
-        && state.start.elapsed() >= lim
-    {
-        state.abort.store(true, Ordering::Relaxed);
-    }
-    // Abort check first — callers must not use the return value 0 as a real score
-    if task_abort.load(Ordering::Relaxed) || state.abort.load(Ordering::Relaxed) {
+    // Abort check first — callers must not use the return value 0 as a real score.
+    // No self-throttled deadline check here: `state.budget` is the *same*
+    // instance the main search ticks on every alpha_beta/quiescence node, and
+    // the OS watchdog thread (spawned whenever a time limit is set) guarantees
+    // the deadline fires regardless of rayon pool contention — so relying on
+    // the shared `should_abort()` alone is enough to avoid the pool-starvation
+    // hang a separate per-task check used to guard against.
+    if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
         return 0;
     }
 
@@ -225,7 +218,7 @@ fn spec_alpha_beta(
 
     for m in moves {
         // Re-check abort before each recursive call
-        if task_abort.load(Ordering::Relaxed) || state.abort.load(Ordering::Relaxed) {
+        if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
             return 0; // do NOT write to TT with this incomplete best
         }
 
@@ -234,7 +227,7 @@ fn spec_alpha_beta(
         board.undo_move(tok);
 
         // If the recursive call aborted, s == 0 is meaningless — bail out
-        if task_abort.load(Ordering::Relaxed) || state.abort.load(Ordering::Relaxed) {
+        if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
             return 0;
         }
 
@@ -279,6 +272,7 @@ fn spec_alpha_beta(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     // Hand-verified mate-in-1 for black: white king cornered at (file9,rank1);
     // black king at (file7,rank2) covers both diagonal escapes; black rook
@@ -295,10 +289,7 @@ mod tests {
     fn spec_state() -> Arc<SpecState> {
         Arc::new(SpecState {
             tt: Tt::new(1),
-            abort: Arc::new(AtomicBool::new(false)),
-            nodes: AtomicU64::new(0),
-            start: Instant::now(),
-            time_limit: None,
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
         })
     }
 
@@ -376,10 +367,7 @@ mod tests {
 
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            abort: Arc::new(AtomicBool::new(false)),
-            nodes: AtomicU64::new(0),
-            start: Instant::now(),
-            time_limit: None,
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
         });
         let group = SpecGroup::spawn(&board, &state, 2, 50);
 
