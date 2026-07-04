@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Redo quietset B/C experiment with full game coverage at depths 2,4.
 #
-# Verified against: shogiesa @ 295ddd3 (github.com/kent-tokyo/shogiesa),
-# quietset-cli 0.8.0. Neither tool has a --version flag; if this script
-# breaks on `label`/`score` output shape, check for a schema change against
-# those versions first (see commit dddb33a for a prior instance of this).
+# Verified against: shogiesa @ 886c78d (github.com/kent-tokyo/shogiesa,
+# schema_version 5), quietset-cli 0.11.0. Neither tool has a --version flag;
+# if this script breaks on `label`/`score` output shape, check for a schema
+# change against those versions first (see commit dddb33a for a prior
+# instance of this).
 #
 # B = --min-stability 0.85  (hard filter, was weights_keep085)
 # C = --stability-weighted  (soft weighting, was weights_weighted)
@@ -105,6 +106,8 @@ echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
   --depths 2,4 \
   --timeout-ms 10000 \
   --jobs "$JOBS" \
+  --skip-existing \
+  --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations"
 
