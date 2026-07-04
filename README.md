@@ -218,15 +218,37 @@ cargo run --release -p sekirei-match-runner -- gate result.json \
   --pass-elo 20 --pass-los 0.95 --fail-elo -10
 ```
 
-Gate criteria (defaults):
+The match runner persists every game's outcome as a `<name>.jsonl` file alongside
+`--json`'s `<name>.json`. `gate` reads that sibling file and re-runs the decision
+through [veridict](https://github.com/kent-tokyo/veridict) (`--metric elo`), which
+gates on the *confidence interval*, not the point estimate:
 
 | Verdict | Condition |
 |---------|-----------|
-| **PASS** | Elo ≥ +20 and LOS ≥ 95% |
-| **FAIL** | Elo ≤ −10 |
-| **INCONCLUSIVE** | everything else — run more games |
+| **PASS** | CI lower bound ≥ pass threshold (default +20 elo) |
+| **FAIL** | CI upper bound ≤ fail threshold (default −10 elo) |
+| **INCONCLUSIVE** | CI straddles both — run more games |
 
-The result JSON includes `elo_diff`, `elo_ci_low`, `elo_ci_high`, and `los` for downstream tooling.
+This is stricter than a plain point-estimate check: a lucky point estimate whose CI
+still straddles zero is INCONCLUSIVE, not PASS. Elo/LOS point estimates (from the
+same games) are still printed as a human-readable report line, per `elo_diff`,
+`elo_ci_low`, `elo_ci_high`, `los` in the result JSON. Older result JSONs without a
+`.jsonl` sibling (predating this change) fall back to the original point-estimate +
+LOS check, noted explicitly in the gate's output.
+
+Self-play Elo is only ever relative to whatever `engine2` was in that match — it has
+no connection to an external rating pool (e.g. floodgate) on its own. If you have a
+belief about that baseline's absolute rating, `--anchor <rating>` converts the gated
+Elo effect into a rough estimate: `est_rating ≈ anchor + effect`. This is a directional
+approximation, not a measurement — self-play Elo and population-pool Elo aren't the
+same scale. There's no default; omit it and the output is unchanged.
+
+```bash
+cargo run --release -p sekirei-match-runner -- gate result.json --anchor 1850
+# report: elo_diff=+82.6  los=96.9%  games=60
+# veridict: metric=elo  effect=+82.6 elo  95% CI=[+41.0, +124.2]  CI lower bound ... meets the pass threshold ...
+# PASS  est_rating≈1933 (anchor=1850)
+```
 
 ## Benchmarks
 

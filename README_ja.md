@@ -214,15 +214,36 @@ cargo run --release -p sekirei-match-runner -- gate result.json \
   --pass-elo 20 --pass-los 0.95 --fail-elo -10
 ```
 
-Gate 基準（デフォルト値）：
+match runner は対局ごとの結果を `--json` の `<name>.json` と並べて `<name>.jsonl` にも
+保存します。`gate` はこの JSONL を読み込み、[veridict](https://github.com/kent-tokyo/veridict)
+（`--metric elo`）で判定をやり直します。veridict は点推定ではなく**信頼区間**で判定します：
 
 | 判定 | 条件 |
 |------|------|
-| **PASS** | Elo ≥ +20 かつ LOS ≥ 95% |
-| **FAIL** | Elo ≤ −10 |
-| **INCONCLUSIVE** | それ以外 — 局数を増やして再試験 |
+| **PASS** | 信頼区間の下限 ≥ pass 閾値（デフォルト +20 elo） |
+| **FAIL** | 信頼区間の上限 ≤ fail 閾値（デフォルト −10 elo） |
+| **INCONCLUSIVE** | 両閾値をまたぐ — 局数を増やして再試験 |
 
-result JSON には `elo_diff`、`elo_ci_low`、`elo_ci_high`、`los` が含まれます。
+これは単純な点推定判定より厳格です：信頼区間が 0 をまたいでいる限り、たまたま良い点推定が
+出ても PASS にはならず INCONCLUSIVE のままです。Elo/LOS の点推定（同じ対局データから算出）は
+引き続き人間向けレポート行として表示され、result JSON の `elo_diff`、`elo_ci_low`、
+`elo_ci_high`、`los` も従来通り含まれます。`.jsonl` が存在しない古い result JSON
+（この変更より前に生成されたもの）は、従来の点推定 + LOS 判定にフォールバックし、
+その旨が gate の出力に明示されます。
+
+自己対局の Elo は、その対局における `engine2` に対する相対値でしかなく、floodgate のような
+外部レーティングプールとは本来無関係です。ベースラインの絶対レーティングについて何らかの見込みが
+あるなら、`--anchor <rating>` で判定に使われた Elo 効果量を大まかな推定値に変換できます:
+`est_rating ≈ anchor + effect`。あくまで方向性の目安であり実測ではありません（自己対局の Elo と
+レーティングプールの Elo は同じスケールではないため）。デフォルト値は無く、省略時の出力は従来通り
+変わりません。
+
+```bash
+cargo run --release -p sekirei-match-runner -- gate result.json --anchor 1850
+# report: elo_diff=+82.6  los=96.9%  games=60
+# veridict: metric=elo  effect=+82.6 elo  95% CI=[+41.0, +124.2]  CI lower bound ... meets the pass threshold ...
+# PASS  est_rating≈1933 (anchor=1850)
+```
 
 ## ベンチマーク
 

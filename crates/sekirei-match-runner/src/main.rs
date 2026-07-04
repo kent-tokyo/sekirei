@@ -295,6 +295,23 @@ fn run_game(
 
 // ---- Opening positions ----
 
+/// Both engines are typically the same binary (e.g. "Sekirei") compared with
+/// different weight files via CLI args; USI `id name` doesn't vary by weight
+/// file, so a plain name is ambiguous in logs/JSON. Append the last arg's
+/// file stem (usually the weight file) when present.
+fn engine_display_label(name: &str, args: &[String]) -> String {
+    match args.last() {
+        Some(a) => {
+            let stem = std::path::Path::new(a)
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or(a);
+            format!("{name}({stem})")
+        }
+        None => name.to_string(),
+    }
+}
+
 fn load_positions(path: &PathBuf) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap_or_default()
@@ -336,10 +353,34 @@ fn json_f64(json: &str, key: &str) -> Option<f64> {
     rest[..end].trim().parse().ok()
 }
 
+/// Runs veridict's CI-based Elo gate over persisted per-game records. Pass
+/// only if the *pessimistic* (lower) CI bound already clears `pass_elo`;
+/// fail only if the *optimistic* (upper) bound is already at/below
+/// `fail_elo`. Anything else (including zero decisive games) is
+/// Inconclusive — stricter than the old point-estimate + LOS check, which
+/// could pass on a lucky point estimate with a CI that still straddled zero.
+fn veridict_decide(
+    records: &[(usize, veridict::input::Record)],
+    pass_elo: f64,
+    fail_elo: f64,
+) -> Result<veridict::Report, veridict::VeridictError> {
+    let thresholds = veridict::verdict::Thresholds::new(pass_elo, fail_elo)?;
+    veridict::compare_one(
+        records,
+        veridict::MetricKind::Elo,
+        0.95,
+        &thresholds,
+        2000,
+        veridict::stats::bootstrap::DEFAULT_SEED,
+        false,
+    )
+}
+
 fn run_gate(argv: &[String]) {
     let mut pass_elo = 20.0f64;
     let mut pass_los = 0.95f64;
     let mut fail_elo = -10.0f64;
+    let mut anchor: Option<f64> = None;
     let mut json_path: Option<String> = None;
     let mut i = 0;
     while i < argv.len() {
@@ -362,6 +403,12 @@ fn run_gate(argv: &[String]) {
                     fail_elo = v.parse().unwrap_or(fail_elo);
                 }
             }
+            "--anchor" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    anchor = v.parse().ok();
+                }
+            }
             other if !other.starts_with("--") => json_path = Some(other.to_string()),
             _ => {}
         }
@@ -371,7 +418,7 @@ fn run_gate(argv: &[String]) {
         Some(p) => p,
         None => {
             eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10]"
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>]"
             );
             std::process::exit(2);
         }
@@ -398,25 +445,81 @@ fn run_gate(argv: &[String]) {
         }
     };
     let games = json_f64(&content, "games").map(|v| v as u64).unwrap_or(0);
-    if elo >= pass_elo && los >= pass_los {
-        println!(
-            "PASS   elo={elo:+.1}  los={:.1}%  games={games}",
-            los * 100.0
-        );
-        std::process::exit(0);
-    } else if elo <= fail_elo {
-        println!(
-            "FAIL   elo={elo:+.1}  los={:.1}%  games={games}",
-            los * 100.0
-        );
-        std::process::exit(1);
-    } else {
-        println!(
-            "INCONCLUSIVE  elo={elo:+.1}  los={:.1}%  games={games}",
-            los * 100.0
-        );
-        std::process::exit(2);
-    }
+    // Human-readable report: the point-estimate Elo/LOS always printed
+    // regardless of which path below decides pass/fail (per the design
+    // decision that Elo/LOS stays as the human report, not the gate logic).
+    println!(
+        "report: elo_diff={elo:+.1}  los={:.1}%  games={games}",
+        los * 100.0
+    );
+
+    let records_path = PathBuf::from(&path).with_extension("jsonl");
+    let records_content = fs::read_to_string(&records_path).ok();
+
+    let (verdict, effect, extra) = match records_content {
+        Some(raw) => {
+            let parsed = veridict::input::parse_jsonl(std::io::Cursor::new(raw.as_bytes()))
+                .collect::<Result<Vec<_>, _>>();
+            let records = match parsed {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("gate: cannot parse {}: {e}", records_path.display());
+                    std::process::exit(2);
+                }
+            };
+            let report = match veridict_decide(&records, pass_elo, fail_elo) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("gate: veridict error: {e}");
+                    std::process::exit(2);
+                }
+            };
+            println!(
+                "veridict: metric=elo  effect={:+.1} elo  95% CI=[{:+.1}, {:+.1}]  {}",
+                report.effect, report.ci_low, report.ci_high, report.reason
+            );
+            (report.verdict, report.effect, String::new())
+        }
+        None => {
+            // Legacy fallback for result files predating per-game JSONL
+            // persistence: no raw trials to re-run veridict against, so
+            // fall back to the old point-estimate + LOS threshold check.
+            let verdict = if elo >= pass_elo && los >= pass_los {
+                veridict::Verdict::Pass
+            } else if elo <= fail_elo {
+                veridict::Verdict::Fail
+            } else {
+                veridict::Verdict::Inconclusive
+            };
+            (
+                verdict,
+                elo,
+                format!(
+                    "  (legacy point-estimate gate: no {} found)",
+                    records_path.display()
+                ),
+            )
+        }
+    };
+
+    // Self-play Elo vs. a population rating pool (floodgate) aren't the same scale —
+    // this is a directional estimate, not a measurement. Real answer is still
+    // "connect to floodgate" (see tasks/todo.md).
+    let rating_suffix = match anchor {
+        Some(a) => format!("  est_rating≈{:.0} (anchor={a:.0})", a + effect),
+        None => String::new(),
+    };
+    let label = match verdict {
+        veridict::Verdict::Pass => "PASS",
+        veridict::Verdict::Fail => "FAIL",
+        veridict::Verdict::Inconclusive => "INCONCLUSIVE",
+    };
+    println!("{label}{rating_suffix}{extra}");
+    std::process::exit(match verdict {
+        veridict::Verdict::Pass => 0,
+        veridict::Verdict::Fail => 1,
+        veridict::Verdict::Inconclusive => 2,
+    });
 }
 
 fn main() {
@@ -462,8 +565,10 @@ fn main() {
         std::process::exit(1);
     });
 
-    println!("Engine1: {}", e1.name);
-    println!("Engine2: {}", e2.name);
+    let e1_label = engine_display_label(&e1.name, &args.args1);
+    let e2_label = engine_display_label(&e2.name, &args.args2);
+    println!("Engine1: {e1_label}");
+    println!("Engine2: {e2_label}");
     if !positions.is_empty() {
         println!("Opening positions: {} SFENs", positions.len());
     }
@@ -481,6 +586,12 @@ fn main() {
     let mut e1_wins = 0u32;
     let mut e2_wins = 0u32;
     let mut draws = 0u32;
+    // Per-game outcomes in veridict's JSONL record shape, persisted alongside
+    // --json so `gate` can be re-run against the raw trials (statistically
+    // rigorous CI-based verdict) without replaying any games. Engine1 is
+    // conventionally the candidate, engine2 the baseline (matches
+    // scripts/strength_regression.sh's --engine1 <new> --engine2 <base>).
+    let mut veridict_records = String::new();
 
     // Build the game list: cover-all mode or random-sample mode
     let game_list: Vec<(bool, String)> = if let Some(gpp) = args.games_per_position {
@@ -530,17 +641,27 @@ fn main() {
         let result_str = match outcome {
             Outcome::E1Win => {
                 e1_wins += 1;
-                format!("{} Win", e1.name)
+                format!("{e1_label} Win")
             }
             Outcome::E2Win => {
                 e2_wins += 1;
-                format!("{} Win", e2.name)
+                format!("{e2_label} Win")
             }
             Outcome::Draw => {
                 draws += 1;
                 "Draw".to_string()
             }
         };
+
+        let veridict_result = match outcome {
+            Outcome::E1Win => "candidate_win",
+            Outcome::E2Win => "baseline_win",
+            Outcome::Draw => "draw",
+        };
+        let _ = writeln!(
+            veridict_records,
+            r#"{{"id":"game{game_num:04}","result":"{veridict_result}"}}"#
+        );
 
         let reason_tag = match reason {
             EndReason::Resign => "",
@@ -554,9 +675,9 @@ fn main() {
         println!(
             "Game {:>4}: {} ({}) vs {} ({}) → {}{}  ({} moves)",
             game_num,
-            e1.name,
+            e1_label,
             e1_color,
-            e2.name,
+            e2_label,
             e2_color,
             result_str,
             reason_tag,
@@ -566,8 +687,8 @@ fn main() {
         if let Some(dir) = &args.output_dir {
             let path = dir.join(format!("game{game_num:04}.txt"));
             let mut content = String::new();
-            let _ = writeln!(content, "# Engine1: {} ({})", e1.name, e1_color);
-            let _ = writeln!(content, "# Engine2: {} ({})", e2.name, e2_color);
+            let _ = writeln!(content, "# Engine1: {} ({})", e1_label, e1_color);
+            let _ = writeln!(content, "# Engine2: {} ({})", e2_label, e2_color);
             let _ = writeln!(content, "# Result: {result_str}{reason_tag}");
             let pos_line = if start_pos == "startpos" {
                 "position startpos".to_string()
@@ -599,11 +720,11 @@ fn main() {
     println!("=== Results after {total} games ===");
     println!(
         "  {}: {}W {}D {}L  ({:.1}%)",
-        e1.name, e1_wins, draws, e2_wins, e1_pct
+        e1_label, e1_wins, draws, e2_wins, e1_pct
     );
     println!(
         "  {}: {}W {}D {}L  ({:.1}%)",
-        e2.name, e2_wins, draws, e1_wins, e2_pct
+        e2_label, e2_wins, draws, e1_wins, e2_pct
     );
     println!();
     println!("Elo difference: {:+.0} ± {:.0} (95% CI)", elo, ci);
@@ -615,8 +736,10 @@ fn main() {
             r#"{{
   "engine1": {:?},
   "engine1_command": {:?},
+  "engine1_args": {:?},
   "engine2": {:?},
   "engine2_command": {:?},
+  "engine2_args": {:?},
   "games": {total},
   "engine1_wins": {e1_wins},
   "draws": {draws},
@@ -629,10 +752,12 @@ fn main() {
   "los": {:.4}
 }}
 "#,
-            e1.name,
+            e1_label,
             args.engine1_path,
-            e2.name,
+            args.args1.join(" "),
+            e2_label,
             args.engine2_path,
+            args.args2.join(" "),
             e1_pct / 100.0,
             elo,
             ci,
@@ -645,5 +770,69 @@ fn main() {
         } else {
             eprintln!("Result saved to {}", json_path.display());
         }
+
+        let records_path = json_path.with_extension("jsonl");
+        if let Err(e) = fs::write(&records_path, &veridict_records) {
+            eprintln!("per-game records write failed: {e}");
+        } else {
+            eprintln!("Per-game records saved to {}", records_path.display());
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn rec(id: &str, result: &str) -> (usize, veridict::input::Record) {
+        (
+            0,
+            veridict::input::Record {
+                id: Some(id.to_string()),
+                baseline: None,
+                candidate: None,
+                result: Some(result.to_string()),
+                baseline_status: None,
+                candidate_status: None,
+            },
+        )
+    }
+
+    #[test]
+    fn passes_when_ci_lower_bound_clears_pass_elo() {
+        let mut records: Vec<_> = (0..46)
+            .map(|i| rec(&format!("c{i}"), "candidate_win"))
+            .collect();
+        records.extend((0..14).map(|i| rec(&format!("b{i}"), "baseline_win")));
+        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Pass);
+        assert!(report.effect > 0.0);
+    }
+
+    #[test]
+    fn inconclusive_on_small_mixed_sample() {
+        let records = vec![
+            rec("a", "candidate_win"),
+            rec("b", "baseline_win"),
+            rec("c", "draw"),
+        ];
+        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn fails_when_candidate_loses_every_game() {
+        let records: Vec<_> = (0..20)
+            .map(|i| rec(&format!("b{i}"), "baseline_win"))
+            .collect();
+        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Fail);
+    }
+
+    #[test]
+    fn zero_decisive_games_is_inconclusive_not_error() {
+        let records = vec![rec("a", "draw"), rec("b", "draw")];
+        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
     }
 }
