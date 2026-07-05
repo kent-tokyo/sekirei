@@ -15,15 +15,19 @@ use sekirei_core::{
     color::Color,
     nnue::load_weights,
     search::{SearchConfig, SpeculativeSearcher},
-    sfen::{move_to_usi, parse_position_cmd},
+    sfen::{board_to_sfen, move_to_usi, parse_position_cmd},
     tt::Tt,
 };
+
+mod book;
+use book::Book;
 
 // ---- Engine identity ----
 
 const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "ke.tanabe@gmail.com";
 const DEFAULT_HASH_MB: usize = 64;
+const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 
 // ---- Main loop ----
 
@@ -45,9 +49,18 @@ fn main() {
     let mut eval_file: Option<String> = None;
     let mut move_overhead_ms: u64 = 50;
     let mut multi_pv: u32 = 1;
+    let mut use_book = true;
+    let mut book_max_ply: usize = 30;
+    let mut book_min_confidence: f64 = 0.20;
+    let mut book_file = DEFAULT_BOOK_FILE.to_string();
+    let mut book: Option<Book> = None;
+    let mut book_loaded_path: Option<String> = None;
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
+    // Ply reached by the last "position" command's move list (0 = startpos) --
+    // used only to gate book lookups to the opening phase (BookMaxPly).
+    let mut current_ply: usize = 0;
 
     // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
@@ -79,6 +92,10 @@ fn main() {
                 println!("option name Ponder type check default false");
                 println!("option name MultiPV type spin default 1 min 1 max 256");
                 println!("option name EvalFile type string default ");
+                println!("option name UseBook type check default true");
+                println!("option name BookMaxPly type spin default 30 min 0 max 200");
+                println!("option name BookMinConfidence type string default 0.20");
+                println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
                 println!("usiok");
                 stdout.lock().flush().ok();
             }
@@ -95,6 +112,22 @@ fn main() {
                             board.refresh_acc();
                         }
                         Err(e) => println!("info string weight load failed: {e}"),
+                    }
+                }
+                if use_book && book_loaded_path.as_deref() != Some(book_file.as_str()) {
+                    match Book::load(&book_file) {
+                        Ok(b) => {
+                            println!(
+                                "info string opening book loaded from {book_file} ({} positions)",
+                                b.len()
+                            );
+                            book = Some(b);
+                            book_loaded_path = Some(book_file.clone());
+                        }
+                        Err(e) => {
+                            println!("info string opening book load failed ({book_file}): {e}");
+                            book_loaded_path = Some(book_file.clone()); // don't retry every isready
+                        }
                     }
                 }
                 println!("readyok");
@@ -131,6 +164,23 @@ fn main() {
                     {
                         eval_file = Some(val.to_string());
                     }
+                } else if parts.get(1) == Some(&"UseBook") {
+                    if let Some(v) = parts.get(3) {
+                        use_book = *v == "true";
+                    }
+                } else if parts.get(1) == Some(&"BookMaxPly") {
+                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
+                        book_max_ply = n;
+                    }
+                } else if parts.get(1) == Some(&"BookMinConfidence") {
+                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
+                        book_min_confidence = n;
+                    }
+                } else if parts.get(1) == Some(&"BookFile")
+                    && let Some(val) = rest.split_once("value ").map(|(_, v)| v.trim())
+                    && !val.is_empty()
+                {
+                    book_file = val.to_string();
                 }
             }
 
@@ -142,10 +192,22 @@ fn main() {
                     h.join().ok();
                 }
                 board = Board::startpos();
+                searcher.clear_tt();
             }
 
             "position" => match parse_position_cmd(rest) {
-                Ok(b) => board = b,
+                Ok(b) => {
+                    board = b;
+                    // Only gates book lookups (BookMaxPly) -- doesn't need to
+                    // handle every conceivable "position" form, just the
+                    // "startpos moves ..." shape this project's own tooling
+                    // always sends.
+                    current_ply = rest
+                        .split_whitespace()
+                        .skip_while(|&t| t != "moves")
+                        .skip(1)
+                        .count();
+                }
                 Err(e) => eprintln!("position error: {e}"),
             },
 
@@ -166,6 +228,23 @@ fn main() {
                 }
                 // Reset suppress flag now that the previous thread has joined.
                 suppress_bm.store(false, Ordering::Relaxed);
+
+                // Book lookup: skip search entirely for a known opening
+                // position, within BookMaxPly. Not applied while pondering --
+                // that has its own ponderhit/new-position protocol flow that
+                // an instant book bestmove would short-circuit incorrectly.
+                if !pondering
+                    && use_book
+                    && current_ply < book_max_ply
+                    && let Some(b) = &book
+                    && let Some(mv) = b.lookup(&board_to_sfen(&board), &board, book_min_confidence)
+                {
+                    println!("info string book move");
+                    println!("bestmove {}", move_to_usi(mv));
+                    stdout.lock().flush().ok();
+                    continue;
+                }
+
                 let config = parse_go(
                     rest,
                     board.side_to_move,

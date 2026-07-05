@@ -12,11 +12,18 @@ Reads JSONL from stdin, writes flattened JSONL to stdout.
 import json
 import sys
 
-for line in sys.stdin:
+for line_no, line in enumerate(sys.stdin, 1):
     line = line.strip()
     if not line:
         continue
-    rec = json.loads(line)
+    try:
+        rec = json.loads(line)
+    except json.JSONDecodeError as e:
+        # A killed/interrupted `shogiesa label` run can leave its last line
+        # mid-write (truncated JSON) -- skip it rather than crash the whole
+        # pipeline over one incomplete trailing record.
+        print(f"flatten: skipping malformed line {line_no}: {e}", file=sys.stderr)
+        continue
     sfen = rec.get("sfen")
     if not sfen:
         continue

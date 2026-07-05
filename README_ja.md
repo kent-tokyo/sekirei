@@ -158,10 +158,10 @@ sekirei-train は `--positions` で positions.jsonl を直接受け取ります�
 
 ```bash
 # Tier 1 — クイック（depths 2,4、数時間）
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v7.bin
+bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
 
 # Tier 2 — 標準（depths 2,4,6）
-DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v7.bin
+DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
 
 # Tier 3 — ディープ: 境界局面のみ depth 4,6,8 で再ラベルして再訓練
 # Step 1: 境界局面を高 depth でスコアして別ファイルに保存
@@ -172,7 +172,7 @@ quietset select data/stage3/scored.jsonl --class borderline \
 # Step 2: EXTRA_SCORED でマージしながら再訓練
 EXTRA_SCORED=data/stage3/deep_scored.jsonl \
 DEPTHS=2,4,6 \
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v7.bin
+bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v007.bin
 ```
 
 中間ファイルは `data/runs/<タイムスタンプ>/` 以下に保存されます（`RUN_DIR=...` で変更可）。

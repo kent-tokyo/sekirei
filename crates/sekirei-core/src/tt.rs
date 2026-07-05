@@ -206,6 +206,19 @@ impl Tt {
             .count();
         (used * 1000 / sample) as u32
     }
+
+    /// Reset every slot in place (no reallocation). Call on `usinewgame` --
+    /// without this, a long multi-game match reuses one process's TT across
+    /// every game, so a later game's search can hit depth-preferred entries
+    /// written by an earlier, unrelated game instead of searching fresh. That
+    /// breaks reproducibility between match runs and lets one game's search
+    /// state leak into another's result.
+    pub fn clear(&self) {
+        for slot in self.table.iter() {
+            slot.data.store(0, Ordering::Relaxed);
+            slot.key.store(0, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Largest power of two ≤ n (returns 1 for n == 0).
@@ -230,5 +243,53 @@ mod tests {
     fn new_does_not_halve_power_of_two_capacity() {
         let tt = Tt::new(64);
         assert_eq!(tt.len(), 1 << 22);
+    }
+
+    #[test]
+    fn clear_removes_previously_stored_entries() {
+        let tt = Tt::new(1);
+        let hash = 0xdead_beef_cafe_0001;
+        tt.store(
+            hash,
+            TtEntry {
+                score: 123,
+                depth: 5,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        assert!(tt.probe(hash).is_some());
+        tt.clear();
+        assert!(tt.probe(hash).is_none());
+    }
+
+    #[test]
+    fn clear_does_not_let_a_stale_deep_entry_block_a_fresh_shallow_store() {
+        // Depth-preferred store() normally refuses to overwrite a deeper
+        // entry with a shallower one -- clear() must reset that history too,
+        // or a stale deep entry from a previous game would keep blocking
+        // fresh writes to the same slot in the next game.
+        let tt = Tt::new(1);
+        let hash = 0x1234_5678_9abc_def0;
+        tt.store(
+            hash,
+            TtEntry {
+                score: 1,
+                depth: 20,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        tt.clear();
+        tt.store(
+            hash,
+            TtEntry {
+                score: 2,
+                depth: 1,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        assert_eq!(tt.probe(hash).unwrap().depth, 1);
     }
 }

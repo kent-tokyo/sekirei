@@ -24,7 +24,7 @@ mod engine;
 use std::collections::HashMap;
 use std::fmt::Write as FmtWrite;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use engine::UsiEngine;
 use sekirei_core::{
@@ -47,6 +47,8 @@ struct Args {
     positions_file: Option<PathBuf>,
     json_file: Option<PathBuf>,
     games_per_position: Option<usize>,
+    engine_options1: Vec<String>,
+    engine_options2: Vec<String>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -62,6 +64,8 @@ fn parse_args() -> Result<Args, String> {
     let mut positions_file = None;
     let mut json_file = None;
     let mut games_per_position = None;
+    let mut engine_options1 = Vec::new();
+    let mut engine_options2 = Vec::new();
     let mut i = 0;
 
     while i < argv.len() {
@@ -122,6 +126,14 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 games_per_position = get(&argv, i)?.parse().ok();
             }
+            "--engine-option1" => {
+                i += 1;
+                engine_options1.push(get(&argv, i)?);
+            }
+            "--engine-option2" => {
+                i += 1;
+                engine_options2.push(get(&argv, i)?);
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -143,6 +155,8 @@ fn parse_args() -> Result<Args, String> {
         positions_file,
         json_file,
         games_per_position,
+        engine_options1,
+        engine_options2,
     })
 }
 
@@ -168,6 +182,10 @@ fn print_usage() {
         "  --games-per-position <n>  play N games per position (covers all; overrides --games)"
     );
     eprintln!("  --json <file>        write result summary as JSON");
+    eprintln!(
+        "  --engine-option1 <Name=Value>  USI setoption sent to engine1 after usiok, before isready (repeatable)"
+    );
+    eprintln!("  --engine-option2 <Name=Value>  same, for engine2 (repeatable)");
 }
 
 // ---- Game runner ----
@@ -312,6 +330,21 @@ fn engine_display_label(name: &str, args: &[String]) -> String {
     }
 }
 
+/// Renders `["Threads=1", "MoveOverhead=100"]` as a JSON object so a result
+/// file records exactly what search conditions produced it -- without this,
+/// there's no way to later tell which Elo numbers were measured under
+/// oversubscribed CPU contention and which weren't (see tasks/lessons.md).
+/// Entries with no `=` are skipped, matching `setoption_commands` in
+/// `engine.rs` (a typo'd option silently drops instead of corrupting the JSON).
+fn options_json(options: &[String]) -> String {
+    let pairs: Vec<String> = options
+        .iter()
+        .filter_map(|opt| opt.split_once('='))
+        .map(|(k, v)| format!("{k:?}:{v:?}"))
+        .collect();
+    format!("{{{}}}", pairs.join(","))
+}
+
 fn load_positions(path: &PathBuf) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap_or_default()
@@ -366,8 +399,8 @@ fn veridict_decide(
 ) -> Result<veridict::Report, veridict::VeridictError> {
     let thresholds = veridict::verdict::Thresholds::new(pass_elo, fail_elo)?;
     veridict::compare_one(
-        records,
-        veridict::MetricKind::Elo,
+        records.iter().cloned(),
+        veridict::MetricConfig::Elo,
         0.95,
         &thresholds,
         2000,
@@ -478,6 +511,9 @@ fn run_gate(argv: &[String]) {
                 "veridict: metric=elo  effect={:+.1} elo  95% CI=[{:+.1}, {:+.1}]  {}",
                 report.effect, report.ci_low, report.ci_high, report.reason
             );
+            for warning in &report.warnings {
+                println!("veridict: warning: {warning}");
+            }
             (report.verdict, report.effect, String::new())
         }
         None => {
@@ -522,11 +558,166 @@ fn run_gate(argv: &[String]) {
     });
 }
 
+/// Counts (engine1_wins, draws, engine2_wins) from parsed records.
+fn tally_records(records: &[(usize, veridict::input::Record)]) -> (u32, u32, u32) {
+    let mut e1_wins = 0u32;
+    let mut e2_wins = 0u32;
+    let mut draws = 0u32;
+    for (_, rec) in records {
+        match rec.result.as_deref() {
+            Some("candidate_win") => e1_wins += 1,
+            Some("baseline_win") => e2_wins += 1,
+            Some("draw") => draws += 1,
+            _ => {}
+        }
+    }
+    (e1_wins, draws, e2_wins)
+}
+
+/// Turns any `.jsonl` of per-game records (the same shape a normal run
+/// writes next to its `--json` output) back into a `.json` summary `gate`
+/// can read -- the piece that makes chunked/resumable gating possible:
+/// run several short match sessions, concatenate their `.jsonl` files
+/// (see `scripts/sprint_gate.sh`), and this recomputes a valid summary
+/// from the combined total without `gate` or veridict needing to change.
+fn run_summarize(argv: &[String]) {
+    let mut jsonl_path: Option<String> = None;
+    let mut out_path: Option<String> = None;
+    let mut engine1_name = "Engine1".to_string();
+    let mut engine2_name = "Engine2".to_string();
+    let mut i = 0;
+    while i < argv.len() {
+        match argv[i].as_str() {
+            "--out" => {
+                i += 1;
+                out_path = argv.get(i).cloned();
+            }
+            "--engine1" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    engine1_name = v.clone();
+                }
+            }
+            "--engine2" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    engine2_name = v.clone();
+                }
+            }
+            other if !other.starts_with("--") => jsonl_path = Some(other.to_string()),
+            _ => {}
+        }
+        i += 1;
+    }
+    let jsonl_path = match jsonl_path {
+        Some(p) => p,
+        None => {
+            eprintln!(
+                "summarize: usage: sekirei-match summarize <records.jsonl> --out <result.json> [--engine1 <name>] [--engine2 <name>]"
+            );
+            std::process::exit(2);
+        }
+    };
+    let out_path = match out_path {
+        Some(p) => p,
+        None => {
+            eprintln!("summarize: --out <result.json> is required");
+            std::process::exit(2);
+        }
+    };
+    let content = match fs::read_to_string(&jsonl_path) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("summarize: cannot read {jsonl_path}: {e}");
+            std::process::exit(2);
+        }
+    };
+    let records: Vec<(usize, veridict::input::Record)> =
+        match veridict::input::parse_jsonl(std::io::Cursor::new(content.as_bytes()))
+            .collect::<Result<Vec<_>, _>>()
+        {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("summarize: cannot parse {jsonl_path}: {e}");
+                std::process::exit(2);
+            }
+        };
+    if records.is_empty() {
+        eprintln!("summarize: no records found in {jsonl_path}");
+        std::process::exit(2);
+    }
+
+    let (e1_wins, draws, e2_wins) = tally_records(&records);
+
+    let total = e1_wins + e2_wins + draws;
+    let e1_pct = if total > 0 {
+        (e1_wins as f64 * 100.0 + draws as f64 * 50.0) / total as f64
+    } else {
+        0.0
+    };
+    let elo = elo::elo_diff(e1_wins, draws, e2_wins);
+    let ci = elo::elo_ci(e1_wins, draws, e2_wins);
+    let los = elo::los(e1_wins, draws, e2_wins);
+
+    println!("=== Summary over {total} combined games ===");
+    println!(
+        "  {engine1_name}: {e1_wins}W {draws}D {e2_wins}L  ({:.1}%)",
+        e1_pct
+    );
+    println!(
+        "  {engine2_name}: {e2_wins}W {draws}D {e1_wins}L  ({:.1}%)",
+        100.0 - e1_pct
+    );
+    println!("Elo difference: {:+.0} ± {:.0} (95% CI)", elo, ci);
+    println!("LOS: {:.1}%", los * 100.0);
+
+    let json = format!(
+        r#"{{
+  "engine1": {engine1_name:?},
+  "engine2": {engine2_name:?},
+  "games": {total},
+  "engine1_wins": {e1_wins},
+  "draws": {draws},
+  "engine2_wins": {e2_wins},
+  "engine1_score": {:.4},
+  "elo_diff": {:.2},
+  "elo_ci_95": {:.2},
+  "elo_ci_low": {:.2},
+  "elo_ci_high": {:.2},
+  "los": {:.4}
+}}
+"#,
+        e1_pct / 100.0,
+        elo,
+        ci,
+        elo - ci,
+        elo + ci,
+        los
+    );
+    if let Err(e) = fs::write(&out_path, &json) {
+        eprintln!("summarize: JSON write failed: {e}");
+        std::process::exit(1);
+    }
+    let records_out = PathBuf::from(&out_path).with_extension("jsonl");
+    if records_out.as_path() != Path::new(&jsonl_path)
+        && let Err(e) = fs::copy(&jsonl_path, &records_out)
+    {
+        eprintln!("summarize: jsonl copy failed: {e}");
+        std::process::exit(1);
+    }
+    eprintln!("Summary saved to {out_path}");
+    eprintln!("Records saved to {}", records_out.display());
+}
+
 fn main() {
     // Dispatch gate subcommand before normal arg parsing
     let argv0: Vec<String> = std::env::args().skip(1).collect();
     if argv0.first().map(|s| s.as_str()) == Some("gate") {
         run_gate(&argv0[1..]);
+        return;
+    }
+    if argv0.first().map(|s| s.as_str()) == Some("summarize") {
+        run_summarize(&argv0[1..]);
         return;
     }
 
@@ -556,11 +747,11 @@ fn main() {
         std::process::exit(1);
     });
 
-    e1.initialize().unwrap_or_else(|e| {
+    e1.initialize(&args.engine_options1).unwrap_or_else(|e| {
         eprintln!("engine1 init failed: {e}");
         std::process::exit(1);
     });
-    e2.initialize().unwrap_or_else(|e| {
+    e2.initialize(&args.engine_options2).unwrap_or_else(|e| {
         eprintln!("engine2 init failed: {e}");
         std::process::exit(1);
     });
@@ -743,9 +934,11 @@ fn main() {
   "engine1": {:?},
   "engine1_command": {:?},
   "engine1_args": {:?},
+  "engine1_options": {},
   "engine2": {:?},
   "engine2_command": {:?},
   "engine2_args": {:?},
+  "engine2_options": {},
   "games": {total},
   "engine1_wins": {e1_wins},
   "draws": {draws},
@@ -761,9 +954,11 @@ fn main() {
             e1_label,
             args.engine1_path,
             args.args1.join(" "),
+            options_json(&args.engine_options1),
             e2_label,
             args.engine2_path,
             args.args2.join(" "),
+            options_json(&args.engine_options2),
             e1_pct / 100.0,
             elo,
             ci,
@@ -802,6 +997,53 @@ mod tests {
                 candidate_status: None,
             },
         )
+    }
+
+    #[test]
+    fn tally_records_matches_elo_module_inputs() {
+        // Same 46/14 split used by the gate tests below -- summarize's tally
+        // must feed elo::elo_diff/los the exact counts a normal run would.
+        let mut records: Vec<_> = (0..46)
+            .map(|i| rec(&format!("c{i}"), "candidate_win"))
+            .collect();
+        records.extend((0..14).map(|i| rec(&format!("b{i}"), "baseline_win")));
+        let (e1_wins, draws, e2_wins) = tally_records(&records);
+        assert_eq!((e1_wins, draws, e2_wins), (46, 0, 14));
+        let elo = elo::elo_diff(e1_wins, draws, e2_wins);
+        let los = elo::los(e1_wins, draws, e2_wins);
+        assert!(
+            elo > 0.0,
+            "candidate won more, elo_diff should be positive: {elo}"
+        );
+        assert!(
+            los > 0.5,
+            "candidate won more, los should exceed 50%: {los}"
+        );
+    }
+
+    #[test]
+    fn tally_records_counts_draws_separately() {
+        let records = vec![
+            rec("a", "candidate_win"),
+            rec("b", "baseline_win"),
+            rec("c", "draw"),
+            rec("d", "draw"),
+        ];
+        assert_eq!(tally_records(&records), (1, 2, 1));
+    }
+
+    #[test]
+    fn options_json_renders_name_value_pairs() {
+        let options = vec!["Threads=1".to_string(), "MoveOverhead=100".to_string()];
+        assert_eq!(
+            options_json(&options),
+            r#"{"Threads":"1","MoveOverhead":"100"}"#
+        );
+    }
+
+    #[test]
+    fn options_json_on_empty_input_is_empty_object() {
+        assert_eq!(options_json(&[]), "{}");
     }
 
     #[test]

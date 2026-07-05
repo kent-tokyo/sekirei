@@ -14,8 +14,8 @@
 #   bash scripts/redo_quietset_bc.sh [CSA_DIR] [BASELINE_WEIGHTS]
 #
 # Environment:
-#   OUT_B=path          output path for B weights (default: data/weights_v8_keep085.bin)
-#   OUT_C=path          output path for C weights (default: data/weights_v8_weighted.bin)
+#   OUT_B=path          output path for B weights (default: data/weights_v012_keep085.bin)
+#   OUT_C=path          output path for C weights (default: data/weights_v012_weighted.bin)
 #   GAMES=100           match games per variant   (default: 100)
 #   MIN_PLY=20          minimum ply for extract   (default: 20)
 #   MAX_PLY=160         maximum ply for extract   (default: 160)
@@ -33,9 +33,9 @@
 set -e
 
 CSA_DIR=${1:-./data/csa}
-BASELINE=${2:-data/weights_v7.bin}
-OUT_B=${OUT_B:-data/weights_v8_keep085.bin}
-OUT_C=${OUT_C:-data/weights_v8_weighted.bin}
+BASELINE=${2:-data/weights_v007.bin}
+OUT_B=${OUT_B:-data/weights_v012_keep085.bin}
+OUT_C=${OUT_C:-data/weights_v012_weighted.bin}
 GAMES=${GAMES:-100}
 MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
@@ -106,7 +106,10 @@ echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
   --depths 2,4 \
   --timeout-ms 10000 \
   --jobs "$JOBS" \
+  --engine-option "Threads=1" \
   --skip-existing \
+  --unordered-output \
+  --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations"
@@ -160,14 +163,20 @@ BASELINE_STEM=$(basename "$BASELINE" .bin)
 RESULT_B="results/${TIMESTAMP}_$(basename "$OUT_B" .bin)_vs_${BASELINE_STEM}.json"
 RESULT_C="results/${TIMESTAMP}_$(basename "$OUT_C" .bin)_vs_${BASELINE_STEM}.json"
 
+# Threads=1 on both sides: without it, each self-play engine process defaults
+# to rayon's full-core-count pool, oversubscribing the machine by up to 2x
+# and making search depth mid-match depend on CPU contention (see
+# tasks/lessons.md, scripts/strength_regression.sh's identical comment).
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUT_B" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
+  --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
   --games "$GAMES" --byoyomi 1000 --json "$RESULT_B"
 
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUT_C" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
+  --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
   --games "$GAMES" --byoyomi 1000 --json "$RESULT_C"
 
 cat > "$RUN_DIR/manifest.json" <<EOF

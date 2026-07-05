@@ -22,7 +22,7 @@ Point <log_file> at wherever you redirected a gate run's stdout, and
 
     cargo run --release -p sekirei-match-runner -- \\
       --engine1 ./target/release/sekirei \\
-      --engine2 ./target/release/sekirei --args2 data/weights_v7.bin \\
+      --engine2 ./target/release/sekirei --args2 data/weights_v007.bin \\
       --games 60 --byoyomi 1000 \\
       --json results/foo.json > /tmp/foo.log 2>&1 &
 
@@ -296,6 +296,53 @@ def list_weights():
         return []
 
 
+def get_opening_sanity_data(w1, w2, depth_str):
+    """Runs scripts/opening_sanity.sh --json once per weights file and zips
+    the two case lists by name. Synchronous (unlike start_run's Popen+poll)
+    -- opening_sanity.sh takes ~7-8s per weights file, short enough to just
+    block this one request's thread on a ThreadingHTTPServer.
+    """
+    weights = list_weights()
+    for w in (w1, w2):
+        if not w or w not in weights:
+            raise ValueError(f"unknown weights file: {w}")
+    try:
+        depth = int(depth_str)
+    except (TypeError, ValueError):
+        raise ValueError("depth must be an integer")
+    if depth <= 0:
+        raise ValueError("depth must be positive")
+
+    script = os.path.join(REPO_ROOT, "scripts", "opening_sanity.sh")
+
+    def run_one(w):
+        result = subprocess.run(
+            ["bash", script, "--json", os.path.join(DATA_DIR, w), str(depth)],
+            cwd=REPO_ROOT,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        if result.returncode != 0:
+            raise RuntimeError(f"opening_sanity.sh failed for {w}: {result.stderr.strip()}")
+        return {c["name"]: c for c in json.loads(result.stdout)}
+
+    cases1 = run_one(w1)
+    cases2 = run_one(w2)
+    names = list(cases1.keys())  # both runs share the same fixed CASES order
+    cases = [
+        {
+            "name": name,
+            "w1_move": cases1.get(name, {}).get("bestmove"),
+            "w1_score": cases1.get(name, {}).get("score_cp"),
+            "w2_move": cases2.get(name, {}).get("bestmove"),
+            "w2_score": cases2.get(name, {}).get("score_cp"),
+        }
+        for name in names
+    ]
+    return {"cases": cases}
+
+
 def start_run(payload):
     """Launches a new sekirei-match gate run; returns the new run_id.
 
@@ -337,6 +384,11 @@ def start_run(payload):
     args += ["--engine2", sekirei_bin]
     if e2 and e2 != MATERIAL_SENTINEL:
         args += ["--args2", os.path.join(DATA_DIR, e2)]
+    # Threads=1 on both sides: without it, each self-play engine process
+    # defaults to rayon's full-core-count pool, oversubscribing the machine
+    # by up to 2x and making search depth mid-match depend on CPU contention
+    # (see tasks/lessons.md, scripts/strength_regression.sh's identical comment).
+    args += ["--engine-option1", "Threads=1", "--engine-option2", "Threads=1"]
     args += [
         "--games", str(games),
         "--byoyomi", str(byoyomi),
@@ -661,7 +713,7 @@ import {
   Button, Chip, LinearProgress, Card,
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
-  MenuItem, Fab, IconButton, TablePagination
+  MenuItem, Fab, IconButton, TablePagination, Collapse
 } from "@mui/material";
 
 const TRANSLATIONS = {
@@ -670,6 +722,7 @@ const TRANSLATIONS = {
     navHistory: "過去のゲート結果一覧",
     navStatus: "実行状況",
     navStrength: "強さ評価",
+    navOpening: "序盤診断",
     refresh: "更新",
     lastUpdated: "最終更新",
     ago: "秒前",
@@ -704,10 +757,33 @@ const TRANSLATIONS = {
     etaSoon: "残り時間: まもなく終了 (結果集計中)",
     etaLabel: "残り時間", avgPerGame: "秒/局", remainingGames: "残り", elapsedLabel: "経過",
     noResultYet: "結果ファイルはまだありません (実行中、または未開始)。",
+    liveTally: "現在の内訳",
     recentGames: "対局ログ", colGame: "局", colE1: "Engine1", colE2: "Engine2",
     colResult: "結果", colMoves: "手数", colTime: "時刻", noGamesYet: "まだログ行がありません。",
     colKifu: "棋譜", viewKifu: "表示",
     kifuUnavailable: "棋譜は記録されていません(sekirei-match-runner を --output <dir> 付きで実行し、その dir をこのダッシュボードの第4引数に渡すと利用できます)。",
+    // kifu board page
+    kifuTitle: "棋譜ビューア", kifuLoading: "読み込み中…", kifuNotFound: "棋譜が見つかりません。",
+    kifuFirst: "|<", kifuPrev: "<", kifuNext: ">", kifuLast: ">|",
+    // opening sanity page
+    openingTitle: "序盤診断(定跡チェック)",
+    openingHelp: "固定の序盤局面セットに対する bestmove/score_cp を2つの重みファイルで比較します。良し悪しの自動判定はしません(色分けは bestmove が一致するかどうかのみ) — 判断は見る人に委ねます。",
+    openingSettingsTitle: "比較設定",
+    openingWeights1Label: "重みファイル A", openingWeights2Label: "重みファイル B",
+    openingDepthLabel: "深さ", openingCompareButton: "比較実行",
+    openingColCase: "ケース", openingColMove: "bestmove", openingColScore: "score_cp",
+    openingNoResult: "まだ比較していません。重みファイルを2つ選んで「比較実行」を押してください。",
+    openingSelectBoth: "重みファイルを2つとも選んでください。",
+    openingColMoveTip: "エンジンがこの局面で選んだ指し手(USIの bestmove)。例えば「7g7f」は7筋の歩をg段からf段へ進める手。",
+    openingColScoreTip: "評価値(センチポーン)。100 ≈ 歩1枚分の価値。プラスは手番側が有利、マイナスは不利とエンジンが評価していることを示す(あくまで指定した探索深さでの見積もり)。",
+    openingCaseDesc: {
+      startpos: "初期局面(まだ1手も指していない状態)。",
+      aigakari: "相掛かり: 2g2f/8c8d/2f2e — 双方が飛車先の歩を伸ばす、古典的な対抗形。",
+      kakugawari: "角換わり: 2g2f/3c3d/7g7f/8c8d — 双方の角道が開き、角交換になりやすい形。",
+      ibisha_vs_furibisha: "居飛車対振り飛車: 2g2f/3c3d/7g7f/4c4d — 先手は居飛車、後手は飛車を振る含みの形。",
+      hayaishida: "早石田: 2g2f/3c3d/7g7f/3d3e — 後手が3筋の歩を早めに伸ばす、振り飛車側の速攻戦法。",
+      edge_lance_trap: "このセッション中に発見した実戦局面(対局#29)を再現したケース。定跡の正式名称ではなく、香車側の端が弱点になっていた局面。",
+    },
     // strength page
     strengthTitle: "強さ評価",
     anchorLabel: "アンカー(基準側の推定絶対レート)",
@@ -735,6 +811,7 @@ const TRANSLATIONS = {
     navHistory: "Gate result history",
     navStatus: "Execution status",
     navStrength: "Strength evaluation",
+    navOpening: "Opening sanity",
     refresh: "Refresh",
     lastUpdated: "Updated", ago: "s ago",
     historyTitle: "Gate result history",
@@ -766,10 +843,33 @@ const TRANSLATIONS = {
     etaSoon: "ETA: finishing up (tallying result)",
     etaLabel: "ETA", avgPerGame: "s/game", remainingGames: "remaining", elapsedLabel: "elapsed",
     noResultYet: "No result file yet (running, or not started).",
+    liveTally: "Current tally",
     recentGames: "Game log", colGame: "Game", colE1: "Engine1", colE2: "Engine2",
     colResult: "Result", colMoves: "Moves", colTime: "Time", noGamesYet: "No log lines yet.",
     colKifu: "Kifu", viewKifu: "View",
     kifuUnavailable: "No kifu recorded (run sekirei-match-runner with --output <dir> and pass that dir as this dashboard's 4th argument to enable this).",
+    // kifu board page
+    kifuTitle: "Kifu viewer", kifuLoading: "Loading…", kifuNotFound: "Kifu not found.",
+    kifuFirst: "|<", kifuPrev: "<", kifuNext: ">", kifuLast: ">|",
+    // opening sanity page
+    openingTitle: "Opening sanity (joseki check)",
+    openingHelp: "Compares bestmove/score_cp between two weight files across a fixed set of opening test positions. No automatic good/bad judgment (highlighting only marks whether bestmove differs) — quality is for the viewer to judge.",
+    openingSettingsTitle: "Comparison settings",
+    openingWeights1Label: "Weights A", openingWeights2Label: "Weights B",
+    openingDepthLabel: "Depth", openingCompareButton: "Compare",
+    openingColCase: "Case", openingColMove: "bestmove", openingColScore: "score_cp",
+    openingNoResult: "No comparison yet. Pick two weight files and click Compare.",
+    openingSelectBoth: "Please select both weight files.",
+    openingColMoveTip: "The move the engine chose in this position (USI's bestmove). E.g. \\"7g7f\\" moves the pawn on file 7 from rank g to rank f.",
+    openingColScoreTip: "Evaluation score in centipawns. 100 ≈ the value of one pawn. Positive means the engine judges the side to move as ahead; negative means behind (only an estimate at the given search depth).",
+    openingCaseDesc: {
+      startpos: "The initial position (no moves played yet).",
+      aigakari: "Aigakari (double wing attack): 2g2f/8c8d/2f2e — both sides push their rook-file pawn, a classic mirrored opening.",
+      kakugawari: "Kakugawari (bishop exchange): 2g2f/3c3d/7g7f/8c8d — both sides open their bishop diagonal, tending toward a bishop trade.",
+      ibisha_vs_furibisha: "Static Rook vs Ranging Rook: 2g2f/3c3d/7g7f/4c4d — Black stays Static Rook, White's moves suggest a Ranging Rook setup.",
+      hayaishida: "Hayaishida (early Ishida): 2g2f/3c3d/7g7f/3d3e — White pushes the 3-file pawn early, a fast-attack Ranging Rook line.",
+      edge_lance_trap: "Reproduces a real game position found during this session (game #29), not a named joseki — the lance-side edge was a weakness in that position.",
+    },
     strengthTitle: "Strength evaluation",
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
     anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
@@ -1204,6 +1304,49 @@ function SecondsAgo({ updatedAt, t }) {
   return <Typography variant="caption" color="text.secondary">{t.lastUpdated}: {secs}{t.ago}</Typography>;
 }
 
+// Small right/down chevron -- rotates via sx transform rather than being two
+// separate icon components, matching this file's existing hand-rolled-SVG
+// convention (no @mui/icons-material dependency for one glyph).
+function IconChevron({ open }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+      style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
+      <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Collapsible section wrapper used across every page's panels (gate forms,
+// charts, tables) -- fold state persists per-panel in localStorage (keyed by
+// `id`) the same way the language toggle does, so a reload doesn't re-open
+// everything the user just collapsed.
+function CollapsiblePanel({ id, title, extra, defaultOpen = true, children }) {
+  const storageKey = `sekirei_dash_panel_${id}`;
+  const [open, setOpen] = useState(() => {
+    const saved = localStorage.getItem(storageKey);
+    return saved === null ? defaultOpen : saved === "1";
+  });
+  useEffect(() => { localStorage.setItem(storageKey, open ? "1" : "0"); }, [storageKey, open]);
+  return (
+    <Box sx={{ mb: 3 }}>
+      <Stack
+        direction="row" alignItems="center" spacing={0.5}
+        sx={{ cursor: "pointer", userSelect: "none" }}
+        onClick={() => setOpen((o) => !o)}
+      >
+        <IconButton size="small" sx={{ color: "text.secondary" }}>
+          <IconChevron open={open} />
+        </IconButton>
+        <Typography variant="subtitle1">{title}</Typography>
+        {extra}
+      </Stack>
+      <Collapse in={open}>
+        <Box sx={{ pt: 1 }}>{children}</Box>
+      </Collapse>
+    </Box>
+  );
+}
+
 const VERDICT_OPTIONS = ["PASS", "FAIL", "INCONCLUSIVE"];
 
 function HistoryPage({ t }) {
@@ -1257,10 +1400,11 @@ function HistoryPage({ t }) {
         </Stack>
       </Stack>
       {gateRows.length > 0 && (
-        <Box sx={{ mb: 3, overflowX: "auto" }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.ciChartTitle}</Typography>
-          <CiBarChart rows={gateRows} passElo={20} failElo={-10} t={t} onSelect={selectRow} />
-        </Box>
+        <CollapsiblePanel id="ciChart" title={t.ciChartTitle}>
+          <Box sx={{ overflowX: "auto" }}>
+            <CiBarChart rows={gateRows} passElo={20} failElo={-10} t={t} onSelect={selectRow} />
+          </Box>
+        </CollapsiblePanel>
       )}
       {filteredEntries.length === 0 ? (
         <Typography><em>{t.noResults}</em></Typography>
@@ -1321,7 +1465,7 @@ function RunPicker({ runs, selectedRunId, onSelect }) {
 }
 
 function StartGateForm({ t, onStarted }) {
-  const { data: weightsData } = useApi("/api/weights", null);
+  const { data: weightsData } = useApi("/api/weights", 8000);
   const weights = weightsData?.weights || [];
   const [e1, setE1] = useState("");
   const [e2, setE2] = useState("");
@@ -1348,23 +1492,24 @@ function StartGateForm({ t, onStarted }) {
   };
 
   return (
-    <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
-      <Typography variant="subtitle1" sx={{ mb: 1 }}>{t.startGateTitle}</Typography>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
-        <TextField select size="small" label={t.engine1Label} value={e1} onChange={(e) => setE1(e.target.value)} sx={{ minWidth: 200 }}>
-          <MenuItem value="">{t.materialEval}</MenuItem>
-          {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
-        </TextField>
-        <TextField select size="small" label={t.engine2Label} value={e2} onChange={(e) => setE2(e.target.value)} sx={{ minWidth: 200 }}>
-          <MenuItem value="">{t.materialEval}</MenuItem>
-          {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
-        </TextField>
-        <TextField type="number" size="small" label={t.gamesLabel} value={games} onChange={(e) => setGames(Number(e.target.value) || 0)} sx={{ width: 100 }} />
-        <TextField type="number" size="small" label={t.byoyomiLabel} value={byoyomi} onChange={(e) => setByoyomi(Number(e.target.value) || 0)} sx={{ width: 120 }} />
-        <Button variant="contained" disabled={starting} onClick={start}>{starting ? "…" : t.startButton}</Button>
-      </Stack>
-      {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
-    </Card>
+    <CollapsiblePanel id="startGate" title={t.startGateTitle}>
+      <Card variant="outlined" sx={{ p: 2 }}>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
+          <TextField select size="small" label={t.engine1Label} value={e1} onChange={(e) => setE1(e.target.value)} sx={{ minWidth: 200 }}>
+            <MenuItem value="">{t.materialEval}</MenuItem>
+            {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+          </TextField>
+          <TextField select size="small" label={t.engine2Label} value={e2} onChange={(e) => setE2(e.target.value)} sx={{ minWidth: 200 }}>
+            <MenuItem value="">{t.materialEval}</MenuItem>
+            {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+          </TextField>
+          <TextField type="number" size="small" label={t.gamesLabel} value={games} onChange={(e) => setGames(Number(e.target.value) || 0)} sx={{ width: 100 }} />
+          <TextField type="number" size="small" label={t.byoyomiLabel} value={byoyomi} onChange={(e) => setByoyomi(Number(e.target.value) || 0)} sx={{ width: 120 }} />
+          <Button variant="contained" disabled={starting} onClick={start}>{starting ? "…" : t.startButton}</Button>
+        </Stack>
+        {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
+      </Card>
+    </CollapsiblePanel>
   );
 }
 
@@ -1393,17 +1538,104 @@ function AttachRunForm({ t, onAttached }) {
   };
 
   return (
-    <Card variant="outlined" sx={{ mb: 3, p: 2 }}>
-      <Typography variant="subtitle1" sx={{ mb: 1 }}>{t.attachRunTitle}</Typography>
-      <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>{t.attachRunHelp}</Typography>
-      <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
-        <TextField size="small" label={t.logFileLabel} value={logFile} onChange={(e) => setLogFile(e.target.value)} sx={{ minWidth: 260 }} />
-        <TextField size="small" label={t.resultJsonLabel} value={resultJson} onChange={(e) => setResultJson(e.target.value)} sx={{ minWidth: 260 }} />
-        <TextField size="small" label={t.kifuDirLabel} value={kifuDir} onChange={(e) => setKifuDir(e.target.value)} sx={{ minWidth: 200 }} />
-        <Button variant="outlined" disabled={attaching || !logFile || !resultJson} onClick={attach}>{attaching ? "…" : t.attachButton}</Button>
-      </Stack>
-      {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
-    </Card>
+    <CollapsiblePanel id="attachRun" title={t.attachRunTitle} defaultOpen={false}>
+      <Card variant="outlined" sx={{ p: 2 }}>
+        <Typography variant="caption" color="text.secondary" sx={{ display: "block", mb: 1 }}>{t.attachRunHelp}</Typography>
+        <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
+          <TextField size="small" label={t.logFileLabel} value={logFile} onChange={(e) => setLogFile(e.target.value)} sx={{ minWidth: 260 }} />
+          <TextField size="small" label={t.resultJsonLabel} value={resultJson} onChange={(e) => setResultJson(e.target.value)} sx={{ minWidth: 260 }} />
+          <TextField size="small" label={t.kifuDirLabel} value={kifuDir} onChange={(e) => setKifuDir(e.target.value)} sx={{ minWidth: 200 }} />
+          <Button variant="outlined" disabled={attaching || !logFile || !resultJson} onClick={attach}>{attaching ? "…" : t.attachButton}</Button>
+        </Stack>
+        {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
+      </Card>
+    </CollapsiblePanel>
+  );
+}
+
+function OpeningSanityPage({ t }) {
+  const { data: weightsData } = useApi("/api/weights", 8000);
+  const weights = weightsData?.weights || [];
+  const [w1, setW1] = useState("");
+  const [w2, setW2] = useState("");
+  const [depth, setDepth] = useState(6);
+  const [comparing, setComparing] = useState(false);
+  const [error, setError] = useState(null);
+  const [result, setResult] = useState(null);
+
+  const compare = () => {
+    if (!w1 || !w2) { setError(t.openingSelectBoth); return; }
+    setComparing(true);
+    setError(null);
+    fetch(`/api/opening_sanity?w1=${encodeURIComponent(w1)}&w2=${encodeURIComponent(w2)}&depth=${encodeURIComponent(depth)}`)
+      .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
+      .then(({ ok, body }) => {
+        setComparing(false);
+        if (!ok) { setError(body.error || "error"); return; }
+        setResult(body);
+      })
+      .catch((e) => { setComparing(false); setError(String(e)); });
+  };
+
+  return (
+    <Box>
+      <Typography variant="h6" sx={{ mb: 1 }}>{t.openingTitle}</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{t.openingHelp}</Typography>
+      <CollapsiblePanel id="openingSettings" title={t.openingSettingsTitle}>
+        <Card variant="outlined" sx={{ p: 2 }}>
+          <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
+            <TextField select size="small" label={t.openingWeights1Label} value={w1} onChange={(e) => setW1(e.target.value)} sx={{ minWidth: 240 }}>
+              {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+            </TextField>
+            <TextField select size="small" label={t.openingWeights2Label} value={w2} onChange={(e) => setW2(e.target.value)} sx={{ minWidth: 240 }}>
+              {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
+            </TextField>
+            <TextField type="number" size="small" label={t.openingDepthLabel} value={depth} onChange={(e) => setDepth(Number(e.target.value) || 0)} sx={{ width: 100 }} />
+            <Button variant="contained" disabled={comparing} onClick={compare}>{comparing ? "…" : t.openingCompareButton}</Button>
+          </Stack>
+          {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
+        </Card>
+      </CollapsiblePanel>
+      {!result && !error && <Typography variant="body2" color="text.secondary">{t.openingNoResult}</Typography>}
+      {result && (
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>{t.openingColCase}</TableCell>
+              <TableCell>
+                <Tooltip title={t.openingColMoveTip}><span>{w1} {t.openingColMove}</span></Tooltip>
+              </TableCell>
+              <TableCell>
+                <Tooltip title={t.openingColScoreTip}><span>{w1} {t.openingColScore}</span></Tooltip>
+              </TableCell>
+              <TableCell>
+                <Tooltip title={t.openingColMoveTip}><span>{w2} {t.openingColMove}</span></Tooltip>
+              </TableCell>
+              <TableCell>
+                <Tooltip title={t.openingColScoreTip}><span>{w2} {t.openingColScore}</span></Tooltip>
+              </TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {result.cases.map((c) => {
+              const changed = c.w1_move !== c.w2_move;
+              const desc = t.openingCaseDesc[c.name];
+              return (
+                <TableRow key={c.name} sx={changed ? { bgcolor: "warning.light" } : undefined}>
+                  <TableCell>
+                    {desc ? <Tooltip title={desc}><span>{c.name}</span></Tooltip> : c.name}
+                  </TableCell>
+                  <TableCell>{c.w1_move ?? "—"}</TableCell>
+                  <TableCell>{c.w1_score ?? "—"}</TableCell>
+                  <TableCell>{c.w2_move ?? "—"}</TableCell>
+                  <TableCell>{c.w2_score ?? "—"}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </Box>
   );
 }
 
@@ -1443,6 +1675,9 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
 
   const gameRows = (games || []).slice().reverse();
   const hasDetail = gameRows.some((g) => g.e1);
+  const e1Wins = (games || []).filter((g) => g.result === "Engine1 Win").length;
+  const e2Wins = (games || []).filter((g) => g.result === "Engine2 Win").length;
+  const draws = completed - e1Wins - e2Wins;
 
   return (
     <Box>
@@ -1463,9 +1698,15 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
         <Chip label={stateLabel} color={stateColor} />
-        <Typography variant="body2">{t.progress}: {completed}{total ? `/${total}` : ""}</Typography>
+        <Typography variant="body2">{t.progress}: {completed}{total ? `/${total}` : ""}{total ? ` (${pct.toFixed(0)}%)` : ""}</Typography>
       </Stack>
-      {total ? <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4, mb: 2 }} /> : null}
+      {total ? <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4, mb: 1 }} /> : null}
+      {completed > 0 && (
+        <Typography variant="body2" sx={{ mb: 2 }}>
+          {t.liveTally}: {gameRows[0]?.e1 || t.colE1} {e1Wins}{t.legendWin} — {gameRows[0]?.e2 || t.colE2} {e2Wins}{t.legendWin}
+          {draws > 0 ? ` (${draws}${t.legendDraw})` : ""}
+        </Typography>
+      )}
 
       {running && (!total || completed === 0) && <Typography sx={{ mb: 2 }}>{t.etaEstimating}</Typography>}
       {running && total && completed > 0 && total - completed <= 0 && <Typography sx={{ mb: 2 }}>{t.etaSoon}</Typography>}
@@ -1499,36 +1740,37 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
       )}
 
       <Divider sx={{ mb: 2 }} />
-      <Typography variant="h6" sx={{ mb: 1 }}>{t.recentGames}</Typography>
-      {!data.kifu_available && <Typography variant="caption" color="text.secondary">{t.kifuUnavailable}</Typography>}
-      {gameRows.length === 0 ? (
-        <Typography><em>{t.noGamesYet}</em></Typography>
-      ) : hasDetail ? (
-        <SortableTable
-          initialKey="n" initialDir="desc"
-          paginated rowsPerPageOptions={[10, 25, 50]}
-          columns={[
-            { key: "n", label: t.colGame },
-            { key: "time", label: t.colTime },
-            { key: "e1", label: t.colE1 },
-            { key: "e2", label: t.colE2 },
-            { key: "result", label: t.colResult },
-            { key: "moves", label: t.colMoves },
-            ...(data.kifu_available ? [{ key: "kifu", label: t.colKifu }] : []),
-          ]}
-          rows={gameRows}
-          renderCell={(key, row) => {
-            if (key === "time") return row.time ? new Date(row.time * 1000).toLocaleTimeString() : "";
-            if (key === "kifu") return <a href={`/kifu/${selectedRunId}/${row.n}`} target="_blank" rel="noreferrer">{t.viewKifu}</a>;
-            if (row.raw) return key === "n" ? row.n : (key === "result" ? row.raw : "");
-            if (key === "e1") return `${row.e1} (${row.c1})`;
-            if (key === "e2") return `${row.e2} (${row.c2})`;
-            return row[key];
-          }}
-        />
-      ) : (
-        <List dense>{gameRows.map((g) => <ListItemText key={g.n} primary={`Game ${g.n}: ${g.raw}`} />)}</List>
-      )}
+      <CollapsiblePanel id="recentGames" title={t.recentGames}>
+        {!data.kifu_available && <Typography variant="caption" color="text.secondary">{t.kifuUnavailable}</Typography>}
+        {gameRows.length === 0 ? (
+          <Typography><em>{t.noGamesYet}</em></Typography>
+        ) : hasDetail ? (
+          <SortableTable
+            initialKey="n" initialDir="desc"
+            paginated rowsPerPageOptions={[10, 25, 50]}
+            columns={[
+              { key: "n", label: t.colGame },
+              { key: "time", label: t.colTime },
+              { key: "e1", label: t.colE1 },
+              { key: "e2", label: t.colE2 },
+              { key: "result", label: t.colResult },
+              { key: "moves", label: t.colMoves },
+              ...(data.kifu_available ? [{ key: "kifu", label: t.colKifu }] : []),
+            ]}
+            rows={gameRows}
+            renderCell={(key, row) => {
+              if (key === "time") return row.time ? new Date(row.time * 1000).toLocaleTimeString() : "";
+              if (key === "kifu") return <a href={`/?page=kifu&run=${selectedRunId}&game=${row.n}`} target="_blank" rel="noreferrer">{t.viewKifu}</a>;
+              if (row.raw) return key === "n" ? row.n : (key === "result" ? row.raw : "");
+              if (key === "e1") return `${row.e1} (${row.c1})`;
+              if (key === "e2") return `${row.e2} (${row.c2})`;
+              return row[key];
+            }}
+          />
+        ) : (
+          <List dense>{gameRows.map((g) => <ListItemText key={g.n} primary={`Game ${g.n}: ${g.raw}`} />)}</List>
+        )}
+      </CollapsiblePanel>
     </Box>
   );
 }
@@ -1537,7 +1779,7 @@ const DEFAULT_ANCHOR = 1850; // midpoint of tasks/competitive_analysis.md's mate
 
 function StrengthPage({ t }) {
   const { data: historyData, updatedAt: historyUpdatedAt, refresh: refreshHistory } = useApi("/api/history", 8000);
-  const { data: todoData, refresh: refreshTodo } = useApi("/api/todo", null);
+  const { data: todoData, refresh: refreshTodo } = useApi("/api/todo", 8000);
   const [anchor, setAnchor] = useState(DEFAULT_ANCHOR);
 
   const entries = (historyData?.entries || []).filter((e) => !e.error);
@@ -1580,13 +1822,10 @@ function StrengthPage({ t }) {
       />
 
       {trendPoints.length > 0 && (
-        <Box sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.trendTitle}</Typography>
+        <CollapsiblePanel id="ratingTrend" title={t.trendTitle}>
           <RatingTrendChart points={trendPoints} onSelect={selectRow} t={t} />
-        </Box>
-      )}
-      {trendPoints.length > 0 && (
-        <Typography variant="caption" color="warning.main" sx={{ display: "block", mb: 3 }}>{t.trendCaveat}</Typography>
+          <Typography variant="caption" color="warning.main" sx={{ display: "block", mt: 1 }}>{t.trendCaveat}</Typography>
+        </CollapsiblePanel>
       )}
 
       {rows.length === 0 ? (
@@ -1613,30 +1852,33 @@ function StrengthPage({ t }) {
       )}
 
       <Divider sx={{ my: 3 }} />
-      <Typography variant="h6" sx={{ mb: 1 }}>{t.strengthActionsTitle}</Typography>
-      <Typography variant="caption" color="text.secondary">{t.strengthActionsSource}: {todoData?.source || "tasks/todo.md"}</Typography>
-      {items.length === 0 ? (
-        <Typography sx={{ mt: 1 }}><em>{t.noTodoItems}</em></Typography>
-      ) : (
-        <SortableTable
-          initialKey="category" initialDir="asc"
-          columns={[
-            { key: "category", label: t.colCategory },
-            { key: "text", label: t.colAction },
-            { key: "est_minutes", label: t.colEstMinutes },
-          ]}
-          rows={items.map((item, i) => ({ ...item, _i: i }))}
-          renderCell={(key, row) => {
-            if (key === "category") {
-              const badge = CATEGORY_BADGE[row.category] || CATEGORY_BADGE.unclassified;
-              return <Chip size="small" label={t[badge.labelKey]} color={badge.color} />;
-            }
-            if (key === "text") return row.text;
-            if (key === "est_minutes") return row.est_minutes != null ? `~${row.est_minutes}${t.minutesShort}` : (row.category === "match" ? t.estUnknown : "");
-            return row[key];
-          }}
-        />
-      )}
+      <CollapsiblePanel
+        id="strengthActions" title={t.strengthActionsTitle}
+        extra={<Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>{t.strengthActionsSource}: {todoData?.source || "tasks/todo.md"}</Typography>}
+      >
+        {items.length === 0 ? (
+          <Typography><em>{t.noTodoItems}</em></Typography>
+        ) : (
+          <SortableTable
+            initialKey="category" initialDir="asc"
+            columns={[
+              { key: "category", label: t.colCategory },
+              { key: "text", label: t.colAction },
+              { key: "est_minutes", label: t.colEstMinutes },
+            ]}
+            rows={items.map((item, i) => ({ ...item, _i: i }))}
+            renderCell={(key, row) => {
+              if (key === "category") {
+                const badge = CATEGORY_BADGE[row.category] || CATEGORY_BADGE.unclassified;
+                return <Chip size="small" label={t[badge.labelKey]} color={badge.color} />;
+              }
+              if (key === "text") return row.text;
+              if (key === "est_minutes") return row.est_minutes != null ? `~${row.est_minutes}${t.minutesShort}` : (row.category === "match" ? t.estUnknown : "");
+              return row[key];
+            }}
+          />
+        )}
+      </CollapsiblePanel>
     </Box>
   );
 }
@@ -1888,6 +2130,16 @@ function IconStrength() {
   );
 }
 
+function IconOpening() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="4" width="7" height="16" rx="1" stroke="currentColor" strokeWidth="2" />
+      <rect x="14" y="4" width="7" height="16" rx="1" stroke="currentColor" strokeWidth="2" />
+      <path d="M10 12h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 function IconChat({ size }) {
   size = size || 24;
   return (
@@ -1906,7 +2158,272 @@ function IconClose({ size }) {
   );
 }
 
-const PAGES = ["history", "status", "strength"];
+// ============================================================
+// Kifu board viewer -- replays a game's USI move list client-side (the
+// backend only ever serves the raw kifu .txt as-is) and renders it as an
+// actual 9x9 shogi board instead of a wall of "7g7f 3c3d ..." text.
+// Hand-rolled (no shogi-board JS library) to match this dashboard's
+// existing zero-new-dependency approach for charts/icons/markdown.
+// ============================================================
+
+const SHOGI_FILES = [9, 8, 7, 6, 5, 4, 3, 2, 1];
+const SHOGI_RANKS = ["a", "b", "c", "d", "e", "f", "g", "h", "i"];
+const PIECE_KANJI = { P: "歩", L: "香", N: "桂", S: "銀", G: "金", B: "角", R: "飛", K: "玉" };
+const PIECE_KANJI_PROMOTED = { P: "と", L: "杏", N: "圭", S: "全", B: "馬", R: "龍" };
+
+function shogiInitialBoard() {
+  const board = {};
+  const backRank = ["L", "N", "S", "G", "K", "G", "S", "N", "L"]; // files 9..1
+  SHOGI_FILES.forEach((f, i) => {
+    board[`${f}a`] = { color: "w", kind: backRank[i], promoted: false };
+    board[`${f}i`] = { color: "b", kind: backRank[i], promoted: false };
+    board[`${f}c`] = { color: "w", kind: "P", promoted: false };
+    board[`${f}g`] = { color: "b", kind: "P", promoted: false };
+  });
+  board["8b"] = { color: "w", kind: "R", promoted: false };
+  board["2b"] = { color: "w", kind: "B", promoted: false };
+  board["8h"] = { color: "b", kind: "B", promoted: false };
+  board["2h"] = { color: "b", kind: "R", promoted: false };
+  return board;
+}
+
+// Parses one USI move token: a normal move ("7g7f", "9g5c+") or a drop
+// ("P*9b"). Assumes the move is already legal (it came from a real game),
+// so this only replays -- it never validates.
+function parseUsiMove(m) {
+  const promote = m.endsWith("+");
+  const body = promote ? m.slice(0, -1) : m;
+  if (body[1] === "*") {
+    return { drop: true, kind: body[0], to: body.slice(2), promote: false };
+  }
+  return { drop: false, from: body.slice(0, 2), to: body.slice(2, 4), promote };
+}
+
+function applyShogiMove(board, hands, mv, color) {
+  if (mv.drop) {
+    board[mv.to] = { color, kind: mv.kind, promoted: false };
+    hands[color][mv.kind] = (hands[color][mv.kind] || 0) - 1;
+    return;
+  }
+  const piece = board[mv.from];
+  const captured = board[mv.to];
+  if (captured) {
+    // Captured pieces revert to their unpromoted kind in the capturer's hand.
+    hands[color][captured.kind] = (hands[color][captured.kind] || 0) + 1;
+  }
+  delete board[mv.from];
+  if (piece) {
+    board[mv.to] = { color, kind: piece.kind, promoted: piece.promoted || mv.promote };
+  }
+}
+
+// Replays from the initial position through `uptoIndex` moves (0 = startpos).
+// Cheap to redo from scratch each time given realistic game lengths (~40-150
+// plies) -- no need for incremental undo bookkeeping.
+function shogiReplayTo(moves, uptoIndex) {
+  const board = shogiInitialBoard();
+  const hands = { b: {}, w: {} };
+  let color = "b";
+  let lastFrom = null;
+  let lastTo = null;
+  for (let i = 0; i < uptoIndex; i++) {
+    const mv = parseUsiMove(moves[i]);
+    applyShogiMove(board, hands, mv, color);
+    lastFrom = mv.drop ? null : mv.from;
+    lastTo = mv.to;
+    color = color === "b" ? "w" : "b";
+  }
+  return { board, hands, lastFrom, lastTo };
+}
+
+const SHOGI_CELL = 48;
+const SHOGI_BOARD_PX = SHOGI_CELL * 9;
+
+function ShogiBoard({ board, lastFrom, lastTo }) {
+  return (
+    <svg width={SHOGI_BOARD_PX + 28} height={SHOGI_BOARD_PX + 28} style={{ background: "#f5deb3" }}>
+      {SHOGI_FILES.map((f, ci) => (
+        <text key={`f${f}`} x={24 + ci * SHOGI_CELL + SHOGI_CELL / 2} y={14} textAnchor="middle" fontSize={12}>
+          {f}
+        </text>
+      ))}
+      {SHOGI_RANKS.map((r, ri) => (
+        <text key={`r${r}`} x={10} y={24 + ri * SHOGI_CELL + SHOGI_CELL / 2 + 4} textAnchor="middle" fontSize={12}>
+          {ri + 1}
+        </text>
+      ))}
+      <g transform="translate(24,20)">
+        {SHOGI_FILES.map((f, ci) =>
+          SHOGI_RANKS.map((r, ri) => {
+            const sqName = `${f}${r}`;
+            const highlighted = sqName === lastFrom || sqName === lastTo;
+            return (
+              <rect
+                key={sqName}
+                x={ci * SHOGI_CELL}
+                y={ri * SHOGI_CELL}
+                width={SHOGI_CELL}
+                height={SHOGI_CELL}
+                fill={highlighted ? "#ffe28a" : "none"}
+                stroke="#333"
+                strokeWidth={1}
+              />
+            );
+          })
+        )}
+        {SHOGI_FILES.map((f) =>
+          SHOGI_RANKS.map((r) => {
+            const p = board[`${f}${r}`];
+            if (!p) return null;
+            const ci = SHOGI_FILES.indexOf(f);
+            const ri = SHOGI_RANKS.indexOf(r);
+            const kanji = p.promoted ? PIECE_KANJI_PROMOTED[p.kind] || PIECE_KANJI[p.kind] : PIECE_KANJI[p.kind];
+            const cx = ci * SHOGI_CELL + SHOGI_CELL / 2;
+            const cy = ri * SHOGI_CELL + SHOGI_CELL / 2;
+            const rotate = p.color === "w" ? 180 : 0;
+            return (
+              <text
+                key={`${f}${r}`}
+                x={cx}
+                y={cy}
+                textAnchor="middle"
+                dominantBaseline="central"
+                fontSize={SHOGI_CELL * 0.55}
+                fill={p.promoted ? "#b5442e" : "#111"}
+                transform={`rotate(${rotate} ${cx} ${cy})`}
+              >
+                {kanji}
+              </text>
+            );
+          })
+        )}
+      </g>
+    </svg>
+  );
+}
+
+function ShogiHand({ hand }) {
+  const entries = Object.entries(hand || {}).filter(([, n]) => n > 0);
+  return (
+    <Stack direction="row" spacing={1.5} sx={{ minHeight: 28, alignItems: "center" }}>
+      {entries.length === 0 && (
+        <Typography variant="caption" color="text.secondary">
+          —
+        </Typography>
+      )}
+      {entries.map(([kind, n]) => (
+        <Typography key={kind} variant="body2">
+          {PIECE_KANJI[kind]}×{n}
+        </Typography>
+      ))}
+    </Stack>
+  );
+}
+
+function KifuPage({ t, runId, gameN }) {
+  const [raw, setRaw] = useState(null);
+  const [error, setError] = useState(null);
+  const [moveIndex, setMoveIndex] = useState(0);
+
+  useEffect(() => {
+    setRaw(null);
+    setError(null);
+    setMoveIndex(0);
+    fetch(`/kifu/${runId}/${gameN}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(t.kifuNotFound);
+        return r.text();
+      })
+      .then(setRaw)
+      .catch((e) => setError(String(e)));
+  }, [runId, gameN]);
+
+  if (error) {
+    return (
+      <Typography color="error.main">
+        {t.kifuNotFound} ({error})
+      </Typography>
+    );
+  }
+  if (raw === null) return <Typography>{t.kifuLoading}</Typography>;
+
+  const lines = raw.split("\\n");
+  const meta = {};
+  for (const line of lines) {
+    const m = line.match(/^# (\\w+): (.*)$/);
+    if (m) meta[m[1]] = m[2];
+  }
+  const posLine = lines.find((l) => l.startsWith("position ")) || "";
+  const moves = posLine
+    .replace(/^position startpos\\s*(moves\\s*)?/, "")
+    .split(/\\s+/)
+    .filter(Boolean);
+
+  const { board, hands, lastFrom, lastTo } = shogiReplayTo(moves, moveIndex);
+
+  return (
+    <Box>
+      <Typography variant="h5" sx={{ mb: 1 }}>
+        {t.kifuTitle} — {runId} #{gameN}
+      </Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+        {meta.Engine1} vs {meta.Engine2}
+        {meta.Result ? ` — ${meta.Result}` : ""}
+      </Typography>
+      <Stack direction="row" spacing={3} alignItems="flex-start" sx={{ flexWrap: "wrap" }}>
+        <Box>
+          <ShogiHand hand={hands.w} />
+          <ShogiBoard board={board} lastFrom={lastFrom} lastTo={lastTo} />
+          <ShogiHand hand={hands.b} />
+          <Stack direction="row" spacing={1} sx={{ mt: 2 }} alignItems="center">
+            <Button size="small" onClick={() => setMoveIndex(0)} disabled={moveIndex === 0}>
+              {t.kifuFirst}
+            </Button>
+            <Button size="small" onClick={() => setMoveIndex((i) => Math.max(0, i - 1))} disabled={moveIndex === 0}>
+              {t.kifuPrev}
+            </Button>
+            <Typography variant="body2" sx={{ minWidth: 70, textAlign: "center" }}>
+              {moveIndex} / {moves.length}
+            </Typography>
+            <Button
+              size="small"
+              onClick={() => setMoveIndex((i) => Math.min(moves.length, i + 1))}
+              disabled={moveIndex === moves.length}
+            >
+              {t.kifuNext}
+            </Button>
+            <Button size="small" onClick={() => setMoveIndex(moves.length)} disabled={moveIndex === moves.length}>
+              {t.kifuLast}
+            </Button>
+          </Stack>
+        </Box>
+        <Paper variant="outlined" sx={{ p: 1, maxHeight: 560, overflowY: "auto", minWidth: 140 }}>
+          <Stack spacing={0.5}>
+            {moves.map((m, i) => (
+              <Box
+                key={i}
+                onClick={() => setMoveIndex(i + 1)}
+                sx={{
+                  cursor: "pointer",
+                  px: 1,
+                  py: 0.25,
+                  borderRadius: 1,
+                  backgroundColor: moveIndex === i + 1 ? "action.selected" : "transparent",
+                  fontFamily: "monospace",
+                  fontSize: 13,
+                }}
+              >
+                {i + 1}. {m}
+              </Box>
+            ))}
+          </Stack>
+        </Paper>
+      </Stack>
+    </Box>
+  );
+}
+
+const PAGES = ["history", "status", "strength", "kifu", "opening"];
 
 function pageFromUrl() {
   const p = new URLSearchParams(window.location.search).get("page");
@@ -1940,6 +2457,7 @@ function App() {
     { key: "history", label: t.navHistory, Icon: IconHistory },
     { key: "status", label: t.navStatus, Icon: IconStatus },
     { key: "strength", label: t.navStrength, Icon: IconStrength },
+    { key: "opening", label: t.navOpening, Icon: IconOpening },
   ];
 
   return (
@@ -1976,6 +2494,14 @@ function App() {
         {page === "history" && <HistoryPage t={t} />}
         {page === "status" && <StatusPage t={t} selectedRunId={statusRunId} onSelectRun={setStatusRunId} />}
         {page === "strength" && <StrengthPage t={t} />}
+        {page === "opening" && <OpeningSanityPage t={t} />}
+        {page === "kifu" && (
+          <KifuPage
+            t={t}
+            runId={new URLSearchParams(window.location.search).get("run")}
+            gameN={new URLSearchParams(window.location.search).get("game")}
+          />
+        )}
       </Box>
       <ChatWidget t={t} page={page} statusRunId={statusRunId} />
     </Box>
@@ -2052,6 +2578,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/todo":
             self._send_json(get_todo_items())
+            return
+        if path == "/api/opening_sanity":
+            w1 = qs.get("w1", [""])[0]
+            w2 = qs.get("w2", [""])[0]
+            depth = qs.get("depth", ["6"])[0]
+            try:
+                self._send_json(get_opening_sanity_data(w1, w2, depth))
+            except (ValueError, RuntimeError, OSError, json.JSONDecodeError) as e:
+                self._send_json({"error": str(e)}, status=400)
             return
         if path.startswith("/kifu/"):
             parts = path[len("/kifu/") :].split("/", 1)

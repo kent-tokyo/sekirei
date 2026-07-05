@@ -86,9 +86,22 @@ impl UsiEngine {
         }
     }
 
-    /// Perform the USI handshake: usi → usiok → isready → readyok.
-    /// Also captures the engine name from `id name` lines.
-    pub fn initialize(&mut self) -> io::Result<()> {
+    /// Perform the USI handshake: usi → usiok → setoption* → isready → readyok.
+    /// Also captures the engine name from `id name` lines. `options` are
+    /// "Name=Value" strings (e.g. "Threads=1") sent as `setoption` between
+    /// `usiok` and `isready` -- the conventional point in the protocol, and
+    /// where every option this engine understands (Hash/Threads/MoveOverhead/
+    /// MultiPV/EvalFile) is already handled.
+    ///
+    /// Without an explicit Threads option, a self-play match runs two engine
+    /// processes side by side and *neither* sets its own rayon thread pool
+    /// size, so each defaults to every logical core on the machine --  two
+    /// processes oversubscribing by up to 2x. That makes the actual search
+    /// depth reached during a real match depend on how much the two engines
+    /// happen to be contending for CPU at that instant, which can differ
+    /// from a standalone single-process re-check of the same position (see
+    /// tasks/lessons.md) and makes match results harder to reproduce.
+    pub fn initialize(&mut self, options: &[String]) -> io::Result<()> {
         self.send("usi")?;
         loop {
             let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
@@ -97,6 +110,9 @@ impl UsiEngine {
             } else if line.contains("usiok") {
                 break;
             }
+        }
+        for cmd in setoption_commands(options) {
+            self.send(&cmd)?;
         }
         self.send("isready")?;
         self.wait_for("readyok", HANDSHAKE_TIMEOUT)?;
@@ -140,8 +156,53 @@ fn parse_byoyomi_ms(go_cmd: &str) -> Option<u64> {
     None
 }
 
+/// Turns `["Threads=1", "MoveOverhead=100"]` into the USI command lines
+/// `setoption` expects. An entry with no `=` is skipped rather than sent
+/// malformed -- a typo'd `--engine-option` should be a silent no-op here,
+/// not a bad command the engine has to reject.
+fn setoption_commands(options: &[String]) -> Vec<String> {
+    options
+        .iter()
+        .filter_map(|opt| {
+            let (name, value) = opt.split_once('=')?;
+            Some(format!("setoption name {name} value {value}"))
+        })
+        .collect()
+}
+
 impl Drop for UsiEngine {
     fn drop(&mut self) {
         let _ = self.send("quit");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn setoption_commands_formats_name_value_pairs_in_order() {
+        let options = vec!["Threads=1".to_string(), "MoveOverhead=100".to_string()];
+        assert_eq!(
+            setoption_commands(&options),
+            vec![
+                "setoption name Threads value 1".to_string(),
+                "setoption name MoveOverhead value 100".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn setoption_commands_skips_entries_without_an_equals_sign() {
+        let options = vec!["Threads=1".to_string(), "garbage".to_string()];
+        assert_eq!(
+            setoption_commands(&options),
+            vec!["setoption name Threads value 1".to_string()]
+        );
+    }
+
+    #[test]
+    fn setoption_commands_on_empty_input_is_empty() {
+        assert!(setoption_commands(&[]).is_empty());
     }
 }

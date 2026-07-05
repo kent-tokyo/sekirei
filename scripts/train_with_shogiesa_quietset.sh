@@ -27,16 +27,16 @@
 #
 # Examples:
 #   bash scripts/train_with_shogiesa_quietset.sh
-#   DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v7.bin
+#   DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
 #   EXTRA_SCORED=data/stage3/deep_scored.jsonl DEPTHS=2,4,6 \
-#     bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v7.bin
+#     bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v007.bin
 #
 # Exit code: forwarded from 'sekirei-match gate' (0=PASS, 1=FAIL, 2=INCONCLUSIVE)
 set -e
 
 CSA_DIR=${1:-./data/csa}
 OUTPUT=${2:-data/weights_new.bin}
-BASELINE=${3:-data/weights_v7.bin}
+BASELINE=${3:-data/weights_v007.bin}
 DEPTHS=${DEPTHS:-2,4}
 LABEL_DEPTH=${LABEL_DEPTH:-4}
 GAMES=${GAMES:-400}
@@ -98,7 +98,10 @@ cargo build --release -q -p sekirei
   --depths "$DEPTHS" \
   --timeout-ms 10000 \
   --jobs "$JOBS" \
+  --engine-option "Threads=1" \
   --skip-existing \
+  --unordered-output \
+  --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
 echo "  -> $RUN_DIR/stage2/observations.jsonl ($(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations)"
@@ -141,9 +144,14 @@ echo "[5/5] strength regression  ($GAMES games)"
 # Naming convention: <timestamp>_<candidate>_vs_<baseline>.json -- matches
 # scripts/strength_regression.sh and scripts/redo_quietset_bc.sh.
 OUT_JSON="results/${TIMESTAMP}_$(basename "$OUTPUT" .bin)_vs_$(basename "$BASELINE" .bin).json"
+# Threads=1 on both sides: without it, each self-play engine process defaults
+# to rayon's full-core-count pool, oversubscribing the machine by up to 2x
+# and making search depth mid-match depend on CPU contention (see
+# tasks/lessons.md, scripts/strength_regression.sh's identical comment).
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUTPUT" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
+  --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
   --games "$GAMES" \
   --byoyomi 1000 \
   --json "$OUT_JSON"

@@ -218,27 +218,41 @@ impl Trainer {
     /// Forward-only pass for validation loss (no weight updates).
     /// Returns `(loss_raw, loss_weighted, count)`.
     /// `loss_raw` = plain MSE; `loss_weighted` = MSE weighted by phase/side multipliers.
+    /// Teacher scores are looked up in `teacher_cache` first, same as
+    /// `train_positions` — without this, validation re-ran a real
+    /// label-depth search on every sample on every epoch, even when the
+    /// cache already had every score (this was the actual cause of a
+    /// training run taking ~15 min/epoch on a fully-cached 10k dataset).
     pub fn eval_positions(
         &mut self,
         samples: &[crate::positions::PositionSample],
         label_depth: u32,
         phase_weights: &HashMap<String, f32>,
         side_weights: &HashMap<String, f32>,
+        teacher_cache: &HashMap<String, i32>,
+        new_entries: &mut Vec<(String, i32)>,
     ) -> (f64, f64, u64) {
         let mut loss_raw = 0.0f64;
         let mut loss_weighted = 0.0f64;
         let mut total_w = 0.0f64;
         let mut count = 0u64;
         for sample in samples {
-            let config = SearchConfig {
-                max_depth: label_depth,
-                time_limit: None,
-                soft_limit: None,
-                multi_pv: 1,
+            let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
+            let teacher_cp = if let Some(&cp) = teacher_cache.get(&sfen) {
+                cp
+            } else {
+                let config = SearchConfig {
+                    max_depth: label_depth,
+                    time_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                };
+                let mut b = sample.board.clone();
+                let cp = self.searcher.search(&mut b, config).score;
+                new_entries.push((sfen, cp));
+                cp
             };
-            let mut b = sample.board.clone();
-            let info = self.searcher.search(&mut b, config);
-            let teacher = (info.score as f32).clamp(-600.0, 600.0);
+            let teacher = (teacher_cp as f32).clamp(-600.0, 600.0);
             let score = self.forward(&sample.board);
             let err2 = ((score - teacher) * (score - teacher)) as f64;
             loss_raw += err2;

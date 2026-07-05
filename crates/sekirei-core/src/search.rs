@@ -1272,6 +1272,12 @@ impl SpeculativeSearcher {
         self.tt.probe(hash).and_then(|e| e.mv)
     }
 
+    /// Reset the shared TT in place. Call on `usinewgame` so a new game never
+    /// probes entries left behind by a previous, unrelated game.
+    pub fn clear_tt(&self) {
+        self.tt.clear();
+    }
+
     /// Run iterative-deepening search with preemptive speculative parallelism on
     /// candidate replies, returning the best line plus speculation statistics.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {

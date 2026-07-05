@@ -10,6 +10,7 @@
 //!   <http://wdoor.c.u-tokyo.ac.jp/shogi/>
 //! Extract .csa files into a directory and pass it as --games.
 
+mod book;
 mod csa;
 mod exporter;
 mod positions;
@@ -45,6 +46,9 @@ struct Args {
     label_depth: u32,             // search depth for teacher label
     export: Option<PathBuf>,      // --export: write observations JSONL for quietset
     depths: Vec<u32>,             // --depths: comma-separated depths for export (default: 4,6,8)
+    build_book: Option<PathBuf>,  // --build-book: write a statistical opening book JSONL
+    book_max_ply: usize,          // --book-max-ply (default: 30)
+    book_min_count: u64,          // --book-min-count (default: 20)
     scored_path: Option<PathBuf>, // --scored: quietset scored JSONL
     min_stability: f32,           // --min-stability (default: 0.85)
     stability_weighted: bool,     // --stability-weighted
@@ -110,6 +114,9 @@ fn parse_args() -> Result<Args, String> {
     let mut label_depth = 1u32;
     let mut export: Option<PathBuf> = None;
     let mut depths: Vec<u32> = vec![4, 6, 8];
+    let mut build_book: Option<PathBuf> = None;
+    let mut book_max_ply = 30usize;
+    let mut book_min_count = 20u64;
     let mut scored_path: Option<PathBuf> = None;
     let mut min_stability = 0.85f32;
     let mut stability_weighted = false;
@@ -187,6 +194,22 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 if let Some(s) = argv.get(i) {
                     depths = s.split(',').filter_map(|d| d.parse().ok()).collect();
+                }
+            }
+            "--build-book" => {
+                i += 1;
+                build_book = argv.get(i).map(PathBuf::from);
+            }
+            "--book-max-ply" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    book_max_ply = s.parse().unwrap_or(book_max_ply);
+                }
+            }
+            "--book-min-count" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    book_min_count = s.parse().unwrap_or(book_min_count);
                 }
             }
             "--scored" => {
@@ -274,6 +297,9 @@ fn parse_args() -> Result<Args, String> {
         min_ply,
         label_depth,
         export,
+        build_book,
+        book_max_ply,
+        book_min_count,
         depths,
         scored_path,
         min_stability,
@@ -332,6 +358,12 @@ fn print_usage() {
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
     eprintln!("  --export <path>     Export observations JSONL for quietset (skips training)");
     eprintln!("  --depths <list>     Comma-separated depths for export (default: 4,6,8)");
+    eprintln!(
+        "  --build-book <path> Build a statistical opening book from --games (skips training;"
+    );
+    eprintln!("                      reuses --min-rate to filter which games count)");
+    eprintln!("  --book-max-ply <n>  Max ply to record into the book (default: 30)");
+    eprintln!("  --book-min-count <n>  Minimum times a move must appear to be kept (default: 20)");
     eprintln!("  --scored <path>     quietset scored JSONL — train only stable samples");
     eprintln!("  --min-stability <f> Minimum stability_score to include (default: 0.85)");
     eprintln!("  --stability-weighted  Weight loss by stability_score instead of binary keep/drop");
@@ -486,6 +518,21 @@ fn main() {
                 &mut new_entries,
             );
 
+            let mut new_val_entries: Vec<(String, i32)> = Vec::new();
+            let (vloss_raw, vloss_w, vcount) = if valid_samples.is_empty() {
+                (0.0, 0.0, 0)
+            } else {
+                trainer.eval_positions(
+                    &valid_samples,
+                    args.label_depth,
+                    &args.phase_weights,
+                    &side_weights,
+                    &combined_cache,
+                    &mut new_val_entries,
+                )
+            };
+            new_entries.extend(new_val_entries);
+
             // After epoch 1: merge new entries into cache so later epochs skip search
             if epoch == 1 && !new_entries.is_empty() {
                 let n = new_entries.len();
@@ -560,12 +607,6 @@ fn main() {
 
             let valid_count = valid_samples.len() as u64;
             if !valid_samples.is_empty() {
-                let (vloss_raw, vloss_w, vcount) = trainer.eval_positions(
-                    &valid_samples,
-                    args.label_depth,
-                    &args.phase_weights,
-                    &side_weights,
-                );
                 eprintln!(
                     "  valid: loss_raw={:.4}  loss_weighted={:.4}  samples={}",
                     vloss_raw, vloss_w, vcount,
@@ -626,6 +667,26 @@ fn main() {
     if games.is_empty() {
         eprintln!("No valid games parsed — check CSA format");
         std::process::exit(1);
+    }
+
+    // Book mode: build a statistical opening book from these (already
+    // min-rate-filtered) games, then exit.
+    if let Some(book_path) = &args.build_book {
+        eprintln!(
+            "Book mode → {:?}  max_ply={} min_count={}",
+            book_path, args.book_max_ply, args.book_min_count
+        );
+        let file = match File::create(book_path) {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("Cannot create book file: {e}");
+                std::process::exit(1);
+            }
+        };
+        let mut out = BufWriter::new(file);
+        book::build_book(&games, args.book_max_ply, args.book_min_count, &mut out);
+        eprintln!("Book done → {:?}", book_path);
+        return;
     }
 
     // Export mode: write observations JSONL for quietset, then exit

@@ -160,10 +160,10 @@ The one-shot pipeline script handles all stages and runs an Elo gate at the end:
 
 ```bash
 # Tier 1 — Quick (depths 2,4, ~hours)
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v7.bin
+bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
 
 # Tier 2 — Standard (depths 2,4,6)
-DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v7.bin
+DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
 
 # Tier 3 — Deep: re-label borderline positions at depth 4,6,8 then retrain
 # Step 1: score borderline positions at higher depth into a separate file
@@ -174,7 +174,7 @@ quietset select data/stage3/scored.jsonl --class borderline \
 # Step 2: retrain with the deep labels merged in via EXTRA_SCORED
 EXTRA_SCORED=data/stage3/deep_scored.jsonl \
 DEPTHS=2,4,6 \
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v7.bin
+bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v007.bin
 ```
 
 The script saves intermediate files under `data/runs/<timestamp>/` (override with `RUN_DIR=...`)
