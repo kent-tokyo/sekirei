@@ -4,9 +4,21 @@
 # Usage:
 #   bash scripts/strength_regression.sh <new_weights.bin> <base_weights.bin> [games]
 #
+# By default, games are drawn from data/gate/openings_standard.sfen (100
+# positions, each played by both colors twice via --games-per-position 4 =
+# 400 games total). A startpos-only match between deterministic engines can
+# collapse into the same handful of games replayed hundreds of times --
+# confirmed directly this session (see tasks/lessons.md): one 350-game
+# startpos-only batch had a single game replayed 19 times. That isn't 350
+# independent trials, so a real strength gate requires opening diversity.
+#
+# For a quick startpos-only smoke check (engine runs, no illegal moves, no
+# instant crashes -- NOT a strength measurement), set ALLOW_STARTPOS_GATE=1.
+#
 # Examples:
 #   bash scripts/strength_regression.sh weights_new.bin weights_v007.bin
-#   bash scripts/strength_regression.sh weights_new.bin weights_v007.bin 200
+#   GAMES_PER_POSITION=2 bash scripts/strength_regression.sh weights_new.bin weights_v007.bin
+#   ALLOW_STARTPOS_GATE=1 bash scripts/strength_regression.sh weights_new.bin weights_v007.bin 50
 #
 # Exit code:
 #   0 = PASS (new is clearly stronger)
@@ -17,6 +29,9 @@ set -e
 NEW=${1:?Usage: $0 <new_weights.bin> <base_weights.bin> [games]}
 BASE=${2:?Usage: $0 <new_weights.bin> <base_weights.bin> [games]}
 GAMES=${3:-400}
+
+OPENINGS=data/gate/openings_standard.sfen
+GAMES_PER_POSITION=${GAMES_PER_POSITION:-4}
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 mkdir -p results
@@ -31,8 +46,20 @@ OUT="results/${TIMESTAMP}_${NEW_STEM}_vs_${BASE_STEM}.json"
 KIFU_DIR="results/kifu/${TIMESTAMP}_${NEW_STEM}_vs_${BASE_STEM}"
 mkdir -p "$KIFU_DIR"
 
-echo "=== Strength regression: $NEW vs $BASE ($GAMES games) ==="
 cargo build --release -q -p sekirei-match-runner -p sekirei
+
+if [ "${ALLOW_STARTPOS_GATE:-0}" = "1" ]; then
+  echo "=== Strength SMOKE-CHECK ($NEW vs $BASE, $GAMES games, startpos only -- NOT a strength measurement) ==="
+  POSITION_ARGS=(--games "$GAMES")
+elif [ -f "$OPENINGS" ]; then
+  TOTAL_GAMES=$(( $(grep -vc '^#' "$OPENINGS") * GAMES_PER_POSITION ))
+  echo "=== Strength regression: $NEW vs $BASE ($OPENINGS x $GAMES_PER_POSITION games/position = $TOTAL_GAMES games) ==="
+  POSITION_ARGS=(--positions "$OPENINGS" --games-per-position "$GAMES_PER_POSITION")
+else
+  echo "error: strength gate requires --positions ($OPENINGS not found)." >&2
+  echo "Use data/gate/openings_standard.sfen, or set ALLOW_STARTPOS_GATE=1 for a startpos-only debug smoke-check (not a strength measurement)." >&2
+  exit 2
+fi
 
 # Threads=1 on both sides: without it, each of the two self-play engine
 # processes defaults to rayon's full-core-count pool, so they oversubscribe
@@ -44,7 +71,7 @@ cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$NEW" \
   --engine2 ./target/release/sekirei --args2 "$BASE" \
   --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
-  --games "$GAMES" --byoyomi 1000 \
+  "${POSITION_ARGS[@]}" --byoyomi 1000 \
   --output "$KIFU_DIR" \
   --json "$OUT"
 

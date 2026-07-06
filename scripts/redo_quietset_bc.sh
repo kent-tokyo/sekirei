@@ -16,7 +16,12 @@
 # Environment:
 #   OUT_B=path          output path for B weights (default: data/weights_v012_keep085.bin)
 #   OUT_C=path          output path for C weights (default: data/weights_v012_weighted.bin)
-#   GAMES=100           match games per variant   (default: 100)
+#   GAMES_PER_POSITION=4  games per opening, per variant (default: 4; matches
+#                       scripts/strength_regression.sh, needs data/gate/openings_standard.sfen)
+#   ALLOW_STARTPOS_GATE=1  skip opening diversity, use startpos only -- debug
+#                       smoke-check only, NOT a strength measurement (see
+#                       tasks/lessons.md); GAMES then controls game count.
+#   GAMES=100           match games per variant, ALLOW_STARTPOS_GATE=1 only (default: 100)
 #   MIN_PLY=20          minimum ply for extract   (default: 20)
 #   MAX_PLY=160         maximum ply for extract   (default: 160)
 #   EVERY_N_PLIES=16    extract every N plies     (default: 16)
@@ -37,6 +42,8 @@ BASELINE=${2:-data/weights_v007.bin}
 OUT_B=${OUT_B:-data/weights_v012_keep085.bin}
 OUT_C=${OUT_C:-data/weights_v012_weighted.bin}
 GAMES=${GAMES:-100}
+OPENINGS=data/gate/openings_standard.sfen
+GAMES_PER_POSITION=${GAMES_PER_POSITION:-4}
 MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
 EVERY_N_PLIES=${EVERY_N_PLIES:-16}
@@ -163,6 +170,22 @@ BASELINE_STEM=$(basename "$BASELINE" .bin)
 RESULT_B="results/${TIMESTAMP}_$(basename "$OUT_B" .bin)_vs_${BASELINE_STEM}.json"
 RESULT_C="results/${TIMESTAMP}_$(basename "$OUT_C" .bin)_vs_${BASELINE_STEM}.json"
 
+# A startpos-only match between deterministic engines can collapse into the
+# same handful of games replayed hundreds of times (see tasks/lessons.md),
+# making any Elo/CI from it look far more confident than the data supports.
+# Real strength gates draw from data/gate/openings_standard.sfen instead;
+# ALLOW_STARTPOS_GATE=1 is a debug-only escape hatch (see usage comment above).
+if [ "${ALLOW_STARTPOS_GATE:-0}" = "1" ]; then
+  echo "=== SMOKE-CHECK: startpos only, NOT a strength measurement ($GAMES games) ==="
+  POSITION_ARGS=(--games "$GAMES")
+elif [ -f "$OPENINGS" ]; then
+  POSITION_ARGS=(--positions "$OPENINGS" --games-per-position "$GAMES_PER_POSITION")
+else
+  echo "error: strength gate requires --positions ($OPENINGS not found)." >&2
+  echo "Use data/gate/openings_standard.sfen, or set ALLOW_STARTPOS_GATE=1 for a startpos-only debug smoke-check (not a strength measurement)." >&2
+  exit 2
+fi
+
 # Threads=1 on both sides: without it, each self-play engine process defaults
 # to rayon's full-core-count pool, oversubscribing the machine by up to 2x
 # and making search depth mid-match depend on CPU contention (see
@@ -171,13 +194,13 @@ cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUT_B" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
   --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
-  --games "$GAMES" --byoyomi 1000 --json "$RESULT_B"
+  "${POSITION_ARGS[@]}" --byoyomi 1000 --json "$RESULT_B"
 
 cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUT_C" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
   --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
-  --games "$GAMES" --byoyomi 1000 --json "$RESULT_C"
+  "${POSITION_ARGS[@]}" --byoyomi 1000 --json "$RESULT_C"
 
 cat > "$RUN_DIR/manifest.json" <<EOF
 {"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","baseline":"$BASELINE","depths":"2,4","label_depth":"$LABEL_DEPTH","out_b":"$OUT_B","out_c":"$OUT_C","result_b":"$RESULT_B","result_c":"$RESULT_C"}

@@ -21,7 +21,7 @@
 mod elo;
 mod engine;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -345,6 +345,51 @@ fn options_json(options: &[String]) -> String {
     format!("{{{}}}", pairs.join(","))
 }
 
+/// How much of a match's outcome is genuinely independent trials, versus a
+/// small number of games replayed over and over. A `startpos`-only (or
+/// narrow-opening) match between deterministic engines can produce a
+/// handful of distinct games repeated hundreds of times -- confirmed
+/// directly this session (see tasks/lessons.md): "38 moves, White loses"
+/// recurred 19 times in one 350-game batch. Elo/CI computed from that looks
+/// far more confident than the data supports, since it isn't 350
+/// independent samples.
+struct DiversityStats {
+    unique_prefix10: usize,
+    unique_prefix20: usize,
+    top_prefix20_count: usize,
+    diversity_ratio: f64,
+}
+
+fn diversity_stats(game_moves: &[Vec<String>]) -> DiversityStats {
+    fn prefix(moves: &[String], n: usize) -> String {
+        moves.iter().take(n).cloned().collect::<Vec<_>>().join(" ")
+    }
+    let prefix10s: Vec<String> = game_moves.iter().map(|m| prefix(m, 10)).collect();
+    let prefix20s: Vec<String> = game_moves.iter().map(|m| prefix(m, 20)).collect();
+
+    let unique_prefix10 = prefix10s.iter().collect::<HashSet<_>>().len();
+    let unique_prefix20 = prefix20s.iter().collect::<HashSet<_>>().len();
+
+    let mut counts: HashMap<&String, usize> = HashMap::new();
+    for p in &prefix20s {
+        *counts.entry(p).or_insert(0) += 1;
+    }
+    let top_prefix20_count = counts.values().copied().max().unwrap_or(0);
+
+    let diversity_ratio = if game_moves.is_empty() {
+        0.0
+    } else {
+        unique_prefix20 as f64 / game_moves.len() as f64
+    };
+
+    DiversityStats {
+        unique_prefix10,
+        unique_prefix20,
+        top_prefix20_count,
+        diversity_ratio,
+    }
+}
+
 fn load_positions(path: &PathBuf) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap_or_default()
@@ -386,6 +431,21 @@ fn json_f64(json: &str, key: &str) -> Option<f64> {
     rest[..end].trim().parse().ok()
 }
 
+/// `None` (no `diversity_ratio` field, e.g. a result file predating this
+/// check) means no opinion -- never retroactively fail a gate that never
+/// measured it. `Some(ratio)` below the threshold forces INCONCLUSIVE: a
+/// confident-looking Elo/CI computed from a handful of games replayed
+/// hundreds of times isn't trustworthy (see diversity_stats).
+fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
+    let ratio = ratio?;
+    if ratio >= min_ratio {
+        return None;
+    }
+    Some(format!(
+        "INCONCLUSIVE: low game diversity (ratio={ratio:.2}, need >= {min_ratio:.2})"
+    ))
+}
+
 /// Runs veridict's CI-based Elo gate over persisted per-game records. Pass
 /// only if the *pessimistic* (lower) CI bound already clears `pass_elo`;
 /// fail only if the *optimistic* (upper) bound is already at/below
@@ -415,6 +475,11 @@ fn run_gate(argv: &[String]) {
     let mut fail_elo = -10.0f64;
     let mut anchor: Option<f64> = None;
     let mut json_path: Option<String> = None;
+    // Not empirically tuned yet -- a starting estimate. Below this, too much
+    // of the run is the same handful of games repeated rather than
+    // independent trials (see diversity_stats / tasks/lessons.md), so a
+    // confident-looking Elo number stops being trustworthy.
+    let mut min_diversity_ratio = 0.3f64;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -442,6 +507,12 @@ fn run_gate(argv: &[String]) {
                     anchor = v.parse().ok();
                 }
             }
+            "--min-diversity-ratio" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    min_diversity_ratio = v.parse().unwrap_or(min_diversity_ratio);
+                }
+            }
             other if !other.starts_with("--") => json_path = Some(other.to_string()),
             _ => {}
         }
@@ -451,7 +522,7 @@ fn run_gate(argv: &[String]) {
         Some(p) => p,
         None => {
             eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>]"
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3]"
             );
             std::process::exit(2);
         }
@@ -485,6 +556,13 @@ fn run_gate(argv: &[String]) {
         "report: elo_diff={elo:+.1}  los={:.1}%  games={games}",
         los * 100.0
     );
+
+    if let Some(msg) =
+        low_diversity_message(json_f64(&content, "diversity_ratio"), min_diversity_ratio)
+    {
+        println!("{msg}");
+        std::process::exit(2);
+    }
 
     let records_path = PathBuf::from(&path).with_extension("jsonl");
     let records_content = fs::read_to_string(&records_path).ok();
@@ -777,6 +855,12 @@ fn main() {
     let mut e1_wins = 0u32;
     let mut e2_wins = 0u32;
     let mut draws = 0u32;
+    // Every game's played move list, kept for the post-run diversity check
+    // (see diversity_stats below) -- a `startpos`-only or narrow-opening
+    // match can otherwise replay the same handful of games hundreds of
+    // times, which makes the resulting Elo/CI look far more confident than
+    // the data supports (see tasks/lessons.md).
+    let mut game_moves: Vec<Vec<String>> = Vec::new();
     // Per-game outcomes in veridict's JSONL record shape, persisted alongside
     // --json so `gate` can be re-run against the raw trials (statistically
     // rigorous CI-based verdict) without replaying any games. Engine1 is
@@ -822,6 +906,7 @@ fn main() {
             args.max_moves,
             start_pos,
         );
+        game_moves.push(moves.clone());
 
         let (e1_color, e2_color) = if e1_is_black {
             ("Black", "White")
@@ -927,6 +1012,12 @@ fn main() {
     println!("Elo difference: {:+.0} ± {:.0} (95% CI)", elo, ci);
     println!("LOS: {:.1}%", los * 100.0);
 
+    let diversity = diversity_stats(&game_moves);
+    println!(
+        "Diversity: {}/{total} unique 20-ply openings (ratio {:.2}, top repeat ×{})",
+        diversity.unique_prefix20, diversity.diversity_ratio, diversity.top_prefix20_count
+    );
+
     // JSON output
     if let Some(json_path) = &args.json_file {
         let json = format!(
@@ -948,7 +1039,11 @@ fn main() {
   "elo_ci_95": {:.2},
   "elo_ci_low": {:.2},
   "elo_ci_high": {:.2},
-  "los": {:.4}
+  "los": {:.4},
+  "unique_prefix10": {},
+  "unique_prefix20": {},
+  "top_prefix20_count": {},
+  "diversity_ratio": {:.4}
 }}
 "#,
             e1_label,
@@ -964,7 +1059,11 @@ fn main() {
             ci,
             elo - ci,
             elo + ci,
-            los
+            los,
+            diversity.unique_prefix10,
+            diversity.unique_prefix20,
+            diversity.top_prefix20_count,
+            diversity.diversity_ratio
         );
         if let Err(e) = fs::write(json_path, &json) {
             eprintln!("JSON write failed: {e}");
@@ -1044,6 +1143,75 @@ mod tests {
     #[test]
     fn options_json_on_empty_input_is_empty_object() {
         assert_eq!(options_json(&[]), "{}");
+    }
+
+    fn moves(seq: &[&str]) -> Vec<String> {
+        seq.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn diversity_stats_all_identical_games_has_low_ratio() {
+        let game = moves(&["7g7f", "3c3d", "2g2f", "8c8d"]);
+        let games = vec![game.clone(), game.clone(), game.clone(), game];
+        let stats = diversity_stats(&games);
+        assert_eq!(stats.unique_prefix20, 1);
+        assert_eq!(stats.top_prefix20_count, 4);
+        assert_eq!(stats.diversity_ratio, 0.25);
+    }
+
+    #[test]
+    fn diversity_stats_all_distinct_games_has_ratio_one() {
+        let games = vec![
+            moves(&["7g7f", "3c3d"]),
+            moves(&["2g2f", "8c8d"]),
+            moves(&["5g5f", "5c5d"]),
+        ];
+        let stats = diversity_stats(&games);
+        assert_eq!(stats.unique_prefix20, 3);
+        assert_eq!(stats.top_prefix20_count, 1);
+        assert_eq!(stats.diversity_ratio, 1.0);
+    }
+
+    #[test]
+    fn diversity_stats_only_looks_at_first_20_plies() {
+        // Two games sharing the same first 20 moves but diverging after --
+        // e.g. a real opening book transposing back before deviating late --
+        // still count as one repeated "opening", by design: the diversity
+        // check is about whether the match is genuinely re-exploring the
+        // position space, not about total game length.
+        let mut a = vec!["m".to_string(); 20];
+        let mut b = a.clone();
+        a.push("tail_a".to_string());
+        b.push("tail_b".to_string());
+        let stats = diversity_stats(&[a, b]);
+        assert_eq!(stats.unique_prefix20, 1);
+        assert_eq!(stats.diversity_ratio, 0.5);
+    }
+
+    #[test]
+    fn diversity_stats_on_empty_input_is_zero() {
+        let stats = diversity_stats(&[]);
+        assert_eq!(stats.diversity_ratio, 0.0);
+        assert_eq!(stats.top_prefix20_count, 0);
+    }
+
+    #[test]
+    fn low_diversity_message_fires_below_threshold() {
+        // A PASS-looking Elo must never matter here -- this check runs
+        // before veridict is even consulted, so it only ever sees the ratio.
+        assert!(low_diversity_message(Some(0.1), 0.3).is_some());
+    }
+
+    #[test]
+    fn low_diversity_message_silent_at_or_above_threshold() {
+        assert_eq!(low_diversity_message(Some(0.3), 0.3), None);
+        assert_eq!(low_diversity_message(Some(0.9), 0.3), None);
+    }
+
+    #[test]
+    fn low_diversity_message_silent_when_field_missing() {
+        // Legacy result files predating this check must not start failing.
+        assert_eq!(low_diversity_message(None, 0.3), None);
     }
 
     #[test]

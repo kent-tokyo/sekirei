@@ -17,7 +17,12 @@
 #                        --label-depth re-search, NOT shogiesa's --depths label (see
 #                        tasks/lessons.md "shogiesa/quietset teacher-depth bug").
 #                        Keep it aligned with (typically the deepest of) DEPTHS.
-#   GAMES=400            games for Elo comparison (default: 400)
+#   GAMES_PER_POSITION=4 games per opening (default: 4; matches
+#                        scripts/strength_regression.sh, needs data/gate/openings_standard.sfen)
+#   ALLOW_STARTPOS_GATE=1  skip opening diversity, use startpos only -- debug
+#                        smoke-check only, NOT a strength measurement (see
+#                        tasks/lessons.md); GAMES then controls game count.
+#   GAMES=400            games for Elo comparison, ALLOW_STARTPOS_GATE=1 only (default: 400)
 #   MIN_PLY=20           minimum ply to extract (default: 20)
 #   MAX_PLY=160          maximum ply to extract (default: 160)
 #   RUN_DIR=data/runs/X  intermediate file directory (default: data/runs/<timestamp>)
@@ -40,6 +45,8 @@ BASELINE=${3:-data/weights_v007.bin}
 DEPTHS=${DEPTHS:-2,4}
 LABEL_DEPTH=${LABEL_DEPTH:-4}
 GAMES=${GAMES:-400}
+OPENINGS=data/gate/openings_standard.sfen
+GAMES_PER_POSITION=${GAMES_PER_POSITION:-4}
 MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
 EXTRA_SCORED=${EXTRA_SCORED:-}
@@ -140,10 +147,27 @@ cargo run --release -q -p sekirei-train -- \
 echo "  -> $OUTPUT"
 
 # ---- Elo comparison -------------------------------------------------------
-echo "[5/5] strength regression  ($GAMES games)"
 # Naming convention: <timestamp>_<candidate>_vs_<baseline>.json -- matches
 # scripts/strength_regression.sh and scripts/redo_quietset_bc.sh.
 OUT_JSON="results/${TIMESTAMP}_$(basename "$OUTPUT" .bin)_vs_$(basename "$BASELINE" .bin).json"
+
+# A startpos-only match between deterministic engines can collapse into the
+# same handful of games replayed hundreds of times (see tasks/lessons.md),
+# making any Elo/CI from it look far more confident than the data supports.
+# Real strength gates draw from data/gate/openings_standard.sfen instead;
+# ALLOW_STARTPOS_GATE=1 is a debug-only escape hatch (see usage comment above).
+if [ "${ALLOW_STARTPOS_GATE:-0}" = "1" ]; then
+  echo "[5/5] strength SMOKE-CHECK: startpos only, NOT a strength measurement ($GAMES games)"
+  POSITION_ARGS=(--games "$GAMES")
+elif [ -f "$OPENINGS" ]; then
+  echo "[5/5] strength regression  ($OPENINGS x $GAMES_PER_POSITION games/position)"
+  POSITION_ARGS=(--positions "$OPENINGS" --games-per-position "$GAMES_PER_POSITION")
+else
+  echo "error: strength gate requires --positions ($OPENINGS not found)." >&2
+  echo "Use data/gate/openings_standard.sfen, or set ALLOW_STARTPOS_GATE=1 for a startpos-only debug smoke-check (not a strength measurement)." >&2
+  exit 2
+fi
+
 # Threads=1 on both sides: without it, each self-play engine process defaults
 # to rayon's full-core-count pool, oversubscribing the machine by up to 2x
 # and making search depth mid-match depend on CPU contention (see
@@ -152,7 +176,7 @@ cargo run --release -q -p sekirei-match-runner -- \
   --engine1 ./target/release/sekirei --args1 "$OUTPUT" \
   --engine2 ./target/release/sekirei --args2 "$BASELINE" \
   --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
-  --games "$GAMES" \
+  "${POSITION_ARGS[@]}" \
   --byoyomi 1000 \
   --json "$OUT_JSON"
 
