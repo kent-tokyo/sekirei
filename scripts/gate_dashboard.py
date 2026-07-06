@@ -713,12 +713,14 @@ import {
   Button, Chip, LinearProgress, Card,
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
-  MenuItem, Fab, IconButton, TablePagination, Collapse
+  MenuItem, Fab, IconButton, TablePagination, Collapse,
+  ThemeProvider, createTheme, CssBaseline
 } from "@mui/material";
 
 const TRANSLATIONS = {
   ja: {
     appTitle: "sekirei ダッシュボード",
+    lightMode: "ライト", darkMode: "ダーク",
     navHistory: "過去のゲート結果一覧",
     navStatus: "実行状況",
     navStrength: "強さ評価",
@@ -808,6 +810,7 @@ const TRANSLATIONS = {
   },
   en: {
     appTitle: "sekirei dashboard",
+    lightMode: "Light", darkMode: "Dark",
     navHistory: "Gate result history",
     navStatus: "Execution status",
     navStrength: "Strength evaluation",
@@ -1644,6 +1647,23 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
   const runs = runsData?.runs || [];
   const { data, updatedAt, refresh } = useApi(`/api/status?run=${selectedRunId}`, 4000);
 
+  // "default" (App's initial statusRunId) is just the CLI-args placeholder
+  // from process startup, not necessarily the most recent run -- once the
+  // real run list loads, switch to whichever run actually started most
+  // recently. Only ever does this once (autoSelected ref) so it doesn't
+  // fight a later manual pick from the run-picker chips.
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    if (autoSelected.current || runs.length === 0) return;
+    autoSelected.current = true;
+    const latest = runs.reduce((best, r) =>
+      (r.started_at || 0) > (best.started_at || 0) ? r : best
+    );
+    if (latest.started_at && latest.id !== selectedRunId) {
+      onSelectRun(latest.id);
+    }
+  }, [runs, selectedRunId, onSelectRun]);
+
   const prevRunning = useRef(false);
   const [notifyEnabled, setNotifyEnabled] = useState(
     typeof Notification !== "undefined" && Notification.permission === "granted"
@@ -2430,6 +2450,34 @@ function pageFromUrl() {
   return PAGES.includes(p) ? p : "history";
 }
 
+// Denser component defaults across the board (MUI's own "small" size still
+// reads as wide once every form on the page uses it) -- tightens
+// input/table padding without touching the global spacing scale, so
+// existing sx={{ p: N }} usages elsewhere keep their current sizing.
+function buildTheme(mode) {
+  return createTheme({
+    palette: { mode },
+    components: {
+      MuiOutlinedInput: {
+        styleOverrides: {
+          input: { paddingTop: 6, paddingBottom: 6 },
+        },
+      },
+      MuiTableCell: {
+        styleOverrides: {
+          root: { paddingTop: 6, paddingBottom: 6 },
+        },
+      },
+      MuiButton: {
+        defaultProps: { size: "small" },
+      },
+      MuiChip: {
+        defaultProps: { size: "small" },
+      },
+    },
+  });
+}
+
 function App() {
   const [page, setPageState] = useState(pageFromUrl);
   // Lifted out of StatusPage so the chat widget can tell the backend which
@@ -2438,6 +2486,10 @@ function App() {
   const [lang, setLang] = useState(() => localStorage.getItem("sekirei_dash_lang") || "ja");
   useEffect(() => { localStorage.setItem("sekirei_dash_lang", lang); }, [lang]);
   const t = TRANSLATIONS[lang];
+
+  const [mode, setMode] = useState(() => localStorage.getItem("sekirei_dash_mode") || "light");
+  useEffect(() => { localStorage.setItem("sekirei_dash_mode", mode); }, [mode]);
+  const theme = useMemo(() => buildTheme(mode), [mode]);
 
   // ?page= in the URL is the source of truth for which sidebar item is
   // selected, so a refresh/bookmark/shared link lands on the same page.
@@ -2461,7 +2513,9 @@ function App() {
   ];
 
   return (
-    <Box sx={{ display: "flex", minHeight: "100vh" }}>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ display: "flex", minHeight: "100vh" }}>
       <Drawer variant="permanent" sx={{ width: 220, flexShrink: 0, "& .MuiDrawer-paper": { width: 220, boxSizing: "border-box" } }}>
         <Toolbar>
           <Typography variant="subtitle1" noWrap>{t.appTitle}</Typography>
@@ -2476,7 +2530,7 @@ function App() {
           ))}
         </List>
         <Box sx={{ mt: "auto", p: 2 }}>
-          <Stack direction="row" spacing={1}>
+          <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
             <Button
               size="small" fullWidth
               variant={lang === "ja" ? "contained" : "outlined"}
@@ -2487,6 +2541,18 @@ function App() {
               variant={lang === "en" ? "contained" : "outlined"}
               onClick={() => setLang("en")}
             >EN</Button>
+          </Stack>
+          <Stack direction="row" spacing={1}>
+            <Button
+              size="small" fullWidth
+              variant={mode === "light" ? "contained" : "outlined"}
+              onClick={() => setMode("light")}
+            >{t.lightMode}</Button>
+            <Button
+              size="small" fullWidth
+              variant={mode === "dark" ? "contained" : "outlined"}
+              onClick={() => setMode("dark")}
+            >{t.darkMode}</Button>
           </Stack>
         </Box>
       </Drawer>
@@ -2504,7 +2570,8 @@ function App() {
         )}
       </Box>
       <ChatWidget t={t} page={page} statusRunId={statusRunId} />
-    </Box>
+      </Box>
+    </ThemeProvider>
   );
 }
 
