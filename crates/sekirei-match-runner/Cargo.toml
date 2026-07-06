@@ -15,4 +15,4 @@ sekirei-core = { path = "../sekirei-core", version = "0.2.3" }
 # Unreleased/unversioned personal project (still 0.1.0, no crates.io release) --
 # pin to an exact commit, not a branch, per the same lesson learned from
 # shogiesa/quietset (see tasks/lessons.md).
-veridict = { git = "https://github.com/kent-tokyo/veridict", rev = "04d871fb0bb3139b07cd82bf7207a30a2c88367b" }
+veridict = { git = "https://github.com/kent-tokyo/veridict", rev = "b044ef395a4ee7ed025b5635e7b6d51964337372" }

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Full shogiesa + quietset + sekirei training pipeline.
 #
-# Verified against: shogiesa @ 886c78d (github.com/kent-tokyo/shogiesa,
-# schema_version 5), quietset-cli 0.11.0. Neither tool has a --version flag;
-# if this script breaks on `label`/`score` output shape, check for a schema
-# change against those versions first (see commit dddb33a for a prior
-# instance of this).
+# Verified against: shogiesa 0.6.0 (github.com/kent-tokyo/shogiesa,
+# schema_version 5), quietset-cli 0.15.0. Both tools now support --version
+# (check that first if this script breaks); if this script breaks on
+# `label`/`score` output shape, check for a schema change against those
+# versions next (see commit dddb33a for a prior instance of this).
 #
 # Usage:
 #   bash scripts/train_with_shogiesa_quietset.sh [CSA_DIR] [OUTPUT_WEIGHTS] [BASELINE_WEIGHTS]
@@ -107,7 +107,6 @@ cargo build --release -q -p sekirei
   --jobs "$JOBS" \
   --engine-option "Threads=1" \
   --skip-existing \
-  --unordered-output \
   --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
@@ -117,11 +116,18 @@ echo "  -> $RUN_DIR/stage2/observations.jsonl ($(wc -l < "$RUN_DIR/stage2/observ
 # shogiesa's `label` emits one nested record per position (observations: [...]);
 # quietset's `score` wants one flat row per observation keyed by sample_id.
 # Bridge with the same flattener scripts/redo_quietset_bc.sh uses.
-echo "[3/5] flatten label -> quietset, then score  (profile=game-ai)"
+#
+# game-ai-single-engine, not game-ai: this pipeline is one engine (sekirei)
+# labeled at multiple depths -- depth is quietset's `budget` axis, evaluator_id
+# is always the same engine name, so it can never reach game-ai's unconditional
+# min-evaluators-keep=2 floor. Confirmed directly this session: that floor
+# silently demoted all but 52/745 scored positions from Keep. See
+# tasks/lessons.md.
+echo "[3/5] flatten label -> quietset, then score  (profile=game-ai-single-engine)"
 python3 "$(dirname "$0")/flatten_label_to_quietset.py" \
   < "$RUN_DIR/stage2/observations.jsonl" > "$RUN_DIR/stage3/flat.jsonl"
 quietset score "$RUN_DIR/stage3/flat.jsonl" \
-  --profile game-ai \
+  --profile game-ai-single-engine \
   > "$RUN_DIR/stage3/scored.jsonl"
 echo "  -> $RUN_DIR/stage3/scored.jsonl ($(wc -l < "$RUN_DIR/stage3/scored.jsonl") scored positions)"
 

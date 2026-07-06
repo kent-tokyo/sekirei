@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Redo quietset B/C experiment with full game coverage at depths 2,4.
 #
-# Verified against: shogiesa @ 886c78d (github.com/kent-tokyo/shogiesa,
-# schema_version 5), quietset-cli 0.11.0. Neither tool has a --version flag;
-# if this script breaks on `label`/`score` output shape, check for a schema
-# change against those versions first (see commit dddb33a for a prior
-# instance of this).
+# Verified against: shogiesa 0.6.0 (github.com/kent-tokyo/shogiesa,
+# schema_version 5), quietset-cli 0.15.0. Both tools now support --version
+# (check that first if this script breaks); if this script breaks on
+# `label`/`score` output shape, check for a schema change against those
+# versions next (see commit dddb33a for a prior instance of this).
 #
 # B = --min-stability 0.85  (hard filter, was weights_keep085)
 # C = --stability-weighted  (soft weighting, was weights_weighted)
@@ -115,20 +115,26 @@ echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
   --jobs "$JOBS" \
   --engine-option "Threads=1" \
   --skip-existing \
-  --unordered-output \
   --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations"
 
 # ---- Stage 3: flatten + score -----------------------------------------------
-# shogiesa 0.3.0 `label` emits nested per-position records; quietset 0.8.0 `score`
-# wants one flat row per observation keyed by sample_id. Bridge with the flattener.
-echo "[3/5] flatten label -> quietset, then score  (profile=game-ai)"
+# shogiesa `label` emits nested per-position records; quietset `score` wants
+# one flat row per observation keyed by sample_id. Bridge with the flattener.
+#
+# game-ai-single-engine, not game-ai: this pipeline is one engine (sekirei)
+# labeled at multiple depths -- depth is quietset's `budget` axis, evaluator_id
+# is always the same engine name, so it can never reach game-ai's unconditional
+# min-evaluators-keep=2 floor. Confirmed directly this session: that floor
+# silently demoted all but 52/745 scored positions from Keep. See
+# tasks/lessons.md.
+echo "[3/5] flatten label -> quietset, then score  (profile=game-ai-single-engine)"
 python3 "$(dirname "$0")/flatten_label_to_quietset.py" \
   < "$RUN_DIR/stage2/observations.jsonl" > "$RUN_DIR/stage3/flat.jsonl"
 quietset score "$RUN_DIR/stage3/flat.jsonl" \
-  --profile game-ai \
+  --profile game-ai-single-engine \
   > "$RUN_DIR/stage3/scored_d4.jsonl"
 echo "  -> $(wc -l < "$RUN_DIR/stage3/scored_d4.jsonl") scored positions"
 

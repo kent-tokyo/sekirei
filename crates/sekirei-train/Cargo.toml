@@ -14,7 +14,7 @@ path = "src/main.rs"
 sekirei-core = { path = "../sekirei-core", version = "0.2.3" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-lineprior = { git = "https://github.com/kent-tokyo/lineprior", rev = "c6040ebee1da31f2f5442811522725b08ae0a75e" }
+lineprior = { git = "https://github.com/kent-tokyo/lineprior", rev = "dcfca91f902ec269b7a518ec0c3a48d079a0406c" }
 
 [dev-dependencies]
 tempfile = "3"
