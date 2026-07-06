@@ -167,7 +167,7 @@ DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.b
 # Step 1: 境界局面を高 depth でスコアして別ファイルに保存
 quietset select data/stage3/scored.jsonl --class borderline \
   | shogiesa label --engine ./target/release/sekirei --depths 4,6,8 \
-  | quietset score --profile game-ai \
+  | quietset score --profile game-ai-single-engine \
   > data/stage3/deep_scored.jsonl
 # Step 2: EXTRA_SCORED でマージしながら再訓練
 EXTRA_SCORED=data/stage3/deep_scored.jsonl \
@@ -205,13 +205,30 @@ cargo run --release -p sekirei-train -- \
 
 変更が本当に棋力向上につながったかを確認するには、既知のベースラインと対局して Elo gate を通してください。重みの変更は必ず gate を通過してから採用します。
 
+決定的な2つのエンジン同士の `startpos` 限定対局は、局面の多様性が生まれず(TT/スレッド数がどちらも
+揺らぎの源になり得なくなったため)、少数の対局が何度も繰り返されるだけになり得ます — 400「局」でも
+実質40局分程度の統計的検出力しかないことがあります。そのため `strength_regression.sh` はデフォルトで
+`--positions`(`data/gate/openings_standard.sfen`、100局面 × `--games-per-position`)による本物の
+序盤多様性を要求します。`startpos` 限定のスモークチェックは `ALLOW_STARTPOS_GATE=1` で引き続き可能
+ですが、これは明示的に「棋力測定ではない」ものとして扱われます。`gate` も多様性が低い実行結果を
+PASS/FAIL と判定することを拒否します(下記の `--min-diversity-ratio` 参照)。
+
 ```bash
-# ワンショット回帰（ビルド → 400局 → PASS/FAIL/INCONCLUSIVE を出力）
+# ワンショット回帰（ビルド → data/gate/openings_standard.sfen で実行 → PASS/FAIL/INCONCLUSIVE を出力）
 bash scripts/strength_regression.sh weights_new.bin weights_base.bin
 
 # または既存の result JSON に対して gate を手動実行
 cargo run --release -p sekirei-match-runner -- gate result.json \
-  --pass-elo 20 --pass-los 0.95 --fail-elo -10
+  --pass-elo 20 --pass-los 0.95 --fail-elo -10 --min-diversity-ratio 0.3
+```
+
+フルゲートは実行に時間がかかり、つきっきりで監視するのは現実的でないことがあります。
+`scripts/sprint_gate.sh` は序盤局面群を N 個の短い独立したセッションに局面単位で分割し、
+それぞれ再開可能な形で実行してから、最後に1つの判定可能な結果へ結合します：
+
+```bash
+bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4       # 4スプリント、games-per-position=4
+RUN_ID=my_run bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4  # my_run を再開
 ```
 
 match runner は対局ごとの結果を `--json` の `<name>.json` と並べて `<name>.jsonl` にも

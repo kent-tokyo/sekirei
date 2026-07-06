@@ -13,6 +13,28 @@ replaying any games. Result files from before this convention existed have
 no `.jsonl` sibling; `gate` falls back to the original point-estimate + LOS
 check for those and says so explicitly in its output.
 
+Since the opening-diversity fix, the JSON also carries `unique_prefix10`/
+`unique_prefix20`/`top_prefix20_count`/`diversity_ratio` (computed from each
+game's actual played moves) — `gate --min-diversity-ratio` refuses to call a
+low-diversity run PASS/FAIL, since a `startpos`-only match between
+deterministic engines can otherwise collapse into a handful of games
+replayed hundreds of times (see `tasks/lessons.md`).
+
+## `kifu/`
+
+Gitignored (matches the blanket `results/` rule; unlike the JSON summaries
+above, per-game kifu isn't meant to be a committed historical record). Each
+gate run's `--output <dir>` writes one `gameNNNN.txt` per game here: 3
+header lines (`# Engine1:`/`# Engine2:`/`# Result:`) plus a `position
+startpos moves ...` or `position sfen ... moves ...` USI line. This is the
+only place a game's actual move sequence and result are recorded together —
+useful for the kifu viewer in `scripts/gate_dashboard.py`, or for mining
+positions out of specific games later (e.g. `shogiesa from-match`).
+
+`scripts/sprint_gate.sh` writes its own per-sprint JSON/JSONL/kifu under a
+separate top-level `sprint_gate_runs/<run_id>/` directory instead of here —
+also gitignored, same regenerable-artifact reasoning.
+
 Filename patterns (all timestamped, `${TIMESTAMP}` = `date +%Y%m%d_%H%M%S`):
 
 | Script | Output |

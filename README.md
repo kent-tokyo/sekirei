@@ -169,7 +169,7 @@ DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.b
 # Step 1: score borderline positions at higher depth into a separate file
 quietset select data/stage3/scored.jsonl --class borderline \
   | shogiesa label --engine ./target/release/sekirei --depths 4,6,8 \
-  | quietset score --profile game-ai \
+  | quietset score --profile game-ai-single-engine \
   > data/stage3/deep_scored.jsonl
 # Step 2: retrain with the deep labels merged in via EXTRA_SCORED
 EXTRA_SCORED=data/stage3/deep_scored.jsonl \
@@ -209,13 +209,30 @@ cargo run --release -p sekirei-train -- \
 To verify that a change actually improves play strength, run a match against a known baseline and
 apply the Elo gate. Every weight change should clear the gate before being promoted.
 
+A `startpos`-only match between two deterministic engines can collapse into a handful of games
+replayed hundreds of times (TT/thread-count no longer add variation) — 400 such "games" can carry
+the statistical power of ~40 real trials. `strength_regression.sh` therefore requires
+`--positions` by default (`data/gate/openings_standard.sfen`, 100 positions × `--games-per-position`
+for real opening diversity); a `startpos`-only smoke check is still available via
+`ALLOW_STARTPOS_GATE=1`, but it is explicitly *not* a strength measurement. `gate` also refuses to
+call a low-diversity run PASS/FAIL — see `--min-diversity-ratio` below.
+
 ```bash
-# One-shot regression (builds, runs 400 games, prints PASS/FAIL/INCONCLUSIVE)
+# One-shot regression (builds, runs against data/gate/openings_standard.sfen, prints PASS/FAIL/INCONCLUSIVE)
 bash scripts/strength_regression.sh weights_new.bin weights_base.bin
 
 # Or run the gate manually on an existing result JSON
 cargo run --release -p sekirei-match-runner -- gate result.json \
-  --pass-elo 20 --pass-los 0.95 --fail-elo -10
+  --pass-elo 20 --pass-los 0.95 --fail-elo -10 --min-diversity-ratio 0.3
+```
+
+A full gate run can take long enough that babysitting it isn't practical.
+`scripts/sprint_gate.sh` shards the opening suite by position across N short,
+independently resumable sessions, then combines them into one gate-able result:
+
+```bash
+bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4       # 4 sprints, games-per-position=4
+RUN_ID=my_run bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4  # resume my_run
 ```
 
 The match runner persists every game's outcome as a `<name>.jsonl` file alongside

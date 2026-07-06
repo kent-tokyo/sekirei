@@ -6,4 +6,5 @@ target/
 .env
 .DS_Store
 results/
+sprint_gate_runs/
 __pycache__/
