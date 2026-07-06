@@ -766,6 +766,7 @@ const TRANSLATIONS = {
     kifuUnavailable: "棋譜は記録されていません(sekirei-match-runner を --output <dir> 付きで実行し、その dir をこのダッシュボードの第4引数に渡すと利用できます)。",
     // kifu board page
     kifuTitle: "棋譜ビューア", kifuLoading: "読み込み中…", kifuNotFound: "棋譜が見つかりません。",
+    kifuReplayWarning: "再生を中断しました(局面と一致しない指し手)",
     kifuFirst: "|<", kifuPrev: "<", kifuNext: ">", kifuLast: ">|",
     // opening sanity page
     openingTitle: "序盤診断(定跡チェック)",
@@ -853,6 +854,7 @@ const TRANSLATIONS = {
     kifuUnavailable: "No kifu recorded (run sekirei-match-runner with --output <dir> and pass that dir as this dashboard's 4th argument to enable this).",
     // kifu board page
     kifuTitle: "Kifu viewer", kifuLoading: "Loading…", kifuNotFound: "Kifu not found.",
+    kifuReplayWarning: "Replay stopped (move doesn't match the board state)",
     kifuFirst: "|<", kifuPrev: "<", kifuNext: ">", kifuLast: ">|",
     // opening sanity page
     openingTitle: "Opening sanity (joseki check)",
@@ -2207,6 +2209,95 @@ function shogiInitialBoard() {
   return board;
 }
 
+// Parses an SFEN board field ("lnsgkgsnl/1r5b1/..."): ranks a..i top to
+// bottom (matching SHOGI_RANKS), each rank's pieces file 9..1 left to right
+// (matching SHOGI_FILES) -- digits are consecutive empty squares, a leading
+// "+" marks the following piece promoted, letter case is color.
+function boardFromSfen(sfenBoard) {
+  const board = {};
+  sfenBoard.split("/").forEach((row, ri) => {
+    const r = SHOGI_RANKS[ri];
+    let fi = 0;
+    let i = 0;
+    while (i < row.length) {
+      const ch = row[i];
+      if (ch >= "0" && ch <= "9") {
+        let num = "";
+        while (i < row.length && row[i] >= "0" && row[i] <= "9") {
+          num += row[i];
+          i++;
+        }
+        fi += parseInt(num, 10);
+        continue;
+      }
+      let promoted = false;
+      if (ch === "+") {
+        promoted = true;
+        i++;
+      }
+      const letter = row[i];
+      i++;
+      board[`${SHOGI_FILES[fi]}${r}`] = {
+        color: letter === letter.toUpperCase() ? "b" : "w",
+        kind: letter.toUpperCase(),
+        promoted,
+      };
+      fi++;
+    }
+  });
+  return board;
+}
+
+// Parses an SFEN hand field ("RGN2Pgl4p" or "-"): optional count digits
+// followed by a piece letter, case is color, same as the board field.
+function handsFromSfen(sfenHand) {
+  const hands = { b: {}, w: {} };
+  if (!sfenHand || sfenHand === "-") return hands;
+  let i = 0;
+  while (i < sfenHand.length) {
+    let num = "";
+    while (i < sfenHand.length && sfenHand[i] >= "0" && sfenHand[i] <= "9") {
+      num += sfenHand[i];
+      i++;
+    }
+    const letter = sfenHand[i];
+    i++;
+    const color = letter === letter.toUpperCase() ? "b" : "w";
+    const kind = letter.toUpperCase();
+    hands[color][kind] = (hands[color][kind] || 0) + (num ? parseInt(num, 10) : 1);
+  }
+  return hands;
+}
+
+// Parses a kifu's "position ..." line into a starting board/hands/color and
+// the move list -- games launched with --positions (the default for a real
+// strength gate, see tasks/lessons.md) start from an arbitrary SFEN, not
+// startpos, so the starting position must be read from the line itself
+// rather than always assuming the standard initial layout.
+function parsePositionLine(posLine) {
+  if (posLine.startsWith("position startpos")) {
+    return {
+      board: shogiInitialBoard(),
+      hands: { b: {}, w: {} },
+      startColor: "b",
+      moves: posLine
+        .replace(/^position startpos\\s*(moves\\s*)?/, "")
+        .split(/\\s+/)
+        .filter(Boolean),
+    };
+  }
+  const m = posLine.match(/^position sfen (\\S+) (\\S+) (\\S+) (\\d+)\\s*(?:moves\\s*(.*))?$/);
+  if (!m) {
+    return { board: shogiInitialBoard(), hands: { b: {}, w: {} }, startColor: "b", moves: [] };
+  }
+  return {
+    board: boardFromSfen(m[1]),
+    hands: handsFromSfen(m[3]),
+    startColor: m[2] === "w" ? "w" : "b",
+    moves: m[5] ? m[5].split(/\\s+/).filter(Boolean) : [],
+  };
+}
+
 // Parses one USI move token: a normal move ("7g7f", "9g5c+") or a drop
 // ("P*9b"). Assumes the move is already legal (it came from a real game),
 // so this only replays -- it never validates.
@@ -2237,23 +2328,62 @@ function applyShogiMove(board, hands, mv, color) {
   }
 }
 
-// Replays from the initial position through `uptoIndex` moves (0 = startpos).
+// A saved kifu can never actually contain an illegal shogi move -- real
+// play validates every move against sekirei-core's generate_legal_moves
+// before it's recorded (see crates/sekirei-match-runner/src/main.rs's
+// run_game). This is deliberately NOT that: no movement-pattern, promotion,
+// nifu, uchifuzume, or check-evasion rules -- just "does this move make
+// sense given the board state", to catch a *viewer-side* desync (wrong
+// starting position, mis-parsed move list -- the actual cause of the
+// "rook on a pawn" bug this was added for) failing loudly instead of
+// silently rendering a corrupted board.
+function checkShogiMove(board, hands, mv, color) {
+  if (mv.drop) {
+    if (!(hands[color][mv.kind] > 0)) {
+      return `${color} has no ${mv.kind} in hand to drop`;
+    }
+    return null;
+  }
+  const piece = board[mv.from];
+  if (!piece) {
+    return `no piece at ${mv.from}`;
+  }
+  if (piece.color !== color) {
+    return `piece at ${mv.from} belongs to ${piece.color}, not ${color} to move`;
+  }
+  const target = board[mv.to];
+  if (target && target.color === color) {
+    return `${mv.to} already holds a piece of the same color`;
+  }
+  return null;
+}
+
+// Replays from the game's actual starting position (startpos, or an
+// arbitrary SFEN for a --positions-launched game) through `uptoIndex` moves.
 // Cheap to redo from scratch each time given realistic game lengths (~40-150
-// plies) -- no need for incremental undo bookkeeping.
-function shogiReplayTo(moves, uptoIndex) {
-  const board = shogiInitialBoard();
-  const hands = { b: {}, w: {} };
-  let color = "b";
+// plies) -- no need for incremental undo bookkeeping. Stops at the first
+// structurally-inconsistent move (see checkShogiMove) rather than replaying
+// past it, so the returned board is always the last state that made sense.
+function shogiReplayTo(startBoard, startHands, startColor, moves, uptoIndex) {
+  const board = { ...startBoard };
+  const hands = { b: { ...startHands.b }, w: { ...startHands.w } };
+  let color = startColor;
   let lastFrom = null;
   let lastTo = null;
+  let error = null;
   for (let i = 0; i < uptoIndex; i++) {
     const mv = parseUsiMove(moves[i]);
+    const problem = checkShogiMove(board, hands, mv, color);
+    if (problem) {
+      error = `move ${i + 1} (${moves[i]}): ${problem}`;
+      break;
+    }
     applyShogiMove(board, hands, mv, color);
     lastFrom = mv.drop ? null : mv.from;
     lastTo = mv.to;
     color = color === "b" ? "w" : "b";
   }
-  return { board, hands, lastFrom, lastTo };
+  return { board, hands, lastFrom, lastTo, error };
 }
 
 const SHOGI_CELL = 48;
@@ -2374,12 +2504,15 @@ function KifuPage({ t, runId, gameN }) {
     if (m) meta[m[1]] = m[2];
   }
   const posLine = lines.find((l) => l.startsWith("position ")) || "";
-  const moves = posLine
-    .replace(/^position startpos\\s*(moves\\s*)?/, "")
-    .split(/\\s+/)
-    .filter(Boolean);
+  const { board: startBoard, hands: startHands, startColor, moves } = parsePositionLine(posLine);
 
-  const { board, hands, lastFrom, lastTo } = shogiReplayTo(moves, moveIndex);
+  const {
+    board,
+    hands,
+    lastFrom,
+    lastTo,
+    error: replayError,
+  } = shogiReplayTo(startBoard, startHands, startColor, moves, moveIndex);
 
   return (
     <Box>
@@ -2390,6 +2523,11 @@ function KifuPage({ t, runId, gameN }) {
         {meta.Engine1} vs {meta.Engine2}
         {meta.Result ? ` — ${meta.Result}` : ""}
       </Typography>
+      {replayError && (
+        <Typography color="error.main" sx={{ mb: 2 }}>
+          {t.kifuReplayWarning}: {replayError}
+        </Typography>
+      )}
       <Stack direction="row" spacing={3} alignItems="flex-start" sx={{ flexWrap: "wrap" }}>
         <Box>
           <ShogiHand hand={hands.w} />
