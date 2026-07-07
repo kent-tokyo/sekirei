@@ -857,7 +857,7 @@ import {
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
   MenuItem, Fab, IconButton, TablePagination, Collapse,
-  Stepper, Step, StepLabel,
+  Stepper, Step, StepLabel, AppBar, useMediaQuery,
   ThemeProvider, createTheme, CssBaseline
 } from "@mui/material";
 
@@ -870,6 +870,7 @@ const TRANSLATIONS = {
     navStrength: "強さ評価",
     navOpening: "序盤診断",
     navPipeline: "学習パイプライン",
+    collapseSidebar: "サイドバーを折りたたむ", expandSidebar: "サイドバーを展開", openMenu: "メニューを開く",
     refresh: "更新",
     lastUpdated: "最終更新",
     ago: "秒前",
@@ -977,6 +978,7 @@ const TRANSLATIONS = {
     navStrength: "Strength evaluation",
     navOpening: "Opening sanity",
     navPipeline: "Training pipeline",
+    collapseSidebar: "Collapse sidebar", expandSidebar: "Expand sidebar", openMenu: "Open menu",
     refresh: "Refresh",
     lastUpdated: "Updated", ago: "s ago",
     historyTitle: "Gate result history",
@@ -1493,6 +1495,24 @@ function IconChevron({ open }) {
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
       style={{ transform: open ? "rotate(90deg)" : "none", transition: "transform 0.15s" }}>
       <path d="M9 6l6 6-6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+// Sidebar collapse/expand toggle -- distinct from IconChevron (that one's
+// panel-fold semantics rotate right->down; this one flips left<->right).
+function IconSidebarToggle({ open }) {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+      <path d={open ? "M15 6l-6 6 6 6" : "M9 6l6 6-6 6"} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+function IconMenu() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      <path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -2924,7 +2944,7 @@ function KifuPage({ t, runId, gameN }) {
   );
 }
 
-const PAGES = ["history", "status", "strength", "kifu", "opening"];
+const PAGES = ["history", "status", "strength", "kifu", "opening", "pipeline"];
 
 function pageFromUrl() {
   const p = new URLSearchParams(window.location.search).get("page");
@@ -2971,6 +2991,20 @@ function App() {
   const [mode, setMode] = useState(() => localStorage.getItem("sekirei_dash_mode") || "light");
   useEffect(() => { localStorage.setItem("sekirei_dash_mode", mode); }, [mode]);
   const theme = useMemo(() => buildTheme(mode), [mode]);
+  const isMobile = useMediaQuery(theme.breakpoints.down("sm"));
+
+  // Desktop: permanent drawer, collapsible to an icon-only rail (persisted).
+  // Mobile: temporary drawer (overlay), opened via an AppBar hamburger --
+  // its own open/close state is transient, not persisted, since "was the
+  // menu open" isn't meaningful to remember across a reload on a phone.
+  const [sidebarOpen, setSidebarOpen] = useState(() => {
+    const saved = localStorage.getItem("sekirei_dash_sidebar_open");
+    return saved === null ? true : saved === "1";
+  });
+  useEffect(() => { localStorage.setItem("sekirei_dash_sidebar_open", sidebarOpen ? "1" : "0"); }, [sidebarOpen]);
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const drawerWidth = isMobile ? 220 : (sidebarOpen ? 220 : 64);
+  const showLabels = isMobile || sidebarOpen;
 
   // ?page= in the URL is the source of truth for which sidebar item is
   // selected, so a refresh/bookmark/shared link lands on the same page.
@@ -2994,23 +3028,36 @@ function App() {
     { key: "pipeline", label: t.navPipeline, Icon: IconPipeline },
   ];
 
-  return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <Box sx={{ display: "flex", minHeight: "100vh" }}>
-      <Drawer variant="permanent" sx={{ width: 220, flexShrink: 0, "& .MuiDrawer-paper": { width: 220, boxSizing: "border-box" } }}>
-        <Toolbar>
-          <Typography variant="subtitle1" noWrap>{t.appTitle}</Typography>
-        </Toolbar>
-        <Divider />
-        <List>
-          {NAV.map((item) => (
-            <ListItemButton key={item.key} selected={page === item.key} onClick={() => setPage(item.key)}>
+  const drawerContent = (
+    <>
+      <Toolbar sx={{ justifyContent: showLabels ? "space-between" : "center", px: showLabels ? 2 : 1 }}>
+        {showLabels && <Typography variant="subtitle1" noWrap>{t.appTitle}</Typography>}
+        {!isMobile && (
+          <IconButton size="small" onClick={() => setSidebarOpen((o) => !o)} aria-label={sidebarOpen ? t.collapseSidebar : t.expandSidebar}>
+            <IconSidebarToggle open={sidebarOpen} />
+          </IconButton>
+        )}
+      </Toolbar>
+      <Divider />
+      <List>
+        {NAV.map((item) => {
+          const button = (
+            <ListItemButton
+              selected={page === item.key}
+              onClick={() => { setPage(item.key); if (isMobile) setMobileOpen(false); }}
+            >
               <ListItemIcon sx={{ minWidth: 36 }}><item.Icon /></ListItemIcon>
-              <ListItemText primary={item.label} />
+              {showLabels && <ListItemText primary={item.label} />}
             </ListItemButton>
-          ))}
-        </List>
+          );
+          return showLabels ? (
+            <Box key={item.key}>{button}</Box>
+          ) : (
+            <Tooltip key={item.key} title={item.label} placement="right"><span>{button}</span></Tooltip>
+          );
+        })}
+      </List>
+      {showLabels && (
         <Box sx={{ mt: "auto", p: 2 }}>
           <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
             <Button
@@ -3037,8 +3084,38 @@ function App() {
             >{t.darkMode}</Button>
           </Stack>
         </Box>
+      )}
+    </>
+  );
+
+  return (
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <Box sx={{ display: "flex", minHeight: "100vh" }}>
+      {isMobile && (
+        <AppBar position="fixed" color="default" elevation={1} sx={{ zIndex: (th) => th.zIndex.drawer + 1 }}>
+          <Toolbar>
+            <IconButton edge="start" onClick={() => setMobileOpen(true)} aria-label={t.openMenu} sx={{ mr: 2 }}>
+              <IconMenu />
+            </IconButton>
+            <Typography variant="subtitle1" noWrap>{t.appTitle}</Typography>
+          </Toolbar>
+        </AppBar>
+      )}
+      <Drawer
+        variant={isMobile ? "temporary" : "permanent"}
+        open={isMobile ? mobileOpen : true}
+        onClose={() => setMobileOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{
+          width: drawerWidth, flexShrink: 0,
+          "& .MuiDrawer-paper": { width: drawerWidth, boxSizing: "border-box", transition: "width 0.2s" },
+        }}
+      >
+        {drawerContent}
       </Drawer>
-      <Box component="main" sx={{ flexGrow: 1, p: 3, maxWidth: 960 }}>
+      <Box component="main" sx={{ flexGrow: 1, p: 3, maxWidth: { xs: "100%", md: 960 }, width: "100%", overflowX: "hidden" }}>
+        {isMobile && <Toolbar />}
         {page === "history" && <HistoryPage t={t} />}
         {page === "status" && <StatusPage t={t} selectedRunId={statusRunId} onSelectRun={setStatusRunId} />}
         {page === "strength" && <StrengthPage t={t} />}
