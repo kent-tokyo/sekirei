@@ -56,6 +56,13 @@ RUN_DIR=${RUN_DIR:-"data/runs/$TIMESTAMP"}
 JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
 [ "$JOBS" -lt 1 ] && JOBS=1
 
+# Persist everything (not just display it) so scripts/gate_dashboard.py's
+# Pipeline page can show live stage progress after the fact -- this is the
+# only way to recover quietset's "kept X/Y" line (stderr only, never written
+# to any JSON) and sekirei-train's "Epoch N/M" progress.
+mkdir -p "$RUN_DIR"
+exec > >(tee "$RUN_DIR/pipeline.log") 2>&1
+
 # ---- Preflight ---------------------------------------------------------------
 # auto-detect shogiesa binary (same convention as scripts/redo_quietset_bc.sh)
 if [ -z "$SHOGIESA" ]; then
@@ -141,10 +148,19 @@ fi
 
 # ---- Train ---------------------------------------------------------------
 echo "[4/5] sekirei-train  (stability-weighted validation-ratio=0.1)"
+# --min-stability 0: keep every scored position and weight its loss by
+# stability_score; otherwise the 0.85 default (load_scored() filters on it
+# BEFORE --stability-weighted ever applies) silently drops everything below
+# that threshold instead of down-weighting it -- see
+# scripts/redo_quietset_bc.sh's train-C comment for the same gotcha, and
+# tasks/lessons.md (found missing here, 2026-07-07 -- this script's runs
+# to date likely trained on fewer positions than their positions_combined.jsonl
+# line count suggests).
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
   --scored "$SCORED" \
   --stability-weighted \
+  --min-stability 0 \
   --label-depth "$LABEL_DEPTH" \
   --validation-ratio 0.1 \
   --seed 42 \

@@ -296,6 +296,149 @@ def list_weights():
         return []
 
 
+def list_pipeline_runs():
+    """Training pipeline runs (scripts/train_with_loss_mining.sh,
+    scripts/train_with_shogiesa_quietset.sh), distinct from the gate/match
+    runs in RUNS -- these live under data/runs/<name>/, not results/*.json.
+    Directory mtime (not the timestamp embedded in some run names) doubles as
+    both "started_at" and "last activity", since adding a file to a directory
+    bumps its mtime -- good enough for sorting, avoids brittle per-prefix
+    name parsing across this session's several run-dir naming conventions.
+    """
+    entries = []
+    for d in glob.glob(os.path.join(DATA_DIR, "runs", "*")):
+        if not os.path.isdir(d):
+            continue
+        try:
+            mtime = os.path.getmtime(d)
+        except OSError:
+            continue
+        entries.append({"id": os.path.basename(d), "label": os.path.basename(d), "started_at": mtime})
+    entries.sort(key=lambda e: e["started_at"], reverse=True)
+    return {"runs": entries}
+
+
+def _count_lines(path):
+    try:
+        with open(path) as f:
+            return sum(1 for _ in f)
+    except OSError:
+        return None
+
+
+def _last_match(pattern, text):
+    matches = list(re.finditer(pattern, text))
+    return matches[-1] if matches else None
+
+
+def get_pipeline_status(run_id):
+    """Derives 4-stage (extract/mine -> label/filter -> score -> train)
+    status for a data/runs/<run_id>/ directory, from whatever's on disk --
+    no live process capture, since these scripts are launched externally
+    (see scripts/gate_dashboard.py's module docstring for that same
+    constraint on gate runs, which at least get Popen'd from here).
+    Prefers structured JSON (label_manifest.json, the run's own
+    manifest.json) when present; falls back to regex-parsing
+    pipeline.log for progress on a still-running stage -- this is the
+    *only* source for quietset's "kept X/Y" line (stderr-only, never
+    written to any JSON) and sekirei-train's "Epoch N/M" progress.
+    """
+    run_dir = os.path.join(DATA_DIR, "runs", run_id)
+    if not os.path.isdir(run_dir):
+        return None
+
+    log = ""
+    log_path = os.path.join(run_dir, "pipeline.log")
+    if os.path.isfile(log_path):
+        try:
+            with open(log_path, errors="replace") as f:
+                log = f.read()
+        except OSError:
+            pass
+
+    # Stage 1: extract/mine. Both pipeline scripts write exactly one
+    # meaningful stage1/*.jsonl (mined_positions.jsonl or positions.jsonl);
+    # take the largest by line count in case a transient tmp file lingers.
+    stage1_count = None
+    for p in glob.glob(os.path.join(run_dir, "stage1", "*.jsonl")):
+        n = _count_lines(p)
+        if n and (stage1_count is None or n > stage1_count):
+            stage1_count = n
+    stage1 = {"status": "done" if stage1_count else "not_started", "positions": stage1_count}
+
+    # Stage 2: label/filter (shogiesa label). label_manifest.json if the
+    # stage finished; else the last "N done" progress marker mid-run; else
+    # the final "X in, Y labeled..." summary line (older runs / no manifest
+    # written for some other reason) also counts as done.
+    stage2 = {"status": "not_started"}
+    manifest_path = os.path.join(run_dir, "stage2", "label_manifest.json")
+    if os.path.isfile(manifest_path):
+        try:
+            with open(manifest_path) as f:
+                stage2 = {**json.load(f), "status": "done"}
+        except (OSError, json.JSONDecodeError):
+            pass
+    if stage2["status"] == "not_started":
+        summary = _last_match(
+            r"(\d+) in, (\d+) labeled, (\d+) skipped.*?(\d+) cache hits, (\d+) cache misses",
+            log,
+        )
+        if summary:
+            records_in, labeled, skipped, cache_hits, cache_misses = summary.groups()
+            stage2 = {
+                "status": "done",
+                "records_read": int(records_in),
+                "labeled_records": int(labeled),
+                "records_dropped": int(skipped),
+                "cache_hits": int(cache_hits),
+                "cache_misses": int(cache_misses),
+            }
+        else:
+            done_progress = re.findall(r"(\d+)\s+done", log)
+            if done_progress:
+                stage2 = {"status": "in_progress", "done": int(done_progress[-1]), "total": stage1_count}
+
+    # Stage 3: score (quietset). "kept X / Y (Z%), review N, drop M" is the
+    # only place this exists at all -- printed to stderr, never persisted.
+    stage3 = {"status": "not_started"}
+    kept_match = _last_match(r"kept (\d+) / (\d+) \(([\d.]+)%\), review (\d+), drop (\d+)", log)
+    if kept_match:
+        kept, total, pct, review, drop = kept_match.groups()
+        stage3 = {
+            "status": "done",
+            "kept": int(kept), "total": int(total), "kept_pct": float(pct),
+            "review": int(review), "drop": int(drop),
+        }
+    elif stage2["status"] == "done":
+        stage3 = {"status": "in_progress"}
+
+    # Stage 4: train (sekirei-train). The run's own manifest.json (written
+    # last, see train_with_loss_mining.sh/train_with_shogiesa_quietset.sh)
+    # means training finished; otherwise the last "Epoch N/M" line.
+    stage4 = {"status": "not_started"}
+    root_manifest_path = os.path.join(run_dir, "manifest.json")
+    if os.path.isfile(root_manifest_path):
+        try:
+            with open(root_manifest_path) as f:
+                stage4 = {**json.load(f), "status": "done"}
+        except (OSError, json.JSONDecodeError):
+            pass
+    if stage4["status"] == "not_started":
+        epoch_match = _last_match(r"Epoch (\d+)/(\d+)", log)
+        if epoch_match:
+            stage4 = {"status": "in_progress", "epoch": int(epoch_match.group(1)), "total_epochs": int(epoch_match.group(2))}
+
+    return {
+        "id": run_id,
+        "stages": [
+            {"key": "extract", **stage1},
+            {"key": "label", **stage2},
+            {"key": "score", **stage3},
+            {"key": "train", **stage4},
+        ],
+    }
+
+
 def get_opening_sanity_data(w1, w2, depth_str):
     """Runs scripts/opening_sanity.sh --json once per weights file and zips
     the two case lists by name. Synchronous (unlike start_run's Popen+poll)
@@ -714,6 +857,7 @@ import {
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
   MenuItem, Fab, IconButton, TablePagination, Collapse,
+  Stepper, Step, StepLabel,
   ThemeProvider, createTheme, CssBaseline
 } from "@mui/material";
 
@@ -725,6 +869,7 @@ const TRANSLATIONS = {
     navStatus: "実行状況",
     navStrength: "強さ評価",
     navOpening: "序盤診断",
+    navPipeline: "学習パイプライン",
     refresh: "更新",
     lastUpdated: "最終更新",
     ago: "秒前",
@@ -787,6 +932,21 @@ const TRANSLATIONS = {
       hayaishida: "早石田: 2g2f/3c3d/7g7f/3d3e — 後手が3筋の歩を早めに伸ばす、振り飛車側の速攻戦法。",
       edge_lance_trap: "このセッション中に発見した実戦局面(対局#29)を再現したケース。定跡の正式名称ではなく、香車側の端が弱点になっていた局面。",
     },
+    // pipeline page
+    pipelineTitle: "学習パイプライン",
+    pipelineHelp: "scripts/train_with_loss_mining.sh / train_with_shogiesa_quietset.sh が実際に実行する4段階(局面抽出→ラベリング/フィルタ→学習→強さ検証)の進行状況。強さ検証はこのパイプラインの一部として自動実行されないため、学習完了後に別途 sprint_gate.sh 等を実行してください。",
+    pipelineNoRuns: "data/runs/ にパイプライン実行がまだありません。",
+    pipelineSelectLabel: "実行を選択",
+    stageExtract: "1. 局面抽出", stageLabel: "2. ラベリング/フィルタ", stageScore: "3. 安定性スコアリング", stageTrain: "4. 学習",
+    stageValidate: "強さ検証(gate)",
+    stageNotStarted: "未開始", stageInProgress: "進行中", stageDone: "完了",
+    pipelinePositions: "局面数",
+    pipelineLabelProgress: "ラベリング進捗",
+    pipelineCacheHitRate: "キャッシュヒット",
+    pipelineKeptStat: "Keep",
+    pipelineEpoch: "エポック",
+    pipelineOutput: "出力先",
+    pipelineValidateNotYet: "まだ検証(gate)は実行されていません。学習完了後に次のコマンドを実行してください:",
     // strength page
     strengthTitle: "強さ評価",
     anchorLabel: "アンカー(基準側の推定絶対レート)",
@@ -816,6 +976,7 @@ const TRANSLATIONS = {
     navStatus: "Execution status",
     navStrength: "Strength evaluation",
     navOpening: "Opening sanity",
+    navPipeline: "Training pipeline",
     refresh: "Refresh",
     lastUpdated: "Updated", ago: "s ago",
     historyTitle: "Gate result history",
@@ -875,6 +1036,21 @@ const TRANSLATIONS = {
       hayaishida: "Hayaishida (early Ishida): 2g2f/3c3d/7g7f/3d3e — White pushes the 3-file pawn early, a fast-attack Ranging Rook line.",
       edge_lance_trap: "Reproduces a real game position found during this session (game #29), not a named joseki — the lance-side edge was a weakness in that position.",
     },
+    // pipeline page
+    pipelineTitle: "Training pipeline",
+    pipelineHelp: "Progress of the 4 stages scripts/train_with_loss_mining.sh / train_with_shogiesa_quietset.sh actually run (extract -> label/filter -> train -> validate). Validation isn't run automatically as part of this pipeline -- run sprint_gate.sh or similar separately once training finishes.",
+    pipelineNoRuns: "No pipeline runs found under data/runs/ yet.",
+    pipelineSelectLabel: "Select run",
+    stageExtract: "1. Extract/Mine", stageLabel: "2. Label/Filter", stageScore: "3. Stability scoring", stageTrain: "4. Train",
+    stageValidate: "Validate (gate)",
+    stageNotStarted: "Not started", stageInProgress: "In progress", stageDone: "Done",
+    pipelinePositions: "positions",
+    pipelineLabelProgress: "Labeling progress",
+    pipelineCacheHitRate: "cache hit rate",
+    pipelineKeptStat: "Keep",
+    pipelineEpoch: "Epoch",
+    pipelineOutput: "Output",
+    pipelineValidateNotYet: "Not gated yet. Run this once training finishes:",
     strengthTitle: "Strength evaluation",
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
     anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
@@ -1412,7 +1588,7 @@ function HistoryPage({ t }) {
         </CollapsiblePanel>
       )}
       {filteredEntries.length === 0 ? (
-        <Typography><em>{t.noResults}</em></Typography>
+        <EmptyState message={t.noResults} />
       ) : (
         <SortableTable
           initialKey="mtime" initialDir="desc"
@@ -1758,14 +1934,14 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
           </CardContent>
         </Card>
       ) : (
-        <Typography sx={{ mb: 3 }}><em>{t.noResultYet}</em></Typography>
+        <EmptyState message={t.noResultYet} />
       )}
 
       <Divider sx={{ mb: 2 }} />
       <CollapsiblePanel id="recentGames" title={t.recentGames}>
         {!data.kifu_available && <Typography variant="caption" color="text.secondary">{t.kifuUnavailable}</Typography>}
         {gameRows.length === 0 ? (
-          <Typography><em>{t.noGamesYet}</em></Typography>
+          <EmptyState message={t.noGamesYet} />
         ) : hasDetail ? (
           <SortableTable
             initialKey="n" initialDir="desc"
@@ -1793,6 +1969,134 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
           <List dense>{gameRows.map((g) => <ListItemText key={g.n} primary={`Game ${g.n}: ${g.raw}`} />)}</List>
         )}
       </CollapsiblePanel>
+    </Box>
+  );
+}
+
+const PIPELINE_STAGE_LABEL_KEY = { extract: "stageExtract", label: "stageLabel", score: "stageScore", train: "stageTrain" };
+const PIPELINE_STATUS_COLOR = { done: "success", in_progress: "warning", not_started: "default" };
+const PIPELINE_STATUS_LABEL_KEY = { done: "stageDone", in_progress: "stageInProgress", not_started: "stageNotStarted" };
+
+function PipelineStageDetail({ stage, t }) {
+  if (stage.key === "extract") {
+    return stage.positions != null ? <Typography variant="body2">{stage.positions} {t.pipelinePositions}</Typography> : null;
+  }
+  if (stage.key === "label") {
+    if (stage.status === "in_progress") {
+      const pct = stage.total ? Math.min(100, (stage.done / stage.total) * 100) : null;
+      return (
+        <Box>
+          <Typography variant="body2">{t.pipelineLabelProgress}: {stage.done}{stage.total ? `/${stage.total}` : ""}</Typography>
+          {pct != null && <LinearProgress variant="determinate" value={pct} sx={{ height: 6, borderRadius: 3, mt: 0.5 }} />}
+        </Box>
+      );
+    }
+    if (stage.status === "done") {
+      const rate = stage.cache_hit_rate != null
+        ? 100 * stage.cache_hit_rate // manifest stores a 0-1 fraction, not a percentage
+        : (stage.cache_hits != null && stage.cache_misses != null && stage.cache_hits + stage.cache_misses > 0
+          ? (100 * stage.cache_hits) / (stage.cache_hits + stage.cache_misses)
+          : null);
+      return (
+        <Typography variant="body2">
+          {stage.labeled_records ?? stage.records_kept ?? ""} {t.pipelinePositions}
+          {rate != null ? ` (${t.pipelineCacheHitRate} ${rate.toFixed(0)}%)` : ""}
+        </Typography>
+      );
+    }
+    return null;
+  }
+  if (stage.key === "score") {
+    return stage.status === "done"
+      ? <Typography variant="body2">{t.pipelineKeptStat} {stage.kept}/{stage.total} ({stage.kept_pct.toFixed(1)}%)</Typography>
+      : null;
+  }
+  if (stage.key === "train") {
+    if (stage.status === "in_progress") {
+      return <Typography variant="body2">{t.pipelineEpoch} {stage.epoch}/{stage.total_epochs}</Typography>;
+    }
+    if (stage.status === "done" && stage.output) {
+      return <Typography variant="body2">{t.pipelineOutput}: {stage.output}</Typography>;
+    }
+    return null;
+  }
+  return null;
+}
+
+function PipelinePage({ t }) {
+  const { data: runsData } = useApi("/api/pipeline_runs", 8000);
+  const runs = runsData?.runs || [];
+  const [runId, setRunId] = useState("");
+
+  const autoSelected = useRef(false);
+  useEffect(() => {
+    if (autoSelected.current || runs.length === 0) return;
+    autoSelected.current = true;
+    setRunId(runs[0].id);
+  }, [runs]);
+
+  const { data } = useApi(runId ? `/api/pipeline?run=${runId}` : null, runId ? 4000 : null);
+
+  if (runs.length === 0) {
+    return (
+      <Box>
+        <Typography variant="h5" sx={{ mb: 2 }}>{t.pipelineTitle}</Typography>
+        <EmptyState message={t.pipelineNoRuns} />
+      </Box>
+    );
+  }
+
+  const stages = data?.stages || [];
+  const activeIndex = stages.findIndex((s) => s.status !== "done");
+  const trainStage = stages.find((s) => s.key === "train");
+  const trainDone = trainStage?.status === "done";
+
+  return (
+    <Box>
+      <Typography variant="h5" sx={{ mb: 1 }}>{t.pipelineTitle}</Typography>
+      <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{t.pipelineHelp}</Typography>
+
+      <TextField
+        select size="small" label={t.pipelineSelectLabel} value={runId}
+        onChange={(e) => setRunId(e.target.value)}
+        sx={{ minWidth: 320, mb: 3 }}
+      >
+        {runs.map((r) => <MenuItem key={r.id} value={r.id}>{r.label}</MenuItem>)}
+      </TextField>
+
+      {stages.length > 0 && (
+        <Stepper orientation="vertical" activeStep={activeIndex === -1 ? stages.length : activeIndex} sx={{ mb: 3 }}>
+          {stages.map((stage) => (
+            <Step key={stage.key} completed={stage.status === "done"}>
+              <StepLabel
+                optional={
+                  <Stack spacing={0.5}>
+                    <Chip size="small" label={t[PIPELINE_STATUS_LABEL_KEY[stage.status]]} color={PIPELINE_STATUS_COLOR[stage.status]} sx={{ width: "fit-content" }} />
+                    <PipelineStageDetail stage={stage} t={t} />
+                  </Stack>
+                }
+              >
+                {t[PIPELINE_STAGE_LABEL_KEY[stage.key]]}
+              </StepLabel>
+            </Step>
+          ))}
+        </Stepper>
+      )}
+
+      <Divider sx={{ mb: 2 }} />
+      <Card variant="outlined">
+        <CardContent>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.stageValidate}</Typography>
+          {trainDone ? (
+            <Typography variant="body2">
+              {t.pipelineValidateNotYet}<br />
+              <code>bash scripts/sprint_gate.sh {trainStage.output || "OUTPUT.bin"} data/weights_v010_10k_full.bin 4</code>
+            </Typography>
+          ) : (
+            <Typography variant="body2" color="text.secondary">{t.pipelineValidateNotYet}</Typography>
+          )}
+        </CardContent>
+      </Card>
     </Box>
   );
 }
@@ -1851,7 +2155,7 @@ function StrengthPage({ t }) {
       )}
 
       {rows.length === 0 ? (
-        <Typography sx={{ mb: 3 }}><em>{t.noResults}</em></Typography>
+        <EmptyState message={t.noResults} />
       ) : (
         <SortableTable
           initialKey="mtime" initialDir="desc"
@@ -2159,6 +2463,45 @@ function IconOpening() {
       <rect x="14" y="4" width="7" height="16" rx="1" stroke="currentColor" strokeWidth="2" />
       <path d="M10 12h4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
+  );
+}
+
+function IconPipeline() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+      <circle cx="4" cy="12" r="2.5" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="6" r="2.5" stroke="currentColor" strokeWidth="2" />
+      <circle cx="12" cy="18" r="2.5" stroke="currentColor" strokeWidth="2" />
+      <circle cx="20" cy="12" r="2.5" stroke="currentColor" strokeWidth="2" />
+      <path d="M6.2 11l3.6-3.5M6.2 13l3.6 3.5M14.4 7.5L18 11M14.4 16.5L18 13" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// A simple hand-drawn mascot (sekirei/wagtail -- the engine's namesake bird)
+// for empty states, in the same spirit as this file's existing hand-rolled
+// SVG icons (no external image asset, no build step).
+function MascotBird({ size = 72 }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+      <path d="M28 62 Q8 55 10 36 Q21 47 32 54 Z" fill="currentColor" opacity="0.85" />
+      <ellipse cx="52" cy="60" rx="24" ry="18" fill="currentColor" opacity="0.12" stroke="currentColor" strokeWidth="2.5" />
+      <path d="M40 50 Q56 46 64 61 Q51 66 38 60 Z" fill="currentColor" opacity="0.25" stroke="currentColor" strokeWidth="2" />
+      <circle cx="74" cy="42" r="14" fill="currentColor" opacity="0.12" stroke="currentColor" strokeWidth="2.5" />
+      <path d="M86 40 L97 43 L86 47 Z" fill="currentColor" />
+      <circle cx="78" cy="38" r="2.2" fill="currentColor" />
+      <path d="M46 76 L44 88 M60 76 L62 88" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" />
+      <path d="M18 90 L92 90" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" opacity="0.35" />
+    </svg>
+  );
+}
+
+function EmptyState({ message }) {
+  return (
+    <Stack alignItems="center" spacing={1.5} sx={{ py: 4, color: "text.secondary" }}>
+      <MascotBird />
+      <Typography><em>{message}</em></Typography>
+    </Stack>
   );
 }
 
@@ -2648,6 +2991,7 @@ function App() {
     { key: "status", label: t.navStatus, Icon: IconStatus },
     { key: "strength", label: t.navStrength, Icon: IconStrength },
     { key: "opening", label: t.navOpening, Icon: IconOpening },
+    { key: "pipeline", label: t.navPipeline, Icon: IconPipeline },
   ];
 
   return (
@@ -2699,6 +3043,7 @@ function App() {
         {page === "status" && <StatusPage t={t} selectedRunId={statusRunId} onSelectRun={setStatusRunId} />}
         {page === "strength" && <StrengthPage t={t} />}
         {page === "opening" && <OpeningSanityPage t={t} />}
+        {page === "pipeline" && <PipelinePage t={t} />}
         {page === "kifu" && (
           <KifuPage
             t={t}
@@ -2777,6 +3122,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/weights":
             self._send_json({"weights": list_weights()})
+            return
+        if path == "/api/pipeline_runs":
+            self._send_json(list_pipeline_runs())
+            return
+        if path == "/api/pipeline":
+            run_id = qs.get("run", [""])[0]
+            status = get_pipeline_status(run_id) if run_id else None
+            if status is None:
+                self._send_json({"error": "unknown pipeline run"}, status=404)
+                return
+            self._send_json(status)
             return
         if path == "/api/history":
             self._send_json(get_history_data())
