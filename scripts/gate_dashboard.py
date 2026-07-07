@@ -849,7 +849,7 @@ SHELL_HTML = """<!doctype html>
 <body>
 <div id="root"></div>
 <script type="text/babel" data-type="module" data-presets="react">
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef, useId } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Box, Drawer, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography,
@@ -857,7 +857,7 @@ import {
   CardContent, Table, TableHead, TableBody, TableRow, TableCell,
   TableContainer, TableSortLabel, Paper, Stack, Divider, TextField, Tooltip,
   MenuItem, Fab, IconButton, TablePagination, Collapse,
-  Stepper, Step, StepLabel, AppBar, useMediaQuery,
+  Stepper, Step, StepLabel, AppBar, useMediaQuery, useTheme,
   ThemeProvider, createTheme, CssBaseline
 } from "@mui/material";
 
@@ -1089,7 +1089,33 @@ const VERDICT_COLOR = { PASS: "success", FAIL: "error", INCONCLUSIVE: "warning" 
 const VERDICT_TIP_KEY = { PASS: "tipPass", FAIL: "tipFail", INCONCLUSIVE: "tipInconclusive" };
 // Raw SVG can't use MUI's theme color tokens ("success"/"error"/"warning")
 // directly -- this is the hex equivalent for the chart components below.
-const VERDICT_COLOR_HEX = { PASS: "#2e7d32", FAIL: "#d32f2f", INCONCLUSIVE: "#ed6c02" };
+// Same tokens VerdictChip already uses via color="success"/"error"/"warning" --
+// this exposes their computed hex so raw SVG fill/stroke can use them too and
+// automatically follows light/dark mode (the old hardcoded hex constant this
+// replaced was a mode-blind duplicate of MUI's own defaults).
+function verdictHex(theme) {
+  return { PASS: theme.palette.success.main, FAIL: theme.palette.error.main, INCONCLUSIVE: theme.palette.warning.main };
+}
+
+// Uniform Catmull-Rom -> cubic Bezier (tension = 1/6), the standard
+// conversion d3.curveCatmullRom uses internally. Passes through every data
+// point exactly -- only the tangent handles are interpolated -- so point
+// picking/onSelect stays pixel-accurate.
+function smoothPath(points) {
+  if (points.length < 2) return "";
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+  const d = [`M ${points[0].x} ${points[0].y}`];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[i - 1] || points[i];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[i + 2] || p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6, c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6, c2y = p2.y - (p3.y - p1.y) / 6;
+    d.push(`C ${c1x} ${c1y}, ${c2x} ${c2y}, ${p2.x} ${p2.y}`);
+  }
+  return d.join(" ");
+}
 
 // Mirrors veridict's CI-decision logic (crates/sekirei-match-runner/src/main.rs
 // veridict_decide / the upstream verdict.rs::decide): pass only if the CI's
@@ -1153,6 +1179,8 @@ function VerdictChip({ verdict, t, size }) {
 // win/draw/loss stacked bar. No charting library -- three <rect>s sized
 // proportionally.
 function WdlBar({ wins, draws, losses, width, height, showLabels, t }) {
+  const theme = useTheme();
+  const V = useMemo(() => verdictHex(theme), [theme]);
   width = width || 80;
   height = height || 14;
   const total = wins + draws + losses;
@@ -1160,11 +1188,18 @@ function WdlBar({ wins, draws, losses, width, height, showLabels, t }) {
   const wW = (wins / total) * width;
   const dW = (draws / total) * width;
   const lW = (losses / total) * width;
+  const seg = { transition: "width 0.3s ease, x 0.3s ease" };
+  const clipId = `wdlclip-${width}-${height}`;
   const bar = (
     <svg width={width} height={height} style={{ display: "block" }}>
-      <rect x={0} y={0} width={wW} height={height} fill={VERDICT_COLOR_HEX.PASS} />
-      <rect x={wW} y={0} width={dW} height={height} fill="#9e9e9e" />
-      <rect x={wW + dW} y={0} width={lW} height={height} fill={VERDICT_COLOR_HEX.FAIL} />
+      <defs>
+        <clipPath id={clipId}><rect x={0} y={0} width={width} height={height} rx={height / 4} /></clipPath>
+      </defs>
+      <g clipPath={`url(#${clipId})`}>
+        <rect x={0} y={0} width={wW} height={height} fill={V.PASS} style={seg} />
+        <rect x={wW} y={0} width={dW} height={height} fill="#9e9e9e" style={seg} />
+        <rect x={wW + dW} y={0} width={lW} height={height} fill={V.FAIL} style={seg} />
+      </g>
     </svg>
   );
   if (!showLabels) return bar;
@@ -1172,9 +1207,9 @@ function WdlBar({ wins, draws, losses, width, height, showLabels, t }) {
     <Stack direction="row" spacing={2} alignItems="center">
       {bar}
       <Stack direction="row" spacing={1.5}>
-        <Typography variant="caption"><span style={{ color: VERDICT_COLOR_HEX.PASS }}>■</span> {t.legendWin} {wins}</Typography>
+        <Typography variant="caption"><span style={{ color: V.PASS }}>■</span> {t.legendWin} {wins}</Typography>
         <Typography variant="caption"><span style={{ color: "#9e9e9e" }}>■</span> {t.legendDraw} {draws}</Typography>
-        <Typography variant="caption"><span style={{ color: VERDICT_COLOR_HEX.FAIL }}>■</span> {t.legendLoss} {losses}</Typography>
+        <Typography variant="caption"><span style={{ color: V.FAIL }}>■</span> {t.legendLoss} {losses}</Typography>
       </Stack>
     </Stack>
   );
@@ -1186,7 +1221,11 @@ function WdlBar({ wins, draws, losses, width, height, showLabels, t }) {
 // drag-to-scroll handler for mouse users without a trackpad. Clicking a
 // point jumps to that point's row in the table below via `onSelect`.
 function RatingTrendChart({ points, onSelect, t }) {
+  const theme = useTheme();
+  const V = useMemo(() => verdictHex(theme), [theme]);
+  const gradId = useId();
   const [zoom, setZoom] = useState(1);
+  const [hoverIdx, setHoverIdx] = useState(null);
   const scrollRef = useRef(null);
   const dragRef = useRef(null);
   const { containerRef, tooltip, showAt, hide } = useChartTooltip();
@@ -1195,13 +1234,27 @@ function RatingTrendChart({ points, onSelect, t }) {
   const baseWidth = 820, height = 200, padL = 50, padR = 20, padT = 16, padB = 12;
   const width = Math.round(baseWidth * zoom);
   const innerW = width - padL - padR, innerH = height - padT - padB;
-  const ys = points.map((p) => p.y);
+  // Band fields default to the point itself (zero-width pinch) when a
+  // position has no CI data (pre-2026-07-04 files, see compared_label's
+  // comment) -- reads as "no uncertainty data here" rather than breaking.
+  const ys = points.flatMap((p) => [p.y, p.ciLow ?? p.y, p.ciHigh ?? p.y]);
   const yMin = Math.min(...ys), yMax = Math.max(...ys);
   const yPad = Math.max(10, (yMax - yMin) * 0.15);
   const y0 = yMin - yPad, y1 = yMax + yPad;
   const xFor = (i) => (points.length === 1 ? padL + innerW / 2 : padL + (i / (points.length - 1)) * innerW);
   const yFor = (v) => padT + innerH - ((v - y0) / (y1 - y0 || 1)) * innerH;
-  const linePath = points.map((p, i) => `${i === 0 ? "M" : "L"} ${xFor(i)} ${yFor(p.y)}`).join(" ");
+  const coords = points.map((p, i) => ({ x: xFor(i), y: yFor(p.y) }));
+  const linePath = smoothPath(coords);
+  const hasBand = points.some((p) => p.ciLow != null && p.ciHigh != null);
+  // Upper edge (ciHigh, left->right) and lower edge (ciLow, right->left,
+  // hence .reverse()) each get their own smoothed curve so the band's top
+  // and bottom match the line's curviness -- .replace(^M -> L) continues
+  // the same path instead of starting a new subpath, so the two curves
+  // plus the implicit Z close into one filled region, not two disjoint ones.
+  const bandPath = hasBand
+    ? `${smoothPath(points.map((p, i) => ({ x: xFor(i), y: yFor(p.ciHigh ?? p.y) })))} `
+      + `${smoothPath(points.map((p, i) => ({ x: xFor(i), y: yFor(p.ciLow ?? p.y) })).reverse()).replace(/^M/, "L")} Z`
+    : null;
 
   const onWheel = (evt) => {
     evt.preventDefault();
@@ -1234,25 +1287,41 @@ function RatingTrendChart({ points, onSelect, t }) {
       >
         <div ref={containerRef} style={{ position: "relative", display: "inline-block" }}>
           <svg width={width} height={height}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={theme.palette.primary.main} stopOpacity={0.35} />
+                <stop offset="100%" stopColor={theme.palette.primary.main} stopOpacity={0} />
+              </linearGradient>
+            </defs>
             {[y0, (y0 + y1) / 2, y1].map((v, i) => (
               <g key={i}>
-                <line x1={padL} x2={width - padR} y1={yFor(v)} y2={yFor(v)} stroke="#eee" />
-                <text x={padL - 8} y={yFor(v) + 4} fontSize="11" textAnchor="end" fill="#666">{Math.round(v)}</text>
+                <line x1={padL} x2={width - padR} y1={yFor(v)} y2={yFor(v)} stroke={theme.palette.divider} />
+                <text x={padL - 8} y={yFor(v) + 4} fontSize="11" textAnchor="end" fill={theme.palette.text.secondary}>{Math.round(v)}</text>
               </g>
             ))}
-            <line x1={padL} x2={padL} y1={padT} y2={padT + innerH} stroke="#999" />
-            <line x1={padL} x2={width - padR} y1={padT + innerH} y2={padT + innerH} stroke="#999" />
-            {points.length > 1 && <path d={linePath} fill="none" stroke="#1976d2" strokeWidth="2" />}
-            {points.map((p, i) => (
-              <circle
-                key={i} cx={xFor(i)} cy={yFor(p.y)} r={6}
-                fill={VERDICT_COLOR_HEX[p.verdict] || "#1976d2"}
-                style={{ cursor: p.file ? "pointer" : "default" }}
-                onMouseMove={(e) => showAt(e, p.tooltipLines)}
-                onMouseLeave={hide}
-                onClick={() => p.file && onSelect && onSelect(p.file)}
-              />
-            ))}
+            <line x1={padL} x2={padL} y1={padT} y2={padT + innerH} stroke={theme.palette.text.disabled} />
+            <line x1={padL} x2={width - padR} y1={padT + innerH} y2={padT + innerH} stroke={theme.palette.text.disabled} />
+            {bandPath && <path d={bandPath} fill={`url(#${gradId})`} style={{ transition: "d 0.3s ease" }} />}
+            {points.length > 1 && <path d={linePath} fill="none" stroke={theme.palette.primary.main} strokeWidth="2" style={{ transition: "d 0.3s ease" }} />}
+            {points.map((p, i) => {
+              const isLast = i === points.length - 1;
+              const r = isLast ? 8 : (hoverIdx === i ? 8 : 6);
+              return (
+                <g key={i}>
+                  {isLast && (
+                    <circle cx={xFor(i)} cy={yFor(p.y)} r={12} fill="none" stroke={theme.palette.primary.main} strokeWidth="1.5" opacity={0.5} />
+                  )}
+                  <circle
+                    cx={xFor(i)} cy={yFor(p.y)} r={r}
+                    fill={V[p.verdict] || theme.palette.primary.main}
+                    style={{ cursor: p.file ? "pointer" : "default", transition: "cx 0.3s ease, cy 0.3s ease, r 0.15s ease" }}
+                    onMouseMove={(e) => { setHoverIdx(i); showAt(e, p.tooltipLines); }}
+                    onMouseLeave={() => { setHoverIdx(null); hide(); }}
+                    onClick={() => p.file && onSelect && onSelect(p.file)}
+                  />
+                </g>
+              );
+            })}
           </svg>
           <ChartTooltip tooltip={tooltip} />
         </div>
@@ -1269,9 +1338,12 @@ function RatingTrendChart({ points, onSelect, t }) {
 // re-run of the real gate (that only happens server-side via
 // `sekirei-match gate`). Clicking a row jumps to its table row via `onSelect`.
 function CiBarChart({ rows, passElo, failElo, t, onSelect }) {
+  const theme = useTheme();
+  const V = useMemo(() => verdictHex(theme), [theme]);
   const [livePass, setLivePass] = useState(passElo);
   const [liveFail, setLiveFail] = useState(failElo);
   const [dragging, setDragging] = useState(null); // "pass" | "fail" | null
+  const [hoverRow, setHoverRow] = useState(null);
   const { containerRef, tooltip, showAt, hide } = useChartTooltip();
 
   if (rows.length === 0) return null;
@@ -1321,12 +1393,13 @@ function CiBarChart({ rows, passElo, failElo, t, onSelect }) {
             <g key={th.key}>
               <line
                 x1={xFor(th.v)} x2={xFor(th.v)} y1={padT} y2={height - padB}
-                stroke={th.v === 0 ? "#999" : "#bbb"} strokeDasharray={th.v === 0 ? "" : "4 3"}
+                stroke={th.v === 0 ? theme.palette.text.disabled : theme.palette.divider} strokeDasharray={th.v === 0 ? "" : "4 3"}
+                style={{ transition: dragging ? "none" : "all 0.2s ease" }}
               />
               {th.drag && (
                 <rect
-                  x={xFor(th.v) - 5} y={padT - 6} width={10} height={12} rx={2} fill="#616161"
-                  style={{ cursor: "ew-resize" }}
+                  x={xFor(th.v) - 5} y={padT - 6} width={10} height={12} rx={2} fill={theme.palette.text.secondary}
+                  style={{ cursor: "ew-resize", transition: dragging ? "none" : "all 0.2s ease" }}
                   onMouseDown={(evt) => { evt.preventDefault(); setDragging(th.drag); }}
                 />
               )}
@@ -1342,26 +1415,28 @@ function CiBarChart({ rows, passElo, failElo, t, onSelect }) {
             // legitimately disagree (a wide CI can straddle +20 even when the
             // LOS-based check already passes).
             const verdict = thresholdsChanged ? decideCi(lo, hi, livePass, liveFail) : r.verdict;
-            const color = VERDICT_COLOR_HEX[verdict] || "#1976d2";
+            const color = V[verdict] || theme.palette.primary.main;
             const label = r.compared || r.file;
             const tipLines = [label, `elo_diff=${r.elo_diff.toFixed(1)}`, `95% CI=[${lo.toFixed(1)}, ${hi.toFixed(1)}]`, verdict];
+            const hovered = hoverRow === i;
             return (
               <g
                 key={i}
                 style={{ cursor: r.file ? "pointer" : "default" }}
-                onMouseMove={(e) => showAt(e, tipLines)}
-                onMouseLeave={hide}
+                onMouseMove={(e) => { setHoverRow(i); showAt(e, tipLines); }}
+                onMouseLeave={() => { setHoverRow(null); hide(); }}
                 onClick={() => r.file && onSelect && onSelect(r.file)}
               >
-                <text x={0} y={y + 4} fontSize="11" fill="#333">
+                {hovered && <rect x={0} y={y - rowH / 2} width={width} height={rowH} fill={theme.palette.action.hover} />}
+                <text x={0} y={y + 4} fontSize="11" fill={theme.palette.text.primary}>
                   {label.length > 28 ? label.slice(0, 27) + "…" : label}
                 </text>
-                <line x1={xFor(lo)} x2={xFor(hi)} y1={y} y2={y} stroke={color} strokeWidth="3" />
+                <line x1={xFor(lo)} x2={xFor(hi)} y1={y} y2={y} stroke={color} strokeWidth={hovered ? 4 : 3} />
                 <circle cx={xFor(r.elo_diff)} cy={y} r={4} fill={color} />
               </g>
             );
           })}
-          <text x={xFor(0)} y={height - 4} fontSize="10" textAnchor="middle" fill="#999">0</text>
+          <text x={xFor(0)} y={height - 4} fontSize="10" textAnchor="middle" fill={theme.palette.text.secondary}>0</text>
         </svg>
         <ChartTooltip tooltip={tooltip} />
       </div>
@@ -2202,6 +2277,11 @@ function StrengthPage({ t }) {
     .sort((a, b) => a.mtime - b.mtime)
     .map((r) => ({
       y: r.est_rating,
+      // Mirrors CiBarChart's own null-guard: elo_ci_low/high are absent on
+      // pre-2026-07-04 result files (see compared_label's comment), so
+      // those points get a zero-width confidence band instead of a gap.
+      ciLow: r.elo_ci_low != null ? anchor + r.elo_ci_low : null,
+      ciHigh: r.elo_ci_high != null ? anchor + r.elo_ci_high : null,
       verdict: r.verdict,
       file: r.file,
       tooltipLines: [`${r.file} (${r.mtime_str})`, r.compared || t.unknownCompared, `${t.colEstRating}: ${Math.round(r.est_rating)}`],
@@ -3024,8 +3104,20 @@ function pageFromUrl() {
 // input/table padding without touching the global spacing scale, so
 // existing sx={{ p: N }} usages elsewhere keep their current sizing.
 function buildTheme(mode) {
+  const isDark = mode === "dark";
   return createTheme({
-    palette: { mode },
+    palette: {
+      mode,
+      // MUI's default primary (#1976d2) is low-contrast on a dark paper;
+      // give dark mode a lighter tint of the same hue instead of relying
+      // on MUI's automatic dark-mode derivation.
+      primary: { main: isDark ? "#6ea8fe" : "#2f5fd8" },
+    },
+    typography: {
+      h5: { fontWeight: 600, letterSpacing: -0.2 },
+      subtitle1: { fontWeight: 600 },
+      caption: { letterSpacing: 0.15 },
+    },
     components: {
       MuiOutlinedInput: {
         styleOverrides: {
