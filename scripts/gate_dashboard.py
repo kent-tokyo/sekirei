@@ -885,6 +885,7 @@ const TRANSLATIONS = {
     whatIfCaption: "⚠ ドラッグ中はしきい値を仮に動かした場合の判定プレビューです(実際のゲート判定はサーバー側で固定)。",
     resetThreshold: "しきい値をリセット",
     searchLabel: "検索(ファイル名・比較対象)",
+    qsTotalResults: "結果件数", qsPassRate: "PASS率(決着分)", qsInconclusive: "INCONCLUSIVE件数", qsLatest: "最新の判定",
     // status page
     statusTitle: "実行状況",
     startGateTitle: "新しいゲートを開始",
@@ -910,6 +911,7 @@ const TRANSLATIONS = {
     colResult: "結果", colMoves: "手数", colTime: "時刻", noGamesYet: "まだログ行がありません。",
     colKifu: "棋譜", viewKifu: "表示",
     kifuUnavailable: "棋譜は記録されていません(sekirei-match-runner を --output <dir> 付きで実行し、その dir をこのダッシュボードの第4引数に渡すと利用できます)。",
+    qsState: "状態", qsProgress: "進行", qsEtaOrResult: "残り時間/結果", qsRunsTracked: "追跡中の実行数",
     // kifu board page
     kifuTitle: "棋譜ビューア", kifuLoading: "読み込み中…", kifuNotFound: "棋譜が見つかりません。",
     kifuReplayWarning: "再生を中断しました(局面と一致しない指し手)",
@@ -923,6 +925,7 @@ const TRANSLATIONS = {
     openingColCase: "ケース", openingColMove: "bestmove", openingColScore: "score_cp",
     openingNoResult: "まだ比較していません。重みファイルを2つ選んで「比較実行」を押してください。",
     openingSelectBoth: "重みファイルを2つとも選んでください。",
+    qsWeightsAvailable: "利用可能な重みファイル数", qsCasesCompared: "比較したケース数", qsMovesDiffer: "指し手が異なるケース数",
     openingColMoveTip: "エンジンがこの局面で選んだ指し手(USIの bestmove)。例えば「7g7f」は7筋の歩をg段からf段へ進める手。",
     openingColScoreTip: "評価値(センチポーン)。100 ≈ 歩1枚分の価値。プラスは手番側が有利、マイナスは不利とエンジンが評価していることを示す(あくまで指定した探索深さでの見積もり)。",
     openingCaseDesc: {
@@ -948,6 +951,7 @@ const TRANSLATIONS = {
     pipelineEpoch: "エポック",
     pipelineOutput: "出力先",
     pipelineValidateNotYet: "まだ検証(gate)は実行されていません。学習完了後に次のコマンドを実行してください:",
+    qsPipelineRuns: "パイプライン実行数", qsCurrentStage: "現在の段階", qsPipelineAllDone: "全段階完了", qsPositions: "局面数",
     // strength page
     strengthTitle: "強さ評価",
     anchorLabel: "アンカー(基準側の推定絶対レート)",
@@ -963,6 +967,7 @@ const TRANSLATIONS = {
     badgeCode: "コード", badgeMatch: "対戦", badgeOther: "その他",
     colCategory: "分類", colAction: "施策", colEstMinutes: "所要時間目安",
     minutesShort: "分", estUnknown: "不定(局数未確定)",
+    qsLatestRating: "最新の推定レート", qsTrend: "直近の変化", qsOpenActions: "未完了の施策数",
     // term tooltips
     tipEloDiff: "Elo差。数値が高いほど engine1 が engine2 より強い(0=互角、正=engine1優勢、負=engine2優勢)。対局結果から統計的に推定した相対的な強さの差で、絶対的なレート(段位)ではない。",
     tipLos: "LOS(Likelihood of Superiority): 「engine1 が engine2 より本当に強い」と言える確率。100%に近いほど確信度が高い。50%はほぼ互角で判断がつかない状態。",
@@ -991,6 +996,7 @@ const TRANSLATIONS = {
     whatIfCaption: "⚠ Dragging previews verdicts under a hypothetical threshold (the actual gate decision is fixed server-side).",
     resetThreshold: "Reset threshold",
     searchLabel: "Search (file / compared)",
+    qsTotalResults: "Total results", qsPassRate: "Pass rate (decisive)", qsInconclusive: "Inconclusive count", qsLatest: "Latest verdict",
     statusTitle: "Execution status",
     startGateTitle: "Start a new gate",
     engine1Label: "Engine1 weights", engine2Label: "Engine2 weights", materialEval: "(material eval / no weights)",
@@ -1015,6 +1021,7 @@ const TRANSLATIONS = {
     colResult: "Result", colMoves: "Moves", colTime: "Time", noGamesYet: "No log lines yet.",
     colKifu: "Kifu", viewKifu: "View",
     kifuUnavailable: "No kifu recorded (run sekirei-match-runner with --output <dir> and pass that dir as this dashboard's 4th argument to enable this).",
+    qsState: "State", qsProgress: "Progress", qsEtaOrResult: "ETA / result", qsRunsTracked: "Runs tracked",
     // kifu board page
     kifuTitle: "Kifu viewer", kifuLoading: "Loading…", kifuNotFound: "Kifu not found.",
     kifuReplayWarning: "Replay stopped (move doesn't match the board state)",
@@ -1028,6 +1035,7 @@ const TRANSLATIONS = {
     openingColCase: "Case", openingColMove: "bestmove", openingColScore: "score_cp",
     openingNoResult: "No comparison yet. Pick two weight files and click Compare.",
     openingSelectBoth: "Please select both weight files.",
+    qsWeightsAvailable: "Weights available", qsCasesCompared: "Cases compared", qsMovesDiffer: "Cases with differing move",
     openingColMoveTip: "The move the engine chose in this position (USI's bestmove). E.g. \\"7g7f\\" moves the pawn on file 7 from rank g to rank f.",
     openingColScoreTip: "Evaluation score in centipawns. 100 ≈ the value of one pawn. Positive means the engine judges the side to move as ahead; negative means behind (only an estimate at the given search depth).",
     openingCaseDesc: {
@@ -1053,6 +1061,7 @@ const TRANSLATIONS = {
     pipelineEpoch: "Epoch",
     pipelineOutput: "Output",
     pipelineValidateNotYet: "Not gated yet. Run this once training finishes:",
+    qsPipelineRuns: "Pipeline runs", qsCurrentStage: "Current stage", qsPipelineAllDone: "All stages done", qsPositions: "Positions",
     strengthTitle: "Strength evaluation",
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
     anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
@@ -1067,6 +1076,7 @@ const TRANSLATIONS = {
     badgeCode: "Code", badgeMatch: "Match", badgeOther: "Other",
     colCategory: "Category", colAction: "Action", colEstMinutes: "Est. time",
     minutesShort: "m", estUnknown: "unknown (game count not fixed)",
+    qsLatestRating: "Latest est. rating", qsTrend: "Recent change", qsOpenActions: "Open action items",
     tipEloDiff: "Elo rating difference. Higher = engine1 is stronger than engine2 (0 = even, positive = engine1 ahead, negative = engine2 ahead). A statistical estimate of relative strength from match results, not an absolute rating.",
     tipLos: "LOS (Likelihood of Superiority): the probability that engine1 is genuinely stronger than engine2. Close to 100% = high confidence. 50% = essentially a coin flip, no clear signal.",
     tipPass: "PASS: elo_diff ≥ +20 and los ≥ 95% — clears the bar for \\"engine1 is clearly stronger\\"",
@@ -1550,6 +1560,26 @@ function CollapsiblePanel({ id, title, extra, defaultOpen = true, children }) {
 
 const VERDICT_OPTIONS = ["PASS", "FAIL", "INCONCLUSIVE"];
 
+// At-a-glance stat strip, same slot (right under the page title) on every
+// page -- the actual "cross-page consistency" mechanism: one component,
+// one placement rule, each page just supplies different items from data
+// it already fetches (no new endpoints).
+function QuickStats({ items }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <Stack direction="row" spacing={4} sx={{ mb: 2, flexWrap: "wrap", rowGap: 1.5 }}>
+      {items.map((it, i) => (
+        <Box key={i}>
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block" }}>{it.label}</Typography>
+          <Typography variant="subtitle1" component="div" color={it.color ? `${it.color}.main` : "text.primary"}>
+            {it.value}
+          </Typography>
+        </Box>
+      ))}
+    </Stack>
+  );
+}
+
 function HistoryPage({ t }) {
   const { data, updatedAt, refresh } = useApi("/api/history", 8000);
   const entries = data?.entries || [];
@@ -1574,6 +1604,11 @@ function HistoryPage({ t }) {
   });
   const gateRows = filteredEntries.filter((e) => !e.error);
 
+  const decisive = entries.filter((e) => !e.error && (e.verdict === "PASS" || e.verdict === "FAIL"));
+  const passRate = decisive.length ? Math.round((100 * decisive.filter((e) => e.verdict === "PASS").length) / decisive.length) : null;
+  const inconclusiveCount = entries.filter((e) => !e.error && e.verdict === "INCONCLUSIVE").length;
+  const latestEntry = entries.find((e) => !e.error);
+
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
@@ -1583,6 +1618,12 @@ function HistoryPage({ t }) {
           <Button variant="outlined" size="small" onClick={refresh}>⟳ {t.refresh}</Button>
         </Stack>
       </Stack>
+      <QuickStats items={[
+        { label: t.qsTotalResults, value: entries.filter((e) => !e.error).length },
+        ...(passRate != null ? [{ label: t.qsPassRate, value: `${passRate}%` }] : []),
+        { label: t.qsInconclusive, value: inconclusiveCount },
+        ...(latestEntry ? [{ label: t.qsLatest, value: <VerdictChip verdict={latestEntry.verdict} t={t} size="small" /> }] : []),
+      ]} />
       {hasUnknown && <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>⚠ {t.historyNote}</Typography>}
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", rowGap: 1 }}>
         <TextField
@@ -1693,7 +1734,7 @@ function StartGateForm({ t, onStarted }) {
   };
 
   return (
-    <CollapsiblePanel id="startGate" title={t.startGateTitle}>
+    <CollapsiblePanel id="startGate" title={t.startGateTitle} defaultOpen={false}>
       <Card variant="outlined" sx={{ p: 2 }}>
         <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
           <TextField select size="small" label={t.engine1Label} value={e1} onChange={(e) => setE1(e.target.value)} sx={{ minWidth: 200 }}>
@@ -1782,7 +1823,14 @@ function OpeningSanityPage({ t }) {
     <Box>
       <Typography variant="h6" sx={{ mb: 1 }}>{t.openingTitle}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{t.openingHelp}</Typography>
-      <CollapsiblePanel id="openingSettings" title={t.openingSettingsTitle}>
+      <QuickStats items={[
+        { label: t.qsWeightsAvailable, value: weights.length },
+        ...(result ? [
+          { label: t.qsCasesCompared, value: result.cases.length },
+          { label: t.qsMovesDiffer, value: result.cases.filter((c) => c.w1_move !== c.w2_move).length },
+        ] : []),
+      ]} />
+      <CollapsiblePanel id="openingSettings" title={t.openingSettingsTitle} defaultOpen={false}>
         <Card variant="outlined" sx={{ p: 2 }}>
           <Stack direction="row" spacing={2} alignItems="center" sx={{ flexWrap: "wrap", rowGap: 2 }}>
             <TextField select size="small" label={t.openingWeights1Label} value={w1} onChange={(e) => setW1(e.target.value)} sx={{ minWidth: 240 }}>
@@ -1910,8 +1958,12 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
         </Stack>
       </Stack>
 
-      <StartGateForm t={t} onStarted={handleStarted} />
-      <AttachRunForm t={t} onAttached={handleStarted} />
+      <QuickStats items={[
+        { label: t.qsState, value: stateLabel, color: stateColor === "default" ? null : stateColor },
+        { label: t.qsProgress, value: `${completed}${total ? `/${total}` : ""}` },
+        { label: t.qsEtaOrResult, value: running ? (eta_seconds != null ? formatDuration(eta_seconds, t) : "—") : (result ? <VerdictChip verdict={verdict} t={t} size="small" /> : t.noResultYet) },
+        { label: t.qsRunsTracked, value: runs.length },
+      ]} />
       <RunPicker runs={runs} selectedRunId={selectedRunId} onSelect={onSelectRun} />
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
@@ -1956,6 +2008,9 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
       ) : (
         <EmptyState message={t.noResultYet} />
       )}
+
+      <StartGateForm t={t} onStarted={handleStarted} />
+      <AttachRunForm t={t} onAttached={handleStarted} />
 
       <Divider sx={{ mb: 2 }} />
       <CollapsiblePanel id="recentGames" title={t.recentGames}>
@@ -2075,6 +2130,11 @@ function PipelinePage({ t }) {
     <Box>
       <Typography variant="h5" sx={{ mb: 1 }}>{t.pipelineTitle}</Typography>
       <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>{t.pipelineHelp}</Typography>
+      <QuickStats items={[
+        { label: t.qsPipelineRuns, value: runs.length },
+        { label: t.qsCurrentStage, value: activeIndex === -1 ? t.qsPipelineAllDone : t[PIPELINE_STAGE_LABEL_KEY[stages[activeIndex]?.key]], color: activeIndex === -1 ? "success" : "warning" },
+        { label: t.qsPositions, value: stages.find((s) => s.key === "extract")?.positions ?? "—" },
+      ]} />
 
       <TextField
         select size="small" label={t.pipelineSelectLabel} value={runId}
@@ -2156,6 +2216,14 @@ function StrengthPage({ t }) {
           <Button variant="outlined" size="small" onClick={() => { refreshHistory(); refreshTodo(); }}>⟳ {t.refresh}</Button>
         </Stack>
       </Stack>
+      <QuickStats items={[
+        ...(trendPoints.length > 0 ? [{ label: t.qsLatestRating, value: Math.round(trendPoints[trendPoints.length - 1].y) }] : []),
+        ...(trendPoints.length > 1 ? (() => {
+          const delta = Math.round(trendPoints[trendPoints.length - 1].y - trendPoints[trendPoints.length - 2].y);
+          return [{ label: t.qsTrend, value: `${delta >= 0 ? "+" : ""}${delta}`, color: delta > 0 ? "success" : (delta < 0 ? "error" : null) }];
+        })() : []),
+        { label: t.qsOpenActions, value: items.length },
+      ]} />
 
       <TextField
         label={t.anchorLabel}
