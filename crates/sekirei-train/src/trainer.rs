@@ -1,14 +1,27 @@
-//! NNUE training loop — supervised learning from CSA game results.
+//! NNUE training loop — supervised learning from search-eval labels, with an
+//! optional WDL (game-result) term for the CSA path.
 #![allow(clippy::needless_range_loop)] // index-based loops match matrix layout; don't change
 //!
 //! # Architecture
 //!   Input → FT (L1=256, per perspective) → ClippedReLU → L2 (32) → ClippedReLU → Out
 //!
 //! # Algorithm
-//!   teacher = game_result_from_stm_perspective × 600.0
-//!   loss    = (score − teacher)²   where score = output / 64.0
+//!   eval_teacher = clamp(search_score_cp, ±600)
+//!   teacher      = eval_teacher                                  (wdl_lambda = None, default)
+//!              or  λ·eval_teacher + (1-λ)·wdl_target              (wdl_lambda = Some(λ), CSA path only)
+//!     where wdl_target = (game_result_from_stm_perspective − 0.5) × 1200,
+//!     mapping loss/draw/win to ∓600/0/±600 on the same scale as eval_teacher.
+//!     `GameResult::Unknown` games (see `csa.rs`) fall back to pure
+//!     eval_teacher for that position -- there's no result signal to mix in.
+//!   loss = (score − teacher)²   where score = output / 64.0
 //!   gradients backpropagated through ClippedReLU layers
 //!   weights updated with Adam
+//!
+//! Mixing via a single blended teacher, rather than a two-term loss
+//! `λ(x−a)² + (1−λ)(x−b)²`, is deliberate, not a shortcut: the two have
+//! identical gradients (`d/dx` of the two-term loss is `2(x − (λa+(1−λ)b))`,
+//! exactly the blended-teacher squared-error gradient), so blending first
+//! reuses `train_position`'s existing single-teacher backprop unchanged.
 //!
 //! FT weights are quantised to i16 at save time; L2/out stay f32.
 
@@ -25,7 +38,35 @@ use sekirei_core::{
     tt::Tt,
 };
 
-use crate::csa::CsaGame;
+use crate::csa::{CsaGame, GameResult};
+
+/// The sampled position's own game-result signal, on the same ±600
+/// centipawn scale as a clamped eval teacher (loss=-600, draw=0, win=+600),
+/// from `stm`'s perspective. `None` for `GameResult::Unknown` -- there is no
+/// win/draw/loss signal to give for an aborted/timed-out/illegal-move game,
+/// and guessing one (e.g. treating it as a draw) would add noise instead of
+/// signal (see `csa.rs`'s `GameResult` doc).
+fn wdl_target_cp(result: GameResult, stm: Color) -> Option<f32> {
+    let wdl = match result {
+        GameResult::BlackWin => {
+            if stm == Color::Black {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        GameResult::WhiteWin => {
+            if stm == Color::White {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        GameResult::Draw => 0.5,
+        GameResult::Unknown => return None,
+    };
+    Some((wdl - 0.5) * 1200.0)
+}
 
 // ---- Training weight container ----
 
@@ -279,6 +320,11 @@ impl Trainer {
     }
 
     /// Train on a single game.  Samples every `sample_every` plies.
+    /// `wdl_lambda`: `None` trains on `eval_teacher` alone (default,
+    /// backward-compatible). `Some(λ)` blends in the game's own result from
+    /// each sampled position's side-to-move perspective, skipping the blend
+    /// (falling back to pure eval) for `GameResult::Unknown` games, since
+    /// there's no result signal to mix in for those (see `csa.rs`).
     #[allow(clippy::too_many_arguments)]
     pub fn train_game(
         &mut self,
@@ -289,6 +335,7 @@ impl Trainer {
         label_depth: u32,
         scored: &HashMap<String, f32>,
         stability_weighted: bool,
+        wdl_lambda: Option<f32>,
     ) {
         let mut board = Board::startpos();
 
@@ -339,7 +386,13 @@ impl Trainer {
                 multi_pv: 1,
             };
             let info = self.searcher.search(&mut board, config);
-            let teacher = (info.score as f32).clamp(-600.0, 600.0);
+            let eval_teacher = (info.score as f32).clamp(-600.0, 600.0);
+            let teacher = match (wdl_lambda, wdl_target_cp(game.result, board.side_to_move)) {
+                (Some(lambda), Some(wdl_target)) => {
+                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
+                }
+                _ => eval_teacher,
+            };
             self.train_position(&board, teacher, weight);
 
             board.do_move(mv);
@@ -666,4 +719,53 @@ fn adam_update_scalar(param: &mut f32, m: &mut f32, v: &mut f32, grad: f32, lr: 
     let v_hat = *v / (1.0 - B2.powi(t as i32));
 
     *param -= lr * m_hat / (v_hat.sqrt() + EPS);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn wdl_target_black_win_from_black_perspective_is_max() {
+        assert_eq!(
+            wdl_target_cp(GameResult::BlackWin, Color::Black),
+            Some(600.0)
+        );
+    }
+
+    #[test]
+    fn wdl_target_black_win_from_white_perspective_is_min() {
+        assert_eq!(
+            wdl_target_cp(GameResult::BlackWin, Color::White),
+            Some(-600.0)
+        );
+    }
+
+    #[test]
+    fn wdl_target_white_win_from_white_perspective_is_max() {
+        assert_eq!(
+            wdl_target_cp(GameResult::WhiteWin, Color::White),
+            Some(600.0)
+        );
+    }
+
+    #[test]
+    fn wdl_target_white_win_from_black_perspective_is_min() {
+        assert_eq!(
+            wdl_target_cp(GameResult::WhiteWin, Color::Black),
+            Some(-600.0)
+        );
+    }
+
+    #[test]
+    fn wdl_target_draw_is_zero_regardless_of_perspective() {
+        assert_eq!(wdl_target_cp(GameResult::Draw, Color::Black), Some(0.0));
+        assert_eq!(wdl_target_cp(GameResult::Draw, Color::White), Some(0.0));
+    }
+
+    #[test]
+    fn wdl_target_unknown_result_has_no_signal() {
+        assert_eq!(wdl_target_cp(GameResult::Unknown, Color::Black), None);
+        assert_eq!(wdl_target_cp(GameResult::Unknown, Color::White), None);
+    }
 }

@@ -4,7 +4,11 @@
 //!   - Startpos-based games (P1...P9 / PI headers are accepted but not parsed;
 //!     full board setup lines are skipped gracefully)
 //!   - Move lines: `+7776FU` / `-3334FU` / `+0076FU` (drop)
-//!   - Result lines: `%TORYO`, `%CHUDAN`, `%JISHOGI`, `%ILLEGAL_MOVE`, `%TSUMI`
+//!   - Result lines: `%TORYO`/`%TSUMI`/`%KACHI` (decisive), `%JISHOGI`/
+//!     `%SENNICHITE` (drawn) all map to a definite `GameResult`; `%CHUDAN`,
+//!     `%ILLEGAL_MOVE`, `%TIME_UP` and anything else map to
+//!     `GameResult::Unknown` -- see `GameResult`'s doc for why those aren't
+//!     treated as a real win/loss/draw signal
 //!   - Time lines (`T<n>`), comment lines (`'...`) and metadata (`$...`) are ignored
 
 use sekirei_core::{
@@ -13,6 +17,12 @@ use sekirei_core::{
 
 // ---- Public types ----
 
+/// `Unknown` covers everything that isn't a clean decisive or drawn result:
+/// `%CHUDAN` (aborted/disconnect), `%ILLEGAL_MOVE`, `%TIME_UP` (timeout --
+/// deliberately not treated as a loss, since running out of the clock
+/// correlates weakly with the position itself), and anything unrecognized.
+/// A WDL training signal must skip `Unknown` positions rather than guessing
+/// a draw or a winner for them (see `trainer.rs`'s WDL mixing).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GameResult {
     BlackWin,
@@ -25,7 +35,6 @@ pub enum GameResult {
 pub struct CsaGame {
     /// The game moves as legal `Move` values starting from `Board::startpos()`.
     pub moves: Vec<Move>,
-    #[allow(dead_code)] // ponytail: kept for future result-based filtering
     pub result: GameResult,
     pub black_rate: Option<f32>,
     pub white_rate: Option<f32>,
@@ -95,8 +104,22 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
                         GameResult::BlackWin
                     }
                 }
-                "%JISHOGI" => GameResult::Draw,
-                _ => GameResult::Unknown, // CHUDAN, ILLEGAL_MOVE, etc.
+                "%KACHI" => {
+                    // 27-point (nyugyoku) win declaration: made after the
+                    // declaring side's own move satisfies the entering-king
+                    // point requirement, so by the time this tag is parsed
+                    // side_to_move has already flipped to the opponent --
+                    // same "the player who just moved won" shape as %TSUMI.
+                    // Verified against a real floodgate KACHI game (its
+                    // 'summary: comment names the mover, not side_to_move).
+                    if board.side_to_move == sekirei_core::color::Color::Black {
+                        GameResult::WhiteWin
+                    } else {
+                        GameResult::BlackWin
+                    }
+                }
+                "%JISHOGI" | "%SENNICHITE" => GameResult::Draw,
+                _ => GameResult::Unknown, // CHUDAN, ILLEGAL_MOVE, TIME_UP, etc.
             };
             break;
         }
@@ -219,5 +242,34 @@ T1
         assert_eq!(game.moves.len(), 2);
         // After 2 moves it is Black's turn again; Black resigned → White wins
         assert_eq!(game.result, GameResult::WhiteWin);
+    }
+
+    fn sample_with_ending(tag: &str) -> String {
+        SAMPLE_CSA.replace("%TORYO", tag)
+    }
+
+    #[test]
+    fn kachi_awards_win_to_the_side_that_just_moved() {
+        // Same 2-move sequence as SAMPLE_CSA (Black then White; side_to_move
+        // is Black again when the result tag is parsed) -- White made the
+        // last move, so a 27-point declaration here means White won, same
+        // as the %TORYO case above.
+        let game = parse_csa(&sample_with_ending("%KACHI")).expect("parse failed");
+        assert_eq!(game.result, GameResult::WhiteWin);
+    }
+
+    #[test]
+    fn sennichite_is_a_draw() {
+        let game = parse_csa(&sample_with_ending("%SENNICHITE")).expect("parse failed");
+        assert_eq!(game.result, GameResult::Draw);
+    }
+
+    #[test]
+    fn time_up_is_unknown_not_a_loss() {
+        // Deliberate: a timeout doesn't reliably reflect the position, so it
+        // must not be treated as a real win/loss/draw signal (see
+        // `GameResult`'s doc).
+        let game = parse_csa(&sample_with_ending("%TIME_UP")).expect("parse failed");
+        assert_eq!(game.result, GameResult::Unknown);
     }
 }

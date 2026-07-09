@@ -124,6 +124,14 @@ cargo run --release -p sekirei-train -- --games /path/to/csa_dir --output weight
 cargo run --release -p sekirei-train -- \
   --games /path/to/csa_dir --output weights.bin \
   --epochs 3 --quiet --min-ply 20 --min-rate 1800 --label-depth 4
+
+# With a WDL (game-result) term blended into the teacher (CSA path only):
+# teacher = λ·eval_teacher + (1-λ)·wdl_target, λ=0.7 is a reasonable starting
+# point to sweep from. Positions from an aborted/timed-out/illegal-move game
+# (GameResult::Unknown) fall back to eval-only automatically.
+cargo run --release -p sekirei-train -- \
+  --games /path/to/csa_dir --output weights.bin \
+  --epochs 3 --quiet --min-ply 20 --min-rate 1800 --label-depth 4 --wdl-lambda 0.7
 ```
 
 ### With Quietset (stability-filtered)
@@ -233,6 +241,10 @@ independently resumable sessions, then combines them into one gate-able result:
 ```bash
 bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4       # 4 sprints, games-per-position=4
 RUN_ID=my_run bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4  # resume my_run
+
+# Sequential (SPRT) mode: checks after every sprint and stops as soon as
+# it's decisive, instead of always running all N_SPRINTS.
+SPRT=1 bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 20
 ```
 
 The match runner persists every game's outcome as a `<name>.jsonl` file alongside
@@ -245,6 +257,15 @@ gates on the *confidence interval*, not the point estimate:
 | **PASS** | CI lower bound ≥ pass threshold (default +20 elo) |
 | **FAIL** | CI upper bound ≤ fail threshold (default −10 elo) |
 | **INCONCLUSIVE** | CI straddles both — run more games |
+
+`gate --sprt` runs a sequential test instead (H0: elo≤`elo0` vs H1: elo≥`elo1`,
+default 0/20, alpha=beta=0.05 by default): it can reach a decisive PASS/FAIL well
+before a fixed game count, since `alpha`/`beta` are the test's own guaranteed
+error rates rather than a threshold on the point estimate — a PASS means "H1
+accepted at that false-accept rate," not "proven ≥ `elo1`." `SPRT=1`'s
+`MAX_GAMES` (default 1600) env var is a compute-budget cap, independent of
+`N_SPRINTS`: a true effect strictly between `elo0` and `elo1` can otherwise
+run indefinitely.
 
 This is stricter than a plain point-estimate check: a lucky point estimate whose CI
 still straddles zero is INCONCLUSIVE, not PASS. Elo/LOS point estimates (from the

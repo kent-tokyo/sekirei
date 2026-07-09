@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Added
+- `sekirei-match gate --sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial]` — sequential (SPRT) gate verdict alongside the existing CI-based one, using veridict's `sprt::run`. Reaches PASS/FAIL as soon as the log-likelihood ratio crosses a Wald boundary, often well before a fixed game count.
+- `scripts/sprint_gate.sh SPRT=1` — opt-in early stopping: checks `gate --sprt` after every sprint and stops as soon as it's decisive. `MAX_GAMES` (default 1600) is a hard compute-budget cap, independent of `N_SPRINTS`, for the case where the true effect sits between `elo0`/`elo1` and SPRT would otherwise keep going indefinitely.
+- `sekirei-train --wdl-lambda <f>` (`--games`/CSA path only) — blends the game's own result into the training teacher: `teacher = λ·eval_teacher + (1-λ)·wdl_target`. Positions from `GameResult::Unknown` games (aborted, timed out, illegal move, ...) fall back to eval-only, since there's no result signal to mix in for those.
+- `csa.rs`: `GameResult` now recognizes `%SENNICHITE` (repetition → draw) and `%KACHI` (27-point declaration → win for the side that just moved) — previously both silently fell into `Unknown` (a combined ~13.9k games, ~3.9% of the current floodgate corpus).
+
 ## [0.2.4] – 2026-06-28
 
 ### Added

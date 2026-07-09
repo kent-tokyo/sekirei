@@ -62,6 +62,7 @@ struct Args {
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
+    wdl_lambda: Option<f32>,             // --wdl-lambda (CSA path only; None = eval-only, default)
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -129,6 +130,7 @@ fn parse_args() -> Result<Args, String> {
     let mut checkpoint_dir: Option<PathBuf> = None;
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
+    let mut wdl_lambda: Option<f32> = None;
     let mut i = 0;
 
     while i < argv.len() {
@@ -231,6 +233,12 @@ fn parse_args() -> Result<Args, String> {
                     label_threshold_cp = s.parse().unwrap_or(120);
                 }
             }
+            "--wdl-lambda" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    wdl_lambda = s.parse().ok();
+                }
+            }
             "--phase-weights" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -284,6 +292,11 @@ fn parse_args() -> Result<Args, String> {
     if games_dir.is_some() && positions_path.is_some() {
         return Err("--games and --positions are mutually exclusive".to_string());
     }
+    if wdl_lambda.is_some() && positions_path.is_some() {
+        return Err(
+            "--wdl-lambda requires --games (CSA path) -- shogiesa positions.jsonl carries no game_result yet".to_string(),
+        );
+    }
 
     Ok(Args {
         games_dir,
@@ -313,6 +326,7 @@ fn parse_args() -> Result<Args, String> {
         checkpoint_dir,
         teacher_cache_path,
         reuse_teacher_cache,
+        wdl_lambda,
     })
 }
 
@@ -369,6 +383,9 @@ fn print_usage() {
     eprintln!("  --stability-weighted  Weight loss by stability_score instead of binary keep/drop");
     eprintln!(
         "  --label-threshold-cp <n>  Score threshold for adv/equal/disadv label (default: 120)"
+    );
+    eprintln!(
+        "  --wdl-lambda <f>    Blend in game result (CSA path only): teacher = λ·eval + (1-λ)·wdl (default: unset = eval-only)"
     );
     eprintln!(
         "  --phase-weights <spec>  Phase multipliers: opening=0.5,middlegame=1.0,endgame=1.2"
@@ -738,6 +755,7 @@ fn main() {
                 args.label_depth,
                 &scored,
                 args.stability_weighted,
+                args.wdl_lambda,
             );
 
             let game_num = i + 1;
