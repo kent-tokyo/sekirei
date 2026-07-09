@@ -500,16 +500,19 @@ fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
 /// could pass on a lucky point estimate with a CI that still straddled zero.
 ///
 /// `paired_by_id: false` is deliberate, not a placeholder. Tried `true` with
-/// same-position/opposite-color game pairs (2026-07-09) expecting it to
-/// narrow the CI the way paired-openings testing usually does; empirically
-/// it widened v012's CI instead. Root cause is structural, not a metric
-/// choice: with categorical win/draw/loss results, netting a pair to one
-/// net value makes a genuine "1-1 split" indistinguishable from "both games
-/// drew" (both average to the same net score), so pairing discards decisive
-/// signal instead of reducing variance -- true for every veridict metric
-/// that supports `paired_by_id` (Elo/WinRate's `OutcomeCollector`,
-/// MeanDiff/SignTest's `DiffCollector`/`SignCounts`), not just Elo. See
-/// `tasks/lessons.md`, 2026-07-09, for the full measurement.
+/// same-position/opposite-color game pairs (2026-07-09); it widened v012's
+/// CI instead of narrowing it. Not because pairing discards real signal (a
+/// genuine 1-1 split across colors carries none, and bucketing it with a
+/// real draw is statistically correct, same as fishtest's pentanomial
+/// model) -- this gate's measured within-pair correlation is ≈0, so there
+/// was no opening-bias correlation for pairing to cancel out in the first
+/// place. The actual widening comes from `metrics::elo`'s `OutcomeCollector`
+/// reducing each pair to only 3 categories (Win/Draw/Loss) before handing
+/// off to a Wilson CI whose own doc comment admits it overstates variance
+/// for draws -- manufacturing a ~48% "draw" rate from split pairs amplifies
+/// that pre-existing conservatism well past what a pentanomial-consistent
+/// estimator would give (hand-verified: ~34 vs. the observed ~48). See
+/// `tasks/lessons.md`, 2026-07-09, for the full derivation.
 fn veridict_decide(
     records: &[(usize, veridict::input::Record)],
     pass_elo: f64,
@@ -527,6 +530,33 @@ fn veridict_decide(
     )
 }
 
+/// Runs veridict's SPRT (H0: elo <= elo0 vs H1: elo >= elo1) over persisted
+/// per-game records. Unlike `veridict_decide`'s CI gate (which requires
+/// proving the CI lower bound clears `pass_elo`, a stricter bar than
+/// standard SPRT), this reaches a decisive PASS/FAIL as soon as the
+/// log-likelihood ratio crosses one of Wald's boundaries -- often well
+/// before a fixed game count, since a true effect near either hypothesis
+/// resolves fast (see `scripts/sprint_gate.sh`'s `SPRT=1` early-stop path).
+/// `alpha`/`beta` are the test's own guaranteed error rates, not a
+/// threshold to tune after the fact, so callers should report them
+/// alongside the verdict rather than let "PASS" imply "elo >= elo1 is
+/// proven" -- it only means H1 was accepted at the stated false-accept
+/// rate. `paired_by_id` is always `false`: this project's gate suite has
+/// measured within-pair correlation ≈ 0 (see `veridict_decide`'s doc
+/// comment and `tasks/lessons.md`, 2026-07-09), so per-game trials are the
+/// right aggregation unit here, not per-position pairs.
+fn sprt_decide(
+    records: &[(usize, veridict::input::Record)],
+    elo0: f64,
+    elo1: f64,
+    alpha: f64,
+    beta: f64,
+    variant: veridict::sprt::SprtVariant,
+) -> Result<veridict::sprt::SprtReport, veridict::VeridictError> {
+    let config = veridict::sprt::SprtConfig::new(elo0, elo1, alpha, beta)?;
+    veridict::sprt::run(records.iter().cloned().map(Ok), &config, variant, false)
+}
+
 fn run_gate(argv: &[String]) {
     let mut pass_elo = 20.0f64;
     let mut pass_los = 0.95f64;
@@ -538,6 +568,12 @@ fn run_gate(argv: &[String]) {
     // independent trials (see diversity_stats / tasks/lessons.md), so a
     // confident-looking Elo number stops being trustworthy.
     let mut min_diversity_ratio = 0.3f64;
+    let mut sprt = false;
+    let mut elo0 = 0.0f64;
+    let mut elo1 = 20.0f64;
+    let mut alpha = 0.05f64;
+    let mut beta = 0.05f64;
+    let mut sprt_variant = veridict::sprt::SprtVariant::Wald;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -565,6 +601,38 @@ fn run_gate(argv: &[String]) {
                     anchor = v.parse().ok();
                 }
             }
+            "--sprt" => sprt = true,
+            "--elo0" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    elo0 = v.parse().unwrap_or(elo0);
+                }
+            }
+            "--elo1" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    elo1 = v.parse().unwrap_or(elo1);
+                }
+            }
+            "--alpha" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    alpha = v.parse().unwrap_or(alpha);
+                }
+            }
+            "--beta" => {
+                i += 1;
+                if let Some(v) = argv.get(i) {
+                    beta = v.parse().unwrap_or(beta);
+                }
+            }
+            "--sprt-variant" => {
+                i += 1;
+                sprt_variant = match argv.get(i).map(String::as_str) {
+                    Some("trinomial") => veridict::sprt::SprtVariant::Trinomial,
+                    _ => veridict::sprt::SprtVariant::Wald,
+                };
+            }
             "--min-diversity-ratio" => {
                 i += 1;
                 if let Some(v) = argv.get(i) {
@@ -580,7 +648,7 @@ fn run_gate(argv: &[String]) {
         Some(p) => p,
         None => {
             eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3]"
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial]]"
             );
             std::process::exit(2);
         }
@@ -624,6 +692,52 @@ fn run_gate(argv: &[String]) {
 
     let records_path = PathBuf::from(&path).with_extension("jsonl");
     let records_content = fs::read_to_string(&records_path).ok();
+
+    if sprt {
+        let raw = match records_content {
+            Some(r) => r,
+            None => {
+                eprintln!(
+                    "gate: --sprt requires {} (per-game jsonl) -- not found; SPRT has no legacy point-estimate fallback",
+                    records_path.display()
+                );
+                std::process::exit(2);
+            }
+        };
+        let parsed = veridict::input::parse_jsonl(std::io::Cursor::new(raw.as_bytes()))
+            .collect::<Result<Vec<_>, _>>();
+        let records = match parsed {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("gate: cannot parse {}: {e}", records_path.display());
+                std::process::exit(2);
+            }
+        };
+        let report = match sprt_decide(&records, elo0, elo1, alpha, beta, sprt_variant) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("gate: veridict sprt error: {e}");
+                std::process::exit(2);
+            }
+        };
+        println!(
+            "veridict: sprt  H0(elo<={elo0:+.1}) vs H1(elo>={elo1:+.1})  alpha={alpha}  beta={beta}  llr={:.3} (bounds [{:.3}, {:.3}])  {}",
+            report.llr, report.lower_bound, report.upper_bound, report.reason
+        );
+        let label = match report.verdict {
+            veridict::Verdict::Pass => "PASS",
+            veridict::Verdict::Fail => "FAIL",
+            veridict::Verdict::Inconclusive => "INCONCLUSIVE",
+        };
+        println!(
+            "{label}  (sprt: alpha={alpha} is the guaranteed false-accept rate under H0, beta={beta} the false-reject rate under H1 -- this is not a claim that the true effect is >= elo1, only that H1 was accepted at that error rate)"
+        );
+        std::process::exit(match report.verdict {
+            veridict::Verdict::Pass => 0,
+            veridict::Verdict::Fail => 1,
+            veridict::Verdict::Inconclusive => 2,
+        });
+    }
 
     let (verdict, effect, extra) = match records_content {
         Some(raw) => {
@@ -1314,5 +1428,75 @@ mod tests {
         let list = build_game_list(&positions, None, 5, &mut rng);
         assert_eq!(list.len(), 5);
         assert!(list.iter().all(|(_, pos)| pos == "sfenA"));
+    }
+
+    #[test]
+    fn sprt_decide_passes_on_strong_candidate_run() {
+        // elo0=0/elo1=20 is a narrow gap (p0=0.5 vs p1≈0.529), so a pure
+        // winning streak needs ~53 games to cross the upper LLR bound at
+        // alpha=beta=0.05 (verified by hand against stats::sprt's formula);
+        // 60 gives headroom without relying on a knife-edge count.
+        let records: Vec<_> = (0..60)
+            .map(|i| rec(&format!("c{i}"), "candidate_win"))
+            .collect();
+        let report = sprt_decide(
+            &records,
+            0.0,
+            20.0,
+            0.05,
+            0.05,
+            veridict::sprt::SprtVariant::Wald,
+        )
+        .unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Pass);
+    }
+
+    #[test]
+    fn sprt_decide_fails_on_strong_baseline_run() {
+        let records: Vec<_> = (0..60)
+            .map(|i| rec(&format!("b{i}"), "baseline_win"))
+            .collect();
+        let report = sprt_decide(
+            &records,
+            0.0,
+            20.0,
+            0.05,
+            0.05,
+            veridict::sprt::SprtVariant::Wald,
+        )
+        .unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Fail);
+    }
+
+    #[test]
+    fn sprt_decide_inconclusive_on_small_mixed_sample() {
+        let records = vec![rec("a", "candidate_win"), rec("b", "baseline_win")];
+        let report = sprt_decide(
+            &records,
+            0.0,
+            20.0,
+            0.05,
+            0.05,
+            veridict::sprt::SprtVariant::Wald,
+        )
+        .unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn sprt_decide_rejects_invalid_hypothesis_bounds() {
+        let records = vec![rec("a", "candidate_win")];
+        // elo0 >= elo1 is nonsensical (H0 must be strictly below H1).
+        assert!(
+            sprt_decide(
+                &records,
+                20.0,
+                0.0,
+                0.05,
+                0.05,
+                veridict::sprt::SprtVariant::Wald
+            )
+            .is_err()
+        );
     }
 }
