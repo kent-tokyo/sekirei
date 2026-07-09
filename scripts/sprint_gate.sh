@@ -40,14 +40,21 @@
 #   see tasks/lessons.md, 2026-07-09, on why this project's gate suite
 #   settled on standard-SPRT semantics rather than "prove CI lower bound
 #   clears +20") on every sprint run so far and stops the moment it's
-#   decisive, instead of always running all N_SPRINTS. `N_SPRINTS` is still
-#   the hard cap: if a true effect sits between ELO0 and ELO1, SPRT can run
-#   indefinitely, so an inconclusive verdict at the last sprint is final,
-#   not a reason to add more sprints on the same invocation. ELO0/ELO1/
-#   ALPHA/BETA/SPRT_VARIANT (wald|trinomial) env vars override the defaults.
-#   Aggregation stays per-game (not per-position-pair): this project's gate
-#   suite has measured within-pair correlation ≈ 0 (tasks/lessons.md,
-#   2026-07-09), so there's no pairing benefit to trade away here.
+#   decisive, instead of always running all N_SPRINTS. ELO0/ELO1/ALPHA/BETA/
+#   SPRT_VARIANT (wald|trinomial) env vars override the defaults. Aggregation
+#   stays per-game (not per-position-pair): this project's gate suite has
+#   measured within-pair correlation ≈ 0 (tasks/lessons.md, 2026-07-09), so
+#   there's no pairing benefit to trade away here.
+#
+#   Hard cap: MAX_GAMES (default 1600, env override) stops the run and
+#   reports the still-INCONCLUSIVE verdict as final once that many games
+#   have been played, independent of N_SPRINTS -- a true effect strictly
+#   between ELO0 and ELO1 can otherwise make SPRT run indefinitely, and
+#   N_SPRINTS alone is not a real safety net against that (nothing stops
+#   someone from passing a very large N_SPRINTS, or resuming the same RUN_ID
+#   with a larger one later). This is a compute-budget ceiling, not a
+#   statistical one -- it does not change the verdict, only when the loop
+#   gives up on reaching one.
 #
 # Manifest validation (weights/config fingerprinting across separately-run
 # sprints) is deliberately not built here: within one invocation the
@@ -69,6 +76,7 @@ ELO1=${ELO1:-20}
 ALPHA=${ALPHA:-0.05}
 BETA=${BETA:-0.05}
 SPRT_VARIANT=${SPRT_VARIANT:-wald}
+MAX_GAMES=${MAX_GAMES:-1600}
 
 OPENINGS=data/gate/openings_standard.sfen
 [ -f "$OPENINGS" ] || { echo "error: $OPENINGS not found" >&2; exit 2; }
@@ -163,6 +171,11 @@ for ((i = 1; i <= N_SPRINTS; i++)); do
     if [ "$RC" != "2" ]; then
       echo "[sprint $ii] SPRT decisive after $i/$N_SPRINTS sprints -- stopping early"
       exit "$RC"
+    fi
+    GAMES_SO_FAR=$(jq -r '.games' "$RUN_DIR/combined.json")
+    if [ "$GAMES_SO_FAR" -ge "$MAX_GAMES" ]; then
+      echo "[sprint $ii] MAX_GAMES cap ($MAX_GAMES) reached at $GAMES_SO_FAR games without a decisive LLR -- stopping, verdict stays INCONCLUSIVE (compute-budget stop, not a statistical one)"
+      exit 2
     fi
     echo ""
   fi
