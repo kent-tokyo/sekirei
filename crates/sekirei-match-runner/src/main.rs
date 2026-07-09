@@ -418,9 +418,9 @@ impl Lcg {
 
 /// Builds the ordered `(e1_is_black, start_position)` list for every game in
 /// the match. In `--games-per-position` (cover-all) mode, the `gpp` games
-/// for a given position are consecutive with alternating colors -- `pair_id`
-/// below depends on this exact adjacency to satisfy veridict's
-/// `paired_by_id` "same position, opposite colors" pairing.
+/// for a given position are consecutive with alternating colors -- this
+/// balances color assignment per position without needing any per-pair
+/// statistical reduction (see the removed `pair_id` note below).
 fn build_game_list(
     positions: &[String],
     games_per_position: Option<usize>,
@@ -452,21 +452,15 @@ fn build_game_list(
     }
 }
 
-/// Deterministic pair id for `--games-per-position` mode: the two adjacent,
-/// same-position, opposite-color games `build_game_list` produces get the
-/// same id, so `veridict`'s `paired_by_id` can reduce them into one net
-/// observation (see `metrics::common::OutcomeCollector`). Grouped by
-/// position block first so `games_per_position` > 2 never pairs games from
-/// two different positions. Works for odd `games_per_position` too -- the
-/// last game in a block gets its own singleton id, which veridict tallies
-/// unpaired rather than rejecting.
-fn pair_id(game_num: usize, games_per_position: usize) -> String {
-    let g0 = game_num - 1;
-    let block = g0 / games_per_position;
-    let within = g0 % games_per_position;
-    let pairs_per_block = games_per_position.div_ceil(2);
-    format!("pair{:04}", block * pairs_per_block + within / 2 + 1)
-}
+// NOTE: an earlier version of this file derived a `pair_id()` here to feed
+// veridict's `paired_by_id`. Removed 2026-07-09: for categorical win/draw/
+// loss results, netting a same-position/opposite-color pair into one
+// observation can't distinguish "1-1 split" from "both games drew" (both
+// reduce to the same net value), so pairing discards decisive signal
+// instead of reducing variance. Verified empirically against the v012 gate
+// data (CI widened, not narrowed) and confirmed structural (not specific to
+// the Elo metric -- MeanDiff/SignTest hit the same collapse, and SignTest's
+// tie-exclusion is worse). See tasks/lessons.md, 2026-07-09.
 
 // ---- Main ----
 
@@ -505,13 +499,17 @@ fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
 /// Inconclusive — stricter than the old point-estimate + LOS check, which
 /// could pass on a lucky point estimate with a CI that still straddled zero.
 ///
-/// `paired_by_id: true` lets veridict net out same-position/opposite-color
-/// game pairs (see `pair_id`) into one observation, narrowing the CI versus
-/// treating N games as N independent trials. Safe for records that were
-/// never id-paired (e.g. `--games` mode, or `.jsonl` files predating this
-/// change): every id then appears at most once, which veridict tallies
-/// unpaired -- identical to `paired_by_id: false` (see
-/// `metrics::common::OutcomeCollector::finish`, the `[(_, outcome)]` arm).
+/// `paired_by_id: false` is deliberate, not a placeholder. Tried `true` with
+/// same-position/opposite-color game pairs (2026-07-09) expecting it to
+/// narrow the CI the way paired-openings testing usually does; empirically
+/// it widened v012's CI instead. Root cause is structural, not a metric
+/// choice: with categorical win/draw/loss results, netting a pair to one
+/// net value makes a genuine "1-1 split" indistinguishable from "both games
+/// drew" (both average to the same net score), so pairing discards decisive
+/// signal instead of reducing variance -- true for every veridict metric
+/// that supports `paired_by_id` (Elo/WinRate's `OutcomeCollector`,
+/// MeanDiff/SignTest's `DiffCollector`/`SignCounts`), not just Elo. See
+/// `tasks/lessons.md`, 2026-07-09, for the full measurement.
 fn veridict_decide(
     records: &[(usize, veridict::input::Record)],
     pass_elo: f64,
@@ -525,7 +523,7 @@ fn veridict_decide(
         &thresholds,
         2000,
         veridict::stats::bootstrap::DEFAULT_SEED,
-        true,
+        false,
     )
 }
 
@@ -979,13 +977,9 @@ fn main() {
             Outcome::E2Win => "baseline_win",
             Outcome::Draw => "draw",
         };
-        let id_str = match args.games_per_position {
-            Some(gpp) => pair_id(game_num, gpp),
-            None => format!("game{game_num:04}"),
-        };
         let _ = writeln!(
             veridict_records,
-            r#"{{"id":"{id_str}","result":"{veridict_result}"}}"#
+            r#"{{"id":"game{game_num:04}","result":"{veridict_result}"}}"#
         );
 
         let reason_tag = match reason {
@@ -1296,42 +1290,6 @@ mod tests {
     }
 
     #[test]
-    fn veridict_decide_accepts_paired_ids() {
-        // Two records sharing an id (a real position-pair) must net into
-        // one observation, not error -- this is the whole point of flipping
-        // paired_by_id to true.
-        let records = vec![
-            rec("pair0001", "candidate_win"),
-            rec("pair0001", "baseline_win"),
-        ];
-        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
-        assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
-    }
-
-    #[test]
-    fn pair_id_groups_adjacent_games_at_most_two_per_id_even_gpp() {
-        // gpp=4: games 1,2 -> one pair; games 3,4 -> the next pair (see
-        // build_game_list's block/within derivation).
-        assert_eq!(pair_id(1, 4), pair_id(2, 4));
-        assert_eq!(pair_id(3, 4), pair_id(4, 4));
-        assert_ne!(pair_id(1, 4), pair_id(3, 4));
-        // Second position's block (games 5-8) must not collide with the first.
-        assert_ne!(pair_id(4, 4), pair_id(5, 4));
-        assert_eq!(pair_id(5, 4), pair_id(6, 4));
-    }
-
-    #[test]
-    fn pair_id_handles_odd_gpp_without_cross_position_pairing() {
-        // gpp=3: games 1,2 pair; game 3 is a singleton (own id, tallied
-        // unpaired by veridict -- see OutcomeCollector::finish). Game 4
-        // starts the next position's block and must not pair with game 3.
-        assert_eq!(pair_id(1, 3), pair_id(2, 3));
-        assert_ne!(pair_id(2, 3), pair_id(3, 3));
-        assert_ne!(pair_id(3, 3), pair_id(4, 3));
-        assert_eq!(pair_id(4, 3), pair_id(5, 3));
-    }
-
-    #[test]
     fn build_game_list_pairs_same_position_opposite_colors() {
         let positions = vec!["sfenA".to_string(), "sfenB".to_string()];
         let mut rng = Lcg(1);
@@ -1347,9 +1305,6 @@ mod tests {
             assert_eq!(pos, "sfenB");
             assert_eq!(*is_black, i % 2 == 0);
         }
-        // pair_id, applied to 1-indexed game numbers over this list, must
-        // therefore never pair across the position boundary at index 4.
-        assert_ne!(pair_id(4, 4), pair_id(5, 4));
     }
 
     #[test]
