@@ -416,6 +416,58 @@ impl Lcg {
     }
 }
 
+/// Builds the ordered `(e1_is_black, start_position)` list for every game in
+/// the match. In `--games-per-position` (cover-all) mode, the `gpp` games
+/// for a given position are consecutive with alternating colors -- `pair_id`
+/// below depends on this exact adjacency to satisfy veridict's
+/// `paired_by_id` "same position, opposite colors" pairing.
+fn build_game_list(
+    positions: &[String],
+    games_per_position: Option<usize>,
+    games: usize,
+    rng: &mut Lcg,
+) -> Vec<(bool, String)> {
+    if let Some(gpp) = games_per_position {
+        let pos_list: Vec<String> = if positions.is_empty() {
+            vec!["startpos".to_string()]
+        } else {
+            positions.to_vec()
+        };
+        pos_list
+            .into_iter()
+            .flat_map(|pos| (0..gpp).map(move |g| (g % 2 == 0, pos.clone())))
+            .collect()
+    } else {
+        (1..=games)
+            .map(|game_num| {
+                let e1_is_black = game_num % 2 == 1;
+                let start_pos = if positions.is_empty() {
+                    "startpos".to_string()
+                } else {
+                    rng.pick(positions).to_string()
+                };
+                (e1_is_black, start_pos)
+            })
+            .collect()
+    }
+}
+
+/// Deterministic pair id for `--games-per-position` mode: the two adjacent,
+/// same-position, opposite-color games `build_game_list` produces get the
+/// same id, so `veridict`'s `paired_by_id` can reduce them into one net
+/// observation (see `metrics::common::OutcomeCollector`). Grouped by
+/// position block first so `games_per_position` > 2 never pairs games from
+/// two different positions. Works for odd `games_per_position` too -- the
+/// last game in a block gets its own singleton id, which veridict tallies
+/// unpaired rather than rejecting.
+fn pair_id(game_num: usize, games_per_position: usize) -> String {
+    let g0 = game_num - 1;
+    let block = g0 / games_per_position;
+    let within = g0 % games_per_position;
+    let pairs_per_block = games_per_position.div_ceil(2);
+    format!("pair{:04}", block * pairs_per_block + within / 2 + 1)
+}
+
 // ---- Main ----
 
 // ---- gate subcommand ----
@@ -452,6 +504,14 @@ fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
 /// `fail_elo`. Anything else (including zero decisive games) is
 /// Inconclusive — stricter than the old point-estimate + LOS check, which
 /// could pass on a lucky point estimate with a CI that still straddled zero.
+///
+/// `paired_by_id: true` lets veridict net out same-position/opposite-color
+/// game pairs (see `pair_id`) into one observation, narrowing the CI versus
+/// treating N games as N independent trials. Safe for records that were
+/// never id-paired (e.g. `--games` mode, or `.jsonl` files predating this
+/// change): every id then appears at most once, which veridict tallies
+/// unpaired -- identical to `paired_by_id: false` (see
+/// `metrics::common::OutcomeCollector::finish`, the `[(_, outcome)]` arm).
 fn veridict_decide(
     records: &[(usize, veridict::input::Record)],
     pass_elo: f64,
@@ -465,7 +525,7 @@ fn veridict_decide(
         &thresholds,
         2000,
         veridict::stats::bootstrap::DEFAULT_SEED,
-        false,
+        true,
     )
 }
 
@@ -869,29 +929,8 @@ fn main() {
     let mut veridict_records = String::new();
 
     // Build the game list: cover-all mode or random-sample mode
-    let game_list: Vec<(bool, String)> = if let Some(gpp) = args.games_per_position {
-        let pos_list = if positions.is_empty() {
-            vec!["startpos".to_string()]
-        } else {
-            positions.clone()
-        };
-        pos_list
-            .into_iter()
-            .flat_map(|pos| (0..gpp).map(move |g| (g % 2 == 0, pos.clone())))
-            .collect()
-    } else {
-        (1..=args.games)
-            .map(|game_num| {
-                let e1_is_black = game_num % 2 == 1;
-                let start_pos = if positions.is_empty() {
-                    "startpos".to_string()
-                } else {
-                    rng.pick(&positions).to_string()
-                };
-                (e1_is_black, start_pos)
-            })
-            .collect()
-    };
+    let game_list: Vec<(bool, String)> =
+        build_game_list(&positions, args.games_per_position, args.games, &mut rng);
 
     for (game_num, (e1_is_black, start_pos)) in
         game_list.iter().enumerate().map(|(i, v)| (i + 1, v))
@@ -940,9 +979,13 @@ fn main() {
             Outcome::E2Win => "baseline_win",
             Outcome::Draw => "draw",
         };
+        let id_str = match args.games_per_position {
+            Some(gpp) => pair_id(game_num, gpp),
+            None => format!("game{game_num:04}"),
+        };
         let _ = writeln!(
             veridict_records,
-            r#"{{"id":"game{game_num:04}","result":"{veridict_result}"}}"#
+            r#"{{"id":"{id_str}","result":"{veridict_result}"}}"#
         );
 
         let reason_tag = match reason {
@@ -1250,5 +1293,71 @@ mod tests {
         let records = vec![rec("a", "draw"), rec("b", "draw")];
         let report = veridict_decide(&records, 20.0, -10.0).unwrap();
         assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn veridict_decide_accepts_paired_ids() {
+        // Two records sharing an id (a real position-pair) must net into
+        // one observation, not error -- this is the whole point of flipping
+        // paired_by_id to true.
+        let records = vec![
+            rec("pair0001", "candidate_win"),
+            rec("pair0001", "baseline_win"),
+        ];
+        let report = veridict_decide(&records, 20.0, -10.0).unwrap();
+        assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
+    }
+
+    #[test]
+    fn pair_id_groups_adjacent_games_at_most_two_per_id_even_gpp() {
+        // gpp=4: games 1,2 -> one pair; games 3,4 -> the next pair (see
+        // build_game_list's block/within derivation).
+        assert_eq!(pair_id(1, 4), pair_id(2, 4));
+        assert_eq!(pair_id(3, 4), pair_id(4, 4));
+        assert_ne!(pair_id(1, 4), pair_id(3, 4));
+        // Second position's block (games 5-8) must not collide with the first.
+        assert_ne!(pair_id(4, 4), pair_id(5, 4));
+        assert_eq!(pair_id(5, 4), pair_id(6, 4));
+    }
+
+    #[test]
+    fn pair_id_handles_odd_gpp_without_cross_position_pairing() {
+        // gpp=3: games 1,2 pair; game 3 is a singleton (own id, tallied
+        // unpaired by veridict -- see OutcomeCollector::finish). Game 4
+        // starts the next position's block and must not pair with game 3.
+        assert_eq!(pair_id(1, 3), pair_id(2, 3));
+        assert_ne!(pair_id(2, 3), pair_id(3, 3));
+        assert_ne!(pair_id(3, 3), pair_id(4, 3));
+        assert_eq!(pair_id(4, 3), pair_id(5, 3));
+    }
+
+    #[test]
+    fn build_game_list_pairs_same_position_opposite_colors() {
+        let positions = vec!["sfenA".to_string(), "sfenB".to_string()];
+        let mut rng = Lcg(1);
+        let list = build_game_list(&positions, Some(4), 0, &mut rng);
+        assert_eq!(list.len(), 8);
+        // First position's 4-game block: alternating colors, same sfen.
+        for (i, (is_black, pos)) in list[0..4].iter().enumerate() {
+            assert_eq!(pos, "sfenA");
+            assert_eq!(*is_black, i % 2 == 0);
+        }
+        // Second position's block.
+        for (i, (is_black, pos)) in list[4..8].iter().enumerate() {
+            assert_eq!(pos, "sfenB");
+            assert_eq!(*is_black, i % 2 == 0);
+        }
+        // pair_id, applied to 1-indexed game numbers over this list, must
+        // therefore never pair across the position boundary at index 4.
+        assert_ne!(pair_id(4, 4), pair_id(5, 4));
+    }
+
+    #[test]
+    fn build_game_list_random_sample_mode_ignores_games_per_position() {
+        let positions = vec!["sfenA".to_string()];
+        let mut rng = Lcg(1);
+        let list = build_game_list(&positions, None, 5, &mut rng);
+        assert_eq!(list.len(), 5);
+        assert!(list.iter().all(|(_, pos)| pos == "sfenA"));
     }
 }
