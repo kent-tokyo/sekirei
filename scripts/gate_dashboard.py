@@ -88,6 +88,28 @@ ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL") or _DOTENV.get("ANTHROPIC_MO
 ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
 MATERIAL_SENTINEL = "__material__"
 
+# Opening positions presets for dashboard-launched gates -- see start_run().
+# "quick" is the dashboard's default (real diversity, faster iteration);
+# "standard" mirrors the CLI scripts' (scripts/strength_regression.sh etc.)
+# own default exactly. No startpos-only option is offered here: that stays a
+# CLI + ALLOW_STARTPOS_GATE=1 debug-smoke-check concern, not a dashboard one
+# (see tasks/lessons.md on startpos-only match collapse).
+POSITION_PRESETS = {
+    "standard": os.path.join(DATA_DIR, "gate", "openings_standard.sfen"),
+    "quick": os.path.join(DATA_DIR, "gate", "openings_quick.sfen"),
+}
+DEFAULT_POSITIONS_PRESET = "quick"
+DEFAULT_GAMES_PER_POSITION = 4
+
+
+def _count_positions(path):
+    """Mirrors main.rs's load_positions() filtering (blank/# lines don't count)."""
+    try:
+        with open(path) as f:
+            return sum(1 for line in f if line.strip() and not line.strip().startswith("#"))
+    except OSError:
+        return None
+
 # Registry of runs the dashboard knows about -- the CLI-arg-supplied run is
 # "default"; runs started from the dashboard itself (see start_run()) get
 # their own entry with a real `pid` so their liveness can be checked
@@ -113,6 +135,10 @@ GAME_DETAIL_RE = re.compile(
     r" → (?P<result>.+?)\s*(?:\((?P<moves>\d+) moves\))?$"
 )
 TOTAL_GAMES_RE = re.compile(r"^Games:\s+(\d+)\s+Byoyomi:")
+# start_run() always passes --games-per-position now, so the match-runner
+# prints "Mode: cover-all (N positions x M games = TOTAL total)" instead of
+# the plain "Games: N Byoyomi:" line above -- match both.
+TOTAL_GAMES_COVER_ALL_RE = re.compile(r"^Mode: cover-all\b.*=\s*(\d+)\s+total\)\s*$")
 
 
 def verdict_of(elo, los):
@@ -207,7 +233,7 @@ def read_progress(run_id, log_file):
                     else:
                         games.append({"n": n, "raw": desc, "time": seen_at})
                     continue
-                m2 = TOTAL_GAMES_RE.match(line)
+                m2 = TOTAL_GAMES_RE.match(line) or TOTAL_GAMES_COVER_ALL_RE.match(line)
                 if m2:
                     total = int(m2.group(1))
     except FileNotFoundError:
@@ -497,13 +523,26 @@ def start_run(payload):
     for w in (e1, e2):
         if w and w != MATERIAL_SENTINEL and w not in weights:
             raise ValueError(f"unknown weights file: {w}")
+    preset = payload.get("positions_preset") or DEFAULT_POSITIONS_PRESET
+    if preset not in POSITION_PRESETS:
+        raise ValueError(f"unknown positions_preset: {preset}")
+    positions_path = POSITION_PRESETS[preset]
+    if not os.path.isfile(positions_path):
+        # Hard-fail rather than let main.rs's load_positions() silently fall
+        # back to an empty list -> startpos-only gate (see tasks/lessons.md).
+        raise RuntimeError(
+            f"positions file not found: {positions_path} -- required for opening "
+            "diversity. The dashboard does not offer a startpos-only gate; for a "
+            "genuine debug smoke-check use scripts/strength_regression.sh with "
+            "ALLOW_STARTPOS_GATE=1 instead."
+        )
     try:
-        games = int(payload.get("games", 60))
+        games_per_position = int(payload.get("games_per_position", DEFAULT_GAMES_PER_POSITION))
         byoyomi = int(payload.get("byoyomi", 1000))
     except (TypeError, ValueError):
-        raise ValueError("games/byoyomi must be integers")
-    if games <= 0 or byoyomi <= 0:
-        raise ValueError("games/byoyomi must be positive")
+        raise ValueError("games_per_position/byoyomi must be integers")
+    if games_per_position <= 0 or byoyomi <= 0:
+        raise ValueError("games_per_position/byoyomi must be positive")
 
     sekirei_match = os.path.join(REPO_ROOT, "target", "release", "sekirei-match")
     sekirei_bin = os.path.join(REPO_ROOT, "target", "release", "sekirei")
@@ -533,7 +572,8 @@ def start_run(payload):
     # (see tasks/lessons.md, scripts/strength_regression.sh's identical comment).
     args += ["--engine-option1", "Threads=1", "--engine-option2", "Threads=1"]
     args += [
-        "--games", str(games),
+        "--positions", positions_path,
+        "--games-per-position", str(games_per_position),
         "--byoyomi", str(byoyomi),
         "--output", kifu_dir,
         "--json", json_path,
@@ -694,6 +734,12 @@ def get_history_data():
                 "draws": r.get("draws"),
                 "engine2_wins": r.get("engine2_wins"),
                 "compared": compared_label(r),
+                # .get() tolerates result files predating diversity metrics
+                # (see crates/sekirei-match-runner/src/main.rs) -- None, not 0.
+                "diversity_ratio": r.get("diversity_ratio"),
+                "unique_prefix10": r.get("unique_prefix10"),
+                "unique_prefix20": r.get("unique_prefix20"),
+                "top_prefix20_count": r.get("top_prefix20_count"),
             }
         )
     return {"results_dir": RESULTS_DIR, "entries": entries}
@@ -721,9 +767,13 @@ def build_chat_context(page=None, run_id=None):
     history = get_history_data()["entries"]
     gate_rows = [e for e in history if not e.get("error")]
     gate_rows.sort(key=lambda e: e["mtime"])
+    def _diversity_str(e):
+        d = e.get("diversity_ratio")
+        return f" diversity_ratio={d:.2f}" if d is not None else ""
+
     history_lines = [
         "- {mtime}: {file} -- {cmp} -- verdict={v} elo_diff={elo:+.1f} los={los:.1f}% "
-        "games={g} (W{w}/D{d}/L{l})".format(
+        "games={g} (W{w}/D{d}/L{l}){div}".format(
             mtime=e["mtime_str"],
             file=e["file"],
             cmp=e.get("compared") or "(unknown/pre-audit-fix format)",
@@ -734,6 +784,7 @@ def build_chat_context(page=None, run_id=None):
             w=e["engine1_wins"],
             d=e["draws"],
             l=e["engine2_wins"],
+            div=_diversity_str(e),
         )
         for e in gate_rows
     ]
@@ -880,17 +931,22 @@ const TRANSLATIONS = {
     noResults: "結果ファイルがありません。",
     colFile: "ファイル", colModified: "更新日時", colCompared: "比較対象", unknownCompared: "不明(旧形式)", colVerdict: "判定",
     colElo: "elo_diff", colLos: "los", colGames: "games", colWdl: "W/D/L",
+    colDiversity: "diversity_ratio",
     parseError: "パースエラー",
     ciChartTitle: "信頼区間チャート (elo_diff ± 95% CI)",
     whatIfCaption: "⚠ ドラッグ中はしきい値を仮に動かした場合の判定プレビューです(実際のゲート判定はサーバー側で固定)。",
     resetThreshold: "しきい値をリセット",
     searchLabel: "検索(ファイル名・比較対象)",
     qsTotalResults: "結果件数", qsPassRate: "PASS率(決着分)", qsInconclusive: "INCONCLUSIVE件数", qsLatest: "最新の判定",
+    qsDiversity: "多様性比",
+    tipDiversityRatio: "diversity_ratio: 実際の対局の最初20手がどれだけ多様かを示す比率(0〜1)。低いほど似た対局が繰り返し再生されているだけで、対局数ほど独立した試行がないことを意味する(0.3未満は要注意。tasks/lessons.md参照)。",
     // status page
     statusTitle: "実行状況",
     startGateTitle: "新しいゲートを開始",
     engine1Label: "Engine1 の重み", engine2Label: "Engine2 の重み", materialEval: "(material eval / 重みなし)",
     gamesLabel: "局数", byoyomiLabel: "秒読み(ms)", startButton: "実行",
+    positionsPresetLabel: "序盤局面セット", positionsPresetStandardLabel: "標準", positionsPresetQuickLabel: "クイック",
+    gamesPerPositionLabel: "1局面あたりの局数", totalGamesLabel: "合計局数",
     enableNotify: "通知を有効にする",
     attachRunTitle: "外部の実行を追加",
     attachRunHelp: "ダッシュボードの外(ターミナル等)で直接起動した sekirei-match をここに追加すると、サーバーを再起動せずに進捗を確認できます。",
@@ -991,16 +1047,21 @@ const TRANSLATIONS = {
     noResults: "No result files found.",
     colFile: "File", colModified: "Modified", colCompared: "Compared", unknownCompared: "unknown (old format)", colVerdict: "Verdict",
     colElo: "elo_diff", colLos: "los", colGames: "games", colWdl: "W/D/L",
+    colDiversity: "diversity_ratio",
     parseError: "parse error",
     ciChartTitle: "Confidence interval chart (elo_diff ± 95% CI)",
     whatIfCaption: "⚠ Dragging previews verdicts under a hypothetical threshold (the actual gate decision is fixed server-side).",
     resetThreshold: "Reset threshold",
     searchLabel: "Search (file / compared)",
     qsTotalResults: "Total results", qsPassRate: "Pass rate (decisive)", qsInconclusive: "Inconclusive count", qsLatest: "Latest verdict",
+    qsDiversity: "Diversity ratio",
+    tipDiversityRatio: "diversity_ratio: fraction of games with a distinct first-20-ply move sequence (0-1). Low values mean many games are near-duplicates, so the game count overstates the number of independent trials (below 0.3 is flagged; see tasks/lessons.md).",
     statusTitle: "Execution status",
     startGateTitle: "Start a new gate",
     engine1Label: "Engine1 weights", engine2Label: "Engine2 weights", materialEval: "(material eval / no weights)",
     gamesLabel: "Games", byoyomiLabel: "Byoyomi (ms)", startButton: "Start",
+    positionsPresetLabel: "Opening positions", positionsPresetStandardLabel: "Standard", positionsPresetQuickLabel: "Quick",
+    gamesPerPositionLabel: "Games per position", totalGamesLabel: "Total games",
     enableNotify: "Enable notifications",
     attachRunTitle: "Attach an external run",
     attachRunHelp: "Add a sekirei-match run started outside the dashboard (e.g. from a terminal) to watch its progress here without restarting the server.",
@@ -1087,6 +1148,20 @@ const TRANSLATIONS = {
 
 const VERDICT_COLOR = { PASS: "success", FAIL: "error", INCONCLUSIVE: "warning" };
 const VERDICT_TIP_KEY = { PASS: "tipPass", FAIL: "tipFail", INCONCLUSIVE: "tipInconclusive" };
+// Mirrors --min-diversity-ratio's default in crates/sekirei-match-runner/src/main.rs.
+const MIN_DIVERSITY_RATIO = 0.3;
+
+function DiversityValue({ ratio, t }) {
+  if (ratio == null) return <span>—</span>;
+  const low = ratio < MIN_DIVERSITY_RATIO;
+  return (
+    <Tooltip title={t.tipDiversityRatio} arrow>
+      <Typography component="span" variant="body2" color={low ? "warning.main" : "text.primary"}>
+        {ratio.toFixed(2)}{low ? " ⚠" : ""}
+      </Typography>
+    </Tooltip>
+  );
+}
 // Raw SVG can't use MUI's theme color tokens ("success"/"error"/"warning")
 // directly -- this is the hex equivalent for the chart components below.
 // Same tokens VerdictChip already uses via color="success"/"error"/"warning" --
@@ -1698,6 +1773,9 @@ function HistoryPage({ t }) {
         ...(passRate != null ? [{ label: t.qsPassRate, value: `${passRate}%` }] : []),
         { label: t.qsInconclusive, value: inconclusiveCount },
         ...(latestEntry ? [{ label: t.qsLatest, value: <VerdictChip verdict={latestEntry.verdict} t={t} size="small" /> }] : []),
+        ...(latestEntry && latestEntry.diversity_ratio != null
+          ? [{ label: t.qsDiversity, value: <DiversityValue ratio={latestEntry.diversity_ratio} t={t} /> }]
+          : []),
       ]} />
       {hasUnknown && <Typography variant="body2" color="warning.main" sx={{ mb: 2 }}>⚠ {t.historyNote}</Typography>}
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 2, flexWrap: "wrap", rowGap: 1 }}>
@@ -1736,6 +1814,7 @@ function HistoryPage({ t }) {
             { key: "elo_diff", label: t.colElo, tooltip: t.tipEloDiff },
             { key: "los", label: t.colLos, tooltip: t.tipLos },
             { key: "games", label: t.colGames },
+            { key: "diversity_ratio", label: t.colDiversity, tooltip: t.tipDiversityRatio },
           ]}
           rows={filteredEntries}
           highlightKey={highlight}
@@ -1750,6 +1829,7 @@ function HistoryPage({ t }) {
             if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" />;
             if (key === "elo_diff") return row.elo_diff.toFixed(1);
             if (key === "los") return (row.los * 100).toFixed(1) + "%";
+            if (key === "diversity_ratio") return <DiversityValue ratio={row.diversity_ratio} t={t} />;
             if (key === "games") return (
               <Stack spacing={0.5}>
                 <span>{`${row.games} (${row.engine1_wins}/${row.draws}/${row.engine2_wins})`}</span>
@@ -1784,9 +1864,12 @@ function RunPicker({ runs, selectedRunId, onSelect }) {
 function StartGateForm({ t, onStarted }) {
   const { data: weightsData } = useApi("/api/weights", 8000);
   const weights = weightsData?.weights || [];
+  const presets = weightsData?.position_presets || {};
+  const secPerGame = weightsData?.seconds_per_game_estimate;
   const [e1, setE1] = useState("");
   const [e2, setE2] = useState("");
-  const [games, setGames] = useState(60);
+  const [preset, setPreset] = useState("quick");
+  const [gamesPerPosition, setGamesPerPosition] = useState(4);
   const [byoyomi, setByoyomi] = useState(1000);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
@@ -1797,7 +1880,10 @@ function StartGateForm({ t, onStarted }) {
     fetch("/api/runs", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ engine1_weights: e1, engine2_weights: e2, games, byoyomi }),
+      body: JSON.stringify({
+        engine1_weights: e1, engine2_weights: e2,
+        positions_preset: preset, games_per_position: gamesPerPosition, byoyomi,
+      }),
     })
       .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
       .then(({ ok, body }) => {
@@ -1807,6 +1893,9 @@ function StartGateForm({ t, onStarted }) {
       })
       .catch((e) => { setStarting(false); setError(String(e)); });
   };
+
+  const positions = presets[preset]?.positions ?? null;
+  const totalGames = positions != null ? positions * gamesPerPosition : null;
 
   return (
     <CollapsiblePanel id="startGate" title={t.startGateTitle} defaultOpen={false}>
@@ -1820,10 +1909,24 @@ function StartGateForm({ t, onStarted }) {
             <MenuItem value="">{t.materialEval}</MenuItem>
             {weights.map((w) => <MenuItem key={w} value={w}>{w}</MenuItem>)}
           </TextField>
-          <TextField type="number" size="small" label={t.gamesLabel} value={games} onChange={(e) => setGames(Number(e.target.value) || 0)} sx={{ width: 100 }} />
+          <TextField select size="small" label={t.positionsPresetLabel} value={preset} onChange={(e) => setPreset(e.target.value)} sx={{ minWidth: 220 }}>
+            {Object.entries(presets).map(([key, p]) => (
+              <MenuItem key={key} value={key}>
+                {key === "quick" ? t.positionsPresetQuickLabel : t.positionsPresetStandardLabel}
+                {p.positions != null ? ` (${p.positions})` : ""}
+              </MenuItem>
+            ))}
+          </TextField>
+          <TextField type="number" size="small" label={t.gamesPerPositionLabel} value={gamesPerPosition} onChange={(e) => setGamesPerPosition(Number(e.target.value) || 0)} sx={{ width: 140 }} />
           <TextField type="number" size="small" label={t.byoyomiLabel} value={byoyomi} onChange={(e) => setByoyomi(Number(e.target.value) || 0)} sx={{ width: 120 }} />
           <Button variant="contained" disabled={starting} onClick={start}>{starting ? "…" : t.startButton}</Button>
         </Stack>
+        {totalGames != null && (
+          <Typography variant="caption" color="text.secondary" sx={{ display: "block", mt: 1 }}>
+            {t.totalGamesLabel}: {totalGames}
+            {secPerGame ? ` (~${formatDuration(totalGames * secPerGame, t)})` : ""}
+          </Typography>
+        )}
         {error && <Typography variant="body2" color="error.main" sx={{ mt: 1 }}>{error}</Typography>}
       </Card>
     </CollapsiblePanel>
@@ -2038,6 +2141,9 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
         { label: t.qsProgress, value: `${completed}${total ? `/${total}` : ""}` },
         { label: t.qsEtaOrResult, value: running ? (eta_seconds != null ? formatDuration(eta_seconds, t) : "—") : (result ? <VerdictChip verdict={verdict} t={t} size="small" /> : t.noResultYet) },
         { label: t.qsRunsTracked, value: runs.length },
+        ...(result && result.diversity_ratio != null
+          ? [{ label: t.qsDiversity, value: <DiversityValue ratio={result.diversity_ratio} t={t} /> }]
+          : []),
       ]} />
       <RunPicker runs={runs} selectedRunId={selectedRunId} onSelect={onSelectRun} />
 
@@ -2069,6 +2175,12 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
               <VerdictChip verdict={verdict} t={t} />
             </Stack>
             <Typography variant="body2">
+              {result.diversity_ratio != null && (
+                <>
+                  <Tooltip title={t.tipDiversityRatio} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>diversity_ratio</span></Tooltip>
+                  =<DiversityValue ratio={result.diversity_ratio} t={t} />{" "}
+                </>
+              )}
               <Tooltip title={t.tipEloDiff} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>elo_diff</span></Tooltip>
               ={result.elo_diff?.toFixed(2)}{" "}
               <Tooltip title={t.tipLos} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>los</span></Tooltip>
@@ -3358,7 +3470,15 @@ class Handler(BaseHTTPRequestHandler):
             self._send_json(get_runs_data())
             return
         if path == "/api/weights":
-            self._send_json({"weights": list_weights()})
+            presets = {
+                key: {"file": os.path.basename(p), "positions": _count_positions(p)}
+                for key, p in POSITION_PRESETS.items()
+            }
+            self._send_json({
+                "weights": list_weights(),
+                "position_presets": presets,
+                "seconds_per_game_estimate": SECONDS_PER_GAME_ESTIMATE,
+            })
             return
         if path == "/api/pipeline_runs":
             self._send_json(list_pipeline_runs())

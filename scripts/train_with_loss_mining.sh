@@ -53,6 +53,12 @@ RUN_DIR=${RUN_DIR:-"data/runs/loss_mine_$TIMESTAMP"}
 BASE_POSITIONS=data/runs/bc_redo_20260628_214103/stage1/positions_10k.jsonl
 BASE_SCORED=data/runs/bc_redo_20260628_214103/stage3/scored_10k.jsonl
 
+# Prune old completed runs' stage1-3 intermediates before adding a new one --
+# see scripts/cleanup_runs.sh. Safe by default: this run's own BASE_POSITIONS/
+# BASE_SCORED above are in bc_redo_20260628_214103, which cleanup_runs.sh
+# detects as protected (referenced by name here) and never touches.
+APPLY=1 bash "$(dirname "$0")/cleanup_runs.sh" || true
+
 # Persist everything (not just display it) so scripts/gate_dashboard.py's
 # Pipeline page can show live stage progress after the fact -- this is the
 # only way to recover quietset's "kept X/Y" line (stderr only, never written

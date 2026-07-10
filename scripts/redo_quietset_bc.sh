@@ -56,6 +56,12 @@ JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR="data/runs/bc_redo_$TIMESTAMP"
 
+# Prune old completed runs' stage1-3 intermediates (multi-GB raw extracts)
+# before adding a new one -- see scripts/cleanup_runs.sh. Safe by default:
+# only touches runs with a manifest.json (proven complete) that aren't
+# referenced by name in scripts/*.sh, and only ones >3 days old.
+APPLY=1 bash "$(dirname "$0")/cleanup_runs.sh" || true
+
 # auto-detect shogiesa binary
 if [ -z "$SHOGIESA" ]; then
   if command -v shogiesa >/dev/null 2>&1; then

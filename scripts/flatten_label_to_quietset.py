@@ -7,6 +7,12 @@ shogiesa 0.3.0 `label` emits one nested record per position:
 quietset 0.8.0 `score` expects one flat row per observation, keyed by sample_id:
     {"sample_id": <sfen>, "score": <float>, "budget": <depth>, "evaluator_id": <engine>}
 
+`label` is populated from each observation's `bestmove` (present since shogiesa
+0.4.0). Without it, quietset has no `label`/`label_agreement`/`label_agreement_lcb`
+to compute at all, so `--profile game-ai-single-engine`'s intended LCB-based
+decision-score never engages -- stability_score collapses to just
+score_consistency/budget_robustness (see tasks/lessons.md, 2026-07-08 entry).
+
 Reads JSONL from stdin, writes flattened JSONL to stdout.
 """
 import json
@@ -32,14 +38,15 @@ for line_no, line in enumerate(sys.stdin, 1):
         value = score.get("value")
         if value is None:
             continue
-        json.dump(
-            {
-                "sample_id": sfen,
-                "score": float(value),
-                "budget": obs.get("depth"),
-                "evaluator_id": obs.get("engine", "engine"),
-                "model_id": "sekirei-search",
-            },
-            sys.stdout,
-        )
+        record = {
+            "sample_id": sfen,
+            "score": float(value),
+            "budget": obs.get("depth"),
+            "evaluator_id": obs.get("engine", "engine"),
+            "model_id": "sekirei-search",
+        }
+        bestmove = obs.get("bestmove")
+        if bestmove:
+            record["label"] = bestmove
+        json.dump(record, sys.stdout)
         sys.stdout.write("\n")

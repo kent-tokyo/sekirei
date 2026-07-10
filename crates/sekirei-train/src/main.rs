@@ -58,11 +58,11 @@ struct Args {
     side_balance: bool,                  // --side-balance
     source_cap: usize,                   // --source-cap N (0 = unlimited)
     validation_ratio: f32,               // --validation-ratio (0.0 = no split)
-    seed: u64,                           // --seed (for validation split)
-    checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
+    seed: u64, // --seed (validation split, source_cap hashing, and weight init)
+    checkpoint_dir: Option<PathBuf>, // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
-    reuse_teacher_cache: bool,           // --reuse-teacher-cache
-    wdl_lambda: Option<f32>,             // --wdl-lambda (CSA path only; None = eval-only, default)
+    reuse_teacher_cache: bool, // --reuse-teacher-cache
+    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -393,7 +393,9 @@ fn print_usage() {
     eprintln!("  --side-balance          Equalise black/white sample weights");
     eprintln!("  --source-cap <n>        Max samples per source file (0 = unlimited)");
     eprintln!("  --validation-ratio <f>  Hold-out fraction for valid_loss (default: 0.0 = off)");
-    eprintln!("  --seed <n>              Seed for validation split (default: 42)");
+    eprintln!(
+        "  --seed <n>              Seed for validation split, source_cap, and weight init (default: 42)"
+    );
     eprintln!("  --checkpoint-dir <dir>  Directory for epoch checkpoints");
     eprintln!("  --teacher-cache <path>  JSONL cache of teacher scores (sfen → score_cp)");
     eprintln!("  --reuse-teacher-cache   Load teacher cache; skip search on cache hits");
@@ -516,7 +518,7 @@ fn main() {
             HashMap::new()
         };
 
-        let mut trainer = Trainer::new();
+        let mut trainer = Trainer::new(args.seed);
 
         for epoch in 1..=args.epochs {
             trainer.lr = 0.001_f32 * 0.5_f32.powi((epoch - 1) as i32);
@@ -737,7 +739,7 @@ fn main() {
         None => HashMap::new(),
     };
 
-    let mut trainer = Trainer::new();
+    let mut trainer = Trainer::new(args.seed);
     let mut best_loss = f64::MAX;
 
     for epoch in 1..=args.epochs {

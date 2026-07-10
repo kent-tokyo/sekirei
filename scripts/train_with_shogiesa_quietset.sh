@@ -52,6 +52,13 @@ MAX_PLY=${MAX_PLY:-160}
 EXTRA_SCORED=${EXTRA_SCORED:-}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR=${RUN_DIR:-"data/runs/$TIMESTAMP"}
+
+# Prune old completed runs' stage1-3 intermediates before adding a new one --
+# see scripts/cleanup_runs.sh. Safe by default: only touches runs with a
+# manifest.json (proven complete) not referenced by name in scripts/*.sh,
+# and only ones >3 days old.
+APPLY=1 bash "$(dirname "$0")/cleanup_runs.sh" || true
+
 # Parallel label workers -- see scripts/redo_quietset_bc.sh for the same pattern.
 JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
 [ "$JOBS" -lt 1 ] && JOBS=1

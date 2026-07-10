@@ -68,6 +68,31 @@ fn wdl_target_cp(result: GameResult, stm: Color) -> Option<f32> {
     Some((wdl - 0.5) * 1200.0)
 }
 
+// ---- Deterministic PRNG for weight init (same LCG constants as
+// sekirei-match-runner's `Lcg` -- Knuth MMIX) ----
+
+struct Lcg(u64);
+impl Lcg {
+    fn next_u64(&mut self) -> u64 {
+        self.0 = self
+            .0
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        self.0
+    }
+    /// Uniform f32 in [-bound, bound].
+    fn uniform(&mut self, bound: f32) -> f32 {
+        let u = self.next_u64() as f64 / u64::MAX as f64; // [0, 1]
+        ((u * 2.0 - 1.0) as f32) * bound
+    }
+}
+
+/// Kaiming/He uniform bound for a layer with `fan_in` inputs feeding a
+/// ClippedReLU, per PyTorch's default `nn.Linear` init.
+fn he_bound(fan_in: usize) -> f32 {
+    (6.0 / fan_in as f32).sqrt()
+}
+
 // ---- Training weight container ----
 
 pub struct TrainWeights {
@@ -96,22 +121,34 @@ pub struct TrainWeights {
 }
 
 impl TrainWeights {
-    /// Zero-initialised weights.
-    pub fn new() -> Self {
+    /// Seeded He/Kaiming-uniform init. Zero-initialising `ft`/`l2`/`out`
+    /// (the pre-2026-07-09 behaviour) never breaks symmetry: every unit in a
+    /// layer starts identical and receives an identical gradient every step
+    /// (backprop through a uniform downstream weight is itself uniform), so
+    /// the whole net collapses to and stays at effective width 1 per layer
+    /// forever -- confirmed by parsing real trained weights (`v007`..`v012`):
+    /// every FT row, every L2 row, and `out` were each a single repeated
+    /// scalar, variance exactly 0.0. The non-zero biases below predate this
+    /// fix and only solved a narrower problem (all-zero forever, not
+    /// symmetric-but-nonzero); kept as-is since they're still harmless.
+    pub fn new_seeded(seed: u64) -> Self {
         let ft_len = INPUT * L1;
         let l2_len = 2 * L1 * L2;
         let out_len = L2;
+        let mut rng = Lcg(seed ^ 0x9E37_79B9_7F4A_7C15);
+        let ft_bound = he_bound(INPUT);
+        let l2_bound = he_bound(2 * L1);
+        let out_bound = he_bound(L2);
         TrainWeights {
-            ft: vec![0.0; ft_len],
+            ft: (0..ft_len).map(|_| rng.uniform(ft_bound)).collect(),
             // Non-zero bias ensures ClippedReLU inputs are > 0 so gradients flow
             ft_bias: vec![0.5; L1],
-            l2: vec![0.0; l2_len],
+            l2: (0..l2_len).map(|_| rng.uniform(l2_bound)).collect(),
             // Same reason as ft_bias: with l2 zero-initialized, a zero l2_bias makes
             // l2_acc land exactly on the ClippedReLU dead zone (== 0.0, gate is `> 0.0`),
-            // permanently blocking gradient flow to l2/ft — every past run silently
-            // trained out_bias only (verified: ft/l2/out stayed all-zero in saved weights).
+            // permanently blocking gradient flow to l2/ft.
             l2_bias: vec![0.5; L2],
-            out: vec![0.0; out_len],
+            out: (0..out_len).map(|_| rng.uniform(out_bound)).collect(),
             out_bias: 0.0,
 
             ft_m: vec![0.0; ft_len],
@@ -183,10 +220,10 @@ pub struct Trainer {
 }
 
 impl Trainer {
-    pub fn new() -> Self {
+    pub fn new(seed: u64) -> Self {
         let tt = Tt::new(4); // Tt::new returns Arc<Tt>
         Trainer {
-            weights: TrainWeights::new(),
+            weights: TrainWeights::new_seeded(seed),
             total_loss: 0.0,
             total_count: 0,
             total_weight: 0.0,
@@ -724,6 +761,38 @@ fn adam_update_scalar(param: &mut f32, m: &mut f32, v: &mut f32, grad: f32, lr: 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn variance(xs: &[f32]) -> f32 {
+        let mean = xs.iter().sum::<f32>() / xs.len() as f32;
+        xs.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / xs.len() as f32
+    }
+
+    #[test]
+    fn seeded_init_breaks_symmetry_within_each_layer() {
+        let w = TrainWeights::new_seeded(42);
+        // Any single FT row (one input feature's L1 contributions) must not
+        // collapse to a single repeated scalar -- that's the exact failure
+        // this init replaces (see `new_seeded`'s doc comment).
+        assert!(variance(&w.ft[0..L1]) > 0.0);
+        assert!(variance(&w.l2[0..L2]) > 0.0);
+        assert!(variance(&w.out) > 0.0);
+    }
+
+    #[test]
+    fn seeded_init_is_deterministic() {
+        let a = TrainWeights::new_seeded(42);
+        let b = TrainWeights::new_seeded(42);
+        assert_eq!(a.ft, b.ft);
+        assert_eq!(a.l2, b.l2);
+        assert_eq!(a.out, b.out);
+    }
+
+    #[test]
+    fn seeded_init_differs_across_seeds() {
+        let a = TrainWeights::new_seeded(1);
+        let b = TrainWeights::new_seeded(2);
+        assert_ne!(a.ft, b.ft);
+    }
 
     #[test]
     fn wdl_target_black_win_from_black_perspective_is_max() {

@@ -190,6 +190,14 @@ and match results in `results/`. Each run also writes a `manifest.json` linking 
 training parameters. Available env overrides: `DEPTHS`, `GAMES`, `MIN_PLY`, `MAX_PLY`, `RUN_DIR`,
 `EXTRA_SCORED`. To run stages manually:
 
+`data/runs/` intermediate files (raw extracts, label observations, scored jsonl -- often
+multi-GB) are pruned automatically at the start of each pipeline run by `scripts/cleanup_runs.sh`:
+it only deletes a run's `stage1`/`stage2`/`stage3` once that run has a `manifest.json` (proven
+complete), the run isn't referenced by name in any `scripts/*.sh` (a live cross-run dependency),
+and it's older than `MIN_AGE_DAYS` (default 3). `checkpoints/`, `manifest.json`, and `pipeline.log`
+are never touched. Run it manually with `bash scripts/cleanup_runs.sh` (dry run by default,
+`APPLY=1` to actually delete).
+
 ```bash
 # Stage 1: extract
 shogiesa extract --input ./data/csa --out data/stage1/positions.jsonl \
