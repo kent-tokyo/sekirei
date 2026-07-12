@@ -962,6 +962,8 @@ const TRANSLATIONS = {
     etaSoon: "残り時間: まもなく終了 (結果集計中)",
     etaLabel: "残り時間", avgPerGame: "秒/局", remainingGames: "残り", elapsedLabel: "経過",
     noResultYet: "結果ファイルはまだありません (実行中、または未開始)。",
+    interimResult: "途中経過(暫定)",
+    tipInterimResult: "実行中のゲートの現時点でのスナップショットに、通常のCI基準(pass_elo/pass_los)を当てはめた参考値です。SPRT等の別の判定方式を使っている場合、最終判定とは一致しません。実行完了後にゲート本体が出す判定を確認してください。",
     liveTally: "現在の内訳",
     recentGames: "対局ログ", colGame: "局", colE1: "Engine1", colE2: "Engine2",
     colResult: "結果", colMoves: "手数", colTime: "時刻", noGamesYet: "まだログ行がありません。",
@@ -1077,6 +1079,8 @@ const TRANSLATIONS = {
     etaSoon: "ETA: finishing up (tallying result)",
     etaLabel: "ETA", avgPerGame: "s/game", remainingGames: "remaining", elapsedLabel: "elapsed",
     noResultYet: "No result file yet (running, or not started).",
+    interimResult: "Interim (provisional)",
+    tipInterimResult: "A reference value only: the plain CI thresholds (pass_elo/pass_los) applied to the current in-progress snapshot. If this gate uses a different decision method (e.g. SPRT), this won't match the final verdict -- check the gate's own output once it finishes.",
     liveTally: "Current tally",
     recentGames: "Game log", colGame: "Game", colE1: "Engine1", colE2: "Engine2",
     colResult: "Result", colMoves: "Moves", colTime: "Time", noGamesYet: "No log lines yet.",
@@ -2169,10 +2173,16 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
       )}
 
       {result ? (
-        <Card variant="outlined" sx={{ mb: 3, borderColor: `${VERDICT_COLOR[verdict]}.main`, borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ mb: 3, borderColor: running ? "divider" : `${VERDICT_COLOR[verdict]}.main`, borderWidth: 2 }}>
           <CardContent>
             <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-              <VerdictChip verdict={verdict} t={t} />
+              {running ? (
+                <Tooltip title={t.tipInterimResult} arrow>
+                  <Chip label={t.interimResult} variant="outlined" />
+                </Tooltip>
+              ) : (
+                <VerdictChip verdict={verdict} t={t} />
+              )}
             </Stack>
             <Typography variant="body2">
               {result.diversity_ratio != null && (
