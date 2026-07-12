@@ -452,15 +452,25 @@ fn build_game_list(
     }
 }
 
-// NOTE: an earlier version of this file derived a `pair_id()` here to feed
-// veridict's `paired_by_id`. Removed 2026-07-09: for categorical win/draw/
-// loss results, netting a same-position/opposite-color pair into one
-// observation can't distinguish "1-1 split" from "both games drew" (both
-// reduce to the same net value), so pairing discards decisive signal
-// instead of reducing variance. Verified empirically against the v012 gate
-// data (CI widened, not narrowed) and confirmed structural (not specific to
-// the Elo metric -- MeanDiff/SignTest hit the same collapse, and SignTest's
-// tie-exclusion is worse). See tasks/lessons.md, 2026-07-09.
+/// Groups consecutive games within a `--games-per-position` block into
+/// same-position/opposite-color pairs, for veridict's `id` field
+/// (`--paired-by-id`). `game_num` is 1-indexed. Pairs never straddle a
+/// position boundary: within a `games_per_position`-sized block, offsets
+/// `0,1 -> pair 0`, `2,3 -> pair 1`, ...; an odd `games_per_position` leaves
+/// the last game in each block unpaired (its own singleton id), which
+/// `OutcomeCollector` already tallies as an ordinary unpaired observation.
+///
+/// Reintroduced 2026-07-12 (an earlier version existed here, removed
+/// 2026-07-09 when `paired_by_id` looked like a net loss -- see
+/// `sprt_decide`'s doc comment for why that conclusion didn't generalize:
+/// it was specific to the CI/Wilson metric path, not SPRT/Trinomial).
+fn pair_id(game_num: usize, games_per_position: usize) -> String {
+    let idx = game_num - 1;
+    let block = idx / games_per_position;
+    let within_block = idx % games_per_position;
+    let pair_in_block = within_block / 2;
+    format!("pos{block}_pair{pair_in_block}")
+}
 
 // ---- Main ----
 
@@ -541,10 +551,22 @@ fn veridict_decide(
 /// threshold to tune after the fact, so callers should report them
 /// alongside the verdict rather than let "PASS" imply "elo >= elo1 is
 /// proven" -- it only means H1 was accepted at the stated false-accept
-/// rate. `paired_by_id` is always `false`: this project's gate suite has
-/// measured within-pair correlation ≈ 0 (see `veridict_decide`'s doc
-/// comment and `tasks/lessons.md`, 2026-07-09), so per-game trials are the
-/// right aggregation unit here, not per-position pairs.
+/// rate.
+///
+/// `paired_by_id`, corrected 2026-07-12: within-pair correlation is a
+/// property of the specific (opening book, engine pair) being measured, not
+/// a universal constant of this gate suite (see `tasks/lessons.md`,
+/// 2026-07-12, gate-A sprint audit -- gateA/λ0.7-vs-λ1.0 measured ICC≈0.15,
+/// not ≈0 the way v012 did). `veridict_decide`'s `paired_by_id: false` above
+/// stays correct for *that* CI/Wilson path (2026-07-09's finding was
+/// specific to `metrics::elo`'s 3-bucket-plus-Wilson collapse, verified
+/// unrelated). For SPRT, `SprtVariant::Trinomial` + `paired_by_id: true` was
+/// verified (`crates/sekirei-match-runner/examples/verify_pairing.rs`,
+/// 2026-07-12) to hold its false-accept rate at nominal alpha under
+/// realistic positive correlation where `Wald`+unpaired exceeds it -- so
+/// callers should pass `true` here whenever `variant` is `Trinomial` over
+/// `--games-per-position` data (paired ids are only emitted in that mode,
+/// see `pair_id`); `Wald` remains unpaired (unvalidated combination).
 fn sprt_decide(
     records: &[(usize, veridict::input::Record)],
     elo0: f64,
@@ -552,9 +574,15 @@ fn sprt_decide(
     alpha: f64,
     beta: f64,
     variant: veridict::sprt::SprtVariant,
+    paired_by_id: bool,
 ) -> Result<veridict::sprt::SprtReport, veridict::VeridictError> {
     let config = veridict::sprt::SprtConfig::new(elo0, elo1, alpha, beta)?;
-    veridict::sprt::run(records.iter().cloned().map(Ok), &config, variant, false)
+    veridict::sprt::run(
+        records.iter().cloned().map(Ok),
+        &config,
+        variant,
+        paired_by_id,
+    )
 }
 
 fn run_gate(argv: &[String]) {
@@ -574,6 +602,7 @@ fn run_gate(argv: &[String]) {
     let mut alpha = 0.05f64;
     let mut beta = 0.05f64;
     let mut sprt_variant = veridict::sprt::SprtVariant::Wald;
+    let mut paired_by_id = false;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -633,6 +662,7 @@ fn run_gate(argv: &[String]) {
                     _ => veridict::sprt::SprtVariant::Wald,
                 };
             }
+            "--paired-by-id" => paired_by_id = true,
             "--min-diversity-ratio" => {
                 i += 1;
                 if let Some(v) = argv.get(i) {
@@ -648,7 +678,7 @@ fn run_gate(argv: &[String]) {
         Some(p) => p,
         None => {
             eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial]]"
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial] [--paired-by-id]]"
             );
             std::process::exit(2);
         }
@@ -713,7 +743,15 @@ fn run_gate(argv: &[String]) {
                 std::process::exit(2);
             }
         };
-        let report = match sprt_decide(&records, elo0, elo1, alpha, beta, sprt_variant) {
+        let report = match sprt_decide(
+            &records,
+            elo0,
+            elo1,
+            alpha,
+            beta,
+            sprt_variant,
+            paired_by_id,
+        ) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("gate: veridict sprt error: {e}");
@@ -1091,9 +1129,13 @@ fn main() {
             Outcome::E2Win => "baseline_win",
             Outcome::Draw => "draw",
         };
+        let veridict_id = match args.games_per_position {
+            Some(gpp) => pair_id(game_num, gpp),
+            None => format!("game{game_num:04}"),
+        };
         let _ = writeln!(
             veridict_records,
-            r#"{{"id":"game{game_num:04}","result":"{veridict_result}"}}"#
+            r#"{{"id":"{veridict_id}","result":"{veridict_result}"}}"#
         );
 
         let reason_tag = match reason {
@@ -1446,6 +1488,7 @@ mod tests {
             0.05,
             0.05,
             veridict::sprt::SprtVariant::Wald,
+            false,
         )
         .unwrap();
         assert_eq!(report.verdict, veridict::Verdict::Pass);
@@ -1463,6 +1506,7 @@ mod tests {
             0.05,
             0.05,
             veridict::sprt::SprtVariant::Wald,
+            false,
         )
         .unwrap();
         assert_eq!(report.verdict, veridict::Verdict::Fail);
@@ -1478,6 +1522,7 @@ mod tests {
             0.05,
             0.05,
             veridict::sprt::SprtVariant::Wald,
+            false,
         )
         .unwrap();
         assert_eq!(report.verdict, veridict::Verdict::Inconclusive);
@@ -1494,9 +1539,54 @@ mod tests {
                 0.0,
                 0.05,
                 0.05,
-                veridict::sprt::SprtVariant::Wald
+                veridict::sprt::SprtVariant::Wald,
+                false
             )
             .is_err()
+        );
+    }
+
+    #[test]
+    fn pair_id_groups_two_consecutive_games_per_position_without_crossing_blocks() {
+        // games_per_position=4: offsets 0,1 -> pair0; 2,3 -> pair1; block boundary at game 5.
+        assert_eq!(pair_id(1, 4), "pos0_pair0");
+        assert_eq!(pair_id(2, 4), "pos0_pair0");
+        assert_eq!(pair_id(3, 4), "pos0_pair1");
+        assert_eq!(pair_id(4, 4), "pos0_pair1");
+        assert_eq!(pair_id(5, 4), "pos1_pair0");
+    }
+
+    #[test]
+    fn pair_id_odd_games_per_position_leaves_a_singleton() {
+        // games_per_position=3: offsets 0,1 -> pair0 (paired); offset 2 -> pair1 (singleton,
+        // never grouped with the next position's offset 0).
+        assert_eq!(pair_id(1, 3), "pos0_pair0");
+        assert_eq!(pair_id(2, 3), "pos0_pair0");
+        assert_eq!(pair_id(3, 3), "pos0_pair1");
+        assert_eq!(pair_id(4, 3), "pos1_pair0");
+    }
+
+    #[test]
+    fn sprt_decide_trinomial_paired_absorbs_a_split_pair_as_a_draw() {
+        // Same position, opposite colors, 1-1 split: paired mode nets this to a single
+        // Draw observation instead of counting it as a decisive win and a decisive loss.
+        let records = vec![
+            rec("pos0_pair0", "candidate_win"),
+            rec("pos0_pair0", "baseline_win"),
+        ];
+        let report = sprt_decide(
+            &records,
+            0.0,
+            20.0,
+            0.05,
+            0.05,
+            veridict::sprt::SprtVariant::Trinomial,
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            (report.candidate_wins, report.draws, report.baseline_wins),
+            (0, 1, 0)
         );
     }
 }

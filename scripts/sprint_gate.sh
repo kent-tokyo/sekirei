@@ -76,11 +76,19 @@ ELO1=${ELO1:-20}
 ALPHA=${ALPHA:-0.05}
 BETA=${BETA:-0.05}
 SPRT_VARIANT=${SPRT_VARIANT:-wald}
+# Only meaningful with SPRT_VARIANT=trinomial over --games-per-position data
+# (paired ids are only emitted in that mode -- see main.rs's `pair_id`).
+# Validated for that combination (crates/sekirei-match-runner/examples/
+# verify_pairing.rs, tasks/lessons.md 2026-07-12); leave 0 for wald/unpaired.
+PAIRED_BY_ID=${PAIRED_BY_ID:-0}
 MAX_GAMES=${MAX_GAMES:-1600}
 
-OPENINGS=data/gate/openings_standard.sfen
+OPENINGS=${OPENINGS:-data/gate/openings_standard.sfen}
 [ -f "$OPENINGS" ] || { echo "error: $OPENINGS not found" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "error: jq not found" >&2; exit 127; }
+
+PAIRED_ARGS=()
+[ "$PAIRED_BY_ID" = "1" ] && PAIRED_ARGS=(--paired-by-id)
 
 NEW_STEM=$(basename "$NEW" .bin)
 BASE_STEM=$(basename "$BASE" .bin)
@@ -89,11 +97,12 @@ RUN_DIR="sprint_gate_runs/$RUN_ID"
 mkdir -p "$RUN_DIR/shards"
 
 if [ "$SPRT" = "1" ]; then
-  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA) ==="
+  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA variant=$SPRT_VARIANT paired_by_id=$PAIRED_BY_ID) ==="
 else
   echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION) ==="
 fi
 echo "  run dir: $RUN_DIR"
+echo "  openings: $OPENINGS"
 
 cargo build --release -q -p sekirei-match-runner -p sekirei
 
@@ -165,7 +174,7 @@ for ((i = 1; i <= N_SPRINTS; i++)); do
     set +e
     cargo run --release -q -p sekirei-match-runner -- gate "$RUN_DIR/combined.json" \
       --sprt --elo0 "$ELO0" --elo1 "$ELO1" --alpha "$ALPHA" --beta "$BETA" \
-      --sprt-variant "$SPRT_VARIANT"
+      --sprt-variant "$SPRT_VARIANT" "${PAIRED_ARGS[@]}"
     RC=$?
     set -e
     if [ "$RC" != "2" ]; then
@@ -190,7 +199,7 @@ if [ "$SPRT" = "1" ]; then
   echo "SPRT ran all $N_SPRINTS sprints without reaching a decisive bound -- final check:"
   cargo run --release -q -p sekirei-match-runner -- gate "$RUN_DIR/combined.json" \
     --sprt --elo0 "$ELO0" --elo1 "$ELO1" --alpha "$ALPHA" --beta "$BETA" \
-    --sprt-variant "$SPRT_VARIANT"
+    --sprt-variant "$SPRT_VARIANT" "${PAIRED_ARGS[@]}"
 else
   cargo run --release -q -p sekirei-match-runner -- gate "$RUN_DIR/combined.json" \
     --pass-elo 20 --pass-los 0.95 --fail-elo -10
