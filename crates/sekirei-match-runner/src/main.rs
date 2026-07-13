@@ -770,6 +770,24 @@ fn run_gate(argv: &[String]) {
         println!(
             "{label}  (sprt: alpha={alpha} is the guaranteed false-accept rate under H0, beta={beta} the false-reject rate under H1 -- this is not a claim that the true effect is >= elo1, only that H1 was accepted at that error rate)"
         );
+        write_verdict_sidecar(
+            &path,
+            &format!(
+                r#"{{
+  "method": "sprt",
+  "verdict": {label:?},
+  "llr": {:.6},
+  "bound_lo": {:.6},
+  "bound_hi": {:.6},
+  "elo0": {elo0},
+  "elo1": {elo1},
+  "alpha": {alpha},
+  "beta": {beta}
+}}
+"#,
+                report.llr, report.lower_bound, report.upper_bound
+            ),
+        );
         std::process::exit(match report.verdict {
             veridict::Verdict::Pass => 0,
             veridict::Verdict::Fail => 1,
@@ -839,11 +857,41 @@ fn run_gate(argv: &[String]) {
         veridict::Verdict::Inconclusive => "INCONCLUSIVE",
     };
     println!("{label}{rating_suffix}{extra}");
+    write_verdict_sidecar(
+        &path,
+        &format!(
+            r#"{{
+  "method": "ci",
+  "verdict": {label:?},
+  "pass_elo": {pass_elo},
+  "fail_elo": {fail_elo},
+  "pass_los": {pass_los}
+}}
+"#
+        ),
+    );
     std::process::exit(match verdict {
         veridict::Verdict::Pass => 0,
         veridict::Verdict::Fail => 1,
         veridict::Verdict::Inconclusive => 2,
     });
+}
+
+/// Writes `<path-without-.json>.verdict.json`, recording which decision
+/// method actually produced the printed verdict and its parameters.
+/// `gate`'s stdout has always carried this, but never a file, so
+/// downstream tooling (e.g. `scripts/gate_dashboard.py`) had no way to
+/// tell a result was decided by SPRT rather than a CI threshold -- it
+/// silently re-derived a (possibly wrong) verdict from raw elo/los
+/// instead. See `tasks/lessons.md`, 2026-07-12 dashboard entry.
+fn write_verdict_sidecar(path: &str, json: &str) {
+    let sidecar = PathBuf::from(path).with_extension("verdict.json");
+    if let Err(e) = fs::write(&sidecar, json) {
+        eprintln!(
+            "gate: verdict sidecar write failed ({}): {e}",
+            sidecar.display()
+        );
+    }
 }
 
 /// Counts (engine1_wins, draws, engine2_wins) from parsed records.
@@ -1588,5 +1636,16 @@ mod tests {
             (report.candidate_wins, report.draws, report.baseline_wins),
             (0, 1, 0)
         );
+    }
+
+    #[test]
+    fn write_verdict_sidecar_derives_path_and_writes_content() {
+        let path =
+            std::env::temp_dir().join(format!("sekirei_test_sidecar_{}.json", std::process::id()));
+        write_verdict_sidecar(path.to_str().unwrap(), "{\"method\":\"sprt\"}\n");
+        let sidecar = path.with_extension("verdict.json");
+        let content = fs::read_to_string(&sidecar).expect("sidecar should exist");
+        assert_eq!(content, "{\"method\":\"sprt\"}\n");
+        fs::remove_file(&sidecar).ok();
     }
 }

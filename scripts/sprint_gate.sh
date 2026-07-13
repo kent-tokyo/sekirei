@@ -97,7 +97,7 @@ RUN_DIR="sprint_gate_runs/$RUN_ID"
 mkdir -p "$RUN_DIR/shards"
 
 if [ "$SPRT" = "1" ]; then
-  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA variant=$SPRT_VARIANT paired_by_id=$PAIRED_BY_ID) ==="
+  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA variant=$SPRT_VARIANT paired_by_id=$PAIRED_BY_ID max_games=$MAX_GAMES) ==="
 else
   echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION) ==="
 fi

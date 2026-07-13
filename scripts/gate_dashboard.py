@@ -139,6 +139,16 @@ TOTAL_GAMES_RE = re.compile(r"^Games:\s+(\d+)\s+Byoyomi:")
 # prints "Mode: cover-all (N positions x M games = TOTAL total)" instead of
 # the plain "Games: N Byoyomi:" line above -- match both.
 TOTAL_GAMES_COVER_ALL_RE = re.compile(r"^Mode: cover-all\b.*=\s*(\d+)\s+total\)\s*$")
+# scripts/sprint_gate.sh's own header/progress markers -- a chunked run has
+# no single fixed "total games" (SPRT can stop anywhere up to max_games), so
+# these feed a different progress model (sprint k/N + live LLR) instead of a
+# percentage bar. See _chunked_run_dir / get_status_data.
+SPRINT_HEADER_RE = re.compile(r"=== sprint_gate:.*\((\d+) sprints? x games-per-position=\d+")
+SPRINT_MAX_GAMES_RE = re.compile(r"\bmax_games=(\d+)\b")
+SPRINT_MARKER_RE = re.compile(r"^\[sprint (\d+)\] running")
+SPRINT_LLR_RE = re.compile(
+    r"llr=(-?[\d.]+)\s*\(bounds\s*\[(-?[\d.]+),\s*(-?[\d.]+)\]\)"
+)
 
 
 def verdict_of(elo, los):
@@ -172,15 +182,70 @@ def _pid_for_result_json(result_json):
         return None
 
 
+def _chunked_run_dir(result_json):
+    """Returns the enclosing directory if `result_json` lives in a
+    scripts/sprint_gate.sh RUN_DIR (has a shards/ subdirectory -- that
+    script's own fingerprint), else None. A chunked run spawns a brand new
+    subprocess per sprint with a *different* --json target each time
+    (sprint_01.json, sprint_02.json, ...), so pinning liveness to one fixed
+    file (_pid_for_result_json) makes the run look "stopped" the moment
+    that sprint's process exits, even mid-run -- see tasks/lessons.md,
+    2026-07-12. Every subprocess sprint_gate.sh spawns (match-runner,
+    summarize, gate) has this directory somewhere in its own argv, so
+    matching on the directory instead of one file tracks the whole
+    multi-sprint run, not just its first sprint."""
+    d = os.path.dirname(os.path.abspath(result_json))
+    if os.path.isdir(os.path.join(d, "shards")):
+        return d
+    return None
+
+
+def _pid_for_run_dir(run_dir):
+    # Match on the basename, not the full (now-absolute) path: sprint_gate.sh
+    # builds every subprocess's --json/--positions/--output args from its own
+    # *relative* $RUN_DIR, so an absolute-path substring match never hits --
+    # confirmed against a real running sprint_gate.sh process while building
+    # this (tasks/lessons.md, 2026-07-12). The run dir's basename (a
+    # timestamp + weights-derived string) is unique and appears verbatim in
+    # every one of that run's subprocess argvs regardless of the CWD either
+    # process happened to be launched from.
+    try:
+        out = subprocess.run(
+            ["pgrep", "-f", os.path.basename(run_dir)], capture_output=True, text=True
+        )
+        pid = out.stdout.strip().split("\n")[0]
+        return pid or None
+    except Exception:
+        return None
+
+
+def _latest_sprint_json(run_dir):
+    """Highest-numbered sprint_NN.json in a chunked run's directory, for
+    reading the currently-in-flight sprint's own per-sprint stats live."""
+    candidates = sorted(glob.glob(os.path.join(run_dir, "sprint_*.json")))
+    return candidates[-1] if candidates else None
+
+
 def run_is_running(run):
     if run.get("pid") is not None:
         return pid_is_running(run["pid"])
+    chunked_dir = _chunked_run_dir(run["result_json"])
+    if chunked_dir:
+        return _pid_for_run_dir(chunked_dir) is not None
     return _pid_for_result_json(run["result_json"]) is not None
 
 
 def run_elapsed_seconds(run):
-    """Elapsed wall time of a run's match process, or None."""
-    pid = run.get("pid") or _pid_for_result_json(run["result_json"])
+    """Elapsed wall time of a run's match process, or None. For a chunked
+    run this is just the *current* sprint's subprocess age (each sprint
+    restarts the clock) -- fine, since chunked/SPRT runs don't get an ETA
+    estimate anyway (see get_status_data): there's no fixed total to
+    divide by, the whole point of SPRT is that it can stop at any game
+    count up to its cap."""
+    chunked_dir = _chunked_run_dir(run["result_json"])
+    pid = run.get("pid") or (
+        _pid_for_run_dir(chunked_dir) if chunked_dir else _pid_for_result_json(run["result_json"])
+    )
     if not pid:
         return None
     try:
@@ -202,9 +267,14 @@ def run_elapsed_seconds(run):
 GAME_FIRST_SEEN = {}
 
 
-def read_progress(run_id, log_file):
+def read_progress(run_id, log_file, chunked=False):
+    """`chunked=True` (a scripts/sprint_gate.sh run, see _chunked_run_dir)
+    switches from a fixed games/total percentage (meaningless for SPRT --
+    it can stop at any game count up to max_games, there's no fixed total
+    to divide by) to sprint k/N + live LLR-vs-bounds instead."""
     games = []
     total = None
+    sprint = {"n": None, "k": None, "max_games": None, "llr": None, "bound_lo": None, "bound_hi": None}
     first_seen = GAME_FIRST_SEEN.setdefault(run_id, {})
     try:
         with open(log_file, "r", errors="replace") as f:
@@ -233,12 +303,31 @@ def read_progress(run_id, log_file):
                     else:
                         games.append({"n": n, "raw": desc, "time": seen_at})
                     continue
-                m2 = TOTAL_GAMES_RE.match(line) or TOTAL_GAMES_COVER_ALL_RE.match(line)
-                if m2:
-                    total = int(m2.group(1))
+                if chunked:
+                    m3 = SPRINT_HEADER_RE.search(line)
+                    if m3:
+                        sprint["n"] = int(m3.group(1))
+                        mg = SPRINT_MAX_GAMES_RE.search(line)
+                        if mg:
+                            sprint["max_games"] = int(mg.group(1))
+                        continue
+                    m4 = SPRINT_MARKER_RE.match(line)
+                    if m4:
+                        sprint["k"] = int(m4.group(1))
+                        continue
+                    m5 = SPRINT_LLR_RE.search(line)
+                    if m5:
+                        sprint["llr"] = float(m5.group(1))
+                        sprint["bound_lo"] = float(m5.group(2))
+                        sprint["bound_hi"] = float(m5.group(3))
+                        continue
+                else:
+                    m2 = TOTAL_GAMES_RE.match(line) or TOTAL_GAMES_COVER_ALL_RE.match(line)
+                    if m2:
+                        total = int(m2.group(1))
     except FileNotFoundError:
         pass
-    return games, total
+    return games, total, sprint
 
 
 def parse_etime(s):
@@ -266,22 +355,65 @@ def read_result(result_json):
         return None
 
 
+def _verdict_sidecar_path(result_json):
+    """Mirrors the Rust side's `PathBuf::with_extension("verdict.json")`
+    in run_gate() -- "combined.json" -> "combined.verdict.json"."""
+    base, _ext = os.path.splitext(result_json)
+    return base + ".verdict.json"
+
+
 def get_status_data(run_id):
     run = RUNS[run_id]
     running = run_is_running(run)
-    games, total = read_progress(run_id, run["log_file"])
-    result = read_result(run["result_json"])
+    chunked_dir = _chunked_run_dir(run["result_json"])
+    games, total, sprint = read_progress(run_id, run["log_file"], chunked=bool(chunked_dir))
     completed = len(games)
+
+    # Chunked (sprint_gate.sh) runs: combined.json (this run's result_json)
+    # only gets rewritten once per sprint via combine_sprints_upto, so it
+    # can lag the log by up to a whole sprint while one is in flight -- read
+    # the latest sprint_NN.json for that window's own numbers instead, and
+    # fall back to combined.json once a sprint has actually finished and
+    # rewritten it (sprint_NN.json alone would under-report cumulative
+    # games/elo across the whole run).
+    live_json = run["result_json"]
+    if chunked_dir and running:
+        latest_sprint = _latest_sprint_json(chunked_dir)
+        if latest_sprint and not os.path.exists(run["result_json"]):
+            live_json = latest_sprint
+    result = read_result(live_json)
     elapsed = run_elapsed_seconds(run) if running else None
 
     eta_seconds = None
     avg_seconds = None
+    # No ETA for chunked/SPRT runs: total is None by construction (see
+    # read_progress), since there's no fixed target to divide by -- SPRT
+    # can stop at any game count up to max_games.
     if running and total and completed > 0 and elapsed is not None:
         avg_seconds = elapsed / completed
         eta_seconds = max(0.0, avg_seconds * (total - completed))
 
     verdict = None
-    if result is not None:
+    method = None
+    sidecar = read_result(_verdict_sidecar_path(run["result_json"]))
+    if sidecar is not None:
+        verdict = sidecar.get("verdict")
+        method = sidecar.get("method")
+        if method == "sprt" and sprint is not None:
+            # elo0/elo1/alpha/beta are fixed for the whole run (only in the
+            # sidecar, a per-sprint SPRT check writes the same values every
+            # time); llr/bound_lo/bound_hi/sprint k/N/games_played stay from
+            # the live log parse above, since that's current even mid-sprint
+            # (the sidecar only updates once a sprint's SPRT check finishes).
+            for k in ("elo0", "elo1", "alpha", "beta"):
+                sprint[k] = sidecar.get(k)
+            if sprint.get("llr") is None:
+                for k in ("llr", "bound_lo", "bound_hi"):
+                    sprint[k] = sidecar.get(k)
+    elif result is not None:
+        # Legacy fallback only: no persisted verdict/method (result predates
+        # the Rust-side sidecar write, or is a chunked run's own sprint_NN.json,
+        # which never gets a sidecar of its own -- only combined.json does).
         verdict = verdict_of(result.get("elo_diff", 0), result.get("los", 0))
 
     return {
@@ -294,6 +426,8 @@ def get_status_data(run_id):
         "games": games,
         "result": result,
         "verdict": verdict,
+        "method": method,
+        "sprint": sprint if chunked_dir else None,
         "log_file": run["log_file"],
         "kifu_available": bool(run["kifu_dir"] and os.path.isdir(run["kifu_dir"])),
     }
@@ -696,7 +830,10 @@ def get_todo_items():
 
 def get_history_data():
     files = sorted(
-        glob.glob(os.path.join(RESULTS_DIR, "*.json")),
+        # *.verdict.json sidecars (crates/sekirei-match-runner/src/main.rs's
+        # write_verdict_sidecar) live right next to their result file and
+        # match this same glob -- exclude them here, read per-result below.
+        (p for p in glob.glob(os.path.join(RESULTS_DIR, "*.json")) if not p.endswith(".verdict.json")),
         key=os.path.getmtime,
         reverse=True,
     )
@@ -719,12 +856,27 @@ def get_history_data():
             # isn't a broken gate output worth flagging, so skip it rather than
             # cluttering the history list with an irrelevant row.
             continue
+        # Prefer the persisted verdict+method (crates/sekirei-match-runner's
+        # write_verdict_sidecar) over re-deriving one from raw elo/los --
+        # that re-derivation is exactly what showed an SPRT-decided
+        # INCONCLUSIVE result as a CI-threshold "FAIL" (tasks/lessons.md,
+        # 2026-07-12). Only fall back to the estimate for files that predate
+        # the sidecar (method stays None so the frontend can mark it as such).
+        sidecar = read_result(_verdict_sidecar_path(path))
+        if sidecar is not None:
+            verdict = sidecar.get("verdict")
+            method = sidecar.get("method")
+        else:
+            verdict = verdict_of(elo, los)
+            method = None
         entries.append(
             {
                 "file": name,
                 "mtime": mtime,
                 "mtime_str": mtime_iso,
-                "verdict": verdict_of(elo, los),
+                "verdict": verdict,
+                "method": method,
+                "sprt": sidecar if method == "sprt" else None,
                 "elo_diff": elo,
                 "elo_ci_low": r.get("elo_ci_low"),
                 "elo_ci_high": r.get("elo_ci_high"),
@@ -964,6 +1116,23 @@ const TRANSLATIONS = {
     noResultYet: "結果ファイルはまだありません (実行中、または未開始)。",
     interimResult: "途中経過(暫定)",
     tipInterimResult: "実行中のゲートの現時点でのスナップショットに、通常のCI基準(pass_elo/pass_los)を当てはめた参考値です。SPRT等の別の判定方式を使っている場合、最終判定とは一致しません。実行完了後にゲート本体が出す判定を確認してください。",
+    // 用語の平易な言い換え(常時表示、ホバー不要) -- Termコンポーネント用。
+    eloDiffPlain: "強さの差(Elo)", losPlain: "候補が強い確信度",
+    plainPass: "候補の方が明確に強いと判断されました",
+    plainFail: "候補の方が明確に弱いと判断されました",
+    plainInconclusive: "まだ判断できません — 対局数が足りません",
+    showDetails: "詳細を表示", hideDetails: "詳細を隠す",
+    // SPRTゲージ(進捗が固定分母を持たないSPRT実行向け)。
+    llrGaugeFail: "不採用", llrGaugePass: "採用", llrGaugeInconclusive: "判断保留",
+    sprintOf: "スプリント", ofN: "全", maxGamesLabel: "上限", gamesPlayedLabel: "消化局数",
+    tipLlrGauge: "LLR(対数尤度比)が左端(不採用境界)から右端(採用境界)のどこにあるかを示します。中央付近にとどまったまま上限に達すると、判断保留のまま終了します。",
+    // 判定根拠のキャプション(方式ごとに出し分け)。
+    rationaleSprt: "SPRT判定",
+    rationaleCi: "信頼区間(CI)判定",
+    rationaleLegacy: "ダッシュボード推定値(旧形式、判定方式の記録なし)",
+    // ゲート一覧+詳細の統合ページ。
+    gatesTitle: "ゲート", viewDetail: "詳細を見る", backToList: "一覧に戻る",
+    ciChartCiOnlySuffix: "(CI判定の実行のみ対象、SPRT実行には適用不可)",
     liveTally: "現在の内訳",
     recentGames: "対局ログ", colGame: "局", colE1: "Engine1", colE2: "Engine2",
     colResult: "結果", colMoves: "手数", colTime: "時刻", noGamesYet: "まだログ行がありません。",
@@ -1081,6 +1250,19 @@ const TRANSLATIONS = {
     noResultYet: "No result file yet (running, or not started).",
     interimResult: "Interim (provisional)",
     tipInterimResult: "A reference value only: the plain CI thresholds (pass_elo/pass_los) applied to the current in-progress snapshot. If this gate uses a different decision method (e.g. SPRT), this won't match the final verdict -- check the gate's own output once it finishes.",
+    eloDiffPlain: "strength diff (Elo)", losPlain: "confidence candidate is stronger",
+    plainPass: "Candidate is clearly stronger",
+    plainFail: "Candidate is clearly weaker",
+    plainInconclusive: "Not decided yet -- needs more games",
+    showDetails: "Show details", hideDetails: "Hide details",
+    llrGaugeFail: "FAIL", llrGaugePass: "PASS", llrGaugeInconclusive: "undecided",
+    sprintOf: "sprint", ofN: "of", maxGamesLabel: "cap", gamesPlayedLabel: "games played",
+    tipLlrGauge: "Where the log-likelihood ratio (LLR) sits between the FAIL bound (left) and PASS bound (right). If it stays near the middle until the cap is reached, the run ends undecided.",
+    rationaleSprt: "SPRT verdict",
+    rationaleCi: "Confidence-interval (CI) verdict",
+    rationaleLegacy: "Dashboard estimate (legacy file, no recorded decision method)",
+    gatesTitle: "Gates", viewDetail: "View detail", backToList: "Back to list",
+    ciChartCiOnlySuffix: "(CI-decided runs only, not applicable to SPRT runs)",
     liveTally: "Current tally",
     recentGames: "Game log", colGame: "Game", colE1: "Engine1", colE2: "Engine2",
     colResult: "Result", colMoves: "Moves", colTime: "Time", noGamesYet: "No log lines yet.",
@@ -1246,11 +1428,102 @@ function ChartTooltip({ tooltip }) {
   );
 }
 
-function VerdictChip({ verdict, t, size }) {
+// Plain-language label + value, always visible -- the deep explanation
+// moves to a Tooltip on the label instead of being the only way to learn
+// what a number means (hover-only tooltips weren't enough on their own,
+// see tasks/lessons.md 2026-07-12: users have to already suspect they don't
+// understand a term before they'd think to hover it).
+function Term({ label, tip, value }) {
+  return (
+    <Box component="span">
+      {tip ? (
+        <Tooltip title={tip} arrow>
+          <span style={{ borderBottom: "1px dotted", cursor: "help" }}>{label}</span>
+        </Tooltip>
+      ) : (
+        <span>{label}</span>
+      )}
+      {": "}
+      <strong>{value}</strong>
+    </Box>
+  );
+}
+
+function plainVerdictSummary(verdict, t) {
+  if (verdict === "PASS") return t.plainPass;
+  if (verdict === "FAIL") return t.plainFail;
+  return t.plainInconclusive;
+}
+
+// Raw SVG gauge for an SPRT run's live LLR position between its FAIL bound
+// (left) and PASS bound (right) -- replaces a percentage progress bar for
+// chunked/SPRT runs, which have no fixed total to divide by (see
+// get_status_data / read_progress in the Python half: `sprint` is only
+// present for a scripts/sprint_gate.sh-orchestrated run).
+function LLRGauge({ llr, boundLo, boundHi, t, width = 320, height = 40 }) {
+  const theme = useTheme();
+  const V = useMemo(() => verdictHex(theme), [theme]);
+  const margin = 8;
+  const usable = width - margin * 2;
+  const span = boundHi - boundLo;
+  const pos = (v) => margin + Math.max(0, Math.min(1, (v - boundLo) / span)) * usable;
+  const zeroX = pos(0);
+  const markerX = pos(llr);
+  return (
+    <Tooltip title={t.tipLlrGauge} arrow>
+      <svg width={width} height={height} role="img">
+        <rect x={margin} y={height / 2 - 6} width={usable} height={12} rx={6} fill={V.INCONCLUSIVE} opacity={0.35} />
+        <rect x={margin} y={height / 2 - 6} width={Math.max(0, zeroX - margin)} height={12} rx={6} fill={V.FAIL} opacity={0.25} />
+        <rect x={zeroX} y={height / 2 - 6} width={Math.max(0, margin + usable - zeroX)} height={12} rx={6} fill={V.PASS} opacity={0.25} />
+        <circle cx={markerX} cy={height / 2} r={7} fill={V.INCONCLUSIVE} stroke="#fff" strokeWidth={1.5} />
+        <text x={margin} y={height - 2} fontSize={10} fill={V.INCONCLUSIVE}>{t.llrGaugeFail}</text>
+        <text x={width - margin} y={height - 2} fontSize={10} fill={V.INCONCLUSIVE} textAnchor="end">{t.llrGaugePass}</text>
+        <text x={markerX} y={12} fontSize={10} fill={V.INCONCLUSIVE} textAnchor="middle">{llr.toFixed(2)}</text>
+      </svg>
+    </Tooltip>
+  );
+}
+
+function VerdictChip({ verdict, t, size, outlined }) {
   return (
     <Tooltip title={t[VERDICT_TIP_KEY[verdict]] || ""} arrow>
-      <Chip size={size || "medium"} label={verdict} color={VERDICT_COLOR[verdict]} />
+      <Chip
+        size={size || "medium"}
+        label={verdict}
+        color={VERDICT_COLOR[verdict]}
+        variant={outlined ? "outlined" : "filled"}
+      />
     </Tooltip>
+  );
+}
+
+// One-line plain-language explanation of *why* a verdict came out the way it
+// did, branched on the persisted decision method (crates/sekirei-match-runner's
+// write_verdict_sidecar) -- a row with no method is a legacy file (predates
+// that write), shown distinctly rather than silently treated as CI-decided.
+// See tasks/lessons.md 2026-07-12: re-deriving a verdict from raw elo/los
+// regardless of method is exactly what showed an SPRT INCONCLUSIVE as "FAIL".
+function VerdictRationale({ method, row, t }) {
+  if (method === "sprt" && row.sprt) {
+    const { llr, bound_lo, bound_hi, elo0, elo1, alpha, beta } = row.sprt;
+    return (
+      <Typography variant="caption" color="text.secondary" component="div">
+        {t.rationaleSprt}: LLR {llr?.toFixed(2)} ({bound_lo?.toFixed(2)} 〜 {bound_hi?.toFixed(2)}),
+        {" "}H0(elo≤{elo0}) vs H1(elo≥{elo1}), α=β={alpha ?? beta}
+      </Typography>
+    );
+  }
+  if (method === "ci") {
+    return (
+      <Typography variant="caption" color="text.secondary" component="div">
+        {t.rationaleCi}: elo_diff={row.elo_diff?.toFixed(1)}
+      </Typography>
+    );
+  }
+  return (
+    <Typography variant="caption" color="warning.main" component="div">
+      {t.rationaleLegacy}
+    </Typography>
   );
 }
 
@@ -1766,7 +2039,7 @@ function HistoryPage({ t }) {
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h5">{t.historyTitle}</Typography>
+        <Typography variant="h5">{t.gatesTitle}</Typography>
         <Stack direction="row" spacing={2} alignItems="center">
           <SecondsAgo updatedAt={updatedAt} t={t} />
           <Button variant="outlined" size="small" onClick={refresh}>⟳ {t.refresh}</Button>
@@ -1776,7 +2049,7 @@ function HistoryPage({ t }) {
         { label: t.qsTotalResults, value: entries.filter((e) => !e.error).length },
         ...(passRate != null ? [{ label: t.qsPassRate, value: `${passRate}%` }] : []),
         { label: t.qsInconclusive, value: inconclusiveCount },
-        ...(latestEntry ? [{ label: t.qsLatest, value: <VerdictChip verdict={latestEntry.verdict} t={t} size="small" /> }] : []),
+        ...(latestEntry ? [{ label: t.qsLatest, value: <VerdictChip verdict={latestEntry.verdict} t={t} size="small" outlined={!latestEntry.method} /> }] : []),
         ...(latestEntry && latestEntry.diversity_ratio != null
           ? [{ label: t.qsDiversity, value: <DiversityValue ratio={latestEntry.diversity_ratio} t={t} /> }]
           : []),
@@ -1798,10 +2071,16 @@ function HistoryPage({ t }) {
           ))}
         </Stack>
       </Stack>
-      {gateRows.length > 0 && (
-        <CollapsiblePanel id="ciChart" title={t.ciChartTitle}>
+      {/* CI what-if chart is a CI-threshold concept (draggable pass/fail elo
+          lines) -- an SPRT-decided row was never judged against those lines,
+          so including it here would visually imply a bound it doesn't have.
+          method == null (legacy, no recorded method) still shows: it's the
+          dashboard's own CI-threshold estimate, so the chart *is* what
+          decided it. */}
+      {gateRows.filter((r) => r.method !== "sprt").length > 0 && (
+        <CollapsiblePanel id="ciChart" title={`${t.ciChartTitle} ${t.ciChartCiOnlySuffix}`}>
           <Box sx={{ overflowX: "auto" }}>
-            <CiBarChart rows={gateRows} passElo={20} failElo={-10} t={t} onSelect={selectRow} />
+            <CiBarChart rows={gateRows.filter((r) => r.method !== "sprt")} passElo={20} failElo={-10} t={t} onSelect={selectRow} />
           </Box>
         </CollapsiblePanel>
       )}
@@ -1830,7 +2109,7 @@ function HistoryPage({ t }) {
               return "";
             }
             if (key === "compared") return row.compared || <em title={t.historyNote}>{t.unknownCompared}</em>;
-            if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" />;
+            if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" outlined={!row.method} />;
             if (key === "elo_diff") return row.elo_diff.toFixed(1);
             if (key === "los") return (row.los * 100).toFixed(1) + "%";
             if (key === "diversity_ratio") return <DiversityValue ratio={row.diversity_ratio} t={t} />;
@@ -1844,6 +2123,62 @@ function HistoryPage({ t }) {
           }}
         />
       )}
+    </Box>
+  );
+}
+
+// Merges the old separate "過去のゲート結果一覧"/"実行状況" pages into one:
+// currently-tracked runs (live or just-finished, from /api/runs) are always
+// visible right here as clickable chips instead of requiring a separate nav
+// item to discover them -- clicking one opens the same StatusPage detail
+// view as before, with a way back to this list. See tasks/lessons.md,
+// 2026-07-12: having "is this run running" live only on a page you had to
+// already know to check was part of what made the dashboard hard to follow.
+function GatesPage({ t, statusRunId, onSelectRunId }) {
+  const [detailRunId, setDetailRunId] = useState(null);
+  const { data: runsData, refresh: refreshRuns } = useApi("/api/runs", 5000);
+  const liveRuns = runsData?.runs || [];
+
+  const openDetail = (id) => {
+    setDetailRunId(id);
+    onSelectRunId(id);
+  };
+  const handleStarted = (runId) => {
+    refreshRuns();
+    openDetail(runId);
+  };
+
+  if (detailRunId) {
+    return (
+      <StatusPage
+        t={t}
+        selectedRunId={detailRunId}
+        onSelectRun={openDetail}
+        onBack={() => setDetailRunId(null)}
+      />
+    );
+  }
+
+  return (
+    <Box>
+      {liveRuns.length > 0 && (
+        <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: "wrap", rowGap: 1 }}>
+          {liveRuns.map((r) => (
+            <Chip
+              key={r.id}
+              label={`${r.running ? "● " : ""}${r.label} — ${t.viewDetail}`}
+              color={r.running ? "success" : "default"}
+              variant={r.running ? "filled" : "outlined"}
+              onClick={() => openDetail(r.id)}
+              clickable
+            />
+          ))}
+        </Stack>
+      )}
+      <StartGateForm t={t} onStarted={handleStarted} />
+      <AttachRunForm t={t} onAttached={handleStarted} />
+      <Divider sx={{ mb: 2 }} />
+      <HistoryPage t={t} />
     </Box>
   );
 }
@@ -2070,7 +2405,7 @@ function OpeningSanityPage({ t }) {
   );
 }
 
-function StatusPage({ t, selectedRunId, onSelectRun }) {
+function StatusPage({ t, selectedRunId, onSelectRun, onBack }) {
   const { data: runsData, refresh: refreshRuns } = useApi("/api/runs", 5000);
   const runs = runsData?.runs || [];
   const { data, updatedAt, refresh } = useApi(`/api/status?run=${selectedRunId}`, 4000);
@@ -2116,7 +2451,7 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
 
   if (!data) return <Typography>Loading…</Typography>;
 
-  const { running, completed, total, eta_seconds, avg_seconds, elapsed_seconds, games, result, verdict } = data;
+  const { running, completed, total, eta_seconds, avg_seconds, elapsed_seconds, games, result, verdict, method, sprint } = data;
   const pct = total ? Math.min(100, (completed / total) * 100) : 0;
   const stateLabel = running ? t.stateRunning : (result ? t.stateDone : t.stateStopped);
   const stateColor = running ? "success" : (result ? "primary" : "default");
@@ -2130,7 +2465,12 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
   return (
     <Box>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ mb: 2 }}>
-        <Typography variant="h5">{t.statusTitle}</Typography>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {onBack && (
+            <Button size="small" onClick={onBack}>← {t.backToList}</Button>
+          )}
+          <Typography variant="h5">{t.statusTitle}</Typography>
+        </Stack>
         <Stack direction="row" spacing={2} alignItems="center">
           <SecondsAgo updatedAt={updatedAt} t={t} />
           {typeof Notification !== "undefined" && !notifyEnabled && (
@@ -2153,9 +2493,29 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
 
       <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
         <Chip label={stateLabel} color={stateColor} />
-        <Typography variant="body2">{t.progress}: {completed}{total ? `/${total}` : ""}{total ? ` (${pct.toFixed(0)}%)` : ""}</Typography>
+        {!sprint && (
+          <Typography variant="body2">{t.progress}: {completed}{total ? `/${total}` : ""}{total ? ` (${pct.toFixed(0)}%)` : ""}</Typography>
+        )}
       </Stack>
-      {total ? <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4, mb: 1 }} /> : null}
+      {sprint ? (
+        // Chunked (sprint_gate.sh) run: no fixed total to divide by -- SPRT
+        // can stop at any game count up to max_games, so a percentage bar
+        // would be fabricating a denominator (see tasks/lessons.md,
+        // 2026-07-12, the "187/54 (100%)" bug this replaces). Show sprint
+        // progress + live LLR position instead.
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="body2" sx={{ mb: 0.5 }}>
+            {sprint.k != null && sprint.n != null && `${t.sprintOf} ${sprint.k} / ${sprint.n}`}
+            {sprint.max_games != null && `  ·  ${t.maxGamesLabel} ${sprint.max_games}`}
+            {`  ·  ${t.gamesPlayedLabel}: ${completed}`}
+          </Typography>
+          {sprint.llr != null && sprint.bound_lo != null && sprint.bound_hi != null && (
+            <LLRGauge llr={sprint.llr} boundLo={sprint.bound_lo} boundHi={sprint.bound_hi} t={t} />
+          )}
+        </Box>
+      ) : (
+        total ? <LinearProgress variant="determinate" value={pct} sx={{ height: 8, borderRadius: 4, mb: 1 }} /> : null
+      )}
       {completed > 0 && (
         <Typography variant="body2" sx={{ mb: 2 }}>
           {t.liveTally}: {gameRows[0]?.e1 || t.colE1} {e1Wins}{t.legendWin} — {gameRows[0]?.e2 || t.colE2} {e2Wins}{t.legendWin}
@@ -2163,9 +2523,9 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
         </Typography>
       )}
 
-      {running && (!total || completed === 0) && <Typography sx={{ mb: 2 }}>{t.etaEstimating}</Typography>}
-      {running && total && completed > 0 && total - completed <= 0 && <Typography sx={{ mb: 2 }}>{t.etaSoon}</Typography>}
-      {running && total && completed > 0 && total - completed > 0 && eta_seconds != null && (
+      {!sprint && running && (!total || completed === 0) && <Typography sx={{ mb: 2 }}>{t.etaEstimating}</Typography>}
+      {!sprint && running && total && completed > 0 && total - completed <= 0 && <Typography sx={{ mb: 2 }}>{t.etaSoon}</Typography>}
+      {!sprint && running && total && completed > 0 && total - completed > 0 && eta_seconds != null && (
         <Typography sx={{ mb: 2 }}>
           {t.etaLabel}: <strong>{formatDuration(eta_seconds, t)}</strong>
           {" "}({avg_seconds.toFixed(0)}{t.avgPerGame} &times; {total - completed} {t.remainingGames}, {t.elapsedLabel} {formatDuration(elapsed_seconds, t)})
@@ -2173,17 +2533,28 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
       )}
 
       {result ? (
-        <Card variant="outlined" sx={{ mb: 3, borderColor: running ? "divider" : `${VERDICT_COLOR[verdict]}.main`, borderWidth: 2 }}>
+        <Card variant="outlined" sx={{ mb: 3, borderColor: (running && method !== "sprt") ? "divider" : `${VERDICT_COLOR[verdict]}.main`, borderWidth: 2 }}>
           <CardContent>
-            <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
-              {running ? (
+            {running && method !== "sprt" ? (
+              // CI-threshold gates aren't designed to be peeked at mid-run
+              // (unlike SPRT, which is a *sequential* test by construction)
+              // -- a partial CI point-estimate is genuinely just noisy, so
+              // this stays a placeholder rather than a real verdict chip.
+              <Stack direction="row" spacing={2} alignItems="center" sx={{ mb: 1 }}>
                 <Tooltip title={t.tipInterimResult} arrow>
                   <Chip label={t.interimResult} variant="outlined" />
                 </Tooltip>
-              ) : (
-                <VerdictChip verdict={verdict} t={t} />
-              )}
-            </Stack>
+              </Stack>
+            ) : (
+              <Stack spacing={0.5} sx={{ mb: 1 }}>
+                <Stack direction="row" spacing={2} alignItems="center">
+                  <VerdictChip verdict={verdict} t={t} outlined={!method} />
+                  {running && <Chip size="small" label={t.stateRunning} variant="outlined" color="success" />}
+                </Stack>
+                <Typography variant="body2">{plainVerdictSummary(verdict, t)}</Typography>
+                <VerdictRationale method={method} row={{ ...result, sprt: sprint }} t={t} />
+              </Stack>
+            )}
             <Typography variant="body2">
               {result.diversity_ratio != null && (
                 <>
@@ -2191,10 +2562,9 @@ function StatusPage({ t, selectedRunId, onSelectRun }) {
                   =<DiversityValue ratio={result.diversity_ratio} t={t} />{" "}
                 </>
               )}
-              <Tooltip title={t.tipEloDiff} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>elo_diff</span></Tooltip>
-              ={result.elo_diff?.toFixed(2)}{" "}
-              <Tooltip title={t.tipLos} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>los</span></Tooltip>
-              ={(result.los * 100).toFixed(1)}% games={result.games}
+              <Term label={t.eloDiffPlain} tip={t.tipEloDiff} value={result.elo_diff?.toFixed(2)} />{"  "}
+              <Term label={t.losPlain} tip={t.tipLos} value={`${(result.los * 100).toFixed(1)}%`} />{"  "}
+              games={result.games}
               {" "}(e1_wins={result.engine1_wins} draws={result.draws} e2_wins={result.engine2_wins})
             </Typography>
             <Box sx={{ mt: 1 }}>
@@ -2459,7 +2829,7 @@ function StrengthPage({ t }) {
           rows={rows}
           highlightKey={highlight}
           renderCell={(key, row) => {
-            if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" />;
+            if (key === "verdict") return <VerdictChip verdict={row.verdict} t={t} size="small" outlined={!row.method} />;
             if (key === "elo_diff") return row.elo_diff.toFixed(1);
             if (key === "est_rating") return Math.round(row.est_rating);
             return row[key];
@@ -2630,7 +3000,7 @@ function ChatWidget({ t, page, statusRunId }) {
       // `page`/`run_id`: what's actually on screen right now, so the
       // assistant answers about the run the user is looking at instead of
       // only ever the "default" one.
-      body: JSON.stringify({ messages: next, page, run_id: page === "status" ? statusRunId : undefined }),
+      body: JSON.stringify({ messages: next, page, run_id: page === "history" ? statusRunId : undefined }),
     })
       .then((r) => r.json().then((body) => ({ ok: r.ok, body })))
       .then(({ ok, body }) => {
@@ -3214,10 +3584,14 @@ function KifuPage({ t, runId, gameN }) {
   );
 }
 
-const PAGES = ["history", "status", "strength", "kifu", "opening", "pipeline"];
+// "status" was a separate top-level page pre-2026-07-12, now merged into
+// "history" (see GatesPage) -- pageFromUrl() redirects old ?page=status
+// links here rather than listing it as its own valid page.
+const PAGES = ["history", "strength", "kifu", "opening", "pipeline"];
 
 function pageFromUrl() {
   const p = new URLSearchParams(window.location.search).get("page");
+  if (p === "status") return "history"; // old standalone-page bookmark -> merged GatesPage
   return PAGES.includes(p) ? p : "history";
 }
 
@@ -3304,7 +3678,6 @@ function App() {
 
   const NAV = [
     { key: "history", label: t.navHistory, Icon: IconHistory },
-    { key: "status", label: t.navStatus, Icon: IconStatus },
     { key: "strength", label: t.navStrength, Icon: IconStrength },
     { key: "opening", label: t.navOpening, Icon: IconOpening },
     { key: "pipeline", label: t.navPipeline, Icon: IconPipeline },
@@ -3398,8 +3771,7 @@ function App() {
       </Drawer>
       <Box component="main" sx={{ flexGrow: 1, p: 3, maxWidth: { xs: "100%", md: 960 }, width: "100%", overflowX: "hidden" }}>
         {isMobile && <Toolbar />}
-        {page === "history" && <HistoryPage t={t} />}
-        {page === "status" && <StatusPage t={t} selectedRunId={statusRunId} onSelectRun={setStatusRunId} />}
+        {page === "history" && <GatesPage t={t} statusRunId={statusRunId} onSelectRunId={setStatusRunId} />}
         {page === "strength" && <StrengthPage t={t} />}
         {page === "opening" && <OpeningSanityPage t={t} />}
         {page === "pipeline" && <PipelinePage t={t} />}
