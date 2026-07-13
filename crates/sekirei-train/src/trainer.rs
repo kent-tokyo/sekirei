@@ -68,6 +68,75 @@ fn wdl_target_cp(result: GameResult, stm: Color) -> Option<f32> {
     Some((wdl - 0.5) * 1200.0)
 }
 
+// ---- Learning-rate schedule ----
+
+/// Per-epoch learning-rate schedule. `StepHalf` is today's original (and
+/// default) behaviour, exposed as a named option instead of a hardcoded
+/// formula so it can be compared against alternatives without editing
+/// source -- the schedule itself became a suspect once a gated candidate
+/// turned out to have been promoted from only 3 of 20 scheduled epochs,
+/// at a point `StepHalf` had already decayed the LR to 1/4 of its start
+/// (see `tasks/lessons.md`, 2026-07-13 Gate B entry).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LrSchedule {
+    /// Fixed at `base_lr` (after warmup) for the whole run.
+    Constant,
+    /// `base_lr * 0.5^(epoch-1)` -- halves every epoch. Matches every
+    /// training run before this flag existed.
+    StepHalf,
+    /// Cosine decay from `base_lr` down to `min_lr`, reaching `min_lr`
+    /// exactly at the final epoch.
+    Cosine,
+}
+
+impl LrSchedule {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "constant" => Some(LrSchedule::Constant),
+            "step-half" => Some(LrSchedule::StepHalf),
+            "cosine" => Some(LrSchedule::Cosine),
+            _ => None,
+        }
+    }
+}
+
+/// Computes the learning rate for `epoch` (1-indexed) out of `total_epochs`.
+/// The first `warmup_epochs` epochs ramp linearly from 0 to `base_lr`
+/// (epoch `warmup_epochs` itself lands exactly on `base_lr`); the chosen
+/// `schedule` then governs decay over the remaining epochs. `min_lr` is a
+/// floor applied to every schedule, not just `Cosine` -- without it,
+/// `StepHalf` decays toward zero forever on a long run (by epoch 20 it's
+/// already ~2e-9), which is itself part of what made an early-stopped
+/// `StepHalf` checkpoint hard to interpret: was the recipe undertrained,
+/// or had the schedule already made epoch 4+ pointless?
+pub fn compute_lr(
+    schedule: LrSchedule,
+    base_lr: f32,
+    min_lr: f32,
+    epoch: u32,
+    total_epochs: u32,
+    warmup_epochs: u32,
+) -> f32 {
+    if warmup_epochs > 0 && epoch <= warmup_epochs {
+        return (base_lr * epoch as f32 / warmup_epochs as f32).max(min_lr);
+    }
+    let e = epoch.saturating_sub(warmup_epochs).max(1);
+    let post_total = total_epochs.saturating_sub(warmup_epochs).max(1);
+    let lr = match schedule {
+        LrSchedule::Constant => base_lr,
+        LrSchedule::StepHalf => base_lr * 0.5_f32.powi((e - 1) as i32),
+        LrSchedule::Cosine => {
+            // Denominator is (post_total - 1), not post_total, so the last
+            // epoch's progress is exactly 1.0 -- cos(pi) = -1 -> lr = min_lr
+            // precisely on the final epoch, not asymptotically close to it.
+            let denom = post_total.saturating_sub(1).max(1) as f32;
+            let progress = ((e - 1) as f32 / denom).min(1.0);
+            min_lr + 0.5 * (base_lr - min_lr) * (1.0 + (std::f32::consts::PI * progress).cos())
+        }
+    };
+    lr.max(min_lr)
+}
+
 // ---- Deterministic PRNG for weight init (same LCG constants as
 // sekirei-match-runner's `Lcg` -- Knuth MMIX) ----
 
@@ -205,6 +274,27 @@ impl TrainWeights {
             out_bias: self.out_bias,
         }
     }
+
+    /// Flattened concat of every trainable parameter (not the Adam
+    /// moments) -- used to compute a whole-network update-norm between
+    /// two epoch boundaries, not for saving/loading.
+    pub fn snapshot_params(&self) -> Vec<f32> {
+        let mut v = Vec::with_capacity(
+            self.ft.len()
+                + self.ft_bias.len()
+                + self.l2.len()
+                + self.l2_bias.len()
+                + self.out.len()
+                + 1,
+        );
+        v.extend_from_slice(&self.ft);
+        v.extend_from_slice(&self.ft_bias);
+        v.extend_from_slice(&self.l2);
+        v.extend_from_slice(&self.l2_bias);
+        v.extend_from_slice(&self.out);
+        v.push(self.out_bias);
+        v
+    }
 }
 
 // ---- Trainer ----
@@ -216,6 +306,21 @@ pub struct Trainer {
     pub total_weight: f64,    // sum of weights (for avg_weight log)
     pub dropped_missing: u64, // positions skipped (not in scored map)
     pub lr: f32,
+    // Per-epoch diagnostics. These are "ever" flags over the whole epoch,
+    // not a per-sample snapshot -- a dead neuron is one that never fires
+    // across an entire epoch of real data, not one that happens to read
+    // zero on a single sample (that's what actually distinguishes the
+    // 2026-07-09 capacity-collapse bug from normal ReLU sparsity). Only
+    // `train_position`'s forward pass updates these; `eval_positions`/
+    // `eval_game`'s validation-only forward passes must not, since these
+    // measure what training actually touched, not what validation looked
+    // at. Reset every epoch by `reset_epoch_stats`.
+    pub ft_ever_active: Vec<bool>,
+    pub ft_ever_saturated: Vec<bool>,
+    pub l2_ever_active: Vec<bool>,
+    pub l2_ever_saturated: Vec<bool>,
+    pub output_sum: f64,
+    pub output_sum_sq: f64,
     searcher: Searcher,
 }
 
@@ -229,6 +334,12 @@ impl Trainer {
             total_weight: 0.0,
             dropped_missing: 0,
             lr: 0.001,
+            ft_ever_active: vec![false; L1],
+            ft_ever_saturated: vec![false; L1],
+            l2_ever_active: vec![false; L2],
+            l2_ever_saturated: vec![false; L2],
+            output_sum: 0.0,
+            output_sum_sq: 0.0,
             searcher: Searcher::new(tt),
         }
     }
@@ -356,6 +467,36 @@ impl Trainer {
         (raw, weighted, count)
     }
 
+    /// Computes the teacher target for a single position: a clamped
+    /// search eval, optionally blended with the game's own WDL result.
+    /// Shared by `train_game` (updates weights) and `eval_game`
+    /// (validation-only) so both measure against the exact same
+    /// objective -- routing validation through a pure-eval-only path
+    /// (like `eval_positions`) would silently validate against a
+    /// different target than the one being trained whenever `wdl_lambda`
+    /// is set, since `eval_positions` never blends in a WDL term.
+    ///
+    fn position_teacher(
+        &mut self,
+        board: &mut Board,
+        result: GameResult,
+        label_depth: u32,
+        wdl_lambda: Option<f32>,
+    ) -> f32 {
+        let config = SearchConfig {
+            max_depth: label_depth,
+            time_limit: None,
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let info = self.searcher.search(board, config);
+        let eval_teacher = (info.score as f32).clamp(-600.0, 600.0);
+        match (wdl_lambda, wdl_target_cp(result, board.side_to_move)) {
+            (Some(lambda), Some(wdl_target)) => lambda * eval_teacher + (1.0 - lambda) * wdl_target,
+            _ => eval_teacher,
+        }
+    }
+
     /// Train on a single game.  Samples every `sample_every` plies.
     /// `wdl_lambda`: `None` trains on `eval_teacher` alone (default,
     /// backward-compatible). `Some(λ)` blends in the game's own result from
@@ -416,24 +557,59 @@ impl Trainer {
                 }
             };
 
-            let config = SearchConfig {
-                max_depth: label_depth,
-                time_limit: None,
-                soft_limit: None,
-                multi_pv: 1,
-            };
-            let info = self.searcher.search(&mut board, config);
-            let eval_teacher = (info.score as f32).clamp(-600.0, 600.0);
-            let teacher = match (wdl_lambda, wdl_target_cp(game.result, board.side_to_move)) {
-                (Some(lambda), Some(wdl_target)) => {
-                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
-                }
-                _ => eval_teacher,
-            };
+            let teacher = self.position_teacher(&mut board, game.result, label_depth, wdl_lambda);
             self.train_position(&board, teacher, weight);
 
             board.do_move(mv);
         }
+    }
+
+    /// Forward-only pass over a single game for validation loss (no
+    /// weight updates, no epoch-stat/diagnostic-counter mutation --
+    /// validation measures what training touched, not what validation
+    /// itself looked at). Mirrors `train_game`'s replay/sample loop, but
+    /// returns a plain `(loss_sum, count)`: CSA-path training has no
+    /// weighted-loss axis (unlike the positions path's phase/side
+    /// weights) to validate against, so there's nothing to weight here.
+    pub fn eval_game(
+        &mut self,
+        game: &CsaGame,
+        sample_every: usize,
+        quiet: bool,
+        min_ply: usize,
+        label_depth: u32,
+        wdl_lambda: Option<f32>,
+    ) -> (f64, u64) {
+        let mut board = Board::startpos();
+        let mut loss_sum = 0.0f64;
+        let mut count = 0u64;
+
+        for (ply, &mv) in game.moves.iter().enumerate() {
+            if ply < min_ply || ply % sample_every != 0 {
+                board.do_move(mv);
+                continue;
+            }
+            if quiet {
+                if is_in_check(&board, board.side_to_move) {
+                    board.do_move(mv);
+                    continue;
+                }
+                if board.piece_at(mv.to).is_some() {
+                    board.do_move(mv);
+                    continue;
+                }
+            }
+
+            let teacher = self.position_teacher(&mut board, game.result, label_depth, wdl_lambda);
+            let score = self.forward(&board);
+            let err = (score - teacher) as f64;
+            loss_sum += err * err;
+            count += 1;
+
+            board.do_move(mv);
+        }
+
+        (loss_sum, count)
     }
 
     /// Forward pass only — returns score without any weight update.
@@ -503,6 +679,14 @@ impl Trainer {
         // FT ClippedReLU [0, 127]
         let relu_us: Vec<f32> = acc_us.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
         let relu_them: Vec<f32> = acc_them.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+        for j in 0..L1 {
+            if relu_us[j] > 0.0 || relu_them[j] > 0.0 {
+                self.ft_ever_active[j] = true;
+            }
+            if relu_us[j] >= 127.0 || relu_them[j] >= 127.0 {
+                self.ft_ever_saturated[j] = true;
+            }
+        }
 
         // L2 accumulation
         let mut l2_acc = w.l2_bias.clone(); // Vec<f32> len=L2
@@ -519,6 +703,14 @@ impl Trainer {
 
         // L2 ClippedReLU [0, 127]
         let relu_l2: Vec<f32> = l2_acc.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+        for o in 0..L2 {
+            if relu_l2[o] > 0.0 {
+                self.l2_ever_active[o] = true;
+            }
+            if relu_l2[o] >= 127.0 {
+                self.l2_ever_saturated[o] = true;
+            }
+        }
 
         // Output
         let mut output = w.out_bias;
@@ -526,6 +718,8 @@ impl Trainer {
             output += relu_l2[o] * w.out[o];
         }
         let score = output / 64.0;
+        self.output_sum += score as f64;
+        self.output_sum_sq += (score as f64) * (score as f64);
 
         // ── Loss ──────────────────────────────────────────────────────────────
 
@@ -674,6 +868,12 @@ impl Trainer {
         self.total_count = 0;
         self.total_weight = 0.0;
         self.dropped_missing = 0;
+        self.ft_ever_active.iter_mut().for_each(|b| *b = false);
+        self.ft_ever_saturated.iter_mut().for_each(|b| *b = false);
+        self.l2_ever_active.iter_mut().for_each(|b| *b = false);
+        self.l2_ever_saturated.iter_mut().for_each(|b| *b = false);
+        self.output_sum = 0.0;
+        self.output_sum_sq = 0.0;
     }
 }
 
@@ -836,5 +1036,83 @@ mod tests {
     fn wdl_target_unknown_result_has_no_signal() {
         assert_eq!(wdl_target_cp(GameResult::Unknown, Color::Black), None);
         assert_eq!(wdl_target_cp(GameResult::Unknown, Color::White), None);
+    }
+
+    #[test]
+    fn compute_lr_step_half_matches_original_hardcoded_formula() {
+        // No warmup, no min_lr floor -- must reproduce the exact pre-flag behaviour.
+        assert_eq!(
+            compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 1, 20, 0),
+            0.001
+        );
+        assert_eq!(
+            compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 2, 20, 0),
+            0.0005
+        );
+        assert!((compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 3, 20, 0) - 0.00025).abs() < 1e-9);
+    }
+
+    #[test]
+    fn compute_lr_constant_ignores_epoch() {
+        assert_eq!(
+            compute_lr(LrSchedule::Constant, 0.001, 0.0, 1, 20, 0),
+            0.001
+        );
+        assert_eq!(
+            compute_lr(LrSchedule::Constant, 0.001, 0.0, 20, 20, 0),
+            0.001
+        );
+    }
+
+    #[test]
+    fn compute_lr_min_lr_floors_step_half_too() {
+        // By epoch 20, unfloored step-half is ~1.9e-9 -- min_lr must clamp it up.
+        let lr = compute_lr(LrSchedule::StepHalf, 0.001, 0.0001, 20, 20, 0);
+        assert_eq!(lr, 0.0001);
+    }
+
+    #[test]
+    fn compute_lr_cosine_starts_at_base_and_ends_at_min_lr_exactly() {
+        let first = compute_lr(LrSchedule::Cosine, 0.001, 0.00001, 1, 20, 0);
+        let last = compute_lr(LrSchedule::Cosine, 0.001, 0.00001, 20, 20, 0);
+        assert!((first - 0.001).abs() < 1e-9);
+        assert_eq!(last, 0.00001);
+    }
+
+    #[test]
+    fn compute_lr_warmup_ramps_linearly_and_lands_on_base_lr() {
+        let half = compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 2, 20, 4);
+        assert!((half - 0.0005).abs() < 1e-9); // epoch 2/4 warmup = 50% of base_lr
+        let at_boundary = compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 4, 20, 4);
+        assert!((at_boundary - 0.001).abs() < 1e-9); // epoch == warmup_epochs -> exactly base_lr
+        let first_post_warmup = compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 5, 20, 4);
+        assert!((first_post_warmup - 0.001).abs() < 1e-9); // decay restarts fresh from base_lr
+    }
+
+    #[test]
+    fn compute_lr_single_epoch_run_uses_base_lr_for_every_schedule() {
+        assert_eq!(compute_lr(LrSchedule::StepHalf, 0.001, 0.0, 1, 1, 0), 0.001);
+        assert_eq!(compute_lr(LrSchedule::Constant, 0.001, 0.0, 1, 1, 0), 0.001);
+        assert!((compute_lr(LrSchedule::Cosine, 0.001, 0.0, 1, 1, 0) - 0.001).abs() < 1e-9);
+    }
+
+    #[test]
+    fn compute_lr_warmup_equals_total_epochs_never_panics() {
+        // Every epoch falls inside the warmup window -- the post-warmup
+        // divide-by-zero guard must never actually be exercised, but the
+        // whole range must still compute without panicking.
+        for epoch in 1..=5u32 {
+            let lr = compute_lr(LrSchedule::Cosine, 0.001, 0.0, epoch, 5, 5);
+            assert!(lr.is_finite() && lr >= 0.0);
+        }
+        assert_eq!(compute_lr(LrSchedule::Cosine, 0.001, 0.0, 5, 5, 5), 0.001);
+    }
+
+    #[test]
+    fn lr_schedule_parse_roundtrips_known_names_and_rejects_unknown() {
+        assert_eq!(LrSchedule::parse("constant"), Some(LrSchedule::Constant));
+        assert_eq!(LrSchedule::parse("step-half"), Some(LrSchedule::StepHalf));
+        assert_eq!(LrSchedule::parse("cosine"), Some(LrSchedule::Cosine));
+        assert_eq!(LrSchedule::parse("bogus"), None);
     }
 }

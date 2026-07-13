@@ -12,6 +12,7 @@
 
 mod book;
 mod csa;
+mod diagnostics;
 mod exporter;
 mod positions;
 mod scored;
@@ -29,7 +30,7 @@ use csa::parse_csa;
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
-use trainer::Trainer;
+use trainer::{LrSchedule, Trainer};
 
 // ---- CLI argument parsing ----
 
@@ -63,6 +64,10 @@ struct Args {
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool, // --reuse-teacher-cache
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
+    lr: f32,   // --lr (base learning rate, default 0.001)
+    lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
+    min_lr: f32, // --min-lr (floor applied to every schedule, default 0.0)
+    warmup_epochs: u32, // --warmup-epochs (linear ramp to base_lr, default 0 = off)
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -131,6 +136,10 @@ fn parse_args() -> Result<Args, String> {
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
     let mut wdl_lambda: Option<f32> = None;
+    let mut lr = 0.001f32;
+    let mut lr_schedule = LrSchedule::StepHalf;
+    let mut min_lr = 0.0f32;
+    let mut warmup_epochs = 0u32;
     let mut i = 0;
 
     while i < argv.len() {
@@ -239,6 +248,30 @@ fn parse_args() -> Result<Args, String> {
                     wdl_lambda = s.parse().ok();
                 }
             }
+            "--lr" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    lr = s.parse().unwrap_or(0.001);
+                }
+            }
+            "--lr-schedule" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    lr_schedule = LrSchedule::parse(s).unwrap_or(LrSchedule::StepHalf);
+                }
+            }
+            "--min-lr" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    min_lr = s.parse().unwrap_or(0.0);
+                }
+            }
+            "--warmup-epochs" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    warmup_epochs = s.parse().unwrap_or(0);
+                }
+            }
             "--phase-weights" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -327,30 +360,130 @@ fn parse_args() -> Result<Args, String> {
         teacher_cache_path,
         reuse_teacher_cache,
         wdl_lambda,
+        lr,
+        lr_schedule,
+        min_lr,
+        warmup_epochs,
     })
 }
 
+/// Reads `git rev-parse HEAD` once at trainer startup. `None` if git
+/// isn't available or this isn't a git checkout -- metadata should
+/// degrade gracefully, not fail the whole run over a missing commit hash.
+fn git_commit_hash() -> Option<String> {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+}
+
+/// Cheap dataset fingerprint: hashes each file's path and size, not its
+/// contents -- fine for noticing "this run used a different dataset than
+/// that one," not meant to detect a byte-for-byte content change (reading
+/// every CSA file's contents just to fingerprint it would cost as much as
+/// parsing the dataset a second time). Reuses `positions::sfen_hash`'s
+/// FNV-1a as a general string hash rather than writing a second hash
+/// algorithm for the same purpose.
+fn dataset_hash(paths: &[PathBuf]) -> u64 {
+    let mut sorted: Vec<&PathBuf> = paths.iter().collect();
+    sorted.sort();
+    let joined: String = sorted
+        .iter()
+        .map(|p| {
+            let len = fs::metadata(p).map(|m| m.len()).unwrap_or(0);
+            format!("{}:{}\0", p.display(), len)
+        })
+        .collect();
+    positions::sfen_hash(&joined, 0)
+}
+
+/// Order-independent fingerprint of which positions/games landed in the
+/// validation split -- wrapping-add so duplicate keys can't cancel each
+/// other out the way XOR would. `dataset_hash` alone can't distinguish two
+/// different splits of the same dataset (different seed or ratio); this
+/// closes that gap.
+fn split_hash(keys: impl Iterator<Item = String>) -> u64 {
+    keys.fold(0u64, |acc, k| acc.wrapping_add(positions::sfen_hash(&k, 0)))
+}
+
+#[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
     args: &Args,
     epoch: usize,
     train_count: u64,
     valid_count: u64,
+    train_games: Option<u64>,
+    valid_games: Option<u64>,
+    split_hash: u64,
+    diag: &diagnostics::EpochDiagnostics,
+    git_commit: Option<&str>,
+    dataset_hash: u64,
 ) -> std::io::Result<()> {
     let meta = serde_json::json!({
         "epoch": epoch,
         "positions": args.positions_path,
+        "games_dir": args.games_dir,
+        "min_rate": args.min_rate,
+        "sample": args.sample,
         "scored": args.scored_path,
         "label_depth": args.label_depth,
+        "wdl_lambda": args.wdl_lambda,
         "phase_weights": args.phase_weights,
         "side_balance": args.side_balance,
         "source_cap": args.source_cap,
         "validation_ratio": args.validation_ratio,
+        // Serves double duty: seeds both weight initialization
+        // (TrainWeights::new_seeded) and the train/valid split.
         "seed": args.seed,
+        "lr": args.lr,
+        "lr_schedule": format!("{:?}", args.lr_schedule),
+        "min_lr": args.min_lr,
+        "warmup_epochs": args.warmup_epochs,
         "train_count": train_count,
         "valid_count": valid_count,
+        // Game-level counts; `None` on the positions path, which has no
+        // game grouping (each row is an independent labeled position).
+        "train_games": train_games,
+        "valid_games": valid_games,
+        // Fingerprint of which positions/games landed in validation --
+        // distinguishes different splits of the same dataset, which
+        // dataset_hash alone cannot.
+        "split_hash": split_hash,
+        "architecture": format!(
+            "INPUT={} L1={} L2={}",
+            sekirei_core::nnue::INPUT,
+            sekirei_core::nnue::L1,
+            sekirei_core::nnue::L2
+        ),
+        "git_commit": git_commit,
+        "dataset_hash": dataset_hash,
+        "param_update_norm": diag.param_update_norm,
+        "ft_active_ratio": diag.ft_active_ratio,
+        "l2_active_ratio": diag.l2_active_ratio,
+        "ft_saturation_ratio": diag.ft_saturation_ratio,
+        "l2_saturation_ratio": diag.l2_saturation_ratio,
+        "output_mean": diag.output_mean,
+        "output_std": diag.output_std,
+        "quantized_ft_zero_ratio": diag.quantized_ft_zero_ratio,
     });
     fs::write(path, serde_json::to_string_pretty(&meta).unwrap())
+}
+
+/// Partitions `0..n_games` into (train_idxs, valid_idxs) by hashing each
+/// GAME index -- every sample from one CSA game lands fully on one side,
+/// since the split key is the game index, not any per-sample value.
+fn split_games_by_index(
+    n_games: usize,
+    validation_ratio: f32,
+    seed: u64,
+) -> (Vec<usize>, Vec<usize>) {
+    let split_threshold = (validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
+    (0..n_games)
+        .partition(|&i| positions::sfen_hash(&i.to_string(), seed) % 1000 >= split_threshold)
 }
 
 fn print_usage() {
@@ -387,12 +520,22 @@ fn print_usage() {
     eprintln!(
         "  --wdl-lambda <f>    Blend in game result (CSA path only): teacher = λ·eval + (1-λ)·wdl (default: unset = eval-only)"
     );
+    eprintln!("  --lr <f>                Base learning rate (default: 0.001)");
+    eprintln!(
+        "  --lr-schedule <name>    constant | step-half | cosine (default: step-half, today's original behavior)"
+    );
+    eprintln!("  --min-lr <f>            Floor applied to every schedule (default: 0.0)");
+    eprintln!(
+        "  --warmup-epochs <n>     Linear ramp to base_lr over the first N epochs (default: 0 = off)"
+    );
     eprintln!(
         "  --phase-weights <spec>  Phase multipliers: opening=0.5,middlegame=1.0,endgame=1.2"
     );
     eprintln!("  --side-balance          Equalise black/white sample weights");
     eprintln!("  --source-cap <n>        Max samples per source file (0 = unlimited)");
-    eprintln!("  --validation-ratio <f>  Hold-out fraction for valid_loss (default: 0.0 = off)");
+    eprintln!(
+        "  --validation-ratio <f>  Hold-out fraction for valid_loss, both --games and --positions (default: 0.0 = off)"
+    );
     eprintln!(
         "  --seed <n>              Seed for validation split, source_cap, and weight init (default: 42)"
     );
@@ -437,9 +580,12 @@ fn main() {
         }
     };
 
+    let git_commit = git_commit_hash();
+
     // ---- positions mode (shogiesa JSONL) ----
     if let Some(pos_path) = &args.positions_path {
         eprintln!("Positions mode: loading {:?}", pos_path);
+        let ds_hash = dataset_hash(std::slice::from_ref(pos_path));
         let raw_samples = load_positions(pos_path);
         if raw_samples.is_empty() {
             eprintln!("No valid positions loaded");
@@ -468,6 +614,11 @@ fn main() {
                 let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
                 positions::sfen_hash(&sfen, args.seed) % 1000 >= split_threshold
             });
+        let split_h = split_hash(
+            valid_samples
+                .iter()
+                .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
+        );
         eprintln!(
             "  train={} valid={} (validation_ratio={:.2}, seed={})",
             train_samples.len(),
@@ -519,9 +670,19 @@ fn main() {
         };
 
         let mut trainer = Trainer::new(args.seed);
+        let mut prev_snapshot: Option<Vec<f32>> = None;
+        let mut best_valid_loss = f64::MAX;
+        let mut best_valid_checkpoint: Option<PathBuf> = None;
 
         for epoch in 1..=args.epochs {
-            trainer.lr = 0.001_f32 * 0.5_f32.powi((epoch - 1) as i32);
+            trainer.lr = trainer::compute_lr(
+                args.lr_schedule,
+                args.lr,
+                args.min_lr,
+                epoch as u32,
+                args.epochs as u32,
+                args.warmup_epochs,
+            );
             trainer.reset_epoch_stats();
             eprintln!("Epoch {epoch}/{} — lr = {:.6}", args.epochs, trainer.lr);
 
@@ -638,13 +799,78 @@ fn main() {
                 Ok(_) => eprintln!("  checkpoint → {:?}", checkpoint),
                 Err(e) => eprintln!("  checkpoint save failed: {e}"),
             }
+
+            let snapshot = trainer.weights.snapshot_params();
+            let param_update_norm = prev_snapshot
+                .as_ref()
+                .map(|prev| diagnostics::l2_diff_norm(prev, &snapshot));
+            prev_snapshot = Some(snapshot);
+            let (output_mean, output_std) = diagnostics::mean_std(
+                trainer.output_sum,
+                trainer.output_sum_sq,
+                trainer.total_count,
+            );
+            let diag = diagnostics::EpochDiagnostics {
+                param_update_norm,
+                ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
+                l2_active_ratio: diagnostics::ratio(&trainer.l2_ever_active),
+                ft_saturation_ratio: diagnostics::ratio(&trainer.ft_ever_saturated),
+                l2_saturation_ratio: diagnostics::ratio(&trainer.l2_ever_saturated),
+                output_mean,
+                output_std,
+                quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(&w),
+            };
+            eprintln!(
+                "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}",
+                diag.ft_active_ratio,
+                diag.l2_active_ratio,
+                diag.ft_saturation_ratio,
+                diag.l2_saturation_ratio,
+                diag.output_mean,
+                diag.output_std,
+                diag.quantized_ft_zero_ratio,
+                diag.param_update_norm
+                    .map(|n| format!("{n:.4}"))
+                    .unwrap_or_else(|| "n/a".to_string()),
+            );
+
             let meta_path = checkpoint.with_extension("meta.json");
-            if let Err(e) =
-                save_checkpoint_meta(&meta_path, &args, epoch, trainer.total_count, valid_count)
-            {
+            if let Err(e) = save_checkpoint_meta(
+                &meta_path,
+                &args,
+                epoch,
+                trainer.total_count,
+                valid_count,
+                None, // positions path has no game grouping
+                None,
+                split_h,
+                &diag,
+                git_commit.as_deref(),
+                ds_hash,
+            ) {
                 eprintln!("  metadata save failed: {e}");
             } else {
                 eprintln!("  metadata  → {:?}", meta_path);
+            }
+
+            // Valid-loss-based best checkpoint. Only tracked when
+            // validation is actually on -- with no held-out set there is
+            // no valid loss to select by, and `vcount==0` would otherwise
+            // make every epoch tie at 0.0.
+            if args.validation_ratio > 0.0 && vcount > 0 && vloss_raw < best_valid_loss {
+                best_valid_loss = vloss_raw;
+                best_valid_checkpoint = Some(checkpoint.clone());
+            }
+        }
+
+        if let Some(best_ckpt) = &best_valid_checkpoint {
+            let best_path = args.output.with_extension("best.bin");
+            match fs::copy(best_ckpt, &best_path) {
+                Ok(_) => eprintln!(
+                    "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
+                    best_path, best_ckpt
+                ),
+                Err(e) => eprintln!("  best checkpoint copy failed: {e}"),
             }
         }
 
@@ -666,6 +892,7 @@ fn main() {
         std::process::exit(1);
     }
     eprintln!("Found {} CSA files in {:?}", files.len(), args.games_dir);
+    let ds_hash = dataset_hash(&files);
 
     // Parse games once and cache (avoids re-parsing every epoch)
     eprint!("Parsing games... ");
@@ -739,16 +966,46 @@ fn main() {
         None => HashMap::new(),
     };
 
+    // Group-aware validation split: partition by GAME index, not per
+    // position -- every sample from one CSA game lands fully on one side,
+    // avoiding the leakage a per-position split would have (positions from
+    // the same game are highly correlated, unlike shogiesa's independently
+    // sourced positions). Index-based rather than the positions path's
+    // content-hash split, so it reshuffles if the CSA file list or
+    // --min-rate changes -- weaker stability across dataset edits, but the
+    // natural group boundary here (`games: Vec<CsaGame>` already has one
+    // entry per game) makes tagging every sample with a game id unnecessary.
+    let (train_idxs, valid_idxs) =
+        split_games_by_index(games.len(), args.validation_ratio, args.seed);
+    let split_h = split_hash(valid_idxs.iter().map(|i| i.to_string()));
+    eprintln!(
+        "  train_games={} valid_games={} (validation_ratio={:.2}, seed={})",
+        train_idxs.len(),
+        valid_idxs.len(),
+        args.validation_ratio,
+        args.seed
+    );
+
     let mut trainer = Trainer::new(args.seed);
     let mut best_loss = f64::MAX;
+    let mut prev_snapshot: Option<Vec<f32>> = None;
+    let mut best_valid_loss = f64::MAX;
+    let mut best_valid_checkpoint: Option<PathBuf> = None;
 
     for epoch in 1..=args.epochs {
-        // Step-decay: halve lr each epoch (epoch1=0.001, epoch2=0.0005, epoch3=0.00025)
-        trainer.lr = 0.001_f32 * 0.5_f32.powi((epoch - 1) as i32);
+        trainer.lr = trainer::compute_lr(
+            args.lr_schedule,
+            args.lr,
+            args.min_lr,
+            epoch as u32,
+            args.epochs as u32,
+            args.warmup_epochs,
+        );
         trainer.reset_epoch_stats();
         eprintln!("Epoch {epoch}/{} — lr = {:.6}", args.epochs, trainer.lr);
 
-        for (i, game) in games.iter().enumerate() {
+        for (i, &gi) in train_idxs.iter().enumerate() {
+            let game = &games[gi];
             trainer.train_game(
                 game,
                 args.sample,
@@ -781,6 +1038,26 @@ fn main() {
                     }
                 }
             }
+        }
+
+        let (vloss_sum, vcount) = valid_idxs.iter().fold((0.0f64, 0u64), |(sum, cnt), &gi| {
+            let (s, c) = trainer.eval_game(
+                &games[gi],
+                args.sample,
+                args.quiet,
+                args.min_ply,
+                args.label_depth,
+                args.wdl_lambda,
+            );
+            (sum + s, cnt + c)
+        });
+        if !valid_idxs.is_empty() {
+            let vloss = if vcount > 0 {
+                vloss_sum / vcount as f64
+            } else {
+                0.0
+            };
+            eprintln!("  valid: loss={vloss:.4}  samples={vcount}");
         }
 
         if !scored.is_empty() {
@@ -835,6 +1112,87 @@ fn main() {
             Ok(_) => eprintln!("  checkpoint saved → {:?}", checkpoint),
             Err(e) => eprintln!("  checkpoint save failed: {e}"),
         }
+
+        let snapshot = trainer.weights.snapshot_params();
+        let param_update_norm = prev_snapshot
+            .as_ref()
+            .map(|prev| diagnostics::l2_diff_norm(prev, &snapshot));
+        prev_snapshot = Some(snapshot);
+        let (output_mean, output_std) = diagnostics::mean_std(
+            trainer.output_sum,
+            trainer.output_sum_sq,
+            trainer.total_count,
+        );
+        let diag = diagnostics::EpochDiagnostics {
+            param_update_norm,
+            ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
+            l2_active_ratio: diagnostics::ratio(&trainer.l2_ever_active),
+            ft_saturation_ratio: diagnostics::ratio(&trainer.ft_ever_saturated),
+            l2_saturation_ratio: diagnostics::ratio(&trainer.l2_ever_saturated),
+            output_mean,
+            output_std,
+            quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(&w),
+        };
+        eprintln!(
+            "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}",
+            diag.ft_active_ratio,
+            diag.l2_active_ratio,
+            diag.ft_saturation_ratio,
+            diag.l2_saturation_ratio,
+            diag.output_mean,
+            diag.output_std,
+            diag.quantized_ft_zero_ratio,
+            diag.param_update_norm
+                .map(|n| format!("{n:.4}"))
+                .unwrap_or_else(|| "n/a".to_string()),
+        );
+
+        // First time the CSA path writes checkpoint metadata at all --
+        // previously only the positions path did.
+        let meta_path = checkpoint.with_extension("meta.json");
+        if let Err(e) = save_checkpoint_meta(
+            &meta_path,
+            &args,
+            epoch,
+            trainer.total_count,
+            vcount,
+            Some(train_idxs.len() as u64),
+            Some(valid_idxs.len() as u64),
+            split_h,
+            &diag,
+            git_commit.as_deref(),
+            ds_hash,
+        ) {
+            eprintln!("  metadata save failed: {e}");
+        } else {
+            eprintln!("  metadata → {:?}", meta_path);
+        }
+
+        // Valid-loss-based best checkpoint -- only tracked when validation
+        // is on. Gating on validation_ratio>0 is what keeps this from
+        // colliding with the existing train-loss `--best-every` above:
+        // that one writes mid-epoch on train-loss improvement, this one
+        // writes once at the very end of all epochs on valid-loss
+        // improvement, so with validation on this always wins as the
+        // final state of `{output}.best.bin`.
+        if args.validation_ratio > 0.0 && vcount > 0 {
+            let vloss = vloss_sum / vcount as f64;
+            if vloss < best_valid_loss {
+                best_valid_loss = vloss;
+                best_valid_checkpoint = Some(checkpoint.clone());
+            }
+        }
+    }
+
+    if let Some(best_ckpt) = &best_valid_checkpoint {
+        let best_path = args.output.with_extension("best.bin");
+        match fs::copy(best_ckpt, &best_path) {
+            Ok(_) => eprintln!(
+                "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
+                best_path, best_ckpt
+            ),
+            Err(e) => eprintln!("  best checkpoint copy failed: {e}"),
+        }
     }
 
     // Save final weights
@@ -845,5 +1203,88 @@ fn main() {
             eprintln!("Save failed: {e}");
             std::process::exit(1);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    #[test]
+    fn split_games_by_index_partitions_every_index_exactly_once() {
+        // The direct "no leakage" property: every game index appears on
+        // exactly one side, and the two sides cover every index with no
+        // overlap and no gaps -- since the split key is the game index
+        // itself, this also means no single game's samples can ever
+        // straddle train and valid.
+        let (train, valid) = split_games_by_index(500, 0.2, 42);
+        let mut combined: Vec<usize> = train.iter().chain(valid.iter()).copied().collect();
+        combined.sort_unstable();
+        let expected: Vec<usize> = (0..500).collect();
+        assert_eq!(combined, expected);
+
+        let train_set: HashSet<usize> = train.into_iter().collect();
+        let valid_set: HashSet<usize> = valid.into_iter().collect();
+        assert!(train_set.is_disjoint(&valid_set));
+    }
+
+    #[test]
+    fn split_games_by_index_zero_ratio_holds_out_nothing() {
+        let (train, valid) = split_games_by_index(200, 0.0, 42);
+        assert_eq!(train.len(), 200);
+        assert!(valid.is_empty());
+    }
+
+    #[test]
+    fn split_games_by_index_ratio_one_holds_out_everything() {
+        let (train, valid) = split_games_by_index(200, 1.0, 42);
+        assert!(train.is_empty());
+        assert_eq!(valid.len(), 200);
+    }
+
+    #[test]
+    fn split_games_by_index_is_deterministic_for_the_same_seed() {
+        let a = split_games_by_index(300, 0.3, 7);
+        let b = split_games_by_index(300, 0.3, 7);
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn dataset_hash_is_deterministic_for_the_same_file_list() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.csa");
+        let b = dir.path().join("b.csa");
+        fs::write(&a, "hello").unwrap();
+        fs::write(&b, "worldworld").unwrap();
+        let h1 = dataset_hash(&[a.clone(), b.clone()]);
+        let h2 = dataset_hash(&[b, a]); // order-independent: sorted internally
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn dataset_hash_changes_when_a_file_size_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let a = dir.path().join("a.csa");
+        fs::write(&a, "hello").unwrap();
+        let before = dataset_hash(std::slice::from_ref(&a));
+        fs::write(&a, "hello, much longer content now").unwrap();
+        let after = dataset_hash(&[a]);
+        assert_ne!(before, after);
+    }
+
+    #[test]
+    fn split_games_by_index_differs_across_well_separated_seeds() {
+        // NOT `seed=1` vs `seed=2`: `sfen_hash` XORs the seed in as a
+        // single final step rather than mixing it through the FNV rounds,
+        // so adjacent seeds barely perturb `hash % 1000` -- verified this
+        // empirically (0/300 indices changed side for seeds 1 vs 2, in
+        // this same 0.3 split). Pre-existing property of shared
+        // `positions::sfen_hash`, not something this function can or
+        // should work around -- use seeds far enough apart that the XOR
+        // actually flips high bits too.
+        let a = split_games_by_index(300, 0.3, 1);
+        let b = split_games_by_index(300, 0.3, 999_983);
+        assert_ne!(a, b);
     }
 }
