@@ -321,6 +321,11 @@ pub struct Trainer {
     pub l2_ever_saturated: Vec<bool>,
     pub output_sum: f64,
     pub output_sum_sq: f64,
+    // CSA-path teacher-search cache counters (see `position_teacher`).
+    // Reset every epoch by `reset_epoch_stats`, same as the diagnostics
+    // above.
+    pub cache_hits: u64,
+    pub cache_misses: u64,
     searcher: Searcher,
 }
 
@@ -340,6 +345,8 @@ impl Trainer {
             l2_ever_saturated: vec![false; L2],
             output_sum: 0.0,
             output_sum_sq: 0.0,
+            cache_hits: 0,
+            cache_misses: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -476,21 +483,40 @@ impl Trainer {
     /// different target than the one being trained whenever `wdl_lambda`
     /// is set, since `eval_positions` never blends in a WDL term.
     ///
+    /// `cache` maps sfen -> raw search score (pre-clamp, pre-WDL-blend),
+    /// mirroring `train_positions`/`eval_positions`'s `teacher_cache`. Only
+    /// `eval_teacher` is cached, not the blended result: the same position
+    /// can recur in different games with different results, so the WDL
+    /// term is always recomputed from this call's own `result`/
+    /// side-to-move. Without this, every epoch re-ran a real label-depth
+    /// search on every sampled position -- the exact bug `eval_positions`'s
+    /// doc comment describes already being fixed once on the positions path.
+    #[allow(clippy::too_many_arguments)]
     fn position_teacher(
         &mut self,
         board: &mut Board,
         result: GameResult,
         label_depth: u32,
         wdl_lambda: Option<f32>,
+        cache: &mut HashMap<String, i32>,
     ) -> f32 {
-        let config = SearchConfig {
-            max_depth: label_depth,
-            time_limit: None,
-            soft_limit: None,
-            multi_pv: 1,
+        let sfen = board_to_sfen(board);
+        let score_cp = if let Some(&cp) = cache.get(&sfen) {
+            self.cache_hits += 1;
+            cp
+        } else {
+            self.cache_misses += 1;
+            let config = SearchConfig {
+                max_depth: label_depth,
+                time_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+            };
+            let cp = self.searcher.search(board, config).score;
+            cache.insert(sfen, cp);
+            cp
         };
-        let info = self.searcher.search(board, config);
-        let eval_teacher = (info.score as f32).clamp(-600.0, 600.0);
+        let eval_teacher = (score_cp as f32).clamp(-600.0, 600.0);
         match (wdl_lambda, wdl_target_cp(result, board.side_to_move)) {
             (Some(lambda), Some(wdl_target)) => lambda * eval_teacher + (1.0 - lambda) * wdl_target,
             _ => eval_teacher,
@@ -514,6 +540,7 @@ impl Trainer {
         scored: &HashMap<String, f32>,
         stability_weighted: bool,
         wdl_lambda: Option<f32>,
+        cache: &mut HashMap<String, i32>,
     ) {
         let mut board = Board::startpos();
 
@@ -557,7 +584,8 @@ impl Trainer {
                 }
             };
 
-            let teacher = self.position_teacher(&mut board, game.result, label_depth, wdl_lambda);
+            let teacher =
+                self.position_teacher(&mut board, game.result, label_depth, wdl_lambda, cache);
             self.train_position(&board, teacher, weight);
 
             board.do_move(mv);
@@ -571,6 +599,7 @@ impl Trainer {
     /// returns a plain `(loss_sum, count)`: CSA-path training has no
     /// weighted-loss axis (unlike the positions path's phase/side
     /// weights) to validate against, so there's nothing to weight here.
+    #[allow(clippy::too_many_arguments)]
     pub fn eval_game(
         &mut self,
         game: &CsaGame,
@@ -579,6 +608,7 @@ impl Trainer {
         min_ply: usize,
         label_depth: u32,
         wdl_lambda: Option<f32>,
+        cache: &mut HashMap<String, i32>,
     ) -> (f64, u64) {
         let mut board = Board::startpos();
         let mut loss_sum = 0.0f64;
@@ -600,7 +630,8 @@ impl Trainer {
                 }
             }
 
-            let teacher = self.position_teacher(&mut board, game.result, label_depth, wdl_lambda);
+            let teacher =
+                self.position_teacher(&mut board, game.result, label_depth, wdl_lambda, cache);
             let score = self.forward(&board);
             let err = (score - teacher) as f64;
             loss_sum += err * err;
@@ -874,6 +905,8 @@ impl Trainer {
         self.l2_ever_saturated.iter_mut().for_each(|b| *b = false);
         self.output_sum = 0.0;
         self.output_sum_sq = 0.0;
+        self.cache_hits = 0;
+        self.cache_misses = 0;
     }
 }
 
@@ -1114,5 +1147,25 @@ mod tests {
         assert_eq!(LrSchedule::parse("step-half"), Some(LrSchedule::StepHalf));
         assert_eq!(LrSchedule::parse("cosine"), Some(LrSchedule::Cosine));
         assert_eq!(LrSchedule::parse("bogus"), None);
+    }
+
+    #[test]
+    fn position_teacher_reuses_cached_search_on_repeated_position() {
+        let mut trainer = Trainer::new(1);
+        let mut cache: HashMap<String, i32> = HashMap::new();
+        let mut board = Board::startpos();
+
+        let first = trainer.position_teacher(&mut board, GameResult::Unknown, 2, None, &mut cache);
+        assert_eq!(trainer.cache_misses, 1);
+        assert_eq!(trainer.cache_hits, 0);
+        assert_eq!(cache.len(), 1);
+
+        let mut board_again = Board::startpos();
+        let second =
+            trainer.position_teacher(&mut board_again, GameResult::Unknown, 2, None, &mut cache);
+        assert_eq!(trainer.cache_misses, 1, "second call must not re-search");
+        assert_eq!(trainer.cache_hits, 1);
+        assert_eq!(cache.len(), 1);
+        assert_eq!(first, second);
     }
 }

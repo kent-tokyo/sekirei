@@ -422,6 +422,8 @@ fn save_checkpoint_meta(
     diag: &diagnostics::EpochDiagnostics,
     git_commit: Option<&str>,
     dataset_hash: u64,
+    cache_hits: Option<u64>,
+    cache_misses: Option<u64>,
 ) -> std::io::Result<()> {
     let meta = serde_json::json!({
         "epoch": epoch,
@@ -461,6 +463,8 @@ fn save_checkpoint_meta(
         ),
         "git_commit": git_commit,
         "dataset_hash": dataset_hash,
+        "cache_hits": cache_hits,
+        "cache_misses": cache_misses,
         "param_update_norm": diag.param_update_norm,
         "ft_active_ratio": diag.ft_active_ratio,
         "l2_active_ratio": diag.l2_active_ratio,
@@ -712,6 +716,9 @@ fn main() {
                 )
             };
             new_entries.extend(new_val_entries);
+            let cache_misses_epoch = new_entries.len() as u64;
+            let cache_hits_epoch =
+                (train_samples.len() + valid_samples.len()) as u64 - cache_misses_epoch;
 
             // After epoch 1: merge new entries into cache so later epochs skip search
             if epoch == 1 && !new_entries.is_empty() {
@@ -847,6 +854,8 @@ fn main() {
                 &diag,
                 git_commit.as_deref(),
                 ds_hash,
+                Some(cache_hits_epoch),
+                Some(cache_misses_epoch),
             ) {
                 eprintln!("  metadata save failed: {e}");
             } else {
@@ -991,6 +1000,11 @@ fn main() {
     let mut prev_snapshot: Option<Vec<f32>> = None;
     let mut best_valid_loss = f64::MAX;
     let mut best_valid_checkpoint: Option<PathBuf> = None;
+    // Shared across epochs and across train/valid: a position's teacher
+    // score never changes between epochs (the searcher's eval function is
+    // fixed for the process lifetime), so caching it turns epochs 2+ into
+    // pure forward/backward passes instead of re-running label-depth search.
+    let mut teacher_cache: HashMap<String, i32> = HashMap::new();
 
     for epoch in 1..=args.epochs {
         trainer.lr = trainer::compute_lr(
@@ -1015,6 +1029,7 @@ fn main() {
                 &scored,
                 args.stability_weighted,
                 args.wdl_lambda,
+                &mut teacher_cache,
             );
 
             let game_num = i + 1;
@@ -1048,6 +1063,7 @@ fn main() {
                 args.min_ply,
                 args.label_depth,
                 args.wdl_lambda,
+                &mut teacher_cache,
             );
             (sum + s, cnt + c)
         });
@@ -1134,7 +1150,7 @@ fn main() {
             quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(&w),
         };
         eprintln!(
-            "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}",
+            "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}  cache_hit={}  cache_miss={}",
             diag.ft_active_ratio,
             diag.l2_active_ratio,
             diag.ft_saturation_ratio,
@@ -1145,6 +1161,8 @@ fn main() {
             diag.param_update_norm
                 .map(|n| format!("{n:.4}"))
                 .unwrap_or_else(|| "n/a".to_string()),
+            trainer.cache_hits,
+            trainer.cache_misses,
         );
 
         // First time the CSA path writes checkpoint metadata at all --
@@ -1162,6 +1180,8 @@ fn main() {
             &diag,
             git_commit.as_deref(),
             ds_hash,
+            Some(trainer.cache_hits),
+            Some(trainer.cache_misses),
         ) {
             eprintln!("  metadata save failed: {e}");
         } else {
