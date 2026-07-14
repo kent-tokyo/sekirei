@@ -523,6 +523,60 @@ fn build_diag(
     };
     let pooled_l2_values: Vec<f32> = trainer.l2_values.iter().flatten().copied().collect();
     let p = diagnostics::percentiles(&pooled_l2_values, &[0.01, 0.10, 0.50, 0.90, 0.99]);
+    let (ft_grad_norm_mean, ft_grad_norm_std) = diagnostics::mean_std(
+        trainer.ft_grad_norm_sum,
+        trainer.ft_grad_norm_sum_sq,
+        trainer.total_count,
+    );
+    let (l2_grad_norm_mean, l2_grad_norm_std) = diagnostics::mean_std(
+        trainer.l2_grad_norm_sum,
+        trainer.l2_grad_norm_sum_sq,
+        trainer.total_count,
+    );
+    let (out_grad_norm_mean, out_grad_norm_std) = diagnostics::mean_std(
+        trainer.out_grad_norm_sum,
+        trainer.out_grad_norm_sum_sq,
+        trainer.total_count,
+    );
+    let gp = diagnostics::percentiles(&trainer.global_grad_norm_values, &[0.50, 0.90, 0.95, 0.99]);
+    let (ft_update_norm_mean, ft_update_norm_std) = diagnostics::mean_std(
+        trainer.ft_update_norm_sum,
+        trainer.ft_update_norm_sum_sq,
+        trainer.total_count,
+    );
+    let (l2_update_norm_mean, l2_update_norm_std) = diagnostics::mean_std(
+        trainer.l2_update_norm_sum,
+        trainer.l2_update_norm_sum_sq,
+        trainer.total_count,
+    );
+    let (out_update_norm_mean, out_update_norm_std) = diagnostics::mean_std(
+        trainer.out_update_norm_sum,
+        trainer.out_update_norm_sum_sq,
+        trainer.total_count,
+    );
+    let (target_mean, target_std) = diagnostics::mean_std(
+        trainer.target_sum,
+        trainer.target_sum_sq,
+        trainer.total_count,
+    );
+    let pred_eval_correlation = diagnostics::pearson_correlation(
+        trainer.total_count,
+        trainer.output_sum,
+        trainer.output_sum_sq,
+        trainer.eval_teacher_sum,
+        trainer.eval_teacher_sum_sq,
+        trainer.pred_eval_prod_sum,
+    );
+    let train_cp_component = if trainer.total_count > 0 {
+        trainer.cp_component_sum / trainer.total_count as f64
+    } else {
+        0.0
+    };
+    let train_wdl_component = if trainer.wdl_component_count > 0 {
+        Some(trainer.wdl_component_sum / trainer.wdl_component_count as f64)
+    } else {
+        None
+    };
     diagnostics::EpochDiagnostics {
         param_update_norm,
         ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
@@ -551,7 +605,69 @@ fn build_diag(
             2 * sekirei_core::nnue::L1,
             sekirei_core::nnue::L2,
         ),
+        output_weight_norm: diagnostics::output_weight_norm(trainer.weights.out()),
+        output_bias: trainer.weights.out_bias(),
+        ft_grad_norm_mean,
+        ft_grad_norm_std,
+        l2_grad_norm_mean,
+        l2_grad_norm_std,
+        out_grad_norm_mean,
+        out_grad_norm_std,
+        global_grad_norm_p50: gp[0],
+        global_grad_norm_p90: gp[1],
+        global_grad_norm_p95: gp[2],
+        global_grad_norm_p99: gp[3],
+        ft_update_norm_mean,
+        ft_update_norm_std,
+        l2_update_norm_mean,
+        l2_update_norm_std,
+        out_update_norm_mean,
+        out_update_norm_std,
+        target_mean,
+        target_std,
+        pred_eval_correlation,
+        train_cp_component,
+        train_wdl_component,
     }
+}
+
+/// Prints the per-epoch gradient/update-norm/target diagnostics -- shared
+/// by both training paths so the two call sites don't drift.
+fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics) {
+    eprintln!(
+        "  grad: ft={:.4}±{:.4}  l2={:.4}±{:.4}  out={:.5}±{:.5}  (mean±std)  global_p50={:.4}  p90={:.4}  p95={:.4}  p99={:.4}",
+        diag.ft_grad_norm_mean,
+        diag.ft_grad_norm_std,
+        diag.l2_grad_norm_mean,
+        diag.l2_grad_norm_std,
+        diag.out_grad_norm_mean,
+        diag.out_grad_norm_std,
+        diag.global_grad_norm_p50,
+        diag.global_grad_norm_p90,
+        diag.global_grad_norm_p95,
+        diag.global_grad_norm_p99,
+    );
+    eprintln!(
+        "  update: ft={:.6}±{:.6}  l2={:.6}±{:.6}  out={:.6}±{:.6}  (mean±std, applied Adam step)",
+        diag.ft_update_norm_mean,
+        diag.ft_update_norm_std,
+        diag.l2_update_norm_mean,
+        diag.l2_update_norm_std,
+        diag.out_update_norm_mean,
+        diag.out_update_norm_std,
+    );
+    eprintln!(
+        "  target: mean={:.3}  std={:.3}  pred_eval_corr={:.4}  cp_component={:.3}  wdl_component={}  out_weight_norm={:.4}  out_bias={:.4}",
+        diag.target_mean,
+        diag.target_std,
+        diag.pred_eval_correlation,
+        diag.train_cp_component,
+        diag.train_wdl_component
+            .map(|w| format!("{w:.3}"))
+            .unwrap_or_else(|| "n/a".to_string()),
+        diag.output_weight_norm,
+        diag.output_bias,
+    );
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -681,6 +797,45 @@ fn save_checkpoint_meta(
         "l2_preactivation_p99": diag.l2_preactivation_p99,
         "l2_bias_per_neuron": diag.l2_bias_per_neuron,
         "l2_row_weight_norm_per_neuron": diag.l2_row_weight_norm_per_neuron,
+        "output_weight_norm": diag.output_weight_norm,
+        "output_bias": diag.output_bias,
+        // Per-position gradient norm mean/std, one pair per layer. Distinct
+        // from update norm below -- under Adam, a smaller gradient doesn't
+        // imply a smaller applied step (√v̂ normalizes scale out).
+        "ft_grad_norm_mean": diag.ft_grad_norm_mean,
+        "ft_grad_norm_std": diag.ft_grad_norm_std,
+        "l2_grad_norm_mean": diag.l2_grad_norm_mean,
+        "l2_grad_norm_std": diag.l2_grad_norm_std,
+        "out_grad_norm_mean": diag.out_grad_norm_mean,
+        "out_grad_norm_std": diag.out_grad_norm_std,
+        // Percentiles of the whole-network per-position gradient norm --
+        // p95/p99 are what a --grad-clip-norm threshold should be chosen
+        // from (the tail), not the mean.
+        "global_grad_norm_p50": diag.global_grad_norm_p50,
+        "global_grad_norm_p90": diag.global_grad_norm_p90,
+        "global_grad_norm_p95": diag.global_grad_norm_p95,
+        "global_grad_norm_p99": diag.global_grad_norm_p99,
+        // Per-position applied-update norm mean/std, one pair per layer --
+        // the actual step Adam takes.
+        "ft_update_norm_mean": diag.ft_update_norm_mean,
+        "ft_update_norm_std": diag.ft_update_norm_std,
+        "l2_update_norm_mean": diag.l2_update_norm_mean,
+        "l2_update_norm_std": diag.l2_update_norm_std,
+        "out_update_norm_mean": diag.out_update_norm_mean,
+        "out_update_norm_std": diag.out_update_norm_std,
+        // Training target distribution (the blended teacher actually
+        // trained against -- within-run monitoring, not comparable across
+        // wdl_lambda) and prediction-vs-raw-eval correlation (comparable
+        // across wdl_lambda, same rationale as valid_cp_mse).
+        "target_mean": diag.target_mean,
+        "target_std": diag.target_std,
+        "pred_eval_correlation": diag.pred_eval_correlation,
+        // Training-side loss split into CP/WDL components -- distinguishes
+        // "λ=0.7 is a genuinely better-fitting auxiliary signal" from "λ=0.7
+        // just produces a smaller/smoother combined objective while cp fit
+        // is no better." Never fed back into the gradient.
+        "train_cp_component": diag.train_cp_component,
+        "train_wdl_component": diag.train_wdl_component,
         // Common cross-run yardstick: computed against the same raw
         // teacher components regardless of this run's own `wdl_lambda`,
         // so runs trained at different λ can be compared on one scale
@@ -1064,6 +1219,7 @@ fn main() {
                     .map(|n| format!("{n:.4}"))
                     .unwrap_or_else(|| "n/a".to_string()),
             );
+            print_grad_diag_lines(&diag);
 
             let meta_path = checkpoint.with_extension("meta.json");
             if let Err(e) = save_checkpoint_meta(
@@ -1486,6 +1642,7 @@ fn main() {
             trainer.cache_hits,
             trainer.cache_misses,
         );
+        print_grad_diag_lines(&diag);
 
         // First time the CSA path writes checkpoint metadata at all --
         // previously only the positions path did.

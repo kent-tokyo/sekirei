@@ -45,6 +45,54 @@ pub struct EpochDiagnostics {
     pub l2_preactivation_p99: f32,
     pub l2_bias_per_neuron: Vec<f32>,
     pub l2_row_weight_norm_per_neuron: Vec<f32>,
+    /// Output-layer weight vector norm and bias -- for tracking whether the
+    /// final linear layer itself is what's driving output-scale runaway,
+    /// as opposed to L2/FT.
+    pub output_weight_norm: f32,
+    pub output_bias: f32,
+    // Per-position gradient-norm mean/std, one pair per layer (FT bundles
+    // its bias, etc. -- see `Trainer`'s field docs). Distinct from the
+    // update-norm fields below: under Adam, a smaller gradient doesn't
+    // imply a smaller applied step.
+    pub ft_grad_norm_mean: f64,
+    pub ft_grad_norm_std: f64,
+    pub l2_grad_norm_mean: f64,
+    pub l2_grad_norm_std: f64,
+    pub out_grad_norm_mean: f64,
+    pub out_grad_norm_std: f64,
+    /// Percentiles of the *global* (whole-network) per-position gradient
+    /// norm -- the quantity a `--grad-clip-norm` threshold would act on.
+    /// p95/p99 are the ones a clip-value choice should be based on, not
+    /// the mean (clipping targets the tail, not the typical case).
+    pub global_grad_norm_p50: f32,
+    pub global_grad_norm_p90: f32,
+    pub global_grad_norm_p95: f32,
+    pub global_grad_norm_p99: f32,
+    // Per-position *applied update* norm mean/std, one pair per layer --
+    // the actual step Adam takes, as opposed to the raw gradient above.
+    pub ft_update_norm_mean: f64,
+    pub ft_update_norm_std: f64,
+    pub l2_update_norm_mean: f64,
+    pub l2_update_norm_std: f64,
+    pub out_update_norm_mean: f64,
+    pub out_update_norm_std: f64,
+    /// Mean/std of the (possibly WDL-blended) training target -- within-run
+    /// monitoring only, not comparable across different `wdl_lambda` runs
+    /// (unlike the cp/wdl components below, which are).
+    pub target_mean: f64,
+    pub target_std: f64,
+    /// Pearson correlation between prediction and the *raw* eval component
+    /// (not the blended target), so this stays comparable across runs at
+    /// different λ -- same rationale as `valid_cp_mse`.
+    pub pred_eval_correlation: f64,
+    /// Training-side loss split into its CP/WDL components, computed
+    /// against the same raw components `ValidStats`'s `cp_mse`/`wdl_loss`
+    /// use -- comparable across `wdl_lambda`, and answers whether λ=0.7 is
+    /// a genuinely better-fitting auxiliary signal or just a smaller/
+    /// smoother combined objective that masks a worse cp fit. Never used
+    /// for the actual gradient; see `Trainer::train_position`.
+    pub train_cp_component: f64,
+    pub train_wdl_component: Option<f64>,
 }
 
 /// Fraction of `flags` that are `true`.
@@ -163,6 +211,44 @@ pub fn l2_row_weight_norm_per_neuron(l2: &[f32], rows: usize, cols: usize) -> Ve
                 .sqrt()
         })
         .collect()
+}
+
+/// Output-layer weight vector's L2 (Euclidean) norm -- `out` is a single
+/// `L2`-length vector (one output neuron), not a matrix, so this is just
+/// the whole-vector norm, unlike `l2_row_weight_norm_per_neuron`'s
+/// per-output-neuron breakdown of the wider L2 layer.
+pub fn output_weight_norm(out: &[f32]) -> f32 {
+    out.iter().map(|&x| x * x).sum::<f32>().sqrt()
+}
+
+/// Pearson correlation coefficient between two equal-length series
+/// summarized as sufficient statistics (`n`, `Σx`, `Σx²`, `Σy`, `Σy²`,
+/// `Σxy`) -- lets callers fold this incrementally across an epoch (one
+/// running accumulator pair) instead of keeping every sample around.
+/// Returns `0.0` for `n < 2` or a zero-variance series (undefined
+/// correlation) rather than `NaN`, since this feeds a printed diagnostic
+/// line and `.meta.json`, not further arithmetic.
+#[allow(clippy::too_many_arguments)]
+pub fn pearson_correlation(
+    n: u64,
+    sum_x: f64,
+    sum_x2: f64,
+    sum_y: f64,
+    sum_y2: f64,
+    sum_xy: f64,
+) -> f64 {
+    if n < 2 {
+        return 0.0;
+    }
+    let n = n as f64;
+    let cov = sum_xy - sum_x * sum_y / n;
+    let var_x = sum_x2 - sum_x * sum_x / n;
+    let var_y = sum_y2 - sum_y * sum_y / n;
+    let denom = (var_x * var_y).max(0.0).sqrt();
+    if denom <= 0.0 {
+        return 0.0;
+    }
+    (cov / denom).clamp(-1.0, 1.0)
 }
 
 #[cfg(test)]
@@ -295,5 +381,54 @@ mod tests {
         // rows=2, cols=2, flat row-major: col0 = [3,4] (norm 5), col1 = [0,0]
         let l2 = [3.0f32, 0.0, 4.0, 0.0];
         assert_eq!(l2_row_weight_norm_per_neuron(&l2, 2, 2), vec![5.0, 0.0]);
+    }
+
+    #[test]
+    fn output_weight_norm_matches_hand_computed_euclidean_norm() {
+        assert_eq!(output_weight_norm(&[3.0, 4.0]), 5.0);
+        assert_eq!(output_weight_norm(&[]), 0.0);
+    }
+
+    #[test]
+    fn pearson_correlation_perfect_positive_line_is_one() {
+        // y = 2x: x=[1,2,3], y=[2,4,6]
+        let (n, mut sx, mut sx2, mut sy, mut sy2, mut sxy) = (3u64, 0.0, 0.0, 0.0, 0.0, 0.0);
+        for (x, y) in [(1.0, 2.0), (2.0, 4.0), (3.0, 6.0)] {
+            sx += x;
+            sx2 += x * x;
+            sy += y;
+            sy2 += y * y;
+            sxy += x * y;
+        }
+        let r = pearson_correlation(n, sx, sx2, sy, sy2, sxy);
+        assert!((r - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pearson_correlation_perfect_negative_line_is_minus_one() {
+        let (n, mut sx, mut sx2, mut sy, mut sy2, mut sxy) = (3u64, 0.0, 0.0, 0.0, 0.0, 0.0);
+        for (x, y) in [(1.0, 6.0), (2.0, 4.0), (3.0, 2.0)] {
+            sx += x;
+            sx2 += x * x;
+            sy += y;
+            sy2 += y * y;
+            sxy += x * y;
+        }
+        let r = pearson_correlation(n, sx, sx2, sy, sy2, sxy);
+        assert!((r - (-1.0)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pearson_correlation_constant_series_is_zero_not_nan() {
+        // y is constant -> zero variance -> undefined correlation, must
+        // return 0.0 (not NaN) since this feeds a printed diagnostic line.
+        let (n, sx, sx2, sy, sy2, sxy) = (3u64, 6.0, 14.0, 15.0, 75.0, 30.0);
+        assert_eq!(pearson_correlation(n, sx, sx2, sy, sy2, sxy), 0.0);
+    }
+
+    #[test]
+    fn pearson_correlation_fewer_than_two_samples_is_zero() {
+        assert_eq!(pearson_correlation(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0);
+        assert_eq!(pearson_correlation(1, 5.0, 25.0, 5.0, 25.0, 25.0), 0.0);
     }
 }

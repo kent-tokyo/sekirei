@@ -412,6 +412,17 @@ impl TrainWeights {
     pub fn l2_bias(&self) -> &[f32] {
         &self.l2_bias
     }
+
+    /// Raw output-layer weight vector, length `L2` -- for
+    /// `diagnostics::output_weight_norm`.
+    pub fn out(&self) -> &[f32] {
+        &self.out
+    }
+
+    /// Output-layer bias (scalar).
+    pub fn out_bias(&self) -> f32 {
+        self.out_bias
+    }
 }
 
 // ---- Trainer ----
@@ -510,6 +521,54 @@ pub struct Trainer {
     pub l2_sat_count: Vec<u64>,
     pub l2_sample_count: u64,
     pub l2_values: Vec<Vec<f32>>,
+    // Per-position gradient-norm diagnostics, one accumulator triple per
+    // layer (mean/std via sum + sum_sq, matching `output_sum`'s pattern).
+    // "Layer" bundles a weight matrix with its bias (e.g. FT = `ft` +
+    // `ft_bias`). Distinct from update-norm below: under Adam, a smaller
+    // gradient doesn't imply a smaller applied step (√v̂ normalizes scale
+    // out), so gradient norm alone can't answer "does λ just shrink the
+    // gradient" -- update norm is the complementary signal for that.
+    pub ft_grad_norm_sum: f64,
+    pub ft_grad_norm_sum_sq: f64,
+    pub l2_grad_norm_sum: f64,
+    pub l2_grad_norm_sum_sq: f64,
+    pub out_grad_norm_sum: f64,
+    pub out_grad_norm_sum_sq: f64,
+    // Global (whole-network) gradient norm, one entry per position --
+    // full capture (not just sum/sum_sq) because picking a gradient-clip
+    // threshold needs percentiles (p95/p99), not just a mean.
+    //
+    // ponytail: O(epoch samples) memory, same tradeoff as `l2_values`.
+    pub global_grad_norm_values: Vec<f32>,
+    // Per-position *applied* update norm per layer -- the actual step
+    // Adam takes, as opposed to the raw gradient magnitude above.
+    pub ft_update_norm_sum: f64,
+    pub ft_update_norm_sum_sq: f64,
+    pub l2_update_norm_sum: f64,
+    pub l2_update_norm_sum_sq: f64,
+    pub out_update_norm_sum: f64,
+    pub out_update_norm_sum_sq: f64,
+    // Target/prediction distribution and their relationship. `target_*`
+    // is the blended teacher actually trained against (within-run
+    // monitoring only -- not comparable across `wdl_lambda`). The
+    // prediction-target correlation instead uses the *raw* eval component
+    // (`eval_teacher_*`/`pred_eval_prod_sum`), so it stays comparable
+    // across runs at different λ, matching `valid_cp_mse`'s rationale.
+    pub target_sum: f64,
+    pub target_sum_sq: f64,
+    pub eval_teacher_sum: f64,
+    pub eval_teacher_sum_sq: f64,
+    pub pred_eval_prod_sum: f64,
+    // Training-side CP/WDL loss components, computed against the same raw
+    // components as `ValidStats` (see `position_teacher_components`) but
+    // never used for the actual gradient -- purely diagnostic, so a run's
+    // reported total training loss and its optimization target are
+    // unchanged. Answers "is λ=0.7 a genuinely better-fitting auxiliary
+    // signal, or just a smaller/smoother objective that masks a worse
+    // cp fit" -- total_loss alone can't distinguish those.
+    pub cp_component_sum: f64,
+    pub wdl_component_sum: f64,
+    pub wdl_component_count: u64,
     // CSA-path teacher-search cache counters (see `position_teacher`).
     // Reset every epoch by `reset_epoch_stats`, same as the diagnostics
     // above.
@@ -538,6 +597,27 @@ impl Trainer {
             l2_sat_count: vec![0; L2],
             l2_sample_count: 0,
             l2_values: vec![Vec::new(); L2],
+            ft_grad_norm_sum: 0.0,
+            ft_grad_norm_sum_sq: 0.0,
+            l2_grad_norm_sum: 0.0,
+            l2_grad_norm_sum_sq: 0.0,
+            out_grad_norm_sum: 0.0,
+            out_grad_norm_sum_sq: 0.0,
+            global_grad_norm_values: Vec::new(),
+            ft_update_norm_sum: 0.0,
+            ft_update_norm_sum_sq: 0.0,
+            l2_update_norm_sum: 0.0,
+            l2_update_norm_sum_sq: 0.0,
+            out_update_norm_sum: 0.0,
+            out_update_norm_sum_sq: 0.0,
+            target_sum: 0.0,
+            target_sum_sq: 0.0,
+            eval_teacher_sum: 0.0,
+            eval_teacher_sum_sq: 0.0,
+            pred_eval_prod_sum: 0.0,
+            cp_component_sum: 0.0,
+            wdl_component_sum: 0.0,
+            wdl_component_count: 0,
             cache_hits: 0,
             cache_misses: 0,
             searcher: Searcher::new(tt),
@@ -600,7 +680,9 @@ impl Trainer {
                 cp
             };
             let teacher = (score_cp as f32).clamp(-600.0, 600.0);
-            self.train_position(&sample.board, teacher, weight);
+            // No WDL signal on the positions path (positions.jsonl carries
+            // no game_result) -- eval_teacher == teacher, no wdl_target.
+            self.train_position(&sample.board, teacher, weight, teacher, None);
         }
     }
 
@@ -678,38 +760,19 @@ impl Trainer {
     ///
     /// `cache` maps sfen -> raw search score (pre-clamp, pre-WDL-blend),
     /// mirroring `train_positions`/`eval_positions`'s `teacher_cache`. Only
-    /// `eval_teacher` is cached, not the blended result: the same position
+    /// `eval_teacher` is cached, not any blended result: the same position
     /// can recur in different games with different results, so the WDL
     /// term is always recomputed from this call's own `result`/
     /// side-to-move. Without this, every epoch re-ran a real label-depth
     /// search on every sampled position -- the exact bug `eval_positions`'s
     /// doc comment describes already being fixed once on the positions path.
-    #[allow(clippy::too_many_arguments)]
-    fn position_teacher(
-        &mut self,
-        board: &mut Board,
-        result: GameResult,
-        label_depth: u32,
-        wdl_lambda: Option<f32>,
-        cache: &mut HashMap<String, i32>,
-    ) -> f32 {
-        let (eval_teacher, wdl_target) =
-            self.position_teacher_components(board, result, label_depth, cache);
-        match (wdl_lambda, wdl_target) {
-            (Some(lambda), Some(wdl_target)) => lambda * eval_teacher + (1.0 - lambda) * wdl_target,
-            _ => eval_teacher,
-        }
-    }
-
-    /// The two raw components `position_teacher` blends: the clamped
-    /// search eval (always present) and the WDL game-outcome target
+    ///
+    /// Returns the two raw components a caller blends into its own teacher
+    /// (`train_game`/`eval_game` both do this inline, rather than through a
+    /// shared blending helper, so the raw components are available to pass
+    /// through for diagnostics/common cross-`wdl_lambda` metrics): the
+    /// clamped search eval (always present) and the WDL game-outcome target
     /// (`None` for `GameResult::Unknown`, which carries no result signal).
-    /// Exposed separately so common cross-`wdl_lambda` validation metrics
-    /// (`eval_game`'s `cp_mse`/`wdl_loss`) can compare every run against
-    /// the *same* teacher regardless of that run's own blend -- without
-    /// this, a run trained at `wdl_lambda=0.0` and one at `0.7` have no
-    /// shared scale to compare `valid_loss` against (see
-    /// `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction).
     fn position_teacher_components(
         &mut self,
         board: &mut Board,
@@ -798,9 +861,19 @@ impl Trainer {
                 }
             };
 
-            let teacher =
-                self.position_teacher(&mut board, game.result, label_depth, wdl_lambda, cache);
-            self.train_position(&board, teacher, weight);
+            // Call `position_teacher_components` directly (rather than the
+            // `position_teacher` convenience wrapper) so the raw components
+            // are available to thread into `train_position` for diagnostics
+            // -- mirrors `eval_game`'s pattern below.
+            let (eval_teacher, wdl_target) =
+                self.position_teacher_components(&mut board, game.result, label_depth, cache);
+            let teacher = match (wdl_lambda, wdl_target) {
+                (Some(lambda), Some(wdl_target)) => {
+                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
+                }
+                _ => eval_teacher,
+            };
+            self.train_position(&board, teacher, weight, eval_teacher, wdl_target);
 
             board.do_move(mv);
         }
@@ -919,8 +992,24 @@ impl Trainer {
         output / 64.0
     }
 
-    /// One SGD step on a single position. `weight` scales the loss (quietset stability).
-    fn train_position(&mut self, board: &Board, teacher: f32, weight: f32) {
+    /// One SGD step on a single position. `weight` scales the loss (quietset
+    /// stability). `teacher` is the (possibly WDL-blended) value the
+    /// gradient is actually computed against -- unchanged from before.
+    /// `eval_teacher`/`wdl_target` are the same raw components
+    /// `position_teacher_components` produces, threaded through purely for
+    /// diagnostics (`cp_component`/`wdl_component`/prediction-eval
+    /// correlation below); they never affect the gradient or the weight
+    /// update. `train_positions` (no WDL signal available) passes
+    /// `eval_teacher = teacher`, `wdl_target = None`.
+    #[allow(clippy::too_many_arguments)]
+    fn train_position(
+        &mut self,
+        board: &Board,
+        teacher: f32,
+        weight: f32,
+        eval_teacher: f32,
+        wdl_target: Option<f32>,
+    ) {
         let stm = board.side_to_move;
         let w = &self.weights;
 
@@ -1007,6 +1096,23 @@ impl Trainer {
         self.total_count += 1;
         self.total_weight += weight as f64;
 
+        // Diagnostic-only: target/prediction distribution and their
+        // relationship, and the loss split into its CP/WDL components --
+        // none of this feeds the gradient below, which is still computed
+        // from `err` (score - blended teacher) exactly as before.
+        self.target_sum += teacher as f64;
+        self.target_sum_sq += (teacher as f64) * (teacher as f64);
+        self.eval_teacher_sum += eval_teacher as f64;
+        self.eval_teacher_sum_sq += (eval_teacher as f64) * (eval_teacher as f64);
+        self.pred_eval_prod_sum += (score as f64) * (eval_teacher as f64);
+        let cp_err = (score - eval_teacher) as f64;
+        self.cp_component_sum += cp_err * cp_err;
+        if let Some(wdl_target) = wdl_target {
+            let wdl_err = (score - wdl_target) as f64;
+            self.wdl_component_sum += wdl_err * wdl_err;
+            self.wdl_component_count += 1;
+        }
+
         // ── Backward pass ─────────────────────────────────────────────────────
 
         let d_score = weight * 2.0 * err;
@@ -1078,13 +1184,49 @@ impl Trainer {
             d_bias[j] = d_acc_us[j] + d_acc_them[j];
         }
 
+        // ── Gradient-norm diagnostics ────────────────────────────────────────
+        // Diagnostic-only, computed from the gradients above without altering
+        // them. `d_ft`'s only nonzero entries are the rows touched by
+        // `active_us`/`active_them`, and `d_ft[base+j] == d_acc_us[j]` (or
+        // `d_acc_them[j]`) for every touched row of that side -- so its
+        // squared-norm contribution is exactly `active_us.len() * Σ
+        // d_acc_us[j]²` plus the `active_them` term, without a second pass
+        // over the full `INPUT*L1`-length array.
+        //
+        // ponytail: this slightly over-counts in the (architecture-rare)
+        // case where the same feature index appears in both `active_us` and
+        // `active_them`, since that row's true `d_ft` value is their sum,
+        // not two independent entries -- acceptable for a monitoring metric.
+        let d_acc_us_sq: f64 = d_acc_us.iter().map(|&x| (x as f64).powi(2)).sum();
+        let d_acc_them_sq: f64 = d_acc_them.iter().map(|&x| (x as f64).powi(2)).sum();
+        let d_bias_sq: f64 = d_bias.iter().map(|&x| (x as f64).powi(2)).sum();
+        let ft_grad_sq = d_acc_us_sq * active_us.len() as f64
+            + d_acc_them_sq * active_them.len() as f64
+            + d_bias_sq;
+        let l2_grad_sq: f64 = d_l2.iter().map(|&x| (x as f64).powi(2)).sum::<f64>()
+            + d_l2_bias.iter().map(|&x| (x as f64).powi(2)).sum::<f64>();
+        let out_grad_sq: f64 =
+            d_out.iter().map(|&x| (x as f64).powi(2)).sum::<f64>() + (d_out_bias as f64).powi(2);
+
+        let ft_grad_norm = ft_grad_sq.sqrt();
+        let l2_grad_norm = l2_grad_sq.sqrt();
+        let out_grad_norm = out_grad_sq.sqrt();
+        self.ft_grad_norm_sum += ft_grad_norm;
+        self.ft_grad_norm_sum_sq += ft_grad_norm * ft_grad_norm;
+        self.l2_grad_norm_sum += l2_grad_norm;
+        self.l2_grad_norm_sum_sq += l2_grad_norm * l2_grad_norm;
+        self.out_grad_norm_sum += out_grad_norm;
+        self.out_grad_norm_sum_sq += out_grad_norm * out_grad_norm;
+        self.global_grad_norm_values
+            .push((ft_grad_sq + l2_grad_sq + out_grad_sq).sqrt() as f32);
+
         // ── Adam update ───────────────────────────────────────────────────────
 
         self.weights.step += 1;
         let t = self.weights.step;
         let lr = self.lr;
 
-        adam_update_slice(
+        let ft_update_sq = adam_update_slice(
             &mut self.weights.ft,
             &mut self.weights.ft_m,
             &mut self.weights.ft_v,
@@ -1092,7 +1234,7 @@ impl Trainer {
             lr,
             t,
         );
-        adam_update_slice(
+        let ft_bias_update_sq = adam_update_slice(
             &mut self.weights.ft_bias,
             &mut self.weights.bias_m,
             &mut self.weights.bias_v,
@@ -1100,7 +1242,7 @@ impl Trainer {
             lr,
             t,
         );
-        adam_update_slice(
+        let l2_update_sq = adam_update_slice(
             &mut self.weights.l2,
             &mut self.weights.l2_m,
             &mut self.weights.l2_v,
@@ -1108,7 +1250,7 @@ impl Trainer {
             lr,
             t,
         );
-        adam_update_slice(
+        let l2_bias_update_sq = adam_update_slice(
             &mut self.weights.l2_bias,
             &mut self.weights.l2bias_m,
             &mut self.weights.l2bias_v,
@@ -1116,7 +1258,7 @@ impl Trainer {
             lr,
             t,
         );
-        adam_update_slice(
+        let out_update_sq = adam_update_slice(
             &mut self.weights.out,
             &mut self.weights.out_m,
             &mut self.weights.out_v,
@@ -1124,7 +1266,7 @@ impl Trainer {
             lr,
             t,
         );
-        adam_update_scalar(
+        let out_bias_delta = adam_update_scalar(
             &mut self.weights.out_bias,
             &mut self.weights.obias_m,
             &mut self.weights.obias_v,
@@ -1132,6 +1274,19 @@ impl Trainer {
             lr,
             t,
         );
+
+        // Diagnostic-only: the applied update norm per layer, as opposed to
+        // the gradient norm captured above -- see the `Trainer` field docs
+        // for why these can diverge under Adam.
+        let ft_update_norm = (ft_update_sq + ft_bias_update_sq).sqrt();
+        let l2_update_norm = (l2_update_sq + l2_bias_update_sq).sqrt();
+        let out_update_norm = (out_update_sq + (out_bias_delta as f64).powi(2)).sqrt();
+        self.ft_update_norm_sum += ft_update_norm;
+        self.ft_update_norm_sum_sq += ft_update_norm * ft_update_norm;
+        self.l2_update_norm_sum += l2_update_norm;
+        self.l2_update_norm_sum_sq += l2_update_norm * l2_update_norm;
+        self.out_update_norm_sum += out_update_norm;
+        self.out_update_norm_sum_sq += out_update_norm * out_update_norm;
     }
 
     pub fn avg_loss(&self) -> f64 {
@@ -1157,6 +1312,27 @@ impl Trainer {
         self.l2_sat_count.iter_mut().for_each(|c| *c = 0);
         self.l2_sample_count = 0;
         self.l2_values.iter_mut().for_each(|v| v.clear());
+        self.ft_grad_norm_sum = 0.0;
+        self.ft_grad_norm_sum_sq = 0.0;
+        self.l2_grad_norm_sum = 0.0;
+        self.l2_grad_norm_sum_sq = 0.0;
+        self.out_grad_norm_sum = 0.0;
+        self.out_grad_norm_sum_sq = 0.0;
+        self.global_grad_norm_values.clear();
+        self.ft_update_norm_sum = 0.0;
+        self.ft_update_norm_sum_sq = 0.0;
+        self.l2_update_norm_sum = 0.0;
+        self.l2_update_norm_sum_sq = 0.0;
+        self.out_update_norm_sum = 0.0;
+        self.out_update_norm_sum_sq = 0.0;
+        self.target_sum = 0.0;
+        self.target_sum_sq = 0.0;
+        self.eval_teacher_sum = 0.0;
+        self.eval_teacher_sum_sq = 0.0;
+        self.pred_eval_prod_sum = 0.0;
+        self.cp_component_sum = 0.0;
+        self.wdl_component_sum = 0.0;
+        self.wdl_component_count = 0;
         self.cache_hits = 0;
         self.cache_misses = 0;
     }
@@ -1215,6 +1391,13 @@ fn active_features(board: &Board, perspective: Color) -> Vec<usize> {
 
 // ---- Adam helpers ----
 
+/// Returns the sum of squared per-parameter deltas actually applied --
+/// Adam's moment decay means every parameter in `params` gets a (possibly
+/// tiny) nonzero update even where `grads[i] == 0`, so this is the true
+/// applied-update norm for the slice, not just an approximation over the
+/// nonzero-gradient subset. Used for per-layer update-norm diagnostics
+/// (distinct from *gradient* norm -- Adam's √v̂ normalization means a
+/// smaller gradient doesn't necessarily mean a smaller applied step).
 fn adam_update_slice(
     params: &mut [f32],
     m: &mut [f32],
@@ -1222,14 +1405,24 @@ fn adam_update_slice(
     grads: &[f32],
     lr: f32,
     t: u64,
-) {
+) -> f64 {
+    let mut delta_sq_sum = 0.0f64;
     for i in 0..params.len() {
-        adam_update_scalar(&mut params[i], &mut m[i], &mut v[i], grads[i], lr, t);
+        let delta = adam_update_scalar(&mut params[i], &mut m[i], &mut v[i], grads[i], lr, t);
+        delta_sq_sum += (delta as f64) * (delta as f64);
     }
+    delta_sq_sum
 }
 
 #[inline]
-fn adam_update_scalar(param: &mut f32, m: &mut f32, v: &mut f32, grad: f32, lr: f32, t: u64) {
+fn adam_update_scalar(
+    param: &mut f32,
+    m: &mut f32,
+    v: &mut f32,
+    grad: f32,
+    lr: f32,
+    t: u64,
+) -> f32 {
     const B1: f32 = 0.9;
     const B2: f32 = 0.999;
     const EPS: f32 = 1e-8;
@@ -1240,7 +1433,9 @@ fn adam_update_scalar(param: &mut f32, m: &mut f32, v: &mut f32, grad: f32, lr: 
     let m_hat = *m / (1.0 - B1.powi(t as i32));
     let v_hat = *v / (1.0 - B2.powi(t as i32));
 
-    *param -= lr * m_hat / (v_hat.sqrt() + EPS);
+    let delta = -lr * m_hat / (v_hat.sqrt() + EPS);
+    *param += delta;
+    delta
 }
 
 #[cfg(test)]
@@ -1501,17 +1696,60 @@ mod tests {
         let mut cache: HashMap<String, i32> = HashMap::new();
         let mut board = Board::startpos();
 
-        let first = trainer.position_teacher(&mut board, GameResult::Unknown, 2, None, &mut cache);
+        let (first, _) =
+            trainer.position_teacher_components(&mut board, GameResult::Unknown, 2, &mut cache);
         assert_eq!(trainer.cache_misses, 1);
         assert_eq!(trainer.cache_hits, 0);
         assert_eq!(cache.len(), 1);
 
         let mut board_again = Board::startpos();
-        let second =
-            trainer.position_teacher(&mut board_again, GameResult::Unknown, 2, None, &mut cache);
+        let (second, _) = trainer.position_teacher_components(
+            &mut board_again,
+            GameResult::Unknown,
+            2,
+            &mut cache,
+        );
         assert_eq!(trainer.cache_misses, 1, "second call must not re-search");
         assert_eq!(trainer.cache_hits, 1);
         assert_eq!(cache.len(), 1);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn train_position_wdl_component_only_accumulates_when_target_present() {
+        let mut trainer = Trainer::new(1);
+        let board = Board::startpos();
+
+        // wdl_target = None (e.g. GameResult::Unknown, or the positions
+        // path, which has no result signal at all) -- wdl_component must
+        // not accumulate, since there's nothing to compute it against.
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        assert_eq!(trainer.wdl_component_count, 0);
+        assert_eq!(trainer.wdl_component_sum, 0.0);
+
+        // wdl_target = Some(_) -- both cp_component (vs eval_teacher) and
+        // wdl_component (vs wdl_target) must accumulate, using the RAW
+        // components, not the blended `teacher` passed as the actual
+        // gradient target.
+        trainer.train_position(&board, 5.0, 1.0, 20.0, Some(-30.0));
+        assert_eq!(trainer.wdl_component_count, 1);
+        assert!(trainer.wdl_component_sum > 0.0);
+        assert!(trainer.cp_component_sum > 0.0);
+    }
+
+    #[test]
+    fn train_position_records_exactly_one_grad_norm_sample_per_call() {
+        let mut trainer = Trainer::new(1);
+        let board = Board::startpos();
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        assert_eq!(trainer.global_grad_norm_values.len(), 2);
+        assert!(
+            trainer
+                .global_grad_norm_values
+                .iter()
+                .all(|&g| g >= 0.0 && g.is_finite())
+        );
+        assert!(trainer.ft_grad_norm_sum_sq >= 0.0);
     }
 }
