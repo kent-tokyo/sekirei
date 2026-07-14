@@ -64,15 +64,21 @@ struct Args {
     side_balance: bool,                  // --side-balance
     source_cap: usize,                   // --source-cap N (0 = unlimited)
     validation_ratio: f32,               // --validation-ratio (0.0 = no split)
-    seed: u64, // --seed (validation split, source_cap hashing, and weight init)
-    checkpoint_dir: Option<PathBuf>, // --checkpoint-dir
+    // `--seed` used to double-duty as both weight-init seed and
+    // validation-split/source-cap seed -- split so init-sensitivity and
+    // data-split differences (e.g. a seed-sweep experiment) can't be
+    // conflated. `--seed <n>` still sets both at once for convenience;
+    // `--init-seed`/`--split-seed` override it individually.
+    init_seed: u64,                      // TrainWeights::new_seeded
+    split_seed: u64,                     // validation split + positions-path source_cap hashing
+    checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
-    reuse_teacher_cache: bool, // --reuse-teacher-cache
-    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,   // --lr (base learning rate, default 0.001)
+    reuse_teacher_cache: bool,           // --reuse-teacher-cache
+    wdl_lambda: Option<f32>,             // --wdl-lambda (CSA path only; None = eval-only, default)
+    lr: f32,                             // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
-    min_lr: f32, // --min-lr (floor applied to every schedule, default 0.0)
-    warmup_epochs: u32, // --warmup-epochs (linear ramp to base_lr, default 0 = off)
+    min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
+    warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
     eval_only: Option<PathBuf>, // --eval-only <checkpoint.bin> (CSA path only)
 }
 
@@ -138,6 +144,8 @@ fn parse_args() -> Result<Args, String> {
     let mut source_cap = 0usize;
     let mut validation_ratio = 0.0f32;
     let mut seed = 42u64;
+    let mut init_seed: Option<u64> = None;
+    let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
@@ -312,6 +320,18 @@ fn parse_args() -> Result<Args, String> {
                     seed = s.parse().unwrap_or(42);
                 }
             }
+            "--init-seed" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    init_seed = s.parse().ok();
+                }
+            }
+            "--split-seed" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    split_seed = s.parse().ok();
+                }
+            }
             "--checkpoint-dir" => {
                 i += 1;
                 checkpoint_dir = argv.get(i).map(PathBuf::from);
@@ -371,7 +391,8 @@ fn parse_args() -> Result<Args, String> {
         side_balance,
         source_cap,
         validation_ratio,
-        seed,
+        init_seed: init_seed.unwrap_or(seed),
+        split_seed: split_seed.unwrap_or(seed),
         checkpoint_dir,
         teacher_cache_path,
         reuse_teacher_cache,
@@ -567,9 +588,12 @@ fn save_checkpoint_meta(
         "side_balance": args.side_balance,
         "source_cap": args.source_cap,
         "validation_ratio": args.validation_ratio,
-        // Serves double duty: seeds both weight initialization
-        // (TrainWeights::new_seeded) and the train/valid split.
-        "seed": args.seed,
+        // Split from a single dual-purpose `seed` (2026-07-14): init_seed
+        // drives TrainWeights::new_seeded, split_seed drives the
+        // validation split and positions-path source_cap -- separable so
+        // an init-sensitivity sweep doesn't also reshuffle the data split.
+        "init_seed": args.init_seed,
+        "split_seed": args.split_seed,
         "lr": args.lr,
         "lr_schedule": format!("{:?}", args.lr_schedule),
         "min_lr": args.min_lr,
@@ -695,7 +719,13 @@ fn print_usage() {
         "  --validation-ratio <f>  Hold-out fraction for valid_loss, both --games and --positions (default: 0.0 = off)"
     );
     eprintln!(
-        "  --seed <n>              Seed for validation split, source_cap, and weight init (default: 42)"
+        "  --seed <n>              Sets both --init-seed and --split-seed at once (default: 42)"
+    );
+    eprintln!(
+        "  --init-seed <n>         Weight-init seed only, overrides --seed (default: --seed's value)"
+    );
+    eprintln!(
+        "  --split-seed <n>        Validation-split/source_cap seed only, overrides --seed (default: --seed's value)"
     );
     eprintln!("  --checkpoint-dir <dir>  Directory for epoch checkpoints");
     eprintln!("  --teacher-cache <path>  JSONL cache of teacher scores (sfen → score_cp)");
@@ -751,13 +781,13 @@ fn main() {
         }
         let all_samples = if args.source_cap > 0 {
             let n_before = raw_samples.len();
-            let s = positions::apply_source_cap(raw_samples, args.source_cap, args.seed);
+            let s = positions::apply_source_cap(raw_samples, args.source_cap, args.split_seed);
             eprintln!(
-                "{} positions loaded, {} after source_cap={} (seed={})",
+                "{} positions loaded, {} after source_cap={} (split_seed={})",
                 n_before,
                 s.len(),
                 args.source_cap,
-                args.seed
+                args.split_seed
             );
             s
         } else {
@@ -770,7 +800,7 @@ fn main() {
         let (train_samples, valid_samples): (Vec<_>, Vec<_>) =
             all_samples.into_iter().partition(|s| {
                 let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
-                positions::sfen_hash(&sfen, args.seed) % 1000 >= split_threshold
+                positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
             });
         let split_h = split_hash(
             valid_samples
@@ -778,11 +808,11 @@ fn main() {
                 .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
         );
         eprintln!(
-            "  train={} valid={} (validation_ratio={:.2}, seed={})",
+            "  train={} valid={} (validation_ratio={:.2}, split_seed={})",
             train_samples.len(),
             valid_samples.len(),
             args.validation_ratio,
-            args.seed
+            args.split_seed
         );
 
         let scored: HashMap<String, f32> = match &args.scored_path {
@@ -827,7 +857,7 @@ fn main() {
             HashMap::new()
         };
 
-        let mut trainer = Trainer::new(args.seed);
+        let mut trainer = Trainer::new(args.init_seed);
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1129,17 +1159,17 @@ fn main() {
     // natural group boundary here (`games: Vec<CsaGame>` already has one
     // entry per game) makes tagging every sample with a game id unnecessary.
     let (train_idxs, valid_idxs) =
-        split_games_by_index(games.len(), args.validation_ratio, args.seed);
+        split_games_by_index(games.len(), args.validation_ratio, args.split_seed);
     let split_h = split_hash(valid_idxs.iter().map(|i| i.to_string()));
     eprintln!(
-        "  train_games={} valid_games={} (validation_ratio={:.2}, seed={})",
+        "  train_games={} valid_games={} (validation_ratio={:.2}, split_seed={})",
         train_idxs.len(),
         valid_idxs.len(),
         args.validation_ratio,
-        args.seed
+        args.split_seed
     );
 
-    let mut trainer = Trainer::new(args.seed);
+    let mut trainer = Trainer::new(args.init_seed);
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
