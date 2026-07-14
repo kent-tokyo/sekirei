@@ -154,7 +154,11 @@ pub fn compute_lr(
 ///
 /// `requested = None` means the flag was omitted -- defaults to `epochs`,
 /// reproducing the pre-existing behavior exactly (schedule horizon ==
-/// actual run length). Errors rather than silently clamping on:
+/// actual run length). `epochs == 0` (the `--epochs 0` trick for dumping an
+/// untrained checkpoint) is passed straight through with no validation --
+/// the epoch loop never runs and `compute_lr` is never called, so no
+/// schedule value can be wrong. Otherwise errors rather than silently
+/// clamping on:
 /// - `schedule_epochs == 0` (a zero-length schedule is meaningless)
 /// - `warmup_epochs > schedule_epochs` (warmup would never complete)
 /// - `schedule_epochs < epochs` (the run would run past the schedule's
@@ -167,6 +171,9 @@ pub fn resolve_schedule_epochs(
     requested: Option<u32>,
     warmup_epochs: u32,
 ) -> Result<u32, String> {
+    if epochs == 0 {
+        return Ok(requested.unwrap_or(0));
+    }
     let schedule_epochs = requested.unwrap_or(epochs);
     if schedule_epochs == 0 {
         return Err("--lr-schedule-epochs must be greater than 0".to_string());
@@ -1468,6 +1475,16 @@ mod tests {
         // Must error, not silently clamp -- an implicit floor would hide
         // exactly the mistake that caused the 2026-07 schedule bug.
         assert!(resolve_schedule_epochs(20, Some(3), 0).is_err());
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_epochs_zero_never_errors() {
+        // `--epochs 0` (dumping an untrained checkpoint) must keep working
+        // unvalidated -- the epoch loop never runs, so no schedule value,
+        // including the default-to-0 case, is ever actually wrong.
+        assert_eq!(resolve_schedule_epochs(0, None, 0).unwrap(), 0);
+        assert_eq!(resolve_schedule_epochs(0, None, 5).unwrap(), 0);
+        assert_eq!(resolve_schedule_epochs(0, Some(20), 0).unwrap(), 20);
     }
 
     #[test]
