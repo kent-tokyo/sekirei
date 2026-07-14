@@ -1193,7 +1193,17 @@ fn main() {
             }
         };
         trainer.weights = trainer::TrainWeights::from_nnue_weights(&nn);
-        let mut cache: HashMap<String, i32> = HashMap::new();
+        let mut cache: HashMap<String, i32> = if args.reuse_teacher_cache {
+            match &args.teacher_cache_path {
+                Some(p) => teacher_cache::load(p),
+                None => {
+                    eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
+                    std::process::exit(1);
+                }
+            }
+        } else {
+            HashMap::new()
+        };
         let stats = eval_validation_set(&mut trainer, &games, &valid_idxs, &args, &mut cache);
         let vloss = if stats.count > 0 {
             stats.loss_sum / stats.count as f64
@@ -1227,7 +1237,23 @@ fn main() {
     // score never changes between epochs (the searcher's eval function is
     // fixed for the process lifetime), so caching it turns epochs 2+ into
     // pure forward/backward passes instead of re-running label-depth search.
-    let mut teacher_cache: HashMap<String, i32> = HashMap::new();
+    // Optionally seeded from disk (--reuse-teacher-cache) so *separate
+    // process invocations* skip the search too -- e.g. a seed-sweep
+    // experiment that varies only --init-seed across several runs of the
+    // same dataset/label_depth doesn't need to rebuild the same cache from
+    // scratch every run (previously CSA-path-only gap; the positions path
+    // already had this via teacher_cache::load/write).
+    let mut teacher_cache: HashMap<String, i32> = if args.reuse_teacher_cache {
+        match &args.teacher_cache_path {
+            Some(p) => teacher_cache::load(p),
+            None => {
+                eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
+                std::process::exit(1);
+            }
+        }
+    } else {
+        HashMap::new()
+    };
 
     for epoch in 1..=args.epochs {
         trainer.lr = trainer::compute_lr(
@@ -1303,6 +1329,23 @@ fn main() {
             eprintln!(
                 "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.3}  samples={vcount}"
             );
+        }
+
+        // Cache is fully populated after epoch 1 (both train and valid
+        // positions have been searched at least once by now) -- write it
+        // once so later, separate process invocations against the same
+        // dataset/label_depth can skip the search entirely.
+        if epoch == 1
+            && let Some(cache_path) = &args.teacher_cache_path
+        {
+            match teacher_cache::write(cache_path, &teacher_cache, args.label_depth) {
+                Ok(_) => eprintln!(
+                    "  teacher cache written → {:?} ({} entries)",
+                    cache_path,
+                    teacher_cache.len()
+                ),
+                Err(e) => eprintln!("  teacher cache write failed: {e}"),
+            }
         }
 
         if !scored.is_empty() {
