@@ -150,4 +150,65 @@ gate.
 
 ## Results
 
-_To be filled in once Run A/B/C complete and are compared._
+All three runs completed 2026-07-13/14. `split_hash`/`dataset_hash`/`seed`/
+`architecture` verified identical across all three before comparing.
+
+| | A (λ0.7/step-half) | B (λ0.7/cosine) | C (λ0.0/cosine) |
+|---|---|---|---|
+| best epoch | 8 | 3 | 1 |
+| best valid loss | 140077.83 | **138595.82** | 350921.23 |
+| epoch 20 valid loss | 140089.03 | 162591.60 | 421551.85 |
+| train/valid gap @ best | 1.127 | 1.111 | n/a (never improves) |
+| update_norm @ best | 0.53 | 55.6 | n/a |
+| l2_active/l2_sat @ epoch20 | 0.719/0.719 | 0.812/0.812 | 0.969/0.969 |
+| ft_active @ epoch20 | 1.000 | 1.000 | **0.934** (FT neuron death) |
+
+**A**: best checkpoint lands at epoch 8, but `update_norm` has already
+collapsed toward zero by then (halves every epoch with the unfloored
+LR) — confirms the "undertrained epoch-3 checkpoint" root-cause
+hypothesis: step-half burns out roughly half the 20-epoch budget.
+
+**B**: best checkpoint (epoch 3) is genuinely healthy on its own terms —
+tighter train/valid gap than A's own best, still-substantial
+`update_norm`, not every active L2 neuron saturating yet. Past epoch 3,
+valid loss rises every single epoch while train loss keeps falling and
+output scale runs away (`out_std` 82→321). Reading: cosine fixes the
+LR-starvation problem A has, but exposes that the model overfits hard
+once genuinely free to keep learning — an argument for early stopping
+on valid loss, not evidence cosine itself is the wrong schedule.
+
+**C**: dramatically worse in every dimension, not just similarly
+overfit — degrades from epoch 1 onward, never improves, and shows FT
+neuron death that neither A nor B exhibit at all. This is the "C is
+clearly worse" branch of the pre-registered decision tree: **WDL
+blending (λ=0.7) has real generalization value; the isolated problem is
+running cosine for a fixed 20-epoch budget without early stopping, not
+λ or the CSA data source.** C is excluded from further comparison.
+
+**A(epoch8) vs B(epoch3) paired quick gate (198 games) — INCONCLUSIVE**:
+`elo_diff=-17.56`, 95% CI=[-66.02, +30.89], LOS=23.84% — the CI is wider
+than the effect itself, so this cannot distinguish "A is stronger" from
+"no real difference." **Statistical conclusion**: undetermined.
+**Engineering decision**: retain A as control, do not promote B, do not
+extend to a 400-game gate — B's 1.06% valid-loss edge did not translate
+into any measurable playing-strength advantage at this sample size, and
+the point estimate leans the wrong way, so there's no basis to invest
+further compute chasing it. This is not "A won." Full manifest:
+`docs/experiments/ablation_lr_schedule_a8_vs_b3.md`.
+
+**A/B/C conclusion**: WDL blending (λ=0.7) is worth retaining — Run C
+showed it has a real generalization effect, not just a training-time
+artifact. Cosine run for a fixed 20 epochs is not adopted — not because
+of λ (Run C shows the overfitting isn't a WDL problem), but because it
+overfits hard regardless of λ once the LR-starvation ceiling is lifted.
+step-half stays the control despite wasting roughly half its epoch
+budget once the LR decays — B did not demonstrate a real playing-strength
+edge over it. **Valid loss alone is not sufficient for checkpoint
+selection**: B's best-valid-loss checkpoint did not produce a
+measurable playing-strength improvement over A's. Next candidates (not
+started): early-stopping/`--patience` (saves compute, does not itself
+fix B's overfitting), investigating why `l2_active == l2_sat` persists
+across all three runs, and a single-variable regularization experiment
+(weight decay, gradient clipping, or output-scale target — one at a
+time) re-tested against A as control. See `tasks/todo.md` for the full
+backlog with rationale.
