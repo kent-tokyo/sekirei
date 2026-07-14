@@ -179,11 +179,84 @@ on valid loss, not evidence cosine itself is the wrong schedule.
 
 **C**: dramatically worse in every dimension, not just similarly
 overfit — degrades from epoch 1 onward, never improves, and shows FT
-neuron death that neither A nor B exhibit at all. This is the "C is
-clearly worse" branch of the pre-registered decision tree: **WDL
-blending (λ=0.7) has real generalization value; the isolated problem is
-running cosine for a fixed 20-epoch budget without early stopping, not
-λ or the CSA data source.** C is excluded from further comparison.
+neuron death that neither A nor B exhibit at all.
+
+**Correction (2026-07-14)**: the paragraph below originally read this as
+"WDL blending has real generalization value." That claim doesn't hold up.
+Per `--wdl-lambda`'s actual formula (`teacher = λ·eval + (1-λ)·wdl`,
+`trainer.rs`), **λ=0.0 is pure game-outcome (±600/0 cp step function),
+not pure eval** — the opposite polarity from what was assumed here. More
+importantly, A/B's `valid_loss` is MSE against a 70%-eval-blended teacher
+and C's is MSE against a pure-outcome teacher — two different-scale
+objectives. C's raw `valid_loss` being ~2.5× A/B's does not, by itself,
+quantify a WDL-generalization effect; it may just reflect that a coarse,
+nearly-binary per-game target is intrinsically harder to fit than a
+smooth search-eval target, independent of any "blending helps
+generalization" claim. What C's own trajectory *does* support on its own
+terms: valid loss degrades monotonically from epoch 1 (A/B both improve
+before overfitting), FT neuron death appears that A/B never show, and
+output scale runs away — training this architecture against a
+pure-game-outcome target is unstable, a real finding independent of the
+cross-run comparison. Whether blending eval in *specifically* aids
+generalization (vs. just being a lower-variance target) is not
+established by these numbers and needs a common-scale metric — see
+`valid_cp_mse`/`valid_wdl_loss` in the follow-up investigation below. C
+remains excluded from the playing-strength comparison (its checkpoints
+are training-unstable on any reading), but the "C is clearly worse"
+branch is no longer read as WDL-specific evidence.
+
+**Common-metric back-apply, resolved (2026-07-14)**: added `valid_cp_mse`
+(MSE vs. the raw search eval, computed identically regardless of a run's
+own `wdl_lambda`) and `valid_wdl_loss` (MSE vs. the raw game-outcome
+target) to `eval_game`, then re-scored A(epoch8)/B(epoch3)/C(best=epoch1)
+against the *same* held-out validation split via a new `--eval-only
+<checkpoint>` flag (loads a checkpoint's weights for forward-scoring only,
+without touching the teacher search — see `tasks/lessons.md`'s 2026-07-14
+entry for a real bug this caught and fixed along the way: an earlier
+version of `--eval-only` silently redirected the teacher-generating search
+itself onto the checkpoint being scored, via a shared global that
+`load_weights` sets and `Searcher`'s leaf evaluation reads).
+
+**Correctness check on `--eval-only` itself**: each run's own-objective
+`valid_loss` (row below) reproduces that same checkpoint's original
+best-epoch training-time `valid_loss` almost exactly — A: 139980.15 vs.
+140077.83 (0.07% off), B: 138631.86 vs. 138595.82 (0.03%), C: 350950.35
+vs. 350921.23 (0.008%). All three are real, previously-trained checkpoints
+(not the small smoke-test checkpoint used during development), so this
+confirms `read_weights`/`from_nnue_weights`/`--eval-only` faithfully
+reproduce a *trained* checkpoint's scoring, not just a freshly-initialised
+one — the residual is ordinary FT i16 quantisation rounding.
+
+| | A (epoch8) | B (epoch3) | C (epoch1, best) |
+|---|---|---|---|
+| `valid_cp_mse` (common) | 160513.20 | 159164.41 | 173445.50 |
+| `valid_wdl_loss` (common) | 348290.48 | 347129.64 | 356420.68 |
+| `valid_output_mean` | 32.257 | 51.574 | 48.559 |
+| `valid_output_std` | 64.480 | 101.660 | **6.744** |
+| own-objective `valid_loss` (not comparable across rows) | 139980.15 | 138631.86 | 350950.35 |
+
+On the common yardstick, **C is only ~9% worse than A/B at predicting the
+search eval** (`cp_mse` ratio 1.09×), not the ~2.5× the raw `valid_loss`
+comparison implied — confirming that gap was mostly a different-objective
+scaling artifact, not a real 2.5× quality gap. `valid_wdl_loss` is nearly
+identical across all three (~3% spread) — none of them predicts game
+outcome noticeably better than the others, including C, which nominally
+trains on nothing else.
+
+The metric that *does* show a real, large difference is `valid_output_std`:
+C's is **9.6× smaller than A's and 15× smaller than B's**. C's best
+checkpoint isn't discriminating positions much at all — its output sits
+close to a near-constant ~48.6cp regardless of position, rather than
+tracking real positional differences. That's a distinct failure mode from
+the *later* output-scale blowup this same run develops by epoch 20 (see
+the L2 saturation probe findings above, `out_std=453`): epoch 1 is
+under-differentiated/collapsed, not yet blown up. A near-constant
+predictor can still post a middling MSE if the target itself has modest
+variance in this small validation slice — which is exactly why MSE alone
+under-states how unusable this checkpoint would be in practice, and why a
+playing-strength gate (not attempted for C, given the instability already
+established above) remains the real test, not just a validation-metric
+comparison.
 
 **A(epoch8) vs B(epoch3) paired quick gate (198 games) — INCONCLUSIVE**:
 `elo_diff=-17.56`, 95% CI=[-66.02, +30.89], LOS=23.84% — the CI is wider
@@ -196,19 +269,99 @@ the point estimate leans the wrong way, so there's no basis to invest
 further compute chasing it. This is not "A won." Full manifest:
 `docs/experiments/ablation_lr_schedule_a8_vs_b3.md`.
 
-**A/B/C conclusion**: WDL blending (λ=0.7) is worth retaining — Run C
-showed it has a real generalization effect, not just a training-time
-artifact. Cosine run for a fixed 20 epochs is not adopted — not because
-of λ (Run C shows the overfitting isn't a WDL problem), but because it
-overfits hard regardless of λ once the LR-starvation ceiling is lifted.
-step-half stays the control despite wasting roughly half its epoch
-budget once the LR decays — B did not demonstrate a real playing-strength
-edge over it. **Valid loss alone is not sufficient for checkpoint
-selection**: B's best-valid-loss checkpoint did not produce a
-measurable playing-strength improvement over A's. Next candidates (not
-started): early-stopping/`--patience` (saves compute, does not itself
-fix B's overfitting), investigating why `l2_active == l2_sat` persists
-across all three runs, and a single-variable regularization experiment
-(weight decay, gradient clipping, or output-scale target — one at a
-time) re-tested against A as control. See `tasks/todo.md` for the full
-backlog with rationale.
+**A/B/C conclusion**: cosine run for a fixed 20 epochs is not adopted —
+it overfits hard once the LR-starvation ceiling A suffers from is
+lifted (see B above). step-half stays the control despite wasting
+roughly half its epoch budget once the LR decays — B did not demonstrate
+a real playing-strength edge over it (see quick-gate result above).
+**Valid loss alone is not sufficient for checkpoint selection**: B's
+best-valid-loss checkpoint did not produce a measurable playing-strength
+improvement over A's, and A/B/C's `valid_loss` values aren't even on a
+comparable scale across differing `wdl_lambda` (see the common-metric
+back-apply above). On the resolved common yardstick, C is not "2.5×
+worse" at eval-prediction — it's ~9% worse, far below what the raw
+comparison implied. Whether that remaining ~9% is a meaningful gap or
+within this setup's run-to-run variation is not established from a
+single deterministic run each — that question is exactly what the 3-seed
+sensitivity experiment (P1, not yet run) would answer, not something to
+presume either way here. Its real, clearly-established problem is a
+different one: `valid_output_std` collapsed to ~1/10-1/15th of A/B's,
+meaning C's best checkpoint barely discriminates between positions at
+all. Whether that specific collapse is caused by training on a
+game-outcome-heavy target (low λ) or is a training-instability artifact
+unrelated to λ is also not established — resolving that needs the same
+3-seed experiment or a dedicated λ-sweep, neither of which this
+investigation covers.
+
+**Follow-up investigation (2026-07-14)**: `l2_active_ratio ==
+l2_saturation_ratio` was root-caused — a set-membership artifact of a
+subset of L2 neurons going permanently dead, not saturation intensity
+(A: 9/32 dead, fixed from epoch 1, never recover under step-half; B: same
+9 at epoch 1 but 3 recover by epoch 20 under cosine's sustained LR; C:
+almost no dead neurons but a different pathology, output-scale runaway).
+A follow-up epoch-0 probe found L2 neuron death is dominated by epoch 1's
+first-update magnitude, not initialization: only 3 of A's 9 dead neurons
+were already dead post-init, 6 died specifically during epoch 1 (a
+~100-300× pre-activation scale jump across the whole L2 layer in one
+epoch, no warmup). Full detail in `tasks/lessons.md`'s 2026-07-14 entries.
+This points the next single-variable experiment at LR
+warmup/lower-initial-LR/gradient-clipping, not weight decay or init
+adjustment — not yet run. The common cross-λ validation metric is now
+done (see above).
+
+## 3-seed sensitivity experiment (corrected, 2026-07-15)
+
+Ran the short 3-seed sensitivity experiment referenced above (B and C,
+seeds 42/7/123, `--epochs 3` at the real 20-epoch cosine schedule). A real
+bug surfaced mid-analysis: `compute_lr`'s cosine schedule shaped its curve
+using `total_epochs`, and every call site passed `args.epochs` directly —
+so the first `--epochs 3` attempt compressed the *entire* 20-epoch decay
+into 3 epochs instead of reproducing its first 3 epochs (epoch 3's LR
+landed at the `min_lr` floor instead of the correct, barely-decayed
+value). Epochs 1-2 were unaffected (LR is `0.001` either way under
+1-epoch warmup). Fixed with a new `--lr-schedule-epochs <n>` flag
+(decouples the schedule's horizon from the run length; see `CHANGELOG.md`)
+and all 6 runs re-executed from scratch — SHA-256 confirms epoch 0-2
+checkpoints are byte-identical to the invalidated first attempt, so only
+epoch 3 changed. Full table, per-seed detail, and the invalidated-run
+record: `tasks/lessons.md`'s 2026-07-14/15 entries; artifact:
+<https://claude.ai/code/artifact/acf56cda-86d2-4066-86b0-da63b0a5bb76>.
+
+**Result — the λ-vs-collapse question above gets a qualified answer, not
+a settled one.** Same-seed `valid_cp_mse` at epoch 2 (unaffected by the
+bug) was mixed — B ahead in seeds 42/123, C ahead in seed 7. At the
+corrected epoch 3, **B (λ=0.7) has lower cp_mse than C (λ=0.0) in all
+3 seeds**, including seed 7, which crosses over between epoch 2 and 3
+rather than trending toward B monotonically. Looking at what drives that:
+every B seed *improves* its own cp_mse from epoch 2 to 3, while C
+*worsens* in 2 of 3 seeds and only marginally improves in the third. The
+two C seeds that worsen (42, 7) show early **output-scale runaway** in
+`train_std` — the same pathology the full A/B/C run above found in C by
+epoch 20, already visible here by epoch 3 of a short run. The third C
+seed (123) instead looks **stuck**, not runaway (`train_std` barely
+moves), consistent with never fully breaking its own epoch-1 output
+collapse.
+
+**This does not resolve to a clean single story.** The epoch-1 dead-L2
+neuron count reproduces cleanly (C=0 in every seed, B=2-5 in every
+seed) but stops tracking anything by epoch 3 — C's dead-neuron count
+exceeds B's own-seed count in 2 of 3 seeds by then, inverting the epoch-1
+pattern. And the `output_std≈0` collapse this doc flagged as C's
+signature pathology is **not λ=0-specific**: the corrected re-run's new
+`valid_output_range` diagnostic (exact min/max, immune to the variance
+formula's catastrophic-cancellation rounding) confirms a genuine,
+exact-zero collapse at epoch 1 in `B_seed7`, `B_seed123`, *and*
+`C_seed123` — two B runs, one C run.
+
+**Revised conclusion**: λ=0.7 does show a real, seed-consistent
+generalization edge on the common cp_mse yardstick by epoch 3 of this
+short run — stronger support than this doc previously had for keeping
+the WDL blend. But the mechanism is not "fewer dead L2 neurons," and
+init-sensitivity is layered on top of it (two distinct C failure modes —
+runaway vs. stuck — across only 3 seeds). Still a 3-seed, 3-epoch
+direction-reproduction check, not statistical certainty — it justifies a
+longer matched B/C run or a mechanism investigation, not a final verdict
+on λ. Next candidate: a single-variable fix (warmup/LR/clipping) from the
+epoch-0 probe above, re-tested against A as control, or a matched
+20-epoch B/C rerun to see whether B's epoch-3 edge holds up over a full
+schedule. See `tasks/todo.md` for the full backlog with rationale.
