@@ -85,6 +85,9 @@ struct Args {
     // omitted; see `trainer::resolve_schedule_epochs`.
     lr_schedule_epochs: u32,
     eval_only: Option<PathBuf>, // --eval-only <checkpoint.bin> (CSA path only)
+    // Global gradient-norm clip threshold (--grad-clip-norm). `None`
+    // (default) means no clipping -- exact prior behavior.
+    grad_clip_norm: Option<f32>,
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -161,6 +164,7 @@ fn parse_args() -> Result<Args, String> {
     let mut warmup_epochs = 0u32;
     let mut lr_schedule_epochs: Option<u32> = None;
     let mut eval_only: Option<PathBuf> = None;
+    let mut grad_clip_norm: Option<f32> = None;
     let mut i = 0;
 
     while i < argv.len() {
@@ -299,6 +303,12 @@ fn parse_args() -> Result<Args, String> {
                     lr_schedule_epochs = s.parse().ok();
                 }
             }
+            "--grad-clip-norm" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    grad_clip_norm = s.parse().ok();
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -417,6 +427,7 @@ fn parse_args() -> Result<Args, String> {
         warmup_epochs,
         lr_schedule_epochs,
         eval_only,
+        grad_clip_norm,
     })
 }
 
@@ -628,14 +639,20 @@ fn build_diag(
         pred_eval_correlation,
         train_cp_component,
         train_wdl_component,
+        grad_clip_count: trainer.grad_clip_count,
     }
 }
 
 /// Prints the per-epoch gradient/update-norm/target diagnostics -- shared
 /// by both training paths so the two call sites don't drift.
-fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics) {
+fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics, train_count: u64) {
+    let clip_rate = if train_count > 0 {
+        diag.grad_clip_count as f64 / train_count as f64
+    } else {
+        0.0
+    };
     eprintln!(
-        "  grad: ft={:.4}±{:.4}  l2={:.4}±{:.4}  out={:.5}±{:.5}  (mean±std)  global_p50={:.4}  p90={:.4}  p95={:.4}  p99={:.4}",
+        "  grad: ft={:.4}±{:.4}  l2={:.4}±{:.4}  out={:.5}±{:.5}  (mean±std)  global_p50={:.4}  p90={:.4}  p95={:.4}  p99={:.4}  clipped={}/{} ({:.1}%)",
         diag.ft_grad_norm_mean,
         diag.ft_grad_norm_std,
         diag.l2_grad_norm_mean,
@@ -646,6 +663,9 @@ fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics) {
         diag.global_grad_norm_p90,
         diag.global_grad_norm_p95,
         diag.global_grad_norm_p99,
+        diag.grad_clip_count,
+        train_count,
+        clip_rate * 100.0,
     );
     eprintln!(
         "  update: ft={:.6}±{:.6}  l2={:.6}±{:.6}  out={:.6}±{:.6}  (mean±std, applied Adam step)",
@@ -836,6 +856,8 @@ fn save_checkpoint_meta(
         // is no better." Never fed back into the gradient.
         "train_cp_component": diag.train_cp_component,
         "train_wdl_component": diag.train_wdl_component,
+        "grad_clip_norm": args.grad_clip_norm,
+        "grad_clip_count": diag.grad_clip_count,
         // Common cross-run yardstick: computed against the same raw
         // teacher components regardless of this run's own `wdl_lambda`,
         // so runs trained at different λ can be compared on one scale
@@ -912,6 +934,9 @@ fn print_usage() {
     );
     eprintln!(
         "  --lr-schedule-epochs <n> Schedule horizon the LR curve is shaped for; may exceed --epochs to reproduce the first N epochs of a longer schedule (default: --epochs)"
+    );
+    eprintln!(
+        "  --grad-clip-norm <f>    Global gradient-norm clip threshold; scales all layers' gradients down together when exceeded (default: unset = no clipping)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1064,6 +1089,7 @@ fn main() {
         };
 
         let mut trainer = Trainer::new(args.init_seed);
+        trainer.grad_clip_norm = args.grad_clip_norm;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1219,7 +1245,7 @@ fn main() {
                     .map(|n| format!("{n:.4}"))
                     .unwrap_or_else(|| "n/a".to_string()),
             );
-            print_grad_diag_lines(&diag);
+            print_grad_diag_lines(&diag, trainer.total_count);
 
             let meta_path = checkpoint.with_extension("meta.json");
             if let Err(e) = save_checkpoint_meta(
@@ -1377,6 +1403,7 @@ fn main() {
     );
 
     let mut trainer = Trainer::new(args.init_seed);
+    trainer.grad_clip_norm = args.grad_clip_norm;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
@@ -1642,7 +1669,7 @@ fn main() {
             trainer.cache_hits,
             trainer.cache_misses,
         );
-        print_grad_diag_lines(&diag);
+        print_grad_diag_lines(&diag, trainer.total_count);
 
         // First time the CSA path writes checkpoint metadata at all --
         // previously only the positions path did.

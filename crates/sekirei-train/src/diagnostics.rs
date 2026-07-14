@@ -93,6 +93,9 @@ pub struct EpochDiagnostics {
     /// for the actual gradient; see `Trainer::train_position`.
     pub train_cp_component: f64,
     pub train_wdl_component: Option<f64>,
+    /// Positions this epoch whose gradient exceeded `--grad-clip-norm` and
+    /// got scaled down. Always 0 when clipping is off.
+    pub grad_clip_count: u64,
 }
 
 /// Fraction of `flags` that are `true`.

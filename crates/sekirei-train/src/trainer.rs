@@ -493,6 +493,17 @@ pub struct Trainer {
     pub total_weight: f64,    // sum of weights (for avg_weight log)
     pub dropped_missing: u64, // positions skipped (not in scored map)
     pub lr: f32,
+    // Global (whole-network) gradient-norm clip threshold -- `None` (the
+    // default) means no clipping, byte-identical to pre-clipping behavior.
+    // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
+    // Scales all layers' gradients down together (preserving direction)
+    // when the pre-clip global norm exceeds this, applied *after* the
+    // gradient-norm diagnostics above capture the unclipped value -- so
+    // the diagnostic always reflects the natural distribution regardless
+    // of whether clipping is active, letting a clip threshold be chosen
+    // from a run's own diagnostic output.
+    pub grad_clip_norm: Option<f32>,
+    pub grad_clip_count: u64,
     // Per-epoch diagnostics. These are "ever" flags over the whole epoch,
     // not a per-sample snapshot -- a dead neuron is one that never fires
     // across an entire epoch of real data, not one that happens to read
@@ -587,6 +598,8 @@ impl Trainer {
             total_weight: 0.0,
             dropped_missing: 0,
             lr: 0.001,
+            grad_clip_norm: None,
+            grad_clip_count: 0,
             ft_ever_active: vec![false; L1],
             ft_ever_saturated: vec![false; L1],
             l2_ever_active: vec![false; L2],
@@ -1123,7 +1136,7 @@ impl Trainer {
         for o in 0..L2 {
             d_out[o] = d_output * relu_l2[o];
         }
-        let d_out_bias = d_output;
+        let mut d_out_bias = d_output;
 
         // Backprop through L2 ClippedReLU
         let mut d_l2_acc = [0.0f32; L2];
@@ -1217,8 +1230,30 @@ impl Trainer {
         self.l2_grad_norm_sum_sq += l2_grad_norm * l2_grad_norm;
         self.out_grad_norm_sum += out_grad_norm;
         self.out_grad_norm_sum_sq += out_grad_norm * out_grad_norm;
-        self.global_grad_norm_values
-            .push((ft_grad_sq + l2_grad_sq + out_grad_sq).sqrt() as f32);
+        let global_grad_norm = (ft_grad_sq + l2_grad_sq + out_grad_sq).sqrt();
+        self.global_grad_norm_values.push(global_grad_norm as f32);
+
+        // ── Gradient clipping (optional) ─────────────────────────────────────
+        // Global-norm clipping: if the whole-network gradient norm exceeds
+        // `grad_clip_norm`, scale every layer's gradient down by the same
+        // factor (direction preserved, only magnitude reduced). Applied
+        // after the diagnostics above capture the unclipped norm, so
+        // `global_grad_norm_p95`/`p99` always describe the natural
+        // distribution a threshold should be chosen from, not a value
+        // that's already been clamped by whatever threshold is active.
+        if let Some(clip_norm) = self.grad_clip_norm {
+            let clip_norm = clip_norm as f64;
+            if global_grad_norm > clip_norm {
+                self.grad_clip_count += 1;
+                let scale = (clip_norm / global_grad_norm) as f32;
+                d_ft.iter_mut().for_each(|x| *x *= scale);
+                d_bias.iter_mut().for_each(|x| *x *= scale);
+                d_l2.iter_mut().for_each(|x| *x *= scale);
+                d_l2_bias.iter_mut().for_each(|x| *x *= scale);
+                d_out.iter_mut().for_each(|x| *x *= scale);
+                d_out_bias *= scale;
+            }
+        }
 
         // ── Adam update ───────────────────────────────────────────────────────
 
@@ -1333,6 +1368,7 @@ impl Trainer {
         self.cp_component_sum = 0.0;
         self.wdl_component_sum = 0.0;
         self.wdl_component_count = 0;
+        self.grad_clip_count = 0;
         self.cache_hits = 0;
         self.cache_misses = 0;
     }
@@ -1713,6 +1749,42 @@ mod tests {
         assert_eq!(trainer.cache_hits, 1);
         assert_eq!(cache.len(), 1);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn train_position_grad_clip_norm_shrinks_the_applied_update() {
+        let board = Board::startpos();
+
+        // A large teacher error (-600 vs. a near-zero fresh-init prediction)
+        // to force a real, non-tiny gradient.
+        let mut unclipped = Trainer::new(1);
+        unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
+
+        let mut clipped = Trainer::new(1);
+        clipped.grad_clip_norm = Some(1.0); // far below any real gradient norm
+        clipped.train_position(&board, -600.0, 1.0, -600.0, None);
+
+        assert_eq!(
+            clipped.grad_clip_count, 1,
+            "the tiny threshold must trigger"
+        );
+        assert_eq!(unclipped.grad_clip_count, 0);
+        // Both start from the identical seeded init, so a smaller applied
+        // update norm directly reflects the clip, not initialization noise.
+        assert!(
+            clipped.ft_update_norm_sum < unclipped.ft_update_norm_sum,
+            "clipped={} unclipped={}",
+            clipped.ft_update_norm_sum,
+            unclipped.ft_update_norm_sum
+        );
+        // The unclipped diagnostic still records the *natural* (unclipped)
+        // gradient norm -- clipping must not retroactively shrink what the
+        // percentile diagnostics report, or a clip threshold could never be
+        // chosen from a run's own output.
+        assert_eq!(
+            clipped.global_grad_norm_values[0],
+            unclipped.global_grad_norm_values[0]
+        );
     }
 
     #[test]
