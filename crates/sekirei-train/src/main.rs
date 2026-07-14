@@ -79,6 +79,11 @@ struct Args {
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
     warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
+    // Schedule horizon the LR curve is shaped for -- may exceed `epochs`,
+    // to reproduce the first N epochs of a longer schedule. Defaults to
+    // `epochs` (today's original behavior) when --lr-schedule-epochs is
+    // omitted; see `trainer::resolve_schedule_epochs`.
+    lr_schedule_epochs: u32,
     eval_only: Option<PathBuf>, // --eval-only <checkpoint.bin> (CSA path only)
 }
 
@@ -154,6 +159,7 @@ fn parse_args() -> Result<Args, String> {
     let mut lr_schedule = LrSchedule::StepHalf;
     let mut min_lr = 0.0f32;
     let mut warmup_epochs = 0u32;
+    let mut lr_schedule_epochs: Option<u32> = None;
     let mut eval_only: Option<PathBuf> = None;
     let mut i = 0;
 
@@ -287,6 +293,12 @@ fn parse_args() -> Result<Args, String> {
                     warmup_epochs = s.parse().unwrap_or(0);
                 }
             }
+            "--lr-schedule-epochs" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    lr_schedule_epochs = s.parse().ok();
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -366,6 +378,8 @@ fn parse_args() -> Result<Args, String> {
     if eval_only.is_some() && positions_path.is_some() {
         return Err("--eval-only requires --games (CSA path)".to_string());
     }
+    let lr_schedule_epochs =
+        trainer::resolve_schedule_epochs(epochs as u32, lr_schedule_epochs, warmup_epochs)?;
 
     Ok(Args {
         games_dir,
@@ -401,6 +415,7 @@ fn parse_args() -> Result<Args, String> {
         lr_schedule,
         min_lr,
         warmup_epochs,
+        lr_schedule_epochs,
         eval_only,
     })
 }
@@ -558,7 +573,15 @@ fn save_checkpoint_meta(
     // compare against -- only the CSA path's `eval_game` produces this.
     valid_stats: Option<&trainer::ValidStats>,
 ) -> std::io::Result<()> {
-    let (valid_cp_mse, valid_wdl_loss, valid_output_mean, valid_output_std) = match valid_stats {
+    let (
+        valid_cp_mse,
+        valid_wdl_loss,
+        valid_output_mean,
+        valid_output_std,
+        valid_output_min,
+        valid_output_max,
+        valid_output_range,
+    ) = match valid_stats {
         Some(s) => {
             let cp_mse = if s.count > 0 {
                 Some(s.cp_mse_sum / s.count as f64)
@@ -571,9 +594,21 @@ fn save_checkpoint_meta(
                 None
             };
             let (mean, std) = diagnostics::mean_std(s.output_sum, s.output_sum_sq, s.count);
-            (cp_mse, wdl_loss, Some(mean), Some(std))
+            // min/max are computed directly (no variance-formula
+            // cancellation), so they're the reliable signal for "is output
+            // truly constant" when `std` rounds to 0.000 -- see ValidStats.
+            let (min, max, range) = if s.count > 0 {
+                (
+                    Some(s.output_min),
+                    Some(s.output_max),
+                    Some(s.output_max - s.output_min),
+                )
+            } else {
+                (None, None, None)
+            };
+            (cp_mse, wdl_loss, Some(mean), Some(std), min, max, range)
         }
-        None => (None, None, None, None),
+        None => (None, None, None, None, None, None, None),
     };
     let meta = serde_json::json!({
         "epoch": epoch,
@@ -598,6 +633,12 @@ fn save_checkpoint_meta(
         "lr_schedule": format!("{:?}", args.lr_schedule),
         "min_lr": args.min_lr,
         "warmup_epochs": args.warmup_epochs,
+        // `epochs` is the run's planned total epoch count; `lr_schedule_epochs`
+        // is the (possibly longer) horizon the LR curve was shaped for --
+        // e.g. epochs=3/lr_schedule_epochs=20 reproduces the first 3 epochs
+        // of a 20-epoch schedule. Equal unless --lr-schedule-epochs was set.
+        "epochs": args.epochs,
+        "lr_schedule_epochs": args.lr_schedule_epochs,
         "train_count": train_count,
         "valid_count": valid_count,
         // Game-level counts; `None` on the positions path, which has no
@@ -648,6 +689,13 @@ fn save_checkpoint_meta(
         "valid_wdl_loss": valid_wdl_loss,
         "valid_output_mean": valid_output_mean,
         "valid_output_std": valid_output_std,
+        // min/max/range computed directly (no variance-formula cancellation)
+        // -- the reliable way to tell "truly constant output" (range==0.0)
+        // from "collapsed but not literally frozen" when `valid_output_std`
+        // rounds to 0.000.
+        "valid_output_min": valid_output_min,
+        "valid_output_max": valid_output_max,
+        "valid_output_range": valid_output_range,
     });
     fs::write(path, serde_json::to_string_pretty(&meta).unwrap())
 }
@@ -706,6 +754,9 @@ fn print_usage() {
     eprintln!("  --min-lr <f>            Floor applied to every schedule (default: 0.0)");
     eprintln!(
         "  --warmup-epochs <n>     Linear ramp to base_lr over the first N epochs (default: 0 = off)"
+    );
+    eprintln!(
+        "  --lr-schedule-epochs <n> Schedule horizon the LR curve is shaped for; may exceed --epochs to reproduce the first N epochs of a longer schedule (default: --epochs)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -868,7 +919,7 @@ fn main() {
                 args.lr,
                 args.min_lr,
                 epoch as u32,
-                args.epochs as u32,
+                args.lr_schedule_epochs,
                 args.warmup_epochs,
             );
             trainer.reset_epoch_stats();
@@ -1222,8 +1273,13 @@ fn main() {
         };
         let (out_mean, out_std) =
             diagnostics::mean_std(stats.output_sum, stats.output_sum_sq, stats.count);
+        let out_range = if stats.count > 0 {
+            stats.output_max - stats.output_min
+        } else {
+            0.0
+        };
         println!(
-            "eval-only {:?}: valid_loss={vloss:.4}  valid_cp_mse={cp_mse:.4}  valid_wdl_loss={wdl_loss:.4}  valid_output_mean={out_mean:.3}  valid_output_std={out_std:.3}  samples={}  wdl_samples={}",
+            "eval-only {:?}: valid_loss={vloss:.4}  valid_cp_mse={cp_mse:.4}  valid_wdl_loss={wdl_loss:.4}  valid_output_mean={out_mean:.3}  valid_output_std={out_std:.6}  valid_output_range={out_range:.6}  samples={}  wdl_samples={}",
             eval_ckpt, stats.count, stats.wdl_count,
         );
         return;
@@ -1261,7 +1317,7 @@ fn main() {
             args.lr,
             args.min_lr,
             epoch as u32,
-            args.epochs as u32,
+            args.lr_schedule_epochs,
             args.warmup_epochs,
         );
         trainer.reset_epoch_stats();
@@ -1320,6 +1376,11 @@ fn main() {
         };
         let (valid_output_mean, valid_output_std) =
             diagnostics::mean_std(valid_stats.output_sum, valid_stats.output_sum_sq, vcount);
+        let valid_output_range = if vcount > 0 {
+            valid_stats.output_max - valid_stats.output_min
+        } else {
+            0.0
+        };
         if !valid_idxs.is_empty() {
             let vloss = if vcount > 0 {
                 vloss_sum / vcount as f64
@@ -1327,7 +1388,7 @@ fn main() {
                 0.0
             };
             eprintln!(
-                "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.3}  samples={vcount}"
+                "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.6}  out_range={valid_output_range:.6}  samples={vcount}"
             );
         }
 

@@ -100,7 +100,17 @@ impl LrSchedule {
     }
 }
 
-/// Computes the learning rate for `epoch` (1-indexed) out of `total_epochs`.
+/// Computes the learning rate for `epoch` (1-indexed) against a schedule
+/// shaped for `total_epochs`. `total_epochs` is the schedule's *horizon* --
+/// how long a run the curve is shaped for -- not necessarily how many
+/// epochs the caller actually runs (see `resolve_schedule_epochs`, which
+/// callers should use to derive this value from `--epochs`/
+/// `--lr-schedule-epochs`). Because this function is pure and never sees
+/// "how many epochs will actually run," a short run and a long run that
+/// pass the same `total_epochs` always agree epoch-for-epoch on every
+/// epoch they share -- there is no way for them to diverge before the
+/// point where `total_epochs` itself would have been exceeded.
+///
 /// The first `warmup_epochs` epochs ramp linearly from 0 to `base_lr`
 /// (epoch `warmup_epochs` itself lands exactly on `base_lr`); the chosen
 /// `schedule` then governs decay over the remaining epochs. `min_lr` is a
@@ -135,6 +145,44 @@ pub fn compute_lr(
         }
     };
     lr.max(min_lr)
+}
+
+/// Resolves `--lr-schedule-epochs` against `--epochs`, for reproducing the
+/// first N epochs of a longer schedule (e.g. `--epochs 3
+/// --lr-schedule-epochs 20` shapes the LR curve for a 20-epoch run but only
+/// executes epochs 1-3 of it) without changing today's default behavior.
+///
+/// `requested = None` means the flag was omitted -- defaults to `epochs`,
+/// reproducing the pre-existing behavior exactly (schedule horizon ==
+/// actual run length). Errors rather than silently clamping on:
+/// - `schedule_epochs == 0` (a zero-length schedule is meaningless)
+/// - `warmup_epochs > schedule_epochs` (warmup would never complete)
+/// - `schedule_epochs < epochs` (the run would run past the schedule's
+///   horizon, hitting undefined "continue past the end" behavior --
+///   `compute_lr` currently just holds at the final epoch's value, but
+///   that's almost never the intent, so surface the mistake instead of
+///   quietly clamping the run length or the horizon)
+pub fn resolve_schedule_epochs(
+    epochs: u32,
+    requested: Option<u32>,
+    warmup_epochs: u32,
+) -> Result<u32, String> {
+    let schedule_epochs = requested.unwrap_or(epochs);
+    if schedule_epochs == 0 {
+        return Err("--lr-schedule-epochs must be greater than 0".to_string());
+    }
+    if warmup_epochs > schedule_epochs {
+        return Err(format!(
+            "--warmup-epochs ({warmup_epochs}) cannot exceed --lr-schedule-epochs ({schedule_epochs})"
+        ));
+    }
+    if schedule_epochs < epochs {
+        return Err(format!(
+            "--lr-schedule-epochs ({schedule_epochs}) cannot be less than --epochs ({epochs}) -- \
+             use a schedule horizon at least as long as the run, or omit the flag to default it to --epochs"
+        ));
+    }
+    Ok(schedule_epochs)
 }
 
 // ---- Deterministic PRNG for weight init (same LCG constants as
@@ -367,7 +415,7 @@ impl TrainWeights {
 /// `wdl_lambda` -- the common yardstick that makes `valid_cp_mse` (mean of
 /// `cp_mse_sum/count`) comparable across runs trained at different λ,
 /// unlike `loss_sum/count` which is only comparable within one λ.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct ValidStats {
     pub loss_sum: f64,
     pub count: u64,
@@ -376,6 +424,31 @@ pub struct ValidStats {
     pub wdl_count: u64,
     pub output_sum: f64,
     pub output_sum_sq: f64,
+    // `mean_std`'s variance formula (sum_sq/n - mean^2) hits catastrophic
+    // cancellation near-constant output and its `max(0.0)` guard can round
+    // a genuinely non-zero std down to an exact 0.000 -- min/max/range are
+    // computed directly with no cancellation, so `range == 0.0` means truly
+    // constant output and a small nonzero range means "collapsed but not
+    // literally frozen." Identity element for `Add`/fold is (+inf, -inf),
+    // not (0.0, 0.0) -- see `Default` below.
+    pub output_min: f32,
+    pub output_max: f32,
+}
+
+impl Default for ValidStats {
+    fn default() -> Self {
+        ValidStats {
+            loss_sum: 0.0,
+            count: 0,
+            cp_mse_sum: 0.0,
+            wdl_loss_sum: 0.0,
+            wdl_count: 0,
+            output_sum: 0.0,
+            output_sum_sq: 0.0,
+            output_min: f32::INFINITY,
+            output_max: f32::NEG_INFINITY,
+        }
+    }
 }
 
 impl std::ops::Add for ValidStats {
@@ -389,6 +462,8 @@ impl std::ops::Add for ValidStats {
             wdl_count: self.wdl_count + other.wdl_count,
             output_sum: self.output_sum + other.output_sum,
             output_sum_sq: self.output_sum_sq + other.output_sum_sq,
+            output_min: self.output_min.min(other.output_min),
+            output_max: self.output_max.max(other.output_max),
         }
     }
 }
@@ -791,6 +866,8 @@ impl Trainer {
 
             stats.output_sum += score as f64;
             stats.output_sum_sq += (score as f64) * (score as f64);
+            stats.output_min = stats.output_min.min(score);
+            stats.output_max = stats.output_max.max(score);
 
             board.do_move(mv);
         }
@@ -1325,6 +1402,72 @@ mod tests {
             assert!(lr.is_finite() && lr >= 0.0);
         }
         assert_eq!(compute_lr(LrSchedule::Cosine, 0.001, 0.0, 5, 5, 5), 0.001);
+    }
+
+    #[test]
+    fn compute_lr_short_run_reproduces_epoch3_of_the_real_20_epoch_schedule() {
+        // This is the 2026-07 schedule-horizon bug, pinned down as a numeric
+        // regression test: `--epochs 3` used to pass `total_epochs=3`,
+        // compressing the entire cosine decay into 3 epochs and landing
+        // epoch 3 at the min_lr floor (0.00001) instead of the correct,
+        // barely-decayed value from the real 20-epoch B/C schedule. Callers
+        // must pass the schedule horizon (20), not the run length (3).
+        let lr = compute_lr(LrSchedule::Cosine, 0.001, 0.00001, 3, 20, 1);
+        assert!(
+            (lr - 0.000992).abs() < 1e-6,
+            "epoch3 lr={lr}, expected ~0.000992 (not the min_lr floor 0.00001)"
+        );
+    }
+
+    #[test]
+    fn compute_lr_first_3_epochs_of_20_match_hand_computed_prefix() {
+        // The "prefix-match" property `--lr-schedule-epochs` relies on: a
+        // 3-epoch run and the real 20-epoch B/C schedule must agree
+        // epoch-for-epoch wherever they overlap. `compute_lr` never receives
+        // "how many epochs will actually run" -- only `total_epochs` (the
+        // schedule horizon) -- so as long as callers pass total_epochs=20
+        // regardless of run length, this holds by construction; pin the
+        // expected sequence down numerically so a future signature change
+        // can't quietly break it.
+        let expected = [0.001, 0.001, 0.000992];
+        for (i, want) in expected.iter().enumerate() {
+            let epoch = (i + 1) as u32;
+            let got = compute_lr(LrSchedule::Cosine, 0.001, 0.00001, epoch, 20, 1);
+            assert!(
+                (got - want).abs() < 1e-6,
+                "epoch {epoch}: got {got}, want {want}"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_defaults_to_epochs_when_omitted() {
+        // Reproduces today's (pre-flag) behavior exactly when the new flag
+        // is not passed.
+        assert_eq!(resolve_schedule_epochs(3, None, 1).unwrap(), 3);
+        assert_eq!(resolve_schedule_epochs(20, None, 0).unwrap(), 20);
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_accepts_a_longer_explicit_horizon() {
+        assert_eq!(resolve_schedule_epochs(3, Some(20), 1).unwrap(), 20);
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_rejects_zero() {
+        assert!(resolve_schedule_epochs(3, Some(0), 0).is_err());
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_rejects_warmup_exceeding_schedule_epochs() {
+        assert!(resolve_schedule_epochs(3, Some(5), 6).is_err());
+    }
+
+    #[test]
+    fn resolve_schedule_epochs_rejects_schedule_epochs_less_than_epochs() {
+        // Must error, not silently clamp -- an implicit floor would hide
+        // exactly the mistake that caused the 2026-07 schedule bug.
+        assert!(resolve_schedule_epochs(20, Some(3), 0).is_err());
     }
 
     #[test]
