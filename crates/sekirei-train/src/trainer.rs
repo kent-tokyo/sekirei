@@ -236,6 +236,57 @@ impl TrainWeights {
         }
     }
 
+    /// Inverse of `to_nnue_weights` -- loads an already-trained checkpoint
+    /// for further forward-pass use (e.g. `--eval-only`'s common-metric
+    /// back-apply). Adam moments start at zero and `step` at 0: nothing
+    /// resumes training from here, so there's no prior optimizer state to
+    /// restore (checkpoints are inference-only weight files -- Adam moments
+    /// were never persisted in the first place).
+    pub fn from_nnue_weights(w: &NnueWeights) -> Self {
+        const FT_SCALE: f32 = 64.0;
+        let ft_len = INPUT * L1;
+        let l2_len = 2 * L1 * L2;
+        let out_len = L2;
+
+        let mut ft = vec![0.0f32; ft_len];
+        for i in 0..INPUT {
+            for j in 0..L1 {
+                ft[i * L1 + j] = w.ft[i][j] as f32 / FT_SCALE;
+            }
+        }
+        let ft_bias: Vec<f32> = w.ft_bias.iter().map(|&v| v as f32 / FT_SCALE).collect();
+
+        let mut l2 = vec![0.0f32; l2_len];
+        for i in 0..2 * L1 {
+            for o in 0..L2 {
+                l2[i * L2 + o] = w.l2[i][o];
+            }
+        }
+
+        TrainWeights {
+            ft,
+            ft_bias,
+            l2,
+            l2_bias: w.l2_bias.to_vec(),
+            out: w.out.to_vec(),
+            out_bias: w.out_bias,
+
+            ft_m: vec![0.0; ft_len],
+            ft_v: vec![0.0; ft_len],
+            bias_m: vec![0.0; L1],
+            bias_v: vec![0.0; L1],
+            l2_m: vec![0.0; l2_len],
+            l2_v: vec![0.0; l2_len],
+            l2bias_m: vec![0.0; L2],
+            l2bias_v: vec![0.0; L2],
+            out_m: vec![0.0; out_len],
+            out_v: vec![0.0; out_len],
+            obias_m: 0.0,
+            obias_v: 0.0,
+            step: 0,
+        }
+    }
+
     /// Quantise FT to i16; L2/out stay f32.  Returns an NnueWeights ready for inference.
     pub fn to_nnue_weights(&self) -> NnueWeights {
         // FT: f32 → i16, scaled by FT_SCALE so small weights (≈±0.1) survive quantisation.
@@ -295,9 +346,52 @@ impl TrainWeights {
         v.push(self.out_bias);
         v
     }
+
+    /// Raw L2 weight matrix, row-major `2*L1 × L2` -- for
+    /// `diagnostics::l2_row_weight_norm_per_neuron`.
+    pub fn l2(&self) -> &[f32] {
+        &self.l2
+    }
+
+    /// Raw L2 bias vector, length `L2`.
+    pub fn l2_bias(&self) -> &[f32] {
+        &self.l2_bias
+    }
 }
 
 // ---- Trainer ----
+
+/// Per-game validation accumulator returned by `Trainer::eval_game`,
+/// folded across a validation set's games. `cp_mse_sum`/`wdl_loss_sum` are
+/// computed against the raw teacher components regardless of the run's own
+/// `wdl_lambda` -- the common yardstick that makes `valid_cp_mse` (mean of
+/// `cp_mse_sum/count`) comparable across runs trained at different λ,
+/// unlike `loss_sum/count` which is only comparable within one λ.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ValidStats {
+    pub loss_sum: f64,
+    pub count: u64,
+    pub cp_mse_sum: f64,
+    pub wdl_loss_sum: f64,
+    pub wdl_count: u64,
+    pub output_sum: f64,
+    pub output_sum_sq: f64,
+}
+
+impl std::ops::Add for ValidStats {
+    type Output = ValidStats;
+    fn add(self, other: ValidStats) -> ValidStats {
+        ValidStats {
+            loss_sum: self.loss_sum + other.loss_sum,
+            count: self.count + other.count,
+            cp_mse_sum: self.cp_mse_sum + other.cp_mse_sum,
+            wdl_loss_sum: self.wdl_loss_sum + other.wdl_loss_sum,
+            wdl_count: self.wdl_count + other.wdl_count,
+            output_sum: self.output_sum + other.output_sum,
+            output_sum_sq: self.output_sum_sq + other.output_sum_sq,
+        }
+    }
+}
 
 pub struct Trainer {
     pub weights: TrainWeights,
@@ -321,6 +415,19 @@ pub struct Trainer {
     pub l2_ever_saturated: Vec<bool>,
     pub output_sum: f64,
     pub output_sum_sq: f64,
+    // Frequency-based L2 diagnostics -- per-sample counts, distinct from
+    // the ever-flags above (see `diagnostics.rs`'s `l2_dead_neurons` doc
+    // comment for why "ever active" and "always active" are different
+    // questions). `l2_values` holds every sample's raw pre-clamp L2 value
+    // per neuron for percentile computation.
+    //
+    // ponytail: `l2_values` is O(epoch samples × L2) memory (one epoch's
+    // worth of f32s); fine at this dataset's scale, switch to a streaming
+    // quantile sketch if that changes.
+    pub l2_zero_count: Vec<u64>,
+    pub l2_sat_count: Vec<u64>,
+    pub l2_sample_count: u64,
+    pub l2_values: Vec<Vec<f32>>,
     // CSA-path teacher-search cache counters (see `position_teacher`).
     // Reset every epoch by `reset_epoch_stats`, same as the diagnostics
     // above.
@@ -345,6 +452,10 @@ impl Trainer {
             l2_ever_saturated: vec![false; L2],
             output_sum: 0.0,
             output_sum_sq: 0.0,
+            l2_zero_count: vec![0; L2],
+            l2_sat_count: vec![0; L2],
+            l2_sample_count: 0,
+            l2_values: vec![Vec::new(); L2],
             cache_hits: 0,
             cache_misses: 0,
             searcher: Searcher::new(tt),
@@ -500,6 +611,30 @@ impl Trainer {
         wdl_lambda: Option<f32>,
         cache: &mut HashMap<String, i32>,
     ) -> f32 {
+        let (eval_teacher, wdl_target) =
+            self.position_teacher_components(board, result, label_depth, cache);
+        match (wdl_lambda, wdl_target) {
+            (Some(lambda), Some(wdl_target)) => lambda * eval_teacher + (1.0 - lambda) * wdl_target,
+            _ => eval_teacher,
+        }
+    }
+
+    /// The two raw components `position_teacher` blends: the clamped
+    /// search eval (always present) and the WDL game-outcome target
+    /// (`None` for `GameResult::Unknown`, which carries no result signal).
+    /// Exposed separately so common cross-`wdl_lambda` validation metrics
+    /// (`eval_game`'s `cp_mse`/`wdl_loss`) can compare every run against
+    /// the *same* teacher regardless of that run's own blend -- without
+    /// this, a run trained at `wdl_lambda=0.0` and one at `0.7` have no
+    /// shared scale to compare `valid_loss` against (see
+    /// `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction).
+    fn position_teacher_components(
+        &mut self,
+        board: &mut Board,
+        result: GameResult,
+        label_depth: u32,
+        cache: &mut HashMap<String, i32>,
+    ) -> (f32, Option<f32>) {
         let sfen = board_to_sfen(board);
         let score_cp = if let Some(&cp) = cache.get(&sfen) {
             self.cache_hits += 1;
@@ -517,10 +652,7 @@ impl Trainer {
             cp
         };
         let eval_teacher = (score_cp as f32).clamp(-600.0, 600.0);
-        match (wdl_lambda, wdl_target_cp(result, board.side_to_move)) {
-            (Some(lambda), Some(wdl_target)) => lambda * eval_teacher + (1.0 - lambda) * wdl_target,
-            _ => eval_teacher,
-        }
+        (eval_teacher, wdl_target_cp(result, board.side_to_move))
     }
 
     /// Train on a single game.  Samples every `sample_every` plies.
@@ -595,10 +727,15 @@ impl Trainer {
     /// Forward-only pass over a single game for validation loss (no
     /// weight updates, no epoch-stat/diagnostic-counter mutation --
     /// validation measures what training touched, not what validation
-    /// itself looked at). Mirrors `train_game`'s replay/sample loop, but
-    /// returns a plain `(loss_sum, count)`: CSA-path training has no
-    /// weighted-loss axis (unlike the positions path's phase/side
-    /// weights) to validate against, so there's nothing to weight here.
+    /// itself looked at). Mirrors `train_game`'s replay/sample loop.
+    ///
+    /// Returns `ValidStats`, not just `(loss_sum, count)`: alongside the
+    /// run's own `wdl_lambda`-blended loss, it also accumulates `cp_mse`
+    /// (vs. the raw search eval) and `wdl_loss` (vs. the raw game-outcome
+    /// target) unconditionally -- the common yardstick that lets runs with
+    /// different `wdl_lambda` be compared on the same scale (see
+    /// `position_teacher_components`'s doc comment). Free to compute: both
+    /// raw components are already produced by the single cached lookup.
     #[allow(clippy::too_many_arguments)]
     pub fn eval_game(
         &mut self,
@@ -609,10 +746,9 @@ impl Trainer {
         label_depth: u32,
         wdl_lambda: Option<f32>,
         cache: &mut HashMap<String, i32>,
-    ) -> (f64, u64) {
+    ) -> ValidStats {
         let mut board = Board::startpos();
-        let mut loss_sum = 0.0f64;
-        let mut count = 0u64;
+        let mut stats = ValidStats::default();
 
         for (ply, &mv) in game.moves.iter().enumerate() {
             if ply < min_ply || ply % sample_every != 0 {
@@ -630,17 +766,36 @@ impl Trainer {
                 }
             }
 
-            let teacher =
-                self.position_teacher(&mut board, game.result, label_depth, wdl_lambda, cache);
+            let (eval_teacher, wdl_target) =
+                self.position_teacher_components(&mut board, game.result, label_depth, cache);
+            let teacher = match (wdl_lambda, wdl_target) {
+                (Some(lambda), Some(wdl_target)) => {
+                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
+                }
+                _ => eval_teacher,
+            };
             let score = self.forward(&board);
+
             let err = (score - teacher) as f64;
-            loss_sum += err * err;
-            count += 1;
+            stats.loss_sum += err * err;
+            stats.count += 1;
+
+            let cp_err = (score - eval_teacher) as f64;
+            stats.cp_mse_sum += cp_err * cp_err;
+
+            if let Some(wdl_target) = wdl_target {
+                let wdl_err = (score - wdl_target) as f64;
+                stats.wdl_loss_sum += wdl_err * wdl_err;
+                stats.wdl_count += 1;
+            }
+
+            stats.output_sum += score as f64;
+            stats.output_sum_sq += (score as f64) * (score as f64);
 
             board.do_move(mv);
         }
 
-        (loss_sum, count)
+        stats
     }
 
     /// Forward pass only — returns score without any weight update.
@@ -741,7 +896,16 @@ impl Trainer {
             if relu_l2[o] >= 127.0 {
                 self.l2_ever_saturated[o] = true;
             }
+            let pre = l2_acc[o];
+            if pre <= 0.0 {
+                self.l2_zero_count[o] += 1;
+            }
+            if pre >= 127.0 {
+                self.l2_sat_count[o] += 1;
+            }
+            self.l2_values[o].push(pre);
         }
+        self.l2_sample_count += 1;
 
         // Output
         let mut output = w.out_bias;
@@ -905,6 +1069,10 @@ impl Trainer {
         self.l2_ever_saturated.iter_mut().for_each(|b| *b = false);
         self.output_sum = 0.0;
         self.output_sum_sq = 0.0;
+        self.l2_zero_count.iter_mut().for_each(|c| *c = 0);
+        self.l2_sat_count.iter_mut().for_each(|c| *c = 0);
+        self.l2_sample_count = 0;
+        self.l2_values.iter_mut().for_each(|v| v.clear());
         self.cache_hits = 0;
         self.cache_misses = 0;
     }
@@ -1018,6 +1186,24 @@ mod tests {
         assert_eq!(a.ft, b.ft);
         assert_eq!(a.l2, b.l2);
         assert_eq!(a.out, b.out);
+    }
+
+    #[test]
+    fn from_nnue_weights_round_trips_forward_output() {
+        // to_nnue_weights (quantise) then from_nnue_weights (dequantise)
+        // should reproduce the same forward-pass score, up to i16
+        // quantisation rounding -- this is what `--eval-only` relies on to
+        // score an already-trained checkpoint the same way training did.
+        let mut t = Trainer::new(42);
+        let board = Board::startpos();
+        let before = t.forward(&board);
+        let nn = t.weights.to_nnue_weights();
+        t.weights = TrainWeights::from_nnue_weights(&nn);
+        let after = t.forward(&board);
+        assert!(
+            (before - after).abs() < 1.0,
+            "before={before} after={after}"
+        );
     }
 
     #[test]

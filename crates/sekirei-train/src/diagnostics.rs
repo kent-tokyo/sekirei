@@ -9,18 +9,42 @@
 
 use sekirei_core::nnue::NnueWeights;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct EpochDiagnostics {
     /// Whole-parameter-vector L2 distance from the previous epoch's
     /// snapshot. `None` on the first epoch (no previous snapshot exists).
     pub param_update_norm: Option<f32>,
     pub ft_active_ratio: f32,
-    pub l2_active_ratio: f32,
     pub ft_saturation_ratio: f32,
-    pub l2_saturation_ratio: f32,
     pub output_mean: f64,
     pub output_std: f64,
     pub quantized_ft_zero_ratio: f32,
+    /// Fraction of L2 neurons that fired (post-activation > 0) *at least
+    /// once* during the epoch. Renamed from `l2_active_ratio` -- a
+    /// set-membership measure, distinct from the frequency-based
+    /// `l2_activation_frequency_*` fields below (see
+    /// `l2_saturation_probe.rs`'s doc comment for why the distinction
+    /// matters: this being equal to `l2_ever_saturated_ratio` means every
+    /// ever-active neuron also touches the ceiling at least once, not that
+    /// it's pinned there).
+    pub l2_ever_active_ratio: f32,
+    pub l2_ever_saturated_ratio: f32,
+    /// Count of L2 neurons with post-activation == 0 for *every* sample
+    /// this epoch (activation frequency == 0.0).
+    pub l2_dead_neurons: usize,
+    pub l2_activation_frequency_mean: f32,
+    pub l2_saturation_frequency_mean: f32,
+    pub l2_activation_frequency_per_neuron: Vec<f32>,
+    pub l2_saturation_frequency_per_neuron: Vec<f32>,
+    /// Percentiles of L2 pre-clamp values, pooled across all neurons and
+    /// samples (not per-neuron).
+    pub l2_preactivation_p01: f32,
+    pub l2_preactivation_p10: f32,
+    pub l2_preactivation_p50: f32,
+    pub l2_preactivation_p90: f32,
+    pub l2_preactivation_p99: f32,
+    pub l2_bias_per_neuron: Vec<f32>,
+    pub l2_row_weight_norm_per_neuron: Vec<f32>,
 }
 
 /// Fraction of `flags` that are `true`.
@@ -67,6 +91,78 @@ pub fn quantized_ft_zero_ratio(w: &NnueWeights) -> f32 {
     }
     let zeros = w.ft.iter().flatten().filter(|&&v| v == 0).count();
     zeros as f32 / total as f32
+}
+
+/// Per-neuron activation frequency: fraction of samples this epoch where
+/// the L2 neuron's post-activation was > 0 (i.e. `1 - dead frequency`).
+/// `zero_count[o]` counts samples where the pre-clamp value was <= 0.
+pub fn l2_activation_frequency_per_neuron(zero_count: &[u64], sample_count: u64) -> Vec<f32> {
+    if sample_count == 0 {
+        return vec![0.0; zero_count.len()];
+    }
+    zero_count
+        .iter()
+        .map(|&z| 1.0 - z as f32 / sample_count as f32)
+        .collect()
+}
+
+/// Per-neuron saturation frequency: fraction of samples this epoch where
+/// the L2 neuron's pre-clamp value was >= 127 (the ClippedReLU ceiling).
+/// `sat_count[o]` counts those samples.
+pub fn l2_saturation_frequency_per_neuron(sat_count: &[u64], sample_count: u64) -> Vec<f32> {
+    if sample_count == 0 {
+        return vec![0.0; sat_count.len()];
+    }
+    sat_count
+        .iter()
+        .map(|&s| s as f32 / sample_count as f32)
+        .collect()
+}
+
+/// Count of L2 neurons dead for *every* sample this epoch (post-activation
+/// == 0 for all samples, i.e. activation frequency == 0.0).
+pub fn l2_dead_neurons(zero_count: &[u64], sample_count: u64) -> usize {
+    if sample_count == 0 {
+        return 0;
+    }
+    zero_count.iter().filter(|&&z| z == sample_count).count()
+}
+
+/// Percentiles of `values` at each fraction in `qs` (each in `[0, 1]`),
+/// nearest-rank on a full sort.
+///
+/// ponytail: collect-and-sort is O(n log n) over one epoch's L2
+/// pre-activations -- fine at this dataset's scale; switch to a streaming
+/// quantile sketch if per-epoch sample counts grow much larger.
+pub fn percentiles(values: &[f32], qs: &[f32]) -> Vec<f32> {
+    if values.is_empty() {
+        return vec![0.0; qs.len()];
+    }
+    let mut sorted: Vec<f32> = values.to_vec();
+    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    qs.iter()
+        .map(|&q| {
+            let idx = (q.clamp(0.0, 1.0) * (sorted.len() - 1) as f32).round() as usize;
+            sorted[idx]
+        })
+        .collect()
+}
+
+/// Per-neuron incoming weight-row L2 (Euclidean) norm: for output neuron
+/// `o`, the norm over the `rows`-length column `l2[.., o]` of a flat
+/// `rows` × `cols` row-major matrix (matches `TrainWeights::l2`'s layout).
+pub fn l2_row_weight_norm_per_neuron(l2: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    (0..cols)
+        .map(|o| {
+            (0..rows)
+                .map(|i| {
+                    let v = l2[i * cols + o];
+                    v * v
+                })
+                .sum::<f32>()
+                .sqrt()
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -140,5 +236,64 @@ mod tests {
             out_bias: 0.0,
         };
         assert_eq!(quantized_ft_zero_ratio(&w), 0.0);
+    }
+
+    #[test]
+    fn l2_activation_frequency_matches_hand_computed_values() {
+        // sample_count=4: neuron0 dead 2/4 -> freq 0.5, neuron1 never dead
+        // -> freq 1.0, neuron2 always dead -> freq 0.0
+        let zero_count = [2u64, 0, 4];
+        assert_eq!(
+            l2_activation_frequency_per_neuron(&zero_count, 4),
+            vec![0.5, 1.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn l2_activation_frequency_zero_samples_is_zero_filled() {
+        assert_eq!(
+            l2_activation_frequency_per_neuron(&[1, 2], 0),
+            vec![0.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn l2_saturation_frequency_matches_hand_computed_values() {
+        let sat_count = [1u64, 4, 0];
+        assert_eq!(
+            l2_saturation_frequency_per_neuron(&sat_count, 4),
+            vec![0.25, 1.0, 0.0]
+        );
+    }
+
+    #[test]
+    fn l2_dead_neurons_counts_only_fully_dead() {
+        // sample_count=4: neuron0 dead every sample, neuron2 dead every
+        // sample, neuron1/3 fire at least once -> 2 dead
+        let zero_count = [4u64, 3, 4, 0];
+        assert_eq!(l2_dead_neurons(&zero_count, 4), 2);
+    }
+
+    #[test]
+    fn l2_dead_neurons_zero_samples_is_zero() {
+        assert_eq!(l2_dead_neurons(&[0, 0], 0), 0);
+    }
+
+    #[test]
+    fn percentiles_matches_hand_computed_median_and_extremes() {
+        let values = [5.0f32, 1.0, 3.0, 2.0, 4.0]; // sorted: 1,2,3,4,5
+        assert_eq!(percentiles(&values, &[0.0, 0.5, 1.0]), vec![1.0, 3.0, 5.0]);
+    }
+
+    #[test]
+    fn percentiles_of_empty_is_zero_filled() {
+        assert_eq!(percentiles(&[], &[0.5, 0.9]), vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn l2_row_weight_norm_matches_hand_computed_euclidean_distance() {
+        // rows=2, cols=2, flat row-major: col0 = [3,4] (norm 5), col1 = [0,0]
+        let l2 = [3.0f32, 0.0, 4.0, 0.0];
+        assert_eq!(l2_row_weight_norm_per_neuron(&l2, 2, 2), vec![5.0, 0.0]);
     }
 }

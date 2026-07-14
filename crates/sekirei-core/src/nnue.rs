@@ -196,6 +196,29 @@ pub fn weights_active() -> bool {
 /// load and evaluate identically. (Older `JANOSW02` differs in layout and is not
 /// accepted — the size check below also rejects it.)
 pub fn load_weights(path: &Path) -> io::Result<()> {
+    let w = read_weights(path)?;
+    if WEIGHTS.set(w).is_ok() {
+        NNUE_ACTIVE.store(true, Ordering::Relaxed);
+    } else {
+        eprintln!("[nnue] weights already loaded; ignoring duplicate load");
+    }
+    Ok(())
+}
+
+/// Parses a SEKIRW01 (or legacy JANOSW03) binary weights file into an
+/// owned `NnueWeights`, without touching the global `WEIGHTS`/`NNUE_ACTIVE`
+/// statics `load_weights` populates.
+///
+/// This distinction matters: `crate::eval::evaluate()` (used by
+/// `Searcher`'s leaf evaluation, including the trainer's label-depth
+/// search) reads `weights_active()`/`weights()` to decide whether to use
+/// NNUE or fall back to material counting. A caller that wants to *inspect
+/// or score with* a checkpoint's weights without redirecting every search
+/// in the process to that checkpoint (e.g. `sekirei-train --eval-only`,
+/// which must keep the teacher search on its normal fixed material-count
+/// baseline while scoring the loaded checkpoint as the candidate) needs
+/// this side-effect-free path instead of `load_weights`.
+pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
     const MAGIC: &[u8] = b"SEKIRW01";
     const MAGIC_LEGACY: &[u8] = b"JANOSW03";
     let ft_bytes = INPUT * L1 * 2;
@@ -264,21 +287,14 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
 
     let out_bias = f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
 
-    let w = NnueWeights {
+    Ok(NnueWeights {
         ft,
         ft_bias,
         l2,
         l2_bias,
         out,
         out_bias,
-    };
-    if WEIGHTS.set(w).is_ok() {
-        NNUE_ACTIVE.store(true, Ordering::Relaxed);
-    } else {
-        eprintln!("[nnue] weights already loaded; ignoring duplicate load");
-    }
-
-    Ok(())
+    })
 }
 
 /// Serialise weights to a binary file in SEKIRW01 format.

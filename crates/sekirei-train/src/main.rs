@@ -1,3 +1,8 @@
+// Checkpoint metadata's `json!` invocation has grown past the default
+// macro recursion limit (many `.meta.json` fields, several per-neuron
+// arrays).
+#![recursion_limit = "256"]
+
 //! Sekirei NNUE trainer — supervised learning from CSA game files.
 //!
 //! # Usage
@@ -68,6 +73,7 @@ struct Args {
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32, // --min-lr (floor applied to every schedule, default 0.0)
     warmup_epochs: u32, // --warmup-epochs (linear ramp to base_lr, default 0 = off)
+    eval_only: Option<PathBuf>, // --eval-only <checkpoint.bin> (CSA path only)
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -140,6 +146,7 @@ fn parse_args() -> Result<Args, String> {
     let mut lr_schedule = LrSchedule::StepHalf;
     let mut min_lr = 0.0f32;
     let mut warmup_epochs = 0u32;
+    let mut eval_only: Option<PathBuf> = None;
     let mut i = 0;
 
     while i < argv.len() {
@@ -272,6 +279,12 @@ fn parse_args() -> Result<Args, String> {
                     warmup_epochs = s.parse().unwrap_or(0);
                 }
             }
+            "--eval-only" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    eval_only = Some(PathBuf::from(s));
+                }
+            }
             "--phase-weights" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -330,6 +343,9 @@ fn parse_args() -> Result<Args, String> {
             "--wdl-lambda requires --games (CSA path) -- shogiesa positions.jsonl carries no game_result yet".to_string(),
         );
     }
+    if eval_only.is_some() && positions_path.is_some() {
+        return Err("--eval-only requires --games (CSA path)".to_string());
+    }
 
     Ok(Args {
         games_dir,
@@ -364,6 +380,7 @@ fn parse_args() -> Result<Args, String> {
         lr_schedule,
         min_lr,
         warmup_epochs,
+        eval_only,
     })
 }
 
@@ -409,6 +426,98 @@ fn split_hash(keys: impl Iterator<Item = String>) -> u64 {
     keys.fold(0u64, |acc, k| acc.wrapping_add(positions::sfen_hash(&k, 0)))
 }
 
+/// Folds `Trainer::eval_game` over every game in `valid_idxs` -- the CSA
+/// path's validation pass, shared by the per-epoch loop and `--eval-only`
+/// (which runs it once against an externally loaded checkpoint instead of
+/// a just-trained one).
+fn eval_validation_set(
+    trainer: &mut Trainer,
+    games: &[csa::CsaGame],
+    valid_idxs: &[usize],
+    args: &Args,
+    cache: &mut HashMap<String, i32>,
+) -> trainer::ValidStats {
+    valid_idxs
+        .iter()
+        .fold(trainer::ValidStats::default(), |acc, &gi| {
+            acc + trainer.eval_game(
+                &games[gi],
+                args.sample,
+                args.quiet,
+                args.min_ply,
+                args.label_depth,
+                args.wdl_lambda,
+                cache,
+            )
+        })
+}
+
+/// Assembles one epoch's `EpochDiagnostics` from `Trainer`'s accumulated
+/// counters -- shared by both the `--positions` and `--games` paths so the
+/// growing metric list only needs updating in one place.
+fn build_diag(
+    trainer: &Trainer,
+    w: &sekirei_core::nnue::NnueWeights,
+    param_update_norm: Option<f32>,
+) -> diagnostics::EpochDiagnostics {
+    let (output_mean, output_std) = diagnostics::mean_std(
+        trainer.output_sum,
+        trainer.output_sum_sq,
+        trainer.total_count,
+    );
+    let l2_activation_frequency_per_neuron = diagnostics::l2_activation_frequency_per_neuron(
+        &trainer.l2_zero_count,
+        trainer.l2_sample_count,
+    );
+    let l2_saturation_frequency_per_neuron = diagnostics::l2_saturation_frequency_per_neuron(
+        &trainer.l2_sat_count,
+        trainer.l2_sample_count,
+    );
+    let l2_activation_frequency_mean = if l2_activation_frequency_per_neuron.is_empty() {
+        0.0
+    } else {
+        l2_activation_frequency_per_neuron.iter().sum::<f32>()
+            / l2_activation_frequency_per_neuron.len() as f32
+    };
+    let l2_saturation_frequency_mean = if l2_saturation_frequency_per_neuron.is_empty() {
+        0.0
+    } else {
+        l2_saturation_frequency_per_neuron.iter().sum::<f32>()
+            / l2_saturation_frequency_per_neuron.len() as f32
+    };
+    let pooled_l2_values: Vec<f32> = trainer.l2_values.iter().flatten().copied().collect();
+    let p = diagnostics::percentiles(&pooled_l2_values, &[0.01, 0.10, 0.50, 0.90, 0.99]);
+    diagnostics::EpochDiagnostics {
+        param_update_norm,
+        ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
+        ft_saturation_ratio: diagnostics::ratio(&trainer.ft_ever_saturated),
+        output_mean,
+        output_std,
+        quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(w),
+        l2_ever_active_ratio: diagnostics::ratio(&trainer.l2_ever_active),
+        l2_ever_saturated_ratio: diagnostics::ratio(&trainer.l2_ever_saturated),
+        l2_dead_neurons: diagnostics::l2_dead_neurons(
+            &trainer.l2_zero_count,
+            trainer.l2_sample_count,
+        ),
+        l2_activation_frequency_mean,
+        l2_saturation_frequency_mean,
+        l2_activation_frequency_per_neuron,
+        l2_saturation_frequency_per_neuron,
+        l2_preactivation_p01: p[0],
+        l2_preactivation_p10: p[1],
+        l2_preactivation_p50: p[2],
+        l2_preactivation_p90: p[3],
+        l2_preactivation_p99: p[4],
+        l2_bias_per_neuron: trainer.weights.l2_bias().to_vec(),
+        l2_row_weight_norm_per_neuron: diagnostics::l2_row_weight_norm_per_neuron(
+            trainer.weights.l2(),
+            2 * sekirei_core::nnue::L1,
+            sekirei_core::nnue::L2,
+        ),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -424,7 +533,27 @@ fn save_checkpoint_meta(
     dataset_hash: u64,
     cache_hits: Option<u64>,
     cache_misses: Option<u64>,
+    // `None` on the positions path, which has no per-game WDL target to
+    // compare against -- only the CSA path's `eval_game` produces this.
+    valid_stats: Option<&trainer::ValidStats>,
 ) -> std::io::Result<()> {
+    let (valid_cp_mse, valid_wdl_loss, valid_output_mean, valid_output_std) = match valid_stats {
+        Some(s) => {
+            let cp_mse = if s.count > 0 {
+                Some(s.cp_mse_sum / s.count as f64)
+            } else {
+                None
+            };
+            let wdl_loss = if s.wdl_count > 0 {
+                Some(s.wdl_loss_sum / s.wdl_count as f64)
+            } else {
+                None
+            };
+            let (mean, std) = diagnostics::mean_std(s.output_sum, s.output_sum_sq, s.count);
+            (cp_mse, wdl_loss, Some(mean), Some(std))
+        }
+        None => (None, None, None, None),
+    };
     let meta = serde_json::json!({
         "epoch": epoch,
         "positions": args.positions_path,
@@ -467,12 +596,34 @@ fn save_checkpoint_meta(
         "cache_misses": cache_misses,
         "param_update_norm": diag.param_update_norm,
         "ft_active_ratio": diag.ft_active_ratio,
-        "l2_active_ratio": diag.l2_active_ratio,
         "ft_saturation_ratio": diag.ft_saturation_ratio,
-        "l2_saturation_ratio": diag.l2_saturation_ratio,
         "output_mean": diag.output_mean,
         "output_std": diag.output_std,
         "quantized_ft_zero_ratio": diag.quantized_ft_zero_ratio,
+        // "ever" = at least once during the epoch (set-membership), distinct
+        // from the frequency-based fields below. See diagnostics.rs.
+        "l2_ever_active_ratio": diag.l2_ever_active_ratio,
+        "l2_ever_saturated_ratio": diag.l2_ever_saturated_ratio,
+        "l2_dead_neurons": diag.l2_dead_neurons,
+        "l2_activation_frequency_mean": diag.l2_activation_frequency_mean,
+        "l2_saturation_frequency_mean": diag.l2_saturation_frequency_mean,
+        "l2_activation_frequency_per_neuron": diag.l2_activation_frequency_per_neuron,
+        "l2_saturation_frequency_per_neuron": diag.l2_saturation_frequency_per_neuron,
+        "l2_preactivation_p01": diag.l2_preactivation_p01,
+        "l2_preactivation_p10": diag.l2_preactivation_p10,
+        "l2_preactivation_p50": diag.l2_preactivation_p50,
+        "l2_preactivation_p90": diag.l2_preactivation_p90,
+        "l2_preactivation_p99": diag.l2_preactivation_p99,
+        "l2_bias_per_neuron": diag.l2_bias_per_neuron,
+        "l2_row_weight_norm_per_neuron": diag.l2_row_weight_norm_per_neuron,
+        // Common cross-run yardstick: computed against the same raw
+        // teacher components regardless of this run's own `wdl_lambda`,
+        // so runs trained at different λ can be compared on one scale
+        // (unlike `valid_loss`, which is only comparable within one λ).
+        "valid_cp_mse": valid_cp_mse,
+        "valid_wdl_loss": valid_wdl_loss,
+        "valid_output_mean": valid_output_mean,
+        "valid_output_std": valid_output_std,
     });
     fs::write(path, serde_json::to_string_pretty(&meta).unwrap())
 }
@@ -531,6 +682,9 @@ fn print_usage() {
     eprintln!("  --min-lr <f>            Floor applied to every schedule (default: 0.0)");
     eprintln!(
         "  --warmup-epochs <n>     Linear ramp to base_lr over the first N epochs (default: 0 = off)"
+    );
+    eprintln!(
+        "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
         "  --phase-weights <spec>  Phase multipliers: opening=0.5,middlegame=1.0,endgame=1.2"
@@ -812,27 +966,16 @@ fn main() {
                 .as_ref()
                 .map(|prev| diagnostics::l2_diff_norm(prev, &snapshot));
             prev_snapshot = Some(snapshot);
-            let (output_mean, output_std) = diagnostics::mean_std(
-                trainer.output_sum,
-                trainer.output_sum_sq,
-                trainer.total_count,
-            );
-            let diag = diagnostics::EpochDiagnostics {
-                param_update_norm,
-                ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
-                l2_active_ratio: diagnostics::ratio(&trainer.l2_ever_active),
-                ft_saturation_ratio: diagnostics::ratio(&trainer.ft_ever_saturated),
-                l2_saturation_ratio: diagnostics::ratio(&trainer.l2_ever_saturated),
-                output_mean,
-                output_std,
-                quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(&w),
-            };
+            let diag = build_diag(&trainer, &w, param_update_norm);
             eprintln!(
-                "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}",
+                "  diag: ft_active={:.3}  l2_ever_active={:.3}  ft_sat={:.3}  l2_ever_sat={:.3}  l2_dead={}  l2_act_freq={:.3}  l2_sat_freq={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}",
                 diag.ft_active_ratio,
-                diag.l2_active_ratio,
+                diag.l2_ever_active_ratio,
                 diag.ft_saturation_ratio,
-                diag.l2_saturation_ratio,
+                diag.l2_ever_saturated_ratio,
+                diag.l2_dead_neurons,
+                diag.l2_activation_frequency_mean,
+                diag.l2_saturation_frequency_mean,
                 diag.output_mean,
                 diag.output_std,
                 diag.quantized_ft_zero_ratio,
@@ -856,6 +999,7 @@ fn main() {
                 ds_hash,
                 Some(cache_hits_epoch),
                 Some(cache_misses_epoch),
+                None, // positions path has no per-game WDL target
             ) {
                 eprintln!("  metadata save failed: {e}");
             } else {
@@ -996,6 +1140,55 @@ fn main() {
     );
 
     let mut trainer = Trainer::new(args.seed);
+
+    // `--eval-only`: back-applies the common cross-λ validation metrics
+    // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
+    // to an already-trained checkpoint using this same seed/split/λ
+    // recipe -- loads the checkpoint in place of the freshly initialised
+    // weights, runs one validation pass, prints, and exits without
+    // training or saving anything.
+    //
+    // Uses `read_weights`, not `load_weights`: the latter also flips the
+    // global `nnue::weights_active()` flag that `Searcher`'s leaf
+    // evaluation checks, which would silently redirect the teacher-search
+    // itself onto the checkpoint being scored (instead of its normal fixed
+    // material-count baseline) -- making the "teacher" circular with the
+    // candidate and defeating the entire point of a common yardstick.
+    if let Some(eval_ckpt) = &args.eval_only {
+        let nn = match sekirei_core::nnue::read_weights(eval_ckpt) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("eval-only: failed to load {:?}: {e}", eval_ckpt);
+                std::process::exit(1);
+            }
+        };
+        trainer.weights = trainer::TrainWeights::from_nnue_weights(&nn);
+        let mut cache: HashMap<String, i32> = HashMap::new();
+        let stats = eval_validation_set(&mut trainer, &games, &valid_idxs, &args, &mut cache);
+        let vloss = if stats.count > 0 {
+            stats.loss_sum / stats.count as f64
+        } else {
+            0.0
+        };
+        let cp_mse = if stats.count > 0 {
+            stats.cp_mse_sum / stats.count as f64
+        } else {
+            0.0
+        };
+        let wdl_loss = if stats.wdl_count > 0 {
+            stats.wdl_loss_sum / stats.wdl_count as f64
+        } else {
+            0.0
+        };
+        let (out_mean, out_std) =
+            diagnostics::mean_std(stats.output_sum, stats.output_sum_sq, stats.count);
+        println!(
+            "eval-only {:?}: valid_loss={vloss:.4}  valid_cp_mse={cp_mse:.4}  valid_wdl_loss={wdl_loss:.4}  valid_output_mean={out_mean:.3}  valid_output_std={out_std:.3}  samples={}  wdl_samples={}",
+            eval_ckpt, stats.count, stats.wdl_count,
+        );
+        return;
+    }
+
     let mut best_loss = f64::MAX;
     let mut prev_snapshot: Option<Vec<f32>> = None;
     let mut best_valid_loss = f64::MAX;
@@ -1055,25 +1248,31 @@ fn main() {
             }
         }
 
-        let (vloss_sum, vcount) = valid_idxs.iter().fold((0.0f64, 0u64), |(sum, cnt), &gi| {
-            let (s, c) = trainer.eval_game(
-                &games[gi],
-                args.sample,
-                args.quiet,
-                args.min_ply,
-                args.label_depth,
-                args.wdl_lambda,
-                &mut teacher_cache,
-            );
-            (sum + s, cnt + c)
-        });
+        let valid_stats =
+            eval_validation_set(&mut trainer, &games, &valid_idxs, &args, &mut teacher_cache);
+        let vloss_sum = valid_stats.loss_sum;
+        let vcount = valid_stats.count;
+        let valid_cp_mse = if vcount > 0 {
+            valid_stats.cp_mse_sum / vcount as f64
+        } else {
+            0.0
+        };
+        let valid_wdl_loss = if valid_stats.wdl_count > 0 {
+            valid_stats.wdl_loss_sum / valid_stats.wdl_count as f64
+        } else {
+            0.0
+        };
+        let (valid_output_mean, valid_output_std) =
+            diagnostics::mean_std(valid_stats.output_sum, valid_stats.output_sum_sq, vcount);
         if !valid_idxs.is_empty() {
             let vloss = if vcount > 0 {
                 vloss_sum / vcount as f64
             } else {
                 0.0
             };
-            eprintln!("  valid: loss={vloss:.4}  samples={vcount}");
+            eprintln!(
+                "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.3}  samples={vcount}"
+            );
         }
 
         if !scored.is_empty() {
@@ -1134,27 +1333,16 @@ fn main() {
             .as_ref()
             .map(|prev| diagnostics::l2_diff_norm(prev, &snapshot));
         prev_snapshot = Some(snapshot);
-        let (output_mean, output_std) = diagnostics::mean_std(
-            trainer.output_sum,
-            trainer.output_sum_sq,
-            trainer.total_count,
-        );
-        let diag = diagnostics::EpochDiagnostics {
-            param_update_norm,
-            ft_active_ratio: diagnostics::ratio(&trainer.ft_ever_active),
-            l2_active_ratio: diagnostics::ratio(&trainer.l2_ever_active),
-            ft_saturation_ratio: diagnostics::ratio(&trainer.ft_ever_saturated),
-            l2_saturation_ratio: diagnostics::ratio(&trainer.l2_ever_saturated),
-            output_mean,
-            output_std,
-            quantized_ft_zero_ratio: diagnostics::quantized_ft_zero_ratio(&w),
-        };
+        let diag = build_diag(&trainer, &w, param_update_norm);
         eprintln!(
-            "  diag: ft_active={:.3}  l2_active={:.3}  ft_sat={:.3}  l2_sat={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}  cache_hit={}  cache_miss={}",
+            "  diag: ft_active={:.3}  l2_ever_active={:.3}  ft_sat={:.3}  l2_ever_sat={:.3}  l2_dead={}  l2_act_freq={:.3}  l2_sat_freq={:.3}  out_mean={:.3}  out_std={:.3}  ft_zero={:.3}  update_norm={}  cache_hit={}  cache_miss={}",
             diag.ft_active_ratio,
-            diag.l2_active_ratio,
+            diag.l2_ever_active_ratio,
             diag.ft_saturation_ratio,
-            diag.l2_saturation_ratio,
+            diag.l2_ever_saturated_ratio,
+            diag.l2_dead_neurons,
+            diag.l2_activation_frequency_mean,
+            diag.l2_saturation_frequency_mean,
             diag.output_mean,
             diag.output_std,
             diag.quantized_ft_zero_ratio,
@@ -1182,6 +1370,7 @@ fn main() {
             ds_hash,
             Some(trainer.cache_hits),
             Some(trainer.cache_misses),
+            Some(&valid_stats),
         ) {
             eprintln!("  metadata save failed: {e}");
         } else {
