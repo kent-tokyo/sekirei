@@ -96,6 +96,29 @@ pub struct EpochDiagnostics {
     /// Positions this epoch whose gradient exceeded `--grad-clip-norm` and
     /// got scaled down. Always 0 when clipping is off.
     pub grad_clip_count: u64,
+    /// Per-layer clip trigger *rates* (count / total_count), for the
+    /// independent `--ft-clip-norm`/`--l2-clip-norm`/`--out-clip-norm`
+    /// thresholds. Always 0.0 when that layer's threshold is unset -- in
+    /// particular, output-only clipping (only `out_clip_norm` set) always
+    /// reports `ft_clip_trigger_rate == l2_clip_trigger_rate == 0.0`,
+    /// proving those layers were untouched, not just assuming it.
+    pub ft_clip_trigger_rate: f64,
+    pub l2_clip_trigger_rate: f64,
+    pub out_clip_trigger_rate: f64,
+    /// Percentiles of the *output-layer* per-position gradient norm -- the
+    /// quantity `--out-clip-norm` should be chosen from (its own
+    /// distribution, not the global one `--grad-clip-norm` uses, since
+    /// `out`'s raw scale dominates the global norm and the two
+    /// distributions are related but not identical).
+    pub out_grad_norm_p95: f32,
+    pub out_grad_norm_p99: f32,
+    /// Mean/std of the output-layer gradient norm *after* per-layer
+    /// clipping -- pairs with `out_grad_norm_mean`/`std` above (which stay
+    /// pre-clip, "before") to show how much clipping actually moved the
+    /// distribution. Equal to the "before" pair when `out_clip_norm` is
+    /// unset or never triggers.
+    pub out_grad_norm_after_mean: f64,
+    pub out_grad_norm_after_std: f64,
 }
 
 /// Fraction of `flags` that are `true`.

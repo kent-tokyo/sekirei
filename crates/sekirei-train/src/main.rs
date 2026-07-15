@@ -1,7 +1,7 @@
 // Checkpoint metadata's `json!` invocation has grown past the default
 // macro recursion limit (many `.meta.json` fields, several per-neuron
 // arrays).
-#![recursion_limit = "256"]
+#![recursion_limit = "512"]
 
 //! Sekirei NNUE trainer — supervised learning from CSA game files.
 //!
@@ -88,6 +88,11 @@ struct Args {
     // Global gradient-norm clip threshold (--grad-clip-norm). `None`
     // (default) means no clipping -- exact prior behavior.
     grad_clip_norm: Option<f32>,
+    // Per-layer clip thresholds -- independent of `grad_clip_norm` and of
+    // each other; see `Trainer`'s field docs.
+    ft_clip_norm: Option<f32>,
+    l2_clip_norm: Option<f32>,
+    out_clip_norm: Option<f32>,
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -165,6 +170,9 @@ fn parse_args() -> Result<Args, String> {
     let mut lr_schedule_epochs: Option<u32> = None;
     let mut eval_only: Option<PathBuf> = None;
     let mut grad_clip_norm: Option<f32> = None;
+    let mut ft_clip_norm: Option<f32> = None;
+    let mut l2_clip_norm: Option<f32> = None;
+    let mut out_clip_norm: Option<f32> = None;
     let mut i = 0;
 
     while i < argv.len() {
@@ -309,6 +317,24 @@ fn parse_args() -> Result<Args, String> {
                     grad_clip_norm = s.parse().ok();
                 }
             }
+            "--ft-clip-norm" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    ft_clip_norm = s.parse().ok();
+                }
+            }
+            "--l2-clip-norm" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    l2_clip_norm = s.parse().ok();
+                }
+            }
+            "--out-clip-norm" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    out_clip_norm = s.parse().ok();
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -428,6 +454,9 @@ fn parse_args() -> Result<Args, String> {
         lr_schedule_epochs,
         eval_only,
         grad_clip_norm,
+        ft_clip_norm,
+        l2_clip_norm,
+        out_clip_norm,
     })
 }
 
@@ -550,6 +579,19 @@ fn build_diag(
         trainer.total_count,
     );
     let gp = diagnostics::percentiles(&trainer.global_grad_norm_values, &[0.50, 0.90, 0.95, 0.99]);
+    let op = diagnostics::percentiles(&trainer.out_grad_norm_values, &[0.95, 0.99]);
+    let (out_grad_norm_after_mean, out_grad_norm_after_std) = diagnostics::mean_std(
+        trainer.out_grad_norm_after_sum,
+        trainer.out_grad_norm_after_sum_sq,
+        trainer.total_count,
+    );
+    let clip_rate = |count: u64| {
+        if trainer.total_count > 0 {
+            count as f64 / trainer.total_count as f64
+        } else {
+            0.0
+        }
+    };
     let (ft_update_norm_mean, ft_update_norm_std) = diagnostics::mean_std(
         trainer.ft_update_norm_sum,
         trainer.ft_update_norm_sum_sq,
@@ -640,6 +682,13 @@ fn build_diag(
         train_cp_component,
         train_wdl_component,
         grad_clip_count: trainer.grad_clip_count,
+        ft_clip_trigger_rate: clip_rate(trainer.ft_clip_count),
+        l2_clip_trigger_rate: clip_rate(trainer.l2_clip_count),
+        out_clip_trigger_rate: clip_rate(trainer.out_clip_count),
+        out_grad_norm_p95: op[0],
+        out_grad_norm_p99: op[1],
+        out_grad_norm_after_mean,
+        out_grad_norm_after_std,
     }
 }
 
@@ -666,6 +715,16 @@ fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics, train_count: u64)
         diag.grad_clip_count,
         train_count,
         clip_rate * 100.0,
+    );
+    eprintln!(
+        "  layer_clip: ft={:.1}%  l2={:.1}%  out={:.1}%  (independent per-layer trigger rates)  out_grad_p95={:.4}  p99={:.4}  out_grad_norm={:.4}→{:.4} (before→after, mean)",
+        diag.ft_clip_trigger_rate * 100.0,
+        diag.l2_clip_trigger_rate * 100.0,
+        diag.out_clip_trigger_rate * 100.0,
+        diag.out_grad_norm_p95,
+        diag.out_grad_norm_p99,
+        diag.out_grad_norm_mean,
+        diag.out_grad_norm_after_mean,
     );
     eprintln!(
         "  update: ft={:.6}±{:.6}  l2={:.6}±{:.6}  out={:.6}±{:.6}  (mean±std, applied Adam step)",
@@ -858,6 +917,21 @@ fn save_checkpoint_meta(
         "train_wdl_component": diag.train_wdl_component,
         "grad_clip_norm": args.grad_clip_norm,
         "grad_clip_count": diag.grad_clip_count,
+        // Independent per-layer clip thresholds -- see Trainer's field docs.
+        // ft/l2_clip_trigger_rate == 0.0 with only out_clip_norm set proves
+        // output-only clipping left those layers untouched.
+        "ft_clip_norm": args.ft_clip_norm,
+        "l2_clip_norm": args.l2_clip_norm,
+        "out_clip_norm": args.out_clip_norm,
+        "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
+        "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
+        "out_clip_trigger_rate": diag.out_clip_trigger_rate,
+        "out_grad_norm_p95": diag.out_grad_norm_p95,
+        "out_grad_norm_p99": diag.out_grad_norm_p99,
+        // "before" is out_grad_norm_mean/std above (always pre-clip); this
+        // is the same distribution's mean/std after per-layer clipping.
+        "out_grad_norm_after_mean": diag.out_grad_norm_after_mean,
+        "out_grad_norm_after_std": diag.out_grad_norm_after_std,
         // Common cross-run yardstick: computed against the same raw
         // teacher components regardless of this run's own `wdl_lambda`,
         // so runs trained at different λ can be compared on one scale
@@ -937,6 +1011,15 @@ fn print_usage() {
     );
     eprintln!(
         "  --grad-clip-norm <f>    Global gradient-norm clip threshold; scales all layers' gradients down together when exceeded (default: unset = no clipping)"
+    );
+    eprintln!(
+        "  --ft-clip-norm <f>      FT-layer-only gradient-norm clip threshold, independent of --grad-clip-norm and the other --*-clip-norm flags (default: unset)"
+    );
+    eprintln!(
+        "  --l2-clip-norm <f>      L2-layer-only gradient-norm clip threshold (default: unset)"
+    );
+    eprintln!(
+        "  --out-clip-norm <f>     Output-layer-only gradient-norm clip threshold (default: unset)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1090,6 +1173,9 @@ fn main() {
 
         let mut trainer = Trainer::new(args.init_seed);
         trainer.grad_clip_norm = args.grad_clip_norm;
+        trainer.ft_clip_norm = args.ft_clip_norm;
+        trainer.l2_clip_norm = args.l2_clip_norm;
+        trainer.out_clip_norm = args.out_clip_norm;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1404,6 +1490,9 @@ fn main() {
 
     let mut trainer = Trainer::new(args.init_seed);
     trainer.grad_clip_norm = args.grad_clip_norm;
+    trainer.ft_clip_norm = args.ft_clip_norm;
+    trainer.l2_clip_norm = args.l2_clip_norm;
+    trainer.out_clip_norm = args.out_clip_norm;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)

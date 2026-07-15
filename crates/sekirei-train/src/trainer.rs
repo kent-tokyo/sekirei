@@ -504,6 +504,34 @@ pub struct Trainer {
     // from a run's own diagnostic output.
     pub grad_clip_norm: Option<f32>,
     pub grad_clip_count: u64,
+    // Per-layer clip thresholds -- independent of `grad_clip_norm` above and
+    // of each other: each layer's gradient is compared against *its own*
+    // norm and *its own* threshold (not the combined global norm), and only
+    // that layer's gradient is scaled if it's exceeded. `None` (the default
+    // for all three) means that layer is never touched. Applied *before*
+    // `grad_clip_norm`'s global-norm check, so setting only `out_clip_norm`
+    // (the 2026-07-15 output-only-clipping experiment) leaves FT/L2
+    // completely untouched -- a real single-variable change, not global
+    // clipping with FT/L2 thresholds set very high.
+    pub ft_clip_norm: Option<f32>,
+    pub l2_clip_norm: Option<f32>,
+    pub out_clip_norm: Option<f32>,
+    pub ft_clip_count: u64,
+    pub l2_clip_count: u64,
+    pub out_clip_count: u64,
+    // Per-position output-layer gradient norm, captured unconditionally
+    // (like `global_grad_norm_values`) so a per-layer clip threshold can be
+    // chosen from a run's own percentile output rather than reusing
+    // `grad_clip_norm`'s global-norm-derived value, which is dominated by
+    // whichever layer has the largest raw scale (empirically `out` itself,
+    // so the two distributions are related but not the same thing).
+    pub out_grad_norm_values: Vec<f32>,
+    // Mean/std of the output-layer gradient norm *after* per-layer clipping
+    // is applied -- alongside `out_grad_norm_sum`/`sum_sq` above (which,
+    // like the diagnostics elsewhere in this struct, stay pre-clip), this
+    // pair shows how much clipping actually moved the distribution.
+    pub out_grad_norm_after_sum: f64,
+    pub out_grad_norm_after_sum_sq: f64,
     // Per-epoch diagnostics. These are "ever" flags over the whole epoch,
     // not a per-sample snapshot -- a dead neuron is one that never fires
     // across an entire epoch of real data, not one that happens to read
@@ -600,6 +628,15 @@ impl Trainer {
             lr: 0.001,
             grad_clip_norm: None,
             grad_clip_count: 0,
+            ft_clip_norm: None,
+            l2_clip_norm: None,
+            out_clip_norm: None,
+            ft_clip_count: 0,
+            l2_clip_count: 0,
+            out_clip_count: 0,
+            out_grad_norm_values: Vec::new(),
+            out_grad_norm_after_sum: 0.0,
+            out_grad_norm_after_sum_sq: 0.0,
             ft_ever_active: vec![false; L1],
             ft_ever_saturated: vec![false; L1],
             l2_ever_active: vec![false; L2],
@@ -1230,10 +1267,52 @@ impl Trainer {
         self.l2_grad_norm_sum_sq += l2_grad_norm * l2_grad_norm;
         self.out_grad_norm_sum += out_grad_norm;
         self.out_grad_norm_sum_sq += out_grad_norm * out_grad_norm;
+        self.out_grad_norm_values.push(out_grad_norm as f32);
         let global_grad_norm = (ft_grad_sq + l2_grad_sq + out_grad_sq).sqrt();
         self.global_grad_norm_values.push(global_grad_norm as f32);
 
-        // ── Gradient clipping (optional) ─────────────────────────────────────
+        // ── Per-layer gradient clipping (optional) ───────────────────────────
+        // Each layer's gradient is compared against *its own* norm and *its
+        // own* threshold, independent of the other layers -- unlike the
+        // global-norm clipping below, setting only `out_clip_norm` leaves
+        // FT/L2 completely untouched (a real single-variable change). Applied
+        // before the diagnostics-vs-clip ordering matters the same way as
+        // global clipping: the sums/percentiles above already captured the
+        // unclipped norms, so this can't retroactively change what a
+        // threshold-selection read from this run's own output.
+        if let Some(clip_norm) = self.ft_clip_norm {
+            let clip_norm = clip_norm as f64;
+            if ft_grad_norm > clip_norm {
+                self.ft_clip_count += 1;
+                let scale = (clip_norm / ft_grad_norm) as f32;
+                d_ft.iter_mut().for_each(|x| *x *= scale);
+                d_bias.iter_mut().for_each(|x| *x *= scale);
+            }
+        }
+        if let Some(clip_norm) = self.l2_clip_norm {
+            let clip_norm = clip_norm as f64;
+            if l2_grad_norm > clip_norm {
+                self.l2_clip_count += 1;
+                let scale = (clip_norm / l2_grad_norm) as f32;
+                d_l2.iter_mut().for_each(|x| *x *= scale);
+                d_l2_bias.iter_mut().for_each(|x| *x *= scale);
+            }
+        }
+        let mut out_grad_norm_after = out_grad_norm;
+        if let Some(clip_norm) = self.out_clip_norm {
+            let clip_norm = clip_norm as f64;
+            if out_grad_norm > clip_norm {
+                self.out_clip_count += 1;
+                let scale = (clip_norm / out_grad_norm) as f32;
+                d_out.iter_mut().for_each(|x| *x *= scale);
+                d_out_bias *= scale;
+                out_grad_norm_after = clip_norm;
+            }
+        }
+        self.out_grad_norm_after_sum += out_grad_norm_after;
+        self.out_grad_norm_after_sum_sq += out_grad_norm_after * out_grad_norm_after;
+
+        // ── Global gradient clipping (optional) ──────────────────────────────
         // Global-norm clipping: if the whole-network gradient norm exceeds
         // `grad_clip_norm`, scale every layer's gradient down by the same
         // factor (direction preserved, only magnitude reduced). Applied
@@ -1241,6 +1320,10 @@ impl Trainer {
         // `global_grad_norm_p95`/`p99` always describe the natural
         // distribution a threshold should be chosen from, not a value
         // that's already been clamped by whatever threshold is active.
+        // Independent of the per-layer clipping above -- if both are set,
+        // this acts on whatever the per-layer step already produced (an
+        // untested combination; the 2026-07 experiments use exactly one
+        // clipping mechanism at a time).
         if let Some(clip_norm) = self.grad_clip_norm {
             let clip_norm = clip_norm as f64;
             if global_grad_norm > clip_norm {
@@ -1369,6 +1452,12 @@ impl Trainer {
         self.wdl_component_sum = 0.0;
         self.wdl_component_count = 0;
         self.grad_clip_count = 0;
+        self.ft_clip_count = 0;
+        self.l2_clip_count = 0;
+        self.out_clip_count = 0;
+        self.out_grad_norm_values.clear();
+        self.out_grad_norm_after_sum = 0.0;
+        self.out_grad_norm_after_sum_sq = 0.0;
         self.cache_hits = 0;
         self.cache_misses = 0;
     }
@@ -1785,6 +1874,35 @@ mod tests {
             clipped.global_grad_norm_values[0],
             unclipped.global_grad_norm_values[0]
         );
+    }
+
+    #[test]
+    fn train_position_out_clip_norm_leaves_ft_and_l2_untouched() {
+        let board = Board::startpos();
+
+        let mut unclipped = Trainer::new(1);
+        unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
+
+        let mut clipped = Trainer::new(1);
+        clipped.out_clip_norm = Some(1.0); // far below any real output-layer gradient norm
+        clipped.train_position(&board, -600.0, 1.0, -600.0, None);
+
+        assert_eq!(clipped.out_clip_count, 1, "the tiny threshold must trigger");
+        assert_eq!(clipped.ft_clip_count, 0);
+        assert_eq!(clipped.l2_clip_count, 0);
+        // Output layer's applied update must shrink...
+        assert!(clipped.out_update_norm_sum < unclipped.out_update_norm_sum);
+        // ...while FT/L2 -- the whole point of output-*only* clipping --
+        // must be completely unaffected, byte-identical to the unclipped run.
+        assert_eq!(clipped.ft_update_norm_sum, unclipped.ft_update_norm_sum);
+        assert_eq!(clipped.l2_update_norm_sum, unclipped.l2_update_norm_sum);
+        // Diagnostics still record the natural (pre-clip) output-layer norm.
+        assert_eq!(
+            clipped.out_grad_norm_values[0],
+            unclipped.out_grad_norm_values[0]
+        );
+        // ...and the after-clip mean reflects the cap actually applied.
+        assert!(clipped.out_grad_norm_after_sum < unclipped.out_grad_norm_after_sum);
     }
 
     #[test]
