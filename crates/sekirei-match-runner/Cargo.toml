@@ -1,6 +1,6 @@
 [package]
 name = "sekirei-match-runner"
-version = "0.2.3"
+version = "0.3.0"
 edition = "2024"
 description = "USI-vs-USI match manager for Sekirei shogi engine testing"
 license = "MIT OR Apache-2.0"
@@ -11,7 +11,7 @@ name = "sekirei-match"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.2.3" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.0" }
 # Unreleased/unversioned personal project (still 0.1.0, no crates.io release) --
 # pin to an exact commit, not a branch, per the same lesson learned from
 # shogiesa/quietset (see tasks/lessons.md).
