@@ -39,6 +39,7 @@ machine).
 """
 import glob
 import json
+import math
 import os
 import re
 import ssl
@@ -100,6 +101,9 @@ POSITION_PRESETS = {
 }
 DEFAULT_POSITIONS_PRESET = "quick"
 DEFAULT_GAMES_PER_POSITION = 4
+# Mirrors --min-diversity-ratio's default in crates/sekirei-match-runner/src/main.rs
+# (also mirrored client-side as MIN_DIVERSITY_RATIO in SHELL_HTML).
+MIN_DIVERSITY_RATIO = 0.3
 
 
 def _count_positions(path):
@@ -599,6 +603,137 @@ def get_pipeline_status(run_id):
     }
 
 
+def _read_json_safe(path):
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def get_pipeline_review(run_id):
+    """Deterministic review of one training pipeline run's epoch-by-epoch
+    checkpoint diagnostics -- every number and the verdict are computed
+    here, never by the LLM narrative layered on top later (see
+    generate_review_narrative / docs/experiments/global_gradient_clipping.md
+    for why: that investigation shipped a plausible-but-wrong mechanism
+    claim mid-session that only a follow-up experiment and a second review
+    caught. An unreviewed narrative on a dashboard has no such check, so it
+    doesn't get to originate numbers or verdicts here, only describe them).
+
+    Verdict vocabulary is HEALTHY/WARNING/INSUFFICIENT_DATA/INVALID, not
+    PASS/FAIL/INCONCLUSIVE -- deliberately distinct from get_gate_review's,
+    so a training run's own diagnostics being numerically healthy is never
+    read as a claim about playing strength (this session's own B recipe had
+    improving valid_loss but never got promoted after a real quick gate).
+    """
+    run_dir = os.path.join(DATA_DIR, "runs", run_id)
+    manifest = _read_json_safe(os.path.join(run_dir, "manifest.json"))
+    if manifest is None:
+        return None
+
+    # checkpoint naming: sekirei-train writes <checkpoint_dir>/<stem>.epochN.{bin,meta.json}
+    # where stem is the output path's file stem and checkpoint_dir defaults to
+    # "<run_dir>/checkpoints" (both training pipeline scripts pass --checkpoint-dir
+    # explicitly -- see scripts/train_with_shogiesa_quietset.sh / train_with_loss_mining.sh).
+    output = manifest.get("output")
+    stem = os.path.splitext(os.path.basename(output))[0] if output else None
+    epochs = []
+    if stem:
+        pattern = os.path.join(run_dir, "checkpoints", f"{stem}.epoch*.meta.json")
+        for p in sorted(glob.glob(pattern)):
+            m = _read_json_safe(p)
+            if m is not None and isinstance(m.get("epoch"), int):
+                epochs.append(m)
+    epochs.sort(key=lambda m: m["epoch"])
+
+    if not epochs:
+        return {"run_id": run_id, "available": False}
+
+    def metric(m, key):
+        v = m.get(key) if m else None
+        # NaN is an instance of float but every comparison against it is
+        # False, which would otherwise silently fall through every branch
+        # below into the innocuous-looking default -- treat it as absent,
+        # same as None, rather than let a broken diagnostic read as healthy.
+        if isinstance(v, float) and math.isnan(v):
+            return None
+        return v if isinstance(v, (int, float)) else None
+
+    cp_mse_series = [{"epoch": m["epoch"], "value": metric(m, "valid_cp_mse")} for m in epochs]
+    wnorm_series = [{"epoch": m["epoch"], "value": metric(m, "output_weight_norm")} for m in epochs]
+    collapsed_epochs = [m["epoch"] for m in epochs if metric(m, "valid_output_range") == 0.0]
+
+    growth_ratios = []
+    for a, b in zip(wnorm_series, wnorm_series[1:]):
+        if a["value"] and b["value"] and a["value"] > 0:
+            growth_ratios.append(
+                {"from_epoch": a["epoch"], "to_epoch": b["epoch"], "ratio": b["value"] / a["value"]}
+            )
+
+    cp_mse_values = [c["value"] for c in cp_mse_series if c["value"] is not None]
+    cp_mse_delta = (cp_mse_values[-1] - cp_mse_values[0]) if len(cp_mse_values) >= 2 else None
+    cp_mse_improved = cp_mse_delta is not None and cp_mse_delta < 0
+    last_epoch_collapsed = epochs[-1]["epoch"] in collapsed_epochs
+    # ponytail: plain "did it get worse at all" / "did the last ratio exceed
+    # the one before it" -- no fabricated tolerance band. The raw delta/ratio
+    # numbers are always shown alongside the verdict, so a borderline call
+    # stays legible instead of hidden behind an unexplained threshold.
+    accelerating = len(growth_ratios) >= 2 and growth_ratios[-1]["ratio"] > growth_ratios[-2]["ratio"]
+
+    # Vocabulary is deliberately distinct from a gate's PASS/FAIL/INCONCLUSIVE
+    # (see get_gate_review): a numerically "healthy" training run is not the
+    # same claim as "this checkpoint plays stronger" -- this session's own B
+    # recipe had improving valid_loss but never got promoted in real games.
+    # Conflating the two vocabularies would let a HEALTHY training review
+    # read as a strength claim it never made.
+    if last_epoch_collapsed:
+        # A literally-constant output at the final epoch is unusable
+        # regardless of what cp_mse says about it -- this wins over every
+        # other signal, including an improving cp_mse (see the dedicated
+        # test for that exact combination).
+        verdict = "INVALID"
+    elif cp_mse_delta is None:
+        # Not evidence of a problem -- just nothing to judge cp_mse on yet
+        # (positions-only path, a single-epoch run, or all-NaN readings).
+        verdict = "INSUFFICIENT_DATA"
+    elif cp_mse_delta > 0 or accelerating:
+        verdict = "WARNING"
+    else:
+        verdict = "HEALTHY"
+
+    checklist = [
+        {"label": "cp_mse_improved", "ok": cp_mse_improved if cp_mse_delta is not None else None},
+        {"label": "no_end_collapse", "ok": not last_epoch_collapsed},
+        {"label": "growth_not_accelerating", "ok": (not accelerating) if len(growth_ratios) >= 2 else None},
+    ]
+
+    # Run-over-run comparison is opportunistic only: manifest.json's own
+    # "baseline" field names the weights file this run started from/compares
+    # against, but that file only has a sibling .meta.json if it was itself a
+    # training-pipeline output under checkpoints/ -- a plain data/*.bin
+    # dropped in by hand has none. Silently omit rather than fabricate one.
+    baseline = manifest.get("baseline")
+    baseline_meta = _read_json_safe(os.path.splitext(baseline)[0] + ".meta.json") if baseline else None
+
+    return {
+        "run_id": run_id,
+        "available": True,
+        "verdict": verdict,
+        "checklist": checklist,
+        "metrics": {
+            "cp_mse_series": cp_mse_series,
+            "output_weight_norm_series": wnorm_series,
+            "growth_ratios": growth_ratios,
+            "collapsed_epochs": collapsed_epochs,
+            "cp_mse_delta": cp_mse_delta,
+            "baseline_label": os.path.basename(baseline) if baseline else None,
+            "baseline_cp_mse": metric(baseline_meta, "valid_cp_mse") if baseline_meta else None,
+        },
+        "epoch_count": len(epochs),
+    }
+
+
 def get_opening_sanity_data(w1, w2, depth_str):
     """Runs scripts/opening_sanity.sh --json once per weights file and zips
     the two case lists by name. Synchronous (unlike start_run's Popen+poll)
@@ -907,6 +1042,162 @@ def compared_label(r):
     return f"{e1} vs {e2}"
 
 
+def get_gate_review(file):
+    """Deterministic review of one already-completed gate result. Reuses
+    get_history_data's own per-file parsing (verdict/sidecar/CI/diversity)
+    rather than re-deriving anything -- a review is a different
+    *presentation* of numbers the dashboard already computed and trusts
+    elsewhere, not a second opinion on them."""
+    entry = next(
+        (e for e in get_history_data()["entries"] if e["file"] == file and not e.get("error")),
+        None,
+    )
+    if entry is None:
+        return None
+
+    diversity_ratio = entry.get("diversity_ratio")
+    diversity_adequate = diversity_ratio >= MIN_DIVERSITY_RATIO if diversity_ratio is not None else None
+    checklist = [
+        {"label": "diversity_adequate", "ok": diversity_adequate},
+        {"label": "verdict_method_known", "ok": entry.get("method") is not None},
+    ]
+
+    return {
+        "file": file,
+        "available": True,
+        "verdict": entry["verdict"],
+        "checklist": checklist,
+        "metrics": {
+            "compared": entry.get("compared"),
+            "method": entry.get("method"),
+            "elo_diff": entry.get("elo_diff"),
+            "elo_ci_low": entry.get("elo_ci_low"),
+            "elo_ci_high": entry.get("elo_ci_high"),
+            "los": entry.get("los"),
+            "games": entry.get("games"),
+            "engine1_wins": entry.get("engine1_wins"),
+            "draws": entry.get("draws"),
+            "engine2_wins": entry.get("engine2_wins"),
+            "diversity_ratio": diversity_ratio,
+            "sprt": entry.get("sprt"),
+        },
+    }
+
+
+TREND_RECENT_GATE_WINDOW = 5  # most recent gate results (any verdict) considered "recent"
+TREND_RECENT_DECISIVE_FOR_ELO = 3  # most recent decisive (PASS/FAIL) gates checked for elo sign
+TREND_STATUSES = ("IMPROVING", "MIXED", "FLAT", "REGRESSING", "INSUFFICIENT_EVIDENCE")
+
+
+def get_trend_review():
+    """Cross-cut synthesis across gate history, training pipeline runs, and
+    open action items. Returns a `trend_status` -- NOT a `verdict` -- with an
+    explicit `positives`/`negatives` evidence list and a `confidence` level,
+    never a bare PASS/FAIL: unlike a single epoch's cp_mse delta or a single
+    gate's elo-based PASS/FAIL, "is the project trending well" has no single
+    pass/fail condition, so instead of forcing one, every contributing
+    signal is listed individually and the status is one of TREND_STATUSES.
+    `trend_status`/`confidence`/`positives`/`negatives` are still fully
+    deterministic -- computed here from real fields, never by the narrative
+    LLM layered on afterward (same rule as get_pipeline_review/
+    get_gate_review; see REVIEW_NARRATIVE_SYSTEM's matching constraint
+    against the narrative inventing evidence beyond what's listed here)."""
+    history = get_history_data()["entries"]
+    decisive = [e for e in history if not e.get("error") and e["verdict"] in ("PASS", "FAIL")]
+    recent = decisive[:10]  # get_history_data() is already newest-first
+    pass_rate_recent = (
+        sum(1 for e in recent if e["verdict"] == "PASS") / len(recent) if recent else None
+    )
+    latest_decisive = decisive[0] if decisive else None
+
+    recent_all = [e for e in history if not e.get("error")][:TREND_RECENT_GATE_WINDOW]
+    inconclusive_recent_count = sum(1 for e in recent_all if e["verdict"] == "INCONCLUSIVE")
+
+    recent_decisive_elo = [
+        e["elo_diff"]
+        for e in decisive[:TREND_RECENT_DECISIVE_FOR_ELO]
+        if e.get("elo_diff") is not None
+    ]
+    positive_elo_count = sum(1 for v in recent_decisive_elo if v > 0)
+    negative_elo_count = sum(1 for v in recent_decisive_elo if v < 0)
+
+    pipeline_runs = list_pipeline_runs()["runs"]
+    train_done = sum(
+        1
+        for r in pipeline_runs
+        if (status := get_pipeline_status(r["id"]))
+        and any(s["key"] == "train" and s["status"] == "done" for s in status["stages"])
+    )
+    pipeline_verdicts_recent = [
+        review["verdict"]
+        for r in pipeline_runs[:TREND_RECENT_GATE_WINDOW]
+        if (review := get_pipeline_review(r["id"])) and review.get("available")
+    ]
+    invalid_pipeline_count = pipeline_verdicts_recent.count("INVALID")
+
+    positives = []
+    negatives = []
+    if latest_decisive and latest_decisive["verdict"] == "PASS":
+        positives.append({"key": "latest_gate_pass", "file": latest_decisive["file"]})
+    if len(recent_decisive_elo) >= 2 and positive_elo_count > negative_elo_count:
+        positives.append(
+            {"key": "recent_elo_majority_positive", "count": positive_elo_count, "total": len(recent_decisive_elo)}
+        )
+    if pipeline_verdicts_recent and invalid_pipeline_count == 0:
+        positives.append({"key": "no_invalid_pipeline_runs", "count": len(pipeline_verdicts_recent)})
+
+    if latest_decisive and latest_decisive["verdict"] == "FAIL":
+        negatives.append({"key": "latest_gate_fail", "file": latest_decisive["file"]})
+    if len(recent_decisive_elo) >= 2 and negative_elo_count > positive_elo_count:
+        negatives.append(
+            {"key": "recent_elo_majority_negative", "count": negative_elo_count, "total": len(recent_decisive_elo)}
+        )
+    if invalid_pipeline_count > 0:
+        negatives.append({"key": "invalid_pipeline_runs_present", "count": invalid_pipeline_count})
+    if inconclusive_recent_count >= 2:
+        negatives.append({"key": "multiple_recent_inconclusive", "count": inconclusive_recent_count})
+
+    if len(decisive) < 2:
+        trend_status = "INSUFFICIENT_EVIDENCE"
+    elif positives and negatives:
+        trend_status = "MIXED"
+    elif positives and not negatives:
+        trend_status = "IMPROVING"
+    elif negatives and not positives:
+        trend_status = "REGRESSING"
+    else:
+        trend_status = "FLAT"
+
+    # A plain, transparent proxy for "how much evidence is this based on" --
+    # not a statistical confidence interval, just the decisive-gate count.
+    if len(decisive) < 5:
+        confidence = "LOW"
+    elif len(decisive) < 10:
+        confidence = "MEDIUM"
+    else:
+        confidence = "HIGH"
+
+    return {
+        "available": True,
+        "trend_status": trend_status,
+        "confidence": confidence,
+        "positives": positives,
+        "negatives": negatives,
+        "metrics": {
+            "total_gate_results": len(history),
+            "decisive_gate_count": len(decisive),
+            "recent_decisive_count": len(recent),
+            "pass_rate_recent": pass_rate_recent,
+            "latest_decisive_verdict": latest_decisive["verdict"] if latest_decisive else None,
+            "latest_decisive_file": latest_decisive["file"] if latest_decisive else None,
+            "recent_verdict_sequence": [e["verdict"] for e in recent],
+            "pipeline_runs_total": len(pipeline_runs),
+            "pipeline_runs_train_done": train_done,
+            "open_action_count": len(get_todo_items()["items"]),
+        },
+    }
+
+
 def build_chat_context(page=None, run_id=None):
     """Snapshot of what's currently on the dashboard (history, the run the
     user is actually looking at, open todo items) so the AI assistant can
@@ -1022,6 +1313,81 @@ def chat_reply(payload):
             raise ValueError("each message needs a role (user/assistant) and string content")
     context = build_chat_context(payload.get("page"), payload.get("run_id"))
     return call_anthropic(context, messages)
+
+
+# The narrative half of a "review" panel (see get_pipeline_review /
+# get_review_data). Every number and the verdict are already decided by
+# deterministic code before this runs -- this call is only allowed to
+# describe them, never originate a number or a causal claim. See
+# get_pipeline_review's docstring for the concrete near-miss that makes this
+# a real constraint, not boilerplate caution.
+REVIEW_NARRATIVE_SYSTEM = """You are writing a short, strictly descriptive summary for one section of a \
+local engineering dashboard for Sekirei, a shogi engine training pipeline. You are given a JSON object of \
+already-computed numbers and a verdict; both were decided by deterministic code, not you.
+
+Rules, all mandatory:
+- Describe only the numbers you were given. Never introduce a number, ratio, or claim that is not directly \
+present in the input JSON.
+- Never assert a causal mechanism ("X happened because Y") unless the input JSON itself explicitly labels \
+something as a confirmed mechanism. A *possible* explanation may be offered only if clearly marked as \
+speculation (e.g. "one possibility is...") and kept to one sentence at most.
+- Do not restate the verdict as if you decided it -- it was already decided by the code that gave you this \
+data; just describe what it found.
+- If the input JSON has no "verdict" field and no "trend_status" field, do not supply one yourself -- do not \
+judge whether things are "going well," "trending positively/negatively," or similar. Report each number/field \
+individually; do not synthesize an overall judgment across them.
+- If the input JSON has a "trend_status" field, describe it and the "positives"/"negatives" evidence lists \
+faithfully. Do not add any positive or negative reason beyond what's listed in those two arrays, and do not \
+restate trend_status as your own conclusion -- it was already decided by the code that gave you this data.
+- 2-4 sentences, plain and factual, no marketing language."""
+
+
+def generate_review_narrative(numbers):
+    """Optional descriptive text for a review panel. Returns None (never
+    raises) on a missing API key or any request failure, so a review always
+    degrades to numbers-only rather than failing outright."""
+    if not ANTHROPIC_API_KEY:
+        return None
+    try:
+        return call_anthropic(
+            REVIEW_NARRATIVE_SYSTEM,
+            [{"role": "user", "content": json.dumps(numbers, ensure_ascii=False)}],
+        )
+    except Exception:
+        return None
+
+
+def get_review_data(kind, ident):
+    """Dispatcher for GET /api/review. `ident` is a pipeline run_id for
+    kind=pipeline, a results/*.json filename for kind=gate, and unused for
+    kind=trend (a cross-cut over everything, not one item)."""
+    if kind == "pipeline":
+        if not ident:
+            raise ValueError("run is required for kind=pipeline")
+        review = get_pipeline_review(ident)
+        if review is None:
+            raise ValueError(f"unknown pipeline run: {ident}")
+    elif kind == "gate":
+        if not ident:
+            raise ValueError("file is required for kind=gate")
+        review = get_gate_review(ident)
+        if review is None:
+            raise ValueError(f"unknown gate result: {ident}")
+    elif kind == "trend":
+        review = get_trend_review()
+    else:
+        raise ValueError(f"unknown review kind: {kind}")
+
+    if review.get("available"):
+        narrative_input = {"kind": kind, "metrics": review["metrics"]}
+        # Trend reviews have trend_status/confidence/positives/negatives
+        # instead of verdict/checklist (see get_trend_review's docstring) --
+        # only include whichever fields this review kind actually has.
+        for key in ("verdict", "checklist", "trend_status", "confidence", "positives", "negatives"):
+            if key in review:
+                narrative_input[key] = review[key]
+        review["narrative"] = generate_review_narrative(narrative_input)
+    return review
 
 
 SHELL_HTML = """<!doctype html>
@@ -1179,6 +1545,49 @@ const TRANSLATIONS = {
     pipelineOutput: "出力先",
     pipelineValidateNotYet: "まだ検証(gate)は実行されていません。学習完了後に次のコマンドを実行してください:",
     qsPipelineRuns: "パイプライン実行数", qsCurrentStage: "現在の段階", qsPipelineAllDone: "全段階完了", qsPositions: "局面数",
+    // review panels (shared across pipeline/gate/trend reviews)
+    reviewTitle: "レビュー",
+    reviewGenerate: "レビューを生成", reviewRegenerate: "再生成", reviewGenerating: "生成中…",
+    reviewError: "レビューの取得に失敗しました",
+    reviewNoData: "このrunにはレビュー可能なepochデータがありません。",
+    reviewAiGenerated: "AI生成(考察文のみ。数値・判定は決定的に計算)",
+    reviewChecklistTitle: "チェックリスト",
+    reviewCpMseChanged: "valid_cp_mse の変化:",
+    reviewCpMseUnavailable: "valid_cp_mse は利用できません(positions専用パス等)",
+    reviewCollapseDetected: "output collapse を検出",
+    reviewCpMseTrendTitle: "valid_cp_mse の推移(epoch毎)",
+    reviewOutputNormTrendTitle: "output_weight_norm の推移(epoch毎)",
+    reviewGrowthRatioTitle: "output_weight_norm の epoch間 growth ratio(破線=1.0倍=変化なし)",
+    reviewBaselineCompareTitle: "baselineとの比較",
+    reviewBaselineLabel: "baseline比 (最終epoch − baseline)",
+    reviewBaselineUnavailable: "baselineの.meta.jsonが見つからないため比較できません",
+    reviewChecklistCpMseImproved: "cp_mseが最初のepochから最後のepochで改善した",
+    reviewChecklistNoEndCollapse: "最後のepochでoutput collapseが起きていない",
+    reviewChecklistGrowthNotAccelerating: "output_weight_normの成長率が加速していない",
+    reviewChecklistDiversityAdequate: "diversity_ratioが0.3以上(局面の多様性が十分)",
+    reviewChecklistMethodKnown: "判定方式(CI/SPRT)が記録されている(旧形式ファイルではない)",
+    reviewLatestDecisive: "直近の決着したゲート",
+    reviewPassRateRecent: "直近のPASS率",
+    reviewPipelineRuns: "学習パイプライン(学習完了/全体)",
+    reviewRecentVerdictsTitle: "直近の判定履歴(新しい順)",
+    reviewConfidence: "確信度", reviewConfidenceLow: "低", reviewConfidenceMedium: "中", reviewConfidenceHigh: "高",
+    reviewPositiveEvidence: "ポジティブな根拠", reviewNegativeEvidence: "ネガティブな根拠",
+    reviewTipImproving: "IMPROVING: ポジティブな根拠があり、ネガティブな根拠は無い",
+    reviewTipMixed: "MIXED: ポジティブ・ネガティブ両方の根拠がある",
+    reviewTipFlat: "FLAT: 現時点で明確なポジティブ/ネガティブの根拠のどちらも無い",
+    reviewTipRegressing: "REGRESSING: ネガティブな根拠があり、ポジティブな根拠は無い",
+    reviewTipInsufficientEvidence: "INSUFFICIENT EVIDENCE: 決着したゲート結果が2件未満で判断材料が不足している",
+    evidenceLatestGatePass: "直近の決着ゲートの判定はPASS:",
+    evidenceLatestGateFail: "直近の決着ゲートの判定はFAIL:",
+    evidenceRecentEloPositive: "直近の決着ゲートのうちelo点推定が正の件数が多数派",
+    evidenceRecentEloNegative: "直近の決着ゲートのうちelo点推定が負の件数が多数派",
+    evidenceNoInvalidPipeline: "直近の学習パイプラインrunにINVALID(collapse)は無し",
+    evidenceInvalidPipelinePresent: "直近の学習パイプラインrunにINVALID(collapse)が存在",
+    evidenceMultipleInconclusive: "直近のゲートのうち複数件がINCONCLUSIVE",
+    reviewTipHealthy: "HEALTHY: valid_cp_mseが最初から最後のepochまで改善し、output_weight_normの成長も加速していない(学習診断上の健全性であり、棋力の向上を意味しない)",
+    reviewTipWarning: "WARNING: valid_cp_mseが悪化した、またはoutput_weight_normの成長率が加速している(致命的ではないが要観察)",
+    reviewTipInsufficientData: "INSUFFICIENT DATA: valid_cp_mseが利用できない(positions専用パス、epoch数不足、またはNaN)ため判定できない",
+    reviewTipInvalid: "INVALID: 最後のepochでoutput collapse(valid_output_range=0)が起きている — このcheckpointは使用不可",
     // strength page
     strengthTitle: "強さ評価",
     anchorLabel: "アンカー(基準側の推定絶対レート)",
@@ -1309,6 +1718,49 @@ const TRANSLATIONS = {
     pipelineOutput: "Output",
     pipelineValidateNotYet: "Not gated yet. Run this once training finishes:",
     qsPipelineRuns: "Pipeline runs", qsCurrentStage: "Current stage", qsPipelineAllDone: "All stages done", qsPositions: "Positions",
+    // review panels (shared across pipeline/gate/trend reviews)
+    reviewTitle: "Review",
+    reviewGenerate: "Generate review", reviewRegenerate: "Regenerate", reviewGenerating: "Generating…",
+    reviewError: "Failed to load review",
+    reviewNoData: "No epoch data available to review for this run yet.",
+    reviewAiGenerated: "AI-generated (narrative only -- numbers and verdict are computed deterministically)",
+    reviewChecklistTitle: "Checklist",
+    reviewCpMseChanged: "valid_cp_mse change:",
+    reviewCpMseUnavailable: "valid_cp_mse unavailable (e.g. positions-only path)",
+    reviewCollapseDetected: "output collapse detected",
+    reviewCpMseTrendTitle: "valid_cp_mse by epoch",
+    reviewOutputNormTrendTitle: "output_weight_norm by epoch",
+    reviewGrowthRatioTitle: "output_weight_norm growth ratio between epochs (dashed = 1.0x = no change)",
+    reviewBaselineCompareTitle: "Comparison with baseline",
+    reviewBaselineLabel: "vs. baseline (final epoch − baseline)",
+    reviewBaselineUnavailable: "baseline's .meta.json not found -- comparison unavailable",
+    reviewChecklistCpMseImproved: "cp_mse improved from the first to the last epoch",
+    reviewChecklistNoEndCollapse: "no output collapse at the final epoch",
+    reviewChecklistGrowthNotAccelerating: "output_weight_norm growth isn't accelerating",
+    reviewChecklistDiversityAdequate: "diversity_ratio is at least 0.3 (adequate opening diversity)",
+    reviewChecklistMethodKnown: "decision method (CI/SPRT) is recorded (not a legacy-format file)",
+    reviewLatestDecisive: "Latest decisive gate",
+    reviewPassRateRecent: "Recent PASS rate",
+    reviewPipelineRuns: "Pipeline runs (trained / total)",
+    reviewRecentVerdictsTitle: "Recent verdict history (newest first)",
+    reviewConfidence: "Confidence", reviewConfidenceLow: "Low", reviewConfidenceMedium: "Medium", reviewConfidenceHigh: "High",
+    reviewPositiveEvidence: "Positive evidence", reviewNegativeEvidence: "Negative evidence",
+    reviewTipImproving: "IMPROVING: positive evidence is present and no negative evidence was found",
+    reviewTipMixed: "MIXED: both positive and negative evidence are present",
+    reviewTipFlat: "FLAT: no clear positive or negative evidence either way, at this point",
+    reviewTipRegressing: "REGRESSING: negative evidence is present and no positive evidence was found",
+    reviewTipInsufficientEvidence: "INSUFFICIENT EVIDENCE: fewer than 2 decisive gate results to judge from",
+    evidenceLatestGatePass: "The latest decisive gate's verdict is PASS:",
+    evidenceLatestGateFail: "The latest decisive gate's verdict is FAIL:",
+    evidenceRecentEloPositive: "A majority of recent decisive gates have a positive elo point-estimate",
+    evidenceRecentEloNegative: "A majority of recent decisive gates have a negative elo point-estimate",
+    evidenceNoInvalidPipeline: "No recent training pipeline runs are INVALID (collapsed)",
+    evidenceInvalidPipelinePresent: "Recent training pipeline runs include an INVALID (collapsed) one",
+    evidenceMultipleInconclusive: "Multiple of the most recent gates are INCONCLUSIVE",
+    reviewTipHealthy: "HEALTHY: valid_cp_mse improved from the first to the last epoch, and output_weight_norm growth isn't accelerating (a training-diagnostic judgment, not a playing-strength claim)",
+    reviewTipWarning: "WARNING: valid_cp_mse got worse, or output_weight_norm growth is accelerating (not fatal, but worth watching)",
+    reviewTipInsufficientData: "INSUFFICIENT DATA: valid_cp_mse isn't available to judge (positions-only path, too few epochs, or NaN readings)",
+    reviewTipInvalid: "INVALID: an output collapse (valid_output_range=0) is present at the final epoch -- this checkpoint is unusable",
     strengthTitle: "Strength evaluation",
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
     anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
@@ -1332,7 +1784,18 @@ const TRANSLATIONS = {
   },
 };
 
-const VERDICT_COLOR = { PASS: "success", FAIL: "error", INCONCLUSIVE: "warning" };
+// One shared color/label vocabulary map for VerdictChip, reused across three
+// deliberately-distinct verdict vocabularies (see get_pipeline_review's and
+// get_trend_review's docstrings for why they aren't all PASS/FAIL):
+// gate reviews: PASS/FAIL/INCONCLUSIVE. Pipeline reviews: HEALTHY/WARNING/
+// INSUFFICIENT_DATA/INVALID. Trend status: IMPROVING/MIXED/FLAT/REGRESSING/
+// INSUFFICIENT_EVIDENCE (rendered via VerdictChip too, for the same
+// color-coded-at-a-glance treatment, even though it's not a "verdict").
+const VERDICT_COLOR = {
+  PASS: "success", FAIL: "error", INCONCLUSIVE: "warning",
+  HEALTHY: "success", WARNING: "warning", INSUFFICIENT_DATA: "default", INVALID: "error",
+  IMPROVING: "success", MIXED: "warning", FLAT: "default", REGRESSING: "error", INSUFFICIENT_EVIDENCE: "default",
+};
 const VERDICT_TIP_KEY = { PASS: "tipPass", FAIL: "tipFail", INCONCLUSIVE: "tipInconclusive" };
 // Mirrors --min-diversity-ratio's default in crates/sekirei-match-runner/src/main.rs.
 const MIN_DIVERSITY_RATIO = 0.3;
@@ -1484,9 +1947,14 @@ function LLRGauge({ llr, boundLo, boundHi, t, width = 320, height = 40 }) {
   );
 }
 
-function VerdictChip({ verdict, t, size, outlined }) {
+// `tipKey` lets a caller override the tooltip's translation key -- the
+// PASS/FAIL/INCONCLUSIVE vocabulary and coloring are reused for review
+// verdicts too (see VerdictBanner), but what PASS *means* differs by
+// context (an elo gate vs. a training run's own epoch trend), so the
+// default VERDICT_TIP_KEY (gate-specific wording) isn't always right.
+function VerdictChip({ verdict, t, size, outlined, tipKey }) {
   return (
-    <Tooltip title={t[VERDICT_TIP_KEY[verdict]] || ""} arrow>
+    <Tooltip title={t[tipKey || VERDICT_TIP_KEY[verdict]] || ""} arrow>
       <Chip
         size={size || "medium"}
         label={verdict}
@@ -1802,6 +2270,142 @@ function CiBarChart({ rows, passElo, failElo, t, onSelect }) {
   );
 }
 
+// ---------------------------------------------------------------------
+// Shared "review" components (embedded report panels -- see /api/review).
+// The verdict/numbers below always come from the server's deterministic
+// computation; an optional `narrative` string may additionally have been
+// LLM-authored (see generate_review_narrative in the Python half), which is
+// why it's rendered through NarrativeCallout as a clearly separate,
+// visibly-labeled block rather than mixed into the numeric parts.
+// ---------------------------------------------------------------------
+
+// Reuses the same PASS/FAIL/INCONCLUSIVE vocabulary and coloring gate
+// verdicts already use (VERDICT_COLOR/VerdictChip) -- what each one *means*
+// differs by review kind, so callers pass their own `tipKey` map.
+function VerdictBanner({ verdict, tipKey, children, t }) {
+  const color = VERDICT_COLOR[verdict] || "default";
+  return (
+    <Card variant="outlined" sx={{ borderColor: `${color}.main`, borderWidth: 2, mb: 2 }}>
+      <CardContent sx={{ display: "flex", alignItems: "flex-start", gap: 2 }}>
+        <VerdictChip verdict={verdict} t={t} tipKey={tipKey} />
+        <Box sx={{ flexGrow: 1 }}>{children}</Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+// Horizontal bars for a numeric series (e.g. a metric's value per epoch).
+// `rows`: [{ label, value }]. `referenceValue`, when given, both anchors
+// where bars start from (instead of 0) and draws a dashed reference line --
+// e.g. 1.0 for a growth ratio, where "no change" is 1.0, not 0.
+function MetricBars({ rows, referenceValue, formatValue }) {
+  const theme = useTheme();
+  if (!rows || rows.length === 0) return null;
+  const rowH = 28, labelW = 110, width = 640, padT = 8, padB = 8, padR = 80;
+  const chartW = width - labelW - padR;
+  const height = padT + padB + rows.length * rowH;
+  const base = referenceValue ?? 0;
+  const values = rows.map((r) => r.value);
+  let xMin = Math.min(base, ...values), xMax = Math.max(base, ...values);
+  const pad = (xMax - xMin) * 0.12 || Math.abs(base) * 0.1 || 1;
+  xMin -= pad; xMax += pad;
+  const xFor = (v) => labelW + ((v - xMin) / (xMax - xMin || 1)) * chartW;
+  const fmt = formatValue || ((v) => v.toFixed(2));
+  const x0 = xFor(base);
+  return (
+    <svg width={width} height={height}>
+      {referenceValue != null && (
+        <line x1={x0} x2={x0} y1={padT} y2={height - padB} stroke={theme.palette.text.disabled} strokeDasharray="4 3" />
+      )}
+      {rows.map((r, i) => {
+        const y = padT + i * rowH + rowH / 2;
+        const x1 = xFor(r.value);
+        const barX = Math.min(x0, x1), barW = Math.max(1, Math.abs(x1 - x0));
+        return (
+          <g key={i}>
+            <text x={0} y={y + 4} fontSize="11" fill={theme.palette.text.primary}>{r.label}</text>
+            <rect x={barX} y={y - 8} width={barW} height={16} rx={3} fill={theme.palette.primary.main} opacity={0.85} />
+            <text x={width - padR + 8} y={y + 4} fontSize="11" fill={theme.palette.text.secondary}>{fmt(r.value)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Signed bars either side of zero, e.g. a metric's epoch-over-epoch delta.
+// `rows`: [{ label, value, ok }] -- `ok` (bool) colors the bar success/error;
+// when omitted, negative defaults to "good" (green) unless `invertColor`.
+function DeltaChart({ rows, invertColor, formatValue }) {
+  const theme = useTheme();
+  if (!rows || rows.length === 0) return null;
+  const rowH = 28, labelW = 90, width = 620, padT = 8, padB = 8, padR = 80;
+  const chartW = width - labelW - padR;
+  const height = padT + padB + rows.length * rowH;
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(r.value)));
+  const mid = labelW + chartW / 2;
+  const scale = (chartW / 2) / maxAbs;
+  const fmt = formatValue || ((v) => (v > 0 ? "+" : "") + v.toFixed(1));
+  return (
+    <svg width={width} height={height}>
+      <line x1={mid} x2={mid} y1={padT} y2={height - padB} stroke={theme.palette.divider} />
+      {rows.map((r, i) => {
+        const y = padT + i * rowH + rowH / 2;
+        const good = r.ok != null ? r.ok : (invertColor ? r.value > 0 : r.value < 0);
+        const color = r.value === 0 ? theme.palette.text.disabled : (good ? theme.palette.success.main : theme.palette.error.main);
+        const barW = Math.abs(r.value) * scale;
+        const x = r.value >= 0 ? mid : mid - barW;
+        return (
+          <g key={i}>
+            <text x={0} y={y + 4} fontSize="11" fill={theme.palette.text.primary}>{r.label}</text>
+            <rect x={x} y={y - 8} width={Math.max(1, barW)} height={16} rx={3} fill={color} />
+            <text x={mid + chartW / 2 + 10} y={y + 4} fontSize="11" fill={color}>{fmt(r.value)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+// Renders an optional LLM-authored narrative (null-safe: nothing renders if
+// absent, e.g. no ANTHROPIC_API_KEY server-side) via the same hand-rolled
+// markdown renderer the chat widget uses, with a visible "AI-generated" tag
+// so it's never confused with the deterministic numbers around it.
+function NarrativeCallout({ narrative, t }) {
+  if (!narrative) return null;
+  return (
+    <Card variant="outlined" sx={{ mb: 2, borderStyle: "dashed" }}>
+      <CardContent>
+        <Chip size="small" label={t.reviewAiGenerated} variant="outlined" sx={{ mb: 1 }} />
+        <Box>{renderMarkdown(narrative)}</Box>
+      </CardContent>
+    </Card>
+  );
+}
+
+// `items`: [{ label, ok }] -- `ok` is a translation-key lookup label plus a
+// tri-state check: true=pass (✓), false=fail (✗), null/undefined=not
+// applicable (—, e.g. a metric that wasn't available for this run).
+function ChecklistPanel({ items, labelKeyMap, t }) {
+  if (!items || items.length === 0) return null;
+  return (
+    <Stack spacing={0.75}>
+      {items.map((item, i) => {
+        const label = t[labelKeyMap[item.label]] || item.label;
+        const known = item.ok !== null && item.ok !== undefined;
+        const icon = !known ? "—" : (item.ok ? "✓" : "✗");
+        const color = !known ? "text.secondary" : (item.ok ? "success.main" : "error.main");
+        return (
+          <Stack key={i} direction="row" spacing={1} alignItems="center">
+            <Typography component="span" color={color} sx={{ width: 18, fontWeight: 700 }}>{icon}</Typography>
+            <Typography variant="body2">{label}</Typography>
+          </Stack>
+        );
+      })}
+    </Stack>
+  );
+}
+
 const CATEGORY_BADGE = {
   code: { color: "info", labelKey: "badgeCode" },
   match: { color: "secondary", labelKey: "badgeMatch" },
@@ -2007,6 +2611,47 @@ function QuickStats({ items }) {
   );
 }
 
+const GATE_REVIEW_CHECKLIST_LABEL_KEY = {
+  diversity_adequate: "reviewChecklistDiversityAdequate",
+  verdict_method_known: "reviewChecklistMethodKnown",
+};
+
+function GateReviewPanel({ review, t }) {
+  const m = review.metrics;
+  return (
+    <Box>
+      <VerdictBanner verdict={review.verdict} t={t}>
+        <Typography variant="body2">
+          <Term label={t.eloDiffPlain} tip={t.tipEloDiff} value={m.elo_diff != null ? m.elo_diff.toFixed(2) : "—"} />{"  "}
+          <Term label={t.losPlain} tip={t.tipLos} value={m.los != null ? `${(m.los * 100).toFixed(1)}%` : "—"} />{"  "}
+          games={m.games} (e1={m.engine1_wins} draws={m.draws} e2={m.engine2_wins})
+        </Typography>
+        <VerdictRationale method={m.method} row={{ elo_diff: m.elo_diff, sprt: m.sprt }} t={t} />
+      </VerdictBanner>
+
+      <NarrativeCallout narrative={review.narrative} t={t} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewChecklistTitle}</Typography>
+      <Box sx={{ mb: 2 }}>
+        <ChecklistPanel items={review.checklist} labelKeyMap={GATE_REVIEW_CHECKLIST_LABEL_KEY} t={t} />
+      </Box>
+
+      <Box sx={{ mb: 1 }}>
+        <WdlBar wins={m.engine1_wins} draws={m.draws} losses={m.engine2_wins} width={220} height={16} showLabels t={t} />
+      </Box>
+      {m.elo_ci_low != null && m.elo_ci_high != null && (
+        <Typography variant="body2" color="text.secondary">95% CI: [{m.elo_ci_low.toFixed(1)}, {m.elo_ci_high.toFixed(1)}]</Typography>
+      )}
+      {m.diversity_ratio != null && (
+        <Typography variant="body2" color="text.secondary">
+          <Tooltip title={t.tipDiversityRatio} arrow><span style={{ borderBottom: "1px dotted", cursor: "help" }}>diversity_ratio</span></Tooltip>
+          =<DiversityValue ratio={m.diversity_ratio} t={t} />
+        </Typography>
+      )}
+    </Box>
+  );
+}
+
 function HistoryPage({ t }) {
   const { data, updatedAt, refresh } = useApi("/api/history", 8000);
   const entries = data?.entries || [];
@@ -2014,6 +2659,10 @@ function HistoryPage({ t }) {
   const [highlight, setHighlight] = useState(null);
   const [search, setSearch] = useState("");
   const [verdictFilter, setVerdictFilter] = useState([]);
+  const [reviewFile, setReviewFile] = useState(null);
+  const [review, setReview] = useState(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
   const selectRow = (file) => {
     setHighlight(file);
     scrollToRow(file);
@@ -2021,6 +2670,22 @@ function HistoryPage({ t }) {
   };
   const toggleVerdict = (v) => {
     setVerdictFilter((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
+  };
+  const generateGateReview = async (file) => {
+    setReviewFile(file);
+    setReview(null);
+    setReviewError(null);
+    setReviewLoading(true);
+    try {
+      const res = await fetch(`/api/review?kind=gate&file=${encodeURIComponent(file)}`);
+      const data = await res.json();
+      if (data.error) setReviewError(data.error);
+      else setReview(data);
+    } catch (e) {
+      setReviewError(String(e));
+    } finally {
+      setReviewLoading(false);
+    }
   };
 
   const needle = search.trim().toLowerCase();
@@ -2098,6 +2763,7 @@ function HistoryPage({ t }) {
             { key: "los", label: t.colLos, tooltip: t.tipLos },
             { key: "games", label: t.colGames },
             { key: "diversity_ratio", label: t.colDiversity, tooltip: t.tipDiversityRatio },
+            { key: "review", label: t.reviewTitle },
           ]}
           rows={filteredEntries}
           highlightKey={highlight}
@@ -2119,9 +2785,26 @@ function HistoryPage({ t }) {
                 <WdlBar wins={row.engine1_wins} draws={row.draws} losses={row.engine2_wins} />
               </Stack>
             );
+            if (key === "review") return (
+              <Button
+                size="small" variant="outlined"
+                onClick={() => generateGateReview(row.file)}
+                disabled={reviewLoading && reviewFile === row.file}
+              >
+                {reviewLoading && reviewFile === row.file ? t.reviewGenerating : t.reviewGenerate}
+              </Button>
+            );
             return row[key];
           }}
         />
+      )}
+
+      {reviewFile && (
+        <Box sx={{ mt: 3 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewTitle}: {reviewFile}</Typography>
+          {reviewError && <Typography variant="body2" color="error.main" sx={{ mb: 1 }}>{t.reviewError}: {reviewError}</Typography>}
+          {review && <GateReviewPanel review={review} t={t} />}
+        </Box>
       )}
     </Box>
   );
@@ -2665,10 +3348,82 @@ function PipelineStageDetail({ stage, t }) {
   return null;
 }
 
+const PIPELINE_REVIEW_CHECKLIST_LABEL_KEY = {
+  cp_mse_improved: "reviewChecklistCpMseImproved",
+  no_end_collapse: "reviewChecklistNoEndCollapse",
+  growth_not_accelerating: "reviewChecklistGrowthNotAccelerating",
+};
+const PIPELINE_REVIEW_TIP_KEY = {
+  HEALTHY: "reviewTipHealthy", WARNING: "reviewTipWarning",
+  INSUFFICIENT_DATA: "reviewTipInsufficientData", INVALID: "reviewTipInvalid",
+};
+
+function PipelineReviewPanel({ review, t }) {
+  if (!review.available) return <Typography variant="body2" color="text.secondary">{t.reviewNoData}</Typography>;
+  const m = review.metrics;
+  const cpMseRows = m.cp_mse_series.filter((r) => r.value != null).map((r) => ({ label: `epoch ${r.epoch}`, value: r.value }));
+  const wnormRows = m.output_weight_norm_series.filter((r) => r.value != null).map((r) => ({ label: `epoch ${r.epoch}`, value: r.value }));
+  const growthRows = m.growth_ratios.map((r) => ({ label: `${r.from_epoch}→${r.to_epoch}`, value: r.ratio }));
+  return (
+    <Box>
+      <VerdictBanner verdict={review.verdict} tipKey={PIPELINE_REVIEW_TIP_KEY[review.verdict]} t={t}>
+        <Typography variant="body2">
+          {m.cp_mse_delta != null ? (
+            <>{t.reviewCpMseChanged} <strong>{m.cp_mse_delta <= 0 ? "−" : "+"}{Math.abs(m.cp_mse_delta).toFixed(1)}</strong> ({t.pipelineEpoch} 1 → {review.epoch_count})</>
+          ) : t.reviewCpMseUnavailable}
+          {m.collapsed_epochs.length > 0 && <> — {t.reviewCollapseDetected} (epoch {m.collapsed_epochs.join(", ")})</>}
+        </Typography>
+      </VerdictBanner>
+
+      <NarrativeCallout narrative={review.narrative} t={t} />
+
+      <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewChecklistTitle}</Typography>
+      <Box sx={{ mb: 2 }}>
+        <ChecklistPanel items={review.checklist} labelKeyMap={PIPELINE_REVIEW_CHECKLIST_LABEL_KEY} t={t} />
+      </Box>
+
+      {cpMseRows.length > 0 && (
+        <Box sx={{ mt: 2, mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewCpMseTrendTitle}</Typography>
+          <MetricBars rows={cpMseRows} formatValue={(v) => v.toFixed(0)} />
+        </Box>
+      )}
+      {wnormRows.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewOutputNormTrendTitle}</Typography>
+          <MetricBars rows={wnormRows} formatValue={(v) => v.toFixed(2)} />
+        </Box>
+      )}
+      {growthRows.length > 0 && (
+        <Box sx={{ mb: 2 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewGrowthRatioTitle}</Typography>
+          <MetricBars rows={growthRows} referenceValue={1.0} formatValue={(v) => `${v.toFixed(2)}x`} />
+        </Box>
+      )}
+      {m.baseline_label && (
+        <Box sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewBaselineCompareTitle}</Typography>
+          {m.baseline_cp_mse != null && m.cp_mse_delta != null ? (
+            <DeltaChart
+              rows={[{ label: t.reviewBaselineLabel, value: cpMseRows[cpMseRows.length - 1].value - m.baseline_cp_mse }]}
+              formatValue={(v) => (v > 0 ? "+" : "") + v.toFixed(1)}
+            />
+          ) : (
+            <Typography variant="body2" color="text.secondary">{t.reviewBaselineUnavailable} ({m.baseline_label})</Typography>
+          )}
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 function PipelinePage({ t }) {
   const { data: runsData } = useApi("/api/pipeline_runs", 8000);
   const runs = runsData?.runs || [];
   const [runId, setRunId] = useState("");
+  const [review, setReview] = useState(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState(null);
 
   const autoSelected = useRef(false);
   useEffect(() => {
@@ -2676,6 +3431,10 @@ function PipelinePage({ t }) {
     autoSelected.current = true;
     setRunId(runs[0].id);
   }, [runs]);
+
+  // A newly-selected run's review is unrelated to the previous one's --
+  // drop it rather than showing a stale panel under the new run's stepper.
+  useEffect(() => { setReview(null); setReviewError(null); }, [runId]);
 
   const { data } = useApi(runId ? `/api/pipeline?run=${runId}` : null, runId ? 4000 : null);
 
@@ -2692,6 +3451,21 @@ function PipelinePage({ t }) {
   const activeIndex = stages.findIndex((s) => s.status !== "done");
   const trainStage = stages.find((s) => s.key === "train");
   const trainDone = trainStage?.status === "done";
+
+  const generateReview = async () => {
+    setReviewLoading(true);
+    setReviewError(null);
+    try {
+      const res = await fetch(`/api/review?kind=pipeline&run=${encodeURIComponent(runId)}`);
+      const data = await res.json();
+      if (data.error) setReviewError(data.error);
+      else setReview(data);
+    } catch (e) {
+      setReviewError(String(e));
+    } finally {
+      setReviewLoading(false);
+    }
+  };
 
   return (
     <Box>
@@ -2730,6 +3504,22 @@ function PipelinePage({ t }) {
         </Stepper>
       )}
 
+      {trainDone && (
+        <>
+          <Divider sx={{ mb: 2 }} />
+          <Box sx={{ mb: 2 }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+              <Typography variant="subtitle2">{t.reviewTitle}</Typography>
+              <Button size="small" variant="outlined" onClick={generateReview} disabled={reviewLoading}>
+                {reviewLoading ? t.reviewGenerating : (review ? t.reviewRegenerate : t.reviewGenerate)}
+              </Button>
+            </Stack>
+            {reviewError && <Typography variant="body2" color="error.main" sx={{ mb: 1 }}>{t.reviewError}: {reviewError}</Typography>}
+            {review && <PipelineReviewPanel review={review} t={t} />}
+          </Box>
+        </>
+      )}
+
       <Divider sx={{ mb: 2 }} />
       <Card variant="outlined">
         <CardContent>
@@ -2750,10 +3540,105 @@ function PipelinePage({ t }) {
 
 const DEFAULT_ANCHOR = 1850; // midpoint of tasks/competitive_analysis.md's material-eval guess (1700-2000)
 
+const TREND_STATUS_TIP_KEY = {
+  IMPROVING: "reviewTipImproving", MIXED: "reviewTipMixed", FLAT: "reviewTipFlat",
+  REGRESSING: "reviewTipRegressing", INSUFFICIENT_EVIDENCE: "reviewTipInsufficientEvidence",
+};
+const CONFIDENCE_LABEL_KEY = { LOW: "reviewConfidenceLow", MEDIUM: "reviewConfidenceMedium", HIGH: "reviewConfidenceHigh" };
+
+// Each evidence item is {key, ...params} from get_trend_review's deterministic
+// positives/negatives lists -- this only chooses translated wording per key,
+// it never invents a reason that isn't already in the list.
+function TrendEvidenceLine({ item, t }) {
+  switch (item.key) {
+    case "latest_gate_pass": return <>{t.evidenceLatestGatePass} <code>{item.file}</code></>;
+    case "latest_gate_fail": return <>{t.evidenceLatestGateFail} <code>{item.file}</code></>;
+    case "recent_elo_majority_positive": return <>{t.evidenceRecentEloPositive} ({item.count}/{item.total})</>;
+    case "recent_elo_majority_negative": return <>{t.evidenceRecentEloNegative} ({item.count}/{item.total})</>;
+    case "no_invalid_pipeline_runs": return <>{t.evidenceNoInvalidPipeline} ({item.count})</>;
+    case "invalid_pipeline_runs_present": return <>{t.evidenceInvalidPipelinePresent} ({item.count})</>;
+    case "multiple_recent_inconclusive": return <>{t.evidenceMultipleInconclusive} ({item.count})</>;
+    default: return <>{item.key}</>;
+  }
+}
+
+// VerdictBanner is reused here for trend_status (IMPROVING/MIXED/FLAT/
+// REGRESSING/INSUFFICIENT_EVIDENCE), NOT for a PASS/FAIL verdict -- see
+// get_trend_review's docstring: "is the project trending well" has no
+// single pass/fail condition, so every contributing signal is listed
+// individually (positives/negatives below) instead of collapsing into one
+// judgment call.
+function TrendReviewPanel({ review, t }) {
+  const m = review.metrics;
+  return (
+    <Box>
+      <QuickStats items={[
+        { label: t.reviewLatestDecisive, value: m.latest_decisive_verdict ? <VerdictChip verdict={m.latest_decisive_verdict} t={t} size="small" /> : "—" },
+        { label: t.reviewPassRateRecent, value: m.pass_rate_recent != null ? `${Math.round(m.pass_rate_recent * 100)}% (${m.recent_decisive_count})` : "—" },
+        { label: t.qsOpenActions, value: m.open_action_count },
+        { label: t.reviewPipelineRuns, value: `${m.pipeline_runs_train_done}/${m.pipeline_runs_total}` },
+      ]} />
+
+      <VerdictBanner verdict={review.trend_status} tipKey={TREND_STATUS_TIP_KEY[review.trend_status]} t={t}>
+        <Typography variant="body2">{t.reviewConfidence}: {t[CONFIDENCE_LABEL_KEY[review.confidence]]}</Typography>
+      </VerdictBanner>
+
+      {review.positives.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle2" color="success.main" sx={{ mb: 0.5 }}>{t.reviewPositiveEvidence}</Typography>
+          <Stack spacing={0.4}>
+            {review.positives.map((item, i) => (
+              <Typography key={i} variant="body2">・<TrendEvidenceLine item={item} t={t} /></Typography>
+            ))}
+          </Stack>
+        </Box>
+      )}
+      {review.negatives.length > 0 && (
+        <Box sx={{ mb: 1.5 }}>
+          <Typography variant="subtitle2" color="error.main" sx={{ mb: 0.5 }}>{t.reviewNegativeEvidence}</Typography>
+          <Stack spacing={0.4}>
+            {review.negatives.map((item, i) => (
+              <Typography key={i} variant="body2">・<TrendEvidenceLine item={item} t={t} /></Typography>
+            ))}
+          </Stack>
+        </Box>
+      )}
+
+      <NarrativeCallout narrative={review.narrative} t={t} />
+
+      {m.recent_verdict_sequence.length > 0 && (
+        <Box sx={{ mb: 1 }}>
+          <Typography variant="subtitle2" sx={{ mb: 1 }}>{t.reviewRecentVerdictsTitle}</Typography>
+          <Stack direction="row" spacing={1} sx={{ flexWrap: "wrap", rowGap: 1 }}>
+            {m.recent_verdict_sequence.map((v, i) => <VerdictChip key={i} verdict={v} t={t} size="small" />)}
+          </Stack>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 function StrengthPage({ t }) {
   const { data: historyData, updatedAt: historyUpdatedAt, refresh: refreshHistory } = useApi("/api/history", 8000);
   const { data: todoData, refresh: refreshTodo } = useApi("/api/todo", 8000);
   const [anchor, setAnchor] = useState(DEFAULT_ANCHOR);
+  const [trendReview, setTrendReview] = useState(null);
+  const [trendReviewLoading, setTrendReviewLoading] = useState(false);
+  const [trendReviewError, setTrendReviewError] = useState(null);
+  const generateTrendReview = async () => {
+    setTrendReviewLoading(true);
+    setTrendReviewError(null);
+    try {
+      const res = await fetch("/api/review?kind=trend");
+      const data = await res.json();
+      if (data.error) setTrendReviewError(data.error);
+      else setTrendReview(data);
+    } catch (e) {
+      setTrendReviewError(String(e));
+    } finally {
+      setTrendReviewLoading(false);
+    }
+  };
 
   const entries = (historyData?.entries || []).filter((e) => !e.error);
   const rows = entries.map((e) => ({ ...e, est_rating: anchor + e.elo_diff }));
@@ -2796,6 +3681,15 @@ function StrengthPage({ t }) {
         })() : []),
         { label: t.qsOpenActions, value: items.length },
       ]} />
+
+      <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
+        <Typography variant="subtitle2">{t.reviewTitle}</Typography>
+        <Button size="small" variant="outlined" onClick={generateTrendReview} disabled={trendReviewLoading}>
+          {trendReviewLoading ? t.reviewGenerating : (trendReview ? t.reviewRegenerate : t.reviewGenerate)}
+        </Button>
+      </Stack>
+      {trendReviewError && <Typography variant="body2" color="error.main" sx={{ mb: 1 }}>{t.reviewError}: {trendReviewError}</Typography>}
+      {trendReview && <Box sx={{ mb: 3 }}><TrendReviewPanel review={trendReview} t={t} /></Box>}
 
       <TextField
         label={t.anchorLabel}
@@ -3875,6 +4769,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/history":
             self._send_json(get_history_data())
+            return
+        if path == "/api/review":
+            kind = qs.get("kind", [""])[0]
+            ident = qs.get("run", qs.get("file", [""]))[0]
+            try:
+                self._send_json(get_review_data(kind, ident))
+            except ValueError as e:
+                self._send_json({"error": str(e)}, status=400)
             return
         if path == "/api/todo":
             self._send_json(get_todo_items())
