@@ -255,7 +255,7 @@ impl TrainWeights {
     /// scalar, variance exactly 0.0. The non-zero biases below predate this
     /// fix and only solved a narrower problem (all-zero forever, not
     /// symmetric-but-nonzero); kept as-is since they're still harmless.
-    pub fn new_seeded(seed: u64) -> Self {
+    pub fn new_seeded(seed: u64, l2_bias_init: f32) -> Self {
         let ft_len = INPUT * L1;
         let l2_len = 2 * L1 * L2;
         let out_len = L2;
@@ -270,8 +270,10 @@ impl TrainWeights {
             l2: (0..l2_len).map(|_| rng.uniform(l2_bound)).collect(),
             // Same reason as ft_bias: with l2 zero-initialized, a zero l2_bias makes
             // l2_acc land exactly on the ClippedReLU dead zone (== 0.0, gate is `> 0.0`),
-            // permanently blocking gradient flow to l2/ft.
-            l2_bias: vec![0.5; L2],
+            // permanently blocking gradient flow to l2/ft. `l2_bias_init` (default 0.5,
+            // see --l2-bias-init) lets this be tuned against the actual He-init spread
+            // instead of staying at the value that only ever had to clear zero.
+            l2_bias: vec![l2_bias_init; L2],
             out: (0..out_len).map(|_| rng.uniform(out_bound)).collect(),
             out_bias: 0.0,
 
@@ -617,10 +619,10 @@ pub struct Trainer {
 }
 
 impl Trainer {
-    pub fn new(seed: u64) -> Self {
+    pub fn new(seed: u64, l2_bias_init: f32) -> Self {
         let tt = Tt::new(4); // Tt::new returns Arc<Tt>
         Trainer {
-            weights: TrainWeights::new_seeded(seed),
+            weights: TrainWeights::new_seeded(seed, l2_bias_init),
             total_loss: 0.0,
             total_count: 0,
             total_weight: 0.0,
@@ -1574,7 +1576,7 @@ mod tests {
 
     #[test]
     fn seeded_init_breaks_symmetry_within_each_layer() {
-        let w = TrainWeights::new_seeded(42);
+        let w = TrainWeights::new_seeded(42, 0.5);
         // Any single FT row (one input feature's L1 contributions) must not
         // collapse to a single repeated scalar -- that's the exact failure
         // this init replaces (see `new_seeded`'s doc comment).
@@ -1585,11 +1587,27 @@ mod tests {
 
     #[test]
     fn seeded_init_is_deterministic() {
-        let a = TrainWeights::new_seeded(42);
-        let b = TrainWeights::new_seeded(42);
+        let a = TrainWeights::new_seeded(42, 0.5);
+        let b = TrainWeights::new_seeded(42, 0.5);
         assert_eq!(a.ft, b.ft);
         assert_eq!(a.l2, b.l2);
         assert_eq!(a.out, b.out);
+    }
+
+    #[test]
+    fn l2_bias_init_only_touches_l2_bias() {
+        // l2_bias is a constant fill, not RNG-drawn -- changing it must not
+        // perturb the RNG stream that produces ft/l2/out, since a shifted
+        // stream would silently confound any experiment that varies
+        // l2_bias_init while trying to hold the rest of init fixed.
+        let default_bias = TrainWeights::new_seeded(42, 0.5);
+        let custom_bias = TrainWeights::new_seeded(42, 3.0);
+        assert_eq!(custom_bias.l2_bias, vec![3.0; L2]);
+        assert_eq!(default_bias.l2_bias, vec![0.5; L2]);
+        assert_eq!(default_bias.ft, custom_bias.ft);
+        assert_eq!(default_bias.l2, custom_bias.l2);
+        assert_eq!(default_bias.out, custom_bias.out);
+        assert_eq!(default_bias.ft_bias, custom_bias.ft_bias);
     }
 
     #[test]
@@ -1598,7 +1616,7 @@ mod tests {
         // should reproduce the same forward-pass score, up to i16
         // quantisation rounding -- this is what `--eval-only` relies on to
         // score an already-trained checkpoint the same way training did.
-        let mut t = Trainer::new(42);
+        let mut t = Trainer::new(42, 0.5);
         let board = Board::startpos();
         let before = t.forward(&board);
         let nn = t.weights.to_nnue_weights();
@@ -1612,8 +1630,8 @@ mod tests {
 
     #[test]
     fn seeded_init_differs_across_seeds() {
-        let a = TrainWeights::new_seeded(1);
-        let b = TrainWeights::new_seeded(2);
+        let a = TrainWeights::new_seeded(1, 0.5);
+        let b = TrainWeights::new_seeded(2, 0.5);
         assert_ne!(a.ft, b.ft);
     }
 
@@ -1817,7 +1835,7 @@ mod tests {
 
     #[test]
     fn position_teacher_reuses_cached_search_on_repeated_position() {
-        let mut trainer = Trainer::new(1);
+        let mut trainer = Trainer::new(1, 0.5);
         let mut cache: HashMap<String, i32> = HashMap::new();
         let mut board = Board::startpos();
 
@@ -1846,10 +1864,10 @@ mod tests {
 
         // A large teacher error (-600 vs. a near-zero fresh-init prediction)
         // to force a real, non-tiny gradient.
-        let mut unclipped = Trainer::new(1);
+        let mut unclipped = Trainer::new(1, 0.5);
         unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
 
-        let mut clipped = Trainer::new(1);
+        let mut clipped = Trainer::new(1, 0.5);
         clipped.grad_clip_norm = Some(1.0); // far below any real gradient norm
         clipped.train_position(&board, -600.0, 1.0, -600.0, None);
 
@@ -1880,10 +1898,10 @@ mod tests {
     fn train_position_out_clip_norm_leaves_ft_and_l2_untouched() {
         let board = Board::startpos();
 
-        let mut unclipped = Trainer::new(1);
+        let mut unclipped = Trainer::new(1, 0.5);
         unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
 
-        let mut clipped = Trainer::new(1);
+        let mut clipped = Trainer::new(1, 0.5);
         clipped.out_clip_norm = Some(1.0); // far below any real output-layer gradient norm
         clipped.train_position(&board, -600.0, 1.0, -600.0, None);
 
@@ -1907,7 +1925,7 @@ mod tests {
 
     #[test]
     fn train_position_wdl_component_only_accumulates_when_target_present() {
-        let mut trainer = Trainer::new(1);
+        let mut trainer = Trainer::new(1, 0.5);
         let board = Board::startpos();
 
         // wdl_target = None (e.g. GameResult::Unknown, or the positions
@@ -1929,7 +1947,7 @@ mod tests {
 
     #[test]
     fn train_position_records_exactly_one_grad_norm_sample_per_call() {
-        let mut trainer = Trainer::new(1);
+        let mut trainer = Trainer::new(1, 0.5);
         let board = Board::startpos();
         trainer.train_position(&board, 10.0, 1.0, 10.0, None);
         trainer.train_position(&board, 10.0, 1.0, 10.0, None);

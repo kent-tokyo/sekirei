@@ -70,6 +70,7 @@ struct Args {
     // conflated. `--seed <n>` still sets both at once for convenience;
     // `--init-seed`/`--split-seed` override it individually.
     init_seed: u64,                      // TrainWeights::new_seeded
+    l2_bias_init: f32,                   // --l2-bias-init (default: 0.5)
     split_seed: u64,                     // validation split + positions-path source_cap hashing
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
@@ -157,6 +158,7 @@ fn parse_args() -> Result<Args, String> {
     let mut source_cap = 0usize;
     let mut validation_ratio = 0.0f32;
     let mut seed = 42u64;
+    let mut l2_bias_init = 0.5f32;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -335,6 +337,12 @@ fn parse_args() -> Result<Args, String> {
                     out_clip_norm = s.parse().ok();
                 }
             }
+            "--l2-bias-init" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<f32>().ok()) {
+                    l2_bias_init = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -442,6 +450,7 @@ fn parse_args() -> Result<Args, String> {
         source_cap,
         validation_ratio,
         init_seed: init_seed.unwrap_or(seed),
+        l2_bias_init,
         split_seed: split_seed.unwrap_or(seed),
         checkpoint_dir,
         teacher_cache_path,
@@ -823,6 +832,7 @@ fn save_checkpoint_meta(
         // validation split and positions-path source_cap -- separable so
         // an init-sensitivity sweep doesn't also reshuffle the data split.
         "init_seed": args.init_seed,
+        "l2_bias_init": args.l2_bias_init,
         "split_seed": args.split_seed,
         "lr": args.lr,
         "lr_schedule": format!("{:?}", args.lr_schedule),
@@ -1021,6 +1031,7 @@ fn print_usage() {
     eprintln!(
         "  --out-clip-norm <f>     Output-layer-only gradient-norm clip threshold (default: unset)"
     );
+    eprintln!("  --l2-bias-init <f>      L2 layer's bias value at initialization (default: 0.5)");
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
@@ -1171,7 +1182,7 @@ fn main() {
             HashMap::new()
         };
 
-        let mut trainer = Trainer::new(args.init_seed);
+        let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
         trainer.grad_clip_norm = args.grad_clip_norm;
         trainer.ft_clip_norm = args.ft_clip_norm;
         trainer.l2_clip_norm = args.l2_clip_norm;
@@ -1488,7 +1499,7 @@ fn main() {
         args.split_seed
     );
 
-    let mut trainer = Trainer::new(args.init_seed);
+    let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
     trainer.grad_clip_norm = args.grad_clip_norm;
     trainer.ft_clip_norm = args.ft_clip_norm;
     trainer.l2_clip_norm = args.l2_clip_norm;
