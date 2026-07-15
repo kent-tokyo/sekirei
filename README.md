@@ -117,6 +117,10 @@ cargo run --release -p sekirei-train -- --games /path/to/csa_dir --output weight
 
 ## NNUE Training
 
+See `docs/training_lessons.md` for durable design notes (capacity collapse and its fix,
+validation-split policy, teacher-search caching, checkpoint reproducibility fields) and
+`docs/experiments/` for specific experiment records.
+
 ### From CSA files (standalone)
 
 ```bash
@@ -132,6 +136,18 @@ cargo run --release -p sekirei-train -- \
 cargo run --release -p sekirei-train -- \
   --games /path/to/csa_dir --output weights.bin \
   --epochs 3 --quiet --min-ply 20 --min-rate 1800 --label-depth 4 --wdl-lambda 0.7
+
+# Configurable LR schedule + held-out validation on the CSA path. --validation-ratio
+# splits by game (leak-safe: every sampled position from one game lands on one
+# side); cosine needs --min-lr since it decays toward that floor by the final
+# epoch, not toward zero. See docs/training_lessons.md for why an unfloored
+# step-half schedule can make an early-stopped checkpoint hard to interpret,
+# and for the per-epoch diagnostics (active/saturation ratios, output std,
+# update norm) this run also prints and records in the checkpoint .meta.json.
+cargo run --release -p sekirei-train -- \
+  --games /path/to/csa_dir --output weights.bin \
+  --epochs 20 --wdl-lambda 0.7 --lr-schedule cosine --min-lr 0.00001 --warmup-epochs 1 \
+  --validation-ratio 0.15 --seed 42
 ```
 
 ### With Quietset (stability-filtered)
@@ -228,8 +244,8 @@ apply the Elo gate. Every weight change should clear the gate before being promo
 A `startpos`-only match between two deterministic engines can collapse into a handful of games
 replayed hundreds of times (TT/thread-count no longer add variation) — 400 such "games" can carry
 the statistical power of ~40 real trials. `strength_regression.sh` therefore requires
-`--positions` by default (`data/gate/openings_standard.sfen`, 100 positions × `--games-per-position`
-for real opening diversity); a `startpos`-only smoke check is still available via
+`--positions` by default (`data/gate/openings_standard.sfen`, 99 SFEN positions plus a header
+comment × `--games-per-position` for real opening diversity); a `startpos`-only smoke check is still available via
 `ALLOW_STARTPOS_GATE=1`, but it is explicitly *not* a strength measurement. `gate` also refuses to
 call a low-diversity run PASS/FAIL — see `--min-diversity-ratio` below.
 
@@ -306,7 +322,7 @@ Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).
 | NNUE evaluate (startpos) | ~18.7 ns / call |
 | Search depth 4 (startpos) | ~3.6 ms |
 | Search NPS with NNUE (10 s time control) | ~1.1M nps, depth 13 |
-| Test suite | 15 tests pass |
+| Test suite | 161 tests pass |
 
 floodgate status: active testing; rating is currently volatile.
 
