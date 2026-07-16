@@ -1,4 +1,4 @@
-# Epoch-1 batch-level trace: data order, not initialization, is the dominant driver
+# Epoch-1 batch-level trace: data order has a material effect on the L2 collapse
 
 ## Background
 
@@ -42,13 +42,21 @@ real, but the recovery is always partial and gradual; none reaches zero.
 | 102 | **0** | 7 → 7 → 6 → 6 → 6 → 6 → 4 → 1 → **0** | 12.17 (stayed tame) |
 | 103 | **0** | 7 → 7 → 7 → 7 → 7 → 6 → 6 → 2 → **0** | 17.30 (stayed tame) |
 
-**The headline result**: two of three shuffle seeds reach *zero* dead neurons by position 256 — an outcome no
-init-seed variation in Stage 1 reached at all, with the identical initialization and identical data, differing
-only in the order positions were visited. Shuffle 101 is the exception: its final dead set (`{3, 10, 12, 17, 31}`)
-overlaps 4-of-5 with Stage 1 seed 7's own stuck set (`{3, 10, 17, 27, 31}`) and shows the same saturation-runaway
-pattern (18 neurons past 30% saturation frequency vs. 0 for shuffle 102/103) — **not every reshuffle rescues the
-collapse, only specific orderings do**. Read as: order matters more than init does, but it's which *specific*
-early positions a given order happens to front-load, not shuffling in general.
+**The result, stated at the precision the data supports**: two of three shuffle seeds reach *zero* dead neurons by
+position 256 — an outcome no init-seed variation in Stage 1 reached at all, with the identical initialization and
+identical data, differing only in the order positions were visited. Shuffle 101 is the exception: its final dead
+set (`{3, 10, 12, 17, 31}`) overlaps 4-of-5 with Stage 1 seed 7's own stuck set (`{3, 10, 17, 27, 31}`) and shows
+the same saturation-runaway pattern (18 neurons past 30% saturation frequency vs. 0 for shuffle 102/103) — **not
+every reshuffle rescues the collapse, only specific orderings do**.
+
+**Explicit calibration, not glossed over**: this is *not* the same claim as "data order's effect size is larger
+than initialization's." By the crudest measure — range of final dead-neuron count — the two stages are close
+(Stage 1 init: 9/5/3, range 6; Stage 2 shuffle: 5/0/0, range 5), and n=3 per axis is too small to support a
+general effect-size ranking either way. What's actually established is narrower and fully data-backed: *reaching
+zero* happened in 2 of 3 shuffle trials and 0 of 3 init trials, and the per-neuron trace directly shows *why* —
+see below. Read as "data order has a material, directly-observed effect on this collapse," not as "data order
+beats initialization" — that stronger claim would need a matched effect-size comparison (e.g. variance of final
+dead-count across a larger sample of each axis) this experiment didn't run.
 
 ## Per-neuron mechanism: the stuck neurons never receive a single nonzero gradient
 
@@ -104,9 +112,11 @@ The mechanism proposed alongside this experiment's design matches what's observe
 - `--shuffle-seed` stays in the codebase as an optional flag, default unset (original file order, byte-identical
   to every run before it existed). New unit tests confirm `shuffled_order` is a true permutation, deterministic
   per seed, and differs across seeds.
-- **Data order is now the stronger candidate mechanism**, ahead of initialization — Stage 1's three init seeds
-  never reached zero dead neurons within the trace window; two of Stage 2's three shuffle seeds did, with the
-  identical initialization.
+- **Data order has a demonstrated, material effect** on this collapse — Stage 1's three init seeds never reached
+  zero dead neurons within the trace window; two of Stage 2's three shuffle seeds did, with the identical
+  initialization, and the per-neuron trace shows the mechanism directly (same neuron IDs frozen vs. woken). Not
+  claimed as "stronger than initialization" in general — that would need a matched effect-size comparison this
+  n=3-per-axis experiment doesn't support (see the calibration note above).
 - **Not a promotion decision** — `--shuffle-seed` isn't a training-recipe lever (there's no principled "good"
   shuffle seed to standardize on; the finding is about *why* the collapse happens, not a fix for it). No bucket
   framework applies here for the same reason it didn't fully apply to the L2-bias-init result: this is a diagnostic
