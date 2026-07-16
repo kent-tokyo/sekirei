@@ -39,6 +39,7 @@ use sekirei_core::{
 };
 
 use crate::csa::{CsaGame, GameResult};
+use crate::diagnostics;
 
 /// The sampled position's own game-result signal, on the same ±600
 /// centipawn scale as a clamped eval teacher (loss=-600, draw=0, win=+600),
@@ -615,6 +616,77 @@ pub struct Trainer {
     // above.
     pub cache_hits: u64,
     pub cache_misses: u64,
+
+    // ---- Epoch-1 batch-level trace (--trace-positions) ----
+    // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
+    // Position-counts (since epoch start, 1-indexed by `l2_sample_count`
+    // after each `train_position` call) at which to snapshot the
+    // accumulators below. Empty means the feature is off -- the
+    // accumulators are still maintained (cheap counters/sums), but nothing
+    // is ever pushed to `trace_snapshots` and no `.trace.json` is written.
+    // Requesting `0` is a harmless no-op (the first snapshot opportunity is
+    // after position 1 completes) -- the pre-training state is already
+    // available via the existing `--epochs 0` + `l2_saturation_probe`
+    // methodology, not something this trace needs to duplicate.
+    pub trace_positions: std::collections::HashSet<u64>,
+    // One entry per snapshot taken so far this epoch. Reset every epoch by
+    // `reset_epoch_stats`, consumed (written to `.trace.json`) by the
+    // caller at epoch end, same lifecycle as `l2_values` etc.
+    pub trace_snapshots: Vec<diagnostics::TraceSnapshot>,
+    // Per-neuron accumulators for the trace, all epoch-scoped (reset in
+    // `reset_epoch_stats`, never mid-epoch -- a snapshot reads these
+    // cumulative-since-epoch-start, the same semantic the existing
+    // epoch-end diagnostics already use for `l2_values`/`l2_zero_count`).
+    //
+    // `l2_weighted_input_values[o]` is `l2_values[o]` minus that sample's
+    // `l2_bias[o]` -- the two terms of `L2_preactivation = FT_output ×
+    // L2_weight + L2_bias` (see `train_position`), so a trace can tell
+    // whether a neuron's pre-activation moved because its incoming weights
+    // /FT input moved, or because its own bias moved.
+    pub l2_weighted_input_values: Vec<Vec<f32>>,
+    // `d_l2_acc[o]`/`d_bias[j]` (see `train_position`'s backward pass) are
+    // the gradient of the loss w.r.t. that neuron's own pre-activation --
+    // the most direct answer to "which wall is this neuron being pushed
+    // toward this step", more direct than aggregating incoming
+    // weight-gradients would be. Sum/sum-of-squares for mean/norm,
+    // pos/neg counts for sign consistency (`|pos-neg|/(pos+neg)`).
+    pub l2_dacc_sum: Vec<f64>,
+    pub l2_dacc_sq_sum: Vec<f64>,
+    pub l2_dacc_pos_count: Vec<u64>,
+    pub l2_dacc_neg_count: Vec<u64>,
+    pub ft_dacc_sum: Vec<f64>,
+    pub ft_dacc_sq_sum: Vec<f64>,
+    pub ft_dacc_pos_count: Vec<u64>,
+    pub ft_dacc_neg_count: Vec<u64>,
+    // Per-neuron applied-Adam-update norm, from the bias parameter only
+    // (not the incoming weight rows -- L2's are dense but strided, FT's
+    // are sparse over `active_features`; the bias update is already
+    // exactly one element per neuron for both layers, the cheapest
+    // available per-neuron signal for "how much is this neuron's
+    // threshold moving").
+    pub l2_bias_update_sq_sum: Vec<f64>,
+    pub ft_bias_update_sq_sum: Vec<f64>,
+    // FT's existing `ft_ever_active`/`ft_ever_saturated` are "ever this
+    // epoch" booleans, not frequencies -- mirrors L2's
+    // `l2_zero_count`/`l2_sat_count`/`l2_sample_count` so FT reaches the
+    // same frequency-based granularity. "Dead" mirrors `ft_ever_active`'s
+    // OR-across-perspectives convention negated (neither side fires);
+    // "saturated" mirrors `ft_ever_saturated`'s OR convention directly
+    // (either side saturates).
+    pub ft_zero_count: Vec<u64>,
+    pub ft_sat_count: Vec<u64>,
+    // Norm of the concatenated 2×L1-wide FT-output vector feeding L2 for
+    // each position (`relu_us`/`relu_them`) -- not per-neuron, one pair of
+    // running sums for mean/std across positions processed so far.
+    pub l2_input_norm_sum: f64,
+    pub l2_input_norm_sq_sum: f64,
+    // Mean/std of FT's own post-activation output -- pooled across both
+    // perspectives and all L1 neurons (not per-neuron, layer-wide, same
+    // shape as `l2_input_norm_*` above), across positions so far.
+    pub ft_output_sum: f64,
+    pub ft_output_sum_sq: f64,
+    pub ft_output_count: u64,
+
     searcher: Searcher,
 }
 
@@ -672,6 +744,26 @@ impl Trainer {
             wdl_component_count: 0,
             cache_hits: 0,
             cache_misses: 0,
+            trace_positions: std::collections::HashSet::new(),
+            trace_snapshots: Vec::new(),
+            l2_weighted_input_values: vec![Vec::new(); L2],
+            l2_dacc_sum: vec![0.0; L2],
+            l2_dacc_sq_sum: vec![0.0; L2],
+            l2_dacc_pos_count: vec![0; L2],
+            l2_dacc_neg_count: vec![0; L2],
+            ft_dacc_sum: vec![0.0; L1],
+            ft_dacc_sq_sum: vec![0.0; L1],
+            ft_dacc_pos_count: vec![0; L1],
+            ft_dacc_neg_count: vec![0; L1],
+            l2_bias_update_sq_sum: vec![0.0; L2],
+            ft_bias_update_sq_sum: vec![0.0; L1],
+            ft_zero_count: vec![0; L1],
+            ft_sat_count: vec![0; L1],
+            l2_input_norm_sum: 0.0,
+            l2_input_norm_sq_sum: 0.0,
+            ft_output_sum: 0.0,
+            ft_output_sum_sq: 0.0,
+            ft_output_count: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1090,12 +1182,29 @@ impl Trainer {
         // FT ClippedReLU [0, 127]
         let relu_us: Vec<f32> = acc_us.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
         let relu_them: Vec<f32> = acc_them.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+        for &x in relu_us.iter().chain(relu_them.iter()) {
+            self.ft_output_sum += x as f64;
+            self.ft_output_sum_sq += (x as f64) * (x as f64);
+        }
+        self.ft_output_count += 2 * L1 as u64;
         for j in 0..L1 {
             if relu_us[j] > 0.0 || relu_them[j] > 0.0 {
                 self.ft_ever_active[j] = true;
             }
             if relu_us[j] >= 127.0 || relu_them[j] >= 127.0 {
                 self.ft_ever_saturated[j] = true;
+            }
+            // Frequency-based counterparts of the ever-flags above (see
+            // `Trainer::ft_zero_count`'s doc comment): "dead" is the
+            // logical complement of `ft_ever_active`'s OR (neither
+            // perspective fires this position), "saturated" mirrors
+            // `ft_ever_saturated`'s OR directly (either perspective
+            // saturates).
+            if acc_us[j] <= 0.0 && acc_them[j] <= 0.0 {
+                self.ft_zero_count[j] += 1;
+            }
+            if acc_us[j] >= 127.0 || acc_them[j] >= 127.0 {
+                self.ft_sat_count[j] += 1;
             }
         }
 
@@ -1129,8 +1238,20 @@ impl Trainer {
                 self.l2_sat_count[o] += 1;
             }
             self.l2_values[o].push(pre);
+            // `pre` is `weighted_input + l2_bias[o]` (see the accumulation
+            // loop above, which starts from `w.l2_bias.clone()`) -- the
+            // weighted-input term alone, for `--trace-positions`'s
+            // bias-vs-weight-input split.
+            self.l2_weighted_input_values[o].push(pre - w.l2_bias[o]);
         }
         self.l2_sample_count += 1;
+        let l2_input_norm_sq: f64 = relu_us
+            .iter()
+            .chain(relu_them.iter())
+            .map(|&x| (x as f64).powi(2))
+            .sum();
+        self.l2_input_norm_sum += l2_input_norm_sq.sqrt();
+        self.l2_input_norm_sq_sum += l2_input_norm_sq;
 
         // Output
         let mut output = w.out_bias;
@@ -1184,6 +1305,20 @@ impl Trainer {
                 d_l2_acc[o] = d_output * self.weights.out[o];
             }
         }
+        // `d_l2_acc[o]` is the gradient of the loss w.r.t. neuron o's own
+        // pre-activation -- the per-neuron trace's most direct "which wall
+        // is this neuron being pushed toward" signal (see
+        // `Trainer::l2_dacc_sum`'s doc comment).
+        for o in 0..L2 {
+            let g = d_l2_acc[o] as f64;
+            self.l2_dacc_sum[o] += g;
+            self.l2_dacc_sq_sum[o] += g * g;
+            if g > 0.0 {
+                self.l2_dacc_pos_count[o] += 1;
+            } else if g < 0.0 {
+                self.l2_dacc_neg_count[o] += 1;
+            }
+        }
 
         // L2 weight gradients and propagate to FT
         let mut d_l2 = vec![0.0f32; 2 * L1 * L2];
@@ -1234,6 +1369,19 @@ impl Trainer {
         }
         for j in 0..L1 {
             d_bias[j] = d_acc_us[j] + d_acc_them[j];
+        }
+        // `d_bias[j]` (the FT bias gradient) is exactly the gradient of the
+        // loss w.r.t. neuron j's own pre-activation, summed across both
+        // perspectives -- FT's direct counterpart to `d_l2_acc` above.
+        for j in 0..L1 {
+            let g = d_bias[j] as f64;
+            self.ft_dacc_sum[j] += g;
+            self.ft_dacc_sq_sum[j] += g * g;
+            if g > 0.0 {
+                self.ft_dacc_pos_count[j] += 1;
+            } else if g < 0.0 {
+                self.ft_dacc_neg_count[j] += 1;
+            }
         }
 
         // ── Gradient-norm diagnostics ────────────────────────────────────────
@@ -1350,7 +1498,7 @@ impl Trainer {
             &mut self.weights.ft,
             &mut self.weights.ft_m,
             &mut self.weights.ft_v,
-            &d_ft,
+            &mut d_ft,
             lr,
             t,
         );
@@ -1358,15 +1506,21 @@ impl Trainer {
             &mut self.weights.ft_bias,
             &mut self.weights.bias_m,
             &mut self.weights.bias_v,
-            &d_bias,
+            &mut d_bias,
             lr,
             t,
         );
+        // `d_bias` now holds each FT neuron's own applied bias delta (see
+        // `adam_update_slice`'s doc comment) -- exactly the per-neuron
+        // trace's update-norm signal (`Trainer::ft_bias_update_sq_sum`).
+        for j in 0..L1 {
+            self.ft_bias_update_sq_sum[j] += (d_bias[j] as f64).powi(2);
+        }
         let l2_update_sq = adam_update_slice(
             &mut self.weights.l2,
             &mut self.weights.l2_m,
             &mut self.weights.l2_v,
-            &d_l2,
+            &mut d_l2,
             lr,
             t,
         );
@@ -1374,15 +1528,18 @@ impl Trainer {
             &mut self.weights.l2_bias,
             &mut self.weights.l2bias_m,
             &mut self.weights.l2bias_v,
-            &d_l2_bias,
+            &mut d_l2_bias,
             lr,
             t,
         );
+        for o in 0..L2 {
+            self.l2_bias_update_sq_sum[o] += (d_l2_bias[o] as f64).powi(2);
+        }
         let out_update_sq = adam_update_slice(
             &mut self.weights.out,
             &mut self.weights.out_m,
             &mut self.weights.out_v,
-            &d_out,
+            &mut d_out,
             lr,
             t,
         );
@@ -1407,6 +1564,81 @@ impl Trainer {
         self.l2_update_norm_sum_sq += l2_update_norm * l2_update_norm;
         self.out_update_norm_sum += out_update_norm;
         self.out_update_norm_sum_sq += out_update_norm * out_update_norm;
+
+        self.maybe_trace_snapshot();
+    }
+
+    /// If `l2_sample_count` (positions fully processed so far this epoch)
+    /// matches a requested `--trace-positions` point, builds and records a
+    /// `TraceSnapshot` from the accumulators above. No-op (one `HashSet`
+    /// lookup) when `trace_positions` is empty, i.e. the flag was omitted.
+    fn maybe_trace_snapshot(&mut self) {
+        if !self.trace_positions.contains(&self.l2_sample_count) {
+            return;
+        }
+        let l2_weight_row_norm: Vec<f32> = (0..L2)
+            .map(|o| {
+                (0..2 * L1)
+                    .map(|j| self.weights.l2[j * L2 + o].powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .collect();
+        let ft_weight_row_norm: Vec<f32> = (0..L1)
+            .map(|j| {
+                (0..INPUT)
+                    .map(|feat| self.weights.ft[feat * L1 + j].powi(2))
+                    .sum::<f32>()
+                    .sqrt()
+            })
+            .collect();
+        let l2 = diagnostics::build_trace_layer_snapshot(
+            &self.l2_values,
+            &self.l2_weighted_input_values,
+            &self.l2_zero_count,
+            &self.l2_sat_count,
+            self.l2_sample_count,
+            l2_weight_row_norm,
+            self.weights.l2_bias.clone(),
+            &self.l2_dacc_sum,
+            &self.l2_dacc_sq_sum,
+            &self.l2_dacc_pos_count,
+            &self.l2_dacc_neg_count,
+            &self.l2_bias_update_sq_sum,
+        );
+        let ft = diagnostics::build_trace_layer_snapshot(
+            &[], // FT's own pre-activation history isn't accumulated per-sample
+            &[], // (no weighted-input split for FT either -- see the doc comment)
+            &self.ft_zero_count,
+            &self.ft_sat_count,
+            self.l2_sample_count,
+            ft_weight_row_norm,
+            self.weights.ft_bias.clone(),
+            &self.ft_dacc_sum,
+            &self.ft_dacc_sq_sum,
+            &self.ft_dacc_pos_count,
+            &self.ft_dacc_neg_count,
+            &self.ft_bias_update_sq_sum,
+        );
+        let (l2_input_norm_mean, l2_input_norm_std) = diagnostics::mean_std(
+            self.l2_input_norm_sum,
+            self.l2_input_norm_sq_sum,
+            self.l2_sample_count,
+        );
+        let (ft_output_mean, ft_output_std) = diagnostics::mean_std(
+            self.ft_output_sum,
+            self.ft_output_sum_sq,
+            self.ft_output_count,
+        );
+        self.trace_snapshots.push(diagnostics::TraceSnapshot {
+            position_index: self.l2_sample_count,
+            l2,
+            ft,
+            l2_input_norm_mean,
+            l2_input_norm_std,
+            ft_output_mean,
+            ft_output_std,
+        });
     }
 
     pub fn avg_loss(&self) -> f64 {
@@ -1462,6 +1694,27 @@ impl Trainer {
         self.out_grad_norm_after_sum_sq = 0.0;
         self.cache_hits = 0;
         self.cache_misses = 0;
+        self.trace_snapshots.clear();
+        self.l2_weighted_input_values
+            .iter_mut()
+            .for_each(|v| v.clear());
+        self.l2_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_bias_update_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_bias_update_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_zero_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_sat_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_input_norm_sum = 0.0;
+        self.l2_input_norm_sq_sum = 0.0;
+        self.ft_output_sum = 0.0;
+        self.ft_output_sum_sq = 0.0;
+        self.ft_output_count = 0;
     }
 }
 
@@ -1525,11 +1778,18 @@ fn active_features(board: &Board, perspective: Color) -> Vec<usize> {
 /// nonzero-gradient subset. Used for per-layer update-norm diagnostics
 /// (distinct from *gradient* norm -- Adam's √v̂ normalization means a
 /// smaller gradient doesn't necessarily mean a smaller applied step).
+/// `grads` is overwritten in place with each element's applied delta (zero
+/// extra allocation) -- callers that need a per-element breakdown (the
+/// `--trace-positions` per-neuron update norm; see `Trainer::l2_bias_update_sq_sum`)
+/// read it back after the call instead of only getting the whole-slice
+/// `delta_sq_sum` this still returns. Callers that don't need per-element
+/// deltas just let the (about to be dropped) buffer be repurposed, same as
+/// today.
 fn adam_update_slice(
     params: &mut [f32],
     m: &mut [f32],
     v: &mut [f32],
-    grads: &[f32],
+    grads: &mut [f32],
     lr: f32,
     t: u64,
 ) -> f64 {
@@ -1537,6 +1797,7 @@ fn adam_update_slice(
     for i in 0..params.len() {
         let delta = adam_update_scalar(&mut params[i], &mut m[i], &mut v[i], grads[i], lr, t);
         delta_sq_sum += (delta as f64) * (delta as f64);
+        grads[i] = delta;
     }
     delta_sq_sum
 }
@@ -1959,5 +2220,49 @@ mod tests {
                 .all(|&g| g >= 0.0 && g.is_finite())
         );
         assert!(trainer.ft_grad_norm_sum_sq >= 0.0);
+    }
+
+    #[test]
+    fn trace_positions_snapshots_exactly_the_requested_points() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.trace_positions = [2u64, 5].into_iter().collect();
+        let board = Board::startpos();
+        for _ in 0..6 {
+            trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        }
+        let indices: Vec<u64> = trainer
+            .trace_snapshots
+            .iter()
+            .map(|s| s.position_index)
+            .collect();
+        assert_eq!(indices, vec![2, 5]);
+        // Sample counts are monotonically increasing and match the
+        // requested position -- a snapshot at index N reflects exactly N
+        // positions processed so far, not the whole epoch.
+        for snapshot in &trainer.trace_snapshots {
+            assert_eq!(snapshot.l2.bias.len(), L2);
+            assert_eq!(snapshot.ft.bias.len(), L1);
+        }
+        // Requesting `0` is a no-op (see `Trainer::trace_positions`'s doc
+        // comment) -- never reached since the first snapshot opportunity
+        // is after position 1 completes.
+        let mut trainer2 = Trainer::new(1, 0.5);
+        trainer2.trace_positions = [0u64].into_iter().collect();
+        trainer2.train_position(&board, 10.0, 1.0, 10.0, None);
+        assert!(trainer2.trace_snapshots.is_empty());
+    }
+
+    #[test]
+    fn trace_positions_omitted_writes_no_snapshots() {
+        // Default-constructed Trainer has an empty `trace_positions` --
+        // confirms the feature is off unless explicitly opted into, same
+        // discipline as every other diagnostic flag this session.
+        let mut trainer = Trainer::new(1, 0.5);
+        assert!(trainer.trace_positions.is_empty());
+        let board = Board::startpos();
+        for _ in 0..10 {
+            trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        }
+        assert!(trainer.trace_snapshots.is_empty());
     }
 }

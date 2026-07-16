@@ -94,6 +94,11 @@ struct Args {
     ft_clip_norm: Option<f32>,
     l2_clip_norm: Option<f32>,
     out_clip_norm: Option<f32>,
+    // Position-counts (since epoch start) at which to snapshot L2/FT's
+    // per-neuron trace (`--trace-positions 0,1,2,4,8,16,32,64`). Empty
+    // (the default) means the feature is off -- no `.trace.json` written,
+    // see `Trainer::maybe_trace_snapshot`.
+    trace_positions: Vec<u64>,
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -159,6 +164,7 @@ fn parse_args() -> Result<Args, String> {
     let mut validation_ratio = 0.0f32;
     let mut seed = 42u64;
     let mut l2_bias_init = 0.5f32;
+    let mut trace_positions: Vec<u64> = Vec::new();
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -343,6 +349,12 @@ fn parse_args() -> Result<Args, String> {
                     l2_bias_init = v;
                 }
             }
+            "--trace-positions" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    trace_positions = s.split(',').filter_map(|n| n.trim().parse().ok()).collect();
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -466,6 +478,7 @@ fn parse_args() -> Result<Args, String> {
         ft_clip_norm,
         l2_clip_norm,
         out_clip_norm,
+        trace_positions,
     })
 }
 
@@ -758,6 +771,18 @@ fn print_grad_diag_lines(diag: &diagnostics::EpochDiagnostics, train_count: u64)
     );
 }
 
+/// Writes `--trace-positions`'s per-neuron snapshots for one epoch, if any
+/// were taken (empty `snapshots` -- the flag was omitted -- writes
+/// nothing, matching every other diagnostic flag's "default unchanged"
+/// behavior). Mirrors `save_checkpoint_meta`'s sidecar-file shape.
+fn save_trace_json(path: &Path, snapshots: &[diagnostics::TraceSnapshot]) -> std::io::Result<()> {
+    if snapshots.is_empty() {
+        return Ok(());
+    }
+    let json = serde_json::to_string_pretty(snapshots)?;
+    fs::write(path, json)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -1033,6 +1058,9 @@ fn print_usage() {
     );
     eprintln!("  --l2-bias-init <f>      L2 layer's bias value at initialization (default: 0.5)");
     eprintln!(
+        "  --trace-positions <n1,n2,...>  Position-counts since epoch start to snapshot L2/FT's per-neuron state (e.g. 0,1,2,4,8,16,32,64); writes <output>.epochN.trace.json. Default: unset (off)"
+    );
+    eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
@@ -1187,6 +1215,7 @@ fn main() {
         trainer.ft_clip_norm = args.ft_clip_norm;
         trainer.l2_clip_norm = args.l2_clip_norm;
         trainer.out_clip_norm = args.out_clip_norm;
+        trainer.trace_positions = args.trace_positions.iter().copied().collect();
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1366,6 +1395,13 @@ fn main() {
                 eprintln!("  metadata  → {:?}", meta_path);
             }
 
+            let trace_path = checkpoint.with_extension("trace.json");
+            if let Err(e) = save_trace_json(&trace_path, &trainer.trace_snapshots) {
+                eprintln!("  trace save failed: {e}");
+            } else if !trainer.trace_snapshots.is_empty() {
+                eprintln!("  trace     → {:?}", trace_path);
+            }
+
             // Valid-loss-based best checkpoint. Only tracked when
             // validation is actually on -- with no held-out set there is
             // no valid loss to select by, and `vcount==0` would otherwise
@@ -1504,6 +1540,7 @@ fn main() {
     trainer.ft_clip_norm = args.ft_clip_norm;
     trainer.l2_clip_norm = args.l2_clip_norm;
     trainer.out_clip_norm = args.out_clip_norm;
+    trainer.trace_positions = args.trace_positions.iter().copied().collect();
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
@@ -1793,6 +1830,13 @@ fn main() {
             eprintln!("  metadata save failed: {e}");
         } else {
             eprintln!("  metadata → {:?}", meta_path);
+        }
+
+        let trace_path = checkpoint.with_extension("trace.json");
+        if let Err(e) = save_trace_json(&trace_path, &trainer.trace_snapshots) {
+            eprintln!("  trace save failed: {e}");
+        } else if !trainer.trace_snapshots.is_empty() {
+            eprintln!("  trace    → {:?}", trace_path);
         }
 
         // Valid-loss-based best checkpoint -- only tracked when validation

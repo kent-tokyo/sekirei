@@ -121,6 +121,167 @@ pub struct EpochDiagnostics {
     pub out_grad_norm_after_std: f64,
 }
 
+/// One layer's (L2 or FT) per-neuron state at one `--trace-positions`
+/// snapshot point. Every field is per-neuron (length L2=32 or L1=256) and,
+/// except `weight_row_norm`/`bias` (current parameter state, no history
+/// needed), cumulative *since epoch start* -- the same semantic
+/// `EpochDiagnostics`'s own epoch-end fields already use, just read at an
+/// intermediate point instead of only at the end. `weighted_input_p*` is
+/// only populated for L2 (see `Trainer::l2_weighted_input_values`'s doc
+/// comment) -- left as empty vecs for FT.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TraceLayerSnapshot {
+    pub preactivation_p10: Vec<f32>,
+    pub preactivation_p50: Vec<f32>,
+    pub preactivation_p90: Vec<f32>,
+    pub weighted_input_p10: Vec<f32>,
+    pub weighted_input_p50: Vec<f32>,
+    pub weighted_input_p90: Vec<f32>,
+    pub dead_frequency: Vec<f32>,
+    pub saturation_frequency: Vec<f32>,
+    pub weight_row_norm: Vec<f32>,
+    pub bias: Vec<f32>,
+    /// Mean of `d_{layer}_acc[o]` (gradient of the loss w.r.t. this
+    /// neuron's own pre-activation) across positions so far this epoch --
+    /// signed, so a consistently one-directional push shows as a mean far
+    /// from 0, while an oscillating one cancels toward 0.
+    pub gradient_mean: Vec<f32>,
+    /// RMS of the same per-position gradient -- unlike the signed mean,
+    /// this can't cancel: `mean ≈ 0` but `gradient_rms` large means the
+    /// neuron is being pushed hard in alternating directions, not left
+    /// alone.
+    pub gradient_rms: Vec<f32>,
+    /// `|pos_count - neg_count| / (pos_count + neg_count)` of that
+    /// gradient's sign across positions so far -- 1.0 means every position
+    /// pushed this neuron the same direction, 0.0 means an even split.
+    pub gradient_sign_consistency: Vec<f32>,
+    /// `sqrt(sum of squared applied Adam deltas to this neuron's bias)`,
+    /// cumulative since epoch start.
+    pub update_norm: Vec<f32>,
+}
+
+/// One `--trace-positions` snapshot: L2 and FT's joint per-neuron state
+/// after `position_index` positions have been fully processed (forward +
+/// backward + Adam step) since epoch start.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TraceSnapshot {
+    pub position_index: u64,
+    pub l2: TraceLayerSnapshot,
+    pub ft: TraceLayerSnapshot,
+    /// Mean/std of the concatenated 2×L1-wide FT-output vector feeding L2,
+    /// across positions so far this epoch.
+    pub l2_input_norm_mean: f64,
+    pub l2_input_norm_std: f64,
+    /// Mean/std of FT's own post-activation output, pooled across both
+    /// perspectives and all L1 neurons (layer-wide, not per-neuron),
+    /// across positions so far this epoch.
+    pub ft_output_mean: f64,
+    pub ft_output_std: f64,
+}
+
+/// Sign consistency of a per-neuron gradient accumulator:
+/// `|pos-neg|/(pos+neg)`, 0.0 when a neuron never received a nonzero
+/// gradient (avoids a 0/0 division).
+fn sign_consistency(pos_count: u64, neg_count: u64) -> f32 {
+    let total = pos_count + neg_count;
+    if total == 0 {
+        return 0.0;
+    }
+    (pos_count as f32 - neg_count as f32).abs() / total as f32
+}
+
+/// Builds one layer's `TraceLayerSnapshot` from its accumulators.
+/// `weighted_input_values` is `&[]` for FT (no weighted-input/bias split
+/// tracked for that layer, see `TraceLayerSnapshot`'s doc comment).
+#[allow(clippy::too_many_arguments)]
+pub fn build_trace_layer_snapshot(
+    values: &[Vec<f32>],
+    weighted_input_values: &[Vec<f32>],
+    zero_count: &[u64],
+    sat_count: &[u64],
+    sample_count: u64,
+    weight_row_norm: Vec<f32>,
+    bias: Vec<f32>,
+    dacc_sum: &[f64],
+    dacc_sq_sum: &[f64],
+    dacc_pos_count: &[u64],
+    dacc_neg_count: &[u64],
+    bias_update_sq_sum: &[f64],
+) -> TraceLayerSnapshot {
+    let n = values.len();
+    let mut preactivation_p10 = Vec::with_capacity(n);
+    let mut preactivation_p50 = Vec::with_capacity(n);
+    let mut preactivation_p90 = Vec::with_capacity(n);
+    for v in values {
+        let p = percentiles(v, &[0.10, 0.50, 0.90]);
+        preactivation_p10.push(p[0]);
+        preactivation_p50.push(p[1]);
+        preactivation_p90.push(p[2]);
+    }
+    let mut weighted_input_p10 = Vec::new();
+    let mut weighted_input_p50 = Vec::new();
+    let mut weighted_input_p90 = Vec::new();
+    for v in weighted_input_values {
+        let p = percentiles(v, &[0.10, 0.50, 0.90]);
+        weighted_input_p10.push(p[0]);
+        weighted_input_p50.push(p[1]);
+        weighted_input_p90.push(p[2]);
+    }
+    let gradient_mean: Vec<f32> = dacc_sum
+        .iter()
+        .map(|&s| {
+            if sample_count > 0 {
+                (s / sample_count as f64) as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let gradient_rms: Vec<f32> = dacc_sq_sum
+        .iter()
+        .map(|&s| {
+            if sample_count > 0 {
+                (s / sample_count as f64).sqrt() as f32
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let gradient_sign_consistency: Vec<f32> = dacc_pos_count
+        .iter()
+        .zip(dacc_neg_count)
+        .map(|(&p, &n)| sign_consistency(p, n))
+        .collect();
+    let update_norm: Vec<f32> = bias_update_sq_sum
+        .iter()
+        .map(|&s| (s.sqrt()) as f32)
+        .collect();
+    let dead_frequency: Vec<f32> = if sample_count == 0 {
+        vec![0.0; zero_count.len()]
+    } else {
+        zero_count
+            .iter()
+            .map(|&z| z as f32 / sample_count as f32)
+            .collect()
+    };
+    TraceLayerSnapshot {
+        preactivation_p10,
+        preactivation_p50,
+        preactivation_p90,
+        weighted_input_p10,
+        weighted_input_p50,
+        weighted_input_p90,
+        dead_frequency,
+        saturation_frequency: l2_saturation_frequency_per_neuron(sat_count, sample_count),
+        weight_row_norm,
+        bias,
+        gradient_mean,
+        gradient_rms,
+        gradient_sign_consistency,
+        update_norm,
+    }
+}
+
 /// Fraction of `flags` that are `true`.
 pub fn ratio(flags: &[bool]) -> f32 {
     if flags.is_empty() {
