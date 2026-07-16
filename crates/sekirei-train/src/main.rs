@@ -69,9 +69,21 @@ struct Args {
     // data-split differences (e.g. a seed-sweep experiment) can't be
     // conflated. `--seed <n>` still sets both at once for convenience;
     // `--init-seed`/`--split-seed` override it individually.
-    init_seed: u64,                      // TrainWeights::new_seeded
-    l2_bias_init: f32,                   // --l2-bias-init (default: 0.5)
-    split_seed: u64,                     // validation split + positions-path source_cap hashing
+    init_seed: u64,    // TrainWeights::new_seeded
+    l2_bias_init: f32, // --l2-bias-init (default: 0.5)
+    split_seed: u64,   // validation split + positions-path source_cap hashing
+    // Within-epoch iteration-order seed (--shuffle-seed), independent of
+    // `init_seed`/`split_seed` for the same reason those were split from
+    // `--seed`: isolating whether a collapse is init-driven or data-order-
+    // driven needs to vary exactly one of the two. `None` (the default,
+    // *not* derived from `--seed`) means no shuffling at all -- games/
+    // samples are trained in their original file order, byte-identical to
+    // every run before this flag existed. `Some(n)` reshuffles every
+    // epoch, seeded from `n` mixed with the epoch number (see
+    // `trainer::shuffled_order`'s call sites), so different epochs see
+    // different orders under one `--shuffle-seed` value, same as
+    // standard SGD practice.
+    shuffle_seed: Option<u64>,
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
@@ -165,6 +177,7 @@ fn parse_args() -> Result<Args, String> {
     let mut seed = 42u64;
     let mut l2_bias_init = 0.5f32;
     let mut trace_positions: Vec<u64> = Vec::new();
+    let mut shuffle_seed: Option<u64> = None;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -355,6 +368,10 @@ fn parse_args() -> Result<Args, String> {
                     trace_positions = s.split(',').filter_map(|n| n.trim().parse().ok()).collect();
                 }
             }
+            "--shuffle-seed" => {
+                i += 1;
+                shuffle_seed = argv.get(i).and_then(|s| s.parse().ok());
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -479,6 +496,7 @@ fn parse_args() -> Result<Args, String> {
         l2_clip_norm,
         out_clip_norm,
         trace_positions,
+        shuffle_seed,
     })
 }
 
@@ -1061,6 +1079,9 @@ fn print_usage() {
         "  --trace-positions <n1,n2,...>  Position-counts since epoch start to snapshot L2/FT's per-neuron state (e.g. 0,1,2,4,8,16,32,64); writes <output>.epochN.trace.json. Default: unset (off)"
     );
     eprintln!(
+        "  --shuffle-seed <n>      Reshuffle each epoch's training order, seeded (default: unset -- original file order, unchanged)"
+    );
+    eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
@@ -1232,9 +1253,24 @@ fn main() {
             trainer.reset_epoch_stats();
             eprintln!("Epoch {epoch}/{} — lr = {:.6}", args.epochs, trainer.lr);
 
+            // `--shuffle-seed`: reshuffled fresh each epoch (seed mixed
+            // with the epoch number), so isolating data-order effects
+            // (vs. `--init-seed`) doesn't also freeze every epoch to the
+            // same order. `None` (the default) skips this entirely --
+            // `epoch_samples` just borrows `train_samples` unchanged.
+            let shuffled_samples: Vec<positions::PositionSample>;
+            let epoch_samples: &[positions::PositionSample] = if let Some(seed) = args.shuffle_seed
+            {
+                let order = trainer::shuffled_order(train_samples.len(), seed ^ epoch as u64);
+                shuffled_samples = order.iter().map(|&i| train_samples[i].clone()).collect();
+                &shuffled_samples
+            } else {
+                &train_samples
+            };
+
             let mut new_entries: Vec<(String, i32)> = Vec::new();
             trainer.train_positions(
-                &train_samples,
+                epoch_samples,
                 args.label_depth,
                 &scored,
                 args.stability_weighted,
@@ -1643,7 +1679,17 @@ fn main() {
         trainer.reset_epoch_stats();
         eprintln!("Epoch {epoch}/{} — lr = {:.6}", args.epochs, trainer.lr);
 
-        for (i, &gi) in train_idxs.iter().enumerate() {
+        // `--shuffle-seed`: same reasoning as the positions path's
+        // `epoch_samples` above -- reshuffled fresh each epoch, `None`
+        // (default) leaves `train_idxs`'s original order untouched.
+        let epoch_train_idxs: Vec<usize> = if let Some(seed) = args.shuffle_seed {
+            let order = trainer::shuffled_order(train_idxs.len(), seed ^ epoch as u64);
+            order.iter().map(|&oi| train_idxs[oi]).collect()
+        } else {
+            train_idxs.clone()
+        };
+
+        for (i, &gi) in epoch_train_idxs.iter().enumerate() {
             let game = &games[gi];
             trainer.train_game(
                 game,

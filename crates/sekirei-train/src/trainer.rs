@@ -218,6 +218,21 @@ fn he_bound(fan_in: usize) -> f32 {
     (6.0 / fan_in as f32).sqrt()
 }
 
+/// Deterministic Fisher-Yates shuffle of `0..n`, for `--shuffle-seed`.
+/// Reuses the same `Lcg` weight-init already uses -- no new PRNG needed.
+pub fn shuffled_order(n: usize, seed: u64) -> Vec<usize> {
+    let mut order: Vec<usize> = (0..n).collect();
+    let mut rng = Lcg(seed ^ 0xD1B5_4A32_D192_ED03);
+    for i in (1..n).rev() {
+        // `next_u64() % (i+1)` has a small modulo bias, negligible at
+        // dataset-shuffle scale (not a cryptographic or statistical-test
+        // use) and consistent with `Lcg::uniform`'s own bias tradeoff.
+        let j = (rng.next_u64() % (i as u64 + 1)) as usize;
+        order.swap(i, j);
+    }
+    order
+}
+
 // ---- Training weight container ----
 
 pub struct TrainWeights {
@@ -2264,5 +2279,29 @@ mod tests {
             trainer.train_position(&board, 10.0, 1.0, 10.0, None);
         }
         assert!(trainer.trace_snapshots.is_empty());
+    }
+
+    #[test]
+    fn shuffled_order_is_a_permutation() {
+        let order = shuffled_order(500, 42);
+        let mut sorted = order.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..500).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn shuffled_order_is_deterministic_for_the_same_seed() {
+        assert_eq!(shuffled_order(200, 7), shuffled_order(200, 7));
+    }
+
+    #[test]
+    fn shuffled_order_differs_across_seeds() {
+        assert_ne!(shuffled_order(200, 1), shuffled_order(200, 2));
+    }
+
+    #[test]
+    fn shuffled_order_handles_zero_and_one() {
+        assert_eq!(shuffled_order(0, 42), Vec::<usize>::new());
+        assert_eq!(shuffled_order(1, 42), vec![0]);
     }
 }

@@ -6,6 +6,7 @@ use sekirei_core::board::Board;
 use sekirei_core::sfen::board_to_sfen;
 
 #[allow(dead_code)]
+#[derive(Clone)]
 pub struct PositionSample {
     pub board: Board,
     pub phase: String,        // "opening" | "middlegame" | "endgame"
