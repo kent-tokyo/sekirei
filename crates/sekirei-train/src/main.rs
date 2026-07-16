@@ -84,6 +84,13 @@ struct Args {
     // different orders under one `--shuffle-seed` value, same as
     // standard SGD practice.
     shuffle_seed: Option<u64>,
+    // Decomposes the blended training gradient into its CP-only and
+    // WDL-only contributions per position (CSA path with --wdl-lambda
+    // set only -- see `Trainer::cp_wdl_grad_trace`'s doc comment). Off by
+    // default; two extra diagnostic-only backward passes per position
+    // when on, so real compute cost -- only meant for a focused window
+    // (--epochs 1, a handful of --trace-positions), not routine training.
+    cp_wdl_grad_trace: bool,             // --cp-wdl-grad-trace
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
@@ -178,6 +185,7 @@ fn parse_args() -> Result<Args, String> {
     let mut l2_bias_init = 0.5f32;
     let mut trace_positions: Vec<u64> = Vec::new();
     let mut shuffle_seed: Option<u64> = None;
+    let mut cp_wdl_grad_trace = false;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -372,6 +380,9 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 shuffle_seed = argv.get(i).and_then(|s| s.parse().ok());
             }
+            "--cp-wdl-grad-trace" => {
+                cp_wdl_grad_trace = true;
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -497,6 +508,7 @@ fn parse_args() -> Result<Args, String> {
         out_clip_norm,
         trace_positions,
         shuffle_seed,
+        cp_wdl_grad_trace,
     })
 }
 
@@ -1082,6 +1094,9 @@ fn print_usage() {
         "  --shuffle-seed <n>      Reshuffle each epoch's training order, seeded (default: unset -- original file order, unchanged)"
     );
     eprintln!(
+        "  --cp-wdl-grad-trace     Decompose the blended gradient into CP-only/WDL-only per position (CSA path + --wdl-lambda only; adds two diagnostic backward passes per position, real compute cost, default: off)"
+    );
+    eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
@@ -1237,6 +1252,7 @@ fn main() {
         trainer.l2_clip_norm = args.l2_clip_norm;
         trainer.out_clip_norm = args.out_clip_norm;
         trainer.trace_positions = args.trace_positions.iter().copied().collect();
+        trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1577,6 +1593,7 @@ fn main() {
     trainer.l2_clip_norm = args.l2_clip_norm;
     trainer.out_clip_norm = args.out_clip_norm;
     trainer.trace_positions = args.trace_positions.iter().copied().collect();
+    trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)

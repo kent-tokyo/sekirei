@@ -702,6 +702,59 @@ pub struct Trainer {
     pub ft_output_sum_sq: f64,
     pub ft_output_count: u64,
 
+    // ---- CP/WDL gradient decomposition (--cp-wdl-grad-trace) ----
+    // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
+    // Off by default -- `diagnostic_backward` (see its doc comment) is
+    // simply never called when this is `false`, zero added cost to
+    // ordinary training. Only meaningful where `wdl_target` is `Some`
+    // (CSA path with `--wdl-lambda` set); positions without a WDL signal
+    // are skipped for this diagnostic, same gating `wdl_component_count`
+    // already uses.
+    pub cp_wdl_grad_trace: bool,
+    // Per-neuron L2/FT gradient accumulators, one pair per teacher signal,
+    // same shape as `l2_dacc_sum`/`ft_dacc_sum` above (mean/RMS/sign-
+    // consistency) but computed from `err_cp`/`err_wdl` alone instead of
+    // the blended `err`. `{l2,ft}_cp_wdl_dot_sum` is the running dot
+    // product between the two signals' per-position gradients -- combined
+    // with `..._sq_sum` above, gives per-neuron cosine similarity
+    // (`dot_sum / sqrt(cp_sq_sum * wdl_sq_sum)`) without storing full
+    // per-position history.
+    pub l2_cp_dacc_sum: Vec<f64>,
+    pub l2_cp_dacc_sq_sum: Vec<f64>,
+    pub l2_cp_dacc_pos_count: Vec<u64>,
+    pub l2_cp_dacc_neg_count: Vec<u64>,
+    pub l2_wdl_dacc_sum: Vec<f64>,
+    pub l2_wdl_dacc_sq_sum: Vec<f64>,
+    pub l2_wdl_dacc_pos_count: Vec<u64>,
+    pub l2_wdl_dacc_neg_count: Vec<u64>,
+    pub l2_cp_wdl_dot_sum: Vec<f64>,
+    pub ft_cp_dacc_sum: Vec<f64>,
+    pub ft_cp_dacc_sq_sum: Vec<f64>,
+    pub ft_cp_dacc_pos_count: Vec<u64>,
+    pub ft_cp_dacc_neg_count: Vec<u64>,
+    pub ft_wdl_dacc_sum: Vec<f64>,
+    pub ft_wdl_dacc_sq_sum: Vec<f64>,
+    pub ft_wdl_dacc_pos_count: Vec<u64>,
+    pub ft_wdl_dacc_neg_count: Vec<u64>,
+    pub ft_cp_wdl_dot_sum: Vec<f64>,
+    // Whole-layer gradient-norm mean/std, one pair per (layer, signal) --
+    // same shape as `ft_grad_norm_sum`/`l2_grad_norm_sum`/
+    // `out_grad_norm_sum` above, split by CP-only vs. WDL-only instead of
+    // blended. Denominator for mean/std is `wdl_component_count` (already
+    // tracks exactly "positions this diagnostic ran on").
+    pub cp_ft_grad_norm_sum: f64,
+    pub cp_ft_grad_norm_sum_sq: f64,
+    pub wdl_ft_grad_norm_sum: f64,
+    pub wdl_ft_grad_norm_sum_sq: f64,
+    pub cp_l2_grad_norm_sum: f64,
+    pub cp_l2_grad_norm_sum_sq: f64,
+    pub wdl_l2_grad_norm_sum: f64,
+    pub wdl_l2_grad_norm_sum_sq: f64,
+    pub cp_out_grad_norm_sum: f64,
+    pub cp_out_grad_norm_sum_sq: f64,
+    pub wdl_out_grad_norm_sum: f64,
+    pub wdl_out_grad_norm_sum_sq: f64,
+
     searcher: Searcher,
 }
 
@@ -779,6 +832,37 @@ impl Trainer {
             ft_output_sum: 0.0,
             ft_output_sum_sq: 0.0,
             ft_output_count: 0,
+            cp_wdl_grad_trace: false,
+            l2_cp_dacc_sum: vec![0.0; L2],
+            l2_cp_dacc_sq_sum: vec![0.0; L2],
+            l2_cp_dacc_pos_count: vec![0; L2],
+            l2_cp_dacc_neg_count: vec![0; L2],
+            l2_wdl_dacc_sum: vec![0.0; L2],
+            l2_wdl_dacc_sq_sum: vec![0.0; L2],
+            l2_wdl_dacc_pos_count: vec![0; L2],
+            l2_wdl_dacc_neg_count: vec![0; L2],
+            l2_cp_wdl_dot_sum: vec![0.0; L2],
+            ft_cp_dacc_sum: vec![0.0; L1],
+            ft_cp_dacc_sq_sum: vec![0.0; L1],
+            ft_cp_dacc_pos_count: vec![0; L1],
+            ft_cp_dacc_neg_count: vec![0; L1],
+            ft_wdl_dacc_sum: vec![0.0; L1],
+            ft_wdl_dacc_sq_sum: vec![0.0; L1],
+            ft_wdl_dacc_pos_count: vec![0; L1],
+            ft_wdl_dacc_neg_count: vec![0; L1],
+            ft_cp_wdl_dot_sum: vec![0.0; L1],
+            cp_ft_grad_norm_sum: 0.0,
+            cp_ft_grad_norm_sum_sq: 0.0,
+            wdl_ft_grad_norm_sum: 0.0,
+            wdl_ft_grad_norm_sum_sq: 0.0,
+            cp_l2_grad_norm_sum: 0.0,
+            cp_l2_grad_norm_sum_sq: 0.0,
+            wdl_l2_grad_norm_sum: 0.0,
+            wdl_l2_grad_norm_sum_sq: 0.0,
+            cp_out_grad_norm_sum: 0.0,
+            cp_out_grad_norm_sum_sq: 0.0,
+            wdl_out_grad_norm_sum: 0.0,
+            wdl_out_grad_norm_sum_sq: 0.0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1299,6 +1383,90 @@ impl Trainer {
             let wdl_err = (score - wdl_target) as f64;
             self.wdl_component_sum += wdl_err * wdl_err;
             self.wdl_component_count += 1;
+
+            // `--cp-wdl-grad-trace`: two extra, diagnostic-only backward
+            // passes -- one with `eval_teacher` as the sole teacher, one
+            // with `wdl_target` -- decomposing the blended gradient below
+            // into its two contributions. Never applied to `self.weights`;
+            // see `diagnostic_backward`'s doc comment.
+            if self.cp_wdl_grad_trace {
+                let cp = diagnostic_backward(
+                    &self.weights,
+                    &l2_acc,
+                    &relu_l2,
+                    &acc_us,
+                    &acc_them,
+                    &relu_us,
+                    &relu_them,
+                    &active_us,
+                    &active_them,
+                    score - eval_teacher,
+                    weight,
+                );
+                let wdl = diagnostic_backward(
+                    &self.weights,
+                    &l2_acc,
+                    &relu_l2,
+                    &acc_us,
+                    &acc_them,
+                    &relu_us,
+                    &relu_them,
+                    &active_us,
+                    &active_them,
+                    score - wdl_target,
+                    weight,
+                );
+                for o in 0..L2 {
+                    let gc = cp.d_l2_acc[o] as f64;
+                    let gw = wdl.d_l2_acc[o] as f64;
+                    self.l2_cp_dacc_sum[o] += gc;
+                    self.l2_cp_dacc_sq_sum[o] += gc * gc;
+                    self.l2_wdl_dacc_sum[o] += gw;
+                    self.l2_wdl_dacc_sq_sum[o] += gw * gw;
+                    self.l2_cp_wdl_dot_sum[o] += gc * gw;
+                    if gc > 0.0 {
+                        self.l2_cp_dacc_pos_count[o] += 1;
+                    } else if gc < 0.0 {
+                        self.l2_cp_dacc_neg_count[o] += 1;
+                    }
+                    if gw > 0.0 {
+                        self.l2_wdl_dacc_pos_count[o] += 1;
+                    } else if gw < 0.0 {
+                        self.l2_wdl_dacc_neg_count[o] += 1;
+                    }
+                }
+                for j in 0..L1 {
+                    let gc = cp.d_ft_acc[j] as f64;
+                    let gw = wdl.d_ft_acc[j] as f64;
+                    self.ft_cp_dacc_sum[j] += gc;
+                    self.ft_cp_dacc_sq_sum[j] += gc * gc;
+                    self.ft_wdl_dacc_sum[j] += gw;
+                    self.ft_wdl_dacc_sq_sum[j] += gw * gw;
+                    self.ft_cp_wdl_dot_sum[j] += gc * gw;
+                    if gc > 0.0 {
+                        self.ft_cp_dacc_pos_count[j] += 1;
+                    } else if gc < 0.0 {
+                        self.ft_cp_dacc_neg_count[j] += 1;
+                    }
+                    if gw > 0.0 {
+                        self.ft_wdl_dacc_pos_count[j] += 1;
+                    } else if gw < 0.0 {
+                        self.ft_wdl_dacc_neg_count[j] += 1;
+                    }
+                }
+                self.cp_ft_grad_norm_sum += cp.ft_grad_norm;
+                self.cp_ft_grad_norm_sum_sq += cp.ft_grad_norm * cp.ft_grad_norm;
+                self.wdl_ft_grad_norm_sum += wdl.ft_grad_norm;
+                self.wdl_ft_grad_norm_sum_sq += wdl.ft_grad_norm * wdl.ft_grad_norm;
+                self.cp_l2_grad_norm_sum += cp.l2_grad_norm;
+                self.cp_l2_grad_norm_sum_sq += cp.l2_grad_norm * cp.l2_grad_norm;
+                self.wdl_l2_grad_norm_sum += wdl.l2_grad_norm;
+                self.wdl_l2_grad_norm_sum_sq += wdl.l2_grad_norm * wdl.l2_grad_norm;
+                self.cp_out_grad_norm_sum += cp.out_grad_norm;
+                self.cp_out_grad_norm_sum_sq += cp.out_grad_norm * cp.out_grad_norm;
+                self.wdl_out_grad_norm_sum += wdl.out_grad_norm;
+                self.wdl_out_grad_norm_sum_sq += wdl.out_grad_norm * wdl.out_grad_norm;
+            }
         }
 
         // ── Backward pass ─────────────────────────────────────────────────────
@@ -1645,6 +1813,59 @@ impl Trainer {
             self.ft_output_sum_sq,
             self.ft_output_count,
         );
+        // `wdl_component_count` is exactly "positions this diagnostic ran
+        // on" (same gating `--cp-wdl-grad-trace`'s hook in `train_position`
+        // uses) -- `None` when the flag never ran (off, or a run with no
+        // WDL signal at all), not an empty/zeroed struct.
+        let cp_wdl = if self.cp_wdl_grad_trace && self.wdl_component_count > 0 {
+            let n = self.wdl_component_count;
+            let (cp_ft_grad_rms, _) =
+                diagnostics::mean_std(self.cp_ft_grad_norm_sum, self.cp_ft_grad_norm_sum_sq, n);
+            let (wdl_ft_grad_rms, _) =
+                diagnostics::mean_std(self.wdl_ft_grad_norm_sum, self.wdl_ft_grad_norm_sum_sq, n);
+            let (cp_l2_grad_rms, _) =
+                diagnostics::mean_std(self.cp_l2_grad_norm_sum, self.cp_l2_grad_norm_sum_sq, n);
+            let (wdl_l2_grad_rms, _) =
+                diagnostics::mean_std(self.wdl_l2_grad_norm_sum, self.wdl_l2_grad_norm_sum_sq, n);
+            let (cp_out_grad_rms, _) =
+                diagnostics::mean_std(self.cp_out_grad_norm_sum, self.cp_out_grad_norm_sum_sq, n);
+            let (wdl_out_grad_rms, _) =
+                diagnostics::mean_std(self.wdl_out_grad_norm_sum, self.wdl_out_grad_norm_sum_sq, n);
+            Some(diagnostics::CpWdlTrace {
+                l2: diagnostics::build_cp_wdl_layer_trace(
+                    &self.l2_cp_dacc_sum,
+                    &self.l2_cp_dacc_sq_sum,
+                    &self.l2_cp_dacc_pos_count,
+                    &self.l2_cp_dacc_neg_count,
+                    &self.l2_wdl_dacc_sum,
+                    &self.l2_wdl_dacc_sq_sum,
+                    &self.l2_wdl_dacc_pos_count,
+                    &self.l2_wdl_dacc_neg_count,
+                    &self.l2_cp_wdl_dot_sum,
+                    n,
+                ),
+                ft: diagnostics::build_cp_wdl_layer_trace(
+                    &self.ft_cp_dacc_sum,
+                    &self.ft_cp_dacc_sq_sum,
+                    &self.ft_cp_dacc_pos_count,
+                    &self.ft_cp_dacc_neg_count,
+                    &self.ft_wdl_dacc_sum,
+                    &self.ft_wdl_dacc_sq_sum,
+                    &self.ft_wdl_dacc_pos_count,
+                    &self.ft_wdl_dacc_neg_count,
+                    &self.ft_cp_wdl_dot_sum,
+                    n,
+                ),
+                cp_ft_grad_rms,
+                wdl_ft_grad_rms,
+                cp_l2_grad_rms,
+                wdl_l2_grad_rms,
+                cp_out_grad_rms,
+                wdl_out_grad_rms,
+            })
+        } else {
+            None
+        };
         self.trace_snapshots.push(diagnostics::TraceSnapshot {
             position_index: self.l2_sample_count,
             l2,
@@ -1653,6 +1874,7 @@ impl Trainer {
             l2_input_norm_std,
             ft_output_mean,
             ft_output_std,
+            cp_wdl,
         });
     }
 
@@ -1730,6 +1952,36 @@ impl Trainer {
         self.ft_output_sum = 0.0;
         self.ft_output_sum_sq = 0.0;
         self.ft_output_count = 0;
+        self.l2_cp_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_cp_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_cp_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_cp_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_wdl_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_wdl_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.l2_wdl_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_wdl_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.l2_cp_wdl_dot_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_cp_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_cp_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_cp_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_cp_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_wdl_dacc_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_wdl_dacc_sq_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.ft_wdl_dacc_pos_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_wdl_dacc_neg_count.iter_mut().for_each(|x| *x = 0);
+        self.ft_cp_wdl_dot_sum.iter_mut().for_each(|x| *x = 0.0);
+        self.cp_ft_grad_norm_sum = 0.0;
+        self.cp_ft_grad_norm_sum_sq = 0.0;
+        self.wdl_ft_grad_norm_sum = 0.0;
+        self.wdl_ft_grad_norm_sum_sq = 0.0;
+        self.cp_l2_grad_norm_sum = 0.0;
+        self.cp_l2_grad_norm_sum_sq = 0.0;
+        self.wdl_l2_grad_norm_sum = 0.0;
+        self.wdl_l2_grad_norm_sum_sq = 0.0;
+        self.cp_out_grad_norm_sum = 0.0;
+        self.cp_out_grad_norm_sum_sq = 0.0;
+        self.wdl_out_grad_norm_sum = 0.0;
+        self.wdl_out_grad_norm_sum_sq = 0.0;
     }
 }
 
@@ -1787,6 +2039,113 @@ fn active_features(board: &Board, perspective: Color) -> Vec<usize> {
 // ---- Adam helpers ----
 
 /// Returns the sum of squared per-parameter deltas actually applied --
+/// Result of `diagnostic_backward`: the per-neuron and whole-layer
+/// gradients L2/FT/output *would* have if `err` were the sole error term.
+struct DiagnosticGrad {
+    /// Per-neuron L2 gradient (`d_l2_acc[o]` in `train_position`'s own
+    /// backward pass) -- the direct "which wall is neuron o being pushed
+    /// toward" signal, for this `err` alone.
+    d_l2_acc: [f32; L2],
+    /// Per-neuron FT gradient (`d_bias[j]`'s counterpart), summed across
+    /// both perspectives, for this `err` alone.
+    d_ft_acc: Vec<f32>,
+    l2_grad_norm: f64,
+    ft_grad_norm: f64,
+    out_grad_norm: f64,
+}
+
+/// Diagnostic-only: recomputes the backward pass `train_position` already
+/// ran, but for a single-term `err` (CP-only or WDL-only) instead of the
+/// blended one -- decomposing `--cp-wdl-grad-trace`'s gradient into its two
+/// contributions. Structurally identical to `train_position`'s own
+/// backward pass (same formulas, same shortcuts, e.g. `ft_grad_sq`'s
+/// active-feature-count trick), deliberately not refactored to share code
+/// with it, so this is trivially auditable against the tested main path
+/// rather than introducing a new derivation to trust. Reads `w` and the
+/// forward-pass state already computed for this position; never touches
+/// `self.weights`, `self.weights.step`, or any Adam moment -- purely a
+/// side computation, discarded after its stats are accumulated.
+#[allow(clippy::too_many_arguments)]
+fn diagnostic_backward(
+    w: &TrainWeights,
+    l2_acc: &[f32],
+    relu_l2: &[f32],
+    acc_us: &[f32],
+    acc_them: &[f32],
+    relu_us: &[f32],
+    relu_them: &[f32],
+    active_us: &[usize],
+    active_them: &[usize],
+    err: f32,
+    weight: f32,
+) -> DiagnosticGrad {
+    let d_score = weight * 2.0 * err;
+    let d_output = d_score / 64.0;
+
+    let d_out: Vec<f32> = relu_l2.iter().map(|&r| d_output * r).collect();
+    let d_out_bias = d_output;
+
+    let mut d_l2_acc = [0.0f32; L2];
+    for o in 0..L2 {
+        if l2_acc[o] > 0.0 && l2_acc[o] < 127.0 {
+            d_l2_acc[o] = d_output * w.out[o];
+        }
+    }
+
+    let mut d_l2 = vec![0.0f32; 2 * L1 * L2];
+    let mut d_l2_bias = [0.0f32; L2];
+    let mut d_relu_us = vec![0.0f32; L1];
+    let mut d_relu_them = vec![0.0f32; L1];
+    for j in 0..L1 {
+        let base_us = j * L2;
+        let base_them = (L1 + j) * L2;
+        for o in 0..L2 {
+            let g = d_l2_acc[o];
+            d_l2[base_us + o] += g * relu_us[j];
+            d_l2[base_them + o] += g * relu_them[j];
+            d_relu_us[j] += g * w.l2[base_us + o];
+            d_relu_them[j] += g * w.l2[base_them + o];
+        }
+    }
+    d_l2_bias[..L2].copy_from_slice(&d_l2_acc[..L2]);
+
+    let mut d_acc_us = vec![0.0f32; L1];
+    let mut d_acc_them = vec![0.0f32; L1];
+    for j in 0..L1 {
+        if acc_us[j] > 0.0 && acc_us[j] < 127.0 {
+            d_acc_us[j] = d_relu_us[j];
+        }
+        if acc_them[j] > 0.0 && acc_them[j] < 127.0 {
+            d_acc_them[j] = d_relu_them[j];
+        }
+    }
+    let mut d_ft_acc = vec![0.0f32; L1];
+    for j in 0..L1 {
+        d_ft_acc[j] = d_acc_us[j] + d_acc_them[j];
+    }
+
+    // Same shortcut `train_position`'s own `ft_grad_sq` uses (see its
+    // comment) -- avoids a second materialization of the full
+    // `INPUT*L1`-length FT weight-gradient array.
+    let d_acc_us_sq: f64 = d_acc_us.iter().map(|&x| (x as f64).powi(2)).sum();
+    let d_acc_them_sq: f64 = d_acc_them.iter().map(|&x| (x as f64).powi(2)).sum();
+    let d_bias_sq: f64 = d_ft_acc.iter().map(|&x| (x as f64).powi(2)).sum();
+    let ft_grad_sq =
+        d_acc_us_sq * active_us.len() as f64 + d_acc_them_sq * active_them.len() as f64 + d_bias_sq;
+    let l2_grad_sq: f64 = d_l2.iter().map(|&x| (x as f64).powi(2)).sum::<f64>()
+        + d_l2_bias.iter().map(|&x| (x as f64).powi(2)).sum::<f64>();
+    let out_grad_sq: f64 =
+        d_out.iter().map(|&x| (x as f64).powi(2)).sum::<f64>() + (d_out_bias as f64).powi(2);
+
+    DiagnosticGrad {
+        d_l2_acc,
+        d_ft_acc,
+        l2_grad_norm: l2_grad_sq.sqrt(),
+        ft_grad_norm: ft_grad_sq.sqrt(),
+        out_grad_norm: out_grad_sq.sqrt(),
+    }
+}
+
 /// Adam's moment decay means every parameter in `params` gets a (possibly
 /// tiny) nonzero update even where `grads[i] == 0`, so this is the true
 /// applied-update norm for the slice, not just an approximation over the
@@ -2303,5 +2662,80 @@ mod tests {
     fn shuffled_order_handles_zero_and_one() {
         assert_eq!(shuffled_order(0, 42), Vec::<usize>::new());
         assert_eq!(shuffled_order(1, 42), vec![0]);
+    }
+
+    #[test]
+    fn cp_wdl_grad_trace_blended_gradient_is_the_expected_weighted_sum() {
+        // The blended teacher's gradient must equal lambda*CP-only +
+        // (1-lambda)*WDL-only at every neuron -- the mathematical property
+        // the whole decomposition rests on (see the module doc comment's
+        // "single blended teacher... deliberate, not a shortcut" note).
+        // Checked against the *real* blended-gradient accumulator
+        // (`l2_dacc_sum`/`ft_dacc_sum`, already used by `--trace-positions`
+        // and never touched by this flag), not a second independent
+        // computation, so this catches decomposition bugs directly.
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.cp_wdl_grad_trace = true;
+        let board = Board::startpos();
+        let lambda = 0.7f32;
+        let eval_teacher = 40.0f32;
+        let wdl_target = -120.0f32;
+        let teacher = lambda * eval_teacher + (1.0 - lambda) * wdl_target;
+
+        for _ in 0..3 {
+            trainer.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
+        }
+
+        for o in 0..L2 {
+            let expected = lambda as f64 * trainer.l2_cp_dacc_sum[o]
+                + (1.0 - lambda) as f64 * trainer.l2_wdl_dacc_sum[o];
+            assert!(
+                (trainer.l2_dacc_sum[o] - expected).abs() < 1e-3,
+                "l2 neuron {o}: blended={} expected={}",
+                trainer.l2_dacc_sum[o],
+                expected
+            );
+        }
+        for j in 0..L1 {
+            let expected = lambda as f64 * trainer.ft_cp_dacc_sum[j]
+                + (1.0 - lambda) as f64 * trainer.ft_wdl_dacc_sum[j];
+            assert!(
+                (trainer.ft_dacc_sum[j] - expected).abs() < 1e-3,
+                "ft neuron {j}: blended={} expected={}",
+                trainer.ft_dacc_sum[j],
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn cp_wdl_grad_trace_does_not_alter_training_state() {
+        // The diagnostic backward passes must be pure side computations:
+        // enabling the flag must not change a single trained weight, Adam
+        // moment, or the RNG-derived randomness anything downstream would
+        // see -- only new diagnostic fields should differ. Compares two
+        // Trainers, identical seed/inputs, one with the flag on.
+        let board = Board::startpos();
+        let lambda = 0.7f32;
+        let eval_teacher = 40.0f32;
+        let wdl_target = -120.0f32;
+        let teacher = lambda * eval_teacher + (1.0 - lambda) * wdl_target;
+
+        let mut plain = Trainer::new(1, 0.5);
+        let mut traced = Trainer::new(1, 0.5);
+        traced.cp_wdl_grad_trace = true;
+
+        for _ in 0..5 {
+            plain.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
+            traced.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
+        }
+
+        assert_eq!(
+            plain.weights.snapshot_params(),
+            traced.weights.snapshot_params()
+        );
+        assert_eq!(plain.total_loss, traced.total_loss);
+        assert_eq!(plain.l2_dacc_sum, traced.l2_dacc_sum);
+        assert_eq!(plain.ft_grad_norm_sum, traced.ft_grad_norm_sum);
     }
 }

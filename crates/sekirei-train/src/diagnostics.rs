@@ -177,6 +177,43 @@ pub struct TraceSnapshot {
     /// across positions so far this epoch.
     pub ft_output_mean: f64,
     pub ft_output_std: f64,
+    /// `--cp-wdl-grad-trace`'s CP-vs-WDL gradient decomposition -- `None`
+    /// when the flag is off (the default) or this position had no WDL
+    /// signal to decompose against.
+    pub cp_wdl: Option<CpWdlTrace>,
+}
+
+/// One layer's (L2 or FT) per-neuron CP-only vs. WDL-only gradient
+/// comparison, cumulative since epoch start -- same cadence and semantic
+/// as `TraceLayerSnapshot`'s own gradient fields, just split by teacher
+/// signal instead of using the blended one.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CpWdlLayerTrace {
+    pub cp_gradient_mean: Vec<f32>,
+    pub wdl_gradient_mean: Vec<f32>,
+    pub cp_gradient_sign_consistency: Vec<f32>,
+    pub wdl_gradient_sign_consistency: Vec<f32>,
+    /// Per-neuron cosine similarity between the CP-only and WDL-only
+    /// per-position gradient, treating "positions so far this epoch" as
+    /// the vector dimension: +1 means the two signals always push this
+    /// neuron the same direction, -1 means they always oppose, 0 means
+    /// uncorrelated (or the neuron never received a nonzero gradient from
+    /// either signal).
+    pub cosine_similarity: Vec<f32>,
+}
+
+/// Whole-layer gradient RMS (FT/L2/output), split by teacher signal --
+/// the layer-wide counterpart to `CpWdlLayerTrace`'s per-neuron fields.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CpWdlTrace {
+    pub l2: CpWdlLayerTrace,
+    pub ft: CpWdlLayerTrace,
+    pub cp_ft_grad_rms: f64,
+    pub wdl_ft_grad_rms: f64,
+    pub cp_l2_grad_rms: f64,
+    pub wdl_l2_grad_rms: f64,
+    pub cp_out_grad_rms: f64,
+    pub wdl_out_grad_rms: f64,
 }
 
 /// Sign consistency of a per-neuron gradient accumulator:
@@ -279,6 +316,61 @@ pub fn build_trace_layer_snapshot(
         gradient_rms,
         gradient_sign_consistency,
         update_norm,
+    }
+}
+
+/// Cosine similarity between two per-position accumulator pairs (dot
+/// product sum and each side's own sum-of-squares), without ever storing
+/// full per-position history -- 0.0 when either side never received a
+/// nonzero gradient (avoids a 0/0 division), matching `sign_consistency`'s
+/// own convention.
+fn cosine_similarity(dot_sum: f64, a_sq_sum: f64, b_sq_sum: f64) -> f32 {
+    let denom = (a_sq_sum * b_sq_sum).sqrt();
+    if denom == 0.0 {
+        return 0.0;
+    }
+    (dot_sum / denom) as f32
+}
+
+/// Builds one layer's `CpWdlLayerTrace` from `--cp-wdl-grad-trace`'s
+/// per-neuron accumulators.
+#[allow(clippy::too_many_arguments)]
+pub fn build_cp_wdl_layer_trace(
+    cp_sum: &[f64],
+    cp_sq_sum: &[f64],
+    cp_pos_count: &[u64],
+    cp_neg_count: &[u64],
+    wdl_sum: &[f64],
+    wdl_sq_sum: &[f64],
+    wdl_pos_count: &[u64],
+    wdl_neg_count: &[u64],
+    dot_sum: &[f64],
+    sample_count: u64,
+) -> CpWdlLayerTrace {
+    let mean = |sum: &[f64]| -> Vec<f32> {
+        sum.iter()
+            .map(|&s| {
+                if sample_count > 0 {
+                    (s / sample_count as f64) as f32
+                } else {
+                    0.0
+                }
+            })
+            .collect()
+    };
+    let n = cp_sum.len();
+    CpWdlLayerTrace {
+        cp_gradient_mean: mean(cp_sum),
+        wdl_gradient_mean: mean(wdl_sum),
+        cp_gradient_sign_consistency: (0..n)
+            .map(|i| sign_consistency(cp_pos_count[i], cp_neg_count[i]))
+            .collect(),
+        wdl_gradient_sign_consistency: (0..n)
+            .map(|i| sign_consistency(wdl_pos_count[i], wdl_neg_count[i]))
+            .collect(),
+        cosine_similarity: (0..n)
+            .map(|i| cosine_similarity(dot_sum[i], cp_sq_sum[i], wdl_sq_sum[i]))
+            .collect(),
     }
 }
 
