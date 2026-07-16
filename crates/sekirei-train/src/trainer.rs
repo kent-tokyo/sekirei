@@ -47,7 +47,13 @@ use crate::diagnostics;
 /// win/draw/loss signal to give for an aborted/timed-out/illegal-move game,
 /// and guessing one (e.g. treating it as a draw) would add noise instead of
 /// signal (see `csa.rs`'s `GameResult` doc).
-fn wdl_target_cp(result: GameResult, stm: Color) -> Option<f32> {
+/// `scale` (default `1200.0`, giving `±600` -- see `--wdl-target-scale`)
+/// is the only place `wdl_target`'s native range lives. Investigated as a
+/// lever after `docs/experiments/cp_wdl_target_residual_trace.md` found
+/// this fixed-per-game-result value structurally dominates the blended
+/// gradient over the fine-grained per-position `eval_teacher`, regardless
+/// of `--wdl-lambda`'s weighting.
+fn wdl_target_cp(result: GameResult, stm: Color, scale: f32) -> Option<f32> {
     let wdl = match result {
         GameResult::BlackWin => {
             if stm == Color::Black {
@@ -66,7 +72,7 @@ fn wdl_target_cp(result: GameResult, stm: Color) -> Option<f32> {
         GameResult::Draw => 0.5,
         GameResult::Unknown => return None,
     };
-    Some((wdl - 0.5) * 1200.0)
+    Some((wdl - 0.5) * scale)
 }
 
 // ---- Learning-rate schedule ----
@@ -1065,6 +1071,7 @@ impl Trainer {
         result: GameResult,
         label_depth: u32,
         cache: &mut HashMap<String, i32>,
+        wdl_target_scale: f32,
     ) -> (f32, Option<f32>) {
         let sfen = board_to_sfen(board);
         let score_cp = if let Some(&cp) = cache.get(&sfen) {
@@ -1083,7 +1090,10 @@ impl Trainer {
             cp
         };
         let eval_teacher = (score_cp as f32).clamp(-600.0, 600.0);
-        (eval_teacher, wdl_target_cp(result, board.side_to_move))
+        (
+            eval_teacher,
+            wdl_target_cp(result, board.side_to_move, wdl_target_scale),
+        )
     }
 
     /// Train on a single game.  Samples every `sample_every` plies.
@@ -1103,6 +1113,7 @@ impl Trainer {
         scored: &HashMap<String, f32>,
         stability_weighted: bool,
         wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
         cache: &mut HashMap<String, i32>,
     ) {
         let mut board = Board::startpos();
@@ -1151,8 +1162,13 @@ impl Trainer {
             // `position_teacher` convenience wrapper) so the raw components
             // are available to thread into `train_position` for diagnostics
             // -- mirrors `eval_game`'s pattern below.
-            let (eval_teacher, wdl_target) =
-                self.position_teacher_components(&mut board, game.result, label_depth, cache);
+            let (eval_teacher, wdl_target) = self.position_teacher_components(
+                &mut board,
+                game.result,
+                label_depth,
+                cache,
+                wdl_target_scale,
+            );
             let teacher = match (wdl_lambda, wdl_target) {
                 (Some(lambda), Some(wdl_target)) => {
                     lambda * eval_teacher + (1.0 - lambda) * wdl_target
@@ -1178,6 +1194,7 @@ impl Trainer {
     /// `position_teacher_components`'s doc comment). Free to compute: both
     /// raw components are already produced by the single cached lookup.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     pub fn eval_game(
         &mut self,
         game: &CsaGame,
@@ -1186,6 +1203,7 @@ impl Trainer {
         min_ply: usize,
         label_depth: u32,
         wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
         cache: &mut HashMap<String, i32>,
     ) -> ValidStats {
         let mut board = Board::startpos();
@@ -1207,8 +1225,13 @@ impl Trainer {
                 }
             }
 
-            let (eval_teacher, wdl_target) =
-                self.position_teacher_components(&mut board, game.result, label_depth, cache);
+            let (eval_teacher, wdl_target) = self.position_teacher_components(
+                &mut board,
+                game.result,
+                label_depth,
+                cache,
+                wdl_target_scale,
+            );
             let teacher = match (wdl_lambda, wdl_target) {
                 (Some(lambda), Some(wdl_target)) => {
                     lambda * eval_teacher + (1.0 - lambda) * wdl_target
@@ -2389,7 +2412,7 @@ mod tests {
     #[test]
     fn wdl_target_black_win_from_black_perspective_is_max() {
         assert_eq!(
-            wdl_target_cp(GameResult::BlackWin, Color::Black),
+            wdl_target_cp(GameResult::BlackWin, Color::Black, 1200.0),
             Some(600.0)
         );
     }
@@ -2397,7 +2420,7 @@ mod tests {
     #[test]
     fn wdl_target_black_win_from_white_perspective_is_min() {
         assert_eq!(
-            wdl_target_cp(GameResult::BlackWin, Color::White),
+            wdl_target_cp(GameResult::BlackWin, Color::White, 1200.0),
             Some(-600.0)
         );
     }
@@ -2405,7 +2428,7 @@ mod tests {
     #[test]
     fn wdl_target_white_win_from_white_perspective_is_max() {
         assert_eq!(
-            wdl_target_cp(GameResult::WhiteWin, Color::White),
+            wdl_target_cp(GameResult::WhiteWin, Color::White, 1200.0),
             Some(600.0)
         );
     }
@@ -2413,21 +2436,33 @@ mod tests {
     #[test]
     fn wdl_target_white_win_from_black_perspective_is_min() {
         assert_eq!(
-            wdl_target_cp(GameResult::WhiteWin, Color::Black),
+            wdl_target_cp(GameResult::WhiteWin, Color::Black, 1200.0),
             Some(-600.0)
         );
     }
 
     #[test]
     fn wdl_target_draw_is_zero_regardless_of_perspective() {
-        assert_eq!(wdl_target_cp(GameResult::Draw, Color::Black), Some(0.0));
-        assert_eq!(wdl_target_cp(GameResult::Draw, Color::White), Some(0.0));
+        assert_eq!(
+            wdl_target_cp(GameResult::Draw, Color::Black, 1200.0),
+            Some(0.0)
+        );
+        assert_eq!(
+            wdl_target_cp(GameResult::Draw, Color::White, 1200.0),
+            Some(0.0)
+        );
     }
 
     #[test]
     fn wdl_target_unknown_result_has_no_signal() {
-        assert_eq!(wdl_target_cp(GameResult::Unknown, Color::Black), None);
-        assert_eq!(wdl_target_cp(GameResult::Unknown, Color::White), None);
+        assert_eq!(
+            wdl_target_cp(GameResult::Unknown, Color::Black, 1200.0),
+            None
+        );
+        assert_eq!(
+            wdl_target_cp(GameResult::Unknown, Color::White, 1200.0),
+            None
+        );
     }
 
     #[test]
@@ -2590,8 +2625,13 @@ mod tests {
         let mut cache: HashMap<String, i32> = HashMap::new();
         let mut board = Board::startpos();
 
-        let (first, _) =
-            trainer.position_teacher_components(&mut board, GameResult::Unknown, 2, &mut cache);
+        let (first, _) = trainer.position_teacher_components(
+            &mut board,
+            GameResult::Unknown,
+            2,
+            &mut cache,
+            1200.0,
+        );
         assert_eq!(trainer.cache_misses, 1);
         assert_eq!(trainer.cache_hits, 0);
         assert_eq!(cache.len(), 1);
@@ -2602,6 +2642,7 @@ mod tests {
             GameResult::Unknown,
             2,
             &mut cache,
+            1200.0,
         );
         assert_eq!(trainer.cache_misses, 1, "second call must not re-search");
         assert_eq!(trainer.cache_hits, 1);

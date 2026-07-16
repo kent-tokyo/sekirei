@@ -90,7 +90,14 @@ struct Args {
     // default; two extra diagnostic-only backward passes per position
     // when on, so real compute cost -- only meant for a focused window
     // (--epochs 1, a handful of --trace-positions), not routine training.
-    cp_wdl_grad_trace: bool,             // --cp-wdl-grad-trace
+    cp_wdl_grad_trace: bool, // --cp-wdl-grad-trace
+    // Native range of `wdl_target` (the game-result training signal),
+    // via `(wdl - 0.5) * wdl_target_scale`. Default 1200.0 reproduces
+    // today's ±600 exactly. See `docs/experiments/cp_wdl_target_residual_trace.md`
+    // for why this is a lever worth testing: the fixed ±600 constant
+    // structurally dominates the blended gradient over the fine-grained
+    // per-position `eval_teacher`, independent of --wdl-lambda's weight.
+    wdl_target_scale: f32,               // --wdl-target-scale
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
@@ -186,6 +193,7 @@ fn parse_args() -> Result<Args, String> {
     let mut trace_positions: Vec<u64> = Vec::new();
     let mut shuffle_seed: Option<u64> = None;
     let mut cp_wdl_grad_trace = false;
+    let mut wdl_target_scale = 1200.0f32;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -383,6 +391,12 @@ fn parse_args() -> Result<Args, String> {
             "--cp-wdl-grad-trace" => {
                 cp_wdl_grad_trace = true;
             }
+            "--wdl-target-scale" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<f32>().ok()) {
+                    wdl_target_scale = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -509,6 +523,7 @@ fn parse_args() -> Result<Args, String> {
         trace_positions,
         shuffle_seed,
         cp_wdl_grad_trace,
+        wdl_target_scale,
     })
 }
 
@@ -575,6 +590,7 @@ fn eval_validation_set(
                 args.min_ply,
                 args.label_depth,
                 args.wdl_lambda,
+                args.wdl_target_scale,
                 cache,
             )
         })
@@ -878,6 +894,7 @@ fn save_checkpoint_meta(
         "scored": args.scored_path,
         "label_depth": args.label_depth,
         "wdl_lambda": args.wdl_lambda,
+        "wdl_target_scale": args.wdl_target_scale,
         "phase_weights": args.phase_weights,
         "side_balance": args.side_balance,
         "source_cap": args.source_cap,
@@ -1095,6 +1112,9 @@ fn print_usage() {
     );
     eprintln!(
         "  --cp-wdl-grad-trace     Decompose the blended gradient into CP-only/WDL-only per position (CSA path + --wdl-lambda only; adds two diagnostic backward passes per position, real compute cost, default: off)"
+    );
+    eprintln!(
+        "  --wdl-target-scale <f>  Native range of wdl_target, via (wdl - 0.5) * scale (default: 1200.0, giving +/-600)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1717,6 +1737,7 @@ fn main() {
                 &scored,
                 args.stability_weighted,
                 args.wdl_lambda,
+                args.wdl_target_scale,
                 &mut teacher_cache,
             );
 
