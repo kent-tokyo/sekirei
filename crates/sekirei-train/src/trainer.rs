@@ -754,6 +754,35 @@ pub struct Trainer {
     pub cp_out_grad_norm_sum_sq: f64,
     pub wdl_out_grad_norm_sum: f64,
     pub wdl_out_grad_norm_sum_sq: f64,
+    // Target/prediction/residual/dL-dOutput distributions, scoped to the
+    // same wdl-having position subset the CP/WDL gradient fields above
+    // already use (not the epoch-wide `eval_teacher_sum`/`output_sum`,
+    // which include positions this diagnostic never touches) -- so every
+    // field here is a fair, apples-to-apples comparison over the identical
+    // position set. Explains *why* the CP/WDL gradient scales differ
+    // (target/prediction/residual magnitude), not just that they do.
+    pub cp_target_sum: f64,
+    pub cp_target_sum_sq: f64,
+    pub wdl_target_sum: f64,
+    pub wdl_target_sum_sq: f64,
+    pub prediction_sum: f64,
+    pub prediction_sum_sq: f64,
+    // Signed residual (score - target), distinct from `cp_component_sum`/
+    // `wdl_component_sum` above, which are squared-error (MSE) sums --
+    // those can't distinguish "consistently offset" from "large but
+    // symmetric" error, which is exactly what motivates the gradient-scale
+    // question this trace answers.
+    pub cp_residual_sum: f64,
+    pub cp_residual_sum_sq: f64,
+    pub wdl_residual_sum: f64,
+    pub wdl_residual_sum_sq: f64,
+    // `d_output` (gradient of the loss w.r.t. the network's scalar output)
+    // per signal -- `diagnostic_backward` already computes this internally
+    // for both CP-only and WDL-only `err`, previously discarded.
+    pub cp_d_output_sum: f64,
+    pub cp_d_output_sum_sq: f64,
+    pub wdl_d_output_sum: f64,
+    pub wdl_d_output_sum_sq: f64,
 
     searcher: Searcher,
 }
@@ -863,6 +892,20 @@ impl Trainer {
             cp_out_grad_norm_sum_sq: 0.0,
             wdl_out_grad_norm_sum: 0.0,
             wdl_out_grad_norm_sum_sq: 0.0,
+            cp_target_sum: 0.0,
+            cp_target_sum_sq: 0.0,
+            wdl_target_sum: 0.0,
+            wdl_target_sum_sq: 0.0,
+            prediction_sum: 0.0,
+            prediction_sum_sq: 0.0,
+            cp_residual_sum: 0.0,
+            cp_residual_sum_sq: 0.0,
+            wdl_residual_sum: 0.0,
+            wdl_residual_sum_sq: 0.0,
+            cp_d_output_sum: 0.0,
+            cp_d_output_sum_sq: 0.0,
+            wdl_d_output_sum: 0.0,
+            wdl_d_output_sum_sq: 0.0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1466,6 +1509,32 @@ impl Trainer {
                 self.cp_out_grad_norm_sum_sq += cp.out_grad_norm * cp.out_grad_norm;
                 self.wdl_out_grad_norm_sum += wdl.out_grad_norm;
                 self.wdl_out_grad_norm_sum_sq += wdl.out_grad_norm * wdl.out_grad_norm;
+
+                // Target/prediction/residual/dL-dOutput distributions --
+                // explains *why* the gradient-scale fields above differ,
+                // not just that they do. Scoped to this same wdl-having
+                // subset (not the epoch-wide `eval_teacher_sum`/
+                // `output_sum`), so every field is a fair comparison over
+                // the identical position set.
+                let eval_teacher_f64 = eval_teacher as f64;
+                let wdl_target_f64 = wdl_target as f64;
+                let score_f64 = score as f64;
+                self.cp_target_sum += eval_teacher_f64;
+                self.cp_target_sum_sq += eval_teacher_f64 * eval_teacher_f64;
+                self.wdl_target_sum += wdl_target_f64;
+                self.wdl_target_sum_sq += wdl_target_f64 * wdl_target_f64;
+                self.prediction_sum += score_f64;
+                self.prediction_sum_sq += score_f64 * score_f64;
+                self.cp_residual_sum += cp_err;
+                self.cp_residual_sum_sq += cp_err * cp_err;
+                self.wdl_residual_sum += wdl_err;
+                self.wdl_residual_sum_sq += wdl_err * wdl_err;
+                let cp_d_output = cp.d_output as f64;
+                let wdl_d_output = wdl.d_output as f64;
+                self.cp_d_output_sum += cp_d_output;
+                self.cp_d_output_sum_sq += cp_d_output * cp_d_output;
+                self.wdl_d_output_sum += wdl_d_output;
+                self.wdl_d_output_sum_sq += wdl_d_output * wdl_d_output;
             }
         }
 
@@ -1831,6 +1900,20 @@ impl Trainer {
                 diagnostics::mean_std(self.cp_out_grad_norm_sum, self.cp_out_grad_norm_sum_sq, n);
             let (wdl_out_grad_rms, _) =
                 diagnostics::mean_std(self.wdl_out_grad_norm_sum, self.wdl_out_grad_norm_sum_sq, n);
+            let (cp_target_mean, cp_target_std) =
+                diagnostics::mean_std(self.cp_target_sum, self.cp_target_sum_sq, n);
+            let (wdl_target_mean, wdl_target_std) =
+                diagnostics::mean_std(self.wdl_target_sum, self.wdl_target_sum_sq, n);
+            let (prediction_mean, prediction_std) =
+                diagnostics::mean_std(self.prediction_sum, self.prediction_sum_sq, n);
+            let (cp_residual_mean, cp_residual_std) =
+                diagnostics::mean_std(self.cp_residual_sum, self.cp_residual_sum_sq, n);
+            let (wdl_residual_mean, wdl_residual_std) =
+                diagnostics::mean_std(self.wdl_residual_sum, self.wdl_residual_sum_sq, n);
+            let (cp_d_output_mean, cp_d_output_std) =
+                diagnostics::mean_std(self.cp_d_output_sum, self.cp_d_output_sum_sq, n);
+            let (wdl_d_output_mean, wdl_d_output_std) =
+                diagnostics::mean_std(self.wdl_d_output_sum, self.wdl_d_output_sum_sq, n);
             Some(diagnostics::CpWdlTrace {
                 l2: diagnostics::build_cp_wdl_layer_trace(
                     &self.l2_cp_dacc_sum,
@@ -1862,6 +1945,20 @@ impl Trainer {
                 wdl_l2_grad_rms,
                 cp_out_grad_rms,
                 wdl_out_grad_rms,
+                cp_target_mean,
+                cp_target_std,
+                wdl_target_mean,
+                wdl_target_std,
+                prediction_mean,
+                prediction_std,
+                cp_residual_mean,
+                cp_residual_std,
+                wdl_residual_mean,
+                wdl_residual_std,
+                cp_d_output_mean,
+                cp_d_output_std,
+                wdl_d_output_mean,
+                wdl_d_output_std,
             })
         } else {
             None
@@ -1982,6 +2079,20 @@ impl Trainer {
         self.cp_out_grad_norm_sum_sq = 0.0;
         self.wdl_out_grad_norm_sum = 0.0;
         self.wdl_out_grad_norm_sum_sq = 0.0;
+        self.cp_target_sum = 0.0;
+        self.cp_target_sum_sq = 0.0;
+        self.wdl_target_sum = 0.0;
+        self.wdl_target_sum_sq = 0.0;
+        self.prediction_sum = 0.0;
+        self.prediction_sum_sq = 0.0;
+        self.cp_residual_sum = 0.0;
+        self.cp_residual_sum_sq = 0.0;
+        self.wdl_residual_sum = 0.0;
+        self.wdl_residual_sum_sq = 0.0;
+        self.cp_d_output_sum = 0.0;
+        self.cp_d_output_sum_sq = 0.0;
+        self.wdl_d_output_sum = 0.0;
+        self.wdl_d_output_sum_sq = 0.0;
     }
 }
 
@@ -2052,6 +2163,10 @@ struct DiagnosticGrad {
     l2_grad_norm: f64,
     ft_grad_norm: f64,
     out_grad_norm: f64,
+    /// `d_output` (gradient of the loss w.r.t. the network's scalar
+    /// output) for this `err` alone -- the quantity everything else in
+    /// this struct backpropagates from.
+    d_output: f32,
 }
 
 /// Diagnostic-only: recomputes the backward pass `train_position` already
@@ -2143,6 +2258,7 @@ fn diagnostic_backward(
         l2_grad_norm: l2_grad_sq.sqrt(),
         ft_grad_norm: ft_grad_sq.sqrt(),
         out_grad_norm: out_grad_sq.sqrt(),
+        d_output,
     }
 }
 
@@ -2676,6 +2792,7 @@ mod tests {
         // computation, so this catches decomposition bugs directly.
         let mut trainer = Trainer::new(1, 0.5);
         trainer.cp_wdl_grad_trace = true;
+        trainer.trace_positions = [3u64].into_iter().collect();
         let board = Board::startpos();
         let lambda = 0.7f32;
         let eval_teacher = 40.0f32;
@@ -2685,6 +2802,21 @@ mod tests {
         for _ in 0..3 {
             trainer.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
         }
+
+        // Target/prediction/residual/dL-dOutput fields are populated and
+        // sane -- `eval_teacher`/`wdl_target` are literally constant across
+        // all 3 calls here, so their accumulated means must match exactly.
+        let cp_wdl = trainer.trace_snapshots[0]
+            .cp_wdl
+            .as_ref()
+            .expect("cp_wdl populated");
+        assert!((cp_wdl.cp_target_mean - eval_teacher as f64).abs() < 1e-6);
+        assert!((cp_wdl.wdl_target_mean - wdl_target as f64).abs() < 1e-6);
+        assert!(cp_wdl.prediction_mean.is_finite());
+        assert!(cp_wdl.cp_residual_std.is_finite() && cp_wdl.cp_residual_std >= 0.0);
+        assert!(cp_wdl.wdl_residual_std.is_finite() && cp_wdl.wdl_residual_std >= 0.0);
+        assert!(cp_wdl.cp_d_output_mean.is_finite());
+        assert!(cp_wdl.wdl_d_output_mean.is_finite());
 
         for o in 0..L2 {
             let expected = lambda as f64 * trainer.l2_cp_dacc_sum[o]

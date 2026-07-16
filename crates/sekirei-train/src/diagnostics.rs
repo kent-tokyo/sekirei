@@ -214,6 +214,29 @@ pub struct CpWdlTrace {
     pub wdl_l2_grad_rms: f64,
     pub cp_out_grad_rms: f64,
     pub wdl_out_grad_rms: f64,
+    /// Target/prediction/residual/dL-dOutput distributions, all scoped to
+    /// the same wdl-having position subset the fields above already use --
+    /// explains *why* the gradient-scale fields differ, not just that they
+    /// do. `prediction_*` is shared (the network has one output regardless
+    /// of which teacher signal is being evaluated against it), everything
+    /// else is split by signal.
+    pub cp_target_mean: f64,
+    pub cp_target_std: f64,
+    pub wdl_target_mean: f64,
+    pub wdl_target_std: f64,
+    pub prediction_mean: f64,
+    pub prediction_std: f64,
+    /// Signed residual (`score - target`) mean/std -- distinct from the
+    /// squared-error (MSE) accumulators used elsewhere, which can't tell
+    /// "consistently offset" from "large but symmetric" error.
+    pub cp_residual_mean: f64,
+    pub cp_residual_std: f64,
+    pub wdl_residual_mean: f64,
+    pub wdl_residual_std: f64,
+    pub cp_d_output_mean: f64,
+    pub cp_d_output_std: f64,
+    pub wdl_d_output_mean: f64,
+    pub wdl_d_output_std: f64,
 }
 
 /// Sign consistency of a per-neuron gradient accumulator:
