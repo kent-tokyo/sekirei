@@ -160,5 +160,9 @@ reported as an open observation, not explained here.
   passing, `fmt`/`clippy` clean.
 - 9 runs (3 arms × 3 seeds) complete, self-verified against requested `.meta.json` config, Frozen-arm
   substitution re-verified (byte-identical position-128 checkpoints, both components, all 3 seeds).
-- Next: B5-limited one-step shadow trace to resolve the within-step-interaction-vs-trajectory-divergence question
-  left open above, and to investigate the FT-vs-L2 inversion via per-unit `cos(h,w_L2)`/weighted-input metrics.
+- Follow-up: the within-step-interaction-vs-trajectory-divergence question left open above is resolved in
+  `l2_b5_shadow_trace.md` — a one-step shadow trace (identical shared anchor per position, eliminating trajectory
+  divergence by construction) found the within-step Adam effect is *sub-additive* (protective, not destructive),
+  so the deep 32-step Blended collapse is cross-step accumulation, not within-step interaction. The FT-vs-L2
+  inversion remains unresolved (per-unit `cos(h,w_L2)` needs the *trained* 32-step checkpoints, not a one-step
+  trace).

@@ -76,5 +76,7 @@ investigated further here — the next step is CP/WDL causal decomposition, not 
 - Fine-grained snapshots for `single_active_B5`, 3 seeds, complete, self-verified, determinism-checked against the
   original coarse run. Raw data and scripts in scratch (`ft_b5_anti_growth_exp/`: `run.sh`, `verify_meta.py`,
   `align_out/`).
-- Next: CP/WDL causal decomposition via counterfactual replay from the position-143 checkpoint (not a new
-  general-purpose sample-level gradient-direction trace — a targeted 4-arm replay of B5's own 32 positions).
+- Follow-up chain: CP/WDL causal decomposition via counterfactual replay (`l2_b5_cp_wdl_component_replay.md`) found
+  CP pushes FT backward and WDL reverses sign; a subsequent one-step shadow trace (`l2_b5_shadow_trace.md`) found
+  the deep Blended collapse is cross-step accumulation, not within-step interaction — B5 is closed out as a
+  documented pathology, not pursued as usable curriculum material.
