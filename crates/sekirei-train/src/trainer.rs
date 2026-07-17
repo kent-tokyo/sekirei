@@ -938,6 +938,15 @@ pub struct Trainer {
     // to that one block's bounds.
     pub diagnostic_ft_reactivate_from_position: u64,
     pub diagnostic_ft_reactivate_until_position: u64,
+    // Second, independent reactivation window (`l2_saturation_ft_freeze_block_screen_stage_c.md`'s
+    // B2xB7 interaction follow-up): needed to reactivate two disjoint
+    // blocks at once (e.g. "B2 active AND B7 active, everything else in
+    // the main window frozen") -- one window pair can't express two
+    // non-adjacent active blocks. Identical semantics and byte-identical-
+    // when-unset default (`0`/`0`) to the first window; the two windows
+    // are OR'd together in `ft_reactivated`.
+    pub diagnostic_ft_reactivate2_from_position: u64,
+    pub diagnostic_ft_reactivate2_until_position: u64,
 
     searcher: Searcher,
 }
@@ -1076,6 +1085,8 @@ impl Trainer {
             diagnostic_ft_frozen_first: false,
             diagnostic_ft_reactivate_from_position: 0,
             diagnostic_ft_reactivate_until_position: 0,
+            diagnostic_ft_reactivate2_from_position: 0,
+            diagnostic_ft_reactivate2_until_position: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1535,10 +1546,16 @@ impl Trainer {
     /// Independent of `ft_periodic_active_phase`; only called from within
     /// the already-`ft_targeted` branch. `l2_sample_count` is always `>=
     /// 1`, so the `0..=0` default range never matches -- byte-identical to
-    /// this mechanism never existing when left unset.
+    /// this mechanism never existing when left unset. Also checks the
+    /// second, independent reactivation window (`diagnostic_ft_reactivate2_from_position`/
+    /// `diagnostic_ft_reactivate2_until_position`) -- either window being
+    /// hit is enough to reactivate FT.
     fn ft_reactivated(&self) -> bool {
-        self.l2_sample_count >= self.diagnostic_ft_reactivate_from_position
-            && self.l2_sample_count <= self.diagnostic_ft_reactivate_until_position
+        let window1 = self.l2_sample_count >= self.diagnostic_ft_reactivate_from_position
+            && self.l2_sample_count <= self.diagnostic_ft_reactivate_until_position;
+        let window2 = self.l2_sample_count >= self.diagnostic_ft_reactivate2_from_position
+            && self.l2_sample_count <= self.diagnostic_ft_reactivate2_until_position;
+        window1 || window2
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3522,6 +3539,83 @@ mod tests {
                 GameResult::Unknown,
             );
             assert_eq!(plain.weights.ft, with_unset_reactivate.weights.ft);
+        }
+    }
+
+    #[test]
+    fn diagnostic_ft_reactivate2_window_reopens_a_second_disjoint_hole() {
+        // from=2,until=13 (fully frozen), reactivate window 1=[4,5],
+        // window 2=[10,11] -- two disjoint active holes. Expect frozen,
+        // active,active,frozen,frozen,active,active,frozen,frozen,frozen
+        // over positions 2..=13 with actives only at 4,5,10,11.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_from_position = 2;
+        trainer.diagnostic_freeze_until_position = 13;
+        trainer.diagnostic_ft_reactivate_from_position = 4;
+        trainer.diagnostic_ft_reactivate_until_position = 5;
+        trainer.diagnostic_ft_reactivate2_from_position = 10;
+        trainer.diagnostic_ft_reactivate2_until_position = 11;
+
+        let mut ft_after = Vec::new();
+        for _ in 1..=13 {
+            trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            ft_after.push(trainer.weights.ft.clone());
+        }
+
+        let active_positions = [4, 5, 10, 11];
+        for pos in 2..=13u64 {
+            let idx = (pos - 1) as usize;
+            let prev_idx = idx - 1;
+            if active_positions.contains(&pos) {
+                assert_ne!(
+                    ft_after[idx], ft_after[prev_idx],
+                    "position {pos} (reactivated) must update"
+                );
+            } else {
+                assert_eq!(
+                    ft_after[idx], ft_after[prev_idx],
+                    "position {pos} (frozen) must not move"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn diagnostic_ft_reactivate2_window_unset_is_byte_identical_to_single_reactivate_window() {
+        // reactivate2_from/until left at their `0` default must behave
+        // exactly like only the first reactivation window existing.
+        let board = Board::startpos();
+
+        let mut single_window = Trainer::new(1, 0.5);
+        single_window.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        single_window.diagnostic_freeze_from_position = 2;
+        single_window.diagnostic_freeze_until_position = 9;
+        single_window.diagnostic_ft_reactivate_from_position = 5;
+        single_window.diagnostic_ft_reactivate_until_position = 6;
+
+        let mut with_unset_window2 = Trainer::new(1, 0.5);
+        with_unset_window2.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        with_unset_window2.diagnostic_freeze_from_position = 2;
+        with_unset_window2.diagnostic_freeze_until_position = 9;
+        with_unset_window2.diagnostic_ft_reactivate_from_position = 5;
+        with_unset_window2.diagnostic_ft_reactivate_until_position = 6;
+        with_unset_window2.diagnostic_ft_reactivate2_from_position = 0;
+        with_unset_window2.diagnostic_ft_reactivate2_until_position = 0;
+
+        for _ in 1..=9 {
+            single_window.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            with_unset_window2.train_position(
+                &board,
+                -600.0,
+                1.0,
+                -600.0,
+                None,
+                0,
+                GameResult::Unknown,
+            );
+            assert_eq!(single_window.weights.ft, with_unset_window2.weights.ft);
         }
     }
 
