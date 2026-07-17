@@ -908,6 +908,16 @@ pub struct Trainer {
     // starts again -- never reset, never decayed across a frozen sub-block.
     pub diagnostic_ft_active_block: u64,
     pub diagnostic_ft_frozen_block: u64,
+    // Inverts which sub-block of the cycle above position `from_position`
+    // starts in (`l2_saturation_ft_freeze_continuity.md`'s phase-paired
+    // isolation follow-up): `false` (default) is today's behavior, the
+    // cycle starts active. `true` starts the cycle frozen instead -- for
+    // equal-length active/frozen blocks this produces the exact complement
+    // pattern (every position that's active under `false` is frozen under
+    // `true` and vice versa), letting a pair of otherwise-identical runs
+    // cancel out which specific positions happened to be active. No-op
+    // when periodic mode itself is off (either block length is `0`).
+    pub diagnostic_ft_frozen_first: bool,
 
     searcher: Searcher,
 }
@@ -1043,6 +1053,7 @@ impl Trainer {
             diagnostic_freeze_until_position: 0,
             diagnostic_ft_active_block: 0,
             diagnostic_ft_frozen_block: 0,
+            diagnostic_ft_frozen_first: false,
             searcher: Searcher::new(tt),
         }
     }
@@ -1474,18 +1485,25 @@ impl Trainer {
     /// `diagnostic_ft_frozen_block`) is enabled *and* the current position
     /// falls in an "active" sub-block of the cycle -- i.e. FT should update
     /// despite otherwise being inside the frozen `[from,until]` window.
-    /// Returns `false` (no override) whenever either block length is `0`,
-    /// preserving byte-identical behavior with the plain single-window
-    /// freeze when these fields are left at their defaults. Only called
-    /// from within the already-`ft_targeted` branch, so this never needs to
-    /// check `diagnostic_freeze_layer`/the window bounds itself.
+    /// `diagnostic_ft_frozen_first` flips which sub-block starts at
+    /// `from_position` (see its doc comment). Returns `false` (no override)
+    /// whenever either block length is `0`, preserving byte-identical
+    /// behavior with the plain single-window freeze when these fields are
+    /// left at their defaults. Only called from within the already-
+    /// `ft_targeted` branch, so this never needs to check
+    /// `diagnostic_freeze_layer`/the window bounds itself.
     fn ft_periodic_active_phase(&self) -> bool {
         if self.diagnostic_ft_active_block == 0 || self.diagnostic_ft_frozen_block == 0 {
             return false;
         }
         let cycle = self.diagnostic_ft_active_block + self.diagnostic_ft_frozen_block;
         let offset = self.l2_sample_count - self.diagnostic_freeze_from_position;
-        (offset % cycle) < self.diagnostic_ft_active_block
+        let phase = offset % cycle;
+        if self.diagnostic_ft_frozen_first {
+            phase >= self.diagnostic_ft_frozen_block
+        } else {
+            phase < self.diagnostic_ft_active_block
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3282,6 +3300,104 @@ mod tests {
                 GameResult::Unknown,
             );
             assert_eq!(plain.weights.ft, with_unset_blocks.weights.ft);
+        }
+    }
+
+    #[test]
+    fn diagnostic_ft_frozen_first_produces_the_exact_complement_pattern() {
+        // Same from=2,until=9,active_block=2,frozen_block=2 window as
+        // `diagnostic_ft_periodic_freeze_cycles_active_and_frozen_sub_blocks`,
+        // but with `diagnostic_ft_frozen_first = true`. For equal block
+        // lengths this must produce the exact complement pattern: frozen,
+        // frozen,active,active,frozen,frozen,active,active over positions
+        // 2..=9 -- every position active under the default is frozen here
+        // and vice versa.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_from_position = 2;
+        trainer.diagnostic_freeze_until_position = 9;
+        trainer.diagnostic_ft_active_block = 2;
+        trainer.diagnostic_ft_frozen_block = 2;
+        trainer.diagnostic_ft_frozen_first = true;
+
+        let mut ft_after = Vec::new();
+        for _ in 1..=9 {
+            trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            ft_after.push(trainer.weights.ft.clone());
+        }
+
+        // pos2,3 (indices 1,2): frozen sub-block -> both equal position 1's state.
+        assert_eq!(
+            ft_after[1], ft_after[0],
+            "position 2 (frozen, frozen-first) must not move"
+        );
+        assert_eq!(
+            ft_after[2], ft_after[0],
+            "position 3 (frozen, frozen-first) must not move"
+        );
+        // pos4,5 (indices 3,4): active sub-block -> each must move.
+        assert_ne!(
+            ft_after[3], ft_after[2],
+            "position 4 (active, frozen-first) must update"
+        );
+        assert_ne!(
+            ft_after[4], ft_after[3],
+            "position 5 (active, frozen-first) must update"
+        );
+        // pos6,7 (indices 5,6): frozen sub-block again.
+        assert_eq!(
+            ft_after[5], ft_after[4],
+            "position 6 (frozen, frozen-first) must not move"
+        );
+        assert_eq!(
+            ft_after[6], ft_after[4],
+            "position 7 (frozen, frozen-first) must not move"
+        );
+        // pos8,9 (indices 7,8): active sub-block again.
+        assert_ne!(
+            ft_after[7], ft_after[6],
+            "position 8 (active, frozen-first) must update"
+        );
+        assert_ne!(
+            ft_after[8], ft_after[7],
+            "position 9 (active, frozen-first) must update"
+        );
+    }
+
+    #[test]
+    fn diagnostic_ft_frozen_first_unset_is_byte_identical_to_active_first_default() {
+        // `diagnostic_ft_frozen_first` left at its `false` default must
+        // behave exactly like never setting it.
+        let board = Board::startpos();
+
+        let mut default_run = Trainer::new(1, 0.5);
+        default_run.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        default_run.diagnostic_freeze_from_position = 2;
+        default_run.diagnostic_freeze_until_position = 9;
+        default_run.diagnostic_ft_active_block = 2;
+        default_run.diagnostic_ft_frozen_block = 2;
+
+        let mut explicit_false = Trainer::new(1, 0.5);
+        explicit_false.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        explicit_false.diagnostic_freeze_from_position = 2;
+        explicit_false.diagnostic_freeze_until_position = 9;
+        explicit_false.diagnostic_ft_active_block = 2;
+        explicit_false.diagnostic_ft_frozen_block = 2;
+        explicit_false.diagnostic_ft_frozen_first = false;
+
+        for _ in 1..=9 {
+            default_run.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            explicit_false.train_position(
+                &board,
+                -600.0,
+                1.0,
+                -600.0,
+                None,
+                0,
+                GameResult::Unknown,
+            );
+            assert_eq!(default_run.weights.ft, explicit_false.weights.ft);
         }
     }
 
