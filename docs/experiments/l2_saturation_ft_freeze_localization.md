@@ -64,9 +64,24 @@ Re-reading onset relative to each arm's *own release position*:
 | Late (64-128) | 129 | 256 (0.0-0.3%, all 3 seeds) | 320 (26.2-40.8%) | `256-129=127` to `320-129=191` |
 | Full 16-128 (prior experiment) | 129 | 256 (0.0%, all 3 seeds) | 320 (27.7-44.8%) | `256-129=127` to `320-129=191` |
 
-**All three arms bracket to the identical `127-191` positions-after-release window**, despite freezing different
-absolute windows, different durations (`48` positions for each half vs `112` for the full window), and releasing
-at different points. Read at the resolution these coarse checkpoints (no `288` snapshot) allow, saturation onset
+**Clarification added after a follow-up dense-snapshot re-measurement (`l2_saturation_ft_freeze_dense_clock.md`)**:
+the `127-191` bracket above is a **fixed-probe-set checkpoint resolution artifact**, not a measured precise value —
+it reflects when the 261-position generalization probe's *aggregate* saturated fraction first goes nonzero at the
+available (sparse) checkpoints. A separate, more sensitive signal — the exact live-training position where *any*
+single neuron first reads `clamped_high` on the actual position being trained on, available for free from the
+already-collected `--sample-grad-trace` data — gives a sharper and different picture: Early's very first live
+saturation event lands at **release+97** (identical across all 3 seeds), Late's at **release+159** (identical
+across all 3 seeds), Full's at **release+164 to +175**. This is *earlier* than the `127-191` checkpoint-probe
+bracket for Early specifically, and shows the first local saturation event and the fixed-probe-set's broader
+saturation onset are genuinely different indicators, not interchangeable readings of "the same" onset — any
+statement below about arms sharing "the same relapse clock" should be read as scoped specifically to the
+**fixed-probe-set, aggregate** relapse signal, not to the first live-training saturation event, which behaves
+differently by arm.
+
+**All three arms bracket to the identical `127-191` positions-after-release window** (by the fixed-probe-set,
+aggregate reading specifically), despite freezing different absolute windows, different durations (`48` positions
+for each half vs `112` for the full window), and releasing at different points. Read at the resolution these
+coarse checkpoints (no `288` snapshot) allow, saturation onset
 tracks *when FT resumes moving*, not which specific sub-window was frozen or for how long.
 
 ### 4. Non-additivity: Late alone reproduces the full-window result almost exactly; Early alone gets most of the way there too
@@ -118,8 +133,16 @@ actually moved in that span, or (2) a **learning-progress clock** — a roughly 
 growth or FT-parameter movement, which happens to take `~127-191` positions under this recipe's learning rate and
 data but would take a different number of positions under a different LR or a different game-order density of
 "useful" gradient. This experiment's arms don't separate these two clocks (all three ran under the same LR/data/
-order), so both remain live explanations — this is exactly the question the next re-coordination pass (re-analyzing
-these same 9 runs on release-relative *and* trajectory-relative axes) is aimed at resolving.
+order), so both remain live explanations — this is exactly the question the follow-up re-coordination and
+dense-snapshot passes (`l2_saturation_ft_freeze_dense_clock.md`) were aimed at resolving. **Result of that
+follow-up, stated briefly here and in full in that doc**: the sample-count clock (position-after-release) and a
+cumulative-FT-parameter-movement clock both show substantial (`~25-35%`) cross-arm spread at a matched
+25%-probe-saturated event, paired by seed — both are ruled out as clean shared clocks. The remaining,
+by-elimination read is that saturation onset tracks some form of physical state (FT output norm / L2 weighted
+input reaching its saturation ceiling) rather than either an elapsed-sample-count or elapsed-update-magnitude
+clock — but this is a conclusion reached by ruling out the two alternatives, not a direct, non-circular
+confirmation of the physical-state hypothesis itself (see that doc for why the natural single-number "does the
+physical quantity converge" test turned out to be closer to definitional than informative).
 
 **Summary of the corrections and caveats worth keeping visible together**:
 - absolute-position comparison across arms is confounded by each arm's own release timing — release-relative
