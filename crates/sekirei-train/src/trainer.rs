@@ -165,6 +165,67 @@ impl ReplayComponent {
     }
 }
 
+/// Which layer(s) `--diagnostic-conflict-mask` stops updating at a
+/// teacher-conflict position (see `Trainer::diagnostic_conflict_mask`'s doc
+/// comment). Deliberately NOT called "PCGrad" or "projection": the shadow
+/// trace (`l2_b5_shadow_trace.md`) already proved `cos(g_cp, g_wdl) ≡ ±1`
+/// at every single position (CP and WDL share the whole forward pass and
+/// differ only by a scalar residual, so their gradients are always exact
+/// scalar multiples of the same vector) -- feeding two collinear vectors
+/// into PCGrad's projection formula doesn't trim an orthogonal component,
+/// it deletes both to exactly zero. This mechanism computes that same
+/// all-or-nothing outcome directly, via the equivalent and far cheaper
+/// sign check `(score - eval_teacher) * (score - wdl_target) < 0`, instead
+/// of materializing and projecting full gradient vectors that would
+/// algebraically cancel anyway.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConflictMaskLayer {
+    Ft,
+    FtAndL2,
+}
+
+impl ConflictMaskLayer {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "ft" => Some(ConflictMaskLayer::Ft),
+            "ft-l2" => Some(ConflictMaskLayer::FtAndL2),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ConflictMaskLayer::Ft => "ft",
+            ConflictMaskLayer::FtAndL2 => "ft-l2",
+        }
+    }
+}
+
+/// Running sums for one group (teacher-conflict positions, or
+/// non-conflict positions) of `--diagnostic-conflict-mask`'s per-position
+/// breakdown -- lets the analysis confirm the masked positions are
+/// actually the dangerous ones, not an arbitrary subset. `ft_grad_norm`/
+/// `l2_grad_norm` are the *pre-mask* gradient norm (what would have been
+/// applied absent masking) -- the group's *actual* applied update is
+/// already covered by the existing `Trainer::ft_update_norm_sum` (zero at
+/// masked positions by construction). `new_dead_ft`/`new_dead_l2` count
+/// this position's *own* board crossing into the dead zone from this
+/// position's own update, not a fixed external probe set.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ConflictGroupStats {
+    pub count: u64,
+    pub cp_residual_abs_sum: f64,
+    pub cp_residual_abs_sq_sum: f64,
+    pub wdl_residual_abs_sum: f64,
+    pub wdl_residual_abs_sq_sum: f64,
+    pub ft_grad_norm_sum: f64,
+    pub ft_grad_norm_sq_sum: f64,
+    pub l2_grad_norm_sum: f64,
+    pub l2_grad_norm_sq_sum: f64,
+    pub new_dead_ft_sum: u64,
+    pub new_dead_l2_sum: u64,
+}
+
 /// Computes the learning rate for `epoch` (1-indexed) against a schedule
 /// shaped for `total_epochs`. `total_epochs` is the schedule's *horizon* --
 /// how long a run the curve is shaped for -- not necessarily how many
@@ -1035,6 +1096,45 @@ pub struct Trainer {
     /// One record per window position actually visited, in training order.
     pub shadow_trace_records: Vec<diagnostics::ShadowTraceRecord>,
 
+    // ---- Teacher-conflict masking (--diagnostic-conflict-mask) and its rate-matched control ----
+    // (`l2_b5_shadow_trace.md`'s follow-up fix experiment.) At every
+    // position where `wdl_target` is present and `(score - eval_teacher) *
+    // (score - wdl_target) < 0` (the prediction sits strictly between the
+    // two teachers -- see `ConflictMaskLayer`'s doc comment for why this
+    // sign check, not gradient projection, is the correct and exact
+    // mechanism), stops the targeted layer(s)' update for that position
+    // only -- the ordinary forward/backward pass still runs unchanged, only
+    // that layer's own Adam-applied delta becomes zero. `None` (default)
+    // leaves `train_position` byte-identical to today.
+    pub diagnostic_conflict_mask: Option<ConflictMaskLayer>,
+    // Rate-matched control: masks FT at a *fixed, exact count* of positions
+    // per epoch, chosen independent of the teacher-conflict signal (a
+    // seeded, unbiased "exactly K of N" streaming selection -- see
+    // `Trainer::rate_matched_should_mask`), so any improvement over Control
+    // that Conflict-mask-FT shows can be checked against "did masking a
+    // random subset of the same size do just as well" (simple training-
+    // volume reduction) before crediting the teacher-conflict signal
+    // itself. `diagnostic_rate_matched_mask_count == 0` (default) is off;
+    // mutually exclusive with `diagnostic_conflict_mask` in practice (both
+    // could technically be set, but no experiment in this investigation
+    // does that).
+    pub diagnostic_rate_matched_mask_count: u64,
+    pub diagnostic_rate_matched_mask_total: u64,
+    pub diagnostic_rate_matched_mask_seed: u64,
+    rate_matched_remaining_needed: u64,
+    rate_matched_remaining_pool: u64,
+    rate_matched_rng: Lcg,
+    /// Positions this epoch where the active masking mechanism (conflict-
+    /// based or rate-matched) actually zeroed a targeted layer's gradient.
+    pub masked_position_count: u64,
+    pub conflict_group: ConflictGroupStats,
+    pub nonconflict_group: ConflictGroupStats,
+    /// `(is_conflict, dead_before_ft, dead_before_l2)` for the position
+    /// currently mid-`train_position`, captured before the real Adam
+    /// update runs, consumed right after it -- carries state across the
+    /// gap since "dead after" needs the *post-update* weights.
+    pending_conflict_dead_before: Option<(bool, u64, u64)>,
+
     searcher: Searcher,
 }
 
@@ -1182,6 +1282,17 @@ impl Trainer {
             diagnostic_shadow_trace_wdl_lambda: 0.0,
             diagnostic_shadow_trace_probe_boards: Vec::new(),
             shadow_trace_records: Vec::new(),
+            diagnostic_conflict_mask: None,
+            diagnostic_rate_matched_mask_count: 0,
+            diagnostic_rate_matched_mask_total: 0,
+            diagnostic_rate_matched_mask_seed: 0,
+            rate_matched_remaining_needed: 0,
+            rate_matched_remaining_pool: 0,
+            rate_matched_rng: Lcg(0),
+            masked_position_count: 0,
+            conflict_group: ConflictGroupStats::default(),
+            nonconflict_group: ConflictGroupStats::default(),
+            pending_conflict_dead_before: None,
             searcher: Searcher::new(tt),
         }
     }
@@ -2211,6 +2322,70 @@ impl Trainer {
             }
         }
 
+        // `--diagnostic-conflict-mask`/`--diagnostic-rate-matched-mask-*`:
+        // stop the targeted layer(s)' update for this position only, either
+        // because the prediction sits between the two teachers (real
+        // signal) or because a seeded, conflict-independent draw selected
+        // this position (rate-matched control) -- see `ConflictMaskLayer`'s
+        // and `Trainer::rate_matched_should_mask`'s doc comments. Tracked
+        // per group (conflict / non-conflict) regardless of which
+        // mechanism (if any) is actually active this run, so the analysis
+        // can confirm the masked positions are the dangerous ones -- not
+        // just wherever the RNG happened to land.
+        let eligible = wdl_target.is_some();
+        if eligible {
+            let wdl_target = wdl_target.expect("eligible checked wdl_target.is_some()");
+            let cp_residual = (score - eval_teacher) as f64;
+            let wdl_residual = (score - wdl_target) as f64;
+            let is_conflict = cp_residual * wdl_residual < 0.0;
+
+            let (mask_ft, mask_l2) = match self.diagnostic_conflict_mask {
+                Some(ConflictMaskLayer::Ft) => (is_conflict, false),
+                Some(ConflictMaskLayer::FtAndL2) => (is_conflict, is_conflict),
+                None if self.diagnostic_rate_matched_mask_count > 0 => {
+                    (self.rate_matched_should_mask(), false)
+                }
+                None => (false, false),
+            };
+
+            let dead_before_ft = acc_us
+                .iter()
+                .chain(acc_them.iter())
+                .filter(|&&x| x.clamp(0.0, 127.0) == 0.0)
+                .count() as u64;
+            let dead_before_l2 = l2_acc.iter().filter(|&&x| x <= 0.0).count() as u64;
+
+            let group = if is_conflict {
+                &mut self.conflict_group
+            } else {
+                &mut self.nonconflict_group
+            };
+            group.count += 1;
+            group.cp_residual_abs_sum += cp_residual.abs();
+            group.cp_residual_abs_sq_sum += cp_residual * cp_residual;
+            group.wdl_residual_abs_sum += wdl_residual.abs();
+            group.wdl_residual_abs_sq_sum += wdl_residual * wdl_residual;
+            group.ft_grad_norm_sum += ft_grad_norm;
+            group.ft_grad_norm_sq_sum += ft_grad_norm * ft_grad_norm;
+            group.l2_grad_norm_sum += l2_grad_norm;
+            group.l2_grad_norm_sq_sum += l2_grad_norm * l2_grad_norm;
+
+            if mask_ft {
+                d_ft.iter_mut().for_each(|x| *x = 0.0);
+                d_bias.iter_mut().for_each(|x| *x = 0.0);
+            }
+            if mask_l2 {
+                d_l2.iter_mut().for_each(|x| *x = 0.0);
+                d_l2_bias.iter_mut().for_each(|x| *x = 0.0);
+            }
+            if mask_ft || mask_l2 {
+                self.masked_position_count += 1;
+            }
+            self.pending_conflict_dead_before = Some((is_conflict, dead_before_ft, dead_before_l2));
+        } else {
+            self.pending_conflict_dead_before = None;
+        }
+
         // ── Adam update ───────────────────────────────────────────────────────
 
         self.weights.step += 1;
@@ -2349,6 +2524,32 @@ impl Trainer {
                 pending.record.position_index
             );
             self.shadow_trace_records.push(pending.record);
+        }
+
+        // Finalize `--diagnostic-conflict-mask`'s "new dead" tracking now
+        // that the real FT+L2 Adam updates above have actually run (masked
+        // or not): re-evaluate this same board's own dead-unit state under
+        // the post-update weights and compare against the pre-update state
+        // captured earlier this call.
+        if let Some((is_conflict, dead_before_ft, dead_before_l2)) =
+            self.pending_conflict_dead_before.take()
+        {
+            let dead_after_ft = ft_dead_count(&self.weights.ft, &self.weights.ft_bias, board);
+            let dead_after_l2 = l2_state_for_board(
+                &self.weights.ft,
+                &self.weights.ft_bias,
+                &self.weights.l2,
+                &self.weights.l2_bias,
+                board,
+            )
+            .0 as u64;
+            let group = if is_conflict {
+                &mut self.conflict_group
+            } else {
+                &mut self.nonconflict_group
+            };
+            group.new_dead_ft_sum += dead_after_ft.saturating_sub(dead_before_ft);
+            group.new_dead_l2_sum += dead_after_l2.saturating_sub(dead_before_l2);
         }
 
         let (out_update_sq, out_bias_delta) = if out_frozen {
@@ -2671,6 +2872,47 @@ impl Trainer {
         self.sample_grad_prev_d_l2_acc = None;
         self.sample_grad_running_mean_d_l2_acc = [0.0; L2];
         self.sample_grad_running_count = 0;
+        self.shadow_trace_records.clear();
+        self.masked_position_count = 0;
+        self.conflict_group = ConflictGroupStats::default();
+        self.nonconflict_group = ConflictGroupStats::default();
+        // Re-seeded identically every epoch: the *pattern* of which
+        // eligibility-index gets selected is reproducible epoch to epoch,
+        // even though the board actually occupying that index differs
+        // (per-epoch `--shuffle-seed` reordering) -- see
+        // `Trainer::rate_matched_should_mask`'s doc comment.
+        self.rate_matched_remaining_needed = self.diagnostic_rate_matched_mask_count;
+        self.rate_matched_remaining_pool = self.diagnostic_rate_matched_mask_total;
+        self.rate_matched_rng = Lcg(self.diagnostic_rate_matched_mask_seed ^ 0xA5A5_5A5A_1234_5678);
+    }
+
+    /// Exact "K of N" unbiased streaming selection: decides, causally and
+    /// without knowing future positions, whether *this* eligible position
+    /// (the next one in encounter order) is one of the
+    /// `diagnostic_rate_matched_mask_count` positions to mask out of
+    /// `diagnostic_rate_matched_mask_total` total -- the standard
+    /// online algorithm for sampling exactly K of a stream of N known
+    /// length: include with probability `remaining_needed/remaining_pool`,
+    /// which guarantees exactly K inclusions by the time the pool is
+    /// exhausted, and spreads selections roughly evenly across the stream
+    /// (no periodic or boundary-clustered bias) because each remaining
+    /// item has equal inclusion probability at every step. Never reads
+    /// `score`/`eval_teacher`/`wdl_target` -- by construction, independent
+    /// of the teacher-conflict signal.
+    fn rate_matched_should_mask(&mut self) -> bool {
+        if self.rate_matched_remaining_pool == 0 {
+            return false;
+        }
+        let r = self.rate_matched_rng.next_u64() as f64 / u64::MAX as f64;
+        let threshold =
+            self.rate_matched_remaining_needed as f64 / self.rate_matched_remaining_pool as f64;
+        let select = r < threshold;
+        if select {
+            self.rate_matched_remaining_needed =
+                self.rate_matched_remaining_needed.saturating_sub(1);
+        }
+        self.rate_matched_remaining_pool -= 1;
+        select
     }
 }
 
@@ -3002,6 +3244,17 @@ fn ft_dead_mask(ft: &[f32], ft_bias: &[f32], board: &Board) -> Vec<bool> {
         .chain(acc_them.iter())
         .map(|&x| x.clamp(0.0, 127.0) == 0.0)
         .collect()
+}
+
+/// FT dead-unit count (`== 0.0`, `2*L1` total) for one board -- same
+/// computation as `ft_dead_mask` but returns just the count, for callers
+/// (`--diagnostic-conflict-mask`'s "new dead" tracking) that don't need
+/// the per-unit breakdown.
+fn ft_dead_count(ft: &[f32], ft_bias: &[f32], board: &Board) -> u64 {
+    ft_dead_mask(ft, ft_bias, board)
+        .iter()
+        .filter(|&&d| d)
+        .count() as u64
 }
 
 /// L2 dead-neuron count and weighted-input sum for one probe board, under
@@ -4687,6 +4940,192 @@ mod tests {
                 + record.blend_alive_linpred_alive,
             record.n_alive_at_anchor
         );
+    }
+
+    #[test]
+    fn conflict_mask_unset_is_byte_identical_to_no_mask() {
+        let board = Board::startpos();
+        let teacher = 0.7 * 40.0 + 0.3 * (-120.0);
+
+        let mut plain = Trainer::new(1, 0.5);
+        let mut masked = Trainer::new(1, 0.5); // diagnostic_conflict_mask left None
+        for _ in 0..5 {
+            plain.train_position(
+                &board,
+                teacher,
+                1.0,
+                40.0,
+                Some(-120.0),
+                0,
+                GameResult::Unknown,
+            );
+            masked.train_position(
+                &board,
+                teacher,
+                1.0,
+                40.0,
+                Some(-120.0),
+                0,
+                GameResult::Unknown,
+            );
+        }
+        assert_eq!(
+            plain.weights.snapshot_params(),
+            masked.weights.snapshot_params()
+        );
+        assert_eq!(masked.masked_position_count, 0);
+    }
+
+    #[test]
+    fn conflict_mask_ft_zeroes_ft_update_only_at_a_guaranteed_conflicting_position() {
+        // `eval_teacher` far below and `wdl_target` far above any realistic
+        // `score` guarantees (score-eval_teacher) > 0 and
+        // (score-wdl_target) < 0 regardless of the actual seeded-init
+        // score -- a deterministic way to force the conflict branch
+        // without needing to know `score` in advance.
+        let mut control = Trainer::new(1, 0.5);
+        let mut masked = Trainer::new(1, 0.5);
+        masked.diagnostic_conflict_mask = Some(ConflictMaskLayer::Ft);
+        let board = Board::startpos();
+        let eval_teacher = -1.0e9;
+        let wdl_target = 1.0e9;
+        let teacher = 0.5 * eval_teacher + 0.5 * wdl_target; // irrelevant to the mask decision
+
+        control.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+        masked.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+
+        // FT untouched (zero update applied); L2/out still move normally.
+        assert_eq!(masked.weights.ft, Trainer::new(1, 0.5).weights.ft);
+        assert_eq!(masked.weights.ft_bias, Trainer::new(1, 0.5).weights.ft_bias);
+        assert_eq!(masked.weights.l2, control.weights.l2);
+        assert_eq!(masked.weights.out, control.weights.out);
+        assert_eq!(masked.masked_position_count, 1);
+        assert_eq!(masked.conflict_group.count, 1);
+        assert_eq!(masked.nonconflict_group.count, 0);
+    }
+
+    #[test]
+    fn conflict_mask_ft_and_l2_zeroes_both_at_a_guaranteed_conflicting_position() {
+        let mut control = Trainer::new(1, 0.5);
+        let mut masked = Trainer::new(1, 0.5);
+        masked.diagnostic_conflict_mask = Some(ConflictMaskLayer::FtAndL2);
+        let board = Board::startpos();
+        let eval_teacher = -1.0e9;
+        let wdl_target = 1.0e9;
+        let teacher = 0.5 * eval_teacher + 0.5 * wdl_target;
+
+        control.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+        masked.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+
+        let fresh = Trainer::new(1, 0.5);
+        assert_eq!(masked.weights.ft, fresh.weights.ft);
+        assert_eq!(masked.weights.l2, fresh.weights.l2);
+        // Output still updates normally -- only FT/L2 are ever masked.
+        assert_eq!(masked.weights.out, control.weights.out);
+    }
+
+    #[test]
+    fn conflict_mask_ft_passes_through_unchanged_at_a_guaranteed_nonconflicting_position() {
+        // Both teachers far below any realistic score: both residuals
+        // positive, no conflict, guaranteed regardless of actual score.
+        let mut control = Trainer::new(1, 0.5);
+        let mut masked = Trainer::new(1, 0.5);
+        masked.diagnostic_conflict_mask = Some(ConflictMaskLayer::Ft);
+        let board = Board::startpos();
+        let eval_teacher = -1.0e9;
+        let wdl_target = -2.0e9;
+        let teacher = 0.5 * eval_teacher + 0.5 * wdl_target;
+
+        control.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+        masked.train_position(
+            &board,
+            teacher,
+            1.0,
+            eval_teacher,
+            Some(wdl_target),
+            0,
+            GameResult::Unknown,
+        );
+
+        assert_eq!(
+            control.weights.snapshot_params(),
+            masked.weights.snapshot_params()
+        );
+        assert_eq!(masked.masked_position_count, 0);
+        assert_eq!(masked.conflict_group.count, 0);
+        assert_eq!(masked.nonconflict_group.count, 1);
+    }
+
+    #[test]
+    fn rate_matched_mask_selects_exactly_k_of_n_and_is_deterministic() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_rate_matched_mask_count = 17;
+        trainer.diagnostic_rate_matched_mask_total = 200;
+        trainer.diagnostic_rate_matched_mask_seed = 42;
+        trainer.rate_matched_remaining_needed = trainer.diagnostic_rate_matched_mask_count;
+        trainer.rate_matched_remaining_pool = trainer.diagnostic_rate_matched_mask_total;
+        trainer.rate_matched_rng =
+            Lcg(trainer.diagnostic_rate_matched_mask_seed ^ 0xA5A5_5A5A_1234_5678);
+
+        let selected: Vec<bool> = (0..200)
+            .map(|_| trainer.rate_matched_should_mask())
+            .collect();
+        assert_eq!(selected.iter().filter(|&&s| s).count(), 17);
+        // Calling again past the pool never selects (pool exhausted).
+        assert!(!trainer.rate_matched_should_mask());
+
+        // Same seed/count/total reproduces the identical selection.
+        let mut again = Trainer::new(1, 0.5);
+        again.diagnostic_rate_matched_mask_count = 17;
+        again.diagnostic_rate_matched_mask_total = 200;
+        again.diagnostic_rate_matched_mask_seed = 42;
+        again.rate_matched_remaining_needed = again.diagnostic_rate_matched_mask_count;
+        again.rate_matched_remaining_pool = again.diagnostic_rate_matched_mask_total;
+        again.rate_matched_rng =
+            Lcg(again.diagnostic_rate_matched_mask_seed ^ 0xA5A5_5A5A_1234_5678);
+        let selected_again: Vec<bool> =
+            (0..200).map(|_| again.rate_matched_should_mask()).collect();
+        assert_eq!(selected, selected_again);
     }
 
     #[test]

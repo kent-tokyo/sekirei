@@ -36,7 +36,7 @@ use csa::parse_csa;
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
-use trainer::{FreezeLayer, LrSchedule, ReplayComponent, Trainer};
+use trainer::{ConflictMaskLayer, FreezeLayer, LrSchedule, ReplayComponent, Trainer};
 
 // ---- CLI argument parsing ----
 
@@ -161,9 +161,19 @@ struct Args {
     diagnostic_shadow_trace_from_position: u64, // --diagnostic-shadow-trace-from-position
     diagnostic_shadow_trace_until_position: u64, // --diagnostic-shadow-trace-until-position
     diagnostic_shadow_trace_probe_set: Option<PathBuf>, // --diagnostic-shadow-trace-probe-set
-    checkpoint_dir: Option<PathBuf>,            // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>,        // --teacher-cache
-    reuse_teacher_cache: bool,                  // --reuse-teacher-cache
+    // Teacher-conflict masking (`l2_b5_shadow_trace.md`'s fix-experiment
+    // follow-up): see `Trainer::diagnostic_conflict_mask`'s doc comment.
+    // The rate-matched control's `count`/`total`/`seed` are normally
+    // filled in from a prior `diagnostic_conflict_mask` run's own
+    // `.meta.json` (`masked_position_count`/`wdl_component_count`), not
+    // computed by this run itself.
+    diagnostic_conflict_mask: Option<ConflictMaskLayer>, // --diagnostic-conflict-mask <ft|ft-l2>
+    diagnostic_rate_matched_mask_count: u64,             // --diagnostic-rate-matched-mask-count
+    diagnostic_rate_matched_mask_total: u64,             // --diagnostic-rate-matched-mask-total
+    diagnostic_rate_matched_mask_seed: u64,              // --diagnostic-rate-matched-mask-seed
+    checkpoint_dir: Option<PathBuf>,                     // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>,                 // --teacher-cache
+    reuse_teacher_cache: bool,                           // --reuse-teacher-cache
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
     lr: f32,                 // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
@@ -275,6 +285,10 @@ fn parse_args() -> Result<Args, String> {
     let mut diagnostic_shadow_trace_from_position = 0u64;
     let mut diagnostic_shadow_trace_until_position = 0u64;
     let mut diagnostic_shadow_trace_probe_set: Option<PathBuf> = None;
+    let mut diagnostic_conflict_mask: Option<ConflictMaskLayer> = None;
+    let mut diagnostic_rate_matched_mask_count = 0u64;
+    let mut diagnostic_rate_matched_mask_total = 0u64;
+    let mut diagnostic_rate_matched_mask_seed = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -580,6 +594,30 @@ fn parse_args() -> Result<Args, String> {
                     diagnostic_shadow_trace_probe_set = Some(PathBuf::from(s));
                 }
             }
+            "--diagnostic-conflict-mask" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    diagnostic_conflict_mask = ConflictMaskLayer::parse(s);
+                }
+            }
+            "--diagnostic-rate-matched-mask-count" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_rate_matched_mask_count = v;
+                }
+            }
+            "--diagnostic-rate-matched-mask-total" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_rate_matched_mask_total = v;
+                }
+            }
+            "--diagnostic-rate-matched-mask-seed" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_rate_matched_mask_seed = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -725,6 +763,10 @@ fn parse_args() -> Result<Args, String> {
         diagnostic_shadow_trace_from_position,
         diagnostic_shadow_trace_until_position,
         diagnostic_shadow_trace_probe_set,
+        diagnostic_conflict_mask,
+        diagnostic_rate_matched_mask_count,
+        diagnostic_rate_matched_mask_total,
+        diagnostic_rate_matched_mask_seed,
     })
 }
 
@@ -958,6 +1000,25 @@ fn build_diag(
         out_grad_norm_p99: op[1],
         out_grad_norm_after_mean,
         out_grad_norm_after_std,
+        masked_position_count: trainer.masked_position_count,
+        eligible_position_count: trainer.wdl_component_count,
+        conflict_group: diagnostics::build_conflict_group_summary(&trainer.conflict_group),
+        nonconflict_group: diagnostics::build_conflict_group_summary(&trainer.nonconflict_group),
+        ft_dead_neurons: diagnostics::l2_dead_neurons(
+            &trainer.ft_zero_count,
+            trainer.l2_sample_count,
+        ),
+        ft_activation_frequency_mean: {
+            let f = diagnostics::l2_activation_frequency_per_neuron(
+                &trainer.ft_zero_count,
+                trainer.l2_sample_count,
+            );
+            if f.is_empty() {
+                0.0
+            } else {
+                f.iter().sum::<f32>() / f.len() as f32
+            }
+        },
     }
 }
 
@@ -1319,6 +1380,23 @@ fn save_checkpoint_meta(
         "diagnostic_shadow_trace_from_position": args.diagnostic_shadow_trace_from_position,
         "diagnostic_shadow_trace_until_position": args.diagnostic_shadow_trace_until_position,
         "diagnostic_shadow_trace_probe_set": args.diagnostic_shadow_trace_probe_set.as_ref().map(|p| p.display().to_string()),
+        // `null` (default) means teacher-conflict masking never ran this
+        // epoch -- see `Trainer::diagnostic_conflict_mask`'s doc comment.
+        // Deliberately not called "pcgrad" -- see `ConflictMaskLayer`'s
+        // doc comment for why per-position PCGrad-style projection
+        // degenerates to this same masking outcome.
+        "diagnostic_conflict_mask": args.diagnostic_conflict_mask.map(|c| c.as_str()),
+        // `0` (default) means the rate-matched control mechanism never ran
+        // this epoch.
+        "diagnostic_rate_matched_mask_count": args.diagnostic_rate_matched_mask_count,
+        "diagnostic_rate_matched_mask_total": args.diagnostic_rate_matched_mask_total,
+        "diagnostic_rate_matched_mask_seed": args.diagnostic_rate_matched_mask_seed,
+        "masked_position_count": diag.masked_position_count,
+        "eligible_position_count": diag.eligible_position_count,
+        "conflict_group": diag.conflict_group,
+        "nonconflict_group": diag.nonconflict_group,
+        "ft_dead_neurons": diag.ft_dead_neurons,
+        "ft_activation_frequency_mean": diag.ft_activation_frequency_mean,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1483,6 +1561,18 @@ fn print_usage() {
     );
     eprintln!(
         "  --diagnostic-shadow-trace-until-position <n>  Paired with --diagnostic-shadow-trace-probe-set, see above. Default: 0 (off, no window)"
+    );
+    eprintln!(
+        "  --diagnostic-conflict-mask <ft|ft-l2>  CSA path only: stop the named layer(s)' update at positions where (score-eval_teacher)*(score-wdl_target) < 0 (prediction sits between the two teachers). Not PCGrad/projection -- per-position CP/WDL gradients are always exact scalar multiples, so projection degenerates to this same masking. Default: unset (off)"
+    );
+    eprintln!(
+        "  --diagnostic-rate-matched-mask-count <n>  Rate-matched control: mask FT at exactly this many positions per epoch, chosen independent of teacher conflict (seeded, unbiased selection). Normally set from a prior --diagnostic-conflict-mask run's own masked_position_count. Default: 0 (off)"
+    );
+    eprintln!(
+        "  --diagnostic-rate-matched-mask-total <n>  Paired with --diagnostic-rate-matched-mask-count: total eligible (wdl_target-having) positions per epoch, from the same prior run's eligible_position_count. Default: 0"
+    );
+    eprintln!(
+        "  --diagnostic-rate-matched-mask-seed <n>  Paired with --diagnostic-rate-matched-mask-count: seed for the position-selection RNG. Default: 0"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1670,6 +1760,10 @@ fn main() {
                 Err(e) => eprintln!("  shadow-trace probe set load failed: {e}"),
             }
         }
+        trainer.diagnostic_conflict_mask = args.diagnostic_conflict_mask;
+        trainer.diagnostic_rate_matched_mask_count = args.diagnostic_rate_matched_mask_count;
+        trainer.diagnostic_rate_matched_mask_total = args.diagnostic_rate_matched_mask_total;
+        trainer.diagnostic_rate_matched_mask_seed = args.diagnostic_rate_matched_mask_seed;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -2053,6 +2147,10 @@ fn main() {
             Err(e) => eprintln!("  shadow-trace probe set load failed: {e}"),
         }
     }
+    trainer.diagnostic_conflict_mask = args.diagnostic_conflict_mask;
+    trainer.diagnostic_rate_matched_mask_count = args.diagnostic_rate_matched_mask_count;
+    trainer.diagnostic_rate_matched_mask_total = args.diagnostic_rate_matched_mask_total;
+    trainer.diagnostic_rate_matched_mask_seed = args.diagnostic_rate_matched_mask_seed;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)

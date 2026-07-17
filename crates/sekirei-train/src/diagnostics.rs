@@ -9,6 +9,8 @@
 
 use sekirei_core::nnue::NnueWeights;
 
+use crate::trainer::ConflictGroupStats;
+
 #[derive(Debug, Clone)]
 pub struct EpochDiagnostics {
     /// Whole-parameter-vector L2 distance from the previous epoch's
@@ -119,6 +121,102 @@ pub struct EpochDiagnostics {
     /// unset or never triggers.
     pub out_grad_norm_after_mean: f64,
     pub out_grad_norm_after_std: f64,
+    /// `--diagnostic-conflict-mask`/`--diagnostic-rate-matched-mask-*`:
+    /// positions this epoch where the active mechanism (if any) actually
+    /// zeroed a targeted layer's gradient, and the total eligible
+    /// (`wdl_target`-having) position count -- the `N` a rate-matched
+    /// control run's `--diagnostic-rate-matched-mask-total` should be set
+    /// to, read from a prior `--diagnostic-conflict-mask` run's own output.
+    pub masked_position_count: u64,
+    pub eligible_position_count: u64,
+    /// FT's own dead-neuron count/activation-frequency, same computation
+    /// as `l2_dead_neurons`/`l2_activation_frequency_mean` (the underlying
+    /// helpers are generic over the zero-count array, reused as-is) but
+    /// over `Trainer::ft_zero_count` -- "dead" here means neither
+    /// perspective fired this neuron for *any* sample all epoch, distinct
+    /// from `ft_active_ratio` (an "ever fired at least once" set-membership
+    /// measure) and from `quantized_ft_zero_ratio` (raw weight magnitude
+    /// rounding to zero after quantization, not activation state).
+    pub ft_dead_neurons: usize,
+    pub ft_activation_frequency_mean: f32,
+    /// Per-position breakdown split by whether `(score - eval_teacher) *
+    /// (score - wdl_target) < 0` this position, regardless of whether
+    /// masking was even active -- lets the analysis confirm the masked
+    /// positions are the dangerous ones. `conflict_group.count` is the
+    /// teacher-conflict fire count (denominator `eligible_position_count`
+    /// gives the fire *rate*).
+    pub conflict_group: ConflictGroupSummary,
+    pub nonconflict_group: ConflictGroupSummary,
+}
+
+/// Derived means/stds for one `ConflictGroupStats` accumulator -- see
+/// `EpochDiagnostics::conflict_group`'s doc comment.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ConflictGroupSummary {
+    pub count: u64,
+    pub cp_residual_abs_mean: f64,
+    pub cp_residual_abs_std: f64,
+    pub wdl_residual_abs_mean: f64,
+    pub wdl_residual_abs_std: f64,
+    /// Pre-mask gradient norm mean/std -- what *would* have been applied
+    /// absent masking. The group's actual applied-update norm is already
+    /// covered by `EpochDiagnostics::ft_update_norm_mean`/`l2_...` (zero at
+    /// masked positions by construction), not duplicated here.
+    pub ft_grad_norm_mean: f64,
+    pub ft_grad_norm_std: f64,
+    pub l2_grad_norm_mean: f64,
+    pub l2_grad_norm_std: f64,
+    /// Mean count of this position's *own* board's FT/L2 units newly
+    /// crossing into the dead zone from this position's own update (not a
+    /// fixed external probe set) -- per-position mean, not a total.
+    pub new_dead_ft_mean: f64,
+    pub new_dead_l2_mean: f64,
+}
+
+pub fn build_conflict_group_summary(stats: &ConflictGroupStats) -> ConflictGroupSummary {
+    let (cp_residual_abs_mean, cp_residual_abs_std) = mean_std(
+        stats.cp_residual_abs_sum,
+        stats.cp_residual_abs_sq_sum,
+        stats.count,
+    );
+    let (wdl_residual_abs_mean, wdl_residual_abs_std) = mean_std(
+        stats.wdl_residual_abs_sum,
+        stats.wdl_residual_abs_sq_sum,
+        stats.count,
+    );
+    let (ft_grad_norm_mean, ft_grad_norm_std) = mean_std(
+        stats.ft_grad_norm_sum,
+        stats.ft_grad_norm_sq_sum,
+        stats.count,
+    );
+    let (l2_grad_norm_mean, l2_grad_norm_std) = mean_std(
+        stats.l2_grad_norm_sum,
+        stats.l2_grad_norm_sq_sum,
+        stats.count,
+    );
+    let new_dead_ft_mean = if stats.count > 0 {
+        stats.new_dead_ft_sum as f64 / stats.count as f64
+    } else {
+        0.0
+    };
+    let new_dead_l2_mean = if stats.count > 0 {
+        stats.new_dead_l2_sum as f64 / stats.count as f64
+    } else {
+        0.0
+    };
+    ConflictGroupSummary {
+        count: stats.count,
+        cp_residual_abs_mean,
+        cp_residual_abs_std,
+        wdl_residual_abs_mean,
+        wdl_residual_abs_std,
+        ft_grad_norm_mean,
+        ft_grad_norm_std,
+        l2_grad_norm_mean,
+        l2_grad_norm_std,
+        new_dead_ft_mean,
+        new_dead_l2_mean,
+    }
 }
 
 /// One layer's (L2 or FT) per-neuron state at one `--trace-positions`
