@@ -757,6 +757,10 @@ pub struct Trainer {
     // above.
     pub cache_hits: u64,
     pub cache_misses: u64,
+    // Cumulative wall-clock time spent inside real (cache-miss) teacher
+    // search this epoch -- lets a caller separate "search-bound" from
+    // "training-bound" wall time without a second profiling pass.
+    pub search_time_ns: u64,
 
     // ---- Epoch-1 batch-level trace (--trace-positions) ----
     // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
@@ -1192,6 +1196,7 @@ impl Trainer {
             wdl_component_count: 0,
             cache_hits: 0,
             cache_misses: 0,
+            search_time_ns: 0,
             trace_positions: std::collections::HashSet::new(),
             trace_snapshots: Vec::new(),
             weight_snapshot_trace: false,
@@ -1476,7 +1481,9 @@ impl Trainer {
                 soft_limit: None,
                 multi_pv: 1,
             };
+            let search_start = std::time::Instant::now();
             let cp = self.searcher.search(board, config).score;
+            self.search_time_ns += search_start.elapsed().as_nanos() as u64;
             cache.insert(sfen, cp);
             cp
         };
@@ -2802,6 +2809,7 @@ impl Trainer {
         self.out_grad_norm_after_sum_sq = 0.0;
         self.cache_hits = 0;
         self.cache_misses = 0;
+        self.search_time_ns = 0;
         self.trace_snapshots.clear();
         self.weight_snapshots.clear();
         self.l2_weighted_input_values

@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use sekirei_core::board::Board;
 use sekirei_core::nnue::save_weights;
@@ -812,6 +813,19 @@ fn split_hash(keys: impl Iterator<Item = String>) -> u64 {
     keys.fold(0u64, |acc, k| acc.wrapping_add(positions::sfen_hash(&k, 0)))
 }
 
+/// Fingerprint of a saved checkpoint's raw weight bytes -- same FNV-1a as
+/// `positions::sfen_hash`, applied directly to bytes instead of a `&str`
+/// since weight files aren't valid UTF-8. Re-reading the just-written file
+/// doubles as a write-integrity check.
+fn checkpoint_hash(bytes: &[u8]) -> u64 {
+    let mut h = 14695981039346656037u64;
+    for b in bytes {
+        h ^= *b as u64;
+        h = h.wrapping_mul(1099511628211);
+    }
+    h
+}
+
 /// Folds `Trainer::eval_game` over every game in `valid_idxs` -- the CSA
 /// path's validation pass, shared by the per-epoch loop and `--eval-only`
 /// (which runs it once against an externally loaded checkpoint instead of
@@ -1176,8 +1190,10 @@ fn save_checkpoint_meta(
     diag: &diagnostics::EpochDiagnostics,
     git_commit: Option<&str>,
     dataset_hash: u64,
+    checkpoint_hash: u64,
     cache_hits: Option<u64>,
     cache_misses: Option<u64>,
+    search_time_ns: Option<u64>,
     // `None` on the positions path, which has no per-game WDL target to
     // compare against -- only the CSA path's `eval_game` produces this.
     valid_stats: Option<&trainer::ValidStats>,
@@ -1272,8 +1288,13 @@ fn save_checkpoint_meta(
         ),
         "git_commit": git_commit,
         "dataset_hash": dataset_hash,
+        // FNV-1a over the just-saved checkpoint's raw weight bytes -- lets a
+        // later gate/selection step verify a checkpoint file is exactly the
+        // one this metadata describes.
+        "checkpoint_hash": format!("{checkpoint_hash:016x}"),
         "cache_hits": cache_hits,
         "cache_misses": cache_misses,
+        "search_time_secs": search_time_ns.map(|ns| ns as f64 / 1e9),
         "param_update_norm": diag.param_update_norm,
         "ft_active_ratio": diag.ft_active_ratio,
         "ft_saturation_ratio": diag.ft_saturation_ratio,
@@ -1714,7 +1735,7 @@ fn main() {
         // Load teacher cache if requested
         let mut combined_cache: HashMap<String, i32> = if args.reuse_teacher_cache {
             match &args.teacher_cache_path {
-                Some(p) => teacher_cache::load(p),
+                Some(p) => teacher_cache::load(p, args.label_depth),
                 None => {
                     eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                     std::process::exit(1);
@@ -1907,8 +1928,15 @@ fn main() {
 
             let checkpoint = checkpoint_dir.join(format!("{output_stem}.epoch{epoch}.bin"));
             let w = trainer.weights.to_nnue_weights();
+            let mut ckpt_hash = 0u64;
             match sekirei_core::nnue::save_weights(&w, &checkpoint) {
-                Ok(_) => eprintln!("  checkpoint → {:?}", checkpoint),
+                Ok(_) => {
+                    eprintln!("  checkpoint → {:?}", checkpoint);
+                    match fs::read(&checkpoint) {
+                        Ok(bytes) => ckpt_hash = checkpoint_hash(&bytes),
+                        Err(e) => eprintln!("  checkpoint hash read failed: {e}"),
+                    }
+                }
                 Err(e) => eprintln!("  checkpoint save failed: {e}"),
             }
 
@@ -1949,8 +1977,10 @@ fn main() {
                 &diag,
                 git_commit.as_deref(),
                 ds_hash,
+                ckpt_hash,
                 Some(cache_hits_epoch),
                 Some(cache_misses_epoch),
+                None, // positions path doesn't route through position_teacher_components
                 None, // positions path has no per-game WDL target
             ) {
                 eprintln!("  metadata save failed: {e}");
@@ -2176,7 +2206,7 @@ fn main() {
         trainer.weights = trainer::TrainWeights::from_nnue_weights(&nn);
         let mut cache: HashMap<String, i32> = if args.reuse_teacher_cache {
             match &args.teacher_cache_path {
-                Some(p) => teacher_cache::load(p),
+                Some(p) => teacher_cache::load(p, args.label_depth),
                 None => {
                     eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                     std::process::exit(1);
@@ -2231,7 +2261,7 @@ fn main() {
     // already had this via teacher_cache::load/write).
     let mut teacher_cache: HashMap<String, i32> = if args.reuse_teacher_cache {
         match &args.teacher_cache_path {
-            Some(p) => teacher_cache::load(p),
+            Some(p) => teacher_cache::load(p, args.label_depth),
             None => {
                 eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                 std::process::exit(1);
@@ -2263,6 +2293,9 @@ fn main() {
             train_idxs.clone()
         };
 
+        let train_phase_start = Instant::now();
+        let mut last_progress = Instant::now();
+        let total_games = epoch_train_idxs.len();
         for (i, &gi) in epoch_train_idxs.iter().enumerate() {
             let game = &games[gi];
             trainer.train_game(
@@ -2280,6 +2313,27 @@ fn main() {
             );
 
             let game_num = i + 1;
+            // Time-based (not count-based) heartbeat: a count-based-only
+            // interval (see the game_num % 10_000 block below) never fires
+            // on small datasets (e.g. 337 games), leaving a run with zero
+            // visible progress for its entire duration.
+            if last_progress.elapsed() >= Duration::from_secs(5) {
+                let elapsed = train_phase_start.elapsed().as_secs_f64();
+                let pos_per_sec = if elapsed > 0.0 {
+                    trainer.total_count as f64 / elapsed
+                } else {
+                    0.0
+                };
+                eprintln!(
+                    "  progress: game {game_num}/{total_games} (idx {gi})  positions={}  elapsed={elapsed:.1}s  pos/s={pos_per_sec:.1}  cache_hits={}  cache_misses={}  searches={}  search_time={:.1}s",
+                    trainer.total_count,
+                    trainer.cache_hits,
+                    trainer.cache_misses,
+                    trainer.cache_misses,
+                    trainer.search_time_ns as f64 / 1e9,
+                );
+                last_progress = Instant::now();
+            }
             if game_num % 10_000 == 0 {
                 let loss = trainer.avg_loss();
                 eprintln!(
@@ -2301,9 +2355,12 @@ fn main() {
                 }
             }
         }
+        let train_phase_secs = train_phase_start.elapsed().as_secs_f64();
 
+        let valid_phase_start = Instant::now();
         let valid_stats =
             eval_validation_set(&mut trainer, &games, &valid_idxs, &args, &mut teacher_cache);
+        let valid_phase_secs = valid_phase_start.elapsed().as_secs_f64();
         let vloss_sum = valid_stats.loss_sum;
         let vcount = valid_stats.count;
         let valid_cp_mse = if vcount > 0 {
@@ -2397,10 +2454,18 @@ fn main() {
         );
 
         // Save checkpoint after each epoch
+        let serialize_phase_start = Instant::now();
         let checkpoint = args.output.with_extension(format!("epoch{epoch}.bin"));
         let w = trainer.weights.to_nnue_weights();
+        let mut ckpt_hash = 0u64;
         match save_weights(&w, &checkpoint) {
-            Ok(_) => eprintln!("  checkpoint saved → {:?}", checkpoint),
+            Ok(_) => {
+                eprintln!("  checkpoint saved → {:?}", checkpoint);
+                match fs::read(&checkpoint) {
+                    Ok(bytes) => ckpt_hash = checkpoint_hash(&bytes),
+                    Err(e) => eprintln!("  checkpoint hash read failed: {e}"),
+                }
+            }
             Err(e) => eprintln!("  checkpoint save failed: {e}"),
         }
 
@@ -2445,14 +2510,30 @@ fn main() {
             &diag,
             git_commit.as_deref(),
             ds_hash,
+            ckpt_hash,
             Some(trainer.cache_hits),
             Some(trainer.cache_misses),
+            Some(trainer.search_time_ns),
             Some(&valid_stats),
         ) {
             eprintln!("  metadata save failed: {e}");
         } else {
             eprintln!("  metadata → {:?}", meta_path);
         }
+        let serialize_phase_secs = serialize_phase_start.elapsed().as_secs_f64();
+
+        eprintln!(
+            "  epoch {epoch} summary: games={}  positions={}  search_time={:.1}s  train_phase={:.1}s  valid_phase={:.1}s  serialize_phase={:.1}s  epoch_total={:.1}s  cache_hits={}  cache_misses={}",
+            total_games,
+            trainer.total_count,
+            trainer.search_time_ns as f64 / 1e9,
+            train_phase_secs,
+            valid_phase_secs,
+            serialize_phase_secs,
+            train_phase_secs + valid_phase_secs + serialize_phase_secs,
+            trainer.cache_hits,
+            trainer.cache_misses,
+        );
 
         let trace_path = checkpoint.with_extension("trace.json");
         if let Err(e) = save_trace_json(&trace_path, &trainer.trace_snapshots) {
