@@ -107,6 +107,36 @@ impl LrSchedule {
     }
 }
 
+/// Which layer's own Adam update to skip under `--diagnostic-freeze-layer`
+/// (see `Trainer::diagnostic_freeze_layer`'s doc comment) -- a causal probe
+/// for `docs/experiments/l2_saturation_mechanism_p0.md`'s correlated FT+L2
+/// finding, not a training feature. Only one layer at a time is supported.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FreezeLayer {
+    Ft,
+    L2,
+    Out,
+}
+
+impl FreezeLayer {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "ft" => Some(FreezeLayer::Ft),
+            "l2" => Some(FreezeLayer::L2),
+            "out" => Some(FreezeLayer::Out),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FreezeLayer::Ft => "ft",
+            FreezeLayer::L2 => "l2",
+            FreezeLayer::Out => "out",
+        }
+    }
+}
+
 /// Computes the learning rate for `epoch` (1-indexed) against a schedule
 /// shaped for `total_epochs`. `total_epochs` is the schedule's *horizon* --
 /// how long a run the curve is shaped for -- not necessarily how many
@@ -832,6 +862,26 @@ pub struct Trainer {
     sample_grad_running_mean_d_l2_acc: [f32; L2],
     sample_grad_running_count: u64,
 
+    // ---- Freeze diagnostic (--diagnostic-freeze-layer / --diagnostic-freeze-until-position) ----
+    // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
+    // `None` (default) means no freezing -- byte-identical to this flag
+    // never having existed. When set, the named layer's own Adam update
+    // (its params *and* its `m`/`v` moments) is skipped entirely for as
+    // long as `l2_sample_count <= diagnostic_freeze_until_position` this
+    // epoch. This is NOT stop-gradient: the ordinary backward pass above
+    // already computes every layer's gradient through this layer's
+    // *current* (frozen) weight values before the freeze gate is checked,
+    // so upstream/downstream layers still receive a real gradient signal
+    // through it -- only this layer's own parameter update is discarded.
+    // A causal probe for `docs/experiments/l2_saturation_mechanism_p0.md`'s
+    // correlated FT+L2 co-movement finding (which the frozen-weights Δz
+    // decomposition there could show but not prove causally), not a
+    // training improvement. Multiple simultaneous frozen layers are not
+    // supported (single `Option`, not a set) -- not needed for the first
+    // pass at isolating which single layer's movement is necessary.
+    pub diagnostic_freeze_layer: Option<FreezeLayer>,
+    pub diagnostic_freeze_until_position: u64,
+
     searcher: Searcher,
 }
 
@@ -961,6 +1011,8 @@ impl Trainer {
             sample_grad_prev_d_l2_acc: None,
             sample_grad_running_mean_d_l2_acc: [0.0; L2],
             sample_grad_running_count: 0,
+            diagnostic_freeze_layer: None,
+            diagnostic_freeze_until_position: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1908,63 +1960,97 @@ impl Trainer {
         let t = self.weights.step;
         let lr = self.lr;
 
-        let ft_update_sq = adam_update_slice(
-            &mut self.weights.ft,
-            &mut self.weights.ft_m,
-            &mut self.weights.ft_v,
-            &mut d_ft,
-            lr,
-            t,
-        );
-        let ft_bias_update_sq = adam_update_slice(
-            &mut self.weights.ft_bias,
-            &mut self.weights.bias_m,
-            &mut self.weights.bias_v,
-            &mut d_bias,
-            lr,
-            t,
-        );
+        // Freeze gates (diagnostic only, `--diagnostic-freeze-layer`). A
+        // frozen layer's params *and* Adam `m`/`v` are left completely
+        // untouched this position -- the gradients above (`d_ft`/`d_l2`/
+        // `d_out` etc.) were already fully computed through this layer's
+        // *current* (frozen) weight values by the ordinary backward pass,
+        // so this only discards that layer's own parameter update; it does
+        // not cut the gradient path to upstream/downstream layers (see
+        // `diagnostic_freeze_layer`'s doc comment -- this is deliberately
+        // not stop-gradient).
+        let freeze_active = self.diagnostic_freeze_layer.is_some()
+            && self.l2_sample_count <= self.diagnostic_freeze_until_position;
+        let ft_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Ft);
+        let l2_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::L2);
+        let out_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Out);
+
+        let (ft_update_sq, ft_bias_update_sq) = if ft_frozen {
+            d_bias.iter_mut().for_each(|x| *x = 0.0);
+            (0.0, 0.0)
+        } else {
+            let ft_update_sq = adam_update_slice(
+                &mut self.weights.ft,
+                &mut self.weights.ft_m,
+                &mut self.weights.ft_v,
+                &mut d_ft,
+                lr,
+                t,
+            );
+            let ft_bias_update_sq = adam_update_slice(
+                &mut self.weights.ft_bias,
+                &mut self.weights.bias_m,
+                &mut self.weights.bias_v,
+                &mut d_bias,
+                lr,
+                t,
+            );
+            (ft_update_sq, ft_bias_update_sq)
+        };
         // `d_bias` now holds each FT neuron's own applied bias delta (see
         // `adam_update_slice`'s doc comment) -- exactly the per-neuron
         // trace's update-norm signal (`Trainer::ft_bias_update_sq_sum`).
+        // Zeroed above when frozen, so this correctly records "no update
+        // applied" rather than the discarded raw gradient.
         for j in 0..L1 {
             self.ft_bias_update_sq_sum[j] += (d_bias[j] as f64).powi(2);
         }
-        let l2_update_sq = adam_update_slice(
-            &mut self.weights.l2,
-            &mut self.weights.l2_m,
-            &mut self.weights.l2_v,
-            &mut d_l2,
-            lr,
-            t,
-        );
-        let l2_bias_update_sq = adam_update_slice(
-            &mut self.weights.l2_bias,
-            &mut self.weights.l2bias_m,
-            &mut self.weights.l2bias_v,
-            &mut d_l2_bias,
-            lr,
-            t,
-        );
+        let (l2_update_sq, l2_bias_update_sq) = if l2_frozen {
+            d_l2_bias.iter_mut().for_each(|x| *x = 0.0);
+            (0.0, 0.0)
+        } else {
+            let l2_update_sq = adam_update_slice(
+                &mut self.weights.l2,
+                &mut self.weights.l2_m,
+                &mut self.weights.l2_v,
+                &mut d_l2,
+                lr,
+                t,
+            );
+            let l2_bias_update_sq = adam_update_slice(
+                &mut self.weights.l2_bias,
+                &mut self.weights.l2bias_m,
+                &mut self.weights.l2bias_v,
+                &mut d_l2_bias,
+                lr,
+                t,
+            );
+            (l2_update_sq, l2_bias_update_sq)
+        };
         for o in 0..L2 {
             self.l2_bias_update_sq_sum[o] += (d_l2_bias[o] as f64).powi(2);
         }
-        let out_update_sq = adam_update_slice(
-            &mut self.weights.out,
-            &mut self.weights.out_m,
-            &mut self.weights.out_v,
-            &mut d_out,
-            lr,
-            t,
-        );
-        let out_bias_delta = adam_update_scalar(
-            &mut self.weights.out_bias,
-            &mut self.weights.obias_m,
-            &mut self.weights.obias_v,
-            d_out_bias,
-            lr,
-            t,
-        );
+        let (out_update_sq, out_bias_delta) = if out_frozen {
+            (0.0, 0.0f32)
+        } else {
+            let out_update_sq = adam_update_slice(
+                &mut self.weights.out,
+                &mut self.weights.out_m,
+                &mut self.weights.out_v,
+                &mut d_out,
+                lr,
+                t,
+            );
+            let out_bias_delta = adam_update_scalar(
+                &mut self.weights.out_bias,
+                &mut self.weights.obias_m,
+                &mut self.weights.obias_v,
+                d_out_bias,
+                lr,
+                t,
+            );
+            (out_update_sq, out_bias_delta)
+        };
 
         // Diagnostic-only: the applied update norm per layer, as opposed to
         // the gradient norm captured above -- see the `Trainer` field docs
@@ -2861,6 +2947,149 @@ mod tests {
         );
         // ...and the after-clip mean reflects the cap actually applied.
         assert!(clipped.out_grad_norm_after_sum < unclipped.out_grad_norm_after_sum);
+    }
+
+    #[test]
+    fn diagnostic_freeze_layer_unset_is_byte_identical_to_no_freeze() {
+        // Regression for the "flag omitted" no-op guarantee: setting
+        // `diagnostic_freeze_until_position` alone, with `diagnostic_freeze_layer`
+        // left at its `None` default, must never freeze anything -- the layer
+        // choice, not the position bound alone, is what activates freezing.
+        let board = Board::startpos();
+
+        let mut baseline = Trainer::new(1, 0.5);
+        baseline.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        let mut untouched = Trainer::new(1, 0.5);
+        untouched.diagnostic_freeze_until_position = 999; // layer left None
+        untouched.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_eq!(baseline.weights.ft, untouched.weights.ft);
+        assert_eq!(baseline.weights.l2, untouched.weights.l2);
+        assert_eq!(baseline.weights.out, untouched.weights.out);
+        assert_eq!(baseline.total_loss, untouched.total_loss);
+    }
+
+    #[test]
+    fn train_position_freeze_layer_l2_leaves_l2_unchanged_but_ft_and_out_still_update() {
+        // Proves both halves of the L2-freeze contract at once: the frozen
+        // layer's own params must not move, and -- critically, this is NOT
+        // stop-gradient -- FT (upstream of L2) must still receive a real
+        // gradient through L2's now-fixed weights and actually update.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::L2);
+        trainer.diagnostic_freeze_until_position = 10;
+
+        let l2_before = trainer.weights.l2.clone();
+        let l2_bias_before = trainer.weights.l2_bias.clone();
+        let ft_before = trainer.weights.ft.clone();
+        let out_before = trainer.weights.out.clone();
+
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_eq!(
+            trainer.weights.l2, l2_before,
+            "frozen L2 weights must not move"
+        );
+        assert_eq!(
+            trainer.weights.l2_bias, l2_bias_before,
+            "frozen L2 bias must not move"
+        );
+        assert_ne!(
+            trainer.weights.ft, ft_before,
+            "FT must still update -- gradient must flow through the frozen L2 weights, not be cut"
+        );
+        assert_ne!(
+            trainer.weights.out, out_before,
+            "Output must still update normally, unaffected by an L2 freeze"
+        );
+    }
+
+    #[test]
+    fn train_position_freeze_layer_ft_leaves_ft_unchanged_but_l2_and_out_still_update() {
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_until_position = 10;
+
+        let ft_before = trainer.weights.ft.clone();
+        let ft_bias_before = trainer.weights.ft_bias.clone();
+        let l2_before = trainer.weights.l2.clone();
+        let out_before = trainer.weights.out.clone();
+
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_eq!(
+            trainer.weights.ft, ft_before,
+            "frozen FT weights must not move"
+        );
+        assert_eq!(
+            trainer.weights.ft_bias, ft_bias_before,
+            "frozen FT bias must not move"
+        );
+        assert_ne!(
+            trainer.weights.l2, l2_before,
+            "L2 must still update normally, unaffected by an FT freeze"
+        );
+        assert_ne!(
+            trainer.weights.out, out_before,
+            "Output must still update normally, unaffected by an FT freeze"
+        );
+    }
+
+    #[test]
+    fn train_position_freeze_layer_out_leaves_out_unchanged_but_ft_and_l2_still_update() {
+        // The arm tied to the standing output→L2 backprop hypothesis: if Out
+        // were wrongly implemented as stop-gradient, L2/FT would see zero
+        // gradient and never move -- this proves they still do.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Out);
+        trainer.diagnostic_freeze_until_position = 10;
+
+        let out_before = trainer.weights.out.clone();
+        let out_bias_before = trainer.weights.out_bias;
+        let l2_before = trainer.weights.l2.clone();
+        let ft_before = trainer.weights.ft.clone();
+
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_eq!(
+            trainer.weights.out, out_before,
+            "frozen Output weights must not move"
+        );
+        assert_eq!(
+            trainer.weights.out_bias, out_bias_before,
+            "frozen Output bias must not move"
+        );
+        assert_ne!(
+            trainer.weights.l2, l2_before,
+            "L2 must still update -- gradient must flow through the frozen Out weights, not be cut"
+        );
+        assert_ne!(
+            trainer.weights.ft, ft_before,
+            "FT must still update -- gradient must flow all the way through, not be cut"
+        );
+    }
+
+    #[test]
+    fn diagnostic_freeze_layer_resumes_updating_once_the_position_bound_is_passed() {
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::L2);
+        trainer.diagnostic_freeze_until_position = 1; // only position 1 is frozen
+
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 1);
+        let l2_after_frozen_position = trainer.weights.l2.clone();
+
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 2);
+        assert_ne!(
+            trainer.weights.l2, l2_after_frozen_position,
+            "position 2 is past diagnostic_freeze_until_position=1, L2 must resume updating"
+        );
     }
 
     #[test]

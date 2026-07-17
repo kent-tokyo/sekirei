@@ -35,7 +35,7 @@ use csa::parse_csa;
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
-use trainer::{LrSchedule, Trainer};
+use trainer::{FreezeLayer, LrSchedule, Trainer};
 
 // ---- CLI argument parsing ----
 
@@ -112,12 +112,21 @@ struct Args {
     // offline probe can decompose Δz_L2 between two markers into FT-output-
     // movement / L2-weight-update / L2-bias-update contributions. Requires
     // `--trace-positions` to also be set (no-op otherwise). Off by default.
-    trace_weights: bool,                 // --trace-weights
-    checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>, // --teacher-cache
-    reuse_teacher_cache: bool,           // --reuse-teacher-cache
-    wdl_lambda: Option<f32>,             // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,                             // --lr (base learning rate, default 0.001)
+    trace_weights: bool, // --trace-weights
+    // Causal freeze diagnostic (`docs/experiments/l2_saturation_mechanism_p0.md`'s
+    // conditional next step): while `l2_sample_count <= diagnostic_freeze_until_position`
+    // this epoch, the named layer's own Adam update is skipped -- gradient
+    // still flows through it to the other layers as usual, see
+    // `Trainer::diagnostic_freeze_layer`'s doc comment. `None` (default) is
+    // off, byte-identical to this flag never existing. Diagnostic-only, not
+    // a training feature.
+    diagnostic_freeze_layer: Option<FreezeLayer>, // --diagnostic-freeze-layer <ft|l2|out>
+    diagnostic_freeze_until_position: u64,        // --diagnostic-freeze-until-position
+    checkpoint_dir: Option<PathBuf>,              // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>,          // --teacher-cache
+    reuse_teacher_cache: bool,                    // --reuse-teacher-cache
+    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
+    lr: f32,                 // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
     warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
@@ -211,6 +220,8 @@ fn parse_args() -> Result<Args, String> {
     let mut wdl_target_scale = 1200.0f32;
     let mut sample_grad_trace = 0u64;
     let mut trace_weights = false;
+    let mut diagnostic_freeze_layer: Option<FreezeLayer> = None;
+    let mut diagnostic_freeze_until_position = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -423,6 +434,18 @@ fn parse_args() -> Result<Args, String> {
             "--trace-weights" => {
                 trace_weights = true;
             }
+            "--diagnostic-freeze-layer" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    diagnostic_freeze_layer = FreezeLayer::parse(s);
+                }
+            }
+            "--diagnostic-freeze-until-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_freeze_until_position = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -552,6 +575,8 @@ fn parse_args() -> Result<Args, String> {
         wdl_target_scale,
         sample_grad_trace,
         trace_weights,
+        diagnostic_freeze_layer,
+        diagnostic_freeze_until_position,
     })
 }
 
@@ -1068,6 +1093,11 @@ fn save_checkpoint_meta(
         "ft_clip_norm": args.ft_clip_norm,
         "l2_clip_norm": args.l2_clip_norm,
         "out_clip_norm": args.out_clip_norm,
+        // Causal freeze diagnostic -- see `Trainer::diagnostic_freeze_layer`'s
+        // doc comment. `null`/`0` (both defaults) mean this run never froze
+        // anything, byte-identical to the flag not existing.
+        "diagnostic_freeze_layer": args.diagnostic_freeze_layer.map(|l| l.as_str()),
+        "diagnostic_freeze_until_position": args.diagnostic_freeze_until_position,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1184,6 +1214,12 @@ fn print_usage() {
     );
     eprintln!(
         "  --trace-weights         At each --trace-positions marker, also dump a full weights checkpoint (<output>.epochN.posM.bin) for offline Δz decomposition. Requires --trace-positions. Default: off"
+    );
+    eprintln!(
+        "  --diagnostic-freeze-layer <ft|l2|out>  Causal freeze probe: skip the named layer's own Adam update while l2_sample_count <= --diagnostic-freeze-until-position this epoch. Gradient still flows through it to the other layers (not stop-gradient). Diagnostic only. Default: unset (off)"
+    );
+    eprintln!(
+        "  --diagnostic-freeze-until-position <n>  Position count (since epoch start) the freeze above stays active until; no-op without --diagnostic-freeze-layer. Default: 0"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1344,6 +1380,8 @@ fn main() {
         trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
         trainer.sample_grad_trace_limit = args.sample_grad_trace;
         trainer.weight_snapshot_trace = args.trace_weights;
+        trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
+        trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1696,6 +1734,8 @@ fn main() {
     trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
     trainer.sample_grad_trace_limit = args.sample_grad_trace;
     trainer.weight_snapshot_trace = args.trace_weights;
+    trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
+    trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
