@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use sekirei_core::{
     board::Board,
     color::Color,
-    movegen::is_in_check,
+    movegen::{generate_legal_moves, is_in_check},
     nnue::{INPUT, L1, L2, NnueWeights, feature_index, hand_feature_index},
     piece::PieceKind,
     search::{SearchConfig, Searcher},
@@ -40,6 +40,12 @@ use sekirei_core::{
 
 use crate::csa::{CsaGame, GameResult};
 use crate::diagnostics;
+
+/// A single teacher-search call slower than this gets its position logged
+/// (see `position_teacher_components`) -- cheap positions never pay for
+/// the extra legal-move-count call, but a rare slow one leaves a concrete
+/// SFEN to investigate instead of an unexplained gap in the progress log.
+const SLOW_SEARCH_LOG_THRESHOLD: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The sampled position's own game-result signal, on the same ±600
 /// centipawn scale as a clamped eval teacher (loss=-600, draw=0, win=+600),
@@ -1482,8 +1488,25 @@ impl Trainer {
                 multi_pv: 1,
             };
             let search_start = std::time::Instant::now();
-            let cp = self.searcher.search(board, config).score;
-            self.search_time_ns += search_start.elapsed().as_nanos() as u64;
+            let info = self.searcher.search(board, config);
+            let search_elapsed = search_start.elapsed();
+            self.search_time_ns += search_elapsed.as_nanos() as u64;
+            // A search this slow is rare enough that the extra
+            // generate_legal_moves() call (board-mutating legality checks,
+            // not free) is negligible -- this line exists so a future long
+            // cold-cache run has a concrete position to investigate instead
+            // of an unexplained multi-minute gap in the progress heartbeat.
+            if search_elapsed >= SLOW_SEARCH_LOG_THRESHOLD {
+                let legal_move_count = generate_legal_moves(board).len();
+                eprintln!(
+                    "  slow search: {:.1}s  depth={}  nodes={}  stm={:?}  legal_moves={legal_move_count}  sfen={sfen}",
+                    search_elapsed.as_secs_f64(),
+                    info.depth,
+                    info.nodes,
+                    board.side_to_move,
+                );
+            }
+            let cp = info.score;
             cache.insert(sfen, cp);
             cp
         };

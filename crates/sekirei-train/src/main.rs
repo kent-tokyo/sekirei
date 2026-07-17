@@ -837,10 +837,17 @@ fn eval_validation_set(
     args: &Args,
     cache: &mut HashMap<String, i32>,
 ) -> trainer::ValidStats {
-    valid_idxs
-        .iter()
-        .fold(trainer::ValidStats::default(), |acc, &gi| {
-            acc + trainer.eval_game(
+    let start = Instant::now();
+    let mut last_progress = Instant::now();
+    let mut acc = trainer::ValidStats::default();
+    // Same time-based heartbeat as the training loop -- without it,
+    // validation is completely invisible: it's a real teacher-search cost
+    // (every held-out position may need a fresh search, same as training)
+    // but was previously silent, which once looked indistinguishable from
+    // a stuck/hung process during a long cold-cache run.
+    for (i, &gi) in valid_idxs.iter().enumerate() {
+        acc = acc
+            + trainer.eval_game(
                 &games[gi],
                 args.sample,
                 args.quiet,
@@ -849,8 +856,22 @@ fn eval_validation_set(
                 args.wdl_lambda,
                 args.wdl_target_scale,
                 cache,
-            )
-        })
+            );
+        if last_progress.elapsed() >= Duration::from_secs(5) {
+            let elapsed = start.elapsed().as_secs_f64();
+            eprintln!(
+                "  valid progress: game {}/{}  positions={}  elapsed={elapsed:.1}s  cache_hits={}  cache_misses={}  search_time={:.1}s",
+                i + 1,
+                valid_idxs.len(),
+                acc.count,
+                trainer.cache_hits,
+                trainer.cache_misses,
+                trainer.search_time_ns as f64 / 1e9,
+            );
+            last_progress = Instant::now();
+        }
+    }
+    acc
 }
 
 /// Assembles one epoch's `EpochDiagnostics` from `Trainer`'s accumulated
