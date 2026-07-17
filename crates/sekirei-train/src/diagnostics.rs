@@ -239,6 +239,63 @@ pub struct CpWdlTrace {
     pub wdl_d_output_std: f64,
 }
 
+/// One position's gradient-correlation record (`--sample-grad-trace`) --
+/// unlike `TraceSnapshot`/`CpWdlTrace` above (aggregated over all positions
+/// since epoch start, sampled at a handful of `--trace-positions` points),
+/// this is a raw per-position record, one line per position up to the
+/// requested limit, meant for offline reordering analysis (Stage 2 of
+/// `docs/experiments/`'s epoch-1 gradient-direction investigation) rather
+/// than in-process aggregation. Training order is never changed by
+/// recording these -- see `Trainer::sample_grad_trace_limit`'s doc comment.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SampleGradRecord {
+    /// Index into the training set's game list (stable across epochs and
+    /// independent of `--shuffle-seed`, since it identifies which game a
+    /// sample came from, not when it was visited).
+    pub game_id: u64,
+    /// `Debug`-formatted `GameResult` (e.g. `"BlackWin"`) -- the raw,
+    /// perspective-independent outcome label; `wdl_target` below is the
+    /// already-perspective-adjusted training signal derived from it.
+    pub game_result: String,
+    /// Positions fully processed so far this epoch, 1-indexed -- same
+    /// counter and semantics as `TraceSnapshot::position_index`.
+    pub position_index: u64,
+    pub prediction: f32,
+    pub cp_target: f32,
+    pub wdl_target: Option<f32>,
+    /// `weight * 2 * (prediction - cp_target) / 64.0` -- the CP-only
+    /// gradient contribution to the network's scalar output, had CP been
+    /// the sole teacher this position. Cheap to compute directly (no full
+    /// `diagnostic_backward` call needed for this scalar alone).
+    pub cp_d_output: f32,
+    /// Same, for `wdl_target`; `None` when this position has no WDL signal.
+    pub wdl_d_output: Option<f32>,
+    /// The real *blended* per-neuron gradient this position actually
+    /// applied (not CP-only or WDL-only) -- the raw 32-wide `d_l2_acc`
+    /// `train_position`'s own backward pass computes. Kept as the full
+    /// vector, not just its norm, so a Stage 2 offline analysis can
+    /// recompute cumulative direction/sign-consistency/cancellation under
+    /// orderings other than the one this run actually used.
+    pub l2_grad_vector: Vec<f32>,
+    /// `||l2_grad_vector||` -- redundant with the vector above but cheap
+    /// and convenient for anything that only needs magnitude.
+    pub l2_grad_norm: f64,
+    /// Cosine similarity between this position's `d_l2_acc` and the
+    /// immediately preceding recorded position's (in the order this run
+    /// actually processed positions -- `--sample-grad-trace` itself never
+    /// reorders training). `None` for the first recorded position of the
+    /// epoch.
+    pub cosine_prev: Option<f32>,
+    /// Cosine similarity between this position's `d_l2_acc` and the
+    /// running arithmetic mean of every `d_l2_acc` recorded so far this
+    /// epoch (including this one). `None` for the first recorded position.
+    pub cosine_running_mean: Option<f32>,
+    /// Per-neuron gate state at this position's pre-activation:
+    /// `-1` = dead (`<= 0`), `0` = linear (`0 < x < 127`), `1` = saturated
+    /// (`>= 127`).
+    pub l2_gate: Vec<i8>,
+}
+
 /// Sign consistency of a per-neuron gradient accumulator:
 /// `|pos-neg|/(pos+neg)`, 0.0 when a neuron never received a nonzero
 /// gradient (avoids a 0/0 division).
@@ -553,6 +610,24 @@ pub fn pearson_correlation(
     (cov / denom).clamp(-1.0, 1.0)
 }
 
+/// Cosine similarity between two equal-length raw vectors -- distinct from
+/// the private sufficient-statistics `cosine_similarity` above (that one
+/// folds per-neuron history into running sums; this one compares two full
+/// `d_l2_acc` vectors directly, for `--sample-grad-trace`). Returns `0.0`
+/// when either vector is exactly zero (undefined direction, e.g. a position
+/// where every L2 neuron is dead/saturated and `d_l2_acc` is all-zero) --
+/// same "printed diagnostic, not further arithmetic" convention as
+/// `pearson_correlation`.
+pub fn vector_cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b).map(|(&x, &y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    if norm_a <= 0.0 || norm_b <= 0.0 {
+        return 0.0;
+    }
+    (dot / (norm_a * norm_b)).clamp(-1.0, 1.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -595,6 +670,33 @@ mod tests {
         let a = [0.0f32, 0.0];
         let b = [3.0f32, 4.0];
         assert_eq!(l2_diff_norm(&a, &b), 5.0); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn cosine_similarity_identical_vectors_is_one() {
+        let a = [1.0f32, 2.0, -3.0];
+        assert!((vector_cosine_similarity(&a, &a) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_similarity_opposite_vectors_is_minus_one() {
+        let a = [1.0f32, 2.0, -3.0];
+        let b = [-1.0f32, -2.0, 3.0];
+        assert!((vector_cosine_similarity(&a, &b) - (-1.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cosine_similarity_orthogonal_vectors_is_zero() {
+        let a = [1.0f32, 0.0];
+        let b = [0.0f32, 1.0];
+        assert_eq!(vector_cosine_similarity(&a, &b), 0.0);
+    }
+
+    #[test]
+    fn cosine_similarity_zero_vector_is_zero_not_nan() {
+        let a = [0.0f32, 0.0, 0.0];
+        let b = [1.0f32, 2.0, 3.0];
+        assert_eq!(vector_cosine_similarity(&a, &b), 0.0);
     }
 
     #[test]

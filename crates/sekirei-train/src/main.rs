@@ -97,7 +97,15 @@ struct Args {
     // for why this is a lever worth testing: the fixed ±600 constant
     // structurally dominates the blended gradient over the fine-grained
     // per-position `eval_teacher`, independent of --wdl-lambda's weight.
-    wdl_target_scale: f32,               // --wdl-target-scale
+    wdl_target_scale: f32, // --wdl-target-scale
+    // Stage 1 of the epoch-1 gradient-direction investigation (see
+    // `Trainer::sample_grad_trace_limit`'s doc comment) -- records one
+    // per-position gradient-correlation record for up to this many
+    // positions per epoch. `0` (default) is off: zero added records, zero
+    // added compute. Never reorders training; writes
+    // `<output>.epochN.sample_grad.jsonl` for offline reordering analysis
+    // (Stage 2, a separate script, not part of the trainer).
+    sample_grad_trace: u64,              // --sample-grad-trace
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
@@ -194,6 +202,7 @@ fn parse_args() -> Result<Args, String> {
     let mut shuffle_seed: Option<u64> = None;
     let mut cp_wdl_grad_trace = false;
     let mut wdl_target_scale = 1200.0f32;
+    let mut sample_grad_trace = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -397,6 +406,12 @@ fn parse_args() -> Result<Args, String> {
                     wdl_target_scale = v;
                 }
             }
+            "--sample-grad-trace" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    sample_grad_trace = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -524,6 +539,7 @@ fn parse_args() -> Result<Args, String> {
         shuffle_seed,
         cp_wdl_grad_trace,
         wdl_target_scale,
+        sample_grad_trace,
     })
 }
 
@@ -829,6 +845,24 @@ fn save_trace_json(path: &Path, snapshots: &[diagnostics::TraceSnapshot]) -> std
     fs::write(path, json)
 }
 
+/// One JSON object per line (not a pretty array like `save_trace_json`) --
+/// `--sample-grad-trace` can record hundreds of positions per epoch, and
+/// the Stage 2 offline analyzer streams this file line by line.
+fn save_sample_grad_jsonl(
+    path: &Path,
+    records: &[diagnostics::SampleGradRecord],
+) -> std::io::Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let mut out = String::new();
+    for r in records {
+        out.push_str(&serde_json::to_string(r)?);
+        out.push('\n');
+    }
+    fs::write(path, out)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -1117,6 +1151,9 @@ fn print_usage() {
         "  --wdl-target-scale <f>  Native range of wdl_target, via (wdl - 0.5) * scale (default: 1200.0, giving +/-600)"
     );
     eprintln!(
+        "  --sample-grad-trace <n>  Record a per-position gradient-correlation trace (game_id/outcome/residuals/L2 grad cosine similarity/gate state) for the first n positions each epoch; writes <output>.epochN.sample_grad.jsonl. Never reorders training. Default: 0 (off)"
+    );
+    eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
@@ -1273,6 +1310,7 @@ fn main() {
         trainer.out_clip_norm = args.out_clip_norm;
         trainer.trace_positions = args.trace_positions.iter().copied().collect();
         trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
+        trainer.sample_grad_trace_limit = args.sample_grad_trace;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1474,6 +1512,14 @@ fn main() {
                 eprintln!("  trace     → {:?}", trace_path);
             }
 
+            let sample_grad_path = checkpoint.with_extension("sample_grad.jsonl");
+            if let Err(e) = save_sample_grad_jsonl(&sample_grad_path, &trainer.sample_grad_records)
+            {
+                eprintln!("  sample-grad trace save failed: {e}");
+            } else if !trainer.sample_grad_records.is_empty() {
+                eprintln!("  sample_grad → {:?}", sample_grad_path);
+            }
+
             // Valid-loss-based best checkpoint. Only tracked when
             // validation is actually on -- with no held-out set there is
             // no valid loss to select by, and `vcount==0` would otherwise
@@ -1614,6 +1660,7 @@ fn main() {
     trainer.out_clip_norm = args.out_clip_norm;
     trainer.trace_positions = args.trace_positions.iter().copied().collect();
     trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
+    trainer.sample_grad_trace_limit = args.sample_grad_trace;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
@@ -1729,6 +1776,7 @@ fn main() {
         for (i, &gi) in epoch_train_idxs.iter().enumerate() {
             let game = &games[gi];
             trainer.train_game(
+                gi as u64,
                 game,
                 args.sample,
                 args.quiet,
@@ -1921,6 +1969,13 @@ fn main() {
             eprintln!("  trace save failed: {e}");
         } else if !trainer.trace_snapshots.is_empty() {
             eprintln!("  trace    → {:?}", trace_path);
+        }
+
+        let sample_grad_path = checkpoint.with_extension("sample_grad.jsonl");
+        if let Err(e) = save_sample_grad_jsonl(&sample_grad_path, &trainer.sample_grad_records) {
+            eprintln!("  sample-grad trace save failed: {e}");
+        } else if !trainer.sample_grad_records.is_empty() {
+            eprintln!("  sample_grad → {:?}", sample_grad_path);
         }
 
         // Valid-loss-based best checkpoint -- only tracked when validation

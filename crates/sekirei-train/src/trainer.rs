@@ -790,6 +790,36 @@ pub struct Trainer {
     pub wdl_d_output_sum: f64,
     pub wdl_d_output_sum_sq: f64,
 
+    // ---- Per-sample gradient correlation trace (--sample-grad-trace) ----
+    // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
+    // Stage 1 of the "does epoch-1's gradient accumulate in one direction"
+    // investigation (`docs/experiments/wdl_target_scale_ablation.md`'s
+    // deferred next-direction note) -- records one `SampleGradRecord` per
+    // position, up to this many positions per epoch, *without* changing
+    // training order or applying any update the flag wouldn't otherwise
+    // apply. `0` (default) means off: no records pushed, no extra compute
+    // beyond the two cheap scalar `d_output` values already derivable from
+    // `eval_teacher`/`wdl_target` (no full `diagnostic_backward` call
+    // needed for those, unlike `--cp-wdl-grad-trace`). Reordering the
+    // recorded samples offline (game-shuffled / sample-shuffled / outcome-
+    // balanced) is Stage 2, done by a separate analysis script against this
+    // trace's JSONL output -- this flag alone never reorders anything.
+    pub sample_grad_trace_limit: u64,
+    // One entry per position recorded so far this epoch. Reset every epoch
+    // by `reset_epoch_stats`, consumed (written to
+    // `.epochN.sample_grad.jsonl`) by the caller at epoch end.
+    pub sample_grad_records: Vec<diagnostics::SampleGradRecord>,
+    // Previous recorded sample's raw 32-wide `d_l2_acc` vector, for
+    // `cosine_prev`. `None` for the first recorded sample of the epoch (no
+    // previous vector to compare against) and after `reset_epoch_stats`.
+    sample_grad_prev_d_l2_acc: Option<[f32; L2]>,
+    // Running arithmetic mean of `d_l2_acc` across all recorded samples so
+    // far this epoch, updated incrementally (`mean += (x - mean) / count`)
+    // so no per-position history needs to be kept just for this. Reset
+    // (zeroed, alongside `sample_grad_running_count`) every epoch.
+    sample_grad_running_mean_d_l2_acc: [f32; L2],
+    sample_grad_running_count: u64,
+
     searcher: Searcher,
 }
 
@@ -912,6 +942,11 @@ impl Trainer {
             cp_d_output_sum_sq: 0.0,
             wdl_d_output_sum: 0.0,
             wdl_d_output_sum_sq: 0.0,
+            sample_grad_trace_limit: 0,
+            sample_grad_records: Vec::new(),
+            sample_grad_prev_d_l2_acc: None,
+            sample_grad_running_mean_d_l2_acc: [0.0; L2],
+            sample_grad_running_count: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -974,7 +1009,17 @@ impl Trainer {
             let teacher = (score_cp as f32).clamp(-600.0, 600.0);
             // No WDL signal on the positions path (positions.jsonl carries
             // no game_result) -- eval_teacher == teacher, no wdl_target.
-            self.train_position(&sample.board, teacher, weight, teacher, None);
+            // game_id/game_result are meaningless sentinels here too (see
+            // `train_position`'s doc comment).
+            self.train_position(
+                &sample.board,
+                teacher,
+                weight,
+                teacher,
+                None,
+                0,
+                GameResult::Unknown,
+            );
         }
     }
 
@@ -1102,9 +1147,15 @@ impl Trainer {
     /// each sampled position's side-to-move perspective, skipping the blend
     /// (falling back to pure eval) for `GameResult::Unknown` games, since
     /// there's no result signal to mix in for those (see `csa.rs`).
+    /// `game_id`: the game's stable index into the caller's game list
+    /// (e.g. its position in `games: Vec<CsaGame>`, independent of
+    /// `--shuffle-seed`'s epoch-order permutation) -- diagnostic-only,
+    /// threaded through to `--sample-grad-trace`'s `SampleGradRecord`
+    /// alone, never affects training.
     #[allow(clippy::too_many_arguments)]
     pub fn train_game(
         &mut self,
+        game_id: u64,
         game: &CsaGame,
         sample_every: usize,
         quiet: bool,
@@ -1175,7 +1226,15 @@ impl Trainer {
                 }
                 _ => eval_teacher,
             };
-            self.train_position(&board, teacher, weight, eval_teacher, wdl_target);
+            self.train_position(
+                &board,
+                teacher,
+                weight,
+                eval_teacher,
+                wdl_target,
+                game_id,
+                game.result,
+            );
 
             board.do_move(mv);
         }
@@ -1309,7 +1368,12 @@ impl Trainer {
     /// diagnostics (`cp_component`/`wdl_component`/prediction-eval
     /// correlation below); they never affect the gradient or the weight
     /// update. `train_positions` (no WDL signal available) passes
-    /// `eval_teacher = teacher`, `wdl_target = None`.
+    /// `eval_teacher = teacher`, `wdl_target = None`. `game_id`/
+    /// `game_result` are likewise diagnostic-only, feeding
+    /// `--sample-grad-trace`'s `SampleGradRecord` alone -- `train_positions`
+    /// (no CSA game to attribute a position to) passes `game_id = 0`,
+    /// `game_result = GameResult::Unknown`, meaningless sentinels that only
+    /// matter if this trace is ever enabled on that path.
     #[allow(clippy::too_many_arguments)]
     fn train_position(
         &mut self,
@@ -1318,6 +1382,8 @@ impl Trainer {
         weight: f32,
         eval_teacher: f32,
         wdl_target: Option<f32>,
+        game_id: u64,
+        game_result: GameResult,
     ) {
         let stm = board.side_to_move;
         let w = &self.weights;
@@ -1592,6 +1658,65 @@ impl Trainer {
                 self.l2_dacc_pos_count[o] += 1;
             } else if g < 0.0 {
                 self.l2_dacc_neg_count[o] += 1;
+            }
+        }
+
+        // `--sample-grad-trace`: one record per position, up to the
+        // requested limit, from the real blended `d_l2_acc` above -- never
+        // reorders or otherwise changes what training does, purely reads
+        // already-computed forward/backward state (see
+        // `Trainer::sample_grad_trace_limit`'s doc comment).
+        if self.sample_grad_trace_limit > 0 && self.l2_sample_count <= self.sample_grad_trace_limit
+        {
+            let cp_d_output = weight * 2.0 * (score - eval_teacher) / 64.0;
+            let wdl_d_output = wdl_target.map(|t| weight * 2.0 * (score - t) / 64.0);
+            let l2_grad_norm = (d_l2_acc.iter().map(|&x| (x as f64).powi(2)).sum::<f64>()).sqrt();
+            let cosine_prev = self
+                .sample_grad_prev_d_l2_acc
+                .as_ref()
+                .map(|prev| diagnostics::vector_cosine_similarity(prev, &d_l2_acc));
+            let cosine_running_mean = if self.sample_grad_running_count > 0 {
+                Some(diagnostics::vector_cosine_similarity(
+                    &self.sample_grad_running_mean_d_l2_acc,
+                    &d_l2_acc,
+                ))
+            } else {
+                None
+            };
+            let l2_gate: Vec<i8> = l2_acc
+                .iter()
+                .map(|&x| {
+                    if x <= 0.0 {
+                        -1
+                    } else if x >= 127.0 {
+                        1
+                    } else {
+                        0
+                    }
+                })
+                .collect();
+            self.sample_grad_records
+                .push(diagnostics::SampleGradRecord {
+                    game_id,
+                    game_result: format!("{game_result:?}"),
+                    position_index: self.l2_sample_count,
+                    prediction: score,
+                    cp_target: eval_teacher,
+                    wdl_target,
+                    cp_d_output,
+                    wdl_d_output,
+                    l2_grad_vector: d_l2_acc.to_vec(),
+                    l2_grad_norm,
+                    cosine_prev,
+                    cosine_running_mean,
+                    l2_gate,
+                });
+            self.sample_grad_prev_d_l2_acc = Some(d_l2_acc);
+            self.sample_grad_running_count += 1;
+            let n = self.sample_grad_running_count as f32;
+            for o in 0..L2 {
+                self.sample_grad_running_mean_d_l2_acc[o] +=
+                    (d_l2_acc[o] - self.sample_grad_running_mean_d_l2_acc[o]) / n;
             }
         }
 
@@ -2116,6 +2241,10 @@ impl Trainer {
         self.cp_d_output_sum_sq = 0.0;
         self.wdl_d_output_sum = 0.0;
         self.wdl_d_output_sum_sq = 0.0;
+        self.sample_grad_records.clear();
+        self.sample_grad_prev_d_l2_acc = None;
+        self.sample_grad_running_mean_d_l2_acc = [0.0; L2];
+        self.sample_grad_running_count = 0;
     }
 }
 
@@ -2657,11 +2786,11 @@ mod tests {
         // A large teacher error (-600 vs. a near-zero fresh-init prediction)
         // to force a real, non-tiny gradient.
         let mut unclipped = Trainer::new(1, 0.5);
-        unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
+        unclipped.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
 
         let mut clipped = Trainer::new(1, 0.5);
         clipped.grad_clip_norm = Some(1.0); // far below any real gradient norm
-        clipped.train_position(&board, -600.0, 1.0, -600.0, None);
+        clipped.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
 
         assert_eq!(
             clipped.grad_clip_count, 1,
@@ -2691,11 +2820,11 @@ mod tests {
         let board = Board::startpos();
 
         let mut unclipped = Trainer::new(1, 0.5);
-        unclipped.train_position(&board, -600.0, 1.0, -600.0, None);
+        unclipped.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
 
         let mut clipped = Trainer::new(1, 0.5);
         clipped.out_clip_norm = Some(1.0); // far below any real output-layer gradient norm
-        clipped.train_position(&board, -600.0, 1.0, -600.0, None);
+        clipped.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
 
         assert_eq!(clipped.out_clip_count, 1, "the tiny threshold must trigger");
         assert_eq!(clipped.ft_clip_count, 0);
@@ -2723,7 +2852,7 @@ mod tests {
         // wdl_target = None (e.g. GameResult::Unknown, or the positions
         // path, which has no result signal at all) -- wdl_component must
         // not accumulate, since there's nothing to compute it against.
-        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
         assert_eq!(trainer.wdl_component_count, 0);
         assert_eq!(trainer.wdl_component_sum, 0.0);
 
@@ -2731,7 +2860,7 @@ mod tests {
         // wdl_component (vs wdl_target) must accumulate, using the RAW
         // components, not the blended `teacher` passed as the actual
         // gradient target.
-        trainer.train_position(&board, 5.0, 1.0, 20.0, Some(-30.0));
+        trainer.train_position(&board, 5.0, 1.0, 20.0, Some(-30.0), 0, GameResult::Unknown);
         assert_eq!(trainer.wdl_component_count, 1);
         assert!(trainer.wdl_component_sum > 0.0);
         assert!(trainer.cp_component_sum > 0.0);
@@ -2741,8 +2870,8 @@ mod tests {
     fn train_position_records_exactly_one_grad_norm_sample_per_call() {
         let mut trainer = Trainer::new(1, 0.5);
         let board = Board::startpos();
-        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
-        trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
         assert_eq!(trainer.global_grad_norm_values.len(), 2);
         assert!(
             trainer
@@ -2759,7 +2888,7 @@ mod tests {
         trainer.trace_positions = [2u64, 5].into_iter().collect();
         let board = Board::startpos();
         for _ in 0..6 {
-            trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+            trainer.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
         }
         let indices: Vec<u64> = trainer
             .trace_snapshots
@@ -2779,7 +2908,7 @@ mod tests {
         // is after position 1 completes.
         let mut trainer2 = Trainer::new(1, 0.5);
         trainer2.trace_positions = [0u64].into_iter().collect();
-        trainer2.train_position(&board, 10.0, 1.0, 10.0, None);
+        trainer2.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
         assert!(trainer2.trace_snapshots.is_empty());
     }
 
@@ -2792,7 +2921,7 @@ mod tests {
         assert!(trainer.trace_positions.is_empty());
         let board = Board::startpos();
         for _ in 0..10 {
-            trainer.train_position(&board, 10.0, 1.0, 10.0, None);
+            trainer.train_position(&board, 10.0, 1.0, 10.0, None, 0, GameResult::Unknown);
         }
         assert!(trainer.trace_snapshots.is_empty());
     }
@@ -2822,6 +2951,52 @@ mod tests {
     }
 
     #[test]
+    fn l2_preactivation_gradient_matches_doutput_times_out_weight_times_clippedrelu_derivative() {
+        // dL/dL2_preactivation[o] = dL/dOutput * out_weight[o] * ClippedReLU'(l2_acc[o]),
+        // where ClippedReLU' is 1 inside (0, 127) and 0 outside (dead/saturated) --
+        // the exact formula `train_position`'s own backward pass uses
+        // (`d_l2_acc[o] = d_output * self.weights.out[o]` gated by the
+        // `l2_acc[o] > 0.0 && l2_acc[o] < 127.0` check just above it). This
+        // test reconstructs the RHS independently (from `forward`'s own
+        // score plus the pre-update `out` weights) and checks it against
+        // `l2_dacc_sum` -- exactly `d_l2_acc` for this single call, since
+        // the accumulator starts at 0 and this is the only call made.
+        // Because ClippedReLU' only ever takes the value 0 or 1, "matches
+        // the unclamped product exactly, or is exactly 0" *is* the full
+        // statement of the formula -- no separate read of `l2_acc`'s gate
+        // state is needed to state the identity precisely.
+        let mut trainer = Trainer::new(3, 0.5);
+        let board = Board::startpos();
+        let teacher = 42.0;
+        let weight = 1.0;
+
+        let score_before = trainer.forward(&board);
+        let out_before = trainer.weights.out.clone();
+        let d_output_expected = weight * 2.0 * (score_before - teacher) / 64.0;
+
+        trainer.train_position(
+            &board,
+            teacher,
+            weight,
+            teacher,
+            None,
+            0,
+            GameResult::Unknown,
+        );
+
+        for o in 0..L2 {
+            let actual = trainer.l2_dacc_sum[o];
+            let unclamped = (d_output_expected * out_before[o]) as f64;
+            let matches_unclamped = (actual - unclamped).abs() < 1e-4;
+            let is_zero = actual == 0.0;
+            assert!(
+                matches_unclamped || is_zero,
+                "neuron {o}: l2_dacc_sum={actual} does not match d_output*out_weight={unclamped} and isn't 0 (dead/saturated)"
+            );
+        }
+    }
+
+    #[test]
     fn cp_wdl_grad_trace_blended_gradient_is_the_expected_weighted_sum() {
         // The blended teacher's gradient must equal lambda*CP-only +
         // (1-lambda)*WDL-only at every neuron -- the mathematical property
@@ -2841,7 +3016,15 @@ mod tests {
         let teacher = lambda * eval_teacher + (1.0 - lambda) * wdl_target;
 
         for _ in 0..3 {
-            trainer.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
+            trainer.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                0,
+                GameResult::Unknown,
+            );
         }
 
         // Target/prediction/residual/dL-dOutput fields are populated and
@@ -2899,8 +3082,105 @@ mod tests {
         traced.cp_wdl_grad_trace = true;
 
         for _ in 0..5 {
-            plain.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
-            traced.train_position(&board, teacher, 1.0, eval_teacher, Some(wdl_target));
+            plain.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                0,
+                GameResult::Unknown,
+            );
+            traced.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                0,
+                GameResult::Unknown,
+            );
+        }
+
+        assert_eq!(
+            plain.weights.snapshot_params(),
+            traced.weights.snapshot_params()
+        );
+        assert_eq!(plain.total_loss, traced.total_loss);
+        assert_eq!(plain.l2_dacc_sum, traced.l2_dacc_sum);
+        assert_eq!(plain.ft_grad_norm_sum, traced.ft_grad_norm_sum);
+    }
+
+    #[test]
+    fn sample_grad_trace_records_expected_fields_and_cosine_semantics() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.sample_grad_trace_limit = 3;
+        let board = Board::startpos();
+
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None, 42, GameResult::WhiteWin);
+        trainer.train_position(&board, 10.0, 1.0, 10.0, None, 42, GameResult::WhiteWin);
+
+        assert_eq!(trainer.sample_grad_records.len(), 2);
+        let first = &trainer.sample_grad_records[0];
+        let second = &trainer.sample_grad_records[1];
+
+        assert_eq!(first.game_id, 42);
+        assert_eq!(first.game_result, "WhiteWin");
+        assert_eq!(first.position_index, 1);
+        assert_eq!(second.position_index, 2);
+        // First recorded position has no predecessor and no running mean yet.
+        assert_eq!(first.cosine_prev, None);
+        assert_eq!(first.cosine_running_mean, None);
+        // Second position has both -- identical repeated positions/weights
+        // between calls (only Adam's tiny first step separates them), so
+        // the gradient direction should be highly self-similar, not None.
+        assert!(second.cosine_prev.is_some());
+        assert!(second.cosine_running_mean.is_some());
+        assert_eq!(first.l2_gate.len(), L2);
+    }
+
+    #[test]
+    fn sample_grad_trace_does_not_alter_training_state() {
+        // Same guarantee as `cp_wdl_grad_trace_does_not_alter_training_state`,
+        // for `--sample-grad-trace`: recording per-position gradient-
+        // correlation records is a pure side computation over already-
+        // computed forward/backward state, and must not change a single
+        // trained weight, Adam moment, or the blended-gradient accumulators
+        // anything downstream would see.
+        let board = Board::startpos();
+        let lambda = 0.7f32;
+        let eval_teacher = 40.0f32;
+        let wdl_target = -120.0f32;
+        let teacher = lambda * eval_teacher + (1.0 - lambda) * wdl_target;
+
+        let mut plain = Trainer::new(1, 0.5);
+        let mut traced = Trainer::new(1, 0.5);
+        traced.sample_grad_trace_limit = 5;
+
+        for i in 0..8 {
+            plain.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                7,
+                GameResult::BlackWin,
+            );
+            traced.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                7,
+                GameResult::BlackWin,
+            );
+            // Sanity: the trace actually did something up to the limit,
+            // and stopped recording past it (otherwise this test could
+            // pass vacuously with a no-op flag).
+            let expected_records = (i + 1).min(5);
+            assert_eq!(traced.sample_grad_records.len(), expected_records);
         }
 
         assert_eq!(
