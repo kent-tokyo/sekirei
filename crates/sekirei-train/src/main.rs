@@ -136,11 +136,16 @@ struct Args {
     // Phase-paired continuity isolation (`docs/experiments/l2_saturation_ft_freeze_continuity.md`'s
     // follow-up): see `Trainer::diagnostic_ft_frozen_first`'s doc comment.
     diagnostic_ft_frozen_first: bool, // --diagnostic-ft-frozen-first
-    checkpoint_dir: Option<PathBuf>,  // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>, // --teacher-cache
-    reuse_teacher_cache: bool,        // --reuse-teacher-cache
-    wdl_lambda: Option<f32>,          // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,                          // --lr (base learning rate, default 0.001)
+    // 8-block necessity/sufficiency screen (`l2_saturation_ft_freeze_phase_paired.md`'s
+    // follow-up): see `Trainer::diagnostic_ft_reactivate_from_position`'s
+    // doc comment.
+    diagnostic_ft_reactivate_from_position: u64, // --diagnostic-ft-reactivate-from-position
+    diagnostic_ft_reactivate_until_position: u64, // --diagnostic-ft-reactivate-until-position
+    checkpoint_dir: Option<PathBuf>,             // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>,         // --teacher-cache
+    reuse_teacher_cache: bool,                   // --reuse-teacher-cache
+    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
+    lr: f32,                 // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
     warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
@@ -240,6 +245,8 @@ fn parse_args() -> Result<Args, String> {
     let mut diagnostic_ft_active_block = 0u64;
     let mut diagnostic_ft_frozen_block = 0u64;
     let mut diagnostic_ft_frozen_first = false;
+    let mut diagnostic_ft_reactivate_from_position = 0u64;
+    let mut diagnostic_ft_reactivate_until_position = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -485,6 +492,18 @@ fn parse_args() -> Result<Args, String> {
             "--diagnostic-ft-frozen-first" => {
                 diagnostic_ft_frozen_first = true;
             }
+            "--diagnostic-ft-reactivate-from-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_ft_reactivate_from_position = v;
+                }
+            }
+            "--diagnostic-ft-reactivate-until-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_ft_reactivate_until_position = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -620,6 +639,8 @@ fn parse_args() -> Result<Args, String> {
         diagnostic_ft_active_block,
         diagnostic_ft_frozen_block,
         diagnostic_ft_frozen_first,
+        diagnostic_ft_reactivate_from_position,
+        diagnostic_ft_reactivate_until_position,
     })
 }
 
@@ -1155,6 +1176,10 @@ fn save_checkpoint_meta(
         // `false` (default) is the plain active-first cycle -- see
         // `Trainer::diagnostic_ft_frozen_first`'s doc comment.
         "diagnostic_ft_frozen_first": args.diagnostic_ft_frozen_first,
+        // `0`/`0` (both defaults) mean no reactivation window -- see
+        // `Trainer::diagnostic_ft_reactivate_from_position`'s doc comment.
+        "diagnostic_ft_reactivate_from_position": args.diagnostic_ft_reactivate_from_position,
+        "diagnostic_ft_reactivate_until_position": args.diagnostic_ft_reactivate_until_position,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1289,6 +1314,12 @@ fn print_usage() {
     );
     eprintln!(
         "  --diagnostic-ft-frozen-first  Paired with --diagnostic-ft-active-block/--diagnostic-ft-frozen-block: start each cycle frozen instead of active (for equal block lengths, produces the exact complement pattern of the default). No-op unless periodic mode is on. Default: off (cycle starts active)"
+    );
+    eprintln!(
+        "  --diagnostic-ft-reactivate-from-position <n>  Carves out one additional active sub-window inside an otherwise-frozen --diagnostic-freeze-layer ft span, for single-block necessity/sufficiency screens (freeze the whole window, reactivate exactly one block). Independent of --diagnostic-ft-active-block cycling. Default: 0"
+    );
+    eprintln!(
+        "  --diagnostic-ft-reactivate-until-position <n>  Paired with --diagnostic-ft-reactivate-from-position, see above. Default: 0 (off, no reactivation window)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1455,6 +1486,10 @@ fn main() {
         trainer.diagnostic_ft_active_block = args.diagnostic_ft_active_block;
         trainer.diagnostic_ft_frozen_block = args.diagnostic_ft_frozen_block;
         trainer.diagnostic_ft_frozen_first = args.diagnostic_ft_frozen_first;
+        trainer.diagnostic_ft_reactivate_from_position =
+            args.diagnostic_ft_reactivate_from_position;
+        trainer.diagnostic_ft_reactivate_until_position =
+            args.diagnostic_ft_reactivate_until_position;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1813,6 +1848,8 @@ fn main() {
     trainer.diagnostic_ft_active_block = args.diagnostic_ft_active_block;
     trainer.diagnostic_ft_frozen_block = args.diagnostic_ft_frozen_block;
     trainer.diagnostic_ft_frozen_first = args.diagnostic_ft_frozen_first;
+    trainer.diagnostic_ft_reactivate_from_position = args.diagnostic_ft_reactivate_from_position;
+    trainer.diagnostic_ft_reactivate_until_position = args.diagnostic_ft_reactivate_until_position;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)

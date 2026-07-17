@@ -919,6 +919,26 @@ pub struct Trainer {
     // when periodic mode itself is off (either block length is `0`).
     pub diagnostic_ft_frozen_first: bool,
 
+    // ---- Single-block FT reactivation (--diagnostic-ft-reactivate-from-position / --diagnostic-ft-reactivate-until-position) ----
+    // 8-block necessity/sufficiency screen
+    // (`l2_saturation_ft_freeze_phase_paired.md`'s block-localization
+    // follow-up): carves out ONE additional active sub-window inside an
+    // otherwise-fully-frozen `[diagnostic_freeze_from_position,
+    // diagnostic_freeze_until_position]` span, for the "single-active"
+    // series (freeze the whole intervention window, reactivate exactly one
+    // 32-position block). Independent of the periodic active/frozen-block
+    // cycling above -- both are checked, either being satisfied is enough
+    // to keep FT updating. Both default to `0`, and since
+    // `l2_sample_count` is always `>= 1`, the default `0..=0` range never
+    // matches any real position -- byte-identical to this mechanism never
+    // existing, with no separate on/off flag needed (verified by unit
+    // test, not just inferred). The "single-frozen" series (freeze exactly
+    // one block, active everywhere else) needs no new mechanism at all --
+    // it's just the existing plain windowed freeze with `from`/`until` set
+    // to that one block's bounds.
+    pub diagnostic_ft_reactivate_from_position: u64,
+    pub diagnostic_ft_reactivate_until_position: u64,
+
     searcher: Searcher,
 }
 
@@ -1054,6 +1074,8 @@ impl Trainer {
             diagnostic_ft_active_block: 0,
             diagnostic_ft_frozen_block: 0,
             diagnostic_ft_frozen_first: false,
+            diagnostic_ft_reactivate_from_position: 0,
+            diagnostic_ft_reactivate_until_position: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1504,6 +1526,19 @@ impl Trainer {
         } else {
             phase < self.diagnostic_ft_active_block
         }
+    }
+
+    /// Whether the current position falls inside the single-block FT
+    /// reactivation window (`diagnostic_ft_reactivate_from_position`/
+    /// `diagnostic_ft_reactivate_until_position`) -- i.e. FT should update
+    /// despite otherwise being inside the frozen `[from,until]` window.
+    /// Independent of `ft_periodic_active_phase`; only called from within
+    /// the already-`ft_targeted` branch. `l2_sample_count` is always `>=
+    /// 1`, so the `0..=0` default range never matches -- byte-identical to
+    /// this mechanism never existing when left unset.
+    fn ft_reactivated(&self) -> bool {
+        self.l2_sample_count >= self.diagnostic_ft_reactivate_from_position
+            && self.l2_sample_count <= self.diagnostic_ft_reactivate_until_position
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -2039,7 +2074,7 @@ impl Trainer {
             && self.l2_sample_count >= self.diagnostic_freeze_from_position
             && self.l2_sample_count <= self.diagnostic_freeze_until_position;
         let ft_targeted = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Ft);
-        let ft_frozen = ft_targeted && !self.ft_periodic_active_phase();
+        let ft_frozen = ft_targeted && !self.ft_periodic_active_phase() && !self.ft_reactivated();
         let l2_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::L2);
         let out_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Out);
 
@@ -3398,6 +3433,95 @@ mod tests {
                 GameResult::Unknown,
             );
             assert_eq!(default_run.weights.ft, explicit_false.weights.ft);
+        }
+    }
+
+    #[test]
+    fn diagnostic_ft_reactivate_window_reopens_a_single_hole_in_an_otherwise_frozen_span() {
+        // from=2,until=9 (fully frozen, no periodic cycling), reactivate
+        // window=[5,6] -- expect frozen,frozen,frozen,active,active,
+        // frozen,frozen,frozen over positions 2..=9.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_from_position = 2;
+        trainer.diagnostic_freeze_until_position = 9;
+        trainer.diagnostic_ft_reactivate_from_position = 5;
+        trainer.diagnostic_ft_reactivate_until_position = 6;
+
+        let mut ft_after = Vec::new();
+        for _ in 1..=9 {
+            trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            ft_after.push(trainer.weights.ft.clone());
+        }
+
+        // pos2,3,4 (indices 1,2,3): frozen -> all equal position 1's state.
+        assert_eq!(
+            ft_after[1], ft_after[0],
+            "position 2 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[2], ft_after[0],
+            "position 3 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[3], ft_after[0],
+            "position 4 (frozen) must not move"
+        );
+        // pos5,6 (indices 4,5): reactivated -> each must move.
+        assert_ne!(
+            ft_after[4], ft_after[3],
+            "position 5 (reactivated) must update"
+        );
+        assert_ne!(
+            ft_after[5], ft_after[4],
+            "position 6 (reactivated) must update"
+        );
+        // pos7,8,9 (indices 6,7,8): frozen again -> all equal position 6's state.
+        assert_eq!(
+            ft_after[6], ft_after[5],
+            "position 7 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[7], ft_after[5],
+            "position 8 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[8], ft_after[5],
+            "position 9 (frozen) must not move"
+        );
+    }
+
+    #[test]
+    fn diagnostic_ft_reactivate_window_unset_is_byte_identical_to_plain_window_freeze() {
+        // reactivate_from/until left at their `0` default must behave
+        // exactly like the plain single-window freeze -- no reactivation.
+        let board = Board::startpos();
+
+        let mut plain = Trainer::new(1, 0.5);
+        plain.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        plain.diagnostic_freeze_from_position = 2;
+        plain.diagnostic_freeze_until_position = 9;
+
+        let mut with_unset_reactivate = Trainer::new(1, 0.5);
+        with_unset_reactivate.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        with_unset_reactivate.diagnostic_freeze_from_position = 2;
+        with_unset_reactivate.diagnostic_freeze_until_position = 9;
+        with_unset_reactivate.diagnostic_ft_reactivate_from_position = 0;
+        with_unset_reactivate.diagnostic_ft_reactivate_until_position = 0;
+
+        for _ in 1..=9 {
+            plain.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            with_unset_reactivate.train_position(
+                &board,
+                -600.0,
+                1.0,
+                -600.0,
+                None,
+                0,
+                GameResult::Unknown,
+            );
+            assert_eq!(plain.weights.ft, with_unset_reactivate.weights.ft);
         }
     }
 
