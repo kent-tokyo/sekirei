@@ -137,6 +137,34 @@ impl FreezeLayer {
     }
 }
 
+/// Which single component of the blended teacher to replay alone under
+/// `--diagnostic-replay-component` (see `Trainer::diagnostic_replay_component`'s
+/// doc comment) -- a counterfactual-replay probe for
+/// `l2_b5_ft_unit_collapse.md`'s CP/WDL causal decomposition, not a
+/// training feature.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplayComponent {
+    Cp,
+    Wdl,
+}
+
+impl ReplayComponent {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s {
+            "cp" => Some(ReplayComponent::Cp),
+            "wdl" => Some(ReplayComponent::Wdl),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReplayComponent::Cp => "cp",
+            ReplayComponent::Wdl => "wdl",
+        }
+    }
+}
+
 /// Computes the learning rate for `epoch` (1-indexed) against a schedule
 /// shaped for `total_epochs`. `total_epochs` is the schedule's *horizon* --
 /// how long a run the curve is shaped for -- not necessarily how many
@@ -948,6 +976,28 @@ pub struct Trainer {
     pub diagnostic_ft_reactivate2_from_position: u64,
     pub diagnostic_ft_reactivate2_until_position: u64,
 
+    // ---- Counterfactual CP/WDL replay (--diagnostic-replay-component / --diagnostic-replay-from-position / --diagnostic-replay-until-position) ----
+    // `l2_b5_ft_unit_collapse.md`'s causal decomposition follow-up: within
+    // `[diagnostic_replay_from_position, diagnostic_replay_until_position]`,
+    // replace the normal blended `(teacher, weight)` pair `train_game` would
+    // pass to `train_position` with just one component's contribution,
+    // still scaled by its own blend coefficient (`wdl_lambda` for CP,
+    // `1-wdl_lambda` for WDL) -- NOT renormalized to look like a pure-CP or
+    // pure-WDL run. This is mathematically exact, not an approximation:
+    // squared-error's gradient is linear in the teacher value, so training
+    // against `teacher=eval_teacher` with `weight` scaled by `λ` produces
+    // exactly `λ·gCP`, the same term that appears inside the normal blended
+    // gradient `λ·gCP + (1-λ)·gWDL`. `diagnostic_replay_component: None`
+    // (default) leaves `train_game` completely unchanged -- see
+    // `Trainer::replay_override`'s doc comment for the exact override
+    // logic. `from`/`until` default to `0`, and since positions are always
+    // `>= 1`, the default `0..=0` range never matches -- byte-identical to
+    // this mechanism never existing when `diagnostic_replay_component` is
+    // left `None`, regardless of the window fields.
+    pub diagnostic_replay_component: Option<ReplayComponent>,
+    pub diagnostic_replay_from_position: u64,
+    pub diagnostic_replay_until_position: u64,
+
     searcher: Searcher,
 }
 
@@ -1087,6 +1137,9 @@ impl Trainer {
             diagnostic_ft_reactivate_until_position: 0,
             diagnostic_ft_reactivate2_from_position: 0,
             diagnostic_ft_reactivate2_until_position: 0,
+            diagnostic_replay_component: None,
+            diagnostic_replay_from_position: 0,
+            diagnostic_replay_until_position: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1292,6 +1345,42 @@ impl Trainer {
     /// `--shuffle-seed`'s epoch-order permutation) -- diagnostic-only,
     /// threaded through to `--sample-grad-trace`'s `SampleGradRecord`
     /// alone, never affects training.
+    /// Diagnostic-only counterfactual replay override for `train_game`: when
+    /// `diagnostic_replay_component` is set and `position` (the 1-indexed
+    /// `l2_sample_count` this position is about to become) falls inside
+    /// `[diagnostic_replay_from_position, diagnostic_replay_until_position]`,
+    /// returns `(component_teacher, component_weight)` in place of the
+    /// normal blended `(teacher, weight)` -- see the field's doc comment for
+    /// why scaling `weight` by `λ`/`1-λ` (rather than renormalizing to `1.0`)
+    /// is the mathematically exact way to isolate one component's
+    /// contribution to the blended gradient. Falls through to
+    /// `(default_teacher, weight)` unchanged whenever the replay mechanism
+    /// is off, out of window, or `wdl_target` is unavailable this position.
+    fn replay_override(
+        &self,
+        position: u64,
+        wdl_lambda: Option<f32>,
+        eval_teacher: f32,
+        wdl_target: Option<f32>,
+        weight: f32,
+        default_teacher: f32,
+    ) -> (f32, f32) {
+        let (Some(component), Some(lambda), Some(wdl_target)) =
+            (self.diagnostic_replay_component, wdl_lambda, wdl_target)
+        else {
+            return (default_teacher, weight);
+        };
+        if position < self.diagnostic_replay_from_position
+            || position > self.diagnostic_replay_until_position
+        {
+            return (default_teacher, weight);
+        }
+        match component {
+            ReplayComponent::Cp => (eval_teacher, weight * lambda),
+            ReplayComponent::Wdl => (wdl_target, weight * (1.0 - lambda)),
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub fn train_game(
         &mut self,
@@ -1366,6 +1455,14 @@ impl Trainer {
                 }
                 _ => eval_teacher,
             };
+            let (teacher, weight) = self.replay_override(
+                self.l2_sample_count + 1,
+                wdl_lambda,
+                eval_teacher,
+                wdl_target,
+                weight,
+                teacher,
+            );
             self.train_position(
                 &board,
                 teacher,
@@ -3617,6 +3714,50 @@ mod tests {
             );
             assert_eq!(single_window.weights.ft, with_unset_window2.weights.ft);
         }
+    }
+
+    #[test]
+    fn replay_override_unset_leaves_teacher_and_weight_unchanged() {
+        let trainer = Trainer::new(1, 0.5);
+        let (teacher, weight) = trainer.replay_override(5, Some(0.7), 100.0, Some(50.0), 1.0, 85.0);
+        assert_eq!(teacher, 85.0);
+        assert_eq!(weight, 1.0);
+    }
+
+    #[test]
+    fn replay_override_cp_component_uses_eval_teacher_scaled_by_lambda() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_replay_component = Some(ReplayComponent::Cp);
+        trainer.diagnostic_replay_from_position = 10;
+        trainer.diagnostic_replay_until_position = 20;
+        let (teacher, weight) =
+            trainer.replay_override(15, Some(0.7), 100.0, Some(50.0), 2.0, 85.0);
+        assert_eq!(teacher, 100.0);
+        assert!((weight - 2.0 * 0.7).abs() < 1e-6);
+    }
+
+    #[test]
+    fn replay_override_wdl_component_uses_wdl_target_scaled_by_one_minus_lambda() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_replay_component = Some(ReplayComponent::Wdl);
+        trainer.diagnostic_replay_from_position = 10;
+        trainer.diagnostic_replay_until_position = 20;
+        let (teacher, weight) =
+            trainer.replay_override(15, Some(0.7), 100.0, Some(50.0), 2.0, 85.0);
+        assert_eq!(teacher, 50.0);
+        assert!((weight - 2.0 * 0.3).abs() < 1e-6);
+    }
+
+    #[test]
+    fn replay_override_out_of_window_leaves_teacher_and_weight_unchanged() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_replay_component = Some(ReplayComponent::Cp);
+        trainer.diagnostic_replay_from_position = 10;
+        trainer.diagnostic_replay_until_position = 20;
+        let (before, _) = trainer.replay_override(9, Some(0.7), 100.0, Some(50.0), 1.0, 85.0);
+        let (after, _) = trainer.replay_override(21, Some(0.7), 100.0, Some(50.0), 1.0, 85.0);
+        assert_eq!(before, 85.0);
+        assert_eq!(after, 85.0);
     }
 
     #[test]

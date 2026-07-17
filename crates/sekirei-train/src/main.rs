@@ -35,7 +35,7 @@ use csa::parse_csa;
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
-use trainer::{FreezeLayer, LrSchedule, Trainer};
+use trainer::{FreezeLayer, LrSchedule, ReplayComponent, Trainer};
 
 // ---- CLI argument parsing ----
 
@@ -146,9 +146,15 @@ struct Args {
     // doc comment.
     diagnostic_ft_reactivate2_from_position: u64, // --diagnostic-ft-reactivate2-from-position
     diagnostic_ft_reactivate2_until_position: u64, // --diagnostic-ft-reactivate2-until-position
-    checkpoint_dir: Option<PathBuf>,              // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>,          // --teacher-cache
-    reuse_teacher_cache: bool,                    // --reuse-teacher-cache
+    // Counterfactual CP/WDL replay (`l2_b5_ft_unit_collapse.md`'s causal
+    // decomposition follow-up): see `Trainer::diagnostic_replay_component`'s
+    // doc comment.
+    diagnostic_replay_component: Option<ReplayComponent>, // --diagnostic-replay-component <cp|wdl>
+    diagnostic_replay_from_position: u64,                 // --diagnostic-replay-from-position
+    diagnostic_replay_until_position: u64,                // --diagnostic-replay-until-position
+    checkpoint_dir: Option<PathBuf>,                      // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>,                  // --teacher-cache
+    reuse_teacher_cache: bool,                            // --reuse-teacher-cache
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
     lr: f32,                 // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
@@ -254,6 +260,9 @@ fn parse_args() -> Result<Args, String> {
     let mut diagnostic_ft_reactivate_until_position = 0u64;
     let mut diagnostic_ft_reactivate2_from_position = 0u64;
     let mut diagnostic_ft_reactivate2_until_position = 0u64;
+    let mut diagnostic_replay_component: Option<ReplayComponent> = None;
+    let mut diagnostic_replay_from_position = 0u64;
+    let mut diagnostic_replay_until_position = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -523,6 +532,24 @@ fn parse_args() -> Result<Args, String> {
                     diagnostic_ft_reactivate2_until_position = v;
                 }
             }
+            "--diagnostic-replay-component" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    diagnostic_replay_component = ReplayComponent::parse(s);
+                }
+            }
+            "--diagnostic-replay-from-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_replay_from_position = v;
+                }
+            }
+            "--diagnostic-replay-until-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_replay_until_position = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -662,6 +689,9 @@ fn parse_args() -> Result<Args, String> {
         diagnostic_ft_reactivate_until_position,
         diagnostic_ft_reactivate2_from_position,
         diagnostic_ft_reactivate2_until_position,
+        diagnostic_replay_component,
+        diagnostic_replay_from_position,
+        diagnostic_replay_until_position,
     })
 }
 
@@ -1205,6 +1235,12 @@ fn save_checkpoint_meta(
         // `Trainer::diagnostic_ft_reactivate2_from_position`'s doc comment.
         "diagnostic_ft_reactivate2_from_position": args.diagnostic_ft_reactivate2_from_position,
         "diagnostic_ft_reactivate2_until_position": args.diagnostic_ft_reactivate2_until_position,
+        // `null` (default) means the counterfactual replay mechanism never
+        // ran this epoch -- see `Trainer::diagnostic_replay_component`'s
+        // doc comment.
+        "diagnostic_replay_component": args.diagnostic_replay_component.map(|c| c.as_str()),
+        "diagnostic_replay_from_position": args.diagnostic_replay_from_position,
+        "diagnostic_replay_until_position": args.diagnostic_replay_until_position,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1351,6 +1387,15 @@ fn print_usage() {
     );
     eprintln!(
         "  --diagnostic-ft-reactivate2-until-position <n>  Paired with --diagnostic-ft-reactivate2-from-position, see above. Default: 0 (off)"
+    );
+    eprintln!(
+        "  --diagnostic-replay-component <cp|wdl>  CSA path only: within --diagnostic-replay-from-position/--diagnostic-replay-until-position, replace the normal blended (teacher,weight) with just this component's contribution, still scaled by its own wdl_lambda coefficient (not renormalized). Mathematically exact counterfactual replay, diagnostic only. Default: unset (off)"
+    );
+    eprintln!(
+        "  --diagnostic-replay-from-position <n>  Paired with --diagnostic-replay-component, see above. Default: 0"
+    );
+    eprintln!(
+        "  --diagnostic-replay-until-position <n>  Paired with --diagnostic-replay-component, see above. Default: 0 (off, no window)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1525,6 +1570,9 @@ fn main() {
             args.diagnostic_ft_reactivate2_from_position;
         trainer.diagnostic_ft_reactivate2_until_position =
             args.diagnostic_ft_reactivate2_until_position;
+        trainer.diagnostic_replay_component = args.diagnostic_replay_component;
+        trainer.diagnostic_replay_from_position = args.diagnostic_replay_from_position;
+        trainer.diagnostic_replay_until_position = args.diagnostic_replay_until_position;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1888,6 +1936,9 @@ fn main() {
     trainer.diagnostic_ft_reactivate2_from_position = args.diagnostic_ft_reactivate2_from_position;
     trainer.diagnostic_ft_reactivate2_until_position =
         args.diagnostic_ft_reactivate2_until_position;
+    trainer.diagnostic_replay_component = args.diagnostic_replay_component;
+    trainer.diagnostic_replay_from_position = args.diagnostic_replay_from_position;
+    trainer.diagnostic_replay_until_position = args.diagnostic_replay_until_position;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
