@@ -862,16 +862,20 @@ pub struct Trainer {
     sample_grad_running_mean_d_l2_acc: [f32; L2],
     sample_grad_running_count: u64,
 
-    // ---- Freeze diagnostic (--diagnostic-freeze-layer / --diagnostic-freeze-until-position) ----
+    // ---- Freeze diagnostic (--diagnostic-freeze-layer / --diagnostic-freeze-from-position / --diagnostic-freeze-until-position) ----
     // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
     // `None` (default) means no freezing -- byte-identical to this flag
     // never having existed. When set, the named layer's own Adam update
     // (its params *and* its `m`/`v` moments) is skipped entirely for as
-    // long as `l2_sample_count <= diagnostic_freeze_until_position` this
-    // epoch. This is NOT stop-gradient: the ordinary backward pass above
-    // already computes every layer's gradient through this layer's
-    // *current* (frozen) weight values before the freeze gate is checked,
-    // so upstream/downstream layers still receive a real gradient signal
+    // long as `diagnostic_freeze_from_position <= l2_sample_count <=
+    // diagnostic_freeze_until_position` this epoch -- a closed window, not
+    // just an from-the-start cutoff (`from_position` defaults to `0`, which
+    // is always `<= l2_sample_count`, so the original "freeze from the very
+    // first position" behavior is exactly `from_position=0`, unchanged).
+    // This is NOT stop-gradient: the ordinary backward pass above already
+    // computes every layer's gradient through this layer's *current*
+    // (frozen) weight values before the freeze gate is checked, so
+    // upstream/downstream layers still receive a real gradient signal
     // through it -- only this layer's own parameter update is discarded.
     // A causal probe for `docs/experiments/l2_saturation_mechanism_p0.md`'s
     // correlated FT+L2 co-movement finding (which the frozen-weights Δz
@@ -880,6 +884,7 @@ pub struct Trainer {
     // supported (single `Option`, not a set) -- not needed for the first
     // pass at isolating which single layer's movement is necessary.
     pub diagnostic_freeze_layer: Option<FreezeLayer>,
+    pub diagnostic_freeze_from_position: u64,
     pub diagnostic_freeze_until_position: u64,
 
     searcher: Searcher,
@@ -1012,6 +1017,7 @@ impl Trainer {
             sample_grad_running_mean_d_l2_acc: [0.0; L2],
             sample_grad_running_count: 0,
             diagnostic_freeze_layer: None,
+            diagnostic_freeze_from_position: 0,
             diagnostic_freeze_until_position: 0,
             searcher: Searcher::new(tt),
         }
@@ -1970,6 +1976,7 @@ impl Trainer {
         // `diagnostic_freeze_layer`'s doc comment -- this is deliberately
         // not stop-gradient).
         let freeze_active = self.diagnostic_freeze_layer.is_some()
+            && self.l2_sample_count >= self.diagnostic_freeze_from_position
             && self.l2_sample_count <= self.diagnostic_freeze_until_position;
         let ft_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Ft);
         let l2_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::L2);
@@ -3089,6 +3096,70 @@ mod tests {
         assert_ne!(
             trainer.weights.l2, l2_after_frozen_position,
             "position 2 is past diagnostic_freeze_until_position=1, L2 must resume updating"
+        );
+    }
+
+    #[test]
+    fn diagnostic_freeze_from_position_unset_is_byte_identical_to_no_freeze() {
+        // Mirrors `diagnostic_freeze_layer_unset_is_byte_identical_to_no_freeze`:
+        // setting `diagnostic_freeze_from_position` alone, with `diagnostic_freeze_layer`
+        // left at its `None` default, must never freeze anything.
+        let board = Board::startpos();
+
+        let mut baseline = Trainer::new(1, 0.5);
+        baseline.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        let mut untouched = Trainer::new(1, 0.5);
+        untouched.diagnostic_freeze_from_position = 1;
+        untouched.diagnostic_freeze_until_position = 999; // layer left None
+        untouched.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_eq!(baseline.weights.ft, untouched.weights.ft);
+        assert_eq!(baseline.weights.l2, untouched.weights.l2);
+        assert_eq!(baseline.weights.out, untouched.weights.out);
+        assert_eq!(baseline.total_loss, untouched.total_loss);
+    }
+
+    #[test]
+    fn diagnostic_freeze_window_only_freezes_between_from_and_until_positions() {
+        // The windowed-freeze contract this test proves: positions before
+        // `from_position` update normally, positions inside [from, until]
+        // are frozen, positions after `until` resume updating -- a closed
+        // window, not just an from-the-start cutoff.
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_from_position = 2;
+        trainer.diagnostic_freeze_until_position = 3;
+
+        // Position 1: before the window, FT must update normally.
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 1);
+        let ft_after_position_1 = trainer.weights.ft.clone();
+
+        // Position 2: inside the window, FT must be frozen.
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 2);
+        assert_eq!(
+            trainer.weights.ft, ft_after_position_1,
+            "position 2 is inside [from=2, until=3], FT must stay frozen"
+        );
+        let ft_after_position_2 = trainer.weights.ft.clone();
+
+        // Position 3: still inside the window, FT must still be frozen.
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 3);
+        assert_eq!(
+            trainer.weights.ft, ft_after_position_2,
+            "position 3 is inside [from=2, until=3], FT must stay frozen"
+        );
+
+        // Position 4: past the window, FT must resume updating.
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.l2_sample_count, 4);
+        assert_ne!(
+            trainer.weights.ft, ft_after_position_2,
+            "position 4 is past diagnostic_freeze_until_position=3, FT must resume updating"
         );
     }
 

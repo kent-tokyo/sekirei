@@ -114,13 +114,17 @@ struct Args {
     // `--trace-positions` to also be set (no-op otherwise). Off by default.
     trace_weights: bool, // --trace-weights
     // Causal freeze diagnostic (`docs/experiments/l2_saturation_mechanism_p0.md`'s
-    // conditional next step): while `l2_sample_count <= diagnostic_freeze_until_position`
-    // this epoch, the named layer's own Adam update is skipped -- gradient
-    // still flows through it to the other layers as usual, see
+    // conditional next step): while `diagnostic_freeze_from_position <=
+    // l2_sample_count <= diagnostic_freeze_until_position` this epoch, the
+    // named layer's own Adam update is skipped -- gradient still flows
+    // through it to the other layers as usual, see
     // `Trainer::diagnostic_freeze_layer`'s doc comment. `None` (default) is
-    // off, byte-identical to this flag never existing. Diagnostic-only, not
+    // off, byte-identical to this flag never existing. `from_position`
+    // defaults to `0` (freeze from the very first position, the original
+    // behavior before windowed freezing was added). Diagnostic-only, not
     // a training feature.
     diagnostic_freeze_layer: Option<FreezeLayer>, // --diagnostic-freeze-layer <ft|l2|out>
+    diagnostic_freeze_from_position: u64,         // --diagnostic-freeze-from-position
     diagnostic_freeze_until_position: u64,        // --diagnostic-freeze-until-position
     checkpoint_dir: Option<PathBuf>,              // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>,          // --teacher-cache
@@ -221,6 +225,7 @@ fn parse_args() -> Result<Args, String> {
     let mut sample_grad_trace = 0u64;
     let mut trace_weights = false;
     let mut diagnostic_freeze_layer: Option<FreezeLayer> = None;
+    let mut diagnostic_freeze_from_position = 0u64;
     let mut diagnostic_freeze_until_position = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
@@ -440,6 +445,12 @@ fn parse_args() -> Result<Args, String> {
                     diagnostic_freeze_layer = FreezeLayer::parse(s);
                 }
             }
+            "--diagnostic-freeze-from-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_freeze_from_position = v;
+                }
+            }
             "--diagnostic-freeze-until-position" => {
                 i += 1;
                 if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
@@ -576,6 +587,7 @@ fn parse_args() -> Result<Args, String> {
         sample_grad_trace,
         trace_weights,
         diagnostic_freeze_layer,
+        diagnostic_freeze_from_position,
         diagnostic_freeze_until_position,
     })
 }
@@ -1101,6 +1113,7 @@ fn save_checkpoint_meta(
         // doc comment. `null`/`0` (both defaults) mean this run never froze
         // anything, byte-identical to the flag not existing.
         "diagnostic_freeze_layer": args.diagnostic_freeze_layer.map(|l| l.as_str()),
+        "diagnostic_freeze_from_position": args.diagnostic_freeze_from_position,
         "diagnostic_freeze_until_position": args.diagnostic_freeze_until_position,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
@@ -1220,7 +1233,10 @@ fn print_usage() {
         "  --trace-weights         At each --trace-positions marker, also dump a full weights checkpoint (<output>.epochN.posM.bin) for offline Δz decomposition. Requires --trace-positions. Default: off"
     );
     eprintln!(
-        "  --diagnostic-freeze-layer <ft|l2|out>  Causal freeze probe: skip the named layer's own Adam update while l2_sample_count <= --diagnostic-freeze-until-position this epoch. Gradient still flows through it to the other layers (not stop-gradient). Diagnostic only. Default: unset (off)"
+        "  --diagnostic-freeze-layer <ft|l2|out>  Causal freeze probe: skip the named layer's own Adam update while --diagnostic-freeze-from-position <= l2_sample_count <= --diagnostic-freeze-until-position this epoch. Gradient still flows through it to the other layers (not stop-gradient). Diagnostic only. Default: unset (off)"
+    );
+    eprintln!(
+        "  --diagnostic-freeze-from-position <n>  Position count (since epoch start) the freeze above starts being active at; no-op without --diagnostic-freeze-layer. Default: 0 (freeze from the first position)"
     );
     eprintln!(
         "  --diagnostic-freeze-until-position <n>  Position count (since epoch start) the freeze above stays active until; no-op without --diagnostic-freeze-layer. Default: 0"
@@ -1385,6 +1401,7 @@ fn main() {
         trainer.sample_grad_trace_limit = args.sample_grad_trace;
         trainer.weight_snapshot_trace = args.trace_weights;
         trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
+        trainer.diagnostic_freeze_from_position = args.diagnostic_freeze_from_position;
         trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
@@ -1739,6 +1756,7 @@ fn main() {
     trainer.sample_grad_trace_limit = args.sample_grad_trace;
     trainer.weight_snapshot_trace = args.trace_weights;
     trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
+    trainer.diagnostic_freeze_from_position = args.diagnostic_freeze_from_position;
     trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
