@@ -105,7 +105,14 @@ struct Args {
     // added compute. Never reorders training; writes
     // `<output>.epochN.sample_grad.jsonl` for offline reordering analysis
     // (Stage 2, a separate script, not part of the trainer).
-    sample_grad_trace: u64,              // --sample-grad-trace
+    sample_grad_trace: u64, // --sample-grad-trace
+    // P0b of the same investigation: at each `--trace-positions` marker,
+    // additionally dump a full weights checkpoint (`<output>.epochN.posM.
+    // bin`, same format `--checkpoint-dir` epoch-end saves use) so an
+    // offline probe can decompose Δz_L2 between two markers into FT-output-
+    // movement / L2-weight-update / L2-bias-update contributions. Requires
+    // `--trace-positions` to also be set (no-op otherwise). Off by default.
+    trace_weights: bool,                 // --trace-weights
     checkpoint_dir: Option<PathBuf>,     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>, // --teacher-cache
     reuse_teacher_cache: bool,           // --reuse-teacher-cache
@@ -203,6 +210,7 @@ fn parse_args() -> Result<Args, String> {
     let mut cp_wdl_grad_trace = false;
     let mut wdl_target_scale = 1200.0f32;
     let mut sample_grad_trace = 0u64;
+    let mut trace_weights = false;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -412,6 +420,9 @@ fn parse_args() -> Result<Args, String> {
                     sample_grad_trace = v;
                 }
             }
+            "--trace-weights" => {
+                trace_weights = true;
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -540,6 +551,7 @@ fn parse_args() -> Result<Args, String> {
         cp_wdl_grad_trace,
         wdl_target_scale,
         sample_grad_trace,
+        trace_weights,
     })
 }
 
@@ -863,6 +875,23 @@ fn save_sample_grad_jsonl(
     fs::write(path, out)
 }
 
+/// `--trace-weights`: one full weights checkpoint per `--trace-positions`
+/// marker, named `<checkpoint base>.posM.bin` (`checkpoint` already carries
+/// the `.epochN` part, e.g. `out.epoch1.bin` -> `out.epoch1.pos128.bin`).
+/// Saved via the same `to_nnue_weights()`/`save_weights` path epoch-end
+/// checkpoints use, so existing tooling (e.g. `l2_saturation_probe`) reads
+/// these directly.
+fn save_weight_snapshots(checkpoint: &Path, snapshots: &[(u64, trainer::TrainWeights)]) {
+    for (pos, w) in snapshots {
+        let nn = w.to_nnue_weights();
+        let path = checkpoint.with_extension(format!("pos{pos}.bin"));
+        match sekirei_core::nnue::save_weights(&nn, &path) {
+            Ok(_) => eprintln!("  weights   → {:?} (pos {pos})", path),
+            Err(e) => eprintln!("  weight snapshot save failed (pos {pos}): {e}"),
+        }
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -1154,6 +1183,9 @@ fn print_usage() {
         "  --sample-grad-trace <n>  Record a per-position gradient-correlation trace (game_id/outcome/residuals/L2 grad cosine similarity/gate state) for the first n positions each epoch; writes <output>.epochN.sample_grad.jsonl. Never reorders training. Default: 0 (off)"
     );
     eprintln!(
+        "  --trace-weights         At each --trace-positions marker, also dump a full weights checkpoint (<output>.epochN.posM.bin) for offline Δz decomposition. Requires --trace-positions. Default: off"
+    );
+    eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
@@ -1311,6 +1343,7 @@ fn main() {
         trainer.trace_positions = args.trace_positions.iter().copied().collect();
         trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
         trainer.sample_grad_trace_limit = args.sample_grad_trace;
+        trainer.weight_snapshot_trace = args.trace_weights;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1519,6 +1552,7 @@ fn main() {
             } else if !trainer.sample_grad_records.is_empty() {
                 eprintln!("  sample_grad → {:?}", sample_grad_path);
             }
+            save_weight_snapshots(&checkpoint, &trainer.weight_snapshots);
 
             // Valid-loss-based best checkpoint. Only tracked when
             // validation is actually on -- with no held-out set there is
@@ -1661,6 +1695,7 @@ fn main() {
     trainer.trace_positions = args.trace_positions.iter().copied().collect();
     trainer.cp_wdl_grad_trace = args.cp_wdl_grad_trace;
     trainer.sample_grad_trace_limit = args.sample_grad_trace;
+    trainer.weight_snapshot_trace = args.trace_weights;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
@@ -1977,6 +2012,7 @@ fn main() {
         } else if !trainer.sample_grad_records.is_empty() {
             eprintln!("  sample_grad → {:?}", sample_grad_path);
         }
+        save_weight_snapshots(&checkpoint, &trainer.weight_snapshots);
 
         // Valid-loss-based best checkpoint -- only tracked when validation
         // is on. Gating on validation_ratio>0 is what keeps this from

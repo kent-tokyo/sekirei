@@ -241,6 +241,7 @@ pub fn shuffled_order(n: usize, seed: u64) -> Vec<usize> {
 
 // ---- Training weight container ----
 
+#[derive(Clone)]
 pub struct TrainWeights {
     ft: Vec<f32>,      // INPUT × L1  (row-major: index = feat*L1 + neuron)
     ft_bias: Vec<f32>, // L1
@@ -654,6 +655,17 @@ pub struct Trainer {
     // `reset_epoch_stats`, consumed (written to `.trace.json`) by the
     // caller at epoch end, same lifecycle as `l2_values` etc.
     pub trace_snapshots: Vec<diagnostics::TraceSnapshot>,
+    // Opt-in (`--trace-weights`, default off): at each `trace_positions`
+    // marker, additionally clone the full raw f32 `TrainWeights` (not the
+    // quantized `NnueWeights` epoch-end checkpoints use) into
+    // `weight_snapshots` -- feeds the P0b forward-side Δz decomposition
+    // (`docs/experiments/`'s epoch-1 zero-gradient-collapse investigation),
+    // which needs FT output computed exactly as training itself computes
+    // it, not through i16 quantization noise. Off by default: cloning full
+    // weights (a few MB) at every trace point is real cost, unlike the
+    // existing aggregate `TraceSnapshot`.
+    pub weight_snapshot_trace: bool,
+    pub weight_snapshots: Vec<(u64, TrainWeights)>,
     // Per-neuron accumulators for the trace, all epoch-scoped (reset in
     // `reset_epoch_stats`, never mid-epoch -- a snapshot reads these
     // cumulative-since-epoch-start, the same semantic the existing
@@ -879,6 +891,8 @@ impl Trainer {
             cache_misses: 0,
             trace_positions: std::collections::HashSet::new(),
             trace_snapshots: Vec::new(),
+            weight_snapshot_trace: false,
+            weight_snapshots: Vec::new(),
             l2_weighted_input_values: vec![Vec::new(); L2],
             l2_dacc_sum: vec![0.0; L2],
             l2_dacc_sq_sum: vec![0.0; L2],
@@ -1976,6 +1990,10 @@ impl Trainer {
         if !self.trace_positions.contains(&self.l2_sample_count) {
             return;
         }
+        if self.weight_snapshot_trace {
+            self.weight_snapshots
+                .push((self.l2_sample_count, self.weights.clone()));
+        }
         let l2_weight_row_norm: Vec<f32> = (0..L2)
             .map(|o| {
                 (0..2 * L1)
@@ -2177,6 +2195,7 @@ impl Trainer {
         self.cache_hits = 0;
         self.cache_misses = 0;
         self.trace_snapshots.clear();
+        self.weight_snapshots.clear();
         self.l2_weighted_input_values
             .iter_mut()
             .for_each(|v| v.clear());
