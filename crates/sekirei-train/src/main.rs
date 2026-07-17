@@ -126,11 +126,18 @@ struct Args {
     diagnostic_freeze_layer: Option<FreezeLayer>, // --diagnostic-freeze-layer <ft|l2|out>
     diagnostic_freeze_from_position: u64,         // --diagnostic-freeze-from-position
     diagnostic_freeze_until_position: u64,        // --diagnostic-freeze-until-position
-    checkpoint_dir: Option<PathBuf>,              // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>,          // --teacher-cache
-    reuse_teacher_cache: bool,                    // --reuse-teacher-cache
-    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,                 // --lr (base learning rate, default 0.001)
+    // Intermittent FT freeze (`docs/experiments/l2_saturation_ft_freeze_dense_clock.md`'s
+    // continuity-vs-total-movement follow-up): FT-only, only takes effect
+    // together with `--diagnostic-freeze-layer ft`. Both default to `0`
+    // (periodic mode off, plain single-window freeze), see
+    // `Trainer::diagnostic_ft_active_block`'s doc comment.
+    diagnostic_ft_active_block: u64, // --diagnostic-ft-active-block
+    diagnostic_ft_frozen_block: u64, // --diagnostic-ft-frozen-block
+    checkpoint_dir: Option<PathBuf>, // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>, // --teacher-cache
+    reuse_teacher_cache: bool,       // --reuse-teacher-cache
+    wdl_lambda: Option<f32>,         // --wdl-lambda (CSA path only; None = eval-only, default)
+    lr: f32,                         // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
     warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
@@ -227,6 +234,8 @@ fn parse_args() -> Result<Args, String> {
     let mut diagnostic_freeze_layer: Option<FreezeLayer> = None;
     let mut diagnostic_freeze_from_position = 0u64;
     let mut diagnostic_freeze_until_position = 0u64;
+    let mut diagnostic_ft_active_block = 0u64;
+    let mut diagnostic_ft_frozen_block = 0u64;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -457,6 +466,18 @@ fn parse_args() -> Result<Args, String> {
                     diagnostic_freeze_until_position = v;
                 }
             }
+            "--diagnostic-ft-active-block" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_ft_active_block = v;
+                }
+            }
+            "--diagnostic-ft-frozen-block" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_ft_frozen_block = v;
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -589,6 +610,8 @@ fn parse_args() -> Result<Args, String> {
         diagnostic_freeze_layer,
         diagnostic_freeze_from_position,
         diagnostic_freeze_until_position,
+        diagnostic_ft_active_block,
+        diagnostic_ft_frozen_block,
     })
 }
 
@@ -1115,6 +1138,12 @@ fn save_checkpoint_meta(
         "diagnostic_freeze_layer": args.diagnostic_freeze_layer.map(|l| l.as_str()),
         "diagnostic_freeze_from_position": args.diagnostic_freeze_from_position,
         "diagnostic_freeze_until_position": args.diagnostic_freeze_until_position,
+        // Intermittent FT freeze pattern -- see
+        // `Trainer::diagnostic_ft_active_block`'s doc comment. `0`/`0`
+        // (both defaults) mean plain single-window freeze (or no freeze at
+        // all if diagnostic_freeze_layer is also null).
+        "diagnostic_ft_active_block": args.diagnostic_ft_active_block,
+        "diagnostic_ft_frozen_block": args.diagnostic_ft_frozen_block,
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1240,6 +1269,12 @@ fn print_usage() {
     );
     eprintln!(
         "  --diagnostic-freeze-until-position <n>  Position count (since epoch start) the freeze above stays active until; no-op without --diagnostic-freeze-layer. Default: 0"
+    );
+    eprintln!(
+        "  --diagnostic-ft-active-block <n>  FT-only: within the freeze window above, cycle <n> positions of normal FT updates then --diagnostic-ft-frozen-block positions frozen, repeating. No-op unless --diagnostic-freeze-layer ft and both block flags are set (nonzero). Default: 0 (off, plain single-window freeze)"
+    );
+    eprintln!(
+        "  --diagnostic-ft-frozen-block <n>  Paired with --diagnostic-ft-active-block, see above. Default: 0 (off)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1403,6 +1438,8 @@ fn main() {
         trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
         trainer.diagnostic_freeze_from_position = args.diagnostic_freeze_from_position;
         trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
+        trainer.diagnostic_ft_active_block = args.diagnostic_ft_active_block;
+        trainer.diagnostic_ft_frozen_block = args.diagnostic_ft_frozen_block;
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1758,6 +1795,8 @@ fn main() {
     trainer.diagnostic_freeze_layer = args.diagnostic_freeze_layer;
     trainer.diagnostic_freeze_from_position = args.diagnostic_freeze_from_position;
     trainer.diagnostic_freeze_until_position = args.diagnostic_freeze_until_position;
+    trainer.diagnostic_ft_active_block = args.diagnostic_ft_active_block;
+    trainer.diagnostic_ft_frozen_block = args.diagnostic_ft_frozen_block;
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)

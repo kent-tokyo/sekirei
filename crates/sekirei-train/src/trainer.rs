@@ -887,6 +887,28 @@ pub struct Trainer {
     pub diagnostic_freeze_from_position: u64,
     pub diagnostic_freeze_until_position: u64,
 
+    // ---- Intermittent FT freeze (--diagnostic-ft-active-block / --diagnostic-ft-frozen-block) ----
+    // FT-only extension of the freeze window above, for testing whether
+    // *continuity* of FT updates (not just their total count) matters --
+    // `l2_saturation_ft_freeze_dense_clock.md`'s intermittent-freeze
+    // follow-up. Both default to `0`, meaning periodic mode is off and the
+    // freeze window above behaves exactly as a plain single block (frozen
+    // for its entire `[from,until]` span) -- byte-identical to these flags
+    // never having existed. Only takes effect when `diagnostic_freeze_layer
+    // == Some(FreezeLayer::Ft)` *and* both block lengths are nonzero; it is
+    // a no-op for L2/Out freezing (periodic support is FT-only for now, not
+    // needed elsewhere yet). When active, within `[from,until]` FT cycles
+    // `active_block` positions of normal updates then `frozen_block`
+    // positions of frozen updates, repeating from `from_position` (which is
+    // always the start of an active sub-block); past `until_position` FT
+    // resumes updating unconditionally, same as the plain single-window
+    // case. FT's Adam `m`/`v` moments are left completely untouched during
+    // each frozen sub-block (identical discipline to the plain freeze) and
+    // simply resume from wherever they were once an active sub-block
+    // starts again -- never reset, never decayed across a frozen sub-block.
+    pub diagnostic_ft_active_block: u64,
+    pub diagnostic_ft_frozen_block: u64,
+
     searcher: Searcher,
 }
 
@@ -1019,6 +1041,8 @@ impl Trainer {
             diagnostic_freeze_layer: None,
             diagnostic_freeze_from_position: 0,
             diagnostic_freeze_until_position: 0,
+            diagnostic_ft_active_block: 0,
+            diagnostic_ft_frozen_block: 0,
             searcher: Searcher::new(tt),
         }
     }
@@ -1446,6 +1470,24 @@ impl Trainer {
     /// (no CSA game to attribute a position to) passes `game_id = 0`,
     /// `game_result = GameResult::Unknown`, meaningless sentinels that only
     /// matter if this trace is ever enabled on that path.
+    /// Whether periodic FT freezing (`diagnostic_ft_active_block`/
+    /// `diagnostic_ft_frozen_block`) is enabled *and* the current position
+    /// falls in an "active" sub-block of the cycle -- i.e. FT should update
+    /// despite otherwise being inside the frozen `[from,until]` window.
+    /// Returns `false` (no override) whenever either block length is `0`,
+    /// preserving byte-identical behavior with the plain single-window
+    /// freeze when these fields are left at their defaults. Only called
+    /// from within the already-`ft_targeted` branch, so this never needs to
+    /// check `diagnostic_freeze_layer`/the window bounds itself.
+    fn ft_periodic_active_phase(&self) -> bool {
+        if self.diagnostic_ft_active_block == 0 || self.diagnostic_ft_frozen_block == 0 {
+            return false;
+        }
+        let cycle = self.diagnostic_ft_active_block + self.diagnostic_ft_frozen_block;
+        let offset = self.l2_sample_count - self.diagnostic_freeze_from_position;
+        (offset % cycle) < self.diagnostic_ft_active_block
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn train_position(
         &mut self,
@@ -1978,7 +2020,8 @@ impl Trainer {
         let freeze_active = self.diagnostic_freeze_layer.is_some()
             && self.l2_sample_count >= self.diagnostic_freeze_from_position
             && self.l2_sample_count <= self.diagnostic_freeze_until_position;
-        let ft_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Ft);
+        let ft_targeted = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Ft);
+        let ft_frozen = ft_targeted && !self.ft_periodic_active_phase();
         let l2_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::L2);
         let out_frozen = freeze_active && self.diagnostic_freeze_layer == Some(FreezeLayer::Out);
 
@@ -3161,6 +3204,85 @@ mod tests {
             trainer.weights.ft, ft_after_position_2,
             "position 4 is past diagnostic_freeze_until_position=3, FT must resume updating"
         );
+    }
+
+    #[test]
+    fn diagnostic_ft_periodic_freeze_cycles_active_and_frozen_sub_blocks() {
+        // from=2, until=9, active_block=2, frozen_block=2 -> cycle length 4,
+        // pattern over positions 2..=9 is active,active,frozen,frozen,
+        // active,active,frozen,frozen (offset%4 < 2 => active).
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        trainer.diagnostic_freeze_from_position = 2;
+        trainer.diagnostic_freeze_until_position = 9;
+        trainer.diagnostic_ft_active_block = 2;
+        trainer.diagnostic_ft_frozen_block = 2;
+
+        let mut ft_after = Vec::new();
+        for _ in 1..=9 {
+            trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            ft_after.push(trainer.weights.ft.clone());
+        }
+
+        // pos1 (index 0): before the window, always active.
+        // pos2,3 (indices 1,2): active sub-block -> each must move.
+        assert_ne!(ft_after[1], ft_after[0], "position 2 (active) must update");
+        assert_ne!(ft_after[2], ft_after[1], "position 3 (active) must update");
+        // pos4,5 (indices 3,4): frozen sub-block -> both equal position 3's state.
+        assert_eq!(
+            ft_after[3], ft_after[2],
+            "position 4 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[4], ft_after[2],
+            "position 5 (frozen) must not move"
+        );
+        // pos6,7 (indices 5,6): active sub-block resumes -> each must move again.
+        assert_ne!(ft_after[5], ft_after[4], "position 6 (active) must update");
+        assert_ne!(ft_after[6], ft_after[5], "position 7 (active) must update");
+        // pos8,9 (indices 7,8): frozen sub-block again.
+        assert_eq!(
+            ft_after[7], ft_after[6],
+            "position 8 (frozen) must not move"
+        );
+        assert_eq!(
+            ft_after[8], ft_after[6],
+            "position 9 (frozen) must not move"
+        );
+    }
+
+    #[test]
+    fn diagnostic_ft_periodic_freeze_unset_blocks_is_byte_identical_to_plain_window_freeze() {
+        // active_block/frozen_block left at their `0` default must behave
+        // exactly like the plain single-window freeze -- no periodicity.
+        let board = Board::startpos();
+
+        let mut plain = Trainer::new(1, 0.5);
+        plain.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        plain.diagnostic_freeze_from_position = 2;
+        plain.diagnostic_freeze_until_position = 5;
+
+        let mut with_unset_blocks = Trainer::new(1, 0.5);
+        with_unset_blocks.diagnostic_freeze_layer = Some(FreezeLayer::Ft);
+        with_unset_blocks.diagnostic_freeze_from_position = 2;
+        with_unset_blocks.diagnostic_freeze_until_position = 5;
+        with_unset_blocks.diagnostic_ft_active_block = 0;
+        with_unset_blocks.diagnostic_ft_frozen_block = 0;
+
+        for _ in 1..=6 {
+            plain.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+            with_unset_blocks.train_position(
+                &board,
+                -600.0,
+                1.0,
+                -600.0,
+                None,
+                0,
+                GameResult::Unknown,
+            );
+            assert_eq!(plain.weights.ft, with_unset_blocks.weights.ft);
+        }
     }
 
     #[test]
