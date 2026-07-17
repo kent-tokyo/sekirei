@@ -998,6 +998,43 @@ pub struct Trainer {
     pub diagnostic_replay_from_position: u64,
     pub diagnostic_replay_until_position: u64,
 
+    // ---- B5-limited one-step shadow trace (--diagnostic-shadow-trace-from-position / --diagnostic-shadow-trace-until-position / --diagnostic-shadow-trace-probe-set) ----
+    // `l2_b5_cp_wdl_component_replay.md`'s open question: whether Blended's
+    // deeper FT collapse over the 32-step counterfactual replay reflects
+    // genuine within-step interaction or 32-step trajectory divergence.
+    // Unlike `diagnostic_replay_component` (which permanently redirects the
+    // real training trajectory), this NEVER mutates real training: at each
+    // live position inside
+    // `[diagnostic_shadow_trace_from_position, diagnostic_shadow_trace_until_position]`
+    // (and only once `diagnostic_shadow_trace_probe_boards` is non-empty --
+    // both must hold), `train_position` additionally branches CP-only/
+    // WDL-only/Blended one-step counterfactual FT+L2 updates from a *clone*
+    // of the exact pre-update weights+Adam-moments state, evaluates each
+    // clone's dead-unit outcome on the fixed probe set, then discards every
+    // clone -- the real backward pass and Adam update proceed completely
+    // unaffected (see `train_position`'s own comment at the hook site, and
+    // `shadow_trace_active_run_is_byte_identical_to_inactive` for the
+    // non-perturbation proof). Left empty/`0`/`0` by default, which never
+    // matches any real position (`l2_sample_count` is always `>= 1`) and
+    // short-circuits on the empty probe set besides -- byte-identical to
+    // this mechanism never existing.
+    pub diagnostic_shadow_trace_from_position: u64,
+    pub diagnostic_shadow_trace_until_position: u64,
+    /// This run's own WDL blend coefficient, mirrored here because
+    /// `train_position` only receives the already-blended `teacher`, not
+    /// `λ` itself -- the shadow trace needs `λ`/`1-λ` to scale the CP-only/
+    /// WDL-only branches so they sum exactly to the real blended gradient
+    /// (see `shadow_component_grad`'s doc comment). Unused when the window
+    /// above never matches.
+    pub diagnostic_shadow_trace_wdl_lambda: f32,
+    /// Fixed probe set (parsed once by the caller from
+    /// `--diagnostic-shadow-trace-probe-set`) the shadow branches are
+    /// evaluated against every window position -- empty by default, which
+    /// is also this mechanism's off-switch (see above).
+    pub diagnostic_shadow_trace_probe_boards: Vec<Board>,
+    /// One record per window position actually visited, in training order.
+    pub shadow_trace_records: Vec<diagnostics::ShadowTraceRecord>,
+
     searcher: Searcher,
 }
 
@@ -1140,6 +1177,11 @@ impl Trainer {
             diagnostic_replay_component: None,
             diagnostic_replay_from_position: 0,
             diagnostic_replay_until_position: 0,
+            diagnostic_shadow_trace_from_position: 0,
+            diagnostic_shadow_trace_until_position: 0,
+            diagnostic_shadow_trace_wdl_lambda: 0.0,
+            diagnostic_shadow_trace_probe_boards: Vec::new(),
+            shadow_trace_records: Vec::new(),
             searcher: Searcher::new(tt),
         }
     }
@@ -2175,6 +2217,46 @@ impl Trainer {
         let t = self.weights.step;
         let lr = self.lr;
 
+        // `--diagnostic-shadow-trace-from-position`/`-until-position`:
+        // branch CP-only/WDL-only/Blended one-step counterfactual FT+L2
+        // updates from this exact pre-update anchor (`self.weights`, read
+        // here before any Adam call below mutates it), evaluate each on the
+        // fixed probe set, and stash the result to finalize once the real
+        // update below has actually run (see `ShadowTracePending`'s doc
+        // comment). `d_ft`/`d_bias`/`d_l2`/`d_l2_bias` (the real,
+        // already clip-adjusted gradient) are read by value/copy only --
+        // the real Adam calls below still consume their own untouched
+        // buffers, this never perturbs training.
+        let shadow_trace_active = !self.diagnostic_shadow_trace_probe_boards.is_empty()
+            && self.l2_sample_count >= self.diagnostic_shadow_trace_from_position
+            && self.l2_sample_count <= self.diagnostic_shadow_trace_until_position
+            && wdl_target.is_some();
+        let shadow_pending = shadow_trace_active.then(|| {
+            compute_shadow_trace(
+                &self.weights,
+                &l2_acc,
+                &relu_us,
+                &relu_them,
+                &acc_us,
+                &acc_them,
+                &active_us,
+                &active_them,
+                score,
+                eval_teacher,
+                wdl_target.expect("shadow_trace_active checked wdl_target.is_some()"),
+                weight,
+                self.diagnostic_shadow_trace_wdl_lambda,
+                lr,
+                t,
+                &d_ft,
+                &d_bias,
+                &d_l2,
+                &d_l2_bias,
+                &self.diagnostic_shadow_trace_probe_boards,
+                self.l2_sample_count,
+            )
+        });
+
         // Freeze gates (diagnostic only, `--diagnostic-freeze-layer`). A
         // frozen layer's params *and* Adam `m`/`v` are left completely
         // untouched this position -- the gradients above (`d_ft`/`d_l2`/
@@ -2247,6 +2329,28 @@ impl Trainer {
         for o in 0..L2 {
             self.l2_bias_update_sq_sum[o] += (d_l2_bias[o] as f64).powi(2);
         }
+
+        // Finalize the shadow trace's correctness guard now that the real
+        // FT+L2 Adam updates above have actually run: the Blend branch was
+        // built from a clone of the same pre-update anchor plus a copy of
+        // this exact position's real gradient, so it must reproduce
+        // `self.weights.ft`/`l2` bit-for-bit. A mismatch means the shadow
+        // mechanism itself is broken (wrong scaling, wrong `t`, or a stale
+        // anchor) -- not a finding about CP/WDL interaction -- so this
+        // panics rather than silently recording a bad sample.
+        if let Some(mut pending) = shadow_pending {
+            pending.record.blend_matches_real_ft = self.weights.ft == pending.shadow_blend_ft
+                && self.weights.ft_bias == pending.shadow_blend_ft_bias;
+            pending.record.blend_matches_real_l2 = self.weights.l2 == pending.shadow_blend_l2
+                && self.weights.l2_bias == pending.shadow_blend_l2_bias;
+            assert!(
+                pending.record.blend_matches_real_ft && pending.record.blend_matches_real_l2,
+                "shadow trace: Blend branch diverged from the real applied update at position {}",
+                pending.record.position_index
+            );
+            self.shadow_trace_records.push(pending.record);
+        }
+
         let (out_update_sq, out_bias_delta) = if out_frozen {
             (0.0, 0.0f32)
         } else {
@@ -2733,6 +2837,470 @@ fn diagnostic_backward(
         ft_grad_norm: ft_grad_sq.sqrt(),
         out_grad_norm: out_grad_sq.sqrt(),
         d_output,
+    }
+}
+
+// ---- B5-limited one-step shadow trace ----
+// (`Trainer::diagnostic_shadow_trace_from_position`'s doc comment has the
+// full mechanism description.) The functions below are deliberately not
+// shared with `diagnostic_backward`/`train_position`'s own backward pass,
+// same rationale as `diagnostic_backward`'s own doc comment: trivially
+// auditable against the tested main path rather than a shared derivation
+// everything has to trust at once.
+
+/// One component's (CP-only or WDL-only) full weight-space FT+L2 gradient
+/// for a single position, already scaled by its own blend coefficient
+/// (`weight` should be `real_weight*λ` for CP, `real_weight*(1-λ)` for
+/// WDL) -- so `d_score_cp + d_score_wdl` is exactly `weight*2*(score -
+/// (λ*eval_teacher + (1-λ)*wdl_target))`, algebraically identical to the
+/// real blended `d_score`. Because backprop is linear in `d_score`, this
+/// means `d_ft_cp + d_ft_wdl == d_ft_blend` exactly, elementwise, by
+/// construction -- any gap between `Δθ_cp + Δθ_wdl` and `Δθ_blend` after
+/// `apply_shadow_adam` is entirely attributable to Adam's own nonlinear
+/// `m`/`v`/`√v̂` transform, not to anything upstream of it. Reads `w`
+/// (the anchor, pre-update weights) and the forward-pass state
+/// `train_position` already computed for this position; never mutates
+/// anything.
+#[allow(clippy::too_many_arguments)]
+fn shadow_component_grad(
+    w: &TrainWeights,
+    l2_acc: &[f32],
+    relu_us: &[f32],
+    relu_them: &[f32],
+    acc_us: &[f32],
+    acc_them: &[f32],
+    active_us: &[usize],
+    active_them: &[usize],
+    score: f32,
+    target: f32,
+    weight: f32,
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let d_score = weight * 2.0 * (score - target);
+    let d_output = d_score / 64.0;
+
+    let mut d_l2_acc = [0.0f32; L2];
+    for o in 0..L2 {
+        if l2_acc[o] > 0.0 && l2_acc[o] < 127.0 {
+            d_l2_acc[o] = d_output * w.out[o];
+        }
+    }
+
+    let mut d_l2 = vec![0.0f32; 2 * L1 * L2];
+    let mut d_l2_bias = vec![0.0f32; L2];
+    let mut d_relu_us = vec![0.0f32; L1];
+    let mut d_relu_them = vec![0.0f32; L1];
+    for j in 0..L1 {
+        let base_us = j * L2;
+        let base_them = (L1 + j) * L2;
+        for o in 0..L2 {
+            let g = d_l2_acc[o];
+            d_l2[base_us + o] += g * relu_us[j];
+            d_l2[base_them + o] += g * relu_them[j];
+            d_relu_us[j] += g * w.l2[base_us + o];
+            d_relu_them[j] += g * w.l2[base_them + o];
+        }
+    }
+    d_l2_bias.copy_from_slice(&d_l2_acc);
+
+    let mut d_acc_us = vec![0.0f32; L1];
+    let mut d_acc_them = vec![0.0f32; L1];
+    for j in 0..L1 {
+        if acc_us[j] > 0.0 && acc_us[j] < 127.0 {
+            d_acc_us[j] = d_relu_us[j];
+        }
+        if acc_them[j] > 0.0 && acc_them[j] < 127.0 {
+            d_acc_them[j] = d_relu_them[j];
+        }
+    }
+
+    let mut d_ft = vec![0.0f32; INPUT * L1];
+    let mut d_bias = vec![0.0f32; L1];
+    for &feat in active_us {
+        let base = feat * L1;
+        for j in 0..L1 {
+            d_ft[base + j] += d_acc_us[j];
+        }
+    }
+    for &feat in active_them {
+        let base = feat * L1;
+        for j in 0..L1 {
+            d_ft[base + j] += d_acc_them[j];
+        }
+    }
+    for j in 0..L1 {
+        d_bias[j] = d_acc_us[j] + d_acc_them[j];
+    }
+
+    (d_ft, d_bias, d_l2, d_l2_bias)
+}
+
+/// Applies one Adam step to a *clone* of `w`'s FT+L2 params/moments,
+/// returning the resulting `(ft, ft_bias, l2, l2_bias)` -- never touches
+/// `w` or any real trainer state (the output layer is deliberately not
+/// shadow-updated: neither FT nor L2 dead/alive state depends on `out`,
+/// which is only read, not written, by `shadow_component_grad` above).
+/// `d_ft`/`d_bias`/`d_l2`/`d_l2_bias` are overwritten in place with their
+/// applied per-parameter delta (same convention as `adam_update_slice`) --
+/// callers that still need the pre-Adam gradient (e.g. for `cos_g_cp_wdl`)
+/// must read it before calling this.
+fn apply_shadow_adam(
+    w: &TrainWeights,
+    d_ft: &mut [f32],
+    d_bias: &mut [f32],
+    d_l2: &mut [f32],
+    d_l2_bias: &mut [f32],
+    lr: f32,
+    t: u64,
+) -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<f32>) {
+    let mut ft = w.ft.clone();
+    let mut ft_m = w.ft_m.clone();
+    let mut ft_v = w.ft_v.clone();
+    adam_update_slice(&mut ft, &mut ft_m, &mut ft_v, d_ft, lr, t);
+
+    let mut ft_bias = w.ft_bias.clone();
+    let mut bias_m = w.bias_m.clone();
+    let mut bias_v = w.bias_v.clone();
+    adam_update_slice(&mut ft_bias, &mut bias_m, &mut bias_v, d_bias, lr, t);
+
+    let mut l2 = w.l2.clone();
+    let mut l2_m = w.l2_m.clone();
+    let mut l2_v = w.l2_v.clone();
+    adam_update_slice(&mut l2, &mut l2_m, &mut l2_v, d_l2, lr, t);
+
+    let mut l2_bias = w.l2_bias.clone();
+    let mut l2bias_m = w.l2bias_m.clone();
+    let mut l2bias_v = w.l2bias_v.clone();
+    adam_update_slice(&mut l2_bias, &mut l2bias_m, &mut l2bias_v, d_l2_bias, lr, t);
+
+    (ft, ft_bias, l2, l2_bias)
+}
+
+/// FT-output dead mask (`== 0.0` after ClippedReLU) for one probe board
+/// under a given FT weight set -- `2*L1` entries, `us` perspective first
+/// then `them`, matching `l2_alignment_formation_probe.rs`'s
+/// `dead_units` convention. Pure forward pass, no Adam moments involved.
+fn ft_dead_mask(ft: &[f32], ft_bias: &[f32], board: &Board) -> Vec<bool> {
+    let stm = board.side_to_move;
+    let active_us = active_features(board, stm);
+    let active_them = active_features(board, stm.flip());
+    let mut acc_us = ft_bias.to_vec();
+    let mut acc_them = acc_us.clone();
+    for &feat in &active_us {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_us[j] += ft[base + j];
+        }
+    }
+    for &feat in &active_them {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_them[j] += ft[base + j];
+        }
+    }
+    acc_us
+        .iter()
+        .chain(acc_them.iter())
+        .map(|&x| x.clamp(0.0, 127.0) == 0.0)
+        .collect()
+}
+
+/// L2 dead-neuron count and weighted-input sum for one probe board, under
+/// a given branch's own shadow FT+L2 weights (L2's forward pass is fed by
+/// that same branch's FT output, not the anchor's). Returns `(dead_count,
+/// weighted_input_sum)` over the 32 L2 neurons.
+fn l2_state_for_board(
+    ft: &[f32],
+    ft_bias: &[f32],
+    l2: &[f32],
+    l2_bias: &[f32],
+    board: &Board,
+) -> (u32, f64) {
+    let stm = board.side_to_move;
+    let active_us = active_features(board, stm);
+    let active_them = active_features(board, stm.flip());
+    let mut acc_us = ft_bias.to_vec();
+    let mut acc_them = acc_us.clone();
+    for &feat in &active_us {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_us[j] += ft[base + j];
+        }
+    }
+    for &feat in &active_them {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_them[j] += ft[base + j];
+        }
+    }
+    let relu_us: Vec<f32> = acc_us.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+    let relu_them: Vec<f32> = acc_them.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+
+    let mut l2_acc = l2_bias.to_vec();
+    for j in 0..L1 {
+        let a = relu_us[j];
+        let b = relu_them[j];
+        let base_us = j * L2;
+        let base_them = (L1 + j) * L2;
+        for o in 0..L2 {
+            l2_acc[o] += a * l2[base_us + o];
+            l2_acc[o] += b * l2[base_them + o];
+        }
+    }
+    let mut dead = 0u32;
+    let mut weighted_input_sum = 0.0f64;
+    for o in 0..L2 {
+        if l2_acc[o] <= 0.0 {
+            dead += 1;
+        }
+        weighted_input_sum += (l2_acc[o] - l2_bias[o]) as f64;
+    }
+    (dead, weighted_input_sum)
+}
+
+fn vec_norm_f64(parts: &[&[f32]]) -> f64 {
+    parts
+        .iter()
+        .flat_map(|p| p.iter())
+        .map(|&x| (x as f64).powi(2))
+        .sum::<f64>()
+        .sqrt()
+}
+
+fn vec_dot_f64(a_parts: &[&[f32]], b_parts: &[&[f32]]) -> f64 {
+    a_parts
+        .iter()
+        .zip(b_parts.iter())
+        .map(|(a, b)| {
+            a.iter()
+                .zip(b.iter())
+                .map(|(&x, &y)| (x as f64) * (y as f64))
+                .sum::<f64>()
+        })
+        .sum()
+}
+
+/// Everything `compute_shadow_trace` computed except the correctness-guard
+/// fields, which `train_position` can only fill in after the real Adam
+/// update actually runs -- `shadow_blend_*` are kept around for exactly
+/// that comparison, then dropped.
+struct ShadowTracePending {
+    record: diagnostics::ShadowTraceRecord,
+    shadow_blend_ft: Vec<f32>,
+    shadow_blend_ft_bias: Vec<f32>,
+    shadow_blend_l2: Vec<f32>,
+    shadow_blend_l2_bias: Vec<f32>,
+}
+
+/// Builds one position's full shadow trace: CP-only/WDL-only/Blended
+/// one-step counterfactual FT+L2 updates from the identical pre-update
+/// anchor `w`, each evaluated on `probe_boards`, plus the linear-prediction
+/// branch (`anchor + Δcp + Δwdl`, no Adam) used to isolate Adam's own
+/// nonlinearity. `real_d_ft`/`real_d_bias`/`real_d_l2`/`real_d_l2_bias` are
+/// the REAL (already clip-adjusted) blended gradient about to be applied
+/// for real by the caller -- copied here, never mutated, so the real
+/// update proceeds on its own untouched buffers.
+#[allow(clippy::too_many_arguments)]
+fn compute_shadow_trace(
+    w: &TrainWeights,
+    l2_acc: &[f32],
+    relu_us: &[f32],
+    relu_them: &[f32],
+    acc_us: &[f32],
+    acc_them: &[f32],
+    active_us: &[usize],
+    active_them: &[usize],
+    score: f32,
+    eval_teacher: f32,
+    wdl_target: f32,
+    weight: f32,
+    lambda: f32,
+    lr: f32,
+    t: u64,
+    real_d_ft: &[f32],
+    real_d_bias: &[f32],
+    real_d_l2: &[f32],
+    real_d_l2_bias: &[f32],
+    probe_boards: &[Board],
+    position_index: u64,
+) -> ShadowTracePending {
+    let (mut d_ft_cp, mut d_bias_cp, mut d_l2_cp, mut d_l2_bias_cp) = shadow_component_grad(
+        w,
+        l2_acc,
+        relu_us,
+        relu_them,
+        acc_us,
+        acc_them,
+        active_us,
+        active_them,
+        score,
+        eval_teacher,
+        weight * lambda,
+    );
+    let (mut d_ft_wdl, mut d_bias_wdl, mut d_l2_wdl, mut d_l2_bias_wdl) = shadow_component_grad(
+        w,
+        l2_acc,
+        relu_us,
+        relu_them,
+        acc_us,
+        acc_them,
+        active_us,
+        active_them,
+        score,
+        wdl_target,
+        weight * (1.0 - lambda),
+    );
+
+    let g_cp_norm = vec_norm_f64(&[&d_ft_cp, &d_bias_cp, &d_l2_cp, &d_l2_bias_cp]);
+    let g_wdl_norm = vec_norm_f64(&[&d_ft_wdl, &d_bias_wdl, &d_l2_wdl, &d_l2_bias_wdl]);
+    let g_dot = vec_dot_f64(
+        &[&d_ft_cp, &d_bias_cp, &d_l2_cp, &d_l2_bias_cp],
+        &[&d_ft_wdl, &d_bias_wdl, &d_l2_wdl, &d_l2_bias_wdl],
+    );
+    let cos_g_cp_wdl = if g_cp_norm > 0.0 && g_wdl_norm > 0.0 {
+        g_dot / (g_cp_norm * g_wdl_norm)
+    } else {
+        0.0
+    };
+
+    let (cp_ft, cp_ft_bias, cp_l2, cp_l2_bias) = apply_shadow_adam(
+        w,
+        &mut d_ft_cp,
+        &mut d_bias_cp,
+        &mut d_l2_cp,
+        &mut d_l2_bias_cp,
+        lr,
+        t,
+    );
+    let (wdl_ft, wdl_ft_bias, wdl_l2, wdl_l2_bias) = apply_shadow_adam(
+        w,
+        &mut d_ft_wdl,
+        &mut d_bias_wdl,
+        &mut d_l2_wdl,
+        &mut d_l2_bias_wdl,
+        lr,
+        t,
+    );
+    // `d_ft_cp`/`d_bias_cp`/... now hold the *applied deltas* (Adam's own
+    // convention, see `adam_update_slice`'s doc comment), not the
+    // pre-Adam gradient anymore -- exactly what `delta_*_norm`/linpred need.
+    let delta_cp_norm = vec_norm_f64(&[&d_ft_cp, &d_bias_cp]);
+    let delta_wdl_norm = vec_norm_f64(&[&d_ft_wdl, &d_bias_wdl]);
+    let delta_dot = vec_dot_f64(&[&d_ft_cp, &d_bias_cp], &[&d_ft_wdl, &d_bias_wdl]);
+    let cos_delta_cp_wdl = if delta_cp_norm > 0.0 && delta_wdl_norm > 0.0 {
+        delta_dot / (delta_cp_norm * delta_wdl_norm)
+    } else {
+        0.0
+    };
+
+    let mut d_ft_blend = real_d_ft.to_vec();
+    let mut d_bias_blend = real_d_bias.to_vec();
+    let mut d_l2_blend = real_d_l2.to_vec();
+    let mut d_l2_bias_blend = real_d_l2_bias.to_vec();
+    let (blend_ft, blend_ft_bias, blend_l2, blend_l2_bias) = apply_shadow_adam(
+        w,
+        &mut d_ft_blend,
+        &mut d_bias_blend,
+        &mut d_l2_blend,
+        &mut d_l2_bias_blend,
+        lr,
+        t,
+    );
+    let delta_blend_norm = vec_norm_f64(&[&d_ft_blend, &d_bias_blend]);
+
+    let linpred_ft: Vec<f32> =
+        w.ft.iter()
+            .zip(d_ft_cp.iter())
+            .zip(d_ft_wdl.iter())
+            .map(|((&a, &dc), &dw)| a + dc + dw)
+            .collect();
+    let linpred_ft_bias: Vec<f32> = w
+        .ft_bias
+        .iter()
+        .zip(d_bias_cp.iter())
+        .zip(d_bias_wdl.iter())
+        .map(|((&a, &dc), &dw)| a + dc + dw)
+        .collect();
+
+    let mut contingency = [0u64; 8];
+    let mut blend_dead_linpred_alive = 0u64;
+    let mut blend_dead_linpred_dead = 0u64;
+    let mut blend_alive_linpred_dead = 0u64;
+    let mut blend_alive_linpred_alive = 0u64;
+    let mut n_alive_at_anchor = 0u64;
+
+    let mut l2_dead_cp = 0u32;
+    let mut l2_dead_wdl = 0u32;
+    let mut l2_dead_blend = 0u32;
+    let mut l2_wsum_cp = 0.0f64;
+    let mut l2_wsum_wdl = 0.0f64;
+    let mut l2_wsum_blend = 0.0f64;
+
+    for board in probe_boards {
+        let anchor_mask = ft_dead_mask(&w.ft, &w.ft_bias, board);
+        let cp_mask = ft_dead_mask(&cp_ft, &cp_ft_bias, board);
+        let wdl_mask = ft_dead_mask(&wdl_ft, &wdl_ft_bias, board);
+        let blend_mask = ft_dead_mask(&blend_ft, &blend_ft_bias, board);
+        let linpred_mask = ft_dead_mask(&linpred_ft, &linpred_ft_bias, board);
+        for u in 0..2 * L1 {
+            if anchor_mask[u] {
+                continue;
+            }
+            n_alive_at_anchor += 1;
+            let idx =
+                (cp_mask[u] as usize) * 4 + (wdl_mask[u] as usize) * 2 + (blend_mask[u] as usize);
+            contingency[idx] += 1;
+            match (blend_mask[u], linpred_mask[u]) {
+                (true, false) => blend_dead_linpred_alive += 1,
+                (true, true) => blend_dead_linpred_dead += 1,
+                (false, true) => blend_alive_linpred_dead += 1,
+                (false, false) => blend_alive_linpred_alive += 1,
+            }
+        }
+
+        let (dead, wsum) = l2_state_for_board(&cp_ft, &cp_ft_bias, &cp_l2, &cp_l2_bias, board);
+        l2_dead_cp += dead;
+        l2_wsum_cp += wsum;
+        let (dead, wsum) = l2_state_for_board(&wdl_ft, &wdl_ft_bias, &wdl_l2, &wdl_l2_bias, board);
+        l2_dead_wdl += dead;
+        l2_wsum_wdl += wsum;
+        let (dead, wsum) =
+            l2_state_for_board(&blend_ft, &blend_ft_bias, &blend_l2, &blend_l2_bias, board);
+        l2_dead_blend += dead;
+        l2_wsum_blend += wsum;
+    }
+
+    let l2_total = (probe_boards.len() * L2) as f64;
+    let record = diagnostics::ShadowTraceRecord {
+        position_index,
+        g_cp_norm,
+        g_wdl_norm,
+        cos_g_cp_wdl,
+        delta_cp_norm,
+        delta_wdl_norm,
+        delta_blend_norm,
+        cos_delta_cp_wdl,
+        contingency_cp_wdl_blend: contingency,
+        blend_dead_linpred_alive,
+        blend_dead_linpred_dead,
+        blend_alive_linpred_dead,
+        blend_alive_linpred_alive,
+        n_alive_at_anchor,
+        l2_dead_frac_cp: l2_dead_cp as f64 / l2_total,
+        l2_dead_frac_wdl: l2_dead_wdl as f64 / l2_total,
+        l2_dead_frac_blend: l2_dead_blend as f64 / l2_total,
+        l2_weighted_input_mean_cp: l2_wsum_cp / l2_total,
+        l2_weighted_input_mean_wdl: l2_wsum_wdl / l2_total,
+        l2_weighted_input_mean_blend: l2_wsum_blend / l2_total,
+        blend_matches_real_ft: false,
+        blend_matches_real_l2: false,
+    };
+
+    ShadowTracePending {
+        record,
+        shadow_blend_ft: blend_ft,
+        shadow_blend_ft_bias: blend_ft_bias,
+        shadow_blend_l2: blend_l2,
+        shadow_blend_l2_bias: blend_l2_bias,
     }
 }
 
@@ -4025,6 +4593,100 @@ mod tests {
         assert_eq!(plain.total_loss, traced.total_loss);
         assert_eq!(plain.l2_dacc_sum, traced.l2_dacc_sum);
         assert_eq!(plain.ft_grad_norm_sum, traced.ft_grad_norm_sum);
+    }
+
+    #[test]
+    fn shadow_trace_active_run_is_byte_identical_to_inactive() {
+        // The strongest non-perturbation guard (per the mechanism's own doc
+        // comment): an ACTIVE shadow-trace window -- not just an unset one
+        // -- must never change a single real trained weight or Adam
+        // moment. Every shadow branch operates on clones; this catches an
+        // aliasing bug where a shadow computation accidentally mutated
+        // `self.weights` instead.
+        let board = Board::startpos();
+        let lambda = 0.7f32;
+        let eval_teacher = 40.0f32;
+        let wdl_target = -120.0f32;
+        let teacher = lambda * eval_teacher + (1.0 - lambda) * wdl_target;
+
+        let mut plain = Trainer::new(1, 0.5);
+        let mut traced = Trainer::new(1, 0.5);
+        traced.diagnostic_shadow_trace_from_position = 1;
+        traced.diagnostic_shadow_trace_until_position = 5;
+        traced.diagnostic_shadow_trace_wdl_lambda = lambda;
+        traced.diagnostic_shadow_trace_probe_boards = vec![Board::startpos()];
+
+        for _ in 0..5 {
+            plain.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                0,
+                GameResult::Unknown,
+            );
+            traced.train_position(
+                &board,
+                teacher,
+                1.0,
+                eval_teacher,
+                Some(wdl_target),
+                0,
+                GameResult::Unknown,
+            );
+        }
+
+        assert_eq!(
+            plain.weights.snapshot_params(),
+            traced.weights.snapshot_params()
+        );
+        assert_eq!(traced.shadow_trace_records.len(), 5);
+    }
+
+    #[test]
+    fn shadow_trace_unset_probe_boards_records_nothing() {
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_shadow_trace_from_position = 1;
+        trainer.diagnostic_shadow_trace_until_position = 5;
+        trainer.diagnostic_shadow_trace_wdl_lambda = 0.7;
+        // `diagnostic_shadow_trace_probe_boards` left empty (default).
+        let board = Board::startpos();
+        trainer.train_position(&board, 4.0, 1.0, 40.0, Some(-120.0), 0, GameResult::Unknown);
+        assert!(trainer.shadow_trace_records.is_empty());
+    }
+
+    #[test]
+    fn shadow_trace_records_pass_the_blend_correctness_guard_and_a_full_contingency() {
+        // `train_position` itself already panics if `blend_matches_real_*`
+        // comes back false, so reaching these assertions at all is part of
+        // the guarantee -- this test additionally checks the contingency
+        // table is a genuine partition (every alive-at-anchor pair lands in
+        // exactly one of the 8 cells).
+        let mut trainer = Trainer::new(1, 0.5);
+        trainer.diagnostic_shadow_trace_from_position = 1;
+        trainer.diagnostic_shadow_trace_until_position = 1;
+        trainer.diagnostic_shadow_trace_wdl_lambda = 0.7;
+        trainer.diagnostic_shadow_trace_probe_boards = vec![Board::startpos()];
+
+        let board = Board::startpos();
+        trainer.train_position(&board, 4.0, 1.0, 40.0, Some(-120.0), 0, GameResult::Unknown);
+
+        assert_eq!(trainer.shadow_trace_records.len(), 1);
+        let record = &trainer.shadow_trace_records[0];
+        assert!(record.blend_matches_real_ft);
+        assert!(record.blend_matches_real_l2);
+        assert_eq!(
+            record.contingency_cp_wdl_blend.iter().sum::<u64>(),
+            record.n_alive_at_anchor
+        );
+        assert_eq!(
+            record.blend_dead_linpred_alive
+                + record.blend_dead_linpred_dead
+                + record.blend_alive_linpred_dead
+                + record.blend_alive_linpred_alive,
+            record.n_alive_at_anchor
+        );
     }
 
     #[test]

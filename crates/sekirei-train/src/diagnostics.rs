@@ -296,6 +296,85 @@ pub struct SampleGradRecord {
     pub l2_gate: Vec<i8>,
 }
 
+/// One live training position's B5-limited one-step shadow trace: at a
+/// single position, branches CP-only/WDL-only/Blended one-step
+/// counterfactual FT+L2 updates from an identical shared pre-update
+/// state, evaluates each on the fixed probe set, then discards every
+/// branch without touching real training (see
+/// `Trainer::diagnostic_shadow_trace_from_position`'s doc comment).
+/// Exists to separate genuine within-step optimizer/network interaction
+/// from cross-step trajectory divergence, which
+/// `l2_b5_cp_wdl_component_replay.md`'s 32-step counterfactual replay
+/// could not rule out.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ShadowTraceRecord {
+    pub position_index: u64,
+    /// Pre-Adam gradient norms/cosine (FT+L2, concatenated), CP-only and
+    /// WDL-only each already scaled by their own blend coefficient
+    /// (`λ`/`1-λ`) so `g_cp + g_wdl` equals the real blended gradient
+    /// exactly, by construction (backprop is linear in `d_score`) --
+    /// these are a sanity readout, not the interaction test itself.
+    pub g_cp_norm: f64,
+    pub g_wdl_norm: f64,
+    pub cos_g_cp_wdl: f64,
+    /// Post-Adam applied-delta norms/cosine (FT+bias only, matching this
+    /// investigation's existing `‖Δθ_FT‖` convention). Adam's `√v̂`
+    /// normalization is nonlinear, so `delta_cp_norm`/`delta_wdl_norm`
+    /// summing to something other than `delta_blend_norm` is expected and
+    /// NOT itself evidence of interaction -- see `blend_dead_linpred_*`
+    /// below for the metric that actually isolates that question.
+    pub delta_cp_norm: f64,
+    pub delta_wdl_norm: f64,
+    pub delta_blend_norm: f64,
+    pub cos_delta_cp_wdl: f64,
+    /// FT dead-unit contingency, counted only over (probe board, FT unit)
+    /// pairs alive at the pre-step anchor, summed across the full probe
+    /// set. Indexed `cp_dead*4 + wdl_dead*2 + blend_dead` (0 = alive under
+    /// all three .. 7 = dead under all three) -- recovers every category
+    /// the user asked for: `[1]`/`[2]` are CP-only/WDL-only new-dead,
+    /// `[3]` is dead under both components alone, `[5]` is "Blended
+    /// rescues what both components alone would have killed", and `[4]`
+    /// is the headline category -- alive under CP-only AND WDL-only but
+    /// dead under Blended.
+    pub contingency_cp_wdl_blend: [u64; 8],
+    /// Among the same alive-at-anchor pairs: does the *actual* Blended
+    /// step's dead/alive outcome match the *linear-prediction* outcome
+    /// (`anchor_ft + delta_cp + delta_wdl`, plain vector addition, no
+    /// Adam re-applied)? FT's own pre-activation is linear in FT params,
+    /// so this null is exact for FT -- `blend_dead_linpred_alive` is the
+    /// count that isolates genuine within-step Adam-optimizer
+    /// interaction from cross-position accumulation (a nonzero linpred
+    /// gap cannot be explained by trajectory divergence, since both sides
+    /// are evaluated from the identical single-step anchor).
+    pub blend_dead_linpred_alive: u64,
+    pub blend_dead_linpred_dead: u64,
+    pub blend_alive_linpred_dead: u64,
+    pub blend_alive_linpred_alive: u64,
+    pub n_alive_at_anchor: u64,
+    /// L2-side dead fraction and mean weighted input under each branch's
+    /// own shadow FT+L2 state, over the probe set's 32 L2 neurons --
+    /// observational only. L2's pre-activation is bilinear in FT-output
+    /// times L2-weight, so (unlike FT) linear prediction is not an exact
+    /// null here; no linpred branch is computed for L2.
+    pub l2_dead_frac_cp: f64,
+    pub l2_dead_frac_wdl: f64,
+    pub l2_dead_frac_blend: f64,
+    pub l2_weighted_input_mean_cp: f64,
+    pub l2_weighted_input_mean_wdl: f64,
+    pub l2_weighted_input_mean_blend: f64,
+    /// Correctness guard: the Blend branch is built by cloning the exact
+    /// pre-update weights+moments and applying one shadow Adam step with
+    /// a *copy* of the real (post-clip) blended gradient -- so it must
+    /// exactly reproduce what the real backward+Adam update actually
+    /// applied this position. `train_position` asserts both are `true`
+    /// immediately after the real update runs; `false` would mean the
+    /// shadow mechanism itself has a bug (wrong scaling, wrong `t`, or an
+    /// anchor that silently drifted from the real trajectory), not a
+    /// finding about CP/WDL interaction.
+    pub blend_matches_real_ft: bool,
+    pub blend_matches_real_l2: bool,
+}
+
 /// Sign consistency of a per-neuron gradient accumulator:
 /// `|pos-neg|/(pos+neg)`, 0.0 when a neuron never received a nonzero
 /// gradient (avoids a 0/0 division).

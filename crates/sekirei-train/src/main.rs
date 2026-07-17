@@ -29,6 +29,7 @@ use std::fs::{self, File};
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
+use sekirei_core::board::Board;
 use sekirei_core::nnue::save_weights;
 
 use csa::parse_csa;
@@ -152,9 +153,17 @@ struct Args {
     diagnostic_replay_component: Option<ReplayComponent>, // --diagnostic-replay-component <cp|wdl>
     diagnostic_replay_from_position: u64,                 // --diagnostic-replay-from-position
     diagnostic_replay_until_position: u64,                // --diagnostic-replay-until-position
-    checkpoint_dir: Option<PathBuf>,                      // --checkpoint-dir
-    teacher_cache_path: Option<PathBuf>,                  // --teacher-cache
-    reuse_teacher_cache: bool,                            // --reuse-teacher-cache
+    // B5-limited one-step shadow trace (`l2_b5_cp_wdl_component_replay.md`'s
+    // open question): see `Trainer::diagnostic_shadow_trace_from_position`'s
+    // doc comment. `diagnostic_shadow_trace_probe_set` is a path to a file
+    // of one SFEN board per line; unset (`None`) leaves the probe-board
+    // list empty, which is this mechanism's own off-switch.
+    diagnostic_shadow_trace_from_position: u64, // --diagnostic-shadow-trace-from-position
+    diagnostic_shadow_trace_until_position: u64, // --diagnostic-shadow-trace-until-position
+    diagnostic_shadow_trace_probe_set: Option<PathBuf>, // --diagnostic-shadow-trace-probe-set
+    checkpoint_dir: Option<PathBuf>,            // --checkpoint-dir
+    teacher_cache_path: Option<PathBuf>,        // --teacher-cache
+    reuse_teacher_cache: bool,                  // --reuse-teacher-cache
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
     lr: f32,                 // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
@@ -263,6 +272,9 @@ fn parse_args() -> Result<Args, String> {
     let mut diagnostic_replay_component: Option<ReplayComponent> = None;
     let mut diagnostic_replay_from_position = 0u64;
     let mut diagnostic_replay_until_position = 0u64;
+    let mut diagnostic_shadow_trace_from_position = 0u64;
+    let mut diagnostic_shadow_trace_until_position = 0u64;
+    let mut diagnostic_shadow_trace_probe_set: Option<PathBuf> = None;
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
@@ -550,6 +562,24 @@ fn parse_args() -> Result<Args, String> {
                     diagnostic_replay_until_position = v;
                 }
             }
+            "--diagnostic-shadow-trace-from-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_shadow_trace_from_position = v;
+                }
+            }
+            "--diagnostic-shadow-trace-until-position" => {
+                i += 1;
+                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
+                    diagnostic_shadow_trace_until_position = v;
+                }
+            }
+            "--diagnostic-shadow-trace-probe-set" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    diagnostic_shadow_trace_probe_set = Some(PathBuf::from(s));
+                }
+            }
             "--eval-only" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -692,6 +722,9 @@ fn parse_args() -> Result<Args, String> {
         diagnostic_replay_component,
         diagnostic_replay_from_position,
         diagnostic_replay_until_position,
+        diagnostic_shadow_trace_from_position,
+        diagnostic_shadow_trace_until_position,
+        diagnostic_shadow_trace_probe_set,
     })
 }
 
@@ -1015,6 +1048,43 @@ fn save_sample_grad_jsonl(
     fs::write(path, out)
 }
 
+/// `--diagnostic-shadow-trace-probe-set`: one SFEN board per line, blank
+/// lines and `#`-prefixed comments skipped, unparseable lines skipped with
+/// a warning (same tolerance as `l2_alignment_formation_probe.rs`'s own
+/// stdin reader -- this is operator-supplied diagnostic input, not
+/// something to fail the whole run over a single bad line).
+fn load_shadow_trace_probe_boards(path: &Path) -> std::io::Result<Vec<Board>> {
+    let text = fs::read_to_string(path)?;
+    let mut boards = Vec::new();
+    for line in text.lines() {
+        let sfen = line.trim();
+        if sfen.is_empty() || sfen.starts_with('#') {
+            continue;
+        }
+        match Board::from_sfen(sfen) {
+            Ok(b) => boards.push(b),
+            Err(e) => eprintln!("  shadow-trace probe set: skip unparseable line ({e}): {sfen}"),
+        }
+    }
+    Ok(boards)
+}
+
+/// One JSON object per line, same convention as `save_sample_grad_jsonl`.
+fn save_shadow_trace_jsonl(
+    path: &Path,
+    records: &[diagnostics::ShadowTraceRecord],
+) -> std::io::Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let mut out = String::new();
+    for r in records {
+        out.push_str(&serde_json::to_string(r)?);
+        out.push('\n');
+    }
+    fs::write(path, out)
+}
+
 /// `--trace-weights`: one full weights checkpoint per `--trace-positions`
 /// marker, named `<checkpoint base>.posM.bin` (`checkpoint` already carries
 /// the `.epochN` part, e.g. `out.epoch1.bin` -> `out.epoch1.pos128.bin`).
@@ -1241,6 +1311,14 @@ fn save_checkpoint_meta(
         "diagnostic_replay_component": args.diagnostic_replay_component.map(|c| c.as_str()),
         "diagnostic_replay_from_position": args.diagnostic_replay_from_position,
         "diagnostic_replay_until_position": args.diagnostic_replay_until_position,
+        // `null` probe-set path (default) means the shadow trace mechanism
+        // never ran this epoch -- see
+        // `Trainer::diagnostic_shadow_trace_from_position`'s doc comment.
+        // The path itself is recorded (not just on/off) because the probe
+        // file lives in ephemeral scratch, not the repo.
+        "diagnostic_shadow_trace_from_position": args.diagnostic_shadow_trace_from_position,
+        "diagnostic_shadow_trace_until_position": args.diagnostic_shadow_trace_until_position,
+        "diagnostic_shadow_trace_probe_set": args.diagnostic_shadow_trace_probe_set.as_ref().map(|p| p.display().to_string()),
         "ft_clip_trigger_rate": diag.ft_clip_trigger_rate,
         "l2_clip_trigger_rate": diag.l2_clip_trigger_rate,
         "out_clip_trigger_rate": diag.out_clip_trigger_rate,
@@ -1396,6 +1474,15 @@ fn print_usage() {
     );
     eprintln!(
         "  --diagnostic-replay-until-position <n>  Paired with --diagnostic-replay-component, see above. Default: 0 (off, no window)"
+    );
+    eprintln!(
+        "  --diagnostic-shadow-trace-probe-set <path>  CSA path only: file of one SFEN board per line. Within --diagnostic-shadow-trace-from-position/-until-position, branches CP-only/WDL-only/Blended one-step counterfactual FT+L2 updates from each live position's own pre-update state, evaluates every branch on this probe set, then discards -- never perturbs real training. Requires --wdl-lambda. Default: unset (off)"
+    );
+    eprintln!(
+        "  --diagnostic-shadow-trace-from-position <n>  Paired with --diagnostic-shadow-trace-probe-set, see above. Default: 0"
+    );
+    eprintln!(
+        "  --diagnostic-shadow-trace-until-position <n>  Paired with --diagnostic-shadow-trace-probe-set, see above. Default: 0 (off, no window)"
     );
     eprintln!(
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
@@ -1573,6 +1660,16 @@ fn main() {
         trainer.diagnostic_replay_component = args.diagnostic_replay_component;
         trainer.diagnostic_replay_from_position = args.diagnostic_replay_from_position;
         trainer.diagnostic_replay_until_position = args.diagnostic_replay_until_position;
+        trainer.diagnostic_shadow_trace_from_position = args.diagnostic_shadow_trace_from_position;
+        trainer.diagnostic_shadow_trace_until_position =
+            args.diagnostic_shadow_trace_until_position;
+        trainer.diagnostic_shadow_trace_wdl_lambda = args.wdl_lambda.unwrap_or(0.0);
+        if let Some(probe_path) = &args.diagnostic_shadow_trace_probe_set {
+            match load_shadow_trace_probe_boards(probe_path) {
+                Ok(boards) => trainer.diagnostic_shadow_trace_probe_boards = boards,
+                Err(e) => eprintln!("  shadow-trace probe set load failed: {e}"),
+            }
+        }
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
@@ -1781,6 +1878,14 @@ fn main() {
             } else if !trainer.sample_grad_records.is_empty() {
                 eprintln!("  sample_grad → {:?}", sample_grad_path);
             }
+            let shadow_trace_path = checkpoint.with_extension("shadow_trace.jsonl");
+            if let Err(e) =
+                save_shadow_trace_jsonl(&shadow_trace_path, &trainer.shadow_trace_records)
+            {
+                eprintln!("  shadow trace save failed: {e}");
+            } else if !trainer.shadow_trace_records.is_empty() {
+                eprintln!("  shadow_trace → {:?}", shadow_trace_path);
+            }
             save_weight_snapshots(&checkpoint, &trainer.weight_snapshots);
 
             // Valid-loss-based best checkpoint. Only tracked when
@@ -1939,6 +2044,15 @@ fn main() {
     trainer.diagnostic_replay_component = args.diagnostic_replay_component;
     trainer.diagnostic_replay_from_position = args.diagnostic_replay_from_position;
     trainer.diagnostic_replay_until_position = args.diagnostic_replay_until_position;
+    trainer.diagnostic_shadow_trace_from_position = args.diagnostic_shadow_trace_from_position;
+    trainer.diagnostic_shadow_trace_until_position = args.diagnostic_shadow_trace_until_position;
+    trainer.diagnostic_shadow_trace_wdl_lambda = args.wdl_lambda.unwrap_or(0.0);
+    if let Some(probe_path) = &args.diagnostic_shadow_trace_probe_set {
+        match load_shadow_trace_probe_boards(probe_path) {
+            Ok(boards) => trainer.diagnostic_shadow_trace_probe_boards = boards,
+            Err(e) => eprintln!("  shadow-trace probe set load failed: {e}"),
+        }
+    }
 
     // `--eval-only`: back-applies the common cross-λ validation metrics
     // (see `docs/experiments/gate_b_lambda07.md`'s 2026-07-14 correction)
@@ -2254,6 +2368,12 @@ fn main() {
             eprintln!("  sample-grad trace save failed: {e}");
         } else if !trainer.sample_grad_records.is_empty() {
             eprintln!("  sample_grad → {:?}", sample_grad_path);
+        }
+        let shadow_trace_path = checkpoint.with_extension("shadow_trace.jsonl");
+        if let Err(e) = save_shadow_trace_jsonl(&shadow_trace_path, &trainer.shadow_trace_records) {
+            eprintln!("  shadow trace save failed: {e}");
+        } else if !trainer.shadow_trace_records.is_empty() {
+            eprintln!("  shadow_trace → {:?}", shadow_trace_path);
         }
         save_weight_snapshots(&checkpoint, &trainer.weight_snapshots);
 
