@@ -994,6 +994,10 @@ fn save_checkpoint_meta(
         "init_seed": args.init_seed,
         "l2_bias_init": args.l2_bias_init,
         "split_seed": args.split_seed,
+        // `None` (the default) means natural game order -- see
+        // `epoch1_batch_trace.md`'s Stage 2 for the order-sensitivity
+        // finding this records the recipe for.
+        "shuffle_seed": args.shuffle_seed,
         "lr": args.lr,
         "lr_schedule": format!("{:?}", args.lr_schedule),
         "min_lr": args.min_lr,
