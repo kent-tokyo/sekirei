@@ -139,5 +139,9 @@ snapshot spacing relative to the 16-position cycle length. Game content is not e
 - 12 runs (Control/Intermittent/Continuous-Early/Continuous-Late × 3 seeds), complete, self-verified. Raw data and
   scripts in scratch (`ft_intermittent_exp/`: `run.sh`, `verify_meta.py`, `satprobe_out/`, `xcross_out/`,
   `xcross_chain/`).
-- Next: phase-paired continuity isolation (1/1 vs. 32/32 active/frozen block sizes, each run active-first and
-  frozen-first, to cancel the position/data-content confound noted in §2-3) — not yet run.
+- Phase-paired continuity isolation (1/1 vs. 32/32 active/frozen block sizes, each run active-first and
+  frozen-first, to cancel the position/data-content confound noted in §2-3) is complete — see
+  `l2_saturation_ft_freeze_phase_paired.md`. It closes the continuity question at the 1-32 position scale: phase
+  (active-first vs. frozen-first) has almost no effect at the fine (1/1) block size but a large effect at the
+  coarse (32/32) block size, while the block-size difference itself (paired-averaged across phase) is small —
+  continuity is not the operative variable; which specific positions were active is.
