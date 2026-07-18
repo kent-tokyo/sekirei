@@ -20,7 +20,9 @@ use sekirei_core::{
 };
 
 mod book;
+mod invariant;
 use book::Book;
+use invariant::DiagCtx;
 
 // ---- Engine identity ----
 
@@ -34,11 +36,15 @@ const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 fn main() {
     // Optional: load NNUE weights from first command-line argument
     // Usage: cargo run --release -p usi -- weights.bin
+    let mut weight_path = String::new();
+    let mut weight_hash: Option<u64> = None;
     if let Some(path) = std::env::args().nth(1) {
         match load_weights(Path::new(&path)) {
             Ok(()) => eprintln!("info string NNUE weights loaded from {path}"),
             Err(e) => eprintln!("info string weight load failed ({path}): {e}"),
         }
+        weight_hash = invariant::hash_weights_file(&path);
+        weight_path = path;
     }
 
     let stdin = io::stdin();
@@ -61,6 +67,16 @@ fn main() {
     // Ply reached by the last "position" command's move list (0 = startpos) --
     // used only to gate book lookups to the opening phase (BookMaxPly).
     let mut current_ply: usize = 0;
+
+    // ---- invariant-check bookkeeping (crates/sekirei-usi/src/invariant.rs) ----
+    // Incremented on every "usinewgame" -- carried into a bestmove-illegal
+    // diagnostic dump so a failure can be tied back to a specific game in a
+    // long-lived process, the way sprint_gate.sh's per-game logs are.
+    let mut game_counter: u64 = 0;
+    // Raw body of the last "position" command, for the same reason.
+    let mut last_position_cmd = String::from("startpos");
+    // Mirrors the "Threads" setoption value (0 = unset/rayon default).
+    let mut threads: u32 = 0;
 
     // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
@@ -144,6 +160,7 @@ fn main() {
                     searcher = make_searcher(hash_mb);
                 } else if parts.get(1) == Some(&"Threads") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
+                        threads = n as u32;
                         // ponytail: build_global silently fails if already init'd; that's fine
                         let _ = rayon::ThreadPoolBuilder::new()
                             .num_threads(n)
@@ -193,6 +210,7 @@ fn main() {
                 }
                 board = Board::startpos();
                 searcher.clear_tt();
+                game_counter += 1;
             }
 
             "position" => match parse_position_cmd(rest) {
@@ -207,6 +225,13 @@ fn main() {
                         .skip_while(|&t| t != "moves")
                         .skip(1)
                         .count();
+                    last_position_cmd = rest.to_string();
+                    // Must run before any search on this position -- an
+                    // already-desynced board must never be allowed to
+                    // search at all, since its bestmove would be answering
+                    // the wrong question. Panics (stderr diagnostics) on
+                    // mismatch instead of returning, by design.
+                    invariant::assert_position_synced(rest, game_counter);
                 }
                 Err(e) => eprintln!("position error: {e}"),
             },
@@ -240,6 +265,21 @@ fn main() {
                     && let Some(mv) = b.lookup(&board_to_sfen(&board), &board, book_min_confidence)
                 {
                     println!("info string book move");
+                    invariant::assert_legal_bestmove(
+                        &board,
+                        mv,
+                        &DiagCtx {
+                            game_counter,
+                            last_position_cmd: last_position_cmd.clone(),
+                            weight_path: weight_path.clone(),
+                            weight_hash,
+                            threads,
+                            board_hash_at_search_start: board.hash(),
+                            accumulator_hash_at_search_start: invariant::hash_accumulator(
+                                &board.acc,
+                            ),
+                        },
+                    );
                     println!("bestmove {}", move_to_usi(mv));
                     stdout.lock().flush().ok();
                     continue;
@@ -258,6 +298,15 @@ fn main() {
                 let searcher2 = Arc::clone(&searcher);
                 let mut board2 = board.clone();
                 let suppress2 = Arc::clone(&suppress_bm);
+                let diag_ctx = DiagCtx {
+                    game_counter,
+                    last_position_cmd: last_position_cmd.clone(),
+                    weight_path: weight_path.clone(),
+                    weight_hash,
+                    threads,
+                    board_hash_at_search_start: board.hash(),
+                    accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+                };
 
                 search_handle = Some(std::thread::spawn(move || {
                     let info = searcher2.search(&mut board2, config);
@@ -308,6 +357,12 @@ fn main() {
                         pm
                     });
 
+                    // "resign" (info.best_move == None) is a special
+                    // response, not a move -- excluded from the legality
+                    // check by construction.
+                    if let Some(mv) = info.best_move {
+                        invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
+                    }
                     if let Some(pm) = ponder_token {
                         println!("bestmove {best} ponder {}", move_to_usi(pm));
                     } else {
@@ -346,6 +401,15 @@ fn main() {
                     let searcher2 = Arc::clone(&searcher);
                     let mut board2 = board.clone();
                     let suppress2 = Arc::clone(&suppress_bm);
+                    let diag_ctx = DiagCtx {
+                        game_counter,
+                        last_position_cmd: last_position_cmd.clone(),
+                        weight_path: weight_path.clone(),
+                        weight_hash,
+                        threads,
+                        board_hash_at_search_start: board.hash(),
+                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+                    };
                     search_handle = Some(std::thread::spawn(move || {
                         let info = searcher2.search(&mut board2, config);
                         if suppress2.load(Ordering::Relaxed) {
@@ -375,6 +439,9 @@ fn main() {
                             board2.undo_move(token);
                             pm
                         });
+                        if let Some(mv) = info.best_move {
+                            invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
+                        }
                         if let Some(pm) = ponder_token {
                             println!("bestmove {best} ponder {}", move_to_usi(pm));
                         } else {
