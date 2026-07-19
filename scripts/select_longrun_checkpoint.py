@@ -41,7 +41,15 @@ TIE_TOL = 0.001  # 0.1% relative -- ties resolve to the earlier epoch
 #     experiment's healthy range was ~30-80, its collapsed runs were ~2-4)
 #   - l2_dead_neurons == L2 -- every L2 neuron dead
 COLLAPSE_STD = 5.0
-L2 = 16  # sekirei_core::nnue::L2 -- keep in sync if the architecture changes
+# Corrected 2026-07-20: the actual architecture (every longrun .meta.json's
+# "architecture" field, and the 32-entry l2_saturation_frequency_per_neuron
+# arrays) is L1=256 L2=32, not 16. This was wrong from this script's
+# introduction through the teacher-conflict-masking gate; see tasks/lessons.md
+# 2026-07-20 entry for the correction and verified blast radius (none, for
+# that gate -- no epoch in data/runs/20260717_longrun_conflict_mask ever had
+# l2_dead_neurons in [16, 31], so this bug never actually changed which
+# epoch/seed the pre-registered rule selected).
+L2 = 32  # sekirei_core::nnue::L2 -- keep in sync if the architecture changes
 
 # valid_wdl_loss "non-inferior" means within this relative margin of
 # control's -- not a strict >. Guards against a spurious STOP triggered by
@@ -184,6 +192,14 @@ def _self_check():
     }
     r4 = select(meta3)
     assert r4["status"] == "PROCEED_TO_GATE", r4
+
+    # Regression guard for the 2026-07-20 L2=16->32 fix: is_collapsed must
+    # trigger at the real L2 width (32 dead), not the old wrong one (16
+    # dead). 16 dead out of 32 neurons is a real, unhealthy signal but must
+    # NOT be treated as full collapse.
+    assert is_collapsed(m(100, 300, dead=32)) is True
+    assert is_collapsed(m(100, 300, dead=31)) is False
+    assert is_collapsed(m(100, 300, dead=16)) is False
 
     print("self-check ok")
 

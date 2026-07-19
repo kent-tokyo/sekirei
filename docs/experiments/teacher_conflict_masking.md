@@ -156,6 +156,13 @@ predict match strength for this class of change. `control`/`champion` are unchan
 `results/20260719_190910_conflict_ft_seed123.epoch7_vs_control_seed123.epoch7.{json,jsonl,verdict.json}`,
 `tasks/lessons.md` (2026-07-18/19 entry).
 
+**Correction (2026-07-20)**: the L2 layer has 32 neurons, not 16 (`tasks/lessons.md` mistakenly reported the
+gate's L2 dead-neuron health as "0/16 … 12/16"; `scripts/select_longrun_checkpoint.py` had a matching `L2 = 16`
+constant). The raw dead-neuron counts used throughout this document (8/10/12 for Control, 0 for
+Conflict-mask-FT) were always read directly from `.meta.json` and are correct — only the "/16" denominator was
+stale. See `tasks/lessons.md`'s 2026-07-20 entry for the fix and verified blast radius (none: no epoch in the
+actual longrun ever had `l2_dead_neurons` in the affected `[16,31]` range).
+
 ## Scope
 
 All metrics from existing per-epoch diagnostics (`valid_cp_mse`, `valid_wdl_loss`, `valid_output_std`,
