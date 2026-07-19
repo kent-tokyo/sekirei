@@ -43,9 +43,12 @@ fn main() {
             Ok(()) => eprintln!("info string NNUE weights loaded from {path}"),
             Err(e) => eprintln!("info string weight load failed ({path}): {e}"),
         }
-        weight_hash = invariant::hash_weights_file(&path);
+        weight_hash = invariant::hash_file(&path);
         weight_path = path;
     }
+    let binary_hash = std::env::current_exe()
+        .ok()
+        .and_then(|p| invariant::hash_file(p.to_str()?));
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -230,8 +233,20 @@ fn main() {
                     // already-desynced board must never be allowed to
                     // search at all, since its bestmove would be answering
                     // the wrong question. Panics (stderr diagnostics) on
-                    // mismatch instead of returning, by design.
-                    invariant::assert_position_synced(rest, game_counter);
+                    // mismatch instead of returning, by design. Replays the
+                    // move list independently against a shadow board (not
+                    // just the base SFEN) -- see invariant.rs's
+                    // verify_position_replay doc comment for why.
+                    invariant::verify_position_replay(
+                        rest,
+                        &board,
+                        &invariant::ReplayDiagCtx {
+                            game_counter,
+                            weight_path: weight_path.clone(),
+                            weight_hash,
+                            binary_hash,
+                        },
+                    );
                 }
                 Err(e) => eprintln!("position error: {e}"),
             },
