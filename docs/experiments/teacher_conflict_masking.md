@@ -138,6 +138,24 @@ yet run in this document; the batch-level PCGrad build remains explicitly deferr
 masking already shows a specific, non-trivial effect without needing to change update frequency or Adam's
 time series.
 
+## Gate outcome (2026-07-19): REJECTED
+
+The paired quick gate was run (`conflict_ft_seed123.epoch7` vs. `control_seed123.epoch7`, pre-registered checkpoint
+selection, no epochs excluded). The first attempt surfaced an unrelated engine-validity bug (an intermittent
+long-lived-process position-replay desync — see `docs/experiments/intermittent_replay_desync_investigation.md`)
+that invalidated its results; after fixing the detection gap and re-running from scratch with full validity
+guarantees (zero invariant fires, zero illegal moves, zero technical failures across all 396 games), the formal
+result is **FAIL**: candidate 159W/0D/237L (40.2%), Elo −69.3, 95% CI [−104.2, −34.4] (entirely negative), LOS
+0.0%.
+
+**Every validation-side metric this document used to justify proceeding — CP MSE, WDL loss, L2 dead-neuron
+resolution — pointed toward the candidate, and real playing strength went decisively the other way.** This
+doesn't contradict the diagnostic-level findings above (the conflict-masking mechanism genuinely does what this
+document shows it does to training dynamics); it means those training-dynamics improvements don't reliably
+predict match strength for this class of change. `control`/`champion` are unchanged. Full record:
+`results/20260719_190910_conflict_ft_seed123.epoch7_vs_control_seed123.epoch7.{json,jsonl,verdict.json}`,
+`tasks/lessons.md` (2026-07-18/19 entry).
+
 ## Scope
 
 All metrics from existing per-epoch diagnostics (`valid_cp_mse`, `valid_wdl_loss`, `valid_output_std`,
