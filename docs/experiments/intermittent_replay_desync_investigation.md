@@ -144,3 +144,20 @@ invariant fire this time yields, for the first time, a complete
 diagnostic dump from the actual first desync move of a real occurrence —
 at which point the gate stops and root-cause work resumes with real
 evidence instead of a reconstructed theory.
+
+## Production gate follow-up
+
+The full-command position-replay invariant was subsequently exercised in
+a fresh production-strength gate. The invariant-enabled binary completed
+all 396 games without a position-desync trigger, illegal-bestmove
+trigger, engine error, or other technical failure. Nine very short games
+were individually audited and confirmed to be legal outcomes caused by
+the supplied opening positions.
+
+This provides the first full-gate evidence that the invariant can remain
+enabled without false positives or disruption under normal match
+conditions. It does not establish that the underlying intermittent
+corruption has been fixed: the original root cause remains unresolved,
+and the invariant has not yet captured a natural recurrence. Its status
+remains a permanent fail-fast safety net awaiting diagnostic evidence
+from any future occurrence.
