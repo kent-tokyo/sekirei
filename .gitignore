@@ -8,3 +8,7 @@ target/
 results/
 sprint_gate_runs/
 __pycache__/
+round5_repro_fixed/
+test_b_lifetime_replay/
+test_b_repeat2/
+sprint_gate_runs_*.log
