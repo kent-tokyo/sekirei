@@ -20,6 +20,17 @@ low-diversity run PASS/FAIL, since a `startpos`-only match between
 deterministic engines can otherwise collapse into a handful of games
 replayed hundreds of times (see `tasks/lessons.md`).
 
+`gate` also writes a `.verdict.json` sidecar (same basename) recording which
+decision method actually produced the verdict and its parameters — either
+`{"method": "ci", "verdict": "PASS"|"FAIL"|"INCONCLUSIVE", "pass_elo",
+"fail_elo", "pass_los"}` for a plain confidence-interval gate, or
+`{"method": "sprt", "verdict": ..., "llr", "bound_lo", "bound_hi", "elo0",
+"elo1", "alpha", "beta"}` for `gate --sprt`. `scripts/gate_dashboard.py`
+prefers this sidecar over re-deriving a verdict from raw `elo_diff`/`los`
+when present (see `tasks/lessons.md`, 2026-07-12 dashboard entry) — without
+it, the dashboard has no way to tell a result was decided by SPRT rather
+than a CI threshold.
+
 ## `kifu/`
 
 Gitignored (matches the blanket `results/` rule; unlike the JSON summaries
@@ -56,8 +67,14 @@ launch args.
 
 ## Convention
 
-This directory is not gitignored (unlike `data/`, which holds the much
-larger intermediate training artifacts). Commit a result here when it
-represents a meaningful, reproducible comparison worth keeping as a
-historical record (e.g. a weight change that passed or failed the Elo gate) —
-not every ad-hoc local run.
+This directory is gitignored (`.gitignore`'s blanket `results/` rule) —
+result JSON/JSONL/verdict files from 2026-07-04 onward are local,
+regenerable artifacts, not committed history, the same reasoning as
+`sprint_gate_runs/` and `data/`. A handful of files from before that date
+remain git-tracked (the rule doesn't retroactively untrack them); treat
+those as historical exceptions, not the current convention. Verified
+2026-07-19: `git check-ignore -v results/<any-newer-file>.json` confirms
+the rule. Copy a result here (matching the filename patterns above) when
+you want `scripts/gate_dashboard.py`'s history view to surface it as a
+run's official outcome — e.g. after a formal gate decision — not for
+every ad-hoc local run.

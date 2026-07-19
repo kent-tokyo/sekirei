@@ -322,7 +322,7 @@ Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).
 | NNUE evaluate (startpos) | ~18.7 ns / call |
 | Search depth 4 (startpos) | ~3.6 ms |
 | Search NPS with NNUE (10 s time control) | ~1.1M nps, depth 13 |
-| Test suite | 161 tests pass |
+| Test suite | 217 tests pass |
 
 floodgate status: active testing; rating is currently volatile.
 
