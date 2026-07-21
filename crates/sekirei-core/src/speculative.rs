@@ -39,6 +39,17 @@ pub struct SpecState {
     /// this is a plain counter, not a deadline throttle like `Budget::tick`,
     /// since the deadline is already covered by the shared `budget`.
     pub spec_nodes: AtomicU64,
+    /// Speculative tasks dispatched via `SpecGroup::spawn`, across the whole
+    /// search (every depth iteration that speculates). See `tasks_completed`/
+    /// `tasks_cancelled` for how each one concluded.
+    pub tasks_started: AtomicU64,
+    /// Tasks that ran to completion and stored a real (non-aborted) result.
+    pub tasks_completed: AtomicU64,
+    /// Tasks that produced no usable result: aborted (group dropped/budget
+    /// deadline) before or during their search, or skipped outright because
+    /// `policy::top_n`'s pseudo-legal candidate turned out to be a king
+    /// capture.
+    pub tasks_cancelled: AtomicU64,
 }
 
 // ---- Per-task handle ----
@@ -75,15 +86,18 @@ impl SpecGroup {
                 let state_c = state.clone();
                 let mut b = board.clone();
 
+                state.tasks_started.fetch_add(1, Ordering::Relaxed);
                 rayon::spawn(move || {
                     // Check abort flags before doing any work
                     if abort_c.load(Ordering::Relaxed) || state_c.budget.should_abort() {
                         result_c.store(0, Ordering::Relaxed);
+                        state_c.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
                         return;
                     }
                     // policy::top_n uses pseudo-legal generation; skip king captures
                     if b.piece_at(m.to).is_some_and(|p| p.kind == PieceKind::Ou) {
                         result_c.store(0, Ordering::Relaxed);
+                        state_c.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
                         return;
                     }
 
@@ -125,8 +139,10 @@ impl SpecGroup {
                             },
                         );
                         result_c.store(-score, Ordering::Release);
+                        state_c.tasks_completed.fetch_add(1, Ordering::Relaxed);
                     } else {
                         result_c.store(0, Ordering::Relaxed);
+                        state_c.tasks_cancelled.fetch_add(1, Ordering::Relaxed);
                     }
                 });
 
@@ -323,6 +339,9 @@ mod tests {
             tt: Tt::new(1),
             budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
             spec_nodes: AtomicU64::new(0),
+            tasks_started: AtomicU64::new(0),
+            tasks_completed: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
         })
     }
 

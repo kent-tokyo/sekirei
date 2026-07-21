@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kent-tokyo/sekirei"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.0" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.0", features = ["bench-internals"] }
 rayon = "1"
 
 [dev-dependencies]
@@ -20,3 +20,7 @@ harness = false
 [[bin]]
 name = "sync_overhead"
 path = "src/bin/sync_overhead.rs"
+
+[[bin]]
+name = "search_ablation"
+path = "src/bin/search_ablation.rs"

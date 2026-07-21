@@ -1,0 +1,152 @@
+# search_ablation_v1.tsv -- search_ablation benchmark position corpus
+#
+# schema_version: 1
+# format: position_id<TAB>category<TAB>sfen   (one position per line)
+# comment/blank lines (starting with '#', or empty) are ignored by the loader.
+#
+# corpus_hash: computed by search_ablation as FNV-1a (64-bit) over this
+# file's raw bytes exactly as read from disk, including this header --
+# any edit to this file (including these comments) changes corpus_hash.
+# Recorded in every JSONL record so a result can always be tied back to the
+# exact corpus content that produced it, not just this file's path.
+#
+# 92 positions, no duplicate SFEN, no duplicate position_id (both verified
+# at commit time via `sekirei-core`'s `Board::from_sfen` + legal-move-count
+# checks, re-verified by search_ablation's own preflight at every load --
+# invalid SFEN or already-terminal/mated positions are rejected there).
+#
+# Selection criteria -- 10 categories, chosen to give search_ablation's 5
+# arms structurally different trees to search (opening/midgame breadth,
+# tactical volatility, check-response narrowness, drop-heavy branching,
+# promotion-choice ambiguity, endgame/nyugyoku sparsity, and the two
+# branching-factor extremes) rather than skew toward one game phase:
+#   opening              (14)  legal_move_count >= 20, hand_total <= 2, not in check
+#   midgame              (16)  2 <= hand_total <= 8, 20 <= legal_move_count < 90
+#   tactics_collision    (10)  >= 5 legal captures available
+#   in_check              (8)  side to move is in check (and not already mated)
+#   many_drops             (8)  hand_total >= 8 (both sides combined)
+#   promotion_choice        (8)  some move is legal both with and without promotion
+#   endgame                 (8)  <= 24 pieces remain on the board
+#   nyugyoku                 (6)  a king has advanced into the opponent's camp
+#                                  (black king rank <= 3, or white king rank >= 7)
+#   few_legal_moves           (6)  1-6 legal moves available
+#   many_legal_moves            (8)  >= 100 legal moves available
+#
+# Provenance / generation method:
+#   - opening/midgame/tactics_collision/promotion_choice/many_legal_moves:
+#     sampled from data/gate/openings_standard.sfen (100 positions, ply>=8)
+#     and every 20th line of data/gate/openings_gateB.sfen (1700 positions,
+#     ply>=8), classified by the criteria above.
+#   - midgame/tactics_collision/in_check/many_drops/promotion_choice/
+#     endgame/few_legal_moves/many_legal_moves (the categories not fully
+#     covered by the shallow opening corpora above): reached via 90 seeded
+#     (xorshift64, seed 0x9E3779B97F4A7C15) random self-play walks from
+#     Board::startpos() and 2 of the same opening SFENs, 30-290 plies each,
+#     sampled every 5th ply, with a 40% chance per move of preferring a
+#     capturing move when one exists (undirected random play essentially
+#     never accumulates enough captures to reach endgame-low material or
+#     many-pieces-in-hand states within a reasonable ply count otherwise).
+#   - nyugyoku (6): 3 hand-authored minimal king-only positions (both kings
+#     far apart on an otherwise empty board, one king placed in the
+#     opponent's camp) -- undirected random play essentially never marches
+#     a king into the opponent's camp, so this rare structural category
+#     could not be reached generatively within a reasonable search.
+#   - Classification, deduplication, and final selection performed by a
+#     throwaway generator (not committed -- its output is this file) built
+#     directly on sekirei-core's Board/movegen/piece APIs; see Commit 5/6's
+#     session history for the exact generator source if regeneration with
+#     different category targets or counts is ever needed.
+#
+# position_id	category	sfen
+opening_001	opening	l2gk2nl/1rs2sgb1/p1n1pp1pp/2pp2p2/1p5P1/2P3P2/PPSPPP2P/1BG1GS1R1/LN1K3NL w - 20
+opening_002	opening	lnsgkgsnl/1r5b1/p1pppp1pp/6p2/9/4P4/PPPP1PPPP/1BGSRK3/LN3GSNL w p 14
+opening_003	opening	ln1g3nl/1ks1g1r2/1ppppsbpp/5pp2/p6P1/2P1PS1R1/PPBP1PN1P/1KGG5/LNS5L w P 40
+opening_004	opening	lnsgk1snl/1r3g1b1/p2ppp1pp/2p3p2/1p7/P2B3P1/1PPPPPP1P/4G2R1/LNSGK1SNL w - 12
+opening_005	opening	lnsgkgsnl/6rb1/pppppp2p/9/6p2/7R1/PPPPPPP1P/1B7/LNSGKGSNL w Pp 10
+opening_006	opening	lnsg1gsnl/1r3k1b1/p1pppp1pp/6p2/1p7/2P4P1/PPBPPPP1P/5R3/LNSGKGSNL w - 10
+opening_007	opening	l4gknl/1r2g1sb1/n1pspppp1/pp1p4p/6PP1/P1PS1S3/1P1PPP2P/1B5R1/LN1GKG1NL w - 24
+opening_008	opening	ln1gk1snl/2s3gb1/p2ppp1p1/1rp3p1p/7S1/9/PPPPPPP1P/1BG4R1/LNSK1G1NL w Pp 26
+opening_009	opening	ln1gkgsnl/1r5b1/1ppspp1pp/p2p2p2/8P/2PP5/PP2PPPP1/1BR3S2/LNSGKG1NL w - 12
+opening_010	opening	ln1g1k1nl/1r3sgb1/p2psp1p1/2p3p1p/1p2p4/2PP1PP1P/PPBSPS1P1/2GR1K3/LN3G1NL w - 26
+opening_011	opening	lns1kgsnl/1r2g4/ppppp1bpp/5pp2/9/2P4P1/PPSPPPP1P/1BG4R1/LN2KGSNL w - 10
+opening_012	opening	lnkg3nl/2s2r3/1p1gp1spp/2pp2p2/p3Pp1P1/2PP2P2/PP3PN1P/LS2GS1R1/KN1G4L w Bb 36
+opening_013	opening	ln1gk1snl/2s3gb1/p2ppp1pp/2p3p2/2r6/4P2P1/PPSPSPP1P/1BG4R1/LN1K1G1NL w 2p 22
+opening_014	opening	lnsgkg1nl/1r5s1/p1pppp1pp/6p2/1p7/2P6/PPSPPPPPP/2GR5/LN2KGSNL w Bb 12
+midgame_015	midgame	lnsgkgsnl/7b1/p1pppp1pp/6p2/9/1r2P2P1/P1PP1PP1P/1SG2S1R1/LN2KG1NL w 2Pb 16
+midgame_016	midgame	lnsk1g1+Pl/1r2g1s+R1/pppppp2p/6p2/9/9/PPPPPPP1P/1B7/LNSGKGSNL w BNP 22
+midgame_017	midgame	lnsg1gs+L1/4k4/p1pppp1p1/5bp2/8B/1SP1P4/P1GP1PPP1/1+p2R4/LN2KGSN1 w RNL3P 34
+midgame_018	midgame	ln1g4l/1r3kgs1/p1spppnpp/6p2/1pP6/5PP2/PPSPP3P/2G2S1R1/LN2KG1NL w B2Pb 30
+midgame_019	midgame	lns1k2nl/1r2g1g2/1pppppspp/p8/9/2PP4P/PP2PPPP1/2B4R1/LNSGKGSNL w Pb 14
+midgame_020	midgame	lnsgk2nl/1r5g1/2ppppsp1/p5p1p/1p7/P1P2P1P1/1PSPP1P1P/2G3SR1/LN2KG1NL w Bb 20
+midgame_021	midgame	ln1gkgsnl/2s4b1/p1pppp2p/6pR1/9/1rP6/P2PPPP1P/1BG3S2/LNS1KG1NL w 2P2p 16
+midgame_022	midgame	ln1g3nl/1r3kg2/p2pppsp1/3s2p1p/Pp1P5/2S1SP1PP/1P2P1P2/2G4R1/LN2KG1NL w BPbp 32
+midgame_023	midgame	lns1k2nl/4g2s1/4ppgp1/p1pp2p1p/4B2P1/PrP2PP1P/3PP1N2/1SGK2SR1/LN3G2L w b2p 34
+midgame_024	midgame	lnsgkg1nl/5r3/1pppppspp/6p2/p6P1/2P2P3/PP1PPSP1P/1S1K3R1/LN1G1G1NL w Bb 16
+midgame_025	midgame	ln2k2nl/1r1s1bg2/p1p2g1sp/3pppp2/1p5S1/2P1PB3/PPSP1PP1P/2G4R1/LN1K1G1NL w Pp 36
+midgame_026	midgame	l2g2snl/2s1k1g2/p1n1pp1pp/1rpp2p2/8P/2PP3R1/PP2PPP2/1SGK2S2/LN3G1NL w BPbp 32
+midgame_027	midgame	1nsgkgsn1/lr5+Pl/pppppp2p/6p2/9/9/PPPPPPP1P/1B5R1/LNSGKGSNL w BP 10
+midgame_028	midgame	1nsg1g1nl/lk3s1r1/pppppp1pp/6p2/7P1/2P6/PP1PPPP1P/1K2GS1R1/LNSG3NL w Bb 18
+midgame_029	midgame	ln1g1k1nl/1r1s1sg2/pppp1p1p1/6p1p/4R4/2P5P/PPNP1PPP1/2G2K3/L1S2GSNL w BPbp 20
+midgame_030	midgame	ln3ksnl/1rs1g1gb1/p1p1pppp1/3R4p/9/P1P3P1P/1P1PPPN2/1BG3S2/LNS1KG2L w 2Pp 28
+tactics_collision_031	tactics_collision	l2g1gsnl/4k4/p1nsppbpp/2p3R2/7rP/Pp2P4/2PP1PP2/1PS4P1/LNBGKGSNL w Pp 40
+tactics_collision_032	tactics_collision	lnsgkgsnl/9/p1p1pp1p1/3p2p1p/5+b3/2P4P1/P+r3PP1L/1Bs2G1R1/LNG1K1SN1 w P4p 30
+tactics_collision_033	tactics_collision	l6nl/1r1sgkg2/p2pppsp1/2pb2p1p/3n1P1P1/1PPS2P2/P2PPSN1P/2GK2R2/LN3G2L w BP 34
+tactics_collision_034	tactics_collision	ln1g4+B/1r3k1+P1/p1spppnpp/2p6/1p3s3/2P3P2/PPSPPP2P/3K2Sb1/LN1G1G2L w GLPrn 40
+tactics_collision_035	tactics_collision	lns1kgsnl/1r2g4/p1pp1p1pp/6pb1/1L3P3/Pp4P2/N1PP3PP/+bPG5L/2S1KGSN1 w Prp 32
+tactics_collision_036	tactics_collision	lnsg3nl/1k4gr1/1pppps2p/p4bp2/5p1P1/PPP3P2/1SNPPPN1P/2G2S1R1/L1K1G3L w Bp 38
+tactics_collision_037	tactics_collision	l3k1snl/2sg2g2/p1n2pbPp/1r2p1R2/2PpS4/2p1P1P2/PP1P1P2P/1BG2S3/LN1K1G1NL w 2Pp 38
+tactics_collision_038	tactics_collision	lnsgkgsnl/9/p1pppppp1/8p/4P4/P1P5P/1+rNP1+bPP1/1B5RL/L1SGKGSN1 w P2p 20
+tactics_collision_039	tactics_collision	lnsgk1s1l/1r4g2/1p1ppp1pp/p1p1l1p2/6P2/2P4P1/PPGPGP2P/2S5R/+bN2K1SNL w Nbp 22
+tactics_collision_040	tactics_collision	ln1g1g1nl/1r4k2/p1pppp1pp/1p4p2/2P1sB3/P3s3P/1P1P1PPP1/2G1K1G1R/LNS3SNL w bp 28
+in_check_041	in_check	ln5nl/1rs1gkg2/pppp+Pps1p/2b3pp1/9/P2S1PP2/1PGP1S1PP/4R4/LN2KG1NL w BPp 32
+in_check_042	in_check	ln1gk2nl/2s1g2r1/1pppps+B1p/7p1/p4pp2/2P6/PPSPP3P/3KGS1R1/LN1G3NL w B3p 30
+in_check_043	in_check	lnsgk2nl/4P1gb1/1p3s2p/p1p2ppR1/3p5/2P1r4/PPSP1PP1P/2G1GS3/LN2K2NL w Pb2p 32
+in_check_044	in_check	1n1gg2+R1/lr1sk4/1pppppp1p/5N3/p8/9/PPPPPPP1P/1BGKG4/LNS3SNL w BSPlp 26
+in_check_045	in_check	1ns1g1bnl/lkg1r4/+Np1p1pppp/1sp1p4/3P5/P8/1P1SPPPPP/1BR3SK1/L2G1G1NL w Pp 32
+in_check_046	in_check	ln1g4l/1rsk1s1b1/1pppBpng1/p5ppp/1P2P4/P1P5P/3P1PPP1/5K1R1/LNS1GGSNL w P 22
+in_check_047	in_check	1n1g4l/1rs2s1+B1/l1ppkpn2/pp4p1p/4g4/P1P3PpP/3P1P1PN/R4+s3/LNS2K2L b BGPg2p 47
+in_check_048	in_check	lnsgkgsnl/6r2/pppppp2p/9/6p2/7R1/PPbPPPP1P/1B7/LNSGKGSNL b P2p 11
+many_drops_049	many_drops	lnsg3nl/6gs1/p2pkp2p/2p3p2/9/1p6L/P1GPPPPp1/1R7/LNS1KGSN1 w R4P2bp 36
+many_drops_050	many_drops	1n1g2s1+B/1rs6/l1ppkp3/pp2p1p1p/4gn3/L1P3PPP/3P1P2N/1G3R3/1NS2K2L b BGSL2P2p 57
+many_drops_051	many_drops	1n2b4/2sg2ks1/lBpp1p3/1p2l1p2/4Rn2P/p1P3PP1/1GNP1P2g/P4R3/2S3K1L w G3Psnl2p 92
+many_drops_052	many_drops	1n2b4/3g1k1s1/lspp1p3/1p2l1p2/5R2P/p1P3PP1/1GNP1P2g/P2R5/2S3K1L b GSN3Pbnl2p 97
+many_drops_053	many_drops	1n2b1k2/3g3s1/lspp1+R3/1p2l1p2/8P/G1P3PPn/2NP1P2g/P6R1/2S3K1L w GSN5Pbl2p 102
+many_drops_054	many_drops	1n2b1k2/3g3s1/lspp1+Rb2/1p2l1p2/8P/G1P3PPn/2N+l1P2g/P2G1N1R1/2S3K1L b S5P3p 107
+many_drops_055	many_drops	1n2b1kp1/7s1/lspp1gb2/1p2l1p2/4r3P/G1P2SPPn/2N2P2L/P1S1GNKR1/9 b GL5P2p 117
+many_drops_056	many_drops	l1g1rsp2/2r1k2+N1/1P3p2p/1p1S3+B1/p6G1/4b4/l2P1PPSP/1NS1GK3/L5GNL w 6Pn2p 86
+promotion_choice_057	promotion_choice	ln4s1l/1r3gk2/pgpsppn2/3p1bppp/1NP6/PPRP1P2P/4P1PP1/1B2G1SK1/L1S2G1NL w P 32
+promotion_choice_058	promotion_choice	lnsg1gsnl/1k2r2b1/1ppp1p1pp/p3p1pP1/9/2P2P3/PP1PP1P1P/1BK2S1R1/LNSG1G1NL w - 16
+promotion_choice_059	promotion_choice	lnsgkg1nl/3r3s1/ppp1pp1pp/6p2/9/2PbP2P1/PP3PP1P/2RK4L/LNSGSG1N1 w Pbp 20
+promotion_choice_060	promotion_choice	ln1gk2nl/1r1s2g2/p2pppspp/2pb2p2/1p5P1/P1P2PP2/1PSPP1B1P/2G3SR1/LN2KG1NL w - 22
+promotion_choice_061	promotion_choice	ln1gk1snl/1rs3g2/p1pppp1pp/1p4p2/4b4/2PP2P2/PPB1PP1PP/2S5R/LN1GKGSNL w - 12
+promotion_choice_062	promotion_choice	lnsgkgsnl/7b1/p+rpppp1pp/6p2/9/5P3/PSPPP1PPP/4K2R1/LN1G1GSNL w Pbp 18
+promotion_choice_063	promotion_choice	ln3gknl/1r1sg2s1/p1p1pp1pp/3p1bp2/8P/1PPPPS3/P1SG1PPP1/7R1/LN2KG1NL w BP 28
+promotion_choice_064	promotion_choice	lns1kgsnl/1r2g2b1/2pppp1pp/pp4p2/9/2P6/PPSPPPPPP/1BGK3R1/LN3GSNL w - 10
+endgame_065	endgame	lS5+R1/2P6/1g3Ss2/1p1k1p2G/p8/3+b2P2/5P1PP/4K4/+l5GNL w RB2NL8Pgsn2p 136
+endgame_066	endgame	lS7/2P3+R2/1g2kSs2/1p3p2G/p8/3+b2P2/3b1P1PP/4K4/+l5GNL b R3NL8Pgs2p 141
+endgame_067	endgame	lS7/2P6/1g2kS+R2/1p3p3/p7G/6P2/3b1P1PP/9/+l2K2+bNL w R2S3NL8P2g2p 146
+endgame_068	endgame	lS7/2P6/2g1kS+R2/1p7/p4p2G/1P4P2/3b1P1P+b/9/+l2K3NL b R2S2NL7P2gn3p 151
+endgame_069	endgame	lS7/2P6/4kS+R2/1p1g1R3/p4p1G1/1P4P2/3b1P1P+b/6g2/+l2K3NL w 2S2N7Pgnl3p 156
+endgame_070	endgame	lS6S/l1P6/4kS+Rp1/1p1R5/p4p1G1/1P4P2/3b1P1+b1/6g2/+l2K3NL b GS2N7Pgn3p 161
+endgame_071	endgame	l7S/+SgP6/N3kS+Rp1/1p7/p4p1G1/1P4+b2/3R1P3/6g2/+l2K3NL w BGSNL7Pn4p 166
+endgame_072	endgame	+Sg6S/2P6/N3kS+Rp1/1p7/p4p1GL/1P4+b2/3R1P3/6g2/1+l1K3N1 b BGS2N2L7P4p 171
+nyugyoku_073	nyugyoku	1G1p2l1G/+SL7/1Nl2p1Pp/1Ppr5/P5b2/S4P2S/nK1k1n2n/4sBp2/+r4g+l2 b g9p 207
+nyugyoku_074	nyugyoku	3G2l1G/+SL7/1Nl2p1Pp/1Ppr3p1/P5b1B/S4P2S/nK1kgn2n/4s1p2/+r4g+l2 w P8p 212
+nyugyoku_075	nyugyoku	3G2l1G/+SL7/1Nlp3Pp/1Ppr1p1p1/P5b2/S4P2S/nK1kBn2n/1p2s1p2/+r4g+l2 b GP6p 217
+nyugyoku_076	nyugyoku	4G1l1G/+SL7/1Nlp3Pp/1Ppr1p1p1/P1P6/S4b2S/nK1kBn2n/1p2s1pG1/+r4g+l2 w P6p 222
+nyugyoku_077	nyugyoku	4G3G/+SL7/1Nlp2lPp/1PPr1p1p1/P8/S4b2S/nK1k1n2n/1p2s1pG1/3+r1gB+l1 b 2P6p 227
+nyugyoku_078	nyugyoku	4G3G/+SL7/1NPp2lPp/1r3p1p1/PS5S1/5b3/nK1k1n2n/1p2s2G1/3+r1g+p+l1 w L2Pb7p 232
+few_legal_moves_079	few_legal_moves	lS7/5+B3/1g3n3/1p1krp2G/p6l1/3S2P2/5P1SP/1N2GK1P1/+l+b4GNL w RSN7P4p 116
+few_legal_moves_080	few_legal_moves	lnsg1g1nl/B3ks3/p1ppppbpp/5s3/6pP1/4P1P2/P1GP+r3P/3R5/LNP1KGsNL b P2p 37
+few_legal_moves_081	few_legal_moves	l1sg1g1nl/4ks3/p1pBppbpp/5s3/1P4pP1/2G6/P2P4P/2KR4N/LNP2+r1+s1 w Pgnl4p 52
+few_legal_moves_082	few_legal_moves	l1s2R1nl/2lg5/p1p1p3p/3k1b3/S2+B2pP1/9/+r2PKn1nP/6G1N/3g3+s1 w 2Pgsl8p 92
+few_legal_moves_083	few_legal_moves	l1s4nl/2lg5/p1p1pg2p/9/S2k2pP1/9/3+rKR1nP/6G1N/3g3+s1 b BN2Pbsl9p 97
+few_legal_moves_084	few_legal_moves	1G1gs2n1/2ls5/p3k2Np/b1p1L2b1/7P1/5Pp2/2K2l2P/+l2rs3+n/3g2G2 w S2Prn9p 142
+many_legal_moves_085	many_legal_moves	lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22
+many_legal_moves_086	many_legal_moves	lnsg4l/3ks4/p1pp2+Bpp/3b5/9/P4P3/2PPPpPPP/L1+p1G1KR1/1r3GSNL w G2Ps2np 32
+many_legal_moves_087	many_legal_moves	ln+P3snl/4k1gb1/3pppp2/psp5p/9/3G5/P1SPPPP1P/2GK5/LN3GSNL w RPrb3p 38
+many_legal_moves_088	many_legal_moves	1n1g2s2/1rs2kg2/l1pplp3/pp4p1p/G3pn3/L1P3PPP/3P1P2N/1G3R3/1NS3K1L b BS2Pb2p 67
+many_legal_moves_089	many_legal_moves	1n2b4/2sg1kgs1/lBpp1p1S1/1p2l1p2/p3pn2P/L1P3PP1/1GNP1P2g/P3R4/2S3K1L b R2Pn2p 87
+many_legal_moves_090	many_legal_moves	lns1k1s1B/r2gg4/pppppp2p/L8/6p2/7R1/PP1PPPP1P/7p1/LNSGKGSNL b BN2P 21
+many_legal_moves_091	many_legal_moves	lns3s2/r2g1k3/2pppp2p/pp6N/l5p2/7R1/PP1PPPP1P/4G2S1/LNS1KG1NL b BG3Pb 31
+many_legal_moves_092	many_legal_moves	l1+P1k1s2/r2g5/2nppp2p/ppp5N/l4Gp2/7R1/PP1PPPPbP/2S1G2S1/LN2KG1NL b S2Pb 41

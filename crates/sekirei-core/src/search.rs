@@ -367,6 +367,20 @@ pub struct YbwSearchStats {
     /// concurrently-running sibling's own contribution, and a truly
     /// per-probe counter would need one atomic per dispatched sibling.
     pub cancelled_nodes: u64,
+    /// Total `SplitCancel::is_cancelled()` checks (anywhere: alpha_beta/
+    /// quiescence entry, after ProbCut/NMP/SE/first-move/YBW-closure/
+    /// tail-research) that observed an active cancellation. Superset of
+    /// `tasks_skipped_before_start` + `recursive_aborts`.
+    pub cancel_checks_hit: u64,
+    /// Of the above, checks at a YBW sibling's closure entry (before it
+    /// even called `do_move`) -- i.e. probes that never started at all
+    /// because their split was already cancelled by the time they were
+    /// scheduled to run.
+    pub tasks_skipped_before_start: u64,
+    /// Of `cancel_checks_hit`, checks anywhere deeper than a sibling's own
+    /// closure entry -- i.e. in-flight recursion that noticed cancellation
+    /// mid-search and unwound early.
+    pub recursive_aborts: u64,
 }
 
 impl YbwStats {
@@ -379,6 +393,9 @@ impl YbwStats {
             direct_cutoffs: self.direct_cutoffs.load(Ordering::Relaxed),
             full_researches: self.full_researches.load(Ordering::Relaxed),
             cancelled_nodes: self.cancelled_nodes.load(Ordering::Relaxed),
+            cancel_checks_hit: self.cancel_checks_hit.load(Ordering::Relaxed),
+            tasks_skipped_before_start: self.tasks_skipped_before_start.load(Ordering::Relaxed),
+            recursive_aborts: self.recursive_aborts.load(Ordering::Relaxed),
         }
     }
 }
@@ -444,6 +461,28 @@ struct SearchFeatures {
     iir: bool,
     singular_extension: bool,
     check_extension: bool,
+    /// Whether killer/history/countermove tables are consulted for move
+    /// ordering *and* updated on a beta cutoff. These tables are shared
+    /// (via atomics) across all YBW siblings, so under real concurrency
+    /// their contents -- and therefore move ordering -- can depend on
+    /// scheduling timing (not undefined behavior, but a source of run-to-
+    /// run non-determinism). Off for the `search_ablation` benchmark's
+    /// "controlled" tuning profile only, to isolate YBW/PVS/speculation's
+    /// own effect from that timing-dependent ordering; on everywhere else,
+    /// including every existing test profile.
+    heuristic_move_ordering: bool,
+    /// Whether a YBW split's discovered beta cutoff actually fires
+    /// `SplitCancel::cancel()`. Off restores the pre-Commit-3 behavior of
+    /// every dispatched sibling running to completion regardless of an
+    /// earlier one already proving the cutoff -- cutoffs are still detected
+    /// and classified (`ybw_direct_cutoffs` still counts them) and the
+    /// post-collect result is still correct, but no sibling is ever told to
+    /// stop early. Exists so `search_ablation`'s benchmark can measure
+    /// early-cancellation's actual node/time savings via a paired on/off
+    /// comparison, isolated from every other change. On (`true`) everywhere
+    /// else, including every existing test profile -- this is the shipped
+    /// behavior since Commit 3.
+    ybw_early_cancel: bool,
 }
 
 impl SearchFeatures {
@@ -460,6 +499,8 @@ impl SearchFeatures {
         iir: true,
         singular_extension: true,
         check_extension: true,
+        heuristic_move_ordering: true,
+        ybw_early_cancel: true,
     };
 
     /// Every non-exact technique off, TT probing included. Under this
@@ -481,6 +522,8 @@ impl SearchFeatures {
         iir: false,
         singular_extension: false,
         check_extension: false,
+        heuristic_move_ordering: true,
+        ybw_early_cancel: true,
     };
 
     /// Same as `EXACT_REFERENCE` but with TT probing (and therefore its
@@ -529,8 +572,9 @@ impl Searcher {
     /// Same as `search`, but with an explicit `SearchFeatures` profile.
     /// Not exposed publicly -- every real caller goes through `search`, which
     /// always passes `SearchFeatures::PRODUCTION`. Exists so this module's
-    /// own tests can request `SearchFeatures::EXACT_REFERENCE[_WITH_TT]`
-    /// without a USI option or public API surface for it.
+    /// own tests (and, via `bench_api::SearchTuning`, `sekirei-bench`) can
+    /// request other profiles without a USI option or public API surface
+    /// for it.
     fn search_with_features(
         &self,
         board: &mut Board,
@@ -652,6 +696,7 @@ fn root_search(
         None,
         &state.history,
         board.side_to_move,
+        state.features.heuristic_move_ordering,
     );
 
     // Mate-in-1: check each root move for immediate checkmate before deep search
@@ -914,6 +959,36 @@ impl SplitCancel {
     }
 }
 
+/// Checks cancellation and, if observed, records it into `stats` for the
+/// `ybw_early_cancel` ablation's instrumentation (see `YbwStats`/
+/// `YbwSearchStats`). `is_task_entry` distinguishes a YBW sibling's closure
+/// -entry check (the task never even started) from every other, deeper,
+/// in-flight checkpoint (`alpha_beta`/`quiescence` entry, after ProbCut/NMP/
+/// SE/first-move/tail-research, or a probe noticing cancellation only after
+/// its own recursion already returned).
+#[inline]
+fn check_cancelled(
+    local_abort: Option<&Arc<SplitCancel>>,
+    stats: &YbwStats,
+    is_task_entry: bool,
+) -> bool {
+    let Some(t) = local_abort else {
+        return false;
+    };
+    if !t.is_cancelled() {
+        return false;
+    }
+    stats.cancel_checks_hit.fetch_add(1, Ordering::Relaxed);
+    if is_task_entry {
+        stats
+            .tasks_skipped_before_start
+            .fetch_add(1, Ordering::Relaxed);
+    } else {
+        stats.recursive_aborts.fetch_add(1, Ordering::Relaxed);
+    }
+    true
+}
+
 #[cfg(test)]
 mod split_cancel_tests {
     use super::*;
@@ -1001,6 +1076,9 @@ struct YbwStats {
     direct_cutoffs: AtomicU64,
     full_researches: AtomicU64,
     cancelled_nodes: AtomicU64,
+    cancel_checks_hit: AtomicU64,
+    tasks_skipped_before_start: AtomicU64,
+    recursive_aborts: AtomicU64,
 }
 
 // ============================================================
@@ -1039,9 +1117,9 @@ fn alpha_beta(
     }
     if let Some(t) = local_abort {
         t.nodes.fetch_add(1, Ordering::Relaxed);
-        if t.is_cancelled() {
-            return 0;
-        }
+    }
+    if check_cancelled(local_abort, &state.ybw_stats, false) {
+        return 0;
     }
 
     // Mate distance pruning: tighten window — we can't improve beyond the nearest mate
@@ -1143,7 +1221,7 @@ fn alpha_beta(
             if state.budget.should_abort() {
                 break;
             }
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
             let tok = board.do_move(cap);
@@ -1161,7 +1239,7 @@ fn alpha_beta(
                 local_abort,
             );
             board.undo_move(tok);
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
             if pc_score >= pc_beta {
@@ -1193,7 +1271,7 @@ fn alpha_beta(
             local_abort,
         );
         board.undo_null_move(null_tok);
-        if local_abort.is_some_and(|t| t.is_cancelled()) {
+        if check_cancelled(local_abort, &state.ybw_stats, false) {
             return 0;
         }
 
@@ -1214,7 +1292,7 @@ fn alpha_beta(
                     None,
                     local_abort,
                 );
-                if local_abort.is_some_and(|t| t.is_cancelled()) {
+                if check_cancelled(local_abort, &state.ybw_stats, false) {
                     return 0;
                 }
                 if verify >= beta {
@@ -1241,6 +1319,7 @@ fn alpha_beta(
         countermove,
         &state.history,
         stm,
+        state.features.heuristic_move_ordering,
     );
 
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
@@ -1278,7 +1357,7 @@ fn alpha_beta(
             None,
             local_abort,
         );
-        if local_abort.is_some_and(|t| t.is_cancelled()) {
+        if check_cancelled(local_abort, &state.ybw_stats, false) {
             0 // discard a cancelled probe's result rather than trust a spurious extension
         } else {
             u32::from(sval < se_beta) // 1 if TT move is singular, else 0
@@ -1326,7 +1405,7 @@ fn alpha_beta(
     if state.budget.should_abort() {
         return 0;
     }
-    if local_abort.is_some_and(|t| t.is_cancelled()) {
+    if check_cancelled(local_abort, &state.ybw_stats, false) {
         return 0;
     }
 
@@ -1339,17 +1418,19 @@ fn alpha_beta(
     }
 
     if score0 >= beta {
-        update_quiet_heuristics(
-            &state.killers,
-            &state.history,
-            &state.countermoves,
-            first_move,
-            stm,
-            ply,
-            depth,
-            board,
-            prev_mv,
-        );
+        if state.features.heuristic_move_ordering {
+            update_quiet_heuristics(
+                &state.killers,
+                &state.history,
+                &state.countermoves,
+                first_move,
+                stm,
+                ply,
+                depth,
+                board,
+                prev_mv,
+            );
+        }
         store_tt(state, hash, score0, depth, Bound::Lower, best_move, ply);
         return score0;
     }
@@ -1403,7 +1484,8 @@ fn alpha_beta(
         let nw_results: Vec<YbwProbeResult> = work
             .into_par_iter()
             .map(|(m, idx, mut b, ctx, split)| {
-                if ctx.budget.should_abort() || split.is_cancelled() {
+                if ctx.budget.should_abort() || check_cancelled(Some(&split), &ctx.ybw_stats, true)
+                {
                     return YbwProbeResult::Cancelled { move_index: idx };
                 }
                 let reduce = if ctx.features.lmr {
@@ -1439,7 +1521,8 @@ fn alpha_beta(
                 );
                 b.undo_move(tok);
 
-                if ctx.budget.should_abort() || split.is_cancelled() {
+                if ctx.budget.should_abort() || check_cancelled(Some(&split), &ctx.ybw_stats, false)
+                {
                     return YbwProbeResult::Cancelled { move_index: idx };
                 }
 
@@ -1459,7 +1542,15 @@ fn alpha_beta(
                         score: s,
                         move_index: idx,
                     };
-                    split.cancel();
+                    // Gated by `ybw_early_cancel` (`search_ablation`'s
+                    // paired on/off ablation): off restores the pre-
+                    // Commit-3 behavior of every dispatched sibling running
+                    // to completion regardless of this cutoff -- the
+                    // classification above (and therefore `direct_cutoffs`)
+                    // is unaffected either way.
+                    if ctx.features.ybw_early_cancel {
+                        split.cancel();
+                    }
                     result
                 } else {
                     YbwProbeResult::Completed {
@@ -1481,7 +1572,7 @@ fn alpha_beta(
             if state.budget.should_abort() {
                 break;
             }
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
 
@@ -1580,7 +1671,7 @@ fn alpha_beta(
                     local_abort,
                 );
                 board.undo_move(tok);
-                if local_abort.is_some_and(|t| t.is_cancelled()) {
+                if check_cancelled(local_abort, &state.ybw_stats, false) {
                     return 0;
                 }
                 full
@@ -1603,20 +1694,22 @@ fn alpha_beta(
                 }
             }
             if s >= beta {
-                for &qm in &tried_quiet {
-                    state.history.malus(stm, qm.piece_kind, qm.to, depth);
+                if state.features.heuristic_move_ordering {
+                    for &qm in &tried_quiet {
+                        state.history.malus(stm, qm.piece_kind, qm.to, depth);
+                    }
+                    update_quiet_heuristics(
+                        &state.killers,
+                        &state.history,
+                        &state.countermoves,
+                        m,
+                        stm,
+                        ply,
+                        depth,
+                        board,
+                        prev_mv,
+                    );
                 }
-                update_quiet_heuristics(
-                    &state.killers,
-                    &state.history,
-                    &state.countermoves,
-                    m,
-                    stm,
-                    ply,
-                    depth,
-                    board,
-                    prev_mv,
-                );
                 store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
                 return best_score;
             }
@@ -1657,7 +1750,7 @@ fn alpha_beta(
             if state.budget.should_abort() {
                 break;
             }
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
 
@@ -1750,7 +1843,7 @@ fn alpha_beta(
                 );
             }
             board.undo_move(tok);
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
 
@@ -1764,20 +1857,22 @@ fn alpha_beta(
                 }
             }
             if s >= beta {
-                for &qm in &tried_quiet {
-                    state.history.malus(stm, qm.piece_kind, qm.to, depth);
+                if state.features.heuristic_move_ordering {
+                    for &qm in &tried_quiet {
+                        state.history.malus(stm, qm.piece_kind, qm.to, depth);
+                    }
+                    update_quiet_heuristics(
+                        &state.killers,
+                        &state.history,
+                        &state.countermoves,
+                        m,
+                        stm,
+                        ply,
+                        depth,
+                        board,
+                        prev_mv,
+                    );
                 }
-                update_quiet_heuristics(
-                    &state.killers,
-                    &state.history,
-                    &state.countermoves,
-                    m,
-                    stm,
-                    ply,
-                    depth,
-                    board,
-                    prev_mv,
-                );
                 store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
                 return best_score;
             }
@@ -1824,9 +1919,9 @@ fn quiescence(
     }
     if let Some(t) = local_abort {
         t.nodes.fetch_add(1, Ordering::Relaxed);
-        if t.is_cancelled() {
-            return 0;
-        }
+    }
+    if check_cancelled(local_abort, &state.ybw_stats, false) {
+        return 0;
     }
 
     // Hard depth cap: terminate the quiescence even mid-check. Without this a
@@ -1885,7 +1980,7 @@ fn quiescence(
         if state.budget.should_abort() {
             return 0;
         }
-        if local_abort.is_some_and(|t| t.is_cancelled()) {
+        if check_cancelled(local_abort, &state.ybw_stats, false) {
             return 0;
         }
         if score >= beta {
@@ -1933,7 +2028,7 @@ fn quiescence(
             if state.budget.should_abort() {
                 return 0;
             }
-            if local_abort.is_some_and(|t| t.is_cancelled()) {
+            if check_cancelled(local_abort, &state.ybw_stats, false) {
                 return 0;
             }
             if score >= beta {
@@ -1993,6 +2088,14 @@ pub struct SpecSearchInfo {
     /// YBW split/cancellation activity across this search. See
     /// `SearchInfo::ybw`.
     pub ybw: YbwSearchStats,
+    /// Speculative background tasks dispatched via `SpecGroup::spawn`,
+    /// across every depth iteration that speculated.
+    pub spec_tasks_started: u64,
+    /// Speculative tasks that ran to completion and stored a real result.
+    pub spec_tasks_completed: u64,
+    /// Speculative tasks that produced no usable result (aborted before/
+    /// during their search, or skipped as an invalid pseudo-legal candidate).
+    pub spec_tasks_cancelled: u64,
 }
 
 /// `SpeculativeSearcher` wraps iterative deepening with preemptive
@@ -2034,6 +2137,17 @@ impl SpeculativeSearcher {
     /// Run iterative-deepening search with preemptive speculative parallelism on
     /// candidate replies, returning the best line plus speculation statistics.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {
+        self.search_with_features(board, config, SearchFeatures::PRODUCTION)
+    }
+
+    /// Same as `search`, but with an explicit `SearchFeatures` profile. Not
+    /// exposed publicly, for the same reason as `Searcher::search_with_features`.
+    fn search_with_features(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        features: SearchFeatures,
+    ) -> SpecSearchInfo {
         self.external_abort.store(false, Ordering::Relaxed);
 
         let state = Arc::new(SearchState {
@@ -2043,7 +2157,7 @@ impl SpeculativeSearcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             config,
-            features: SearchFeatures::PRODUCTION,
+            features,
             ybw_stats: Arc::new(YbwStats::default()),
         });
 
@@ -2054,6 +2168,9 @@ impl SpeculativeSearcher {
             tt: self.tt.clone(),
             budget: state.budget.clone(),
             spec_nodes: AtomicU64::new(0),
+            tasks_started: AtomicU64::new(0),
+            tasks_completed: AtomicU64::new(0),
+            tasks_cancelled: AtomicU64::new(0),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
@@ -2194,6 +2311,100 @@ impl SpeculativeSearcher {
             bestmove_changes,
             pv,
             ybw: state.ybw_stats.snapshot(),
+            spec_tasks_started: spec_state.tasks_started.load(Ordering::Relaxed),
+            spec_tasks_completed: spec_state.tasks_completed.load(Ordering::Relaxed),
+            spec_tasks_cancelled: spec_state.tasks_cancelled.load(Ordering::Relaxed),
+        }
+    }
+}
+
+// ============================================================
+// Benchmark-only API (unstable, not SemVer-covered)
+// ============================================================
+
+/// Unstable, benchmark-only API surface -- gated behind the `bench-internals`
+/// Cargo feature so it does not exist at all in a normal `sekirei-core` build
+/// (not `sekirei-usi`, not `sekirei-csa`, not `sekirei-train`). Only
+/// `sekirei-bench`'s `search_ablation` harness enables the feature. This is
+/// NOT part of `sekirei-core`'s stable public API and is NOT SemVer-covered:
+/// it may change or disappear in any release without notice.
+#[cfg(feature = "bench-internals")]
+pub mod bench_api {
+    use super::{
+        SearchConfig, SearchFeatures, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
+    };
+    use crate::board::Board;
+
+    /// Non-heuristic search tuning for measurement/benchmark infrastructure
+    /// only -- deliberately NOT part of `SearchConfig` (no USI option, no
+    /// CSA/train exposure) and NOT `SearchFeatures` itself (which stays
+    /// private and test-only). This is the knob `search_ablation` needs:
+    /// isolating YBW/PVS/speculation's own search-tree effect from
+    /// unrelated, pre-existing non-determinism/behavior, without touching
+    /// production search's default behavior at all.
+    #[derive(Clone, Copy)]
+    pub struct SearchTuning {
+        /// Off disables killer/history/countermove move ordering *and*
+        /// their updates entirely. These tables are shared across YBW
+        /// siblings via atomics, so real concurrency can race move ordering
+        /// and change the searched value across identical repeated runs --
+        /// a separate, pre-existing non-determinism, unrelated to PVS/YBW/
+        /// speculation themselves. Default `true`, matching `search()`'s
+        /// existing, unconditional production behavior -- so
+        /// `SearchTuning::default()` is always behavior-preserving.
+        pub heuristic_move_ordering: bool,
+        /// Off restores the pre-Commit-3 behavior of every YBW sibling
+        /// running to completion regardless of an earlier one already
+        /// proving a beta cutoff -- cutoffs are still detected and
+        /// classified, but no sibling is ever told to stop early. Exists to
+        /// measure early-cancellation's actual node/time savings via a
+        /// paired on/off comparison. Default `true`, matching shipped
+        /// behavior.
+        pub ybw_early_cancel: bool,
+    }
+
+    impl Default for SearchTuning {
+        fn default() -> Self {
+            SearchTuning {
+                heuristic_move_ordering: true,
+                ybw_early_cancel: true,
+            }
+        }
+    }
+
+    impl From<SearchTuning> for SearchFeatures {
+        fn from(tuning: SearchTuning) -> Self {
+            SearchFeatures {
+                heuristic_move_ordering: tuning.heuristic_move_ordering,
+                ybw_early_cancel: tuning.ybw_early_cancel,
+                ..SearchFeatures::PRODUCTION
+            }
+        }
+    }
+
+    impl Searcher {
+        /// Same as `search`, but with an explicit `SearchTuning`. Every
+        /// real (non-benchmark) caller should use `search`.
+        pub fn search_tuned(
+            &self,
+            board: &mut Board,
+            config: SearchConfig,
+            tuning: SearchTuning,
+        ) -> SearchInfo {
+            self.search_with_features(board, config, tuning.into())
+        }
+    }
+
+    impl SpeculativeSearcher {
+        /// Same as `search`, but with an explicit `SearchTuning`. Every
+        /// real (non-benchmark) caller should use `search`.
+        pub fn search_tuned(
+            &self,
+            board: &mut Board,
+            config: SearchConfig,
+            tuning: SearchTuning,
+        ) -> SpecSearchInfo {
+            self.search_with_features(board, config, tuning.into())
         }
     }
 }
@@ -2436,6 +2647,7 @@ fn lmr_reduce(
     r
 }
 
+#[allow(clippy::too_many_arguments)]
 fn order_moves(
     board: &mut Board,
     mut moves: Vec<Move>,
@@ -2444,6 +2656,7 @@ fn order_moves(
     countermove: Option<Move>,
     history: &HistoryTable,
     stm: Color,
+    use_heuristic_move_ordering: bool,
 ) -> Vec<Move> {
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
@@ -2464,18 +2677,27 @@ fn order_moves(
             };
         }
 
-        if killers[0].is_some_and(|k| k == m) {
-            return -9_100;
-        } // 3. Killer 0
-        if killers[1].is_some_and(|k| k == m) {
-            return -9_050;
-        } // 4. Killer 1
-        if countermove.is_some_and(|cm| cm == m) {
-            return -9_000;
-        } // 5. Countermove
+        // Killer/countermove/history ordering is skippable (`controlled`
+        // benchmark tuning): these tables are shared across YBW siblings,
+        // so their contents -- and therefore this branch's outcome -- can
+        // be timing-dependent under real concurrency. Skipping it falls
+        // back to `sort_by_cached_key`'s stability, preserving move-
+        // generation order among the remaining quiet moves.
+        if use_heuristic_move_ordering {
+            if killers[0].is_some_and(|k| k == m) {
+                return -9_100;
+            } // 3. Killer 0
+            if killers[1].is_some_and(|k| k == m) {
+                return -9_050;
+            } // 4. Killer 1
+            if countermove.is_some_and(|cm| cm == m) {
+                return -9_000;
+            } // 5. Countermove
 
-        // 6. Remaining quiet moves by history score
-        -(-8_000 + history.get(stm, m.piece_kind, m.to))
+            // 6. Remaining quiet moves by history score
+            return -(-8_000 + history.get(stm, m.piece_kind, m.to));
+        }
+        0
     });
     moves
 }

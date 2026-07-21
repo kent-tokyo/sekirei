@@ -9,6 +9,12 @@ repository = "https://github.com/kent-tokyo/sekirei"
 [dependencies]
 rayon = "1"
 
+[features]
+# Unstable, benchmark-only API surface (see search::bench_api). Not part of
+# sekirei-core's stable public API, not SemVer-covered, never enabled by
+# sekirei-usi/sekirei-csa/sekirei-train -- only sekirei-bench turns it on.
+bench-internals = []
+
 [lib]
 name = "sekirei_core"
 
