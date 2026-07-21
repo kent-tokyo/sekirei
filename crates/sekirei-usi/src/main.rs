@@ -66,8 +66,13 @@ fn main() {
     let mut book_loaded_path: Option<String> = None;
     // Search-ablation measurement toggles -- defaults reproduce prior
     // unconditional behavior exactly (see `SearchConfig::default()`).
+    // `use_pvs` is the exception: PVS already ran unconditionally inside the
+    // YBW block, so its default (true) preserves that, but it also newly
+    // enables PVS at root and in the sequential tail, which is this toggle's
+    // actual purpose (see `SearchConfig::use_pvs`'s doc comment).
     let mut use_ybw = true;
     let mut use_speculation = true;
+    let mut use_pvs = true;
     let mut spec_top_n: usize = 3;
     let mut ybw_max_siblings: usize = 6;
 
@@ -123,6 +128,7 @@ fn main() {
                 println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
                 println!("option name UseYBW type check default true");
                 println!("option name UseSpeculation type check default true");
+                println!("option name UsePVS type check default true");
                 println!("option name SpecTopN type spin default 3 min 0 max 64");
                 println!("option name YbwMaxSiblings type spin default 6 min 0 max 64");
                 println!("usiok");
@@ -218,6 +224,10 @@ fn main() {
                 } else if parts.get(1) == Some(&"UseSpeculation") {
                     if let Some(v) = parts.get(3) {
                         use_speculation = *v == "true";
+                    }
+                } else if parts.get(1) == Some(&"UsePVS") {
+                    if let Some(v) = parts.get(3) {
+                        use_pvs = *v == "true";
                     }
                 } else if parts.get(1) == Some(&"SpecTopN") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
@@ -334,6 +344,7 @@ fn main() {
                     multi_pv,
                     use_ybw,
                     use_speculation,
+                    use_pvs,
                     spec_top_n,
                     ybw_max_siblings,
                 );
@@ -364,6 +375,14 @@ fn main() {
                     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
                     if info.pv_list.len() > 1 {
                         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
+                            // Only line 0 (the best line) has a full searched
+                            // sequence tracked (`SpecSearchInfo::pv`); other
+                            // MultiPV lines fall back to their single move.
+                            let pv_str = if i == 0 {
+                                format_pv(&info.pv, mv)
+                            } else {
+                                move_to_usi(mv)
+                            };
                             println!(
                                 "info multipv {} depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
                                 i + 1,
@@ -373,7 +392,7 @@ fn main() {
                                 nps,
                                 elapsed_ms,
                                 info.hashfull,
-                                move_to_usi(mv)
+                                pv_str
                             );
                         }
                     } else if let Some(m) = info.best_move {
@@ -385,7 +404,7 @@ fn main() {
                             nps,
                             elapsed_ms,
                             info.hashfull,
-                            move_to_usi(m)
+                            format_pv(&info.pv, m)
                         );
                     }
 
@@ -447,6 +466,7 @@ fn main() {
                         multi_pv,
                         use_ybw,
                         use_speculation,
+                        use_pvs,
                         spec_top_n,
                         ybw_max_siblings,
                     );
@@ -480,7 +500,7 @@ fn main() {
                                 nps,
                                 elapsed_ms,
                                 info.hashfull,
-                                move_to_usi(m)
+                                format_pv(&info.pv, m)
                             );
                         }
                         let best = info
@@ -531,6 +551,21 @@ fn make_searcher(hash_mb: usize) -> Arc<SpeculativeSearcher> {
     Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb)))
 }
 
+/// Render a searched principal variation as a space-separated USI move list,
+/// falling back to just `bestmove` if the pv wasn't tracked (e.g. an aborted
+/// search that never completed a depth).
+fn format_pv(pv: &[sekirei_core::mv::Move], bestmove: sekirei_core::mv::Move) -> String {
+    if pv.is_empty() {
+        move_to_usi(bestmove)
+    } else {
+        pv.iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
 // ---- Go command time-control parsing ----
 
 #[allow(clippy::too_many_arguments)]
@@ -542,6 +577,7 @@ fn parse_go(
     multi_pv: u32,
     use_ybw: bool,
     use_speculation: bool,
+    use_pvs: bool,
     spec_top_n: usize,
     ybw_max_siblings: usize,
 ) -> SearchConfig {
@@ -661,6 +697,7 @@ fn parse_go(
         multi_pv,
         use_ybw,
         use_speculation,
+        use_pvs,
         spec_top_n,
         ybw_max_siblings,
     }
@@ -681,6 +718,7 @@ mod tests {
             0,
             false,
             1,
+            true,
             true,
             true,
             3,
@@ -704,6 +742,7 @@ mod tests {
             1,
             true,
             true,
+            true,
             3,
             6,
         );
@@ -716,7 +755,18 @@ mod tests {
     fn parse_go_byoyomi_only() {
         // byoyomi 5000, no main time → panic mode, no soft limit
         // byo_safe = 5000, base = 3250 - 0 = 3250, hard = min(4875, 5000) = 4875
-        let cfg = parse_go("byoyomi 5000", Color::Black, 0, false, 1, true, true, 3, 6);
+        let cfg = parse_go(
+            "byoyomi 5000",
+            Color::Black,
+            0,
+            false,
+            1,
+            true,
+            true,
+            true,
+            3,
+            6,
+        );
         assert!(cfg.time_limit.is_some());
         assert!(cfg.soft_limit.is_none(), "panic mode: no soft limit");
         let hard = cfg.time_limit.unwrap().as_millis();
@@ -732,6 +782,7 @@ mod tests {
             0,
             false,
             1,
+            true,
             true,
             true,
             3,
@@ -753,6 +804,7 @@ mod tests {
             1,
             true,
             true,
+            true,
             3,
             6,
         );
@@ -768,6 +820,7 @@ mod tests {
             50,
             true,
             1,
+            true,
             true,
             true,
             3,
@@ -786,6 +839,7 @@ mod tests {
             50,
             false,
             1,
+            true,
             true,
             true,
             3,

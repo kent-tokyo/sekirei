@@ -277,6 +277,14 @@ pub struct SearchConfig {
     /// Max young-brother siblings dispatched in parallel per YBW split
     /// (default 6, matching the previous `YBW_MAX_SIBLINGS` constant).
     pub ybw_max_siblings: usize,
+    /// Enable PVS (null-window-probe-then-full-window-research) at root and
+    /// in the sequential tail, and make the YBW closure's own null-window
+    /// probe conditional on this flag rather than unconditional (default
+    /// `true`, matching the YBW block's prior unconditional PVS-probing
+    /// behavior — root and the sequential tail gain real PVS for the first
+    /// time under this default, which is the intended effect of this toggle
+    /// existing at all).
+    pub use_pvs: bool,
 }
 
 impl Default for SearchConfig {
@@ -290,6 +298,7 @@ impl Default for SearchConfig {
             use_speculation: true,
             spec_top_n: 3,
             ybw_max_siblings: 6,
+            use_pvs: true,
         }
     }
 }
@@ -319,6 +328,13 @@ pub struct SearchInfo {
     pub spec_hits: u32,
     /// Always 0 here — see `spec_hits`.
     pub spec_total: u32,
+    /// Principal variation from the last fully-completed depth, best move
+    /// first. Built by tracking `alpha_beta`'s own PV-node updates as the
+    /// search runs — never reconstructed from the TT (shared with
+    /// speculative search, so a probed entry's `mv` can belong to a foreign
+    /// line). May be shorter than `depth` if the line runs into a TT cutoff
+    /// or terminal position before that ply.
+    pub pv: Vec<Move>,
 }
 
 // ============================================================
@@ -336,6 +352,98 @@ struct SearchState {
     /// directly) can read toggles like `use_ybw`/`ybw_max_siblings` without a
     /// signature change to `alpha_beta` itself.
     config: SearchConfig,
+    /// Which non-exact (selective) search techniques are active. Always
+    /// `SearchFeatures::PRODUCTION` in every public `Searcher`/
+    /// `SpeculativeSearcher` code path -- there is no USI option or public
+    /// API to change it. Exists solely so `search.rs`'s own unit tests can
+    /// run under `SearchFeatures::EXACT_REFERENCE[_WITH_TT]` and get a
+    /// provably-exact (non-heuristic) alpha-beta tree to compare PVS against.
+    /// See the module doc on `SearchFeatures` for why this can't just be a
+    /// `SearchConfig` field.
+    features: SearchFeatures,
+}
+
+/// Toggles for search techniques that are *not* exact minimax-preserving
+/// optimizations -- each one trades some search precision for speed (LMR,
+/// null-move pruning, etc.), so two searches that differ only in which of
+/// these are active can legitimately reach different scores or moves at the
+/// same (position, depth). This is deliberately separate from the public,
+/// user-facing `SearchConfig` (whose toggles -- `use_ybw`, `use_speculation`,
+/// `use_pvs` -- are all exact optimizations or structural choices, never
+/// heuristics): mixing a test-only "disable everything" knob into the
+/// production config struct would let it leak into the USI/CSA/train
+/// surface, when its only real purpose is giving `search.rs`'s own tests a
+/// non-selective reference tree to compare PVS's *value* correctness
+/// against, independent of move-ordering/TT-timing effects. See
+/// `exact_reference_tests` for what this is used for and why.
+#[derive(Clone, Copy)]
+struct SearchFeatures {
+    /// Root aspiration windowing (narrow-then-widen around `prev_score`).
+    /// Off means every root call searches the full `(NEG_INF, POS_INF)`
+    /// window from the first iteration.
+    aspiration: bool,
+    /// Whether `alpha_beta`'s TT probe is consulted for cutoffs/move
+    /// ordering at all. Off makes stores into that call's `Tt` inert (never
+    /// read back), equivalent to searching with no transposition table.
+    tt_cutoff: bool,
+    lmr: bool,
+    nmp: bool,
+    rfp: bool,
+    futility: bool,
+    lmp: bool,
+    probcut: bool,
+    iir: bool,
+    singular_extension: bool,
+    check_extension: bool,
+}
+
+impl SearchFeatures {
+    /// What every public search path uses today, unconditionally.
+    const PRODUCTION: Self = SearchFeatures {
+        aspiration: true,
+        tt_cutoff: true,
+        lmr: true,
+        nmp: true,
+        rfp: true,
+        futility: true,
+        lmp: true,
+        probcut: true,
+        iir: true,
+        singular_extension: true,
+        check_extension: true,
+    };
+
+    /// Every non-exact technique off, TT probing included. Under this
+    /// profile `alpha_beta` is a textbook fail-soft alpha-beta search with no
+    /// selective pruning of any kind, so PVS's null-window-probe-then-full-
+    /// window-research is a *provably* exact optimization of it -- any score
+    /// difference between sequential AB and sequential PVS here is a real
+    /// bug, not expected heuristic noise.
+    #[cfg(test)]
+    const EXACT_REFERENCE: Self = SearchFeatures {
+        aspiration: false,
+        tt_cutoff: false,
+        lmr: false,
+        nmp: false,
+        rfp: false,
+        futility: false,
+        lmp: false,
+        probcut: false,
+        iir: false,
+        singular_extension: false,
+        check_extension: false,
+    };
+
+    /// Same as `EXACT_REFERENCE` but with TT probing (and therefore its
+    /// cutoffs and TT-move-driven ordering) left on -- isolates whether PVS's
+    /// interaction with a *shared, actively-read* TT can corrupt a value,
+    /// separately from the plain window/re-search logic `EXACT_REFERENCE`
+    /// alone already covers.
+    #[cfg(test)]
+    const EXACT_REFERENCE_WITH_TT: Self = SearchFeatures {
+        tt_cutoff: true,
+        ..Self::EXACT_REFERENCE
+    };
 }
 
 // ============================================================
@@ -366,6 +474,20 @@ impl Searcher {
     /// Run iterative-deepening search from the current position up to `config.max_depth`
     /// or until a time limit / abort signal fires, returning the best line found.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
+        self.search_with_features(board, config, SearchFeatures::PRODUCTION)
+    }
+
+    /// Same as `search`, but with an explicit `SearchFeatures` profile.
+    /// Not exposed publicly -- every real caller goes through `search`, which
+    /// always passes `SearchFeatures::PRODUCTION`. Exists so this module's
+    /// own tests can request `SearchFeatures::EXACT_REFERENCE[_WITH_TT]`
+    /// without a USI option or public API surface for it.
+    fn search_with_features(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        features: SearchFeatures,
+    ) -> SearchInfo {
         self.external_abort.store(false, Ordering::Relaxed);
 
         let state = Arc::new(SearchState {
@@ -375,6 +497,7 @@ impl Searcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             config,
+            features,
         });
 
         let mut best_move = None;
@@ -382,9 +505,11 @@ impl Searcher {
         let mut done_depth = 0;
         let mut prev_best: Option<Move> = None;
         let mut bestmove_changes = 0u32;
+        let mut pv: Vec<Move> = Vec::new();
 
         for depth in 1..=config.max_depth {
-            let (m, score) = root_search(&state, board, depth, best_score, &[]);
+            let mut pv_buf: Vec<Move> = Vec::new();
+            let (m, score) = root_search(&state, board, depth, best_score, &[], Some(&mut pv_buf));
 
             if state.budget.should_abort() {
                 break;
@@ -393,6 +518,7 @@ impl Searcher {
             best_move = m.or(best_move);
             best_score = score;
             done_depth = depth;
+            pv = pv_buf;
 
             if score.abs() >= MATE_SCORE - 1000 {
                 break;
@@ -423,6 +549,7 @@ impl Searcher {
             bestmove_changes,
             spec_hits: 0,
             spec_total: 0,
+            pv,
         }
     }
 }
@@ -437,6 +564,7 @@ fn root_search(
     depth: u32,
     prev_score: i32,
     excluded: &[Move],
+    mut pv: Option<&mut Vec<Move>>,
 ) -> (Option<Move>, i32) {
     let all_moves = generate_legal_moves(board);
     let moves: Vec<Move> = if excluded.is_empty() {
@@ -456,6 +584,10 @@ fn root_search(
         let tok = board.do_move(moves[0]);
         let score = -evaluate(board);
         board.undo_move(tok);
+        if let Some(p) = pv.as_deref_mut() {
+            p.clear();
+            p.push(moves[0]);
+        }
         return (Some(moves[0]), score);
     }
 
@@ -478,6 +610,13 @@ fn root_search(
             generate_legal_moves(board).is_empty() && is_in_check(board, board.side_to_move);
         board.undo_move(tok);
         if mated {
+            // This shortcut bypasses root_search_inner/alpha_beta entirely,
+            // so it must populate `pv` itself -- `[m]` is already the
+            // complete line (the position after `m` has no legal replies).
+            if let Some(p) = pv.as_deref_mut() {
+                p.clear();
+                p.push(m);
+            }
             return (Some(m), MATE_SCORE - 1);
         }
     }
@@ -519,7 +658,7 @@ fn root_search(
     };
 
     // Aspiration window: start tight around prev_score; widen on fail
-    let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
+    let use_asp = state.features.aspiration && depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let (mut lo, mut hi) = if use_asp {
         (prev_score - ASP_DELTA, prev_score + ASP_DELTA)
     } else {
@@ -527,7 +666,8 @@ fn root_search(
     };
 
     loop {
-        let (m, score) = root_search_inner(state, board, depth, &ordered, lo, hi);
+        let (m, score) =
+            root_search_inner(state, board, depth, &ordered, lo, hi, pv.as_deref_mut());
 
         if state.budget.should_abort() {
             return (m, score);
@@ -554,6 +694,7 @@ fn root_search(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn root_search_inner(
     state: &Arc<SearchState>,
     board: &mut Board,
@@ -561,13 +702,73 @@ fn root_search_inner(
     ordered: &[Move],
     lo: i32,
     hi: i32,
+    mut pv: Option<&mut Vec<Move>>,
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
 
-    for &m in ordered {
+    // Defensive: `root_search` may call this repeatedly across aspiration
+    // retries, reusing the same `pv` buffer each time. Clearing up front
+    // means a retry that (in some pathological case) never finds a move
+    // beating its own `lo` can't leave the *previous* attempt's stale line
+    // behind -- an empty `pv` on such a failure is honest, a leftover one
+    // from a different window would not be.
+    if let Some(p) = pv.as_deref_mut() {
+        p.clear();
+    }
+
+    for (i, &m) in ordered.iter().enumerate() {
         let tok = board.do_move(m);
-        let score = -alpha_beta(state, board, -hi, -alpha, depth - 1, 1, true, Some(m), None);
+        let want_pv = pv.is_some() && hi - alpha > 1;
+        let mut child_pv: Vec<Move> = Vec::new();
+
+        // First move (and every move when PVS is off) gets the ambient
+        // full window; later moves under PVS get a null-window probe first,
+        // full-window re-search only on fail-high.
+        let score = if i == 0 || !state.config.use_pvs {
+            -alpha_beta(
+                state,
+                board,
+                -hi,
+                -alpha,
+                depth - 1,
+                1,
+                true,
+                Some(m),
+                None,
+                if want_pv { Some(&mut child_pv) } else { None },
+            )
+        } else {
+            let probe = -alpha_beta(
+                state,
+                board,
+                -alpha - 1,
+                -alpha,
+                depth - 1,
+                1,
+                true,
+                Some(m),
+                None,
+                None,
+            );
+            if probe > alpha {
+                child_pv.clear();
+                -alpha_beta(
+                    state,
+                    board,
+                    -hi,
+                    -alpha,
+                    depth - 1,
+                    1,
+                    true,
+                    Some(m),
+                    None,
+                    if want_pv { Some(&mut child_pv) } else { None },
+                )
+            } else {
+                probe
+            }
+        };
         board.undo_move(tok);
 
         if state.budget.should_abort() {
@@ -577,6 +778,11 @@ fn root_search_inner(
         if score > alpha {
             alpha = score;
             best_move = Some(m);
+            if let Some(p) = pv.as_deref_mut() {
+                p.clear();
+                p.push(m);
+                p.append(&mut child_pv);
+            }
         }
         if alpha >= hi {
             break;
@@ -618,6 +824,15 @@ fn alpha_beta(
     can_null: bool,
     prev_mv: Option<Move>, // the move that led to this position (for countermove heuristic)
     skip_move: Option<Move>, // excluded move for singular extension search (None normally)
+    // Principal-variation output: `Some` only at PV-node calls (this node's
+    // own `beta - alpha > 1`), populated with `[best_move, ...best child's
+    // line]` whenever `best_move` updates. `None` everywhere else (null-
+    // window probes, RFP/ProbCut/NMP/SE helper searches, quiescence) so the
+    // allocation/bookkeeping cost is confined to the O(depth) nodes actually
+    // on a PV, not every visited node. Deliberately NOT reconstructed from
+    // the TT: the TT is shared with speculative search (see speculative.rs),
+    // so a probed entry's `mv` can belong to a foreign line.
+    mut pv: Option<&mut Vec<Move>>,
 ) -> i32 {
     if state.budget.tick() {
         return 0;
@@ -641,7 +856,9 @@ fn alpha_beta(
     let mut tt_se_score = None::<i32>; // TT score for singular extension (lower/exact bound only)
     let mut tt_se_depth = 0u8; // TT entry depth for SE eligibility check
 
-    if let Some(entry) = state.tt.probe(hash) {
+    if state.features.tt_cutoff
+        && let Some(entry) = state.tt.probe(hash)
+    {
         let adj = score_from_tt(entry.score, ply);
         tt_mv = entry.mv;
         tt_se_depth = entry.depth;
@@ -669,7 +886,7 @@ fn alpha_beta(
     }
 
     // Internal Iterative Reduction: no TT move → move ordering is poor, search shallower
-    let depth = if tt_mv.is_none() && depth >= 4 {
+    let depth = if state.features.iir && tt_mv.is_none() && depth >= 4 {
         depth - 1
     } else {
         depth
@@ -690,7 +907,8 @@ fn alpha_beta(
     };
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
-    if let Some(se) = static_eval
+    if state.features.rfp
+        && let Some(se) = static_eval
         && depth <= 3
         && beta.abs() < MATE_SCORE - 1000
         && se - RFP_MARGIN * depth as i32 >= beta
@@ -701,7 +919,11 @@ fn alpha_beta(
     // ProbCut: if a shallow (depth-4) search with an inflated beta suggests this node
     // will fail high by more than PC_MARGIN, prune without a full search.
     // Only try captures with SEE >= PC_MARGIN (already winning material gain).
-    if depth >= PC_MIN_DEPTH && !in_check && beta.abs() < MATE_SCORE - 1000 && skip_move.is_none()
+    if state.features.probcut
+        && depth >= PC_MIN_DEPTH
+        && !in_check
+        && beta.abs() < MATE_SCORE - 1000
+        && skip_move.is_none()
     // not inside a singular search
     {
         let pc_beta = beta + PC_MARGIN;
@@ -726,6 +948,7 @@ fn alpha_beta(
                 false,
                 Some(cap),
                 None,
+                None,
             );
             board.undo_move(tok);
             if pc_score >= pc_beta {
@@ -735,7 +958,11 @@ fn alpha_beta(
     }
 
     // Null Move Pruning
-    if can_null && depth > NMP_R && beta.abs() < MATE_SCORE - 1000 && !in_check
+    if state.features.nmp
+        && can_null
+        && depth > NMP_R
+        && beta.abs() < MATE_SCORE - 1000
+        && !in_check
     // reuse the is_in_check result computed above
     {
         let null_tok = board.do_null_move();
@@ -747,6 +974,7 @@ fn alpha_beta(
             depth - 1 - NMP_R,
             ply + 1,
             false,
+            None,
             None,
             None,
         );
@@ -765,6 +993,7 @@ fn alpha_beta(
                     ply,
                     false,
                     prev_mv,
+                    None,
                     None,
                 );
                 if verify >= beta {
@@ -807,7 +1036,8 @@ fn alpha_beta(
     // If all other moves fail below (tt_score - SE_MARGIN), the TT move is "singular" and
     // we extend its search by one ply.
     let sing_ext = if let Some(se_score) = tt_se_score.filter(|_| {
-        skip_move.is_none()
+        state.features.singular_extension
+            && skip_move.is_none()
             && depth >= SE_MIN_DEPTH
             && !in_check
             && tt_mv.is_some()
@@ -824,6 +1054,7 @@ fn alpha_beta(
             false,
             prev_mv,
             tt_mv,
+            None,
         );
         u32::from(sval < se_beta) // 1 if TT move is singular, else 0
     } else {
@@ -837,7 +1068,11 @@ fn alpha_beta(
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
     let tok = board.do_move(first_move);
-    let ext0 = check_ext(board, ply + 1);
+    let ext0 = if state.features.check_extension {
+        check_ext(board, ply + 1)
+    } else {
+        0
+    };
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
     let first_ext = ext0
         + if tt_mv.is_some_and(|t| t == first_move) {
@@ -845,6 +1080,8 @@ fn alpha_beta(
         } else {
             0
         };
+    let want_pv0 = pv.is_some() && beta - alpha > 1;
+    let mut child_pv0: Vec<Move> = Vec::new();
     let score0 = -alpha_beta(
         state,
         board,
@@ -855,6 +1092,7 @@ fn alpha_beta(
         true,
         Some(first_move),
         None,
+        if want_pv0 { Some(&mut child_pv0) } else { None },
     );
     board.undo_move(tok);
 
@@ -864,6 +1102,11 @@ fn alpha_beta(
 
     let mut best_score = score0;
     let mut best_move = Some(first_move);
+    if let Some(p) = pv.as_deref_mut() {
+        p.clear();
+        p.push(first_move);
+        p.append(&mut child_pv0);
+    }
 
     if score0 >= beta {
         update_quiet_heuristics(
@@ -916,46 +1159,76 @@ fn alpha_beta(
             .map(|(i, &m)| (m, i + 1, board.clone(), state.clone(), nw_abort.clone()))
             .collect();
 
-        // Null-window parallel probe (with LMR for quiet late moves)
-        let nw_results: Vec<(Move, i32, usize)> = work
+        // Parallel probe (with LMR for quiet late moves). Window is a null
+        // window when `use_pvs` (matching this block's long-standing default
+        // behavior); otherwise the ambient full window, so disabling PVS
+        // doesn't silently leave PVS running here — LMR's depth reduction
+        // still applies either way, it's orthogonal to the window choice.
+        let use_pvs = state.config.use_pvs;
+        let nw_results: Vec<(Move, i32, usize, u32)> = work
             .into_par_iter()
             .filter_map(|(m, idx, mut b, ctx, lab)| {
                 if lab.load(Ordering::Relaxed) || ctx.budget.should_abort() {
                     return None;
                 }
-                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm);
+                let reduce = if ctx.features.lmr {
+                    lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm)
+                } else {
+                    0
+                };
                 let tok = b.do_move(m);
-                let ext = check_ext(&b, ply + 1);
+                let ext = if ctx.features.check_extension {
+                    check_ext(&b, ply + 1)
+                } else {
+                    0
+                };
                 let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
                 let probe_depth = depth.saturating_sub(1 + reduce) + ext;
+                let (lo, hi) = if use_pvs {
+                    (-alpha_for_nw - 1, -alpha_for_nw)
+                } else {
+                    (-beta, -alpha_for_nw)
+                };
                 let s = -alpha_beta(
                     &ctx,
                     &mut b,
-                    -alpha_for_nw - 1,
-                    -alpha_for_nw,
+                    lo,
+                    hi,
                     probe_depth,
                     ply + 1,
                     true,
                     Some(m),
                     None,
+                    None,
                 );
                 b.undo_move(tok);
-                Some((m, s, idx))
+                Some((m, s, idx, reduce))
             })
             .collect();
 
         // Sequential pass: handle fail-highs, update heuristics, apply history malus
-        for (m, nw_score, _idx) in nw_results {
+        for (m, nw_score, _idx, reduce) in nw_results {
             if state.budget.should_abort() {
                 break;
             }
 
             let is_quiet_ybw = m.from.is_some() && !enemy.contains(m.to) && !m.promote;
 
-            let s = if nw_score > alpha {
+            let needs_research = if use_pvs {
+                nw_score > alpha
+            } else {
+                reduce > 0 && nw_score > alpha
+            };
+            let want_pv = pv.is_some() && beta - alpha > 1;
+            let mut child_pv: Vec<Move> = Vec::new();
+            let s = if needs_research {
                 // Fail-high: re-search at full depth with full window
                 let tok = board.do_move(m);
-                let ext = check_ext(board, ply + 1);
+                let ext = if state.features.check_extension {
+                    check_ext(board, ply + 1)
+                } else {
+                    0
+                };
                 let full = -alpha_beta(
                     state,
                     board,
@@ -966,6 +1239,7 @@ fn alpha_beta(
                     true,
                     Some(m),
                     None,
+                    if want_pv { Some(&mut child_pv) } else { None },
                 );
                 board.undo_move(tok);
                 full
@@ -976,6 +1250,11 @@ fn alpha_beta(
             if s > best_score {
                 best_score = s;
                 best_move = Some(m);
+                if let Some(p) = pv.as_deref_mut() {
+                    p.clear();
+                    p.push(m);
+                    p.append(&mut child_pv);
+                }
             }
             if s >= beta {
                 for &qm in &tried_quiet {
@@ -1010,7 +1289,7 @@ fn alpha_beta(
 
     // Sequential pass: remaining siblings (tail beyond YBW limit, or all at shallow depth).
     {
-        let lmp_limit = if !in_check && depth <= 2 {
+        let lmp_limit = if state.features.lmp && !in_check && depth <= 2 {
             LMP_BASE + depth as usize * 3 // depth 1: 8 quiet moves, depth 2: 11 quiet moves
         } else {
             usize::MAX
@@ -1028,7 +1307,8 @@ fn alpha_beta(
             let is_quiet = m.from.is_some() && !is_capture && !m.promote;
 
             // Futility Pruning: at depth 1, skip quiet moves that can't reach alpha
-            if depth == 1
+            if state.features.futility
+                && depth == 1
                 && let Some(se) = static_eval
                 && is_quiet
                 && se + FUTILITY_MARGIN < alpha
@@ -1044,27 +1324,58 @@ fn alpha_beta(
                 }
             }
 
-            let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm);
+            let reduce = if state.features.lmr {
+                lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm)
+            } else {
+                0
+            };
             let tok = board.do_move(m);
-            let ext = check_ext(board, ply + 1);
+            let ext = if state.features.check_extension {
+                check_ext(board, ply + 1)
+            } else {
+                0
+            };
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
 
-            // LMR probe
+            // LMR/PVS probe: under `use_pvs`, probe with a null window
+            // instead of the ambient (-beta,-alpha); the re-search condition
+            // then covers both LMR's depth reduction and PVS's window
+            // narrowing in a single unified trigger.
             let probe_depth = depth.saturating_sub(1 + reduce) + ext;
+            let (probe_lo, probe_hi) = if state.config.use_pvs {
+                (-alpha - 1, -alpha)
+            } else {
+                (-beta, -alpha)
+            };
+            let want_pv = pv.is_some() && beta - alpha > 1;
+            let mut child_pv: Vec<Move> = Vec::new();
             let mut s = -alpha_beta(
                 state,
                 board,
-                -beta,
-                -alpha,
+                probe_lo,
+                probe_hi,
                 probe_depth,
                 ply + 1,
                 true,
                 Some(m),
                 None,
+                // Only a genuine full-window, full-depth probe can stand in
+                // as the final line without a re-search below.
+                if want_pv && !state.config.use_pvs && reduce == 0 {
+                    Some(&mut child_pv)
+                } else {
+                    None
+                },
             );
 
-            // Re-search at full depth if LMR probe fails high
-            if reduce > 0 && s > alpha {
+            // Re-search at full window/depth if the probe failed high.
+            let needs_research = if state.config.use_pvs {
+                s > alpha
+            } else {
+                reduce > 0 && s > alpha
+            };
+            if needs_research {
+                child_pv.clear();
                 s = -alpha_beta(
                     state,
                     board,
@@ -1075,6 +1386,7 @@ fn alpha_beta(
                     true,
                     Some(m),
                     None,
+                    if want_pv { Some(&mut child_pv) } else { None },
                 );
             }
             board.undo_move(tok);
@@ -1082,6 +1394,11 @@ fn alpha_beta(
             if s > best_score {
                 best_score = s;
                 best_move = Some(m);
+                if let Some(p) = pv.as_deref_mut() {
+                    p.clear();
+                    p.push(m);
+                    p.append(&mut child_pv);
+                }
             }
             if s >= beta {
                 for &qm in &tried_quiet {
@@ -1291,6 +1608,12 @@ pub struct SpecSearchInfo {
     pub pv_list: Vec<(Move, i32)>,
     /// Number of depths where bestmove changed (instability indicator).
     pub bestmove_changes: u32,
+    /// Principal variation for the best line (`pv_list[0]`) from the last
+    /// fully-completed depth, best move first. Other MultiPV lines only get
+    /// their single move via `pv_list`, not a full line -- matches
+    /// `SearchInfo::pv`'s tracking mechanism and its "not from the TT"
+    /// rationale (see there).
+    pub pv: Vec<Move>,
 }
 
 /// `SpeculativeSearcher` wraps iterative deepening with preemptive
@@ -1341,6 +1664,7 @@ impl SpeculativeSearcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             config,
+            features: SearchFeatures::PRODUCTION,
         });
 
         // Spec tasks share the *same* Budget as the main search (not an
@@ -1373,6 +1697,7 @@ impl SpeculativeSearcher {
         let mut spec_total = 0u32;
         let mut prev_best: Option<Move> = None;
         let mut pv_list: Vec<(Move, i32)> = Vec::new();
+        let mut pv: Vec<Move> = Vec::new();
         let mut bestmove_changes = 0u32;
         // Single-PV is a structural requirement (speculation predicts the
         // opponent's reply to PV[0], which doesn't exist as a concept under
@@ -1396,11 +1721,22 @@ impl SpeculativeSearcher {
                 None
             };
 
-            // MultiPV: run N root searches per depth, excluding previously found moves
+            // MultiPV: run N root searches per depth, excluding previously found moves.
+            // Only the best (index 0) line's full move sequence is tracked into
+            // `pv_buf` -- other MultiPV lines only ever get a single move via
+            // `pv_list`, matching `SpecSearchInfo::pv`'s documented scope.
             let mut depth_pv: Vec<(Move, i32)> = Vec::new();
             let mut excluded: Vec<Move> = Vec::new();
-            for _ in 0..config.multi_pv {
-                let (m, score) = root_search(&state, board, depth, best_score, &excluded);
+            let mut pv_buf: Vec<Move> = Vec::new();
+            for i in 0..config.multi_pv {
+                let (m, score) = root_search(
+                    &state,
+                    board,
+                    depth,
+                    best_score,
+                    &excluded,
+                    if i == 0 { Some(&mut pv_buf) } else { None },
+                );
                 if state.budget.should_abort() {
                     break;
                 }
@@ -1436,6 +1772,7 @@ impl SpeculativeSearcher {
 
             if !depth_pv.is_empty() {
                 pv_list = depth_pv;
+                pv = pv_buf;
                 best_move = m.or(best_move);
                 best_score = score;
                 done_depth = depth;
@@ -1475,6 +1812,7 @@ impl SpeculativeSearcher {
             spec_total,
             pv_list,
             bestmove_changes,
+            pv,
         }
     }
 }
@@ -1839,6 +2177,7 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             config: SearchConfig::default(),
+            features: SearchFeatures::PRODUCTION,
         })
     }
 
@@ -1857,7 +2196,7 @@ mod regression_tests {
         let state = fresh_state(tt.clone());
         let hash = board.hash();
 
-        root_search_inner(&state, &mut board, 1, &moves, NEG_INF, -500_000);
+        root_search_inner(&state, &mut board, 1, &moves, NEG_INF, -500_000, None);
 
         let entry = tt
             .probe(hash)
@@ -1891,6 +2230,7 @@ mod regression_tests {
             &moves,
             NEG_INF,
             POS_INF,
+            None,
         );
         let genuine = tt
             .probe(hash)
@@ -1905,8 +2245,17 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             config: SearchConfig::default(),
+            features: SearchFeatures::PRODUCTION,
         });
-        root_search_inner(&aborted_state, &mut board, 7, &moves, NEG_INF, POS_INF);
+        root_search_inner(
+            &aborted_state,
+            &mut board,
+            7,
+            &moves,
+            NEG_INF,
+            POS_INF,
+            None,
+        );
 
         let after = tt
             .probe(hash)
@@ -1960,6 +2309,7 @@ mod regression_tests {
             true,
             None,
             None,
+            None,
         );
 
         let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
@@ -1972,6 +2322,7 @@ mod regression_tests {
             2,
             3,
             true,
+            None,
             None,
             None,
         );
@@ -1993,4 +2344,251 @@ mod regression_tests {
     // speculative.rs's own independent copy of the mate-score formula. That
     // second call site (`spec_alpha_beta`) is tested directly in
     // speculative.rs::tests::shorter_mate_scores_higher_in_spec_alpha_beta.
+}
+
+/// PVS-vs-plain-alpha-beta correctness guard, at two different rigor levels.
+///
+/// PVS's null-window probe runs (and, on a fail-high, writes TT/history/
+/// killer state) *before* the eventual full-window search of the same move --
+/// under production `SearchFeatures` this can and does change which
+/// heuristics fire downstream (LMR's reduction depends on move index, which
+/// history/killer reordering changes; IIR depends on whether a TT move is
+/// present; etc.). That makes sequential-AB-vs-sequential-PVS score/bestmove
+/// equality *not* a valid correctness test under production features --
+/// verified empirically: an earlier version of this suite asserted exactly
+/// that and found real divergences (see git history for this comment). The
+/// fix isn't to weaken the guard to "returns *a* legal move" and call it a
+/// day -- it's to test the right thing at the right rigor level:
+///
+/// - `exact_reference_score_matches_with_and_without_pvs`: under
+///   `SearchFeatures::EXACT_REFERENCE[_WITH_TT]` (every non-exact heuristic
+///   off), PVS is a *provably* exact reformulation of alpha-beta, so score
+///   equality is a real, permanent regression guard on the ~20 lines of PVS
+///   window/re-search logic itself.
+/// - `production_pvs_returns_a_sane_legal_result`: under real
+///   `SearchFeatures::PRODUCTION`, only sanity (legal move, unmutated board,
+///   score in range) is asserted -- production strength differences are an
+///   Elo-gate question, not a unit-test question.
+#[cfg(test)]
+mod exact_reference_tests {
+    use super::*;
+    use crate::board::Board;
+    use crate::movegen::generate_legal_moves;
+    use crate::tt::Tt;
+
+    // Chosen to collectively cover: an ordinary midgame position that also
+    // happens to demonstrate a production-config bestmove tie, a position
+    // with the side to move in check, a forced mate, a position with
+    // several captures and pieces in hand to drop, and a position with a
+    // promote/don't-promote choice.
+    const POSITIONS: &[(&str, &str)] = &[
+        (
+            "midgame_tie",
+            "lnsgkgsnl/6rb1/pppppp2p/9/6p2/7R1/PPPPPPP1P/1B7/LNSGKGSNL w Pp 10",
+        ),
+        ("in_check", "4k4/9/4R4/9/9/9/9/9/4K4 w - 1"),
+        ("mate_in_1", "k8/2K6/9/9/4R4/9/9/9/9 b - 1"),
+        (
+            "multi_capture_and_drop",
+            "lnsgkgsnl/7b1/p1pppp1pp/6p2/9/1r2P2P1/P1PP1PP1P/1SG2S1R1/LN2KG1NL w 2Pb 16",
+        ),
+        (
+            "promotion_choice",
+            "l2gk2nl/1rs2sgb1/p1n1pp1pp/2pp2p2/1p5P1/2P3P2/PPSPPP2P/1BG1GS1R1/LN1K3NL w - 20",
+        ),
+    ];
+
+    fn run(sfen: &str, depth: u32, use_pvs: bool, features: SearchFeatures) -> SearchInfo {
+        let mut board = Board::from_sfen(sfen).unwrap();
+        let hash_before = board.hash();
+        let acc_before = board.acc.clone();
+        let info = Searcher::new(Tt::new(4)).search_with_features(
+            &mut board,
+            SearchConfig {
+                max_depth: depth,
+                time_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+                use_ybw: false,
+                use_speculation: false,
+                use_pvs,
+                ..Default::default()
+            },
+            features,
+        );
+        assert_eq!(
+            board.hash(),
+            hash_before,
+            "search must leave the board exactly as it found it"
+        );
+        assert_eq!(
+            board.acc, acc_before,
+            "search must leave the NNUE accumulator exactly as it found it"
+        );
+        info
+    }
+
+    #[test]
+    fn exact_reference_score_matches_with_and_without_pvs() {
+        for &(label, sfen) in POSITIONS {
+            for depth in 1..=4u32 {
+                for features in [
+                    SearchFeatures::EXACT_REFERENCE,
+                    SearchFeatures::EXACT_REFERENCE_WITH_TT,
+                ] {
+                    let ab = run(sfen, depth, false, features);
+                    let pvs = run(sfen, depth, true, features);
+                    assert_eq!(
+                        ab.score, pvs.score,
+                        "{label} at depth {depth} (tt_cutoff={}): seq-AB and seq-PVS must \
+                         score identically under a non-selective reference tree -- a \
+                         difference here means PVS's window/re-search logic is wrong, not \
+                         benign heuristic noise (bestmove is deliberately not compared: a \
+                         tied position can correctly report either move)",
+                        features.tt_cutoff,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn production_pvs_returns_a_sane_legal_result() {
+        for &(label, sfen) in POSITIONS {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let hash_before = board.hash();
+            let acc_before = board.acc.clone();
+            let legal = generate_legal_moves(&mut board);
+            let config = SearchConfig {
+                max_depth: 4,
+                time_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+                use_pvs: true,
+                ..Default::default()
+            };
+            let info = Searcher::new(Tt::new(4)).search(&mut board, config);
+            assert_eq!(
+                board.hash(),
+                hash_before,
+                "{label}: board mutated by search"
+            );
+            assert_eq!(
+                board.acc, acc_before,
+                "{label}: NNUE accumulator mutated by search"
+            );
+            match info.best_move {
+                Some(mv) => assert!(legal.contains(&mv), "{label}: bestmove {mv:?} not legal"),
+                None => assert!(legal.is_empty(), "{label}: no bestmove despite legal moves"),
+            }
+            assert!(
+                info.score.abs() <= MATE_SCORE,
+                "{label}: score {} outside valid range",
+                info.score
+            );
+
+            // Reproducibility: fresh state, same config, same result.
+            let mut board2 = Board::from_sfen(sfen).unwrap();
+            let info2 = Searcher::new(Tt::new(4)).search(&mut board2, config);
+            assert_eq!(
+                info.best_move, info2.best_move,
+                "{label}: bestmove not reproducible across a fresh-state rerun"
+            );
+            assert_eq!(
+                info.score, info2.score,
+                "{label}: score not reproducible across a fresh-state rerun"
+            );
+        }
+    }
+
+    // pv[0] must always equal best_move, and the whole line must replay as
+    // legal moves from the root position -- checked across sequential AB,
+    // sequential PVS, and the real production defaults (UseYBW/UseSpeculation
+    // on), since this is a structural property of the PV-tracking mechanism
+    // itself, not something that depends on which heuristics are active.
+    // Only the last fully-completed depth's PV is ever exposed (see
+    // `Searcher::search`/`SpeculativeSearcher::search`'s `pv = pv_buf`
+    // assignment, gated behind their own `should_abort`/`timed_out` checks,
+    // plus `root_search_inner`'s defensive clear-on-entry) -- an aborted or
+    // still-in-progress iteration's line can never leak into `info.pv`, and
+    // a null-window probe's line can't either, since probes are always
+    // passed `None` for `pv`.
+    fn assert_pv_matches_bestmove_and_replays_legally(
+        label: &str,
+        board_before: &Board,
+        best_move: Option<Move>,
+        pv: &[Move],
+    ) {
+        let Some(bestmove) = best_move else {
+            assert!(pv.is_empty(), "{label}: pv non-empty with no bestmove");
+            return;
+        };
+        assert_eq!(
+            pv.first().copied(),
+            Some(bestmove),
+            "{label}: pv[0] must equal best_move"
+        );
+        let mut replay = board_before.clone();
+        for &mv in pv {
+            let legal = generate_legal_moves(&mut replay);
+            assert!(
+                legal.contains(&mv),
+                "{label}: pv move {mv:?} is not legal at its point in the replay"
+            );
+            replay.do_move(mv);
+        }
+    }
+
+    #[test]
+    fn pv_head_matches_bestmove_and_replays_legally() {
+        for &(label, sfen) in POSITIONS {
+            for depth in 1..=4u32 {
+                for use_pvs in [false, true] {
+                    let board = Board::from_sfen(sfen).unwrap();
+                    let mut board_mut = board.clone();
+                    let info = Searcher::new(Tt::new(4)).search(
+                        &mut board_mut,
+                        SearchConfig {
+                            max_depth: depth,
+                            time_limit: None,
+                            soft_limit: None,
+                            multi_pv: 1,
+                            use_ybw: false,
+                            use_speculation: false,
+                            use_pvs,
+                            ..Default::default()
+                        },
+                    );
+                    assert_pv_matches_bestmove_and_replays_legally(
+                        &format!("{label} depth={depth} use_pvs={use_pvs} (sequential)"),
+                        &board,
+                        info.best_move,
+                        &info.pv,
+                    );
+                }
+            }
+
+            // Real production defaults: UseYBW + UseSpeculation + UsePVS all
+            // on, exactly what a live game uses -- via SpeculativeSearcher,
+            // since that's what sekirei-usi always constructs.
+            let board = Board::from_sfen(sfen).unwrap();
+            let mut board_mut = board.clone();
+            let spec_info = SpeculativeSearcher::new(Tt::new(4)).search(
+                &mut board_mut,
+                SearchConfig {
+                    max_depth: 4,
+                    time_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                    ..Default::default()
+                },
+            );
+            assert_pv_matches_bestmove_and_replays_legally(
+                &format!("{label} (production SpeculativeSearcher)"),
+                &board,
+                spec_info.best_move,
+                &spec_info.pv,
+            );
+        }
+    }
 }
