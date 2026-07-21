@@ -311,6 +311,7 @@ impl CsaClient {
                 time_limit,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             },
         );
 

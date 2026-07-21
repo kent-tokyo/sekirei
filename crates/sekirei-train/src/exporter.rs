@@ -42,6 +42,7 @@ pub fn export_game<W: Write>(
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             };
             let info = searcher.search(&mut board, config);
             let score = info.score as f64 / 600.0;

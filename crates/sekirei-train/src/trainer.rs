@@ -1357,6 +1357,7 @@ impl Trainer {
                     time_limit: None,
                     soft_limit: None,
                     multi_pv: 1,
+                    ..Default::default()
                 };
                 let mut b = sample.board.clone();
                 let cp = self.searcher.search(&mut b, config).score;
@@ -1411,6 +1412,7 @@ impl Trainer {
                     time_limit: None,
                     soft_limit: None,
                     multi_pv: 1,
+                    ..Default::default()
                 };
                 let mut b = sample.board.clone();
                 let cp = self.searcher.search(&mut b, config).score;
@@ -1486,6 +1488,7 @@ impl Trainer {
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             };
             let search_start = std::time::Instant::now();
             let info = self.searcher.search(board, config);

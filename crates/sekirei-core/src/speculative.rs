@@ -9,7 +9,7 @@
 //! poisoning entries that the main search later reads.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 
 use crate::board::Board;
 use crate::budget::Budget;
@@ -33,6 +33,12 @@ pub struct SpecState {
     /// tasks without a separately hand-synced flag (see `search.rs`'s
     /// `SpeculativeSearcher::search`).
     pub(crate) budget: Arc<Budget>,
+    /// Nodes visited by speculative search, counted independently of
+    /// `budget`'s node count (which only `alpha_beta`/`quiescence` tick).
+    /// Speculative work was previously invisible to node counting entirely;
+    /// this is a plain counter, not a deadline throttle like `Budget::tick`,
+    /// since the deadline is already covered by the shared `budget`.
+    pub spec_nodes: AtomicU64,
 }
 
 // ---- Per-task handle ----
@@ -97,10 +103,22 @@ impl SpecGroup {
                     // An aborted search may have propagated score=0 up the tree,
                     // which would poison TT entries read by the main search.
                     if !abort_c.load(Ordering::Relaxed) && !state_c.budget.should_abort() {
+                        // `b.undo_move(tok)` above already returned `b` to the
+                        // root position this SpecGroup was spawned from (ply 0
+                        // relative to that root) — the store below is keyed on
+                        // `b.hash()`, i.e. that root position, not the post-move
+                        // position `spec_alpha_beta` searched. `score_to_tt` at
+                        // ply 0 is a no-op by construction, but we still route
+                        // through it (rather than storing `-score` raw) so every
+                        // write into this shared `Arc<Tt>` — which the main
+                        // search later probes with `score_from_tt` — goes
+                        // through the same conversion, with no per-call-site
+                        // judgment call about when it's safe to skip.
                         state_c.tt.store(
                             b.hash(),
                             TtEntry {
-                                score: -score, // negate: score is opponent's, -score is ours
+                                // negate: score is opponent's, -score is ours
+                                score: crate::search::score_to_tt(-score, 0),
                                 depth: depth as u8,
                                 bound: Bound::Exact,
                                 mv: Some(m),
@@ -166,6 +184,12 @@ fn spec_alpha_beta(
     depth: u32,
     ply: u32,
 ) -> i32 {
+    // Count this node before the abort check, matching `Budget::tick`'s own
+    // convention of counting every node visited regardless of what happens
+    // next. This is a plain counter, not a deadline throttle -- the deadline
+    // is already covered by `state.budget`, shared with the main search.
+    state.spec_nodes.fetch_add(1, Ordering::Relaxed);
+
     // Abort check first — callers must not use the return value 0 as a real score.
     // No self-throttled deadline check here: `state.budget` is the *same*
     // instance the main search ticks on every alpha_beta/quiescence node, and
@@ -186,23 +210,26 @@ fn spec_alpha_beta(
     let mut alpha = alpha;
 
     // TT probe — skip if entry was written by an aborted task (we can't tell,
-    // but entries with depth=0 or unreasonable scores are naturally harmless)
+    // but entries with depth=0 or unreasonable scores are naturally harmless).
+    // `score_from_tt` matches the main search's probe convention (search.rs)
+    // exactly, since this table is shared with it.
     if let Some(e) = state.tt.probe(hash)
         && e.depth >= depth as u8
     {
+        let adj = crate::search::score_from_tt(e.score, ply);
         match e.bound {
-            Bound::Exact => return e.score,
+            Bound::Exact => return adj,
             Bound::Lower => {
-                if e.score >= beta {
-                    return e.score;
+                if adj >= beta {
+                    return adj;
                 }
-                if e.score > alpha {
-                    alpha = e.score;
+                if adj > alpha {
+                    alpha = adj;
                 }
             }
             Bound::Upper => {
-                if e.score <= alpha {
-                    return e.score;
+                if adj <= alpha {
+                    return adj;
                 }
             }
         }
@@ -239,7 +266,7 @@ fn spec_alpha_beta(
             state.tt.store(
                 hash,
                 TtEntry {
-                    score: s,
+                    score: crate::search::score_to_tt(s, ply),
                     depth: depth as u8,
                     bound: Bound::Lower,
                     mv: best_move,
@@ -260,7 +287,7 @@ fn spec_alpha_beta(
     state.tt.store(
         hash,
         TtEntry {
-            score: best,
+            score: crate::search::score_to_tt(best, ply),
             depth: depth as u8,
             bound,
             mv: best_move,
@@ -272,7 +299,6 @@ fn spec_alpha_beta(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::{Duration, Instant};
 
     // Hand-verified mate-in-1 for black: white king cornered at (file9,rank1);
     // black king at (file7,rank2) covers both diagonal escapes; black rook
@@ -281,15 +307,22 @@ mod tests {
     // reused there for the sibling `alpha_beta` regression test).
     const MATE_IN_1_SFEN: &str = "k8/2K6/9/9/4R4/9/9/9/9 b - 1";
 
-    // Black rook on file9 with a clear path to the white king: `policy::top_n`
-    // (pseudo-legal, per its doc comment) includes the rook-takes-king move
-    // among its candidates for this position.
+    // Black rook on file9 with a clear path to the white king. Before
+    // `policy::top_n` was switched to legal-move generation, this position's
+    // pseudo-legal candidates included the rook-takes-king move.
     const KING_CAPTURE_CANDIDATE_SFEN: &str = "k8/9/9/9/R8/9/9/9/9 b - 1";
+
+    // Black king at file5/rank1, black silver at file5/rank2, white rook at
+    // file5/rank9: the silver is pinned (moving off file5 exposes the king to
+    // the rook down the file). Pseudo-legal generation doesn't know about
+    // pins; `generate_legal_moves` (which `top_n` now filters through) does.
+    const PINNED_SILVER_SFEN: &str = "4K4/4S4/9/9/9/9/9/9/4r3k b - 1";
 
     fn spec_state() -> Arc<SpecState> {
         Arc::new(SpecState {
             tt: Tt::new(1),
             budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            spec_nodes: AtomicU64::new(0),
         })
     }
 
@@ -342,48 +375,68 @@ mod tests {
         );
     }
 
-    // Regression: `policy::top_n` generates pseudo-legally (per its own doc
-    // comment), so its candidates can include a move landing on the enemy
-    // king's square. Before the fix, `SpecGroup::spawn`'s spawned closure
-    // called `do_move` on such a candidate unconditionally, panicking inside
-    // `hand.add_captured(Ou)`. Since the closure runs on a background rayon
-    // thread (fire-and-forget, not joined), a panic there would not fail this
-    // test directly — so this polls `SpecGroup::poll` for the guarded result
-    // (0, per the guard at the top of the spawned closure) instead of relying
-    // on the panic to propagate.
+    // Regression (bug a): `policy::top_n` used to generate pseudo-legally, so
+    // its candidates could include a move landing on the enemy king's square
+    // — impossible in legal shogi. Now that `top_n` filters through
+    // `generate_legal_moves`, no candidate should ever target the king.
     #[test]
-    fn spec_group_spawn_skips_king_capture_without_panicking() {
+    fn top_n_never_returns_a_king_capture_move() {
         use crate::square::Square;
 
         let board = Board::from_sfen(KING_CAPTURE_CANDIDATE_SFEN).unwrap();
         let tt = Tt::new(1);
         let king_sq = Square::from_shogi(9, 1);
         let candidates = policy::top_n(&board, &tt, 50);
-        let king_capture_move = candidates
-            .iter()
-            .copied()
-            .find(|m| m.to == king_sq)
-            .expect("expected a pseudo-legal move targeting the enemy king in this position");
-
-        let state = Arc::new(SpecState {
-            tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
-        });
-        let group = SpecGroup::spawn(&board, &state, 2, 50);
-
-        let deadline = Instant::now() + Duration::from_secs(3);
-        let mut result = None;
-        while Instant::now() < deadline {
-            if let Some(r) = group.poll(king_capture_move) {
-                result = Some(r);
-                break;
-            }
-            std::thread::sleep(Duration::from_millis(5));
-        }
-        assert_eq!(
-            result,
-            Some(0),
-            "king-capture speculative task should short-circuit to 0 without panicking"
+        assert!(
+            candidates.iter().all(|m| m.to != king_sq),
+            "top_n should never return a king-capture candidate now that it \
+             generates legal moves only"
         );
+    }
+
+    // Regression (bug a): pseudo-legal generation has no concept of pins, so
+    // a candidate could leave the mover's own king in check (e.g. a pinned
+    // silver stepping off the file a rook pins it against). `top_n` filtering
+    // through `generate_legal_moves` must reject every such candidate.
+    #[test]
+    fn top_n_never_returns_a_move_that_leaves_the_mover_in_check() {
+        let mut board = Board::from_sfen(PINNED_SILVER_SFEN).unwrap();
+        let tt = Tt::new(1);
+        let mover = board.side_to_move;
+        let candidates = policy::top_n(&board, &tt, 50);
+        assert!(
+            !candidates.is_empty(),
+            "sanity check: the pinned-silver position should still have legal moves"
+        );
+        for m in candidates {
+            let tok = board.do_move(m);
+            assert!(
+                !crate::movegen::is_in_check(&board, mover),
+                "top_n returned a move that leaves the mover's own king in check: {m:?}"
+            );
+            board.undo_move(tok);
+        }
+    }
+
+    // Regression (bug b, ply-conversion off-by-one): `SpecGroup::spawn`'s TT
+    // store runs AFTER `undo_move`, so `b` is back at the group's own root
+    // (ply 0) at store time, not the ply the recursive `spec_alpha_beta` call
+    // searched from. A prior version passed ply=1 to `score_to_tt` there,
+    // shifting every mate score written into the shared root entry by one ply
+    // (e.g. reading back "mate in 0" for an actual mate-in-1). `score_to_tt`/
+    // `score_from_tt` are no-ops at ply 0 by construction, so the only correct
+    // ply for a post-undo store is 0 — this pins that invariant directly,
+    // independent of which move any particular policy pick happens to be.
+    #[test]
+    fn score_to_tt_round_trips_a_mate_score_at_ply_zero() {
+        use crate::search::{MATE_SCORE, score_from_tt, score_to_tt};
+
+        for score in [MATE_SCORE - 1, -(MATE_SCORE - 1)] {
+            assert_eq!(
+                score_from_tt(score_to_tt(score, 0), 0),
+                score,
+                "ply-0 store/read must round-trip a mate score exactly"
+            );
+        }
     }
 }

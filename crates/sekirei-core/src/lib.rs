@@ -305,6 +305,7 @@ mod tests {
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             },
         );
         assert!(info.best_move.is_some(), "search returned no move");
@@ -325,6 +326,7 @@ mod tests {
             time_limit: None,
             soft_limit: None,
             multi_pv: 1,
+            ..Default::default()
         };
 
         // First search (parallel, rayon uses all cores)
@@ -348,6 +350,7 @@ mod tests {
             time_limit: None,
             soft_limit: None,
             multi_pv: 1,
+            ..Default::default()
         };
 
         let r1 = Searcher::new(tt.clone()).search(&mut board, cfg());
@@ -385,16 +388,18 @@ mod tests {
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             },
         );
 
-        let spec = SpeculativeSearcher::new(Tt::new(16), 3).search(
+        let spec = SpeculativeSearcher::new(Tt::new(16)).search(
             &mut board,
             SearchConfig {
                 max_depth: depth,
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                ..Default::default()
             },
         );
 

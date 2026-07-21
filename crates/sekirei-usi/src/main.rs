@@ -64,6 +64,12 @@ fn main() {
     let mut book_file = DEFAULT_BOOK_FILE.to_string();
     let mut book: Option<Book> = None;
     let mut book_loaded_path: Option<String> = None;
+    // Search-ablation measurement toggles -- defaults reproduce prior
+    // unconditional behavior exactly (see `SearchConfig::default()`).
+    let mut use_ybw = true;
+    let mut use_speculation = true;
+    let mut spec_top_n: usize = 3;
+    let mut ybw_max_siblings: usize = 6;
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
@@ -115,6 +121,10 @@ fn main() {
                 println!("option name BookMaxPly type spin default 30 min 0 max 200");
                 println!("option name BookMinConfidence type string default 0.20");
                 println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
+                println!("option name UseYBW type check default true");
+                println!("option name UseSpeculation type check default true");
+                println!("option name SpecTopN type spin default 3 min 0 max 64");
+                println!("option name YbwMaxSiblings type spin default 6 min 0 max 64");
                 println!("usiok");
                 stdout.lock().flush().ok();
             }
@@ -201,6 +211,22 @@ fn main() {
                     && !val.is_empty()
                 {
                     book_file = val.to_string();
+                } else if parts.get(1) == Some(&"UseYBW") {
+                    if let Some(v) = parts.get(3) {
+                        use_ybw = *v == "true";
+                    }
+                } else if parts.get(1) == Some(&"UseSpeculation") {
+                    if let Some(v) = parts.get(3) {
+                        use_speculation = *v == "true";
+                    }
+                } else if parts.get(1) == Some(&"SpecTopN") {
+                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
+                        spec_top_n = n;
+                    }
+                } else if parts.get(1) == Some(&"YbwMaxSiblings")
+                    && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
+                {
+                    ybw_max_siblings = n;
                 }
             }
 
@@ -306,6 +332,10 @@ fn main() {
                     move_overhead_ms,
                     pondering,
                     multi_pv,
+                    use_ybw,
+                    use_speculation,
+                    spec_top_n,
+                    ybw_max_siblings,
                 );
                 let abort = searcher.abort_flag();
                 search_abort = Some(abort);
@@ -409,8 +439,17 @@ fn main() {
                 // Reset suppress before launching the real timed search.
                 suppress_bm.store(false, Ordering::Relaxed);
                 if let Some(ref args) = ponder_go_args.take() {
-                    let config =
-                        parse_go(args, board.side_to_move, move_overhead_ms, false, multi_pv);
+                    let config = parse_go(
+                        args,
+                        board.side_to_move,
+                        move_overhead_ms,
+                        false,
+                        multi_pv,
+                        use_ybw,
+                        use_speculation,
+                        spec_top_n,
+                        ybw_max_siblings,
+                    );
                     let abort = searcher.abort_flag();
                     search_abort = Some(abort);
                     let searcher2 = Arc::clone(&searcher);
@@ -489,17 +528,22 @@ fn main() {
 // ---- Helpers ----
 
 fn make_searcher(hash_mb: usize) -> Arc<SpeculativeSearcher> {
-    Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb), 3))
+    Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb)))
 }
 
 // ---- Go command time-control parsing ----
 
+#[allow(clippy::too_many_arguments)]
 fn parse_go(
     args: &str,
     side: Color,
     overhead_ms: u64,
     pondering: bool,
     multi_pv: u32,
+    use_ybw: bool,
+    use_speculation: bool,
+    spec_top_n: usize,
+    ybw_max_siblings: usize,
 ) -> SearchConfig {
     let mut btime: Option<u64> = None;
     let mut wtime: Option<u64> = None;
@@ -615,6 +659,10 @@ fn parse_go(
         time_limit,
         soft_limit,
         multi_pv,
+        use_ybw,
+        use_speculation,
+        spec_top_n,
+        ybw_max_siblings,
     }
 }
 
@@ -633,6 +681,10 @@ mod tests {
             0,
             false,
             1,
+            true,
+            true,
+            3,
+            6,
         );
         assert!(cfg.time_limit.is_some(), "hard limit should be set");
         assert!(cfg.soft_limit.is_some(), "soft limit should be set");
@@ -650,6 +702,10 @@ mod tests {
             0,
             false,
             1,
+            true,
+            true,
+            3,
+            6,
         );
         let hard = cfg.time_limit.unwrap().as_millis();
         // base = 3000, hard = 4500
@@ -660,7 +716,7 @@ mod tests {
     fn parse_go_byoyomi_only() {
         // byoyomi 5000, no main time → panic mode, no soft limit
         // byo_safe = 5000, base = 3250 - 0 = 3250, hard = min(4875, 5000) = 4875
-        let cfg = parse_go("byoyomi 5000", Color::Black, 0, false, 1);
+        let cfg = parse_go("byoyomi 5000", Color::Black, 0, false, 1, true, true, 3, 6);
         assert!(cfg.time_limit.is_some());
         assert!(cfg.soft_limit.is_none(), "panic mode: no soft limit");
         let hard = cfg.time_limit.unwrap().as_millis();
@@ -670,7 +726,17 @@ mod tests {
     #[test]
     fn parse_go_soft_less_than_hard() {
         // Normal case: ample time, no panic
-        let cfg = parse_go("btime 120000 wtime 120000", Color::Black, 0, false, 1);
+        let cfg = parse_go(
+            "btime 120000 wtime 120000",
+            Color::Black,
+            0,
+            false,
+            1,
+            true,
+            true,
+            3,
+            6,
+        );
         let hard = cfg.time_limit.unwrap().as_millis();
         let soft = cfg.soft_limit.unwrap().as_millis();
         assert!(soft < hard, "soft={soft} hard={hard}");
@@ -679,14 +745,34 @@ mod tests {
     #[test]
     fn byoyomi_hard_within_overhead() {
         // byoyomi 5000, overhead 300 → hard must be <= byo - overhead = 4700
-        let cfg = parse_go("byoyomi 5000", Color::Black, 300, false, 1);
+        let cfg = parse_go(
+            "byoyomi 5000",
+            Color::Black,
+            300,
+            false,
+            1,
+            true,
+            true,
+            3,
+            6,
+        );
         let hard = cfg.time_limit.unwrap().as_millis();
         assert!(hard <= 4700, "hard={hard} exceeds byoyomi - overhead");
     }
 
     #[test]
     fn pondering_no_limits() {
-        let cfg = parse_go("btime 60000 wtime 60000 ponder", Color::Black, 50, true, 1);
+        let cfg = parse_go(
+            "btime 60000 wtime 60000 ponder",
+            Color::Black,
+            50,
+            true,
+            1,
+            true,
+            true,
+            3,
+            6,
+        );
         assert!(cfg.time_limit.is_none());
         assert!(cfg.soft_limit.is_none());
     }
@@ -694,7 +780,17 @@ mod tests {
     #[test]
     fn movetime_overhead_deducted() {
         // movetime 1000, overhead 50 → hard = 950
-        let cfg = parse_go("movetime 1000", Color::Black, 50, false, 1);
+        let cfg = parse_go(
+            "movetime 1000",
+            Color::Black,
+            50,
+            false,
+            1,
+            true,
+            true,
+            3,
+            6,
+        );
         let hard = cfg.time_limit.unwrap().as_millis();
         assert!(hard <= 950, "hard={hard}");
         assert!(cfg.soft_limit.is_none());

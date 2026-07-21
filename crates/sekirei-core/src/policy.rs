@@ -7,7 +7,7 @@
 
 use crate::board::Board;
 use crate::eval::PIECE_VALUE;
-use crate::movegen::generate_moves;
+use crate::movegen::generate_legal_moves;
 use crate::mv::Move;
 use crate::tt::Tt;
 
@@ -40,15 +40,21 @@ fn policy_score(board: &Board, m: Move, tt_mv: Option<Move>) -> i32 {
     score
 }
 
-/// Return the top-`n` pseudo-legal moves ranked by policy score.
-/// Uses pseudo-legal (not full legal) generation for speed; the main
-/// search will filter illegality through its own Alpha-Beta evaluation.
+/// Return the top-`n` legal moves ranked by policy score.
+/// Generates fully legal moves (own-king-safety + uchifuzume filtered) so a
+/// speculative task never roots its search at a position that could never
+/// legally occur — see `SpecGroup::spawn`'s doc comment. `top_n` itself keeps
+/// a `&Board` signature (not `&mut Board`) by cloning once per call rather
+/// than requiring every caller to pass a mutable board; this runs once per
+/// speculative dispatch (per iterative-deepening depth), not per node, so the
+/// clone cost is negligible.
 pub fn top_n(board: &Board, tt: &Tt, n: usize) -> Vec<Move> {
     if n == 0 {
         return Vec::new();
     }
     let tt_mv = tt.probe(board.hash()).and_then(|e| e.mv);
-    let mut moves = generate_moves(board);
+    let mut b = board.clone();
+    let mut moves = generate_legal_moves(&mut b);
 
     // Partial sort: only need the top-n, not a full sort
     moves.sort_unstable_by_key(|&m| -policy_score(board, m, tt_mv));

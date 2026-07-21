@@ -24,7 +24,7 @@
 
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::time::Duration;
 
 use crate::board::Board;
@@ -251,6 +251,7 @@ impl HistoryTable {
 // ============================================================
 
 /// Iterative-deepening search parameters.
+#[derive(Clone, Copy)]
 pub struct SearchConfig {
     /// Maximum depth to search via iterative deepening.
     pub max_depth: u32,
@@ -260,6 +261,22 @@ pub struct SearchConfig {
     pub soft_limit: Option<Duration>,
     /// Number of PV lines to return (1 = normal, >1 = MultiPV).
     pub multi_pv: u32,
+    /// Enable YBW parallel search of young-brother siblings at `depth >=
+    /// MIN_SPLIT_DEPTH` (default `true`, matching prior unconditional
+    /// behavior). `false` forces every sibling to be searched sequentially.
+    pub use_ybw: bool,
+    /// Enable preemptive speculative search of the policy's top candidate
+    /// replies (default `true`). Speculation only ever runs when this is
+    /// true AND `multi_pv == 1` — the `multi_pv` requirement is a structural
+    /// necessity (speculation predicts a single PV's reply), not a
+    /// measurement toggle, so it stays a separate, non-overridable condition.
+    pub use_speculation: bool,
+    /// Number of top-policy-ranked candidates to speculatively search
+    /// (default 3, matching the previous constructor-baked value).
+    pub spec_top_n: usize,
+    /// Max young-brother siblings dispatched in parallel per YBW split
+    /// (default 6, matching the previous `YBW_MAX_SIBLINGS` constant).
+    pub ybw_max_siblings: usize,
 }
 
 impl Default for SearchConfig {
@@ -269,6 +286,10 @@ impl Default for SearchConfig {
             time_limit: None,
             soft_limit: None,
             multi_pv: 1,
+            use_ybw: true,
+            use_speculation: true,
+            spec_top_n: 3,
+            ybw_max_siblings: 6,
         }
     }
 }
@@ -287,6 +308,17 @@ pub struct SearchInfo {
     pub elapsed: Duration,
     /// Transposition table occupancy, in permille (0-1000).
     pub hashfull: u32,
+    /// Number of depths where bestmove changed (instability indicator).
+    /// Mirrors `SpecSearchInfo::bestmove_changes` so both result types share
+    /// a uniform field set (e.g. for a benchmark comparing configurations
+    /// across both `Searcher` and `SpeculativeSearcher`).
+    pub bestmove_changes: u32,
+    /// Always 0 here: this path never speculates. Present only so callers
+    /// that compare `SearchInfo`/`SpecSearchInfo` uniformly don't need a
+    /// separate case for "no speculation happened."
+    pub spec_hits: u32,
+    /// Always 0 here — see `spec_hits`.
+    pub spec_total: u32,
 }
 
 // ============================================================
@@ -299,6 +331,11 @@ struct SearchState {
     killers: KillerTable,
     history: HistoryTable,
     countermoves: CountermoveTable,
+    /// Copied in once per `search()` call (`SearchConfig` is `Copy`) so deep
+    /// recursive calls (which only carry `&Arc<SearchState>`, not the config
+    /// directly) can read toggles like `use_ybw`/`ybw_max_siblings` without a
+    /// signature change to `alpha_beta` itself.
+    config: SearchConfig,
 }
 
 // ============================================================
@@ -337,12 +374,14 @@ impl Searcher {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            config,
         });
 
         let mut best_move = None;
         let mut best_score = NEG_INF;
         let mut done_depth = 0;
         let mut prev_best: Option<Move> = None;
+        let mut bestmove_changes = 0u32;
 
         for depth in 1..=config.max_depth {
             let (m, score) = root_search(&state, board, depth, best_score, &[]);
@@ -357,6 +396,10 @@ impl Searcher {
 
             if score.abs() >= MATE_SCORE - 1000 {
                 break;
+            }
+
+            if best_move != prev_best && depth >= 3 {
+                bestmove_changes += 1;
             }
 
             if soft_limit_expired(
@@ -377,6 +420,9 @@ impl Searcher {
             nodes: state.budget.nodes(),
             elapsed: state.budget.elapsed(),
             hashfull: self.tt.hashfull(),
+            bestmove_changes,
+            spec_hits: 0,
+            spec_total: 0,
         }
     }
 }
@@ -855,14 +901,13 @@ fn alpha_beta(
 
     // ---------- Young brothers ----------
     // Returns the index in `rest` where sequential processing should begin:
-    // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW).
-    let seq_start = if depth >= MIN_SPLIT_DEPTH {
+    // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW) or
+    // when `UseYBW` is toggled off (config.use_ybw).
+    let seq_start = if state.config.use_ybw && depth >= MIN_SPLIT_DEPTH {
         let nw_abort = Arc::new(AtomicBool::new(false));
         let alpha_for_nw = alpha;
 
-        // ponytail: limit parallel siblings; tail searched sequentially after YBW pass
-        const YBW_MAX_SIBLINGS: usize = 6;
-        let ybw_end = rest.len().min(YBW_MAX_SIBLINGS);
+        let ybw_end = rest.len().min(state.config.ybw_max_siblings);
 
         #[allow(clippy::type_complexity)]
         let work: Vec<(Move, usize, Board, Arc<SearchState>, Arc<AtomicBool>)> = rest[..ybw_end]
@@ -1226,8 +1271,13 @@ pub struct SpecSearchInfo {
     pub score: i32,
     /// Deepest iterative-deepening depth completed.
     pub depth: u32,
-    /// Total nodes visited across all depths.
+    /// Main-search nodes visited across all depths (does not include
+    /// speculative-subtree nodes — see `spec_nodes`; this was previously the
+    /// only node count and speculative work was invisible to it entirely).
     pub nodes: u64,
+    /// Nodes visited by speculative search tasks, counted independently of
+    /// `nodes`. Sum the two for a true total.
+    pub spec_nodes: u64,
     /// Wall-clock time spent searching.
     pub elapsed: Duration,
     /// Transposition table occupancy, in permille (0-1000).
@@ -1247,17 +1297,18 @@ pub struct SpecSearchInfo {
 /// parallel speculation driven by the policy function.
 pub struct SpeculativeSearcher {
     tt: Arc<Tt>,
-    top_n: usize,
     external_abort: Arc<AtomicBool>,
 }
 
 impl SpeculativeSearcher {
-    /// Create a speculative searcher that considers the top `top_n` candidate
-    /// replies for preemptive background search, backed by the given shared TT.
-    pub fn new(tt: Arc<Tt>, top_n: usize) -> Self {
+    /// Create a speculative searcher backed by the given shared TT. The
+    /// number of top-policy-ranked candidates to speculate on is a per-search
+    /// setting (`SearchConfig::spec_top_n`), not fixed at construction time,
+    /// since a USI `setoption` can arrive at any point relative to when this
+    /// searcher itself was built.
+    pub fn new(tt: Arc<Tt>) -> Self {
         SpeculativeSearcher {
             tt,
-            top_n,
             external_abort: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -1289,6 +1340,7 @@ impl SpeculativeSearcher {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            config,
         });
 
         // Spec tasks share the *same* Budget as the main search (not an
@@ -1297,6 +1349,7 @@ impl SpeculativeSearcher {
         let spec_state = Arc::new(SpecState {
             tt: self.tt.clone(),
             budget: state.budget.clone(),
+            spec_nodes: AtomicU64::new(0),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
@@ -1321,13 +1374,24 @@ impl SpeculativeSearcher {
         let mut prev_best: Option<Move> = None;
         let mut pv_list: Vec<(Move, i32)> = Vec::new();
         let mut bestmove_changes = 0u32;
-        let use_spec = config.multi_pv == 1;
+        // Single-PV is a structural requirement (speculation predicts the
+        // opponent's reply to PV[0], which doesn't exist as a concept under
+        // MultiPV), not a measurement toggle -- `use_speculation` layers an
+        // independent, explicit kill-switch on top of it, defaulting to
+        // `true` so unset behavior matches the original `multi_pv == 1`-only
+        // derivation exactly.
+        let use_spec = config.use_speculation && config.multi_pv == 1;
 
         for depth in 1..=config.max_depth {
             // Speculative search only makes sense for single-PV (predicts opponent's reply to PV[0])
             let mut spec_group = if use_spec {
                 spec_total += 1;
-                Some(SpecGroup::spawn(board, &spec_state, depth + 1, self.top_n))
+                Some(SpecGroup::spawn(
+                    board,
+                    &spec_state,
+                    depth + 1,
+                    config.spec_top_n,
+                ))
             } else {
                 None
             };
@@ -1404,6 +1468,7 @@ impl SpeculativeSearcher {
             score: best_score,
             depth: done_depth,
             nodes: state.budget.nodes(),
+            spec_nodes: spec_state.spec_nodes.load(Ordering::Relaxed),
             elapsed: state.budget.elapsed(),
             hashfull: self.tt.hashfull(),
             spec_hits,
@@ -1421,8 +1486,14 @@ impl SpeculativeSearcher {
 /// Convert a ply-relative score to position-relative for TT storage.
 /// Mate scores encode the distance to mate; we strip the ply component so the stored
 /// score is "mate in N from THIS position" independent of when we found it.
+///
+/// `pub(crate)`: the speculative-search subsystem (`speculative.rs`) writes into
+/// this SAME transposition table (`SpecState.tt` is literally `SearchState.tt`,
+/// not an independent copy) and must apply the identical ply conversion on
+/// store/probe — otherwise the main search misinterprets a raw, undeflated
+/// mate score written by a speculative task as already having been deflated.
 #[inline]
-fn score_to_tt(score: i32, ply: u32) -> i32 {
+pub(crate) fn score_to_tt(score: i32, ply: u32) -> i32 {
     let p = ply as i32;
     if score > MATE_SCORE - 1000 {
         score + p
@@ -1438,8 +1509,9 @@ fn score_to_tt(score: i32, ply: u32) -> i32 {
 }
 
 /// Convert a position-relative TT score back to a ply-relative search score.
+/// See `score_to_tt`'s doc comment for why this is `pub(crate)`.
 #[inline]
-fn score_from_tt(stored: i32, ply: u32) -> i32 {
+pub(crate) fn score_from_tt(stored: i32, ply: u32) -> i32 {
     let p = ply as i32;
     if stored > MATE_SCORE - 1000 {
         stored - p
@@ -1727,7 +1799,7 @@ mod see_tests {
     #[test]
     fn search_respects_time_limit() {
         use crate::tt::Tt;
-        let searcher = SpeculativeSearcher::new(Tt::new(8), 4);
+        let searcher = SpeculativeSearcher::new(Tt::new(8));
         let mut board = Board::startpos();
         let config = SearchConfig {
             max_depth: 99,
@@ -1737,6 +1809,8 @@ mod see_tests {
             time_limit: Some(Duration::from_millis(1000)),
             soft_limit: None,
             multi_pv: 1,
+            spec_top_n: 4,
+            ..Default::default()
         };
         let t0 = Instant::now();
         let info = searcher.search(&mut board, config);
@@ -1764,6 +1838,7 @@ mod regression_tests {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            config: SearchConfig::default(),
         })
     }
 
@@ -1829,6 +1904,7 @@ mod regression_tests {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            config: SearchConfig::default(),
         });
         root_search_inner(&aborted_state, &mut board, 7, &moves, NEG_INF, POS_INF);
 
