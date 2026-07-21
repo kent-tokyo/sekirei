@@ -1532,11 +1532,25 @@ fn alpha_beta(
 
             let is_quiet_ybw = m.from.is_some() && !enemy.contains(m.to) && !m.promote;
 
+            // Compare against `alpha_for_nw` -- the value the probe's own
+            // window was actually built from -- not the live `alpha`, which
+            // can have grown while sequentially processing earlier siblings
+            // in this same batch. `base_score` is only meaningful relative
+            // to the window it was searched under: if it beat
+            // `alpha_for_nw`, it's *at best* a lower bound (a null window
+            // can't reveal the true value), and skipping the re-search just
+            // because the now-larger live `alpha` happens to exceed it
+            // would silently accept that unverified bound as if it were the
+            // searched value -- understating what a real re-search could
+            // find. A `base_score` that failed low against `alpha_for_nw`
+            // is a valid upper bound regardless of how much `alpha` has
+            // grown since (alpha only grows), so no re-search is ever
+            // needed in that case either way.
             let needs_research = !is_cutoff
                 && if use_pvs {
-                    base_score > alpha
+                    base_score > alpha_for_nw
                 } else {
-                    reduce > 0 && base_score > alpha
+                    reduce > 0 && base_score > alpha_for_nw
                 };
             let want_pv = pv.is_some() && beta - alpha > 1;
             let mut child_pv: Vec<Move> = Vec::new();
@@ -2898,6 +2912,15 @@ mod exact_reference_tests {
     // the cutoff-worker-keeps-its-own-result ordering are all genuinely
     // exercised, not just present in single-threaded code. Bestmove is
     // deliberately not compared, for the same tie-breaking reason as above.
+    //
+    // Depth capped at 4: a separate, pre-existing, unrelated non-determinism
+    // (killer/history/countermove tables are shared -- via atomics, not UB
+    // -- across all YBW siblings, so real concurrency can race move
+    // ordering and change the searched value across identical repeated
+    // runs) means strict equality can't be asserted reliably at Threads>=2
+    // once positions/depths get deep enough to hit it. See
+    // `exact_reference_ybw_needs_research_uses_frozen_alpha_for_nw` below
+    // for the depth-5+ case, deliberately run at Threads=1 to sidestep it.
     #[test]
     fn exact_reference_ybw_matches_sequential_pvs_at_threads_2_and_4() {
         let mut total_direct_cutoffs = 0u64;
@@ -2963,6 +2986,63 @@ mod exact_reference_tests {
              positions/depths/thread-counts -- if not, cancellation was never actually \
              tested and the equality assertions above are vacuous"
         );
+    }
+
+    // Regression for a pre-existing bug (predates this whole ablation
+    // feature -- confirmed present even in the pre-Commit-1 baseline, and
+    // independent of YBW cancellation, since it reproduces identically with
+    // no cancellation infrastructure at all): the YBW post-collect loop's
+    // `needs_research` decision used to compare a sibling's null-window
+    // probe score against the *live* `alpha`, which can have grown while
+    // sequentially processing earlier siblings in the same batch -- but the
+    // probe itself was searched against the *frozen* `alpha_for_nw`
+    // snapshot taken before any sibling was dispatched. Once alpha grows
+    // enough in between, a probe that genuinely failed high relative to its
+    // own window (and is therefore only a lower bound, not a verified
+    // value) could be wrongly accepted as final because it no longer beats
+    // the now-larger live alpha, silently under-reporting the position's
+    // true value instead of triggering the full-window re-search that would
+    // find it.
+    //
+    // Deliberately run at Threads=1 (a local single-thread pool, not the
+    // global one): a separate, unrelated non-determinism -- killer/history/
+    // countermove tables are shared via atomics across all YBW siblings, so
+    // real concurrency (Threads>=2) races move ordering and can change the
+    // searched value across identical repeated runs -- makes strict
+    // equality unreliable to assert at Threads>=2 once positions/depths get
+    // deep enough to hit it (confirmed empirically: the same position/depth
+    // below flips between two different scores across repeated Threads=2
+    // runs, independent of this fix). That's a known, deferred, separate
+    // issue, not something this fix or Commit 3's cancellation feature
+    // caused -- this test only needs Threads=1 to pin down the
+    // alpha_for_nw/live-alpha regression specifically.
+    #[test]
+    fn exact_reference_ybw_needs_research_uses_frozen_alpha_for_nw() {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .unwrap();
+        pool.install(|| {
+            for &(label, sfen) in POSITIONS {
+                for depth in 1..=5u32 {
+                    for features in [
+                        SearchFeatures::EXACT_REFERENCE,
+                        SearchFeatures::EXACT_REFERENCE_WITH_TT,
+                    ] {
+                        let seq = run_with_ybw(sfen, depth, true, false, features);
+                        let ybw = run_with_ybw(sfen, depth, true, true, features);
+                        assert_eq!(
+                            seq.score, ybw.score,
+                            "{label} at depth {depth} (tt_cutoff={}): seq-PVS and \
+                             PVS+YBW must score identically at Threads=1 -- a \
+                             difference here means needs_research is comparing \
+                             against the wrong alpha snapshot again",
+                            features.tt_cutoff,
+                        );
+                    }
+                }
+            }
+        });
     }
 
     #[test]
