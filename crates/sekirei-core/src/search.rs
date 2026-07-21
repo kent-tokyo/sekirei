@@ -335,6 +335,52 @@ pub struct SearchInfo {
     /// line). May be shorter than `depth` if the line runs into a TT cutoff
     /// or terminal position before that ply.
     pub pv: Vec<Move>,
+    /// YBW split/cancellation activity across this search. All zero when
+    /// `use_ybw` is off or no node reached `MIN_SPLIT_DEPTH`.
+    pub ybw: YbwSearchStats,
+}
+
+/// Snapshot of YBW split/cancellation activity for one search, separate from
+/// `nodes` (which counts main-search nodes via `Budget`, unaffected by this).
+/// See `SplitCancel`/`YbwProbeResult` in the search internals for exactly
+/// what each count means.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct YbwSearchStats {
+    /// YBW splits entered (nodes where parallel sibling probing started).
+    pub splits: u64,
+    /// Sibling probes dispatched into the parallel pass.
+    pub probes_started: u64,
+    /// Probes that finished without being cancelled (`Completed` or `Cutoff`).
+    pub probes_completed: u64,
+    /// Probes whose split (or an ancestor split) was cancelled before or
+    /// during the probe; their score was discarded, not just clamped.
+    pub probes_cancelled: u64,
+    /// Probes whose full-depth score already proved a beta cutoff by
+    /// itself, skipping the usual full-window re-search.
+    pub direct_cutoffs: u64,
+    /// Full-window re-searches performed for non-cutoff fail-highs
+    /// (sequential, post-collect -- unchanged from before this feature).
+    pub full_researches: u64,
+    /// Nodes visited under splits that ended up cancelled. Attributed per
+    /// split (all descendants of a cancelled split), not per individual
+    /// probe -- the shared `Budget` node counter can't isolate one
+    /// concurrently-running sibling's own contribution, and a truly
+    /// per-probe counter would need one atomic per dispatched sibling.
+    pub cancelled_nodes: u64,
+}
+
+impl YbwStats {
+    fn snapshot(&self) -> YbwSearchStats {
+        YbwSearchStats {
+            splits: self.splits.load(Ordering::Relaxed),
+            probes_started: self.probes_started.load(Ordering::Relaxed),
+            probes_completed: self.probes_completed.load(Ordering::Relaxed),
+            probes_cancelled: self.probes_cancelled.load(Ordering::Relaxed),
+            direct_cutoffs: self.direct_cutoffs.load(Ordering::Relaxed),
+            full_researches: self.full_researches.load(Ordering::Relaxed),
+            cancelled_nodes: self.cancelled_nodes.load(Ordering::Relaxed),
+        }
+    }
 }
 
 // ============================================================
@@ -361,6 +407,9 @@ struct SearchState {
     /// See the module doc on `SearchFeatures` for why this can't just be a
     /// `SearchConfig` field.
     features: SearchFeatures,
+    /// YBW split/cancellation instrumentation for this search, fresh per
+    /// `search()`/`search_with_features()` call. See `YbwStats`.
+    ybw_stats: Arc<YbwStats>,
 }
 
 /// Toggles for search techniques that are *not* exact minimax-preserving
@@ -498,6 +547,7 @@ impl Searcher {
             countermoves: CountermoveTable::new(),
             config,
             features,
+            ybw_stats: Arc::new(YbwStats::default()),
         });
 
         let mut best_move = None;
@@ -550,6 +600,7 @@ impl Searcher {
             spec_hits: 0,
             spec_total: 0,
             pv,
+            ybw: state.ybw_stats.snapshot(),
         }
     }
 }
@@ -725,6 +776,8 @@ fn root_search_inner(
         // First move (and every move when PVS is off) gets the ambient
         // full window; later moves under PVS get a null-window probe first,
         // full-window re-search only on fail-high.
+        // Root has no ambient YBW split, so every call here passes `None`
+        // for `local_abort` -- cancellation only exists below a split.
         let score = if i == 0 || !state.config.use_pvs {
             -alpha_beta(
                 state,
@@ -737,6 +790,7 @@ fn root_search_inner(
                 Some(m),
                 None,
                 if want_pv { Some(&mut child_pv) } else { None },
+                None,
             )
         } else {
             let probe = -alpha_beta(
@@ -748,6 +802,7 @@ fn root_search_inner(
                 1,
                 true,
                 Some(m),
+                None,
                 None,
                 None,
             );
@@ -764,6 +819,7 @@ fn root_search_inner(
                     Some(m),
                     None,
                     if want_pv { Some(&mut child_pv) } else { None },
+                    None,
                 )
             } else {
                 probe
@@ -810,6 +866,144 @@ fn root_search_inner(
 }
 
 // ============================================================
+// YBW branch-local cancellation
+// ============================================================
+
+/// Branch-local cancellation token for one YBW split. Cancelling a split
+/// stops only its own still-running/not-yet-started sibling probes (and any
+/// nested splits beneath them, via `parent`) -- it never reaches an ancestor
+/// split or an unrelated sibling subtree, and it's entirely independent of
+/// the global `Budget`/USI-stop mechanism (`Budget::should_abort`), which
+/// continues to stop everything exactly as before, checked separately.
+///
+/// Threaded through `alpha_beta`/`quiescence` as `Option<&Arc<SplitCancel>>`:
+/// ordinary recursive calls just propagate the same reference (no atomic
+/// refcount traffic on the hot path); only the YBW dispatch itself clones the
+/// `Arc` -- once per spawned sibling, the same cost class as the `state`
+/// clone it already does today.
+struct SplitCancel {
+    cancelled: AtomicBool,
+    parent: Option<Arc<SplitCancel>>,
+    /// Nodes visited by calls carrying this split as their innermost
+    /// `local_abort`. Used for `ybw_cancelled_nodes`: the shared `Budget`
+    /// node counter can't isolate one concurrently-running sibling's own
+    /// contribution, but this per-split counter can.
+    nodes: AtomicU64,
+}
+
+impl SplitCancel {
+    fn new(parent: Option<Arc<SplitCancel>>) -> Arc<Self> {
+        Arc::new(SplitCancel {
+            cancelled: AtomicBool::new(false),
+            parent,
+            nodes: AtomicU64::new(0),
+        })
+    }
+
+    fn cancel(&self) {
+        self.cancelled.store(true, Ordering::Relaxed);
+    }
+
+    /// True if this split, or any ancestor split, has been cancelled.
+    fn is_cancelled(&self) -> bool {
+        self.cancelled.load(Ordering::Relaxed)
+            || self
+                .parent
+                .as_deref()
+                .is_some_and(SplitCancel::is_cancelled)
+    }
+}
+
+#[cfg(test)]
+mod split_cancel_tests {
+    use super::*;
+
+    #[test]
+    fn child_cancel_does_not_cancel_parent() {
+        let parent = SplitCancel::new(None);
+        let child = SplitCancel::new(Some(parent.clone()));
+        child.cancel();
+        assert!(child.is_cancelled());
+        assert!(!parent.is_cancelled());
+    }
+
+    #[test]
+    fn parent_cancel_is_observable_from_child() {
+        let parent = SplitCancel::new(None);
+        let child = SplitCancel::new(Some(parent.clone()));
+        parent.cancel();
+        assert!(parent.is_cancelled());
+        assert!(child.is_cancelled());
+    }
+
+    #[test]
+    fn sibling_tokens_are_independent() {
+        let parent = SplitCancel::new(None);
+        let a = SplitCancel::new(Some(parent.clone()));
+        let b = SplitCancel::new(Some(parent.clone()));
+        a.cancel();
+        assert!(a.is_cancelled());
+        assert!(!b.is_cancelled());
+        assert!(!parent.is_cancelled());
+    }
+
+    #[test]
+    fn nested_grandparent_cancel_is_observable_two_levels_down() {
+        let root = SplitCancel::new(None);
+        let mid = SplitCancel::new(Some(root.clone()));
+        let leaf = SplitCancel::new(Some(mid.clone()));
+        root.cancel();
+        assert!(leaf.is_cancelled());
+    }
+}
+
+/// Outcome of one YBW sibling's null-window probe.
+enum YbwProbeResult {
+    /// The probe completed without proving a cutoff by itself (a fail-low,
+    /// or a PV candidate with `alpha < score < beta`). `reduce` is carried
+    /// along so the post-collect sequential pass can decide whether a
+    /// full-window re-search is still needed (an LMR-reduced fail-high must
+    /// always be re-verified at full depth before it's trusted).
+    Completed {
+        mv: Move,
+        score: i32,
+        move_index: usize,
+        reduce: u32,
+    },
+    /// The probe's own score already reached the ambient `beta` at full
+    /// depth (`reduce == 0`) -- a valid proof of a beta cutoff without
+    /// needing the usual full-window re-search. By the time this variant is
+    /// constructed the split has already been cancelled (see the ordering
+    /// note at the call site): the worker that discovers the cutoff must
+    /// keep its own result, so cancellation happens *after* this value is
+    /// built, never before.
+    Cutoff {
+        mv: Move,
+        score: i32,
+        move_index: usize,
+    },
+    /// This sibling's split (or an ancestor split) was cancelled before or
+    /// during its probe. MUST NOT feed alpha/best_score/bestmove/PV updates,
+    /// TT stores, or heuristic-table updates -- the score is discarded
+    /// entirely, not just clamped.
+    Cancelled { move_index: usize },
+}
+
+/// Per-search YBW instrumentation, separate from `Budget`'s node counter.
+/// Fields are `AtomicU64` because they're written concurrently from every
+/// YBW sibling's rayon task.
+#[derive(Default)]
+struct YbwStats {
+    splits: AtomicU64,
+    probes_started: AtomicU64,
+    probes_completed: AtomicU64,
+    probes_cancelled: AtomicU64,
+    direct_cutoffs: AtomicU64,
+    full_researches: AtomicU64,
+    cancelled_nodes: AtomicU64,
+}
+
+// ============================================================
 // Core Alpha-Beta with YBW parallelism
 // ============================================================
 
@@ -833,9 +1027,21 @@ fn alpha_beta(
     // the TT: the TT is shared with speculative search (see speculative.rs),
     // so a probed entry's `mv` can belong to a foreign line.
     mut pv: Option<&mut Vec<Move>>,
+    // Branch-local YBW cancellation context (see `SplitCancel`). `None`
+    // outside any YBW split (root-level calls, or a search with `use_ybw`
+    // off). Propagated unchanged through every recursive call in this
+    // function EXCEPT the YBW dispatch below, which creates a fresh child
+    // split chained to this one as its parent.
+    local_abort: Option<&Arc<SplitCancel>>,
 ) -> i32 {
     if state.budget.tick() {
         return 0;
+    }
+    if let Some(t) = local_abort {
+        t.nodes.fetch_add(1, Ordering::Relaxed);
+        if t.is_cancelled() {
+            return 0;
+        }
     }
 
     // Mate distance pruning: tighten window — we can't improve beyond the nearest mate
@@ -846,7 +1052,7 @@ fn alpha_beta(
     }
 
     if depth == 0 {
-        return quiescence(state, board, alpha, beta, ply, 0);
+        return quiescence(state, board, alpha, beta, ply, 0, local_abort);
     }
 
     // TT probe
@@ -937,6 +1143,9 @@ fn alpha_beta(
             if state.budget.should_abort() {
                 break;
             }
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
+                return 0;
+            }
             let tok = board.do_move(cap);
             let pc_score = -alpha_beta(
                 state,
@@ -949,8 +1158,12 @@ fn alpha_beta(
                 Some(cap),
                 None,
                 None,
+                local_abort,
             );
             board.undo_move(tok);
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
+                return 0;
+            }
             if pc_score >= pc_beta {
                 return pc_score;
             }
@@ -977,8 +1190,12 @@ fn alpha_beta(
             None,
             None,
             None,
+            local_abort,
         );
         board.undo_null_move(null_tok);
+        if local_abort.is_some_and(|t| t.is_cancelled()) {
+            return 0;
+        }
 
         if null_score >= beta {
             if depth >= 6 {
@@ -995,7 +1212,11 @@ fn alpha_beta(
                     prev_mv,
                     None,
                     None,
+                    local_abort,
                 );
+                if local_abort.is_some_and(|t| t.is_cancelled()) {
+                    return 0;
+                }
                 if verify >= beta {
                     return null_score;
                 }
@@ -1055,8 +1276,13 @@ fn alpha_beta(
             prev_mv,
             tt_mv,
             None,
+            local_abort,
         );
-        u32::from(sval < se_beta) // 1 if TT move is singular, else 0
+        if local_abort.is_some_and(|t| t.is_cancelled()) {
+            0 // discard a cancelled probe's result rather than trust a spurious extension
+        } else {
+            u32::from(sval < se_beta) // 1 if TT move is singular, else 0
+        }
     } else {
         0
     };
@@ -1093,10 +1319,14 @@ fn alpha_beta(
         Some(first_move),
         None,
         if want_pv0 { Some(&mut child_pv0) } else { None },
+        local_abort,
     );
     board.undo_move(tok);
 
     if state.budget.should_abort() {
+        return 0;
+    }
+    if local_abort.is_some_and(|t| t.is_cancelled()) {
         return 0;
     }
 
@@ -1147,17 +1377,22 @@ fn alpha_beta(
     // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW) or
     // when `UseYBW` is toggled off (config.use_ybw).
     let seq_start = if state.config.use_ybw && depth >= MIN_SPLIT_DEPTH {
-        let nw_abort = Arc::new(AtomicBool::new(false));
+        let child_split = SplitCancel::new(local_abort.cloned());
+        state.ybw_stats.splits.fetch_add(1, Ordering::Relaxed);
         let alpha_for_nw = alpha;
 
         let ybw_end = rest.len().min(state.config.ybw_max_siblings);
 
         #[allow(clippy::type_complexity)]
-        let work: Vec<(Move, usize, Board, Arc<SearchState>, Arc<AtomicBool>)> = rest[..ybw_end]
+        let work: Vec<(Move, usize, Board, Arc<SearchState>, Arc<SplitCancel>)> = rest[..ybw_end]
             .iter()
             .enumerate()
-            .map(|(i, &m)| (m, i + 1, board.clone(), state.clone(), nw_abort.clone()))
+            .map(|(i, &m)| (m, i + 1, board.clone(), state.clone(), child_split.clone()))
             .collect();
+        state
+            .ybw_stats
+            .probes_started
+            .fetch_add(work.len() as u64, Ordering::Relaxed);
 
         // Parallel probe (with LMR for quiet late moves). Window is a null
         // window when `use_pvs` (matching this block's long-standing default
@@ -1165,11 +1400,11 @@ fn alpha_beta(
         // doesn't silently leave PVS running here — LMR's depth reduction
         // still applies either way, it's orthogonal to the window choice.
         let use_pvs = state.config.use_pvs;
-        let nw_results: Vec<(Move, i32, usize, u32)> = work
+        let nw_results: Vec<YbwProbeResult> = work
             .into_par_iter()
-            .filter_map(|(m, idx, mut b, ctx, lab)| {
-                if lab.load(Ordering::Relaxed) || ctx.budget.should_abort() {
-                    return None;
+            .map(|(m, idx, mut b, ctx, split)| {
+                if ctx.budget.should_abort() || split.is_cancelled() {
+                    return YbwProbeResult::Cancelled { move_index: idx };
                 }
                 let reduce = if ctx.features.lmr {
                     lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm)
@@ -1200,28 +1435,116 @@ fn alpha_beta(
                     Some(m),
                     None,
                     None,
+                    Some(&split),
                 );
                 b.undo_move(tok);
-                Some((m, s, idx, reduce))
+
+                if ctx.budget.should_abort() || split.is_cancelled() {
+                    return YbwProbeResult::Cancelled { move_index: idx };
+                }
+
+                // A full-depth probe (`reduce == 0`) whose score already
+                // reaches the ambient `beta` proves a cutoff outright: no
+                // full-window re-search needed. A reduced-depth fail-high is
+                // NOT trustworthy on its own (that's exactly why LMR
+                // re-verifies at full depth), so it falls through to
+                // `Completed` and lets the sequential pass decide.
+                if reduce == 0 && s >= beta {
+                    // Build the result from this worker's own valid score
+                    // BEFORE cancelling the split -- the worker that
+                    // discovers the cutoff must never treat itself as
+                    // cancelled as a side effect of firing it.
+                    let result = YbwProbeResult::Cutoff {
+                        mv: m,
+                        score: s,
+                        move_index: idx,
+                    };
+                    split.cancel();
+                    result
+                } else {
+                    YbwProbeResult::Completed {
+                        mv: m,
+                        score: s,
+                        move_index: idx,
+                        reduce,
+                    }
+                }
             })
             .collect();
 
-        // Sequential pass: handle fail-highs, update heuristics, apply history malus
-        for (m, nw_score, _idx, reduce) in nw_results {
+        // Sequential pass: handle fail-highs, update heuristics, apply
+        // history malus, in original move order -- unchanged from before
+        // this commit except for the three-way `YbwProbeResult` split.
+        // `Cancelled` results are skipped entirely: never touching alpha,
+        // best_score, bestmove, PV, TT stores, or heuristic tables.
+        for (expected_idx, result) in nw_results.into_iter().enumerate() {
             if state.budget.should_abort() {
                 break;
             }
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
+                return 0;
+            }
+
+            // `into_par_iter().map(...).collect::<Vec<_>>()` is an indexed
+            // parallel iterator, so results come back in original dispatch
+            // order regardless of completion timing -- this is a cheap
+            // guard on that assumption, since the whole point of this loop
+            // running sequentially in original move order depends on it.
+            let (m, base_score, reduce, is_cutoff) = match result {
+                YbwProbeResult::Cancelled { move_index } => {
+                    debug_assert_eq!(move_index, expected_idx + 1);
+                    state
+                        .ybw_stats
+                        .probes_cancelled
+                        .fetch_add(1, Ordering::Relaxed);
+                    continue;
+                }
+                YbwProbeResult::Cutoff {
+                    mv,
+                    score,
+                    move_index,
+                } => {
+                    debug_assert_eq!(move_index, expected_idx + 1);
+                    state
+                        .ybw_stats
+                        .probes_completed
+                        .fetch_add(1, Ordering::Relaxed);
+                    state
+                        .ybw_stats
+                        .direct_cutoffs
+                        .fetch_add(1, Ordering::Relaxed);
+                    (mv, score, 0u32, true)
+                }
+                YbwProbeResult::Completed {
+                    mv,
+                    score,
+                    reduce,
+                    move_index,
+                } => {
+                    debug_assert_eq!(move_index, expected_idx + 1);
+                    state
+                        .ybw_stats
+                        .probes_completed
+                        .fetch_add(1, Ordering::Relaxed);
+                    (mv, score, reduce, false)
+                }
+            };
 
             let is_quiet_ybw = m.from.is_some() && !enemy.contains(m.to) && !m.promote;
 
-            let needs_research = if use_pvs {
-                nw_score > alpha
-            } else {
-                reduce > 0 && nw_score > alpha
-            };
+            let needs_research = !is_cutoff
+                && if use_pvs {
+                    base_score > alpha
+                } else {
+                    reduce > 0 && base_score > alpha
+                };
             let want_pv = pv.is_some() && beta - alpha > 1;
             let mut child_pv: Vec<Move> = Vec::new();
             let s = if needs_research {
+                state
+                    .ybw_stats
+                    .full_researches
+                    .fetch_add(1, Ordering::Relaxed);
                 // Fail-high: re-search at full depth with full window
                 let tok = board.do_move(m);
                 let ext = if state.features.check_extension {
@@ -1240,11 +1563,20 @@ fn alpha_beta(
                     Some(m),
                     None,
                     if want_pv { Some(&mut child_pv) } else { None },
+                    local_abort,
                 );
                 board.undo_move(tok);
+                if local_abort.is_some_and(|t| t.is_cancelled()) {
+                    return 0;
+                }
                 full
             } else {
-                nw_score
+                // A direct `Cutoff` is never re-searched, so it has no
+                // continuation -- leave `child_pv` empty. The `p.push(m)`
+                // below already accounts for this move; appending an empty
+                // `child_pv` correctly yields a one-move PV `[m]` (pushing
+                // `m` into `child_pv` too would duplicate it as `[m, m]`).
+                base_score
             };
 
             if s > best_score {
@@ -1271,7 +1603,6 @@ fn alpha_beta(
                     board,
                     prev_mv,
                 );
-                nw_abort.store(true, Ordering::Relaxed);
                 store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
                 return best_score;
             }
@@ -1281,6 +1612,16 @@ fn alpha_beta(
             if is_quiet_ybw {
                 tried_quiet.push(m);
             }
+        }
+        // Approximate attribution: a split that never had a Cutoff/Cancelled
+        // probe was never actually cancelled, so none of its nodes count as
+        // "cancelled" work. `SplitCancel::nodes` sums all descendants of
+        // this split rather than tracking each sibling probe individually.
+        if child_split.is_cancelled() {
+            state
+                .ybw_stats
+                .cancelled_nodes
+                .fetch_add(child_split.nodes.load(Ordering::Relaxed), Ordering::Relaxed);
         }
         ybw_end
     } else {
@@ -1301,6 +1642,9 @@ fn alpha_beta(
             let i = seq_start + j;
             if state.budget.should_abort() {
                 break;
+            }
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
+                return 0;
             }
 
             let is_capture = m.from.is_some() && enemy.contains(m.to);
@@ -1366,6 +1710,7 @@ fn alpha_beta(
                 } else {
                     None
                 },
+                local_abort,
             );
 
             // Re-search at full window/depth if the probe failed high.
@@ -1387,9 +1732,13 @@ fn alpha_beta(
                     Some(m),
                     None,
                     if want_pv { Some(&mut child_pv) } else { None },
+                    local_abort,
                 );
             }
             board.undo_move(tok);
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
+                return 0;
+            }
 
             if s > best_score {
                 best_score = s;
@@ -1451,12 +1800,19 @@ fn quiescence(
     beta: i32,
     ply: u32,
     qply: u32,
+    local_abort: Option<&Arc<SplitCancel>>,
 ) -> i32 {
     // Enforce the hard time limit here too: a heavy qsearch subtree (quiet checks
     // + recursive SEE) can run for many seconds without returning to alpha_beta,
     // which is the only other place that ticks the budget.
     if state.budget.tick() {
         return 0;
+    }
+    if let Some(t) = local_abort {
+        t.nodes.fetch_add(1, Ordering::Relaxed);
+        if t.is_cancelled() {
+            return 0;
+        }
     }
 
     // Hard depth cap: terminate the quiescence even mid-check. Without this a
@@ -1509,10 +1865,13 @@ fn quiescence(
 
     for m in ordered {
         let tok = board.do_move(m);
-        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
+        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, local_abort);
         board.undo_move(tok);
 
         if state.budget.should_abort() {
+            return 0;
+        }
+        if local_abort.is_some_and(|t| t.is_cancelled()) {
             return 0;
         }
         if score >= beta {
@@ -1554,10 +1913,13 @@ fn quiescence(
                     continue;
                 }
             }
-            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
+            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, local_abort);
             board.undo_move(tok);
 
             if state.budget.should_abort() {
+                return 0;
+            }
+            if local_abort.is_some_and(|t| t.is_cancelled()) {
                 return 0;
             }
             if score >= beta {
@@ -1614,6 +1976,9 @@ pub struct SpecSearchInfo {
     /// `SearchInfo::pv`'s tracking mechanism and its "not from the TT"
     /// rationale (see there).
     pub pv: Vec<Move>,
+    /// YBW split/cancellation activity across this search. See
+    /// `SearchInfo::ybw`.
+    pub ybw: YbwSearchStats,
 }
 
 /// `SpeculativeSearcher` wraps iterative deepening with preemptive
@@ -1665,6 +2030,7 @@ impl SpeculativeSearcher {
             countermoves: CountermoveTable::new(),
             config,
             features: SearchFeatures::PRODUCTION,
+            ybw_stats: Arc::new(YbwStats::default()),
         });
 
         // Spec tasks share the *same* Budget as the main search (not an
@@ -1813,6 +2179,7 @@ impl SpeculativeSearcher {
             pv_list,
             bestmove_changes,
             pv,
+            ybw: state.ybw_stats.snapshot(),
         }
     }
 }
@@ -2178,7 +2545,54 @@ mod regression_tests {
             countermoves: CountermoveTable::new(),
             config: SearchConfig::default(),
             features: SearchFeatures::PRODUCTION,
+            ybw_stats: Arc::new(YbwStats::default()),
         })
+    }
+
+    // Commit-3 requirement: a cancelled split must never leave an incomplete
+    // result in the TT. Deterministic (no thread races): cancel the token
+    // *before* calling `alpha_beta` at all, so the very first check inside
+    // the function (before the TT probe, before any move is even generated)
+    // must bail with the sentinel `0` -- and since that's strictly before
+    // every `store_tt` call site in the function, the TT must stay empty for
+    // this position. This is the structural guarantee the mid-flight
+    // checkpoints throughout `alpha_beta`/`quiescence` all rely on; real
+    // searches additionally exercise it under genuine concurrency (see
+    // `exact_reference_tests::exact_reference_ybw_matches_sequential_pvs_at_threads_2_and_4`),
+    // whose `ybw_direct_cutoffs`/`probes_cancelled` counters avoid asserting
+    // on flaky OS-scheduling-dependent timing.
+    #[test]
+    fn cancelled_split_alpha_beta_call_never_stores_to_tt() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(4);
+        let state = fresh_state(tt.clone());
+        let already_cancelled = SplitCancel::new(None);
+        already_cancelled.cancel();
+
+        let score = alpha_beta(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            5,
+            0,
+            true,
+            None,
+            None,
+            None,
+            Some(&already_cancelled),
+        );
+
+        assert_eq!(
+            score, 0,
+            "an already-cancelled split must bail immediately with the same sentinel \
+             used for a global budget abort"
+        );
+        assert!(
+            tt.probe(hash).is_none(),
+            "a cancelled call must never store a TT entry for its own root position"
+        );
     }
 
     // Regression: root_search_inner used to always store Bound::Exact, even when
@@ -2246,6 +2660,7 @@ mod regression_tests {
             countermoves: CountermoveTable::new(),
             config: SearchConfig::default(),
             features: SearchFeatures::PRODUCTION,
+            ybw_stats: Arc::new(YbwStats::default()),
         });
         root_search_inner(
             &aborted_state,
@@ -2310,6 +2725,7 @@ mod regression_tests {
             None,
             None,
             None,
+            None,
         );
 
         let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
@@ -2322,6 +2738,7 @@ mod regression_tests {
             2,
             3,
             true,
+            None,
             None,
             None,
             None,
@@ -2399,7 +2816,18 @@ mod exact_reference_tests {
     ];
 
     fn run(sfen: &str, depth: u32, use_pvs: bool, features: SearchFeatures) -> SearchInfo {
+        run_with_ybw(sfen, depth, use_pvs, false, features)
+    }
+
+    fn run_with_ybw(
+        sfen: &str,
+        depth: u32,
+        use_pvs: bool,
+        use_ybw: bool,
+        features: SearchFeatures,
+    ) -> SearchInfo {
         let mut board = Board::from_sfen(sfen).unwrap();
+        let board_before = board.clone();
         let hash_before = board.hash();
         let acc_before = board.acc.clone();
         let info = Searcher::new(Tt::new(4)).search_with_features(
@@ -2409,7 +2837,7 @@ mod exact_reference_tests {
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
-                use_ybw: false,
+                use_ybw,
                 use_speculation: false,
                 use_pvs,
                 ..Default::default()
@@ -2424,6 +2852,15 @@ mod exact_reference_tests {
         assert_eq!(
             board.acc, acc_before,
             "search must leave the NNUE accumulator exactly as it found it"
+        );
+        // Every caller gets a PV-legality check for free -- this is what
+        // catches a YBW direct-cutoff PV node emitting a duplicated move
+        // (`[m, m]`) instead of just `[m]`.
+        assert_pv_matches_bestmove_and_replays_legally(
+            &format!("{sfen} depth={depth} use_pvs={use_pvs} use_ybw={use_ybw}"),
+            &board_before,
+            info.best_move,
+            &info.pv,
         );
         info
     }
@@ -2450,6 +2887,82 @@ mod exact_reference_tests {
                 }
             }
         }
+    }
+
+    // Commit-3 correctness gate: YBW's true early-cancellation must not
+    // change the *value* PVS+YBW computes relative to sequential PVS, under
+    // the same non-selective `EXACT_REFERENCE[_WITH_TT]` reference tree used
+    // above. Run under a local Rayon pool at Threads=2 and Threads=4 (never
+    // the global pool, so this doesn't depend on how many cores the test
+    // machine has) so the parallel dispatch, cancellation propagation, and
+    // the cutoff-worker-keeps-its-own-result ordering are all genuinely
+    // exercised, not just present in single-threaded code. Bestmove is
+    // deliberately not compared, for the same tie-breaking reason as above.
+    #[test]
+    fn exact_reference_ybw_matches_sequential_pvs_at_threads_2_and_4() {
+        let mut total_direct_cutoffs = 0u64;
+        for &n_threads in &[2usize, 4usize] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(n_threads)
+                .build()
+                .unwrap();
+            pool.install(|| {
+                for &(label, sfen) in POSITIONS {
+                    for depth in 1..=4u32 {
+                        for features in [
+                            SearchFeatures::EXACT_REFERENCE,
+                            SearchFeatures::EXACT_REFERENCE_WITH_TT,
+                        ] {
+                            let seq = run_with_ybw(sfen, depth, true, false, features);
+                            let ybw = run_with_ybw(sfen, depth, true, true, features);
+                            assert_eq!(
+                                seq.score, ybw.score,
+                                "{label} at depth {depth} threads={n_threads} \
+                                 (tt_cutoff={}): seq-PVS and PVS+YBW must score \
+                                 identically under a non-selective reference tree -- a \
+                                 difference here means the cancellation feature changed \
+                                 the computed value, not just which siblings ran \
+                                 (bestmove deliberately not compared)",
+                                features.tt_cutoff,
+                            );
+                            // Not a strict equality: when a *nested* split's own
+                            // ambient `local_abort` (an ancestor split, cancelled by
+                            // a sibling further up the tree) fires while this
+                            // split's post-collect loop is partway through, already
+                            // -collected results for the remaining siblings are
+                            // abandoned wholesale rather than individually
+                            // reclassified -- by construction, started can only be
+                            // >= the sum actually classified, never less.
+                            assert!(
+                                ybw.ybw.probes_started
+                                    >= ybw.ybw.probes_completed + ybw.ybw.probes_cancelled,
+                                "{label} at depth {depth} threads={n_threads}: probes \
+                                 classified as completed+cancelled ({} + {}) must never \
+                                 exceed probes actually dispatched ({})",
+                                ybw.ybw.probes_completed,
+                                ybw.ybw.probes_cancelled,
+                                ybw.ybw.probes_started,
+                            );
+                            total_direct_cutoffs += ybw.ybw.direct_cutoffs;
+                        }
+                    }
+                }
+            });
+        }
+        // Deliberately not asserting `probes_cancelled > 0` here: whether any
+        // given sibling is fast enough to observe another's cancellation
+        // before finishing on its own is real OS-scheduling-dependent
+        // timing, not a value-correctness property -- exactly the kind of
+        // flaky assertion to avoid. `direct_cutoffs` is the reliable signal
+        // (a full-depth probe reaching beta is deterministic given a fixed
+        // position/depth/features, independent of scheduling), which is why
+        // it's the one asserted on.
+        assert!(
+            total_direct_cutoffs > 0,
+            "this sweep should exercise at least one direct YBW cutoff across all \
+             positions/depths/thread-counts -- if not, cancellation was never actually \
+             tested and the equality assertions above are vacuous"
+        );
     }
 
     #[test]
