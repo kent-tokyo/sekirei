@@ -399,6 +399,7 @@ mod tests {
                 time_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
+                use_speculation: true,
                 ..Default::default()
             },
         );

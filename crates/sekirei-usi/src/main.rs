@@ -70,8 +70,10 @@ fn main() {
     // YBW block, so its default (true) preserves that, but it also newly
     // enables PVS at root and in the sequential tail, which is this toggle's
     // actual purpose (see `SearchConfig::use_pvs`'s doc comment).
+    // `use_speculation` defaults to false per `results/confirmatory/REPORT.md`
+    // (see `SearchConfig::use_speculation`'s doc comment).
     let mut use_ybw = true;
-    let mut use_speculation = true;
+    let mut use_speculation = false;
     let mut use_pvs = true;
     let mut spec_top_n: usize = 3;
     let mut ybw_max_siblings: usize = 6;
@@ -127,7 +129,7 @@ fn main() {
                 println!("option name BookMinConfidence type string default 0.20");
                 println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
                 println!("option name UseYBW type check default true");
-                println!("option name UseSpeculation type check default true");
+                println!("option name UseSpeculation type check default false");
                 println!("option name UsePVS type check default true");
                 println!("option name SpecTopN type spin default 3 min 0 max 64");
                 println!("option name YbwMaxSiblings type spin default 6 min 0 max 64");

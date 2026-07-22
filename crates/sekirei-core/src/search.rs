@@ -266,10 +266,14 @@ pub struct SearchConfig {
     /// behavior). `false` forces every sibling to be searched sequentially.
     pub use_ybw: bool,
     /// Enable preemptive speculative search of the policy's top candidate
-    /// replies (default `true`). Speculation only ever runs when this is
-    /// true AND `multi_pv == 1` — the `multi_pv` requirement is a structural
-    /// necessity (speculation predicts a single PV's reply), not a
-    /// measurement toggle, so it stays a separate, non-overridable condition.
+    /// replies (default `false` -- disabled per the confirmatory ablation:
+    /// `results/confirmatory/REPORT.md` found no measurable strength benefit
+    /// over YBW alone, plus a reproducible bug where the root search returns
+    /// no move at all on positions with hundreds of legal moves). Speculation
+    /// only ever runs when this is true AND `multi_pv == 1` — the `multi_pv`
+    /// requirement is a structural necessity (speculation predicts a single
+    /// PV's reply), not a measurement toggle, so it stays a separate,
+    /// non-overridable condition.
     pub use_speculation: bool,
     /// Number of top-policy-ranked candidates to speculatively search
     /// (default 3, matching the previous constructor-baked value).
@@ -295,7 +299,7 @@ impl Default for SearchConfig {
             soft_limit: None,
             multi_pv: 1,
             use_ybw: true,
-            use_speculation: true,
+            use_speculation: false,
             spec_top_n: 3,
             ybw_max_siblings: 6,
             use_pvs: true,
@@ -2750,6 +2754,7 @@ mod see_tests {
             time_limit: Some(Duration::from_millis(1000)),
             soft_limit: None,
             multi_pv: 1,
+            use_speculation: true,
             spec_top_n: 4,
             ..Default::default()
         };
@@ -3383,9 +3388,9 @@ mod exact_reference_tests {
                 }
             }
 
-            // Real production defaults: UseYBW + UseSpeculation + UsePVS all
-            // on, exactly what a live game uses -- via SpeculativeSearcher,
-            // since that's what sekirei-usi always constructs.
+            // UseYBW + UseSpeculation + UsePVS all on (speculation is opt-in,
+            // not the default, per `results/confirmatory/REPORT.md`) -- this
+            // still needs to hold for whoever explicitly enables it.
             let board = Board::from_sfen(sfen).unwrap();
             let mut board_mut = board.clone();
             let spec_info = SpeculativeSearcher::new(Tt::new(4)).search(
@@ -3395,6 +3400,7 @@ mod exact_reference_tests {
                     time_limit: None,
                     soft_limit: None,
                     multi_pv: 1,
+                    use_speculation: true,
                     ..Default::default()
                 },
             );
