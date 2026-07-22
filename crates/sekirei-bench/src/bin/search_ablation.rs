@@ -711,6 +711,8 @@ struct Cli {
     position: Option<String>,
     smoke_positions: usize,
     baseline_check: bool,
+    arms: Vec<String>,
+    profiles: Vec<String>,
 }
 
 fn print_help() {
@@ -734,7 +736,12 @@ fn print_help() {
          \x20\x20--baseline-check      (cancel-ablation; compares on-vs-on instead of \n\
          \x20\x20                       on-vs-off, to measure disagreement from the known,\n\
          \x20\x20                       pre-existing killer/history/countermove race alone,\n\
-         \x20\x20                       independent of ybw_early_cancel)\n"
+         \x20\x20                       independent of ybw_early_cancel)\n\
+         \x20\x20--arms A,B,C,D,E      (fixed-depth/fixed-time; default: all 5. Filters which\n\
+         \x20\x20                       arms are dispatched -- does not change how any single\n\
+         \x20\x20                       measurement is taken, only which combinations run.)\n\
+         \x20\x20--profiles production,controlled  (fixed-depth; default: both. Same caveat\n\
+         \x20\x20                       as --arms -- a pure dispatch filter.)\n"
     );
 }
 
@@ -759,6 +766,8 @@ fn parse_cli() -> Cli {
     let mut position = None;
     let mut smoke_positions = 5usize;
     let mut baseline_check = false;
+    let mut arms: Vec<String> = ARMS.iter().map(|a| a.id.to_string()).collect();
+    let mut profiles: Vec<String> = vec!["production".to_string(), "controlled".to_string()];
 
     let mut i = 2;
     while i < args.len() {
@@ -787,6 +796,8 @@ fn parse_cli() -> Cli {
             "--position" => position = Some(next()),
             "--smoke-positions" => smoke_positions = next().parse().unwrap(),
             "--baseline-check" => baseline_check = true,
+            "--arms" => arms = next().split(',').map(|s| s.to_string()).collect(),
+            "--profiles" => profiles = next().split(',').map(|s| s.to_string()).collect(),
             _ => {
                 eprintln!("fatal: unknown option {flag}");
                 std::process::exit(1);
@@ -811,6 +822,8 @@ fn parse_cli() -> Cli {
         position,
         smoke_positions,
         baseline_check,
+        arms,
+        profiles,
     }
 }
 
@@ -1232,12 +1245,18 @@ fn phase_fixed_depth(cli: &Cli, positions: &[Position], env: &Env, out: &mut Fil
             for pos in positions {
                 for &depth in &depths {
                     for profile in [Profile::Production, Profile::Controlled] {
+                        if !cli.profiles.iter().any(|p| p == profile.name()) {
+                            continue;
+                        }
                         for rep in 0..(cli.warmup + reps) {
                             let is_warmup = rep < cli.warmup;
                             let arm_order =
                                 shuffled_arm_order(position_shuffle_seed(cli.seed, &pos.id, rep)).0;
                             for &arm_idx in &arm_order {
                                 let arm = &ARMS[arm_idx];
+                                if !cli.arms.iter().any(|a| a == arm.id) {
+                                    continue;
+                                }
                                 let outcome = run_one(
                                     &pos.sfen,
                                     arm,
@@ -1307,6 +1326,9 @@ fn phase_fixed_time(cli: &Cli, positions: &[Position], env: &Env, out: &mut File
                         shuffled_arm_order(position_shuffle_seed(cli.seed, &pos.id, rep)).0;
                     for &arm_idx in &arm_order {
                         let arm = &ARMS[arm_idx];
+                        if !cli.arms.iter().any(|a| a == arm.id) {
+                            continue;
+                        }
                         let outcome = run_one(
                             &pos.sfen,
                             arm,
