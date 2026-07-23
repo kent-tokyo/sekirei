@@ -93,7 +93,9 @@ ft_width = 256
 l2_width = 32
 initialization_method = "zero-init (confirmed collapsed)"
 zero_init_collapsed = true
-training_dataset_hash = "c43796f06dbe0c89c247ae992a6f081482f1f837357db8266da3a524767be93 (positions_10k.jsonl) / 74b935e721aba44f1d131ecd5c59740935f73639e641b0eb2616d27f3dd7ee (scored_10k.jsonl) -- sha256 computed 2026-07-24 against the still-present source files, NOT recorded at training time"
+training_positions_sha256 = "c43796f06dbe0c89c247ae992a6f081482f1f837357db8266da3a524767be935"
+training_scored_sha256 = "74b935e721aba44f1d131ecd5c59740935f73639e641b0eb2616d27f3dd7eec0"
+training_dataset_hash_note = "positions_10k.jsonl / scored_10k.jsonl -- sha256 computed 2026-07-24 against the still-present source files, NOT recorded at training time"
 train_count = 8750
 valid_count = 990
 split_hash = "unknown (predates split_hash recording; validation_ratio=0.10, seed=42)"
@@ -109,14 +111,16 @@ notes = "Was the de facto reference/baseline across several 2026-07 gates. Zero-
 
 [[weight]]
 weight_path = "data/weights_v011_opening_combined.bin"
-sha256 = "a45be6099c0936283e79f34d380a4dbc7ba681796bb0bb56b2cd743c2c786ea"
+sha256 = "a45be6099c0936283e79f34d380a4dbc7ba681796bb0bb56b2cd743c2c786ea6"
 file_format_version = "SEKIRW01"
 architecture = "INPUT=2420 L1=256 L2=32"
 ft_width = 256
 l2_width = 32
 initialization_method = "zero-init (confirmed collapsed: FT/L2/out variance == 0.0)"
 zero_init_collapsed = true
-training_dataset_hash = "c5df7640fa260ba6afc9430d301f84513934ec2d4fcd575c5c271e08d385a6e (positions_combined.jsonl) / 8892108f693b8a8f835ae9534c63f9ac030ada9703801aae529d9f50a2530a8 (scored_combined.jsonl) -- computed 2026-07-24 against present source files"
+training_positions_sha256 = "c5df7640fa260ba6afc9430d301f84513934ec2d4fcd575c5c271e08d385a6e4"
+training_scored_sha256 = "8892108f693b8a8f835ae9534c63f9ac030ada9703801aae529d9f50a2530a85"
+training_dataset_hash_note = "positions_combined.jsonl / scored_combined.jsonl -- computed 2026-07-24 against present source files"
 train_count = 9092
 valid_count = 1029
 split_hash = "unknown (validation_ratio=0.10, combined seed=42)"
@@ -139,7 +143,9 @@ ft_width = 256
 l2_width = 32
 initialization_method = "zero-init (confirmed collapsed)"
 zero_init_collapsed = true
-training_dataset_hash = "e2821c4924c2535bd5f59ca251caaa7c38a53202caad7b76487c65636783049 (positions_combined.jsonl) / bd7d1f26214f9be4615a38d7dc6f5961342f332617598b1ba061c32eefdf368 (scored_combined.jsonl) -- computed 2026-07-24"
+training_positions_sha256 = "e2821c4924c2535bd5f59ca251caaa7c38a53202caad7b76487c65636783049b"
+training_scored_sha256 = "bd7d1f26214f9be4615a38d7dc6f5961342f332617598b1ba061c32eefdf368a"
+training_dataset_hash_note = "positions_combined.jsonl / scored_combined.jsonl (loss_mine run) -- computed 2026-07-24"
 train_count = 10002
 valid_count = 1083
 split_hash = "unknown (validation_ratio=0.10, combined seed=42)"
