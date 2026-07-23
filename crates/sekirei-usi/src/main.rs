@@ -226,6 +226,11 @@ fn main() {
                 } else if parts.get(1) == Some(&"UseSpeculation") {
                     if let Some(v) = parts.get(3) {
                         use_speculation = *v == "true";
+                        if use_speculation {
+                            println!(
+                                "info string WARNING: UseSpeculation=true enables an experimental option with a known availability bug (bestmove=none on positions with hundreds of legal moves) and no measured strength benefit -- see results/confirmatory/REPORT.md. Not for baseline/gate/production use."
+                            );
+                        }
                     }
                 } else if parts.get(1) == Some(&"UsePVS") {
                     if let Some(v) = parts.get(3) {
