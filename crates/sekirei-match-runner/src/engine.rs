@@ -68,6 +68,16 @@ impl UsiEngine {
         self.stdin.flush()
     }
 
+    /// Forcibly terminate and reap this process. For retiring an engine that
+    /// caused a fault (illegal move, timeout, protocol error): a graceful
+    /// `quit` trusts the same process whose state we no longer trust, and an
+    /// un-`wait`ed child left behind after the handle is dropped is exactly
+    /// the orphan/zombie accumulation this hardening is supposed to prevent.
+    pub fn kill(&mut self) {
+        let _ = self._process.kill();
+        let _ = self._process.wait();
+    }
+
     /// Read the next output line, waiting at most `timeout`.
     fn recv_line(&mut self, timeout: Duration) -> io::Result<String> {
         self.rx
@@ -117,6 +127,57 @@ impl UsiEngine {
         self.send("isready")?;
         self.wait_for("readyok", HANDSHAKE_TIMEOUT)?;
         Ok(())
+    }
+
+    /// OS process id, for transcript logging.
+    pub fn pid(&self) -> u32 {
+        self._process.id()
+    }
+
+    /// Best-effort abort of any search still running from the previous move
+    /// -- e.g. one that hit `go()`'s deadline and was left running in the
+    /// background rather than joined. Errors are ignored: this is cleanup,
+    /// not a protocol step the caller can act on.
+    pub fn stop(&mut self) {
+        let _ = self.send("stop");
+    }
+
+    /// Game-boundary barrier: `usinewgame` → `isready` → `readyok`.
+    ///
+    /// The `isready`/`readyok` round trip is not cosmetic -- `wait_for`
+    /// discards every line that isn't `readyok`, so it also flushes any
+    /// stale output still sitting in the channel from the *previous* game
+    /// (e.g. a late `bestmove` from a search that only finished after `go()`
+    /// gave up waiting on it). Without this barrier, that stale line would
+    /// be sitting first in the queue and get consumed as the new game's
+    /// first-move reply -- observed in production as an "illegal move" at
+    /// ply 0/1 (see results/elo_gate/forensics/REPORT.md). Any such discard
+    /// is logged: it means the barrier just caught a leak, not that nothing
+    /// happened.
+    pub fn begin_new_game(&mut self) -> io::Result<()> {
+        self.stop();
+        self.send("usinewgame")?;
+        self.send("isready")?;
+        loop {
+            let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
+            if line.contains("readyok") {
+                return Ok(());
+            }
+            eprintln!(
+                "  [match] protocol: discarded stale line from {} (pid {}) during new-game barrier: {line:?}",
+                self.name,
+                self.pid()
+            );
+        }
+    }
+
+    /// Non-blocking check for output the engine sent without being asked --
+    /// e.g. a second `bestmove` for one `go`. `go()` already consumed the
+    /// one bestmove it was waiting for; anything still queued right after
+    /// that is unrequested. Returns the stray line if the channel isn't
+    /// empty, `None` otherwise.
+    pub fn check_no_stray_output(&mut self) -> Option<String> {
+        self.rx.try_recv().ok()
     }
 
     /// Send `position` + `go`, wait for `bestmove`, return the move string.
