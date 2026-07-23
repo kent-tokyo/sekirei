@@ -121,3 +121,66 @@ fn stop_flushes_bestmove_before_answering_the_next_command() {
     send(&mut stdin, "quit");
     let _ = child.wait();
 }
+
+/// Regression test for the match-runner game-boundary hardening (see
+/// `crates/sekirei-match-runner/src/engine.rs`'s `begin_new_game`): the
+/// runner sends `usinewgame` (not `stop`) as the first step of a new game,
+/// then `isready`, relying on `wait_for("readyok", ...)` to drain any stale
+/// output left by the previous game's search. That drain only works if
+/// `usinewgame`'s own abort+join (a separate code path from `stop`'s, see
+/// main.rs) genuinely blocks until the old search thread has finished
+/// printing its bestmove -- this test exercises `usinewgame` directly,
+/// with no `stop` in between, to verify that code path independently of
+/// `stop_flushes_bestmove_before_answering_the_next_command` above.
+#[test]
+fn usinewgame_flushes_bestmove_before_answering_the_next_command() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |l| l == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(150));
+
+    // Sent back-to-back, exactly as crates/sekirei-match-runner/src/engine.rs's
+    // begin_new_game() does: no explicit `stop` first.
+    send(&mut stdin, "usinewgame");
+    send(&mut stdin, "isready");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let mut bestmove_seen = false;
+    let mut readyok_seen = false;
+    let mut bestmove_first = false;
+    while !readyok_seen {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            panic!(
+                "timed out waiting for bestmove+readyok (bestmove_seen={bestmove_seen}, readyok_seen={readyok_seen})"
+            );
+        }
+        match rx.recv_timeout(remaining) {
+            Ok(line) if line.starts_with("bestmove") => bestmove_seen = true,
+            Ok(line) if line == "readyok" => {
+                readyok_seen = true;
+                bestmove_first = bestmove_seen;
+            }
+            Ok(_) => {}
+            Err(_) => panic!("engine stdout closed before bestmove/readyok arrived"),
+        }
+    }
+
+    assert!(
+        bestmove_first,
+        "readyok arrived before bestmove — usinewgame must join the previous \
+         search thread (and its bestmove output) before the main loop reads/ \
+         answers the next command; without this, match-runner's new-game \
+         isready/readyok barrier can't guarantee the drain it relies on"
+    );
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
