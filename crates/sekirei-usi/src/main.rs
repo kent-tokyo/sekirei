@@ -93,6 +93,20 @@ fn main() {
     let mut last_position_cmd = String::from("startpos");
     // Mirrors the "Threads" setoption value (0 = unset/rayon default).
     let mut threads: u32 = 0;
+    // Engine-owned rayon pool for search parallelism (YBW's `into_par_iter`
+    // uses whichever pool is "current" on the calling thread -- see
+    // `ThreadPool::install`'s doc comment at its one call site below).
+    // `None` until `Threads` is set at least once, so a process that never
+    // touches it keeps today's behavior exactly (rayon's own lazily-built
+    // global default pool, sized from `RAYON_NUM_THREADS`/core count).
+    // Deliberately NOT `rayon::ThreadPoolBuilder::build_global()`, which can
+    // only succeed once per process -- silently no-opping on every
+    // subsequent `setoption Threads` and making the value un-reconfigurable
+    // after the first search. Rebuilding this instead (dropping the old
+    // `Arc<ThreadPool>` once every clone held by an in-flight search thread
+    // finishes) shuts its worker threads down cleanly on drop -- no leak
+    // across repeated Threads changes.
+    let mut pool: Option<Arc<rayon::ThreadPool>> = None;
 
     // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
@@ -181,11 +195,26 @@ fn main() {
                     searcher = make_searcher(hash_mb);
                 } else if parts.get(1) == Some(&"Threads") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
-                        threads = n as u32;
-                        // ponytail: build_global silently fails if already init'd; that's fine
-                        let _ = rayon::ThreadPoolBuilder::new()
-                            .num_threads(n)
-                            .build_global();
+                        match rayon::ThreadPoolBuilder::new().num_threads(n).build() {
+                            Ok(new_pool) => {
+                                threads = n as u32;
+                                println!(
+                                    "info string Threads set to {n} ({} worker threads)",
+                                    new_pool.current_num_threads()
+                                );
+                                // Old pool (if any) drops here once every
+                                // clone held by an in-flight search thread's
+                                // `install()` call finishes -- ThreadPool's
+                                // Drop blocks until its workers exit, so this
+                                // never leaks threads across a Threads change.
+                                pool = Some(Arc::new(new_pool));
+                            }
+                            Err(e) => {
+                                println!(
+                                    "info string Threads={n} rejected ({e}); keeping the previous pool"
+                                );
+                            }
+                        }
                     }
                 } else if parts.get(1) == Some(&"MoveOverhead") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
@@ -361,6 +390,7 @@ fn main() {
                 let searcher2 = Arc::clone(&searcher);
                 let mut board2 = board.clone();
                 let suppress2 = Arc::clone(&suppress_bm);
+                let pool2 = pool.clone();
                 let diag_ctx = DiagCtx {
                     game_counter,
                     last_position_cmd: last_position_cmd.clone(),
@@ -372,7 +402,18 @@ fn main() {
                 };
 
                 search_handle = Some(std::thread::spawn(move || {
-                    let info = searcher2.search(&mut board2, config);
+                    // `pool.install(closure)` makes this OS thread's rayon
+                    // "current pool" the engine-owned one for the whole
+                    // closure -- every `into_par_iter()` YBW splits alpha_beta
+                    // makes, however deep the recursion, picks it up too
+                    // (rayon's current-pool context is thread-local and
+                    // propagates through ordinary synchronous call chains).
+                    // `None` (Threads never set) falls back to calling
+                    // search directly, i.e. today's behavior unchanged.
+                    let info = match &pool2 {
+                        Some(p) => p.install(|| searcher2.search(&mut board2, config)),
+                        None => searcher2.search(&mut board2, config),
+                    };
 
                     if suppress2.load(Ordering::Relaxed) {
                         return; // ponderhit aborted this search; caller starts a new one
@@ -482,6 +523,7 @@ fn main() {
                     let searcher2 = Arc::clone(&searcher);
                     let mut board2 = board.clone();
                     let suppress2 = Arc::clone(&suppress_bm);
+                    let pool2 = pool.clone();
                     let diag_ctx = DiagCtx {
                         game_counter,
                         last_position_cmd: last_position_cmd.clone(),
@@ -492,7 +534,10 @@ fn main() {
                         accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
                     };
                     search_handle = Some(std::thread::spawn(move || {
-                        let info = searcher2.search(&mut board2, config);
+                        let info = match &pool2 {
+                            Some(p) => p.install(|| searcher2.search(&mut board2, config)),
+                            None => searcher2.search(&mut board2, config),
+                        };
                         if suppress2.load(Ordering::Relaxed) {
                             return;
                         }
