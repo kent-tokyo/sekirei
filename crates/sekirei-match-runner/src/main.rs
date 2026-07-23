@@ -24,13 +24,15 @@ mod engine;
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use engine::UsiEngine;
 use sekirei_core::{
     board::Board,
     movegen::generate_legal_moves,
-    sfen::{move_from_usi, parse_position_cmd},
+    sfen::{board_to_sfen, move_from_usi, move_to_usi, parse_position_cmd},
 };
 
 // ---- Args ----
@@ -49,6 +51,7 @@ struct Args {
     games_per_position: Option<usize>,
     engine_options1: Vec<String>,
     engine_options2: Vec<String>,
+    transcript_file: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -66,6 +69,7 @@ fn parse_args() -> Result<Args, String> {
     let mut games_per_position = None;
     let mut engine_options1 = Vec::new();
     let mut engine_options2 = Vec::new();
+    let mut transcript_file = None;
     let mut i = 0;
 
     while i < argv.len() {
@@ -134,6 +138,10 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 engine_options2.push(get(&argv, i)?);
             }
+            "--transcript" => {
+                i += 1;
+                transcript_file = Some(PathBuf::from(get(&argv, i)?));
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -157,6 +165,7 @@ fn parse_args() -> Result<Args, String> {
         games_per_position,
         engine_options1,
         engine_options2,
+        transcript_file,
     })
 }
 
@@ -186,6 +195,9 @@ fn print_usage() {
         "  --engine-option1 <Name=Value>  USI setoption sent to engine1 after usiok, before isready (repeatable)"
     );
     eprintln!("  --engine-option2 <Name=Value>  same, for engine2 (repeatable)");
+    eprintln!(
+        "  --transcript <file>  append one JSON line per move (ts/pid/side/sfen/legal-moves/bestmove)"
+    );
 }
 
 // ---- Game runner ----
@@ -207,6 +219,86 @@ enum EndReason {
     EngineError,
 }
 
+/// Launch an engine and run its `usi`/`setoption`/`isready` handshake, or
+/// exit -- used both for the initial launch and to replace a retired engine
+/// process mid-run (see the `IllegalMove`/`EngineError` handling in `main`).
+fn launch_and_init(path: &str, args: &[String], options: &[String]) -> UsiEngine {
+    let mut e = UsiEngine::launch(path, args).unwrap_or_else(|e| {
+        eprintln!("failed to launch engine {path}: {e}");
+        std::process::exit(1);
+    });
+    e.initialize(options).unwrap_or_else(|e| {
+        eprintln!("engine {path} init failed: {e}");
+        std::process::exit(1);
+    });
+    e
+}
+
+fn now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0)
+}
+
+/// A protocol invariant broken badly enough that the channel state (and
+/// therefore every game left in this process) can no longer be trusted --
+/// e.g. the new-game barrier itself failed, or an engine sent output it
+/// wasn't asked for. Exits the whole process rather than returning a normal
+/// `EndReason`: nothing already scored in this invocation is discarded (the
+/// caller re-launches fresh engine processes for the whole shard/pair), and
+/// nothing further gets a chance to fold a distrusted line into a result.
+/// Kills both engine processes first so nothing keeps running (and no
+/// zombie is left) once this process exits.
+fn fatal_protocol_error(e1: &mut UsiEngine, e2: &mut UsiEngine, detail: &str) -> ! {
+    eprintln!("  [match] FATAL protocol error: {detail}");
+    e1.kill();
+    e2.kill();
+    std::process::exit(2);
+}
+
+/// Appends one line per move to an optional transcript file -- timestamp,
+/// PID, side, game/ply sequencing, SFEN, legal-move count, and the raw
+/// bestmove received. Absent unless `--transcript` is passed: this is
+/// forensics instrumentation for the hardened game-boundary work (see
+/// results/elo_gate/forensics/REPORT.md), not something every ordinary run
+/// needs to pay for.
+struct Transcript(Option<std::io::BufWriter<fs::File>>);
+
+impl Transcript {
+    fn open(path: Option<&PathBuf>) -> Self {
+        Transcript(path.and_then(|p| {
+            fs::File::create(p)
+                .inspect_err(|e| eprintln!("  [match] failed to open transcript {p:?}: {e}"))
+                .ok()
+                .map(std::io::BufWriter::new)
+        }))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn log_move(
+        &mut self,
+        game_num: usize,
+        ply: usize,
+        side_pid: u32,
+        side_name: &str,
+        sfen_before: &str,
+        legal_move_count: usize,
+        raw_bestmove: &str,
+        verdict: &str,
+    ) {
+        if let Some(w) = &mut self.0 {
+            let _ = writeln!(
+                w,
+                r#"{{"ts_ms":{},"game_num":{game_num},"seq":{ply},"pid":{side_pid},"side":{side_name:?},"sfen_before":{sfen_before:?},"legal_move_count":{legal_move_count},"raw_bestmove":{raw_bestmove:?},"verdict":{verdict:?}}}"#,
+                now_ms()
+            );
+            let _ = w.flush(); // rare (one per move), forensics value outweighs the syscall
+        }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 fn run_game(
     e1: &mut UsiEngine,
     e2: &mut UsiEngine,
@@ -214,6 +306,8 @@ fn run_game(
     byoyomi_ms: u64,
     max_moves: usize,
     start_pos: &str, // "startpos" or SFEN string
+    game_num: usize,
+    transcript: &mut Transcript,
 ) -> (Outcome, Vec<String>, EndReason) {
     let go_cmd = format!("go byoyomi {byoyomi_ms}");
     let mut moves: Vec<String> = Vec::new();
@@ -221,8 +315,27 @@ fn run_game(
     // Track position for repetition detection (千日手 = 4 identical positions)
     let mut hash_counts: HashMap<u64, u8> = HashMap::new();
 
-    e1.send("usinewgame").ok();
-    e2.send("usinewgame").ok();
+    // Game-boundary barrier (usinewgame -> isready -> readyok on each side)
+    // -- see UsiEngine::begin_new_game's doc comment for why this isn't
+    // cosmetic. Failure here means the engine is unresponsive or the
+    // channel already holds something we can't account for; either way this
+    // whole process's remaining games can no longer be trusted.
+    if let Err(e) = e1.begin_new_game() {
+        let msg = format!(
+            "e1 ({}, pid {}) new-game barrier failed before game {game_num}: {e}",
+            e1.name,
+            e1.pid()
+        );
+        fatal_protocol_error(e1, e2, &msg);
+    }
+    if let Err(e) = e2.begin_new_game() {
+        let msg = format!(
+            "e2 ({}, pid {}) new-game barrier failed before game {game_num}: {e}",
+            e2.name,
+            e2.pid()
+        );
+        fatal_protocol_error(e1, e2, &msg);
+    }
 
     // Build the initial board state for legality/repetition checking
     let pos_prefix = if start_pos == "startpos" {
@@ -241,16 +354,34 @@ fn run_game(
     for ply in 0..max_moves {
         let e1_turn = (ply % 2 == 0) == e1_is_black;
         let mover = if e1_turn { &mut *e1 } else { &mut *e2 };
+        let mover_pid = mover.pid();
+        let mover_name = mover.name.clone();
 
         let pos_cmd = if moves.is_empty() {
             pos_prefix.clone()
         } else {
             format!("{} moves {}", pos_prefix, moves.join(" "))
         };
+        let sfen_before = board_to_sfen(&board);
 
         let mv_str = match mover.go(&pos_cmd, &go_cmd) {
             Ok(m) => m,
-            Err(_) => {
+            Err(e) => {
+                // Let the search actually wind down now instead of leaving
+                // it running until the next game's new-game barrier aborts
+                // it -- pure cleanup, begin_new_game()'s barrier is what
+                // actually guarantees no stale output leaks forward.
+                mover.stop();
+                transcript.log_move(
+                    game_num,
+                    ply,
+                    mover_pid,
+                    &mover_name,
+                    &sfen_before,
+                    0,
+                    "",
+                    &format!("timeout:{e}"),
+                );
                 let outcome = if e1_turn {
                     Outcome::E2Win
                 } else {
@@ -261,6 +392,16 @@ fn run_game(
         };
 
         if mv_str == "resign" {
+            transcript.log_move(
+                game_num,
+                ply,
+                mover_pid,
+                &mover_name,
+                &sfen_before,
+                0,
+                &mv_str,
+                "resign",
+            );
             let outcome = if e1_turn {
                 Outcome::E2Win
             } else {
@@ -269,6 +410,16 @@ fn run_game(
             return (outcome, moves, EndReason::Resign);
         }
         if mv_str == "win" {
+            transcript.log_move(
+                game_num,
+                ply,
+                mover_pid,
+                &mover_name,
+                &sfen_before,
+                0,
+                &mv_str,
+                "win",
+            );
             let outcome = if e1_turn {
                 Outcome::E1Win
             } else {
@@ -283,9 +434,26 @@ fn run_game(
         let is_legal = parsed.is_some_and(|m| legal_moves.contains(&m));
 
         if !is_legal {
+            let legal_usi: Vec<String> = legal_moves.iter().map(|&m| move_to_usi(m)).collect();
             eprintln!(
-                "  [match] illegal move '{mv_str}' by {} at ply {ply}",
-                if e1_turn { &e1.name } else { &e2.name }
+                "  [match] illegal move {mv_str:?} by {mover_name} (pid {mover_pid}) at ply {ply}, game {game_num}, ts_ms {}",
+                now_ms()
+            );
+            eprintln!("  [match]   sfen: {sfen_before}");
+            eprintln!(
+                "  [match]   legal moves ({}): {}",
+                legal_usi.len(),
+                legal_usi.join(" ")
+            );
+            transcript.log_move(
+                game_num,
+                ply,
+                mover_pid,
+                &mover_name,
+                &sfen_before,
+                legal_usi.len(),
+                &mv_str,
+                "illegal",
             );
             let outcome = if e1_turn {
                 Outcome::E2Win
@@ -293,6 +461,28 @@ fn run_game(
                 Outcome::E1Win
             };
             return (outcome, moves, EndReason::IllegalMove);
+        }
+
+        transcript.log_move(
+            game_num,
+            ply,
+            mover_pid,
+            &mover_name,
+            &sfen_before,
+            legal_moves.len(),
+            &mv_str,
+            "ok",
+        );
+
+        // Anything already queued right after the one bestmove we asked for
+        // is unrequested output -- the channel can no longer be trusted, so
+        // this is fatal rather than a per-game result (see
+        // fatal_protocol_error's doc comment).
+        if let Some(stray) = mover.check_no_stray_output() {
+            let msg = format!(
+                "{mover_name} (pid {mover_pid}) sent unrequested output right after its bestmove at ply {ply}, game {game_num}: {stray:?}"
+            );
+            fatal_protocol_error(e1, e2, &msg);
         }
 
         // Apply move
@@ -1074,23 +1264,8 @@ fn main() {
         .unwrap_or_default();
     let mut rng = Lcg(0x_dead_beef_cafe_0001);
 
-    let mut e1 = UsiEngine::launch(&args.engine1_path, &args.args1).unwrap_or_else(|e| {
-        eprintln!("failed to launch engine1: {e}");
-        std::process::exit(1);
-    });
-    let mut e2 = UsiEngine::launch(&args.engine2_path, &args.args2).unwrap_or_else(|e| {
-        eprintln!("failed to launch engine2: {e}");
-        std::process::exit(1);
-    });
-
-    e1.initialize(&args.engine_options1).unwrap_or_else(|e| {
-        eprintln!("engine1 init failed: {e}");
-        std::process::exit(1);
-    });
-    e2.initialize(&args.engine_options2).unwrap_or_else(|e| {
-        eprintln!("engine2 init failed: {e}");
-        std::process::exit(1);
-    });
+    let mut e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1);
+    let mut e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2);
 
     let e1_label = engine_display_label(&e1.name, &args.args1);
     let e2_label = engine_display_label(&e2.name, &args.args2);
@@ -1125,6 +1300,7 @@ fn main() {
     // conventionally the candidate, engine2 the baseline (matches
     // scripts/strength_regression.sh's --engine1 <new> --engine2 <base>).
     let mut veridict_records = String::new();
+    let mut transcript = Transcript::open(args.transcript_file.as_ref());
 
     // Build the game list: cover-all mode or random-sample mode
     let game_list: Vec<(bool, String)> =
@@ -1142,8 +1318,41 @@ fn main() {
             args.byoyomi_ms,
             args.max_moves,
             start_pos,
+            game_num,
+            &mut transcript,
         );
         game_moves.push(moves.clone());
+
+        // The game's result already recorded a genuine outcome (an illegal
+        // move or a timeout is a definite event, not a channel-trust
+        // problem the way a protocol error is) -- but post-hardening,
+        // either one is unexpected enough that the offending side's process
+        // must not play another game before being fully replaced. This is
+        // deliberately a kill-and-relaunch, not a trust-the-next-usinewgame:
+        // the barrier fix is plausible but unreproduced against the actual
+        // production failure, so retirement stays as an independent layer.
+        // The next scheduled game is a different (position, color) pair, so
+        // this never retries the same game against the same fault.
+        if matches!(reason, EndReason::IllegalMove | EndReason::EngineError) {
+            let e1_at_fault = outcome == Outcome::E2Win;
+            let e2_at_fault = outcome == Outcome::E1Win;
+            if e1_at_fault {
+                eprintln!(
+                    "  [match] retiring e1 (pid {}) after game {game_num} ({reason:?}); launching a fresh process",
+                    e1.pid()
+                );
+                e1.kill();
+                e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1);
+            }
+            if e2_at_fault {
+                eprintln!(
+                    "  [match] retiring e2 (pid {}) after game {game_num} ({reason:?}); launching a fresh process",
+                    e2.pid()
+                );
+                e2.kill();
+                e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2);
+            }
+        }
 
         let (e1_color, e2_color) = if e1_is_black {
             ("Black", "White")
