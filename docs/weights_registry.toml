@@ -1,0 +1,413 @@
+# NNUE weight provenance registry — Sekirei
+#
+# Generated 2026-07-24 (Sprint 1 / Phase A1 provenance audit). One entry per
+# promoted `data/weights_*.bin` milestone, plus one entry per distinct
+# training-run "arm" under `data/runs/` (not per individual epoch checkpoint
+# — 315 raw .bin files exist on disk, most are per-epoch snapshots of the
+# same run; this registry tracks the ~30 distinct things that were actually
+# trained/compared, each noting which epoch was selected as final/best).
+#
+# `data/` is entirely gitignored (see data/README.md) — training artifacts
+# have no git history of their own. This registry is placed under `docs/`
+# instead of `data/weights/registry.toml` (the location suggested in the
+# Sprint 1 spec) specifically so the registry ITSELF is git-tracked and has
+# a diff history — a provenance record that could be silently edited with
+# no trace would defeat much of its own purpose. `data/README.md` (human-
+# facing, untracked like the rest of data/) points here.
+#
+# sha256/size/magic below were computed directly against the files on disk
+# during this audit (2026-07-24), not copied from any training-time log.
+# `zero_init_collapsed` was verified directly too: parses each file's raw
+# bytes and checks whether FT row 0 / L2 row 0 / out have variance exactly
+# 0.0 — the signature of the pre-2026-07-11 zero-init bug (commit 0cac38e,
+# "fix(train): seed weight init to break symmetry collapse"). Any field
+# below marked "unknown" means no train.log/manifest.json/*.meta.json/doc
+# was found stating it — never inferred from a filename or mtime.
+#
+# Architecture is identical across every file that loads at all (fixed at
+# compile time, not stored per-file): INPUT=2420 (piece-square x14 kinds x2
+# perspectives = 2268, + 38 hand-count thresholds x4 = 152), FT(L1)=256 per
+# perspective, L2=32. `file_format_version` = the 8-byte magic string.
+
+schema_version = 1
+generated = "2026-07-24"
+architecture_note = "Identical for every entry below: INPUT=2420, FT(L1)=256/perspective, L2=32 (PS+hand features). See crates/sekirei-core/src/nnue.rs module doc."
+
+# ============================================================
+# Top-level data/weights_*.bin (the "promoted milestone" pool)
+# ============================================================
+
+[[weight]]
+weight_path = "data/weights_v007.bin"
+sha256 = "20bdf59a856641f2da3dfe2630c47db7bee4307b46a3c69e5b1d4efcefbd3719"
+file_format_version = "JANOSW03 (legacy magic; identical binary layout to SEKIRW01 -- pre-rename Janos->Sekirei)"
+architecture = "INPUT=2420 L1=256 L2=32"
+input_features = "piece-square x14 x2 + hand-count-threshold x38 x4"
+ft_width = 256
+l2_width = 32
+initialization_method = "zero-init (confirmed collapsed: FT/L2/out variance == 0.0 in independent byte-level check)"
+zero_init_collapsed = true
+training_dataset_hash = "unknown"
+train_count = "unknown"
+valid_count = "unknown"
+split_hash = "unknown"
+init_seed = "unknown"
+split_seed = "unknown"
+shuffle_seed = "unknown"
+teacher_configuration = "unknown (no train.log/manifest for this run; predates data/runs/ convention)"
+training_commit = "unknown"
+validation_metrics = "unknown"
+match_gate_result = "Lost to plain material eval: 14W-46L, elo_diff=-206.65 (results/20260704_135643_material_vs_v7.json). No verdict label recorded."
+status = "rejected"
+notes = "Hardcoded as scripts/redo_quietset_bc.sh and scripts/train_with_shogiesa_quietset.sh's default BASELINE comparator -- used operationally as a fixed reference point, not as a strength candidate. Zero-init-collapsed; decisively lost to material eval."
+
+[[weight]]
+weight_path = "data/weights_v009_smoketest.bin"
+sha256 = "015b8c61207968e688de606047eddcffb283fd7c618ffe7456cb6e57585ddef5"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "zero-init (confirmed collapsed)"
+zero_init_collapsed = true
+training_dataset_hash = "unknown"
+train_count = "unknown"
+valid_count = "unknown"
+split_hash = "unknown"
+init_seed = "unknown"
+split_seed = "unknown"
+shuffle_seed = "unknown"
+teacher_configuration = "unknown (no train.log/manifest; predates data/runs/ convention)"
+training_commit = "unknown"
+validation_metrics = "unknown"
+match_gate_result = "Lost to material eval 14W-46L (elo -206.65, results/20260704_212059_...json); vs v007: 26W-34L, elo_diff=-46.6, 95% CI=[-135.31,+42.1] (crosses zero -- inconclusive)."
+status = "experimental"
+notes = "data/README.md: 'small smoke-test training run, used to sanity-check the pipeline end to end' -- never intended as a strength candidate despite the incidental match results found."
+
+[[weight]]
+weight_path = "data/weights_v010_10k_full.bin"
+sha256 = "9df3040b511777cff71942c47f8fbba3d681d7a36ef6afefd069916756c5db8c"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "zero-init (confirmed collapsed)"
+zero_init_collapsed = true
+training_dataset_hash = "c43796f06dbe0c89c247ae992a6f081482f1f837357db8266da3a524767be93 (positions_10k.jsonl) / 74b935e721aba44f1d131ecd5c59740935f73639e641b0eb2616d27f3dd7ee (scored_10k.jsonl) -- sha256 computed 2026-07-24 against the still-present source files, NOT recorded at training time"
+train_count = 8750
+valid_count = 990
+split_hash = "unknown (predates split_hash recording; validation_ratio=0.10, seed=42)"
+init_seed = "unknown (predates init/split seed separation; combined seed=42)"
+split_seed = "unknown (combined seed=42)"
+shuffle_seed = "unknown (predates shuffle_seed recording)"
+teacher_configuration = "sekirei-train internal re-search teacher, --label-depth 4, --stability-weighted --min-stability 0, quietset filtering (avg_weight~0.263)"
+training_commit = "unknown (predates git_commit field in meta.json)"
+validation_metrics = "final (epoch20) valid loss_raw=214645ish range per train.log; exact epoch20 number not individually quoted above -- see data/runs/bc_redo_20260628_214103/checkpoints_v10_10k_full/*.meta.json"
+match_gate_result = "Served as baseline/reference for: Gate 0 (LOST decisively to weights_gate0_init_fix, PASS for the fix); vs v011 (inconclusive, elo_diff=-5.4); vs v012 (inconclusive both original and paired-id/SPRT reanalysis); vs gateA_lambda0.7.epoch3 Gate B (candidate not promoted, stopped early trending negative)."
+status = "rejected"
+notes = "Was the de facto reference/baseline across several 2026-07 gates. Zero-init-collapsed; decisively beaten by weights_gate0_init_fix in a from-scratch Gate 0 (same dataset/recipe, init-only change). Superseded."
+
+[[weight]]
+weight_path = "data/weights_v011_opening_combined.bin"
+sha256 = "a45be6099c0936283e79f34d380a4dbc7ba681796bb0bb56b2cd743c2c786ea"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "zero-init (confirmed collapsed: FT/L2/out variance == 0.0)"
+zero_init_collapsed = true
+training_dataset_hash = "c5df7640fa260ba6afc9430d301f84513934ec2d4fcd575c5c271e08d385a6e (positions_combined.jsonl) / 8892108f693b8a8f835ae9534c63f9ac030ada9703801aae529d9f50a2530a8 (scored_combined.jsonl) -- computed 2026-07-24 against present source files"
+train_count = 9092
+valid_count = 1029
+split_hash = "unknown (validation_ratio=0.10, combined seed=42)"
+init_seed = "unknown (combined seed=42, predates init/split separation)"
+split_seed = "unknown (combined seed=42)"
+shuffle_seed = "unknown"
+teacher_configuration = "sekirei-train internal re-search teacher, --label-depth 4; tasks/lessons.md flags this run likely OMITTED --min-stability 0 alongside --stability-weighted (a bug found 2026-07-07) -- unconfirmed whether this materially affected how many of the 381 added opening positions actually trained; not re-investigated"
+training_commit = "unknown (no train.log survives in this run dir; predates git_commit field)"
+validation_metrics = "unknown (no train.log present in data/runs/opening_20260705/checkpoints_combined/; only 3 epoch checkpoints exist, shipped file confirmed byte-identical to epoch3 via sha256)"
+match_gate_result = "vs weights_v010_10k_full.bin: 128 games, elo_diff=-5.4, wide CI (~+-60) -- INCONCLUSIVE, never decisively confirmed superior to v010. NEVER gated against weights_gate0_init_fix.bin."
+status = "inconclusive"
+notes = "**IMPORTANT**: this is the weight currently treated as-if production (frozen in results/elo_gate/MANIFEST.md for the B-vs-C YBW search gate, and the last row in data/README.md's milestone table) -- but this audit finds NO formal gate evidence supporting a 'production' designation, and it IS confirmed zero-init-collapsed. No document anywhere in the repo explicitly names a current production/champion weight by file. Its status here is 'inconclusive' rather than 'production' precisely to avoid inheriting an unverified assumption (the exact mistake this audit was asked to avoid). See the Sprint 1 report for the recommended resolution."
+
+[[weight]]
+weight_path = "data/weights_v012_loss_mined.bin"
+sha256 = "36fb3db85259a0d82dda5690cacf665743456731f7cac50e480e54d5b3fd4507"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "zero-init (confirmed collapsed)"
+zero_init_collapsed = true
+training_dataset_hash = "e2821c4924c2535bd5f59ca251caaa7c38a53202caad7b76487c65636783049 (positions_combined.jsonl) / bd7d1f26214f9be4615a38d7dc6f5961342f332617598b1ba061c32eefdf368 (scored_combined.jsonl) -- computed 2026-07-24"
+train_count = 10002
+valid_count = 1083
+split_hash = "unknown (validation_ratio=0.10, combined seed=42)"
+init_seed = "unknown (combined seed=42)"
+split_seed = "unknown (combined seed=42)"
+shuffle_seed = "unknown"
+teacher_configuration = "v010's dataset + 1085 loss-mined self-play positions (mine_depths=4,6, min_ply=10, every_n_plies=4); --label-depth 4; quietset kept 0/803 (0.0%) of the mined subset at strict settings (flagged as possible thin-signal artifact, not necessarily bad data)"
+training_commit = "unknown (manifest.json has no git_commit field)"
+validation_metrics = "only 3/20 epochs run; pipeline.log: 'Training done. Not gating automatically'"
+match_gate_result = "vs weights_v010_10k_full.bin: original unpaired elo_diff=+43.7 CI=[+9.4,+77.9] INCONCLUSIVE; paired_by_id reanalysis of the same 400 games: +41.9 elo CI=[-6.5,+90.2], wider, still INCONCLUSIVE; SPRT reanalysis: LLR never crossed +-2.944. Never promoted."
+status = "inconclusive"
+notes = "manifest.json: baseline=weights_v010_10k_full.bin, mine_depths=4,6. Never re-gated after the zero-init fix landed."
+
+[[weight]]
+weight_path = "data/weights_gate0_init_fix.bin"
+sha256 = "bea7a8262f74b6d61c17f1dd7bf6e507236acf136d65e4e1a7e3702c47c0849a"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "seeded He/Kaiming-uniform (TrainWeights::new_seeded), the fix in commit 0cac38e"
+zero_init_collapsed = false
+training_dataset_hash = "c43796f06dbe0c89c247ae992a6f081482f1f837357db8266da3a524767be93 (positions_10k.jsonl) / 74b935e721aba44f1d131ecd5c59740935f73639e641b0eb2616d27f3dd7ee (scored_10k.jsonl) -- IDENTICAL source files to weights_v010_10k_full.bin, computed 2026-07-24"
+train_count = 8750
+valid_count = 990
+split_hash = "unknown (validation_ratio=0.10, seed=42)"
+init_seed = 42
+split_seed = "unknown (combined seed=42, predates init/split separation -- but this run's whole point was the init change, not a split change, so seed=42 for both is intentional/matched to v010)"
+shuffle_seed = "unknown (predates shuffle_seed recording)"
+teacher_configuration = "IDENTICAL recipe to weights_v010_10k_full.bin: --stability-weighted --min-stability 0 --label-depth 4 --validation-ratio 0.1 --seed 42 --epochs 20. The ONE variable changed is TrainWeights::new_seeded(42) instead of TrainWeights::new()."
+training_commit = "unknown (predates git_commit field in meta.json; dated 2026-07-10 per tasks/lessons.md)"
+validation_metrics = "20 epochs, final loss lower than v010's at every epoch checked (tasks/lessons.md 'Gate 0 result')"
+match_gate_result = "Gate 0 vs weights_v010_10k_full.bin: SPRT elo0=0/elo1=20/alpha=beta=0.05 -- PASS, decisive win even at 10k-position scale. Pre-registered interpretation: 'fix confirmed, adopt as the baseline for all future training.'"
+status = "accepted_candidate"
+notes = "Decisively validated the zero-init fix itself, on v010's exact recipe. NEVER gated head-to-head against v011 (the current de facto weight) -- that comparison doesn't exist yet. This is the strongest evidence-backed candidate for 'what a healthy-init retrain of the current recipe looks like,' but it used v010's dataset, not v011's opening-augmented dataset -- Phase A2's seeded-init retrain should match v011's exact recipe (v010's data + the 381 opening positions), which this run does not."
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda0.7.epoch1.bin"
+sha256 = "2fd0815eb59d0b0c96f984786207b2b7460fa41361daf46ea31574b482290b74"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "seeded (post-fix; run postdates 0cac38e)"
+zero_init_collapsed = false
+training_dataset_hash = "unknown (no .meta.json for this run; predates that convention on the CSA path)"
+train_count = "unknown (gate_b_lambda07.md: 100% train, no held-out set, every epoch)"
+valid_count = "unknown"
+split_hash = "unknown"
+init_seed = "unknown"
+split_seed = "unknown"
+shuffle_seed = "unknown"
+teacher_configuration = "data/gateA_csa_subset (500 CSA files, 337 games, min_rate>=1500), wdl_lambda=0.7"
+training_commit = "unknown"
+validation_metrics = "unknown"
+match_gate_result = "intermediate checkpoint of the same run as epoch3 (see epoch3 entry for the actual gate result); not independently gated"
+status = "experimental"
+notes = "Early checkpoint of the Gate A/B lambda=0.7 arm; superseded by epoch3."
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda0.7.epoch2.bin"
+sha256 = "34cf6087f7b04510ec57d679847aede5f1dad072960bb7e1a7f7ca9fdb87e565"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "seeded (post-fix)"
+zero_init_collapsed = false
+training_dataset_hash = "unknown"
+train_count = "unknown"
+valid_count = "unknown"
+teacher_configuration = "data/gateA_csa_subset, wdl_lambda=0.7"
+match_gate_result = "intermediate checkpoint; not independently gated"
+status = "experimental"
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda0.7.epoch3.bin"
+sha256 = "9c8ddbd1e4b6e04f8c3089a775b4f0d9d7004a830a8d8e091128cb36ea401792"
+file_format_version = "SEKIRW01"
+architecture = "INPUT=2420 L1=256 L2=32"
+ft_width = 256
+l2_width = 32
+initialization_method = "seeded (post-fix)"
+zero_init_collapsed = false
+training_dataset_hash = "unknown (no meta.json for this run)"
+train_count = "unknown (100% train, no held-out set)"
+valid_count = "unknown"
+teacher_configuration = "data/gateA_csa_subset (337 CSA games), wdl_lambda=0.7. train.log stops at the epoch-4 header -- only 3/20 scheduled epochs actually ran; LR already decayed 0.001->0.00025 by epoch3."
+training_commit = "unknown"
+match_gate_result = "Gate A (vs lambda=1.0, eval-only, 396 games, elo0=0/elo1=10): technically INCONCLUSIVE (LLR=0.095) but lambda=0.7 adopted per pre-registered fallback rule (adopt point estimate's sign: +7.9 elo). Gate B (vs weights_v010_10k_full.bin, elo0=0/elo1=20/alpha=beta=0.05/MAX_GAMES=3200): stopped early at sprint 32/65 (1728 games) by engineering decision; elo_diff -1.7 to -8.4 across sprints 15-32, never positive after sprint 16. NOT PROMOTED -- SPRT boundary never formally crossed, but trend consistently negative."
+status = "inconclusive"
+notes = "Root-caused as likely undertrained (3/20 epochs) rather than lambda=0.7 being a wrong idea -- directly motivated the ablation_A/B/C follow-up. See docs/experiments/gate_b_lambda07.md."
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda1.0.epoch1.bin"
+sha256 = "7c2b10a7496c0870ac98c9aaab526a62896c0daca3a32b58041f2ac22e23a44e"
+status = "experimental"
+zero_init_collapsed = false
+notes = "lambda=1.0 control arm of Gate A; intermediate checkpoint."
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda1.0.epoch2.bin"
+sha256 = "82d56873b27531f9285c6c11c7fbf6a6eee50981f517c42aeff4f29056998234"
+status = "experimental"
+zero_init_collapsed = false
+notes = "lambda=1.0 control arm of Gate A; intermediate checkpoint."
+
+[[weight]]
+weight_path = "data/weights_gateA_lambda1.0.epoch3.bin"
+sha256 = "ea70e8338eb8c29d287ea35147ab11ee0fb00b5b817b02e9e2389c970089c70e"
+status = "experimental"
+zero_init_collapsed = false
+teacher_configuration = "data/gateA_csa_subset, wdl_lambda=1.0"
+match_gate_result = "Gate A control arm (lambda=1.0 not adopted; see gateA_lambda0.7.epoch3 entry for the shared gate result). Not carried forward to Gate B."
+notes = "lambda=1.0 control arm of Gate A; final checkpoint used as the Gate A comparator. Not promoted further."
+
+# ============================================================
+# data/runs/ -- experimental run families (not promoted to top-level data/*.bin)
+# ============================================================
+
+[[weight]]
+weight_path = "data/runs/bc_redo_20260628_214103/checkpoints_b/weights_v8_keep085.epoch3.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = true
+train_count = 2264
+valid_count = 0
+teacher_configuration = "--min-stability 0.85 hard-filter (only high-teacher-agreement positions kept), --label-depth 1"
+match_gate_result = "Prose-only in tasks/lessons.md (no results/*.json artifact found): a depth-4 retrain of this variant reportedly scored +83 Elo (LOS 96.8%) vs its own depth-1 twin -- but that depth-4 retrain's weight file/run directory does not exist anywhere in data/runs/. Gap flagged, not chased further."
+status = "unknown"
+notes = "'B' variant of an early depth-1-vs-depth-4 labeling comparison, predates v010. The +83 Elo figure cannot be attributed to a specific saved checkpoint."
+
+[[weight]]
+weight_path = "data/runs/bc_redo_20260628_214103/checkpoints_c/weights_v8_weighted.epoch3.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = true
+train_count = 9708
+valid_count = 0
+teacher_configuration = "--stability-weighted --min-stability 0 (all positions kept, down-weighted), --label-depth 1"
+match_gate_result = "Prose-only in tasks/lessons.md: depth-4 retrain (checkpoints_c_depth4) scored -95 Elo (LOS 1.6%) vs this depth-1 variant -- i.e. depth-4 relabeling regressed for this variant."
+status = "rejected"
+notes = "'C' variant; superseded by checkpoints_c_depth4."
+
+[[weight]]
+weight_path = "data/runs/bc_redo_20260628_214103/checkpoints_c_depth4/weights_v8_weighted_depth4.epoch3.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = true
+train_count = 9708
+valid_count = 0
+teacher_configuration = "Same source as checkpoints_c, retrained at --label-depth 4 instead of the accidental depth-1 default"
+match_gate_result = "-95 Elo (LOS 1.6%) vs the depth-1 'C' variant (see checkpoints_c entry) -- regression, not an improvement."
+status = "rejected"
+
+[[weight]]
+weight_path = "data/runs/ablation_A/weights.best.bin (epoch8)"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "11756567284176478750"
+split_hash = "15885596499200304103"
+train_count = 9723
+valid_count = 1460
+init_seed = "unknown (combined seed=42, predates this run's init/split separation)"
+split_seed = "unknown (combined seed=42)"
+training_commit = "dae4036f8d660e960ad319c8c207ad93d2b6a086"
+teacher_configuration = "data/gateA_csa_subset, wdl_lambda=0.7, lr_schedule=StepHalf, --label-depth 4, --validation-ratio 0.15 --seed 42"
+validation_metrics = "best valid loss 140077.83 at epoch 8"
+match_gate_result = "A(epoch8) vs B(epoch3): 198 games, elo_diff=-17.56, CI=[-66.02,+30.89], LOS=23.84% -- INCONCLUSIVE. Retained as control; B not promoted over it."
+status = "experimental"
+notes = "Isolates LR-schedule effect (StepHalf) vs run B (Cosine), same wdl_lambda=0.7. Never promoted to data/weights_*.bin."
+
+[[weight]]
+weight_path = "data/runs/ablation_B/weights.best.bin (epoch3)"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "11756567284176478750"
+split_hash = "15885596499200304103"
+train_count = 9723
+valid_count = 1460
+training_commit = "4f0d3c64700de2a5547c2882f44cd68a19ed0021"
+teacher_configuration = "data/gateA_csa_subset, wdl_lambda=0.7, lr_schedule=Cosine, --label-depth 4, --validation-ratio 0.15 --seed 42"
+validation_metrics = "best valid loss 138595.82 at epoch 3"
+match_gate_result = "vs A: INCONCLUSIVE (see A's entry). Not promoted over A."
+status = "experimental"
+
+[[weight]]
+weight_path = "data/runs/ablation_C/weights.best.bin (epoch1)"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "11756567284176478750"
+split_hash = "15885596499200304103"
+train_count = 9723
+valid_count = 1460
+training_commit = "4f0d3c64700de2a5547c2882f44cd68a19ed0021"
+teacher_configuration = "data/gateA_csa_subset, wdl_lambda=0.0, lr_schedule=Cosine, --label-depth 4, --validation-ratio 0.15 --seed 42"
+validation_metrics = "best valid loss 350921.23 at epoch 1 -- training-unstable, output-scale runaway / FT neuron death per docs/experiments/ablation_lr_schedule_a8_vs_b3.md"
+match_gate_result = "Excluded from playing-strength comparison (training instability)."
+status = "experimental"
+notes = "wdl_lambda=0.0 arm; isolates WDL-lambda effect vs B. Training-unstable, not usable as a candidate."
+
+[[weight]]
+weight_path = "data/runs/20260717_longrun_conflict_mask/conflict_ft_seed123.epoch7.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "11756567284176478750"
+split_hash = "15885596499200304103"
+init_seed = 123
+split_seed = 42
+shuffle_seed = 11
+training_commit = "c16ead14d65803ace871ac6661c539b9835b74f9"
+teacher_configuration = "data/gateA_csa_subset, teacher_cache_depth4.jsonl, wdl_lambda=0.7, --diagnostic-conflict-mask ft, validation_ratio=0.15"
+train_count = 9723
+valid_count = 1460
+validation_metrics = "epoch7 selected via scripts/select_longrun_checkpoint.py (validation CP MSE / WDL loss / L2 dead-neuron count, pre-registered rule, no epochs excluded)"
+match_gate_result = "vs control_seed123.epoch7: 159W/0D/237L (40.2%), Elo -69.3, 95% CI=[-104.2,-34.4], LOS=0.0% -- REJECTED, decisively."
+status = "rejected"
+notes = "seed123 pair is the formally-gated pair (also ran seed7, seed42 for cross-seed replication -- same conclusion direction per tasks/lessons.md). L2 width corrected 16->32 in checkpoint-selection script post-hoc (commit 4a86234); verified zero blast radius on this result."
+
+[[weight]]
+weight_path = "data/runs/20260717_longrun_conflict_mask/control_seed123.epoch7.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "11756567284176478750"
+split_hash = "15885596499200304103"
+init_seed = 123
+split_seed = 42
+shuffle_seed = 11
+training_commit = "c16ead14d65803ace871ac6661c539b9835b74f9"
+teacher_configuration = "IDENTICAL recipe to conflict_ft_seed123 minus --diagnostic-conflict-mask ft (no-masking baseline arm of the same gate)"
+train_count = 9723
+valid_count = 1460
+match_gate_result = "Baseline/reference arm for the conflict-masking gate above (candidate REJECTED); not itself a promotion candidate."
+status = "experimental"
+notes = "Control arm, not a candidate in its own right."
+
+[[weight]]
+weight_path = "data/runs/shuffle_ablation_screening/{A..G}/weights.best.bin"
+architecture = "INPUT=2420 L1=256 L2=32"
+zero_init_collapsed = false
+training_dataset_hash = "682254165427222866 (round 2, E/F/G) -- round 1 (A-D) used a different 11565-position extract, confirmed identical fingerprint/split across A-D separately"
+split_hash = "12096495015425172726 (E/F/G, confirmed identical across all 7 arms A-G)"
+init_seed = "7 (all arms, round1: A-D via shogiesa shuffle --seed 42/43/44 on Sekirei-side unset shuffle; round2: E/F/G via native --shuffle-seed 42/43/44)"
+split_seed = 7
+training_commit = "4a86234c81c82c1eeb844c4ecff10f456e937504 (round 2)"
+teacher_configuration = "data/gateA_csa_subset extract (min-ply 20, max-ply 160, every-n-plies 4, dedup), --label-depth 1"
+train_count = 9859
+valid_count = 1706
+match_gate_result = "All 6 non-baseline arms (B-G) vs A, 198 games each, pass_elo=20/fail_elo=-10: B=-45.9, C=+42.3, D=-28.1, E=-56.65 (LOS 1.1%), F=-38.76 (LOS 5.8%), G=+10.53 (LOS 66.5%) -- ALL SIX INCONCLUSIVE, sign flips seed-to-seed. Validation loss favored shuffling in all 6 (-6% to -15% vs A) but did NOT correlate with gate outcome (r=0.074)."
+status = "experimental"
+notes = "Shuffle-effect screening (shogiesa-side vs native --shuffle-seed). No weight from this family was ever promoted. cache_warmup_discard/init_seed7.bin (in the same dir) is a throwaway --epochs 1 --lr 0 teacher-cache warmup pass, not a candidate -- confirmed via cache_warmup.log, not documented elsewhere by name."
+
+[[weight]]
+weight_path = "data/runs/loss_mine_20260708_052054/checkpoints/weights_v012_loss_mined.epoch{1,2,3}.bin"
+status = "experimental"
+zero_init_collapsed = true
+notes = "Intermediate checkpoints of the run that produced data/weights_v012_loss_mined.bin -- see that entry for the full result."
+
+[[weight]]
+weight_path = "data/runs/opening_20260705/checkpoints_combined/weights_v11_opening_combined.epoch{1,2,3}.bin"
+status = "experimental"
+zero_init_collapsed = true
+notes = "Intermediate checkpoints of the run that produced data/weights_v011_opening_combined.bin -- see that entry for the full result."
+
+# ============================================================
+# Known gaps (could not determine provenance/status at all)
+# ============================================================
+# - ~40 pre-2026-07-05 flat weights_v2.bin .. weights_v8_weighted_depth4.bin
+#   files (predating the data/runs/ convention) were deleted 2026-07-05 per
+#   data/README.md ("unrecoverable-meaning clutter") -- no changelog exists,
+#   genuinely unrecoverable, not re-attempted here.
+# - A depth-4 retrain of the "B" (weights_v8_keep085) variant is referenced
+#   by a +83 Elo figure in tasks/lessons.md but no corresponding checkpoint
+#   or run directory exists anywhere in data/runs/ -- see that entry's notes.
