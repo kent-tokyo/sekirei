@@ -41,7 +41,16 @@ fn main() {
     if let Some(path) = std::env::args().nth(1) {
         match load_weights(Path::new(&path)) {
             Ok(()) => eprintln!("info string NNUE weights loaded from {path}"),
-            Err(e) => eprintln!("info string weight load failed ({path}): {e}"),
+            Err(e) => {
+                // A failed load leaves `weights_active()` false, which makes
+                // `eval::evaluate()` silently fall back to material counting
+                // for the rest of the process's life -- indistinguishable
+                // from a genuine (much weaker) evaluator from the outside.
+                // Refuse to run rather than gate/play under a silently
+                // degraded evaluator.
+                eprintln!("info string FATAL: weight load failed ({path}): {e}");
+                std::process::exit(2);
+            }
         }
         weight_hash = invariant::hash_file(&path);
         weight_path = path;
@@ -162,7 +171,19 @@ fn main() {
                             // stale accumulator baked from the pre-load fallback weights.
                             board.refresh_acc();
                         }
-                        Err(e) => println!("info string weight load failed: {e}"),
+                        Err(e) => {
+                            // Answering readyok here would let the GUI/match-runner
+                            // proceed believing this engine instance is ready, while
+                            // every future evaluate() call silently falls back to
+                            // material counting (weights_active() stays false) --
+                            // a materially different, much weaker engine with no
+                            // observable signal beyond this one line. Stop instead
+                            // of returning readyok, matching the isready barrier's
+                            // job as this engine's real preflight gate.
+                            println!("info string FATAL: weight load failed: {e}");
+                            stdout.lock().flush().ok();
+                            std::process::exit(2);
+                        }
                     }
                 }
                 if use_book && book_loaded_path.as_deref() != Some(book_file.as_str()) {
