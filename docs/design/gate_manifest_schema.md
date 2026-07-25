@@ -73,11 +73,31 @@ beta = 0.05
 llr_lower = 0.0                    # computed from alpha/beta at manifest-write
                                     # time (not re-derived ad hoc later)
 llr_upper = 0.0
-minimum_unique_openings = 300      # see preregistration doc's 200/300/400
-                                    # trade-off analysis; record whichever was
-                                    # actually decided for this run_id, not
-                                    # necessarily the recommended default
-maximum_games = 0                  # hard ceiling; corpus size × 2 at most
+minimum_completed_pairs = 300      # confirmed value (2026-07-26), see
+                                    # preregistration doc's 200/300/400
+                                    # trade-off analysis. Applied
+                                    # SYMMETRICALLY to PASS and FAIL -- an
+                                    # early boundary crossing in either
+                                    # direction still requires this many
+                                    # completed pairs before finalizing.
+                                    # Record whichever value was actually
+                                    # decided for this run_id, not
+                                    # necessarily the recommended default.
+minimum_games = 600                # = 2 x minimum_completed_pairs, by
+                                    # construction (a pair is always 2
+                                    # games) -- kept as its own field
+                                    # rather than only derived, so a reader
+                                    # doesn't have to recompute it to sanity
+                                    # check completed_games against it
+maximum_games = 3400                # = 2 x canonical_valid_opening_count,
+                                    # NEVER a bare literal chosen
+                                    # independently of that count -- see
+                                    # phase_a2_b1_vs_a_formal_gate_preregistration.md's
+                                    # "Resolving 1700 vs. 1707" section for
+                                    # why this is 3400 (2x1700 canonical
+                                    # openings), not 2x1707 (raw corpus
+                                    # file lines, which include 7 comment/
+                                    # header lines that aren't openings)
 created_at = ""                    # ISO 8601 -- NOT `Date.now()`-style;
                                     # stamped once, at manifest creation
 
