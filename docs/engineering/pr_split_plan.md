@@ -2,18 +2,27 @@
 
 **Location decision (2026-07-26)**: moved here from the gitignored
 `tasks/pr_split_plan.md`, deliberately, not left as a session-scoped note.
-This plan records the dependency ordering across 25+ unpushed commits —
+This plan records the dependency ordering across all unpushed commits —
 losing that ordering (which a gitignored file risks, since it has no git
 history of its own and could be cleaned up without trace) would mean
 re-deriving it by hand from `git log` again whenever PR-splitting actually
 happens. Tracking it costs nothing and removes that risk.
 
+**Commit-count reconciliation (2026-07-26, verified via `git log --oneline
+origin/main..HEAD | wc -l`)**: **32 commits total**, not 25 and not 29.
+Breakdown: 25 as of `c17182b` (the count in effect the first time this plan
+was written) + 3 more from the same-day round that followed
+(`2e79d74`, `608929c`, `bbe5641`) + 4 more from the round after that
+(`884a50d`, `c462c1b`, `0e1f894`, `598e442`, i.e. this file's own
+tracking-decision commit). All 32 are accounted for in the seven groups
+below plus the standalone note at the end — every commit in
+`git log --oneline origin/main..HEAD` appears in exactly one place in this
+document.
+
 Local planning only — not pushed, no branches created, no rebase/cherry-pick
-performed. Branch `sprint2/light-tasks-2026-07-25`, 25 commits ahead of
-`origin/main` as of `c17182b`, plus this session's uncommitted-as-of-writing
-gate-methodology/rule-conformance/NNUE-design work (see Group 6/7 below).
-Backup branch `backup/main-2026-07-25-pre-split` still exists at the
-pre-Sprint-2 `HEAD`, untouched.
+performed. Branch `sprint2/light-tasks-2026-07-25`, 32 commits ahead of
+`origin/main` as of `598e442`. Backup branch `backup/main-2026-07-25-pre-split`
+still exists at the pre-Sprint-2 `HEAD`, untouched.
 
 Updates the earlier (pre-2026-07-25-Sprint-2) 5-group plan: adds the
 Sprint 2 commits (rule-conformance expansion, four new design/experiment
@@ -139,15 +148,18 @@ required CI:         none (no code changed); optionally re-verify sha256
 ```
 base commit:        Group 5's tip
 included commits:   c17182b (exploratory burnin record), 2e79d74 (formal
-                   gate preregistration + manifest/report schemas),
-                   plus this session's fixes: confirmed permutation
-                   seed/algorithm, resolved 1700-vs-1707 canonical opening
-                   count (maximum_games = 3400, not 1707x2), symmetric
-                   PASS/FAIL minimum-diversity gate
-                   (minimum_completed_pairs=300, minimum_games=600), and a
-                   correction to the burn-in's own "first-100-positions"
-                   artifact hash (the original was contaminated with the
-                   corpus's 7 header comment lines; regenerated correctly)
+                   gate preregistration + manifest/report schemas, first
+                   draft), 884a50d (confirmed permutation seed/algorithm,
+                   resolved 1700-vs-1707 canonical opening count
+                   [maximum_games = 3400, not 1707x2], symmetric PASS/FAIL
+                   minimum-diversity gate [minimum_completed_pairs=300,
+                   minimum_games=600]), c462c1b (manifest schema updated to
+                   match: minimum_completed_pairs/minimum_games fields,
+                   corrected maximum_games formula), 0e1f894 (fixes the
+                   burn-in's own "first-100-positions" artifact hash —
+                   the original was contaminated with the corpus's 7
+                   header comment lines, found and regenerated correctly
+                   while resolving 1700-vs-1707 for 884a50d)
 dependencies:        Group 5 (extends its preflight doc directly)
 review focus:        c17182b's central methodological point — a decisive
                    SPRT LLR crossing from a 100-canonical-opening subset
@@ -198,6 +210,26 @@ review focus:        b4a0e98's self-correction (an earlier claim in
                    test moved earlier) actually holds up under review
 risk:                low — design docs only, "not implemented" stated
                    explicitly throughout; zero production code risk
+required CI:         none
+```
+
+## Standalone — not part of any group
+
+```
+commit:              598e442 (docs(engineering): track PR split plan --
+                   this file's own tracking-decision commit)
+why standalone:      this commit is about the PR-planning process itself,
+                   not about any group's technical theme (search, usi,
+                   weights, rule-conformance, phase-a2-docs, gate-
+                   methodology, or design docs) -- forcing it into one of
+                   the seven groups above would misdescribe it
+recommendation:      merge it as its own tiny, dependency-free PR (a
+                   one-file docs move), or fold it into whichever PR is
+                   opened LAST, so that PR's version of this very file
+                   reflects the final, true state of all other groups
+                   once they've actually been split. Either is fine; it
+                   has zero technical dependencies either way.
+risk:                none
 required CI:         none
 ```
 
