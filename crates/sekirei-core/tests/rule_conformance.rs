@@ -1,46 +1,62 @@
-//! Rule-conformance golden corpus harness (Sprint 1 / Phase B3 foundation).
+//! Rule-conformance golden corpus harness (Sprint 1 / Phase B3 foundation;
+//! expanded Sprint 2 with nyugyoku/jishogi isolation cases + schema fields).
 //!
 //! Reads `tests/fixtures/rule_conformance_cases.jsonl` (regenerate the
-//! engine-verifiable cases with `cargo run --release --example
-//! gen_rule_conformance_corpus`) and checks each case's *recorded* facts
-//! against what the engine's own primitives (`generate_legal_moves`,
-//! `is_in_check`) actually observe when the moves are replayed -- not
-//! against sekirei-match-runner's rule *decisions*, which this corpus
-//! exists to eventually gate (see the module-level notes below on why).
+//! engine-verifiable cases with `cargo run --example
+//! gen_rule_conformance_corpus > tests/fixtures/rule_conformance_cases.jsonl`)
+//! and checks each case's *recorded* facts against what the engine's own
+//! primitives (`generate_legal_moves`, `is_in_check`) actually observe when
+//! the moves are replayed -- not against sekirei-match-runner's rule
+//! *decisions*, which this corpus exists to eventually gate (see the
+//! module-level notes below on why).
 //!
 //! This is a foundation, not exhaustive coverage: a handful of cases per
-//! rule category, not a full sweep. Declaration-win (nyugyoku) and
-//! mutual-impasse (jishogi) cases are recorded but not verifiable yet --
-//! no eligibility-counting logic exists anywhere in this codebase (confirmed
-//! during the Sprint 1 provenance/USI audit). Those cases assert only that
-//! the corpus's SFEN parses; they exist so a future implementation has
-//! fixtures to gate against, and to document the exact rule-source citation
-//! at record time (not what a future implementation happens to compute).
+//! rule category, not a full sweep. Nyugyoku (entering-king declaration) and
+//! jishogi (mutual-impasse) cases are recorded but not verifiable yet -- no
+//! eligibility-counting logic exists anywhere in this codebase (confirmed
+//! during the Sprint 1 provenance/USI audit, reconfirmed Sprint 2). Those
+//! cases assert only that the corpus's SFEN parses, has at least one legal
+//! move, and matches its claimed in-check state -- they exist so a future
+//! implementation has fixtures to gate against, and to document the exact
+//! rule-source citation at record time (not what a future implementation
+//! happens to compute). **If you're implementing nyugyoku/jishogi
+//! eligibility**: every `case_id` starting with `nyugyoku_`/`jishogi_` in
+//! the fixture is waiting on you -- promote it from a parse-only assertion
+//! to a real eligibility check, and update
+//! `KNOWN_MISSING_DECLARATION_CASE_COUNT` below (it will fail to compile-time
+//! remind you if you add/remove a pending case without touching this test).
 //!
 //! **A known, confirmed gap this corpus documents rather than hides**:
 //! `crates/sekirei-match-runner/src/main.rs`'s repetition handling
 //! (`EndReason::Repetition`) always resolves a 4-fold hash repeat to
 //! `Outcome::Draw` -- it has no continuous-check (連続王手) special case at
-//! all. The `continuous_check_sennichite_black_checks` case below is
-//! engine-verified to actually BE a continuous-check repetition (every
-//! black move gives check, the position recurs 4 times) -- but this test
-//! does not call into match-runner's outcome logic, so it does not (yet)
-//! fail to reflect that gap. Closing the gap is separate implementation
-//! work; this harness's job is to hold the fixture that work will be
-//! graded against.
+//! all, and its max-moves ceiling isn't exposed as a reusable API either.
+//! The `continuous_check_sennichite_*_checks` and `max_moves_ceiling` cases
+//! below are engine-verified for everything sekirei-core can check (legal
+//! move replay, repetition count, in-check pattern) -- but this harness does
+//! not call into match-runner's outcome logic, so their `expected_result`
+//! documents the *correct* ruling, not what match-runner currently produces.
 
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
-use sekirei_core::sfen::{move_from_usi, parse_position_cmd};
+use sekirei_core::sfen::{move_from_usi, move_to_usi, parse_position_cmd};
 
 const CORPUS: &str = include_str!("fixtures/rule_conformance_cases.jsonl");
+
+/// Exact count of `nyugyoku_`/`jishogi_`-prefixed cases in the corpus right
+/// now. Asserted exactly (not just "at least one") in
+/// `nyugyoku_and_jishogi_cases_are_recorded_as_pending_not_silently_dropped`
+/// below, so silent fixture drift (a case added or removed without anyone
+/// noticing) fails the build instead of passing quietly.
+const KNOWN_MISSING_DECLARATION_CASE_COUNT: usize = 8;
 
 struct Case {
     case_id: String,
     initial_sfen: String,
     move_history: Vec<String>,
-    repetition_count: u32,
-    continuous_check_side: String,
-    expected_result: String,
+    side_to_move: String,
+    expected_legal_moves: Vec<String>,
+    expected_repetition_count: u32,
+    expected_continuous_check_side: String,
 }
 
 /// Hand-rolled JSONL field extraction (no serde_json dependency in this
@@ -89,6 +105,21 @@ fn json_str_array(line: &str, key: &str) -> Vec<String> {
         .collect()
 }
 
+/// A field whose value is either `null` or a quoted string (only
+/// `expected_declaration_eligibility` uses this today).
+fn json_opt_str(line: &str, key: &str) -> Option<String> {
+    let needle = format!("\"{key}\":");
+    let start = line
+        .find(&needle)
+        .unwrap_or_else(|| panic!("missing {key} in {line}"))
+        + needle.len();
+    if line[start..].starts_with("null") {
+        None
+    } else {
+        Some(json_str(line, key))
+    }
+}
+
 fn parse_corpus() -> Vec<Case> {
     CORPUS
         .lines()
@@ -97,9 +128,10 @@ fn parse_corpus() -> Vec<Case> {
             case_id: json_str(line, "case_id"),
             initial_sfen: json_str(line, "initial_sfen"),
             move_history: json_str_array(line, "move_history"),
-            repetition_count: json_u32(line, "repetition_count"),
-            continuous_check_side: json_str(line, "continuous_check_side"),
-            expected_result: json_str(line, "expected_result"),
+            side_to_move: json_str(line, "side_to_move"),
+            expected_legal_moves: json_str_array(line, "expected_legal_moves"),
+            expected_repetition_count: json_u32(line, "expected_repetition_count"),
+            expected_continuous_check_side: json_str(line, "expected_continuous_check_side"),
         })
         .collect()
 }
@@ -151,8 +183,8 @@ fn repetition_count_matches_the_recorded_move_history() {
             }
         }
         assert_eq!(
-            occurrences, case.repetition_count,
-            "{}: recorded repetition_count doesn't match what replaying move_history actually produces",
+            occurrences, case.expected_repetition_count,
+            "{}: recorded expected_repetition_count doesn't match what replaying move_history actually produces",
             case.case_id
         );
     }
@@ -166,10 +198,10 @@ fn repetition_count_matches_the_recorded_move_history() {
 #[test]
 fn continuous_check_side_actually_checks_on_every_one_of_its_moves() {
     for case in parse_corpus() {
-        if case.continuous_check_side == "none" || case.move_history.is_empty() {
+        if case.expected_continuous_check_side == "none" || case.move_history.is_empty() {
             continue;
         }
-        let checker_is_black = case.continuous_check_side == "black";
+        let checker_is_black = case.expected_continuous_check_side == "black";
         let mut board = parse_position_cmd(&format!("sfen {}", case.initial_sfen)).unwrap();
         for (i, mv_str) in case.move_history.iter().enumerate() {
             let mover_is_black = board.side_to_move == sekirei_core::color::Color::Black;
@@ -191,22 +223,91 @@ fn continuous_check_side_actually_checks_on_every_one_of_its_moves() {
     }
 }
 
-/// Declaration-win/mutual-impasse cases: no eligibility logic exists yet
-/// anywhere in this codebase (confirmed during the Sprint 1 audit), so this
-/// only documents which cases are pending real implementation rather than
-/// silently skipping them.
+/// `expected_legal_moves` must always be engine-derived (never hand-typed --
+/// see the generator's own module doc for why); this test is what actually
+/// enforces that promise stays true, by re-deriving the legal-move list at
+/// `initial_sfen` for `side_to_move` and comparing it (as a set, since move
+/// ordering isn't part of the contract) against what's recorded.
 #[test]
-fn declaration_cases_are_recorded_as_pending_not_silently_dropped() {
+fn expected_legal_moves_match_the_engine_at_the_initial_position() {
+    for case in parse_corpus() {
+        let mut board = parse_position_cmd(&format!("sfen {}", case.initial_sfen)).unwrap();
+        let side = if case.side_to_move == "black" {
+            sekirei_core::color::Color::Black
+        } else {
+            sekirei_core::color::Color::White
+        };
+        assert_eq!(
+            board.side_to_move, side,
+            "{}: side_to_move field doesn't match the initial_sfen's own side-to-move token",
+            case.case_id
+        );
+        let mut actual: Vec<String> = generate_legal_moves(&mut board)
+            .iter()
+            .map(|m| move_to_usi(*m))
+            .collect();
+        let mut expected = case.expected_legal_moves.clone();
+        actual.sort();
+        expected.sort();
+        assert_eq!(
+            actual, expected,
+            "{}: expected_legal_moves doesn't match generate_legal_moves at the initial position",
+            case.case_id
+        );
+    }
+}
+
+/// Every case must carry all 11 documented fields with values from their
+/// valid domain -- catches a malformed fixture line before it can silently
+/// pass the other (more targeted) tests above by having, say, a typo'd
+/// `side_to_move` that happens to not be exercised by any other assertion.
+#[test]
+fn every_case_matches_the_documented_schema() {
+    for line in CORPUS.lines().filter(|l| !l.trim().is_empty()) {
+        let case_id = json_str(line, "case_id");
+        assert!(!case_id.is_empty(), "empty case_id in {line}");
+        json_str(line, "initial_sfen");
+        json_str_array(line, "move_history");
+        let side = json_str(line, "side_to_move");
+        assert!(
+            side == "black" || side == "white",
+            "{case_id}: side_to_move must be \"black\" or \"white\", got {side:?}"
+        );
+        json_str_array(line, "expected_legal_moves");
+        json_u32(line, "expected_repetition_count");
+        let check_side = json_str(line, "expected_continuous_check_side");
+        assert!(
+            check_side == "black" || check_side == "white" || check_side == "none",
+            "{case_id}: expected_continuous_check_side must be black/white/none, got {check_side:?}"
+        );
+        json_opt_str(line, "expected_declaration_eligibility"); // present, null or string -- either is valid
+        let result = json_str(line, "expected_result");
+        assert!(!result.is_empty(), "{case_id}: expected_result is empty");
+        json_str(line, "rule_reference");
+        json_str(line, "notes");
+    }
+}
+
+/// Nyugyoku (entering-king declaration) / jishogi (mutual-impasse) cases:
+/// no eligibility logic exists yet anywhere in this codebase (confirmed
+/// during the Sprint 1 audit, reconfirmed Sprint 2), so this documents
+/// exactly which cases are pending real implementation rather than silently
+/// skipping them -- and, unlike a plain non-empty check, asserts the exact
+/// count so adding or removing a pending case without updating
+/// `KNOWN_MISSING_DECLARATION_CASE_COUNT` fails the build instead of passing
+/// quietly.
+#[test]
+fn nyugyoku_and_jishogi_cases_are_recorded_as_pending_not_silently_dropped() {
     let pending: Vec<String> = parse_corpus()
         .into_iter()
-        .filter(|c| {
-            c.expected_result.contains("declaration") || c.expected_result.contains("ambiguous")
-        })
+        .filter(|c| c.case_id.starts_with("nyugyoku_") || c.case_id.starts_with("jishogi_"))
         .map(|c| c.case_id)
         .collect();
-    assert!(
-        !pending.is_empty(),
-        "expected at least one declaration-rule placeholder case in the corpus"
+    assert_eq!(
+        pending.len(),
+        KNOWN_MISSING_DECLARATION_CASE_COUNT,
+        "expected exactly {KNOWN_MISSING_DECLARATION_CASE_COUNT} pending nyugyoku/jishogi cases, found {}: {pending:?} -- update KNOWN_MISSING_DECLARATION_CASE_COUNT if this is an intentional addition/removal, or promote a case to a real assertion if you just implemented the eligibility logic",
+        pending.len()
     );
-    eprintln!("pending declaration-rule implementation, corpus cases held for it: {pending:?}");
+    eprintln!("pending nyugyoku/jishogi implementation, corpus cases held for it: {pending:?}");
 }

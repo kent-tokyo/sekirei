@@ -316,9 +316,11 @@ floodgate: 実戦テスト中（レートは計測中）。
 ## 現在の制限事項
 
 - NNUE 重みファイルは同梱なし。floodgate CSA データから訓練するかマテリアル評価にフォールバック
-- `setoption EvalFile` 対応済み。ゲーム中の重み再ロードにはエンジン再起動が必要
+- `setoption EvalFile` 対応済み。ゲーム中の重み再ロードにはエンジン再起動が必要(ホットリロードの設計は`docs/design/evalfile_reload.md`に記載済み、実装は未着手)
 - Pondering 対応済み（`go ponder` / `ponderhit`）。`setoption name Ponder value true` で有効化
 - MultiPV 対応済み（`setoption name MultiPV value N`）
+- 入玉宣言法・持将棋の判定は未実装。rule-conformance テストコーパスで known-missing として追跡中(`crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl`)
+- 連続王手の千日手は通常の千日手と区別されない — `sekirei-match-runner`の千日手判定は4回一致を常に引き分けとして扱う
 
 ## 名前の由来
 

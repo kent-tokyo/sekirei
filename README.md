@@ -329,9 +329,11 @@ floodgate status: active testing; rating is currently volatile.
 ## Current Limitations
 
 - NNUE weights are not bundled; train from floodgate CSA data or use the material eval fallback
-- `setoption EvalFile` supported; in-game weight reload requires engine restart
+- `setoption EvalFile` supported; in-game weight reload requires engine restart (hot-reload design specified in `docs/design/evalfile_reload.md`, not yet implemented)
 - Pondering: supported (`go ponder` / `ponderhit`); enable via `setoption name Ponder value true`
 - MultiPV: supported via `setoption name MultiPV value N`
+- Entering-king declaration win (入玉宣言法) and mutual-impasse (持将棋) rules are not implemented; a rule-conformance test corpus tracks these as known-missing placeholders (`crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl`)
+- Continuous-check repetition (連続王手の千日手) is not distinguished from an ordinary sennichite draw — `sekirei-match-runner`'s repetition handling always resolves a 4-fold repeat to a draw
 
 ## Name Origin
 
