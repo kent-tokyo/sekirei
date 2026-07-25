@@ -237,10 +237,25 @@ the full 1707-position, up-to-3400-game SPRT run. Proposed, not executed:
 2. ~~§12 — decide a swap-pause threshold~~ — **recommended 2026-07-25**:
    `--max-swap-pct 92`, with the caveat that the pre-launch 5-signal check
    still needs a human, not just this flag.
-3. §13 — **still open, deliberately not run**: burn-in has not been
-   executed. This remains explicitly out of scope until the user asks for
-   it — nothing in this document authorizes starting it.
+3. ~~§13 — run burn-in~~ — **done 2026-07-26**: 100 positions, 166 games,
+   all 6 operational pass criteria met cleanly (0 illegal moves, 0 protocol
+   errors, 166/166 weight loads, 0 retries, resource monitor never paused,
+   kifu spot-check sane). Full detail:
+   `docs/experiments/phase_a2_b1_vs_a_exploratory_burnin.md`.
 
-Once §13 is closed, "run the full B1-vs-A SPRT gate" becomes
-an actionable next step — and even then remains a separate, explicit
-decision, not something this document authorizes on its own.
+   **Unplanned finding, handled explicitly rather than silently accepted**:
+   the burn-in's own SPRT check reached a decisive PASS (B1 beats A,
+   elo_diff=+177.2, LLR=3.123) before its 100-position cap was exhausted.
+   Per user decision, this is recorded as an `exploratory_burnin_decisive_pass`
+   signal, **not** as the formal Gate Step 1 result — it used only the first
+   100/1707 (non-random, sequential) corpus positions, and promoting it would
+   retroactively weaken the pre-registration's 1707-position diversity
+   guarantee. **Formal Gate Step 1 remains PENDING.**
+
+The operational blockers are now all resolved, but "run the full formal
+B1-vs-A SPRT gate" is **not** yet an actionable next step: per the
+2026-07-26 decision, the next formal run additionally needs a fixed-seed
+deterministic permutation of the 1707 positions (not sequential order) and a
+minimum-diversity gate on top of the bare SPRT boundary (draft criteria in
+`phase_a2_b1_vs_a_exploratory_burnin.md`) — neither implemented yet. Launching
+the formal gate remains a separate, explicit decision for a future session.
