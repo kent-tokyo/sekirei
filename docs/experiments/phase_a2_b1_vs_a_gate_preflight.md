@@ -19,31 +19,39 @@ weight files have not changed since the suspended attempt. See
 `docs/experiments/phase_a2_seeded_init_audit.md` for the fuller per-seed
 audit (file size, format check, weight variance, teacher-cache fingerprint).
 
-## 2. Binary hash — **BLOCKED, not just stale**
+## 2. Binary hash — **resolved (rebuilt 2026-07-25)**
 
 `SUSPENDED.md` recorded `target/release/sekirei` sha256 `646408b6…` and
 `target/release/sekirei-match` sha256 `ef84b524…`, against git commit
-`af5d6d4`. Checked this session:
+`af5d6d4`. That build no longer existed (a `cargo clean` earlier this
+session removed `target/` entirely) and `HEAD` had advanced three commits
+past `af5d6d4` (all test/docs changes, no engine source touched) — see the
+prior revision of this section for the full reasoning on why "no engine
+code changed" was treated as an open question rather than an assumption.
 
-- `HEAD` is now `40e1d3e` (three commits ahead of `af5d6d4` — all
-  test/docs changes from today's earlier work; no engine source under
-  `crates/sekirei-core`, `crates/sekirei-usi`, or `crates/sekirei-match-runner`
-  changed). A rebuild would *likely* reproduce byte-identical binaries.
-  That is an inference, not a verification — the entire reason a gate
-  manifest records a binary hash is to not have to rely on that inference.
-- More concretely: **neither binary exists on disk right now.** The
-  `cargo clean` run earlier this session (245 MB removed, `target/` cleared)
-  deleted both. `ls target/release/sekirei target/release/sekirei-match` →
-  "No such file or directory" for both, confirmed this session.
+Resumed once the multi-signal resource check (heavy competing process
+exited, load average stable, memory pressure normal, swap-in/out flat over
+a 45s window, no leftover Sekirei processes) passed clean. Rebuilt scoped to
+only the two packages this gate needs (not a full workspace build):
 
-**This is a hard preflight blocker, not a soft one.** A `cargo build
---release` is required before this gate can launch at all — there is
-nothing to hash, let alone gate with. That build is explicitly out of scope
-today (banned by the standing light-day constraint, and the machine has
-another project's job pinning a CPU core with swap at ~90% as of this
-writing). Do not treat "no engine code changed" as equivalent to "verified
-identical binary" — rebuild and re-hash before launch, record the new hash
-in this file or its successor, and only then proceed.
+```
+cargo build --release -p sekirei -p sekirei-match-runner
+```
+
+Completed in 19.23s, swap unchanged before/after (11831.31 MB both times —
+confirms the scoped build was cheap, not a resource event).
+
+| Binary | git commit | sha256 | size |
+|---|---|---|---|
+| `target/release/sekirei` | `c399a7cfc8fc76882cb968cdb261bca3db314a32` | `792dbed130e38dfb8ecdb63a87e4234f4d3d512676cc06a9bf602c01c625f6b1` | 867,344 bytes |
+| `target/release/sekirei-match` | `c399a7cfc8fc76882cb968cdb261bca3db314a32` | `4ecdbca057e018363be236f755a9205ec8337bca5471010726a8aa60c99bef0e` | 877,248 bytes |
+
+Both hashes differ from `SUSPENDED.md`'s recorded values, as expected (a
+different git commit, and a different toolchain/environment snapshot in
+general — a changed hash here does **not** by itself imply a behavior
+change; no engine source changed between `af5d6d4` and `c399a7c`, only
+test/docs files). This binary hash is now current and verified, not
+inferred — the §14 blocker for a stale/missing binary is closed.
 
 ## 3. Opening corpus hash
 
@@ -209,14 +217,17 @@ the full 1707-position, up-to-3400-game SPRT run. Proposed, not executed:
 
 ## 14. Verdict: is the formal gate ready to launch?
 
-**No.** Blocked on, in order:
-1. §2 — rebuild `target/release/{sekirei,sekirei-match}` and record their
-   sha256 (currently: the binaries don't exist at all, post `cargo clean`).
-2. §12 — decide a swap-pause threshold appropriate to actual conditions at
-   launch time (not today's, which are elevated by an unrelated project's
-   job).
-3. §13 — run and pass the burn-in.
+**Not yet — one blocker resolved, two remain.**
+1. ~~§2 — rebuild `target/release/{sekirei,sekirei-match}` and record their
+   sha256~~ — **done 2026-07-25**, scoped build (`-p sekirei -p sekirei-match-runner`),
+   new hashes recorded in §2.
+2. §12 — still open: decide a swap-pause threshold appropriate to actual
+   conditions at launch time. Swap is much better than the ~90-94% seen
+   earlier this session (build itself left swap unchanged at ~89%
+   used/total), but this section deliberately still doesn't pick a number
+   on the user's behalf — that decision belongs at actual launch time.
+3. §13 — still open: burn-in has not been run.
 
-Only after all three does "run the full B1-vs-A SPRT gate" become an
-actionable next step, and even then it remains a separate, explicit decision
-— not something this document authorizes on its own.
+Once §12 and §13 are both closed, "run the full B1-vs-A SPRT gate" becomes
+an actionable next step — and even then remains a separate, explicit
+decision, not something this document authorizes on its own.
