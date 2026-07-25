@@ -159,19 +159,32 @@ run ID avoids. `state.json`/`SUSPENDED.md` in the old directory should be
 left as-is (an honest record of what was tried and suspended), not
 overwritten by a new attempt.
 
-## 12. Swap-pause threshold — open decision, not resolved here
+## 12. Swap-pause threshold — recommendation (resolved 2026-07-25)
 
 The previous attempt used the default `--max-swap-pct 50` and paused
 immediately at load1=18.3, then stayed paused at a steady ~85.7% swap that
-never cleared before the user suspended it. **Swap is worse right now**
-(~90%, this session, with another project's job actively running) than it
-was during that entire suspended attempt. Launching the next attempt with
-the same default will almost certainly re-enter the identical paused state
-immediately. `SUSPENDED.md` notes a ~92% figure was discussed but never
-applied. This preflight deliberately does **not** pick a new threshold —
-that is a decision for whoever launches the gate, informed by actual
-conditions at launch time, not a value to bake into a document written
-under today's (elevated, unrelated-project-driven) resource state.
+never cleared before the user suspended it. `SUSPENDED.md` notes a ~92%
+figure was discussed but never applied.
+
+**Recommendation: pass `--max-swap-pct 92` at the next launch.** Rationale:
+50% is far below what this machine idles at even absent any heavy job (this
+session alone saw total swap resize between 3072 MB and 15360 MB, and
+used-swap fluctuate between ~52% and ~94%, independent of whether
+`chematic`/`renkin` were actively running) — the default was simply
+miscalibrated for a machine that shares load with other projects, not a
+reasonable safety margin. 92% leaves headroom above the ~85.7% this session
+observed as a "steady, not actively worsening" baseline while genuinely
+pausing if swap keeps climbing.
+
+**Caveat, not resolved by a script flag alone**: `--max-swap-pct` is a bare
+percentage check (`gate_phase_a2_weight_ab.py`'s `should_pause_launching`,
+`:332-339`) — it does not implement the fuller 5-signal check (heavy
+process actually exited, load average stabilized, memory pressure normal,
+swap-in/out flat over a window, no leftover Sekirei processes) used earlier
+this session to judge it was safe to rebuild. Before *launching* (not
+before this preflight doc), a human should still confirm those 5 signals
+directly — `--max-swap-pct 92` makes the automated pause-during-run
+behavior more realistic, it does not replace the pre-launch judgment call.
 
 ## 13. Burn-in plan (uncounted toward the SPRT record) and pass criteria
 
@@ -217,17 +230,17 @@ the full 1707-position, up-to-3400-game SPRT run. Proposed, not executed:
 
 ## 14. Verdict: is the formal gate ready to launch?
 
-**Not yet — one blocker resolved, two remain.**
+**Not yet — two of three blockers resolved, one remains.**
 1. ~~§2 — rebuild `target/release/{sekirei,sekirei-match}` and record their
    sha256~~ — **done 2026-07-25**, scoped build (`-p sekirei -p sekirei-match-runner`),
    new hashes recorded in §2.
-2. §12 — still open: decide a swap-pause threshold appropriate to actual
-   conditions at launch time. Swap is much better than the ~90-94% seen
-   earlier this session (build itself left swap unchanged at ~89%
-   used/total), but this section deliberately still doesn't pick a number
-   on the user's behalf — that decision belongs at actual launch time.
-3. §13 — still open: burn-in has not been run.
+2. ~~§12 — decide a swap-pause threshold~~ — **recommended 2026-07-25**:
+   `--max-swap-pct 92`, with the caveat that the pre-launch 5-signal check
+   still needs a human, not just this flag.
+3. §13 — **still open, deliberately not run**: burn-in has not been
+   executed. This remains explicitly out of scope until the user asks for
+   it — nothing in this document authorizes starting it.
 
-Once §12 and §13 are both closed, "run the full B1-vs-A SPRT gate" becomes
+Once §13 is closed, "run the full B1-vs-A SPRT gate" becomes
 an actionable next step — and even then remains a separate, explicit
 decision, not something this document authorizes on its own.
