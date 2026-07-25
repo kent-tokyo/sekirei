@@ -72,8 +72,8 @@ corpus's full diversity," which is what Gate Step 1 was designed to answer.
 | `target/release/sekirei-match` sha256 | `4ecdbca057e018363be236f755a9205ec8337bca5471010726a8aa60c99bef0e` |
 | B1 (candidate) weight, sha256 | `019d13f284447b6afc3905dfccb7a5a570e4e3d3b08655a7f3a7b43b174a1385` |
 | A (baseline, v011) weight, sha256 | `a45be6099c0936283e79f34d380a4dbc7ba681796bb0bb56b2cd743c2c786ea6` |
-| Full opening corpus, sha256 | `816fdf7661989b348bf1c2e078fd6b5748ff9cfc14fa0aed3b83c6df39d56545` (`data/gate/openings_gateB.sfen`, 1707 positions) |
-| First-100-positions-used subset, sha256 | `7d39a0247ccface1140a7c5e3e5256100c5e7a5d4596c4452981eeaecb204b56` — saved verbatim at `results/phase_a2/b1_vs_a_burnin/artifacts/first100_positions_used.sfen` |
+| Full opening corpus, sha256 | `816fdf7661989b348bf1c2e078fd6b5748ff9cfc14fa0aed3b83c6df39d56545` (`data/gate/openings_gateB.sfen`, 1707 raw lines / **1700 canonical valid openings** — see `phase_a2_b1_vs_a_formal_gate_preregistration.md`'s "Resolving 1700 vs. 1707") |
+| First-100-positions-used subset, sha256 | **Corrected 2026-07-26**: `6492afec9ac99bedf7f0e444be16c66ba4157871956710285a0292a8e705f389` — saved verbatim at `results/phase_a2/b1_vs_a_burnin/artifacts/first100_positions_used.sfen`. The originally-recorded hash (`7d39a024...`) was wrong: it was extracted via a plain `head -100` on the raw corpus file, which captured the file's 7 leading `#` comment lines plus only 93 real SFEN positions — not the 100 real positions the gate script's own comment-filtering `load_positions` actually used. Regenerated with the correct filter (skip `#`/blank lines, then take 100) and re-hashed; the burn-in's *results* (W/D/L, Elo, LLR) are unaffected — this error was only in which positions this artifact preserved for the record, not in what was actually played. |
 | Threads (per engine) | 2 (explicit, `--engine-option Threads=2`) |
 | Hash / TT size | 64 MB — **not explicitly set** by the gate script; this is `sekirei-usi`'s compiled-in `DEFAULT_HASH_MB`, applied because no `Hash` USI option was passed |
 | Byoyomi | 1500 ms |
