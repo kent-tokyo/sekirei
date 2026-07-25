@@ -79,3 +79,36 @@ Reuse the existing test file shapes as direct precedents (`evalfile_load_failure
 - Legacy `JANOSW03` still loads successfully under reload, identically to today's startup path.
 - The sha256 printed at load time matches an independent `sha256sum`/`scripts/verify_weights_registry.py` recompute of the same file.
 - Two `Engine` instances constructed in one process hold independent `Arc<NnueWeights>` — loading a second, different file into instance B does not affect instance A's evaluation output. (See `docs/experiments/search_ablation_multiweight_repro.md` for a minimal, code-traced demonstration of the current `OnceLock` behavior this test plan supersedes.)
+
+## 6. Commit-split plan (added 2026-07-26 — design only, no code written)
+
+§4's six migration steps, broken into individually-landable commits. Each
+row states what the commit changes, confirms the codebase compiles and
+passes existing tests in that exact intermediate state (no "half-migrated"
+commit), and its real dependencies — reordered from a naive 1-8 reading
+where the dependency analysis below found a better order.
+
+| # | Commit | What changes | Compiles/tests pass at this point? | Depends on |
+|---|---|---|---|---|
+| 1 | Loader API returns format metadata | Extend today's side-effect-free `read_weights` (or add a thin wrapper) to also return/expose magic string and computed dimensions, without changing its parsing or error behavior | Yes — purely additive function, no existing call site touched | none |
+| 2a | `Engine` struct wraps today's storage, **no behavior change** | Introduce the `Engine` struct (§2's sketch); internally it still holds a single-init cell equivalent to today's `OnceLock` — mechanical wrap, not yet swappable | Yes — behavior is bit-for-bit identical to today, this is a pure refactor | #1 (uses its metadata-returning loader internally) |
+| 2b | Make `Engine`'s storage actually swappable (`Arc<NnueWeights>` + a simple `Mutex`/single-writer cell) | The storage itself becomes replaceable; nothing yet *triggers* a replacement (no caller does it) | Yes — dead capability until #4 wires a caller to it; existing single-load-at-startup path is unaffected | #2a |
+| 3 | Migrate internal call sites (`add_col`/`sub_col`/`evaluate`/`NnueAcc::new`/`refresh`) from the bare `weights()` global to an explicit reference threaded from `Engine` | Every read of the global becomes a read of an explicit parameter/field instead | Yes — mechanical, one call-site category at a time; `sekirei-usi`'s one `Engine` instance behaves identically | #2b |
+| 4 | Multi-instance independence test | Add the permanent regression test: two `Engine` instances in one process, load different weights into each, assert independence | Yes, and **this is the point where the P0 `OnceLock` bug is actually fixed and locked in** — recommend landing this test right after #3, not at the end (see note below) | #3 |
+| 5 | Wire `setoption EvalFile` to `Engine::reload_weights` (validate-now, apply-later) instead of one-shot `load_weights` | `setoption EvalFile` starts actually doing something (storing a *pending* validated reload) rather than just recording a path string | Yes — validation happens, but nothing applies yet without #6 | #2b, #3 |
+| 6 | Apply pending reload at `isready` (deferred while a search is in flight) | The reload takes effect for real, following §2's "Reload vs. in-flight search" rule | Yes — this is the first commit where a *second* `EvalFile`+`isready` in one process actually changes behavior | #5 |
+| 7 | Accumulator rebuild confirmation + sha256 display | Confirm/add a regression test that a fresh `Board`/`refresh_acc()` after a swap picks up the new weights (§2's "Accumulator rebuild" already argues this needs no new code, just verification); add the `sha2` dependency and `info string EvalFile sha256=...` line | Yes | #6 |
+| 8 | `search_ablation` weight-isolation option (optional, not required by the P0 fix) | Give `search_ablation` a way to construct two independent `Engine`s with different weights in-process, *if* a future comparison ever wants that (today it doesn't — see `search_ablation_multiweight_repro.md` §2) | Yes — purely additive, `sekirei-bench`-local change | #3 (needs `Engine` to exist; does not need #5–#7's USI-specific plumbing) |
+
+**Reordering note vs. a naive 1-8 reading**: the independence test (listed
+7th in the original example numbering) is moved to **immediately after
+`Engine` becomes real and injected (#3)** rather than left until the end.
+The property it verifies — two `Engine`s, two independent weight sets — is
+fully expressible as soon as `Engine` exists and is actually used for
+reads, which is `#3`, not after the USI reload command is wired up (`#5`-`#6`).
+Landing it early means the actual P0 fix (independence) is locked in by a
+real test at the earliest possible point, rather than being implicitly
+assumed correct while three more USI-plumbing commits land on top of it.
+Commit #8 (`search_ablation` isolation) similarly doesn't need to wait for
+the USI-specific commits (#5-#7) — it only needs `Engine` to exist (#3) —
+so it can land in parallel with #5-#7 rather than strictly after them.
