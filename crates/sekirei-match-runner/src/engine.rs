@@ -80,10 +80,7 @@ impl UsiEngine {
 
     /// Read the next output line, waiting at most `timeout`.
     fn recv_line(&mut self, timeout: Duration) -> io::Result<String> {
-        self.rx
-            .recv_timeout(timeout)
-            .map(|s| s.trim_end().to_string())
-            .map_err(|_| io::Error::new(io::ErrorKind::TimedOut, "engine read timeout"))
+        map_recv_result(self.rx.recv_timeout(timeout))
     }
 
     /// Read lines until one contains `token`, discarding others.
@@ -206,6 +203,25 @@ impl UsiEngine {
     }
 }
 
+/// Distinguishes a genuine slow-response timeout (engine still alive, just
+/// didn't answer in time -- `go()`'s caller should treat this as a time
+/// forfeit) from the reader thread ending because the process died/closed
+/// its pipe (`Disconnected` -- a real engine fault, not a timing one). Both
+/// previously collapsed into the same `TimedOut` io::Error, which made a
+/// time forfeit indistinguishable from a crash. A pure function (no
+/// `UsiEngine`/process needed) so the distinction itself is directly
+/// unit-testable.
+fn map_recv_result(r: Result<String, mpsc::RecvTimeoutError>) -> io::Result<String> {
+    r.map(|s| s.trim_end().to_string()).map_err(|e| match e {
+        mpsc::RecvTimeoutError::Timeout => {
+            io::Error::new(io::ErrorKind::TimedOut, "engine read timeout")
+        }
+        mpsc::RecvTimeoutError::Disconnected => {
+            io::Error::new(io::ErrorKind::BrokenPipe, "engine process disconnected")
+        }
+    })
+}
+
 /// Extract the byoyomi value (ms) from a `go ... byoyomi N ...` command.
 fn parse_byoyomi_ms(go_cmd: &str) -> Option<u64> {
     let mut it = go_cmd.split_whitespace();
@@ -265,5 +281,26 @@ mod tests {
     #[test]
     fn setoption_commands_on_empty_input_is_empty() {
         assert!(setoption_commands(&[]).is_empty());
+    }
+
+    #[test]
+    fn recv_timeout_maps_to_timedout_io_error() {
+        let err = map_recv_result(Err(mpsc::RecvTimeoutError::Timeout)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn recv_disconnected_maps_to_broken_pipe_io_error_not_timedout() {
+        // The distinction this test locks: a dead/closed engine process must
+        // never look like a timeout (which callers treat as a time forfeit).
+        let err = map_recv_result(Err(mpsc::RecvTimeoutError::Disconnected)).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::BrokenPipe);
+        assert_ne!(err.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn recv_ok_trims_trailing_whitespace() {
+        let line = map_recv_result(Ok("bestmove 7g7f  \r\n".to_string())).unwrap();
+        assert_eq!(line, "bestmove 7g7f");
     }
 }
