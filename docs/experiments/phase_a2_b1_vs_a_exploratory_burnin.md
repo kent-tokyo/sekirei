@@ -51,6 +51,21 @@ corpus's full diversity," which is what Gate Step 1 was designed to answer.
   field, and at n=2 games/shard those are far too wide to be meaningful
   individually). Recorded here as a known gap, not glossed over.
 
+### Note: why 162 and 166 both appear in this run's logs
+
+`progress.log`/`state.json`'s `sprt_history` show the DECISIVE PASS first
+firing at `confirmed_prefix=81` (**162** games, `llr=2.966` crossing the
+upper bound `2.944`) at 2026-07-26 00:13:51. Setting `stop_launching=True`
+at that instant only stops *new* shard launches -- shards 82 and 83 were
+already running and were allowed to finish rather than being killed
+mid-game, per this orchestrator's existing "pause/stop launching, never
+kill in-flight work" design. Those two shards completed 80 seconds later
+(00:15:11), advancing `confirmed_prefix` to 83 (**166** games,
+`llr=3.123`), which is the final number `combined.json`/`combined.jsonl`
+hold and the one used throughout the rest of this record. 162 and 166 are
+two timestamps of the same monotonically-growing series, not two different
+datasets -- no game was lost, duplicated, or recomputed between them.
+
 ## Operational/protocol burn-in criteria (all passed)
 
 | Criterion | Result |

@@ -135,6 +135,56 @@ def load_or_create_permutation(outdir, corpus_path, num_positions):
     }
 
 
+def manifest_path(outdir):
+    return os.path.join(outdir, "manifest.toml")
+
+
+def _toml_value(v):
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, (int, float)):
+        return str(v)
+    if isinstance(v, str):
+        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+        return f'"{escaped}"'
+    raise TypeError(f"unsupported TOML value type for manifest field: {type(v)}")
+
+
+def write_manifest_immutable(outdir, fields):
+    """docs/design/gate_manifest_schema.md's [immutable] table -- written
+    once at run creation, never edited afterward. No third-party TOML writer
+    is installed in this environment (only stdlib tomllib, read-only) --
+    hand-formatted since the schema is flat key=value pairs, matching this
+    project's existing "no third-party Python dependencies" convention."""
+    lines = ["schema_version = 1", "", "[immutable]"]
+    for k, v in fields.items():
+        lines.append(f"{k} = {_toml_value(v)}")
+    with open(manifest_path(outdir), "w") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def append_manifest_progress(outdir, fields):
+    """Appends one [[progress]] snapshot -- never overwrites a prior one, so
+    the manifest's own history is an audit trail, mirroring state["sprt_history"]."""
+    lines = ["", "[[progress]]"]
+    for k, v in fields.items():
+        lines.append(f"{k} = {_toml_value(v)}")
+    with open(manifest_path(outdir), "a") as f:
+        f.write("\n".join(lines) + "\n")
+
+
+def sprt_llr_bounds(alpha, beta):
+    """Wald SPRT decision boundaries from alpha/beta -- matches the exact
+    figures veridict's own sprt module produces (cross-checked against the
+    real burn-in's observed bounds [-2.944, 2.944] at alpha=beta=0.05:
+    ln(0.95/0.05) = ln(19) = 2.944...)."""
+    import math
+
+    upper = math.log((1 - beta) / alpha)
+    lower = math.log(beta / (1 - alpha))
+    return lower, upper
+
+
 def state_path(outdir):
     return os.path.join(outdir, "state.json")
 
@@ -323,12 +373,17 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
     plus the six operational counters -- checked here against what this
     binary's logging actually distinguishes today, not assumed:
 
-    - illegal_moves / engine_errors: EndReason::IllegalMove/EngineError print
-      literal " (illegal)"/" (engine error)" suffixes on the per-game summary
-      line (crates/sekirei-match-runner/src/main.rs), captured in each
-      shard's stdout log. engine_errors folds in "stale_bestmoves" -- the
-      binary has no separate EndReason for it (preflight §9: EngineError
-      "covers stale/malformed engine output").
+    - illegal_moves / engine_errors / time_forfeits: EndReason::IllegalMove/
+      EngineError/TimeForfeit print literal " (illegal)"/" (engine error)"/
+      " (time forfeit)" suffixes on the per-game summary line
+      (crates/sekirei-match-runner/src/main.rs), captured in each shard's
+      stdout log. engine_errors folds in "stale_bestmoves" -- the binary has
+      no separate EndReason for it (preflight §9: EngineError "covers
+      stale/malformed engine output"). TimeForfeit is now a real, distinct
+      EndReason (added alongside this function): engine.rs's map_recv_result
+      distinguishes a genuine slow-response timeout (still alive, just too
+      slow -- a time forfeit) from the reader thread ending because the
+      process died/closed its pipe (a real engine fault, stays EngineError).
     - weight_load_failures: filled in by the caller from state's own
       real-time tracking (verify_weights_loaded already kills+retries on
       detection; this just surfaces the cumulative count).
@@ -340,15 +395,12 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
     - material_fallbacks: always 0 by construction -- preflight §8 verified
       two independent layers (weight-load aborts the process; no fallback
       code path exists at all).
-    - time_forfeits: always 0 / N/A -- no such EndReason variant exists in
-      this binary today (checked: Resign, Win, IllegalMove, Repetition,
-      MaxMoves, EngineError). This is an honest gap, not a verified-clean
-      count.
 
     Known limitation: a shard's stdout log is overwritten (not appended) on
-    each retry, so an illegal-move/engine-error signature from an earlier
-    failed attempt of a shard that eventually succeeded is not counted --
-    pre-existing limitation of the retry/logging design, not new here.
+    each retry, so an illegal-move/engine-error/time-forfeit signature from
+    an earlier failed attempt of a shard that eventually succeeded is not
+    counted -- pre-existing limitation of the retry/logging design, not new
+    here.
     """
     from collections import defaultdict
 
@@ -356,6 +408,7 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
     pair_positions = {}
     illegal_moves = 0
     engine_errors = 0
+    time_forfeits = 0
 
     for shard in confirmed_shards:
         paths = shard_paths(outdir, shard["shard_id"])
@@ -382,6 +435,7 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
                 content = f.read()
             illegal_moves += content.count(" (illegal)")
             engine_errors += content.count(" (engine error)")
+            time_forfeits += content.count(" (time forfeit)")
 
     completed_pair_ids = [pid for pid, n in pair_game_counts.items() if n >= 2]
     completed_pairs = len(completed_pair_ids)
@@ -399,16 +453,39 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
         "weight_load_failures": 0,  # caller overwrites with state's cumulative count
         "protocol_errors": 0,
         "material_fallbacks": 0,
-        "time_forfeits": 0,
+        "time_forfeits": time_forfeits,
     }
-    return completed_pairs, spread_ok, counters
+    # Does the *current* script/binary pair know how to detect each counter
+    # at all -- all six now have a real mechanism (see docstring above).
+    # Caveat: this reflects the current codebase, not necessarily whatever
+    # binary produced a *specific past* shard's stdout log -- a shard run
+    # under a binary built before the time-forfeit tag existed cannot have
+    # it in its log, which would read as "0 time forfeits" for the wrong
+    # reason ("this binary couldn't have told us") rather than "verified
+    # clean." Not an issue for a freshly-launched formal gate (rebuilt
+    # immediately before launch, per standing convention), but relevant if
+    # this function is ever pointed at older, pre-existing run data.
+    counters_observed = {
+        "illegal_moves": True,
+        "engine_errors": True,
+        "weight_load_failures": True,
+        "protocol_errors": True,
+        "material_fallbacks": True,
+        "time_forfeits": True,
+    }
+    return completed_pairs, spread_ok, counters, counters_observed
 
 
-def decide_verdict(sprt_out, completed_pairs, spread_ok, counters):
-    """Preregistration §3 stop rule. Returns (verdict, detail):
-    verdict is one of None (keep launching), "PASS", "FAIL", "CONTAMINATED".
-    INCONCLUSIVE is decided separately in cmd_run, only once shards are
-    actually exhausted -- it isn't a per-check outcome of this function."""
+def decide_verdict(sprt_out, completed_pairs, spread_ok, counters, counters_observed):
+    """Preregistration §3 stop rule, extended with a NOT_READY outcome for any
+    counter this run can't actually observe (e.g. an old binary predating
+    time-forfeit instrumentation). Returns (verdict, detail):
+    verdict is one of None (keep launching), "PASS", "FAIL", "CONTAMINATED",
+    "NOT_READY". INCONCLUSIVE is decided separately in cmd_run, only once
+    shards are actually exhausted -- it isn't a per-check outcome here."""
+    unobserved = [k for k, ok in counters_observed.items() if not ok]
+    if unobserved:
+        return "NOT_READY", {"unobserved_counters": unobserved}
     nonzero = {k: v for k, v in counters.items() if v}
     if nonzero:
         return "CONTAMINATED", nonzero
@@ -569,7 +646,7 @@ def cmd_run(args):
             "sprt_history": [],
             "stop_launching": False,
             "resource_paused": False,
-            "contamination": None,
+            "verdict_detail": None,
         }
         save_state(args.outdir, state)
         log_progress(
@@ -580,6 +657,53 @@ def cmd_run(args):
             f"permutation_seed={perm_meta['permutation_seed']}, "
             f"ordered_output_sha256={perm_meta['ordered_output_sha256'][:12]}...",
         )
+        llr_lower, llr_upper = sprt_llr_bounds(args.alpha, args.beta)
+
+        def _label(path):
+            return os.path.splitext(os.path.basename(path))[0]
+
+        write_manifest_immutable(
+            args.outdir,
+            {
+                "run_id": os.path.basename(args.outdir.rstrip("/")),
+                "candidate_name": _label(args.weights1),
+                "baseline_name": _label(args.weights2),
+                "candidate_weight_path": args.weights1,
+                "candidate_weight_sha256": sha256_of_file(args.weights1),
+                "baseline_weight_path": args.weights2,
+                "baseline_weight_sha256": sha256_of_file(args.weights2),
+                "engine_binary_sha256": sha256_of_file(args.engine_bin),
+                "match_runner_sha256": sha256_of_file(MATCH_BIN),
+                "opening_corpus_sha256": perm_meta["input_corpus_sha256"],
+                "permutation_seed": perm_meta["permutation_seed"],
+                "permutation_sha256": perm_meta["ordered_output_sha256"],
+                "threads": args.threads,
+                # Not a script flag -- sekirei-usi's compiled-in default
+                # (crates/sekirei-usi/src/main.rs's DEFAULT_HASH_MB), recorded
+                # explicitly per the schema's own reasoning (an implicit
+                # default is exactly what this manifest exists to surface).
+                "hash_mb": 64,
+                "byoyomi_ms": args.byoyomi,
+                # Not a script flag either -- UseSpeculation defaults to false
+                # in sekirei-usi and nothing in --option overrides it here
+                # (preflight §5, re-verified, not assumed).
+                "speculation": False,
+                "fresh_process_policy": (
+                    "one sekirei-match subprocess per shard, two fresh engine "
+                    "child processes per shard"
+                ),
+                "elo0": args.elo0,
+                "elo1": args.elo1,
+                "alpha": args.alpha,
+                "beta": args.beta,
+                "llr_lower": llr_lower,
+                "llr_upper": llr_upper,
+                "minimum_completed_pairs": MINIMUM_COMPLETED_PAIRS,
+                "minimum_games": MINIMUM_COMPLETED_PAIRS * 2,
+                "maximum_games": num_positions * 2,
+                "created_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            },
+        )
     else:
         recorded = state["cfg"].get("ordered_output_sha256")
         if recorded is not None and recorded != perm_meta["ordered_output_sha256"]:
@@ -588,6 +712,30 @@ def cmd_run(args):
                 f"!= reloaded permutation_order.json's {perm_meta['ordered_output_sha256']} "
                 "-- this is not a resume of the same run (preregistration §1 Resume rule)"
             )
+        # gate_manifest_schema.md's own design principle: refuse to continue
+        # if the manifest's immutable section disagrees with what's actually
+        # on disk right now, the same way verify_weights_registry.py refuses
+        # to treat a hash mismatch as merely informational.
+        if os.path.exists(manifest_path(args.outdir)):
+            import tomllib
+
+            with open(manifest_path(args.outdir), "rb") as f:
+                manifest = tomllib.load(f)
+            checks = [
+                ("engine_binary_sha256", sha256_of_file(args.engine_bin)),
+                ("match_runner_sha256", sha256_of_file(MATCH_BIN)),
+                ("candidate_weight_sha256", sha256_of_file(args.weights1)),
+                ("baseline_weight_sha256", sha256_of_file(args.weights2)),
+            ]
+            for field, actual in checks:
+                recorded_hash = manifest["immutable"].get(field)
+                if recorded_hash is not None and recorded_hash != actual:
+                    raise SystemExit(
+                        f"resume mismatch: manifest.toml's {field}={recorded_hash} "
+                        f"!= current {field}={actual} -- binary/weight changed after "
+                        "this run_id started (preregistration §3: that invalidates the "
+                        "run for a formal verdict; start a new run_id instead)"
+                    )
     cfg = state["cfg"]
     live_popens = {}
 
@@ -655,7 +803,7 @@ def cmd_run(args):
             )
             total_games = b1_wins + a_wins + draws
             sprt_out, rc = run_sprt_check(cfg, combined_json)
-            completed_pairs, spread_ok, counters = compute_diversity_and_counters(
+            completed_pairs, spread_ok, counters, counters_observed = compute_diversity_and_counters(
                 args.outdir, all_confirmed, num_positions
             )
             counters["weight_load_failures"] = state.get("weight_load_failures", 0)
@@ -683,11 +831,30 @@ def cmd_run(args):
                  "counters": counters}
             )
             if state["decisive_verdict"] is None:
-                verdict, detail = decide_verdict(sprt_out, completed_pairs, spread_ok, counters)
-                if verdict == "CONTAMINATED":
+                verdict, detail = decide_verdict(
+                    sprt_out, completed_pairs, spread_ok, counters, counters_observed
+                )
+                if verdict == "NOT_READY":
+                    # Not merely "keep going" -- a run whose own counters
+                    # can't vouch for themselves shouldn't keep spending
+                    # compute on games nothing can ever finalize a verdict
+                    # from. Halts the same way CONTAMINATED does, but stays a
+                    # distinct value: this is an instrumentation gap, not
+                    # evidence the games themselves are tainted.
+                    state["decisive_verdict"] = "NOT_READY"
+                    state["decisive_at_games"] = total_games
+                    state["verdict_detail"] = detail
+                    state["stop_launching"] = True
+                    log_progress(
+                        args.outdir,
+                        f"*** NOT_READY at {total_games} games: unobservable counters {detail} -- "
+                        "no PASS/FAIL/INCONCLUSIVE/CONTAMINATED can be finalized until every "
+                        "counter is genuinely observable ***",
+                    )
+                elif verdict == "CONTAMINATED":
                     state["decisive_verdict"] = "CONTAMINATED"
                     state["decisive_at_games"] = total_games
-                    state["contamination"] = detail
+                    state["verdict_detail"] = detail
                     state["stop_launching"] = True
                     log_progress(
                         args.outdir,
@@ -712,6 +879,31 @@ def cmd_run(args):
                         f"spread_ok={spread_ok}) -- continuing to launch shards",
                     )
             save_state(args.outdir, state)
+
+            terminal_status = {
+                "PASS": "decisive", "FAIL": "decisive",
+                "CONTAMINATED": "contaminated", "NOT_READY": "not_ready",
+            }
+            append_manifest_progress(
+                args.outdir,
+                {
+                    "status": terminal_status.get(state["decisive_verdict"], "running"),
+                    "completed_games": total_games,
+                    "completed_pairs": completed_pairs,
+                    "illegal_moves": counters["illegal_moves"],
+                    "protocol_errors": counters["protocol_errors"],
+                    "stale_bestmoves": counters["engine_errors"],
+                    "time_forfeits": counters["time_forfeits"],
+                    "weight_load_failures": counters["weight_load_failures"],
+                    "material_fallbacks": counters["material_fallbacks"],
+                    "completed_at": (
+                        time.strftime("%Y-%m-%dT%H:%M:%S")
+                        if state["decisive_verdict"] is not None
+                        else ""
+                    ),
+                    "verdict": state["decisive_verdict"] or "PENDING",
+                },
+            )
 
         snapshot = resource_snapshot(live_popens)
         log_resource_snapshot(args.outdir, snapshot)
@@ -753,9 +945,31 @@ def cmd_run(args):
                 # combo is INCONCLUSIVE, never silently left as None -- a run that
                 # never got the chance to finalize PASS/FAIL still needs a verdict
                 # on record, distinct from a stuck/failed run (handled above).
+                # Gated on decisive_verdict still being None so a later no-op
+                # resume of an already-finished run (this branch fires again
+                # every time cmd_run is re-invoked on a completed outdir)
+                # never appends a duplicate manifest snapshot.
                 if state["decisive_verdict"] is None:
                     state["decisive_verdict"] = "INCONCLUSIVE"
                     save_state(args.outdir, state)
+                    last = state["sprt_history"][-1] if state["sprt_history"] else None
+                    last_counters = last["counters"] if last else {}
+                    append_manifest_progress(
+                        args.outdir,
+                        {
+                            "status": "inconclusive",
+                            "completed_games": last["games"] if last else 0,
+                            "completed_pairs": last["completed_pairs"] if last else 0,
+                            "illegal_moves": last_counters.get("illegal_moves", 0),
+                            "protocol_errors": last_counters.get("protocol_errors", 0),
+                            "stale_bestmoves": last_counters.get("engine_errors", 0),
+                            "time_forfeits": last_counters.get("time_forfeits", 0),
+                            "weight_load_failures": last_counters.get("weight_load_failures", 0),
+                            "material_fallbacks": last_counters.get("material_fallbacks", 0),
+                            "completed_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                            "verdict": "INCONCLUSIVE",
+                        },
+                    )
             break
 
         if not state["stop_launching"] and not pause_reason:
@@ -801,7 +1015,7 @@ def cmd_status(args):
         counts[s["status"]] = counts.get(s["status"], 0) + 1
     print(f"shards: {counts}  confirmed_prefix={state['confirmed_prefix']}/{len(shards)}")
     print(f"decisive_verdict={state['decisive_verdict']} at_games={state['decisive_at_games']}")
-    if state.get("contamination"):
+    if state.get("verdict_detail"):
         print(f"contamination: {state['contamination']}")
     print(f"resource_paused={state.get('resource_paused', False)}")
     if state["sprt_history"]:

@@ -110,7 +110,7 @@ created_at = ""                    # ISO 8601 -- NOT `Date.now()`-style;
 
 [progress]
 status = "pending"                 # pending | running | paused | decisive |
-                                    # inconclusive | contaminated
+                                    # inconclusive | contaminated | not_ready
 completed_games = 0
 completed_pairs = 0                # per the pairing rule -- only counts
                                     # pairs with BOTH color-orientations done
@@ -123,12 +123,21 @@ material_fallbacks = 0
 completed_at = ""                  # ISO 8601, set only once status leaves
                                     # "running"/"paused"
 verdict = "PENDING"                # PENDING | PASS | FAIL | INCONCLUSIVE |
-                                    # CONTAMINATED -- mirrors the stop-rule
-                                    # outcomes in the preregistration doc §3
-                                    # exactly; this field's value should
+                                    # CONTAMINATED | NOT_READY -- mirrors the
+                                    # stop-rule outcomes in the preregistration
+                                    # doc §3 exactly; this field's value should
                                     # always be derivable by re-running the
                                     # stop-rule logic over the rest of this
-                                    # table, never set by hand
+                                    # table, never set by hand.
+                                    # NOT_READY (added when time-forfeit
+                                    # observation was implemented) means one
+                                    # of the six operational counters can't
+                                    # actually be observed by the binary that
+                                    # produced this run's data -- distinct
+                                    # from CONTAMINATED (counters observed,
+                                    # and dirty): NOT_READY is an
+                                    # instrumentation gap, not evidence the
+                                    # games themselves are tainted.
 ```
 
 ## Notes on fields not literally in the user's requested list
