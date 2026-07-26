@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Unit tests for gate_phase_a2_weight_ab.py's permutation and §2/§3
-diversity-gate/stop-rule logic (see docs/experiments/
-phase_a2_b1_vs_a_formal_gate_preregistration.md).
+diversity-gate/stop-rule logic (see docs/gate/phase_a2_launch_readiness.md).
 
 No third-party dependencies (stdlib unittest only), matching this project's
 existing test_gate_dashboard.py convention.
@@ -23,7 +22,7 @@ _spec.loader.exec_module(gw)
 
 
 class PermutationTests(unittest.TestCase):
-    """Category: deterministic permutation (preregistration §1)."""
+    """Category: deterministic permutation (docs/gate/phase_a2_launch_readiness.md §1)."""
 
     def test_matches_the_preregistered_reference_output_for_n8(self):
         # Regression oracle: computed independently from the doc's exact
@@ -271,7 +270,7 @@ class StopRuleTests(unittest.TestCase):
 
 
 class ManifestTests(unittest.TestCase):
-    """Category: gate_manifest_schema.md TOML writer -- fixture round-trips."""
+    """Category: docs/gate/phase_a2_manifest_contract.md's TOML writer -- fixture round-trips."""
 
     def setUp(self):
         self.outdir = tempfile.mkdtemp(prefix="gate_manifest_test_")
