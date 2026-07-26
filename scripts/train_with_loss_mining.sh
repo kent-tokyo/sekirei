@@ -10,6 +10,10 @@
 # trials) -- see tasks/lessons.md "Strength gates -- startpos-only matches
 # collapse". Requires shogiesa >= the from-match sfen fix (commit ff90198).
 #
+# Verified against: shogiesa 0.9.0 (github.com/kent-tokyo/shogiesa,
+# schema_version 11), quietset-cli 0.16.0 -- same convention as
+# scripts/train_with_shogiesa_quietset.sh.
+#
 # Label depth is deliberately NOT --engine-option Threads=1: self-play games
 # played at Threads=1/1000ms byoyomi reach only ~depth 2-4 effectively, so
 # labeling at that same shallow depth would just be training the engine on
