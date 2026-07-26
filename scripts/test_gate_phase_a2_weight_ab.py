@@ -13,6 +13,7 @@ import json
 import os
 import shutil
 import tempfile
+import tomllib
 import unittest
 
 _SCRIPT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gate_phase_a2_weight_ab.py")
@@ -114,12 +115,13 @@ class DiversityAndCountersTests(unittest.TestCase):
                 {"id": "pos1_pair0", "result": "candidate_win"},  # lone orientation
             ],
         )
-        completed_pairs, spread_ok, counters = gw.compute_diversity_and_counters(
+        completed_pairs, spread_ok, counters, observed = gw.compute_diversity_and_counters(
             self.outdir, [shard], num_positions=10
         )
         self.assertEqual(completed_pairs, 1)
         self.assertEqual(counters["illegal_moves"], 0)
         self.assertEqual(counters["engine_errors"], 0)
+        self.assertTrue(all(observed.values()))
 
     def test_distinct_shards_do_not_collide_when_shard_positions_is_one(self):
         # shard_positions=1 (the actual burn-in/gate convention): every
@@ -135,7 +137,7 @@ class DiversityAndCountersTests(unittest.TestCase):
             1, 1, 2,
             [{"id": "pos0_pair0", "result": "candidate_win"}, {"id": "pos0_pair0", "result": "baseline_win"}],
         )
-        completed_pairs, _, _ = gw.compute_diversity_and_counters(
+        completed_pairs, _, _, _ = gw.compute_diversity_and_counters(
             self.outdir, [shard_a, shard_b], num_positions=10
         )
         self.assertEqual(completed_pairs, 2)
@@ -147,7 +149,7 @@ class DiversityAndCountersTests(unittest.TestCase):
             records.append({"id": f"pos{pos}_pair0", "result": "candidate_win"})
             records.append({"id": f"pos{pos}_pair0", "result": "baseline_win"})
         shard = self._make_shard(0, 0, 10, records)
-        completed_pairs, spread_ok, _ = gw.compute_diversity_and_counters(
+        completed_pairs, spread_ok, _, _ = gw.compute_diversity_and_counters(
             self.outdir, [shard], num_positions=10
         )
         self.assertEqual(completed_pairs, 6)
@@ -157,13 +159,13 @@ class DiversityAndCountersTests(unittest.TestCase):
         records.append({"id": "pos6_pair0", "result": "candidate_win"})
         records.append({"id": "pos6_pair0", "result": "baseline_win"})
         shard2 = self._make_shard(1, 0, 10, records)
-        completed_pairs2, spread_ok2, _ = gw.compute_diversity_and_counters(
+        completed_pairs2, spread_ok2, _, _ = gw.compute_diversity_and_counters(
             self.outdir, [shard2], num_positions=10
         )
         self.assertEqual(completed_pairs2, 7)
         self.assertTrue(spread_ok2)
 
-    def test_illegal_and_engine_error_tags_are_counted_from_stdout(self):
+    def test_illegal_engine_error_and_time_forfeit_tags_are_counted_from_stdout(self):
         shard = self._make_shard(
             0, 0, 2,
             [
@@ -173,18 +175,23 @@ class DiversityAndCountersTests(unittest.TestCase):
             stdout_extra=(
                 "Game    1: A (Black) vs B (White) -> Engine1 Win (illegal)  (10 moves)\n"
                 "Game    2: A (Black) vs B (White) -> Engine2 Win (engine error)  (5 moves)\n"
+                "Game    3: A (Black) vs B (White) -> Engine2 Win (time forfeit)  (30 moves)\n"
             ),
         )
-        _, _, counters = gw.compute_diversity_and_counters(self.outdir, [shard], num_positions=10)
+        _, _, counters, _ = gw.compute_diversity_and_counters(self.outdir, [shard], num_positions=10)
         self.assertEqual(counters["illegal_moves"], 1)
         self.assertEqual(counters["engine_errors"], 1)
+        self.assertEqual(counters["time_forfeits"], 1)
 
     def test_structural_zero_counters_are_always_zero(self):
         shard = self._make_shard(0, 0, 2, [])
-        _, _, counters = gw.compute_diversity_and_counters(self.outdir, [shard], num_positions=10)
+        _, _, counters, observed = gw.compute_diversity_and_counters(
+            self.outdir, [shard], num_positions=10
+        )
         self.assertEqual(counters["protocol_errors"], 0)
         self.assertEqual(counters["material_fallbacks"], 0)
         self.assertEqual(counters["time_forfeits"], 0)
+        self.assertTrue(all(observed.values()))
 
 
 class StopRuleTests(unittest.TestCase):
@@ -194,39 +201,119 @@ class StopRuleTests(unittest.TestCase):
         "illegal_moves": 0, "engine_errors": 0, "weight_load_failures": 0,
         "protocol_errors": 0, "material_fallbacks": 0, "time_forfeits": 0,
     }
+    ALL_OBSERVED = {k: True for k in CLEAN}
 
     def test_pass_boundary_with_enough_pairs_and_spread_finalizes_pass(self):
-        verdict, detail = gw.decide_verdict("PASS (elo_diff=177)", 300, True, self.CLEAN)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 300, True, self.CLEAN, self.ALL_OBSERVED
+        )
         self.assertEqual(verdict, "PASS")
         self.assertIsNone(detail)
 
     def test_fail_boundary_with_enough_pairs_and_spread_finalizes_fail(self):
-        verdict, detail = gw.decide_verdict("FAIL (elo_diff=-50)", 300, True, self.CLEAN)
+        verdict, detail = gw.decide_verdict(
+            "FAIL (elo_diff=-50)", 300, True, self.CLEAN, self.ALL_OBSERVED
+        )
         self.assertEqual(verdict, "FAIL")
 
     def test_pass_boundary_crossed_but_too_few_pairs_keeps_going(self):
-        verdict, detail = gw.decide_verdict("PASS (elo_diff=177)", 299, True, self.CLEAN)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 299, True, self.CLEAN, self.ALL_OBSERVED
+        )
         self.assertIsNone(verdict)
 
     def test_pass_boundary_crossed_but_spread_not_ok_keeps_going(self):
-        verdict, detail = gw.decide_verdict("PASS (elo_diff=177)", 300, False, self.CLEAN)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 300, False, self.CLEAN, self.ALL_OBSERVED
+        )
         self.assertIsNone(verdict)
 
     def test_no_boundary_crossed_keeps_going(self):
-        verdict, detail = gw.decide_verdict("INCONCLUSIVE so far", 300, True, self.CLEAN)
+        verdict, detail = gw.decide_verdict(
+            "INCONCLUSIVE so far", 300, True, self.CLEAN, self.ALL_OBSERVED
+        )
         self.assertIsNone(verdict)
 
     def test_any_nonzero_counter_contaminates_even_with_a_clean_pass_boundary(self):
         dirty = dict(self.CLEAN, illegal_moves=1)
-        verdict, detail = gw.decide_verdict("PASS (elo_diff=177)", 300, True, dirty)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 300, True, dirty, self.ALL_OBSERVED
+        )
         self.assertEqual(verdict, "CONTAMINATED")
         self.assertEqual(detail, {"illegal_moves": 1})
 
     def test_contamination_takes_priority_over_a_fail_boundary_too(self):
         dirty = dict(self.CLEAN, weight_load_failures=2)
-        verdict, detail = gw.decide_verdict("FAIL (elo_diff=-50)", 300, True, dirty)
+        verdict, detail = gw.decide_verdict(
+            "FAIL (elo_diff=-50)", 300, True, dirty, self.ALL_OBSERVED
+        )
         self.assertEqual(verdict, "CONTAMINATED")
         self.assertEqual(detail, {"weight_load_failures": 2})
+
+    def test_unobserved_counter_returns_not_ready_even_with_a_clean_pass_boundary(self):
+        unobserved = dict(self.ALL_OBSERVED, time_forfeits=False)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 300, True, self.CLEAN, unobserved
+        )
+        self.assertEqual(verdict, "NOT_READY")
+        self.assertEqual(detail, {"unobserved_counters": ["time_forfeits"]})
+
+    def test_not_ready_takes_priority_over_contamination_too(self):
+        # An unobservable counter means we can't even trust "clean" here --
+        # NOT_READY must win regardless of what the (possibly meaningless)
+        # counter values happen to show.
+        unobserved = dict(self.ALL_OBSERVED, time_forfeits=False)
+        dirty = dict(self.CLEAN, illegal_moves=1)
+        verdict, detail = gw.decide_verdict(
+            "PASS (elo_diff=177)", 300, True, dirty, unobserved
+        )
+        self.assertEqual(verdict, "NOT_READY")
+
+
+class ManifestTests(unittest.TestCase):
+    """Category: gate_manifest_schema.md TOML writer -- fixture round-trips."""
+
+    def setUp(self):
+        self.outdir = tempfile.mkdtemp(prefix="gate_manifest_test_")
+
+    def tearDown(self):
+        shutil.rmtree(self.outdir, ignore_errors=True)
+
+    def test_immutable_section_roundtrips_through_tomllib(self):
+        fields = {
+            "run_id": "b1_vs_a_run2_20260803",
+            "candidate_weight_sha256": "a" * 64,
+            "permutation_seed": 20260726,
+            "byoyomi_ms": 1500,
+            "alpha": 0.05,
+            "speculation": False,
+            "fresh_process_policy": 'one process per shard, quotes " and \\ backslash',
+        }
+        gw.write_manifest_immutable(self.outdir, fields)
+        with open(gw.manifest_path(self.outdir), "rb") as f:
+            manifest = tomllib.load(f)
+        self.assertEqual(manifest["schema_version"], 1)
+        for k, v in fields.items():
+            self.assertEqual(manifest["immutable"][k], v)
+
+    def test_progress_appends_accumulate_as_array_of_tables_not_overwritten(self):
+        gw.write_manifest_immutable(self.outdir, {"run_id": "r"})
+        gw.append_manifest_progress(self.outdir, {"status": "running", "completed_games": 10})
+        gw.append_manifest_progress(self.outdir, {"status": "decisive", "completed_games": 166})
+        with open(gw.manifest_path(self.outdir), "rb") as f:
+            manifest = tomllib.load(f)
+        self.assertEqual(len(manifest["progress"]), 2)
+        self.assertEqual(manifest["progress"][0]["completed_games"], 10)
+        self.assertEqual(manifest["progress"][1]["completed_games"], 166)
+        self.assertEqual(manifest["progress"][1]["status"], "decisive")
+
+    def test_sprt_llr_bounds_match_the_real_burnins_observed_figure(self):
+        # results/phase_a2/b1_vs_a_burnin's actual SPRT output recorded
+        # bounds [-2.944, 2.944] at alpha=beta=0.05 -- cross-check against
+        # real observed data, not just the formula in isolation.
+        lower, upper = gw.sprt_llr_bounds(0.05, 0.05)
+        self.assertAlmostEqual(upper, 2.944, places=3)
+        self.assertAlmostEqual(lower, -2.944, places=3)
 
 
 if __name__ == "__main__":

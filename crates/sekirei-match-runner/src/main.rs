@@ -209,7 +209,7 @@ enum Outcome {
     Draw,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum EndReason {
     Resign,
     Win,
@@ -217,6 +217,21 @@ enum EndReason {
     Repetition,
     MaxMoves,
     EngineError,
+    TimeForfeit,
+}
+
+/// A `go()` failure is a time forfeit when the engine simply didn't answer
+/// within its byoyomi+grace deadline (still alive, just too slow) -- distinct
+/// from the reader thread ending because the process died/closed its pipe
+/// (`engine::map_recv_result` maps that to a different io::ErrorKind
+/// specifically so this distinction is possible). A pure function so the
+/// branch itself is directly unit-testable without spawning a process.
+fn end_reason_for_go_error(e: &std::io::Error) -> EndReason {
+    if e.kind() == std::io::ErrorKind::TimedOut {
+        EndReason::TimeForfeit
+    } else {
+        EndReason::EngineError
+    }
 }
 
 /// Launch an engine and run its `usi`/`setoption`/`isready` handshake, or
@@ -387,7 +402,7 @@ fn run_game(
                 } else {
                     Outcome::E1Win
                 };
-                return (outcome, moves, EndReason::EngineError);
+                return (outcome, moves, end_reason_for_go_error(&e));
             }
         };
 
@@ -1346,7 +1361,10 @@ fn main() {
         // production failure, so retirement stays as an independent layer.
         // The next scheduled game is a different (position, color) pair, so
         // this never retries the same game against the same fault.
-        if matches!(reason, EndReason::IllegalMove | EndReason::EngineError) {
+        if matches!(
+            reason,
+            EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit
+        ) {
             let e1_at_fault = outcome == Outcome::E2Win;
             let e2_at_fault = outcome == Outcome::E1Win;
             if e1_at_fault {
@@ -1415,6 +1433,7 @@ fn main() {
             EndReason::Repetition => " (千日手)",
             EndReason::MaxMoves => " (max moves)",
             EndReason::EngineError => " (engine error)",
+            EndReason::TimeForfeit => " (time forfeit)",
         };
 
         println!(
@@ -1592,6 +1611,24 @@ mod tests {
             rec("d", "draw"),
         ];
         assert_eq!(tally_records(&records), (1, 2, 1));
+    }
+
+    #[test]
+    fn timed_out_go_error_becomes_time_forfeit() {
+        let e = std::io::Error::new(std::io::ErrorKind::TimedOut, "engine read timeout");
+        assert_eq!(end_reason_for_go_error(&e), EndReason::TimeForfeit);
+    }
+
+    #[test]
+    fn disconnected_go_error_stays_engine_error_not_time_forfeit() {
+        // A dead/crashed process must not be misclassified as a time
+        // forfeit -- see engine::map_recv_result, which is what makes this
+        // distinction possible in the first place.
+        let e = std::io::Error::new(
+            std::io::ErrorKind::BrokenPipe,
+            "engine process disconnected",
+        );
+        assert_eq!(end_reason_for_go_error(&e), EndReason::EngineError);
     }
 
     #[test]
