@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 use std::fs;
 
+use veridict::FailurePolicy;
 use veridict::input::Record;
 use veridict::sprt::{SprtConfig, SprtVariant, run as sprt_run};
 use veridict::stats::sprt::{bounds, llr_delta, score_from_elo};
@@ -134,6 +135,10 @@ fn part1_v012() {
         &config,
         SprtVariant::Wald,
         false,
+        FailurePolicy::ReportOnly,
+        false,
+        None,
+        None,
     )
     .unwrap();
     let trinomial_unpaired = sprt_run(
@@ -141,6 +146,10 @@ fn part1_v012() {
         &config,
         SprtVariant::Trinomial,
         false,
+        FailurePolicy::ReportOnly,
+        false,
+        None,
+        None,
     )
     .unwrap();
     let trinomial_paired = sprt_run(
@@ -148,6 +157,10 @@ fn part1_v012() {
         &config,
         SprtVariant::Trinomial,
         true,
+        FailurePolicy::ReportOnly,
+        false,
+        None,
+        None,
     )
     .unwrap();
 
@@ -207,6 +220,10 @@ fn part1_v012() {
         &config,
         SprtVariant::Trinomial,
         false,
+        FailurePolicy::ReportOnly,
+        false,
+        None,
+        None,
     )
     .unwrap();
     assert_eq!(
@@ -352,6 +369,10 @@ fn simulate_one(
                 config,
                 SprtVariant::Trinomial,
                 false,
+                FailurePolicy::ReportOnly,
+                false,
+                None,
+                None,
             )
             .unwrap();
             trinomial_verdict = to_verdict3(report.verdict);
@@ -461,6 +482,10 @@ fn simulate_trinomial_paired(
             config,
             SprtVariant::Trinomial,
             false,
+            FailurePolicy::ReportOnly,
+            false,
+            None,
+            None,
         )
         .unwrap();
         let verdict = to_verdict3(report.verdict);

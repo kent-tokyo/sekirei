@@ -531,11 +531,14 @@ fn veridict_decide(
     let thresholds = veridict::verdict::Thresholds::new(pass_elo, fail_elo)?;
     veridict::compare_one(
         records.iter().cloned(),
-        veridict::MetricConfig::Elo,
+        veridict::MetricConfig::Elo {
+            failure_policy: veridict::FailurePolicy::ReportOnly,
+        },
         0.95,
         &thresholds,
         2000,
         veridict::stats::bootstrap::DEFAULT_SEED,
+        false,
         false,
     )
 }
@@ -567,6 +570,12 @@ fn veridict_decide(
 /// callers should pass `true` here whenever `variant` is `Trinomial` over
 /// `--games-per-position` data (paired ids are only emitted in that mode,
 /// see `pair_id`); `Wald` remains unpaired (unvalidated combination).
+///
+/// veridict 0.15.0 added four trailing `sprt::run` params not yet adopted
+/// here: `failure_policy` (pinned to `ReportOnly`, the pre-existing default
+/// behavior), and `require_complete_pairs`/`min_paired_ids`/`max_paired_ids`
+/// (pinned to `false`/`None`/`None` -- these only have an effect under
+/// `SprtVariant::Pentanomial`, which this function doesn't use).
 fn sprt_decide(
     records: &[(usize, veridict::input::Record)],
     elo0: f64,
@@ -582,6 +591,10 @@ fn sprt_decide(
         &config,
         variant,
         paired_by_id,
+        veridict::FailurePolicy::ReportOnly,
+        false,
+        None,
+        None,
     )
 }
 
