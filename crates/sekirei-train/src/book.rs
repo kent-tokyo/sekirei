@@ -62,6 +62,8 @@ pub fn build_book(games: &[CsaGame], max_ply: usize, min_count: u64, out: &mut i
                 score,
                 weight: 1.0,
                 tags: vec!["opening".to_string()],
+                observed_at_unix_seconds: None,
+                source: None,
             });
 
             board.do_move(mv);
