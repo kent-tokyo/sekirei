@@ -34,7 +34,7 @@ def _run_gate(outdir, weights1, weights2, corpus, max_positions, shard_positions
         "--outdir", outdir,
         "--threads", "1", "--parallel", str(parallel), "--byoyomi", "50",
         "--shard-positions", str(shard_positions), "--max-positions", str(max_positions),
-        "--max-swap-pct", "92",  # preflight §12's resolved recommendation for this shared machine
+        "--max-swap-pct", "92",  # this shared machine idles well above the 50% default
         "--engine-bin", _FAKE_ENGINE,
         "--weights1", weights1, "--weights2", weights2,
         "--corpus", corpus,

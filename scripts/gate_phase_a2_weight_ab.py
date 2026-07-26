@@ -2,20 +2,13 @@
 """Phase A2 weight-vs-weight strength gate: B1 (seeded-init candidate) vs A
 (legacy reference v011), isolating the weight file as the only variable.
 
-Forked from scripts/gate_orchestrator.py (an existing untracked script this
-project's conventions say not to modify -- see docs/experiments/
-phase_a2_seeded_init_preregistration.md) rather than edited in place, because
-that script hardcodes a single shared --weights for both engines (it was
-built for the B-vs-C YBW *search-option* gate, where the weight is fixed and
-options differ). This gate needs the opposite: identical search options,
-two different weight files. Everything else here (shard/state durability,
-resource-aware pause-only monitor, SPRT check, retry logic) is copied
-unchanged from that proven design.
-
-No relabel/swap step is needed here (unlike gate_orchestrator.py's
-relabel_and_merge): --engine1 is launched with --weights1 (B1, the
-candidate), so sekirei-match's own "candidate_win"/"baseline_win" labels
-already mean exactly what this gate wants them to mean.
+Structured as an independent weight-vs-weight gate rather than a shared
+--weights, two-search-options gate (that's a different, separate use case:
+fixed weight, differing engine options): --engine1 is launched with
+--weights1 (B1, the candidate), --engine2 with --weights2 (A, the
+baseline), so sekirei-match's own "candidate_win"/"baseline_win" labels
+already mean exactly what this gate wants them to mean, with no relabeling
+step needed.
 
 Usage:
   python3 scripts/gate_phase_a2_weight_ab.py run --outdir results/phase_a2/b1_vs_a \
@@ -42,9 +35,9 @@ MATCH_BIN = "./target/release/sekirei-match"
 DEFAULT_MAX_LOAD_MULT = 1.5
 DEFAULT_MAX_SWAP_PCT = 50.0
 
-# docs/experiments/phase_a2_b1_vs_a_formal_gate_preregistration.md §1 -- confirmed,
-# not an example. Do not change without a new run_id (permutation identity is
-# pinned by ordered_output_sha256 in state["cfg"], not by re-deriving from this
+# docs/gate/phase_a2_launch_readiness.md §1 -- confirmed, not an example.
+# Do not change without a new run_id (permutation identity is pinned by
+# ordered_output_sha256 in state["cfg"], not by re-deriving from this
 # constant alone).
 PERMUTATION_SEED = 20260726
 MASK64 = (1 << 64) - 1
@@ -67,7 +60,7 @@ def load_positions(corpus_path):
 
 
 def xorshift64_next(s):
-    """Preregistration §1's exact PRNG step: 13/7/17 shift-xor, masked to u64."""
+    """docs/gate/phase_a2_launch_readiness.md §1's exact PRNG step: 13/7/17 shift-xor, masked to u64."""
     s ^= (s << 13) & MASK64
     s ^= s >> 7
     s ^= (s << 17) & MASK64
@@ -75,8 +68,9 @@ def xorshift64_next(s):
 
 
 def deterministic_permutation(n, seed):
-    """Fisher-Yates over xorshift64, exactly per preregistration §1. Returns
-    `order` such that permuted rank i draws from original index order[i]."""
+    """Fisher-Yates over xorshift64, exactly per
+    docs/gate/phase_a2_launch_readiness.md §1. Returns `order` such that
+    permuted rank i draws from original index order[i]."""
     order = list(range(n))
     s = seed | 1
     for i in range(n - 1, 0, -1):
@@ -105,7 +99,7 @@ def permutation_order_path(outdir):
 def load_or_create_permutation(outdir, corpus_path, num_positions):
     """Fresh init: generate once, persist, hash, return (order, meta).
     Resume: reload the persisted order (never regenerate) and verify its hash
-    still matches -- preregistration §1's Resume rule."""
+    still matches -- docs/gate/phase_a2_launch_readiness.md §4's resume rule."""
     path = permutation_order_path(outdir)
     input_corpus_sha256 = sha256_of_file(corpus_path)
     if os.path.exists(path):
@@ -151,7 +145,7 @@ def _toml_value(v):
 
 
 def write_manifest_immutable(outdir, fields):
-    """docs/design/gate_manifest_schema.md's [immutable] table -- written
+    """docs/gate/phase_a2_manifest_contract.md's [immutable] table -- written
     once at run creation, never edited afterward. No third-party TOML writer
     is installed in this environment (only stdlib tomllib, read-only) --
     hand-formatted since the schema is flat key=value pairs, matching this
@@ -369,21 +363,23 @@ def relabel_and_merge(outdir, confirmed_shards):
 
 
 def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
-    """Preregistration §2: completed_pairs + corpus-spread over permuted rank,
-    plus the six operational counters -- checked here against what this
-    binary's logging actually distinguishes today, not assumed:
+    """docs/gate/phase_a2_launch_readiness.md §2/§3: completed_pairs +
+    corpus-spread over permuted rank, plus the six operational counters --
+    checked here against what this binary's logging actually distinguishes
+    today, not assumed:
 
     - illegal_moves / engine_errors / time_forfeits: EndReason::IllegalMove/
       EngineError/TimeForfeit print literal " (illegal)"/" (engine error)"/
       " (time forfeit)" suffixes on the per-game summary line
       (crates/sekirei-match-runner/src/main.rs), captured in each shard's
-      stdout log. engine_errors folds in "stale_bestmoves" -- the binary has
-      no separate EndReason for it (preflight §9: EngineError "covers
-      stale/malformed engine output"). TimeForfeit is now a real, distinct
-      EndReason (added alongside this function): engine.rs's map_recv_result
-      distinguishes a genuine slow-response timeout (still alive, just too
-      slow -- a time forfeit) from the reader thread ending because the
-      process died/closed its pipe (a real engine fault, stays EngineError).
+      stdout log. engine_errors folds in "stale_bestmoves" -- this binary
+      has no separate EndReason for it, EngineError covers both
+      stale/malformed engine output and a genuine protocol/format error.
+      TimeForfeit is a real, distinct EndReason: engine.rs's
+      map_recv_result distinguishes a genuine slow-response timeout (still
+      alive, just too slow -- a time forfeit) from the reader thread ending
+      because the process died/closed its pipe (a real engine fault, stays
+      EngineError).
     - weight_load_failures: filled in by the caller from state's own
       real-time tracking (verify_weights_loaded already kills+retries on
       detection; this just surfaces the cumulative count).
@@ -392,9 +388,9 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
       reached "confirmed" cannot have hit it; it's caught upstream as a
       shard failure/retry, and 3 exhausted retries already halts the whole
       run (see the "permanently-failed shard" branch in cmd_run).
-    - material_fallbacks: always 0 by construction -- preflight §8 verified
-      two independent layers (weight-load aborts the process; no fallback
-      code path exists at all).
+    - material_fallbacks: always 0 by construction -- a weight-load failure
+      aborts the engine process (crates/sekirei-usi's EvalFile handling);
+      no fallback-to-material-evaluation code path exists at all.
 
     Known limitation: a shard's stdout log is overwritten (not appended) on
     each retry, so an illegal-move/engine-error/time-forfeit signature from
@@ -477,7 +473,7 @@ def compute_diversity_and_counters(outdir, confirmed_shards, num_positions):
 
 
 def decide_verdict(sprt_out, completed_pairs, spread_ok, counters, counters_observed):
-    """Preregistration §3 stop rule, extended with a NOT_READY outcome for any
+    """docs/gate/phase_a2_launch_readiness.md §3 stop rule, extended with a NOT_READY outcome for any
     counter this run can't actually observe (e.g. an old binary predating
     time-forfeit instrumentation). Returns (verdict, detail):
     verdict is one of None (keep launching), "PASS", "FAIL", "CONTAMINATED",
@@ -610,7 +606,7 @@ def log_resource_snapshot(outdir, snapshot):
 def cmd_run(args):
     os.makedirs(args.outdir, exist_ok=True)
     raw_positions = load_positions(args.corpus)
-    # Permutation applies over the FULL canonical corpus (preregistration §1);
+    # Permutation applies over the FULL canonical corpus (launch_readiness.md §1);
     # max_positions truncates the permuted order afterward, never the raw
     # pre-permutation list -- otherwise it would defeat the point of drawing
     # a spread sample instead of a sequential prefix.
@@ -686,7 +682,7 @@ def cmd_run(args):
                 "byoyomi_ms": args.byoyomi,
                 # Not a script flag either -- UseSpeculation defaults to false
                 # in sekirei-usi and nothing in --option overrides it here
-                # (preflight §5, re-verified, not assumed).
+                # (re-verified this session against crates/sekirei-usi's own default, not assumed).
                 "speculation": False,
                 "fresh_process_policy": (
                     "one sekirei-match subprocess per shard, two fresh engine "
@@ -710,9 +706,9 @@ def cmd_run(args):
             raise SystemExit(
                 f"resume mismatch: state.json's ordered_output_sha256={recorded} "
                 f"!= reloaded permutation_order.json's {perm_meta['ordered_output_sha256']} "
-                "-- this is not a resume of the same run (preregistration §1 Resume rule)"
+                "-- this is not a resume of the same run (launch_readiness.md §4 resume rule)"
             )
-        # gate_manifest_schema.md's own design principle: refuse to continue
+        # phase_a2_manifest_contract.md's own design principle: refuse to continue
         # if the manifest's immutable section disagrees with what's actually
         # on disk right now, the same way verify_weights_registry.py refuses
         # to treat a hash mismatch as merely informational.
@@ -733,7 +729,7 @@ def cmd_run(args):
                     raise SystemExit(
                         f"resume mismatch: manifest.toml's {field}={recorded_hash} "
                         f"!= current {field}={actual} -- binary/weight changed after "
-                        "this run_id started (preregistration §3: that invalidates the "
+                        "this run_id started (launch_readiness.md §3: that invalidates the "
                         "run for a formal verdict; start a new run_id instead)"
                     )
     cfg = state["cfg"]
