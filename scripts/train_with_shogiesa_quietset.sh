@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Full shogiesa + quietset + sekirei training pipeline.
 #
-# Verified against: shogiesa 0.6.0 (github.com/kent-tokyo/shogiesa,
-# schema_version 5), quietset-cli 0.15.0. Both tools now support --version
+# Verified against: shogiesa 0.9.0 (github.com/kent-tokyo/shogiesa,
+# schema_version 11), quietset-cli 0.16.0. Both tools now support --version
 # (check that first if this script breaks); if this script breaks on
 # `label`/`score` output shape, check for a schema change against those
 # versions next (see commit dddb33a for a prior instance of this).
