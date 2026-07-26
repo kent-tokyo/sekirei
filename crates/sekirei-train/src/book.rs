@@ -1,5 +1,5 @@
 //! Statistical opening book built from real game records, via `lineprior`
-//! (https://github.com/kent-tokyo/lineprior) -- a domain-agnostic action-prior
+//! (<https://github.com/kent-tokyo/lineprior>) -- a domain-agnostic action-prior
 //! library. `lineprior` never sees a shogi concept: this module's only job
 //! is walking CSA games into `lineprior::Observation`s (state = SFEN, action
 //! = USI move) and handing them to `lineprior::build_prior_book`, which
