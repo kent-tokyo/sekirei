@@ -17,9 +17,11 @@ why an earlier version of this document looked in the wrong place and
 found `results/phase_a2/b1_vs_a` empty instead), motivated by a question
 raised about whether the current `spread_ok` check (permuted-rank deciles,
 `phase_a2_spread_semantics_audit.md` §2) measures corpus diversity or
-measures run progress. As recorded: 378 completed pairs (756 games), 3 of
-10 deciles covered, `spread_ok=false`, current LLR `-0.506` well within
-bounds (`INCONCLUSIVE` as of the last confirmed prefix, not a final
+measures run progress. As of the last confirmed prefix, timestamped
+**2026-07-27T09:27:26 UTC** (`progress.log`'s final entry — this is a
+point-in-time snapshot, not necessarily the run's current state): 378
+completed pairs (756 games), 3 of 10 deciles covered, `spread_ok=false`,
+current LLR `-0.506` well within bounds (`INCONCLUSIVE`, not a final
 verdict). At this rate — needing rank ≥ 510 for the 4th decile alone, and
 7 deciles total — the run is genuinely far from `spread_ok=true`, which is
 the real trigger for asking whether the check is measuring the right
