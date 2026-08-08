@@ -33,6 +33,22 @@ pub struct SpecState {
     /// tasks without a separately hand-synced flag (see `search.rs`'s
     /// `SpeculativeSearcher::search`).
     pub(crate) budget: Arc<Budget>,
+    /// Dedicated pool for speculative tasks, entirely separate from rayon's
+    /// global pool. `alpha_beta`'s own YBW parallel dispatch
+    /// (`work.into_par_iter()...collect()`, search.rs) implicitly runs on
+    /// the global pool; before this field existed, `SpecGroup::spawn` used
+    /// the bare `rayon::spawn` function, which also targets the global pool.
+    /// An unbounded-depth speculative task (no cap beyond the search-wide
+    /// deadline) occupying a global-pool worker could then starve
+    /// `alpha_beta`'s own dispatch of a worker for the rest of the search:
+    /// a thread outside rayon's registry that calls `.into_par_iter()`
+    /// cannot itself steal work, it can only block on a `LockLatch` until a
+    /// worker frees up (confirmed via `sample` -- the dispatching thread
+    /// spent 100% of a 1s window in `pthread_cond_wait` inside
+    /// `Registry::in_worker_cold`). Isolating speculation onto its own pool
+    /// makes that structurally impossible regardless of how long any one
+    /// speculative task runs.
+    pub(crate) pool: Arc<rayon::ThreadPool>,
 }
 
 // ---- Per-task handle ----
@@ -69,7 +85,10 @@ impl SpecGroup {
                 let state_c = state.clone();
                 let mut b = board.clone();
 
-                rayon::spawn(move || {
+                // Dedicated pool (see SpecState::pool), not the bare rayon::spawn
+                // global-pool function -- must never share a pool with alpha_beta's
+                // own YBW dispatch.
+                state.pool.spawn(move || {
                     // Check abort flags before doing any work
                     if abort_c.load(Ordering::Relaxed) || state_c.budget.should_abort() {
                         result_c.store(0, Ordering::Relaxed);
@@ -290,6 +309,12 @@ mod tests {
         Arc::new(SpecState {
             tt: Tt::new(1),
             budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap(),
+            ),
         })
     }
 
@@ -368,6 +393,12 @@ mod tests {
         let state = Arc::new(SpecState {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap(),
+            ),
         });
         let group = SpecGroup::spawn(&board, &state, 2, 50);
 
@@ -384,6 +415,83 @@ mod tests {
             result,
             Some(0),
             "king-capture speculative task should short-circuit to 0 without panicking"
+        );
+    }
+
+    // Regression: `SpecGroup::spawn` used to submit tasks via the bare
+    // `rayon::spawn` function, which targets rayon's *global* pool -- the
+    // SAME pool `alpha_beta`'s own YBW parallel dispatch
+    // (`work.into_par_iter()...collect()`, search.rs) implicitly depends on.
+    // A thread outside rayon's worker registry that calls `.into_par_iter()`
+    // cannot steal work itself; it can only block on a `LockLatch` until a
+    // worker frees up (confirmed via `sample`: the dispatching thread spent
+    // 100% of a sampled second in `pthread_cond_wait` inside
+    // `Registry::in_worker_cold`). An unbounded-depth speculative task could
+    // then occupy every global-pool worker for the rest of the search,
+    // starving `alpha_beta`'s own dispatch of a thread and freezing search
+    // depth regardless of remaining time budget.
+    //
+    // This test fully saturates the *global* pool with long-lived occupying
+    // tasks (matching however large it already is, so it's robust to test
+    // order / prior initialization by other tests in this binary), then
+    // verifies a `SpecGroup` task still completes promptly -- only possible
+    // if it runs on a genuinely separate pool via `SpecState::pool`.
+    #[test]
+    fn spec_group_uses_isolated_pool_not_global() {
+        use std::sync::atomic::AtomicUsize;
+
+        let global_n = rayon::current_num_threads();
+        let occupied = Arc::new(AtomicUsize::new(0));
+        let release = Arc::new(AtomicBool::new(true));
+        for _ in 0..global_n {
+            let occ = occupied.clone();
+            let rel = release.clone();
+            rayon::spawn(move || {
+                occ.fetch_add(1, Ordering::SeqCst);
+                while rel.load(Ordering::Relaxed) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            });
+        }
+        let saturate_deadline = Instant::now() + Duration::from_secs(5);
+        while occupied.load(Ordering::SeqCst) < global_n && Instant::now() < saturate_deadline {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(
+            occupied.load(Ordering::SeqCst),
+            global_n,
+            "failed to fully saturate the global pool ({global_n} threads) -- test setup invalid"
+        );
+
+        let board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        let tt = Tt::new(1);
+        let state = Arc::new(SpecState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap(),
+            ),
+        });
+        let candidates = policy::top_n(&board, &tt, 1);
+        let group = SpecGroup::spawn(&board, &state, 2, 1);
+
+        let deadline = Instant::now() + Duration::from_secs(2);
+        let mut done = false;
+        while Instant::now() < deadline {
+            if group.poll(candidates[0]).is_some() {
+                done = true;
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        release.store(false, Ordering::Relaxed); // free the global-pool hogs
+        assert!(
+            done,
+            "SpecGroup task never completed while the global pool was fully saturated -- \
+             it may be sharing the global pool instead of its own dedicated pool"
         );
     }
 }

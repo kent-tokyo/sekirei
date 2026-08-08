@@ -1249,16 +1249,25 @@ pub struct SpeculativeSearcher {
     tt: Arc<Tt>,
     top_n: usize,
     external_abort: Arc<AtomicBool>,
+    // Dedicated pool for SpecGroup's background tasks, isolated from rayon's
+    // global pool so they can never starve alpha_beta's own YBW dispatch
+    // (`work.into_par_iter()...collect()`) of a worker. See SpecState::pool.
+    spec_pool: Arc<rayon::ThreadPool>,
 }
 
 impl SpeculativeSearcher {
     /// Create a speculative searcher that considers the top `top_n` candidate
     /// replies for preemptive background search, backed by the given shared TT.
     pub fn new(tt: Arc<Tt>, top_n: usize) -> Self {
+        let spec_pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(top_n.max(1))
+            .build()
+            .expect("failed to build dedicated speculative-search thread pool");
         SpeculativeSearcher {
             tt,
             top_n,
             external_abort: Arc::new(AtomicBool::new(false)),
+            spec_pool: Arc::new(spec_pool),
         }
     }
 
@@ -1297,6 +1306,7 @@ impl SpeculativeSearcher {
         let spec_state = Arc::new(SpecState {
             tt: self.tt.clone(),
             budget: state.budget.clone(),
+            pool: self.spec_pool.clone(),
         });
 
         // Watchdog: guarantee the search stops at the hard deadline regardless of
