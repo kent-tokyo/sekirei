@@ -116,10 +116,21 @@ impl SpecGroup {
                     // An aborted search may have propagated score=0 up the tree,
                     // which would poison TT entries read by the main search.
                     if !abort_c.load(Ordering::Relaxed) && !state_c.budget.should_abort() {
+                        // `b` was already undone above, so `b.hash()` here is the
+                        // ORIGINAL (pre-move) position -- the actual search root
+                        // `SpecGroup::spawn` was called with (SpeculativeSearcher::
+                        // search always calls it with its own top-level `board`,
+                        // never a board reached via recursion), i.e. ply=0 for this
+                        // search instance's ply-relative convention. That's the ply
+                        // `score_to_tt` needs here, NOT the `1` passed into
+                        // `spec_alpha_beta` above (that `1` is the ply of the
+                        // *post-move* position spec_alpha_beta itself searched, a
+                        // different node than the one being stored to here).
                         state_c.tt.store(
                             b.hash(),
                             TtEntry {
-                                score: -score, // negate: score is opponent's, -score is ours
+                                // negate: score is opponent's, -score is ours
+                                score: crate::search::score_to_tt(-score, 0),
                                 depth: depth as u8,
                                 bound: Bound::Exact,
                                 mv: Some(m),
@@ -255,10 +266,13 @@ fn spec_alpha_beta(
             best_move = Some(m);
         }
         if s >= beta {
+            // `hash` (top of this function) is the position at THIS call's own
+            // `ply` -- that's the ply score_to_tt needs, matching alpha_beta's
+            // store_tt in search.rs.
             state.tt.store(
                 hash,
                 TtEntry {
-                    score: s,
+                    score: crate::search::score_to_tt(s, ply),
                     depth: depth as u8,
                     bound: Bound::Lower,
                     mv: best_move,
@@ -279,7 +293,7 @@ fn spec_alpha_beta(
     state.tt.store(
         hash,
         TtEntry {
-            score: best,
+            score: crate::search::score_to_tt(best, ply),
             depth: depth as u8,
             bound,
             mv: best_move,
@@ -364,6 +378,170 @@ mod tests {
             score_shallow > score_deep,
             "mate found at the shallower ply ({score_shallow}) must score higher than the \
              identical mate found 2 plies deeper ({score_deep})"
+        );
+    }
+
+    // Regression: `spec_alpha_beta`'s two internal `state.tt.store` calls (beta-cutoff
+    // and end-of-loop) used to store the raw score it computed internally, without the
+    // ply-relative encoding (`score_to_tt`/`score_from_tt`, search.rs) every write/read
+    // in the main search's shared TT uses. Since `SpecState.tt` is the *same* TT the
+    // main search's `alpha_beta` probes via `score_from_tt(entry.score, ply)`
+    // unconditionally, an un-adjusted mate-adjacent score written here would be
+    // corrupted when later read from a different ply than it was computed at.
+    //
+    // This is distinct from `shorter_ply_mate_scores_higher_in_spec_alpha_beta` above,
+    // which only checks the *returned* score's internal ordering property -- unaffected
+    // by this fix, since only the TT *store* path changed, not any return value.
+    #[test]
+    fn spec_alpha_beta_stores_ply_relative_mate_score_to_shared_tt() {
+        let tt = Tt::new(1);
+        let state = Arc::new(SpecState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap(),
+            ),
+        });
+        let task_abort = AtomicBool::new(false);
+
+        // Call spec_alpha_beta as if this mate were discovered deep in a real
+        // search tree (ply=5), not near the root -- a raw, un-adjusted score
+        // would then be visibly wrong when decoded from a different ply below.
+        let mut board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        let found_at_ply = 5u32;
+        let score = spec_alpha_beta(
+            &state,
+            &task_abort,
+            &mut board,
+            -1_000_000,
+            1_000_000,
+            4,
+            found_at_ply,
+        );
+        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
+        assert!(
+            score >= MATE_SCORE - 1000,
+            "expected a forced-mate score, got {score}"
+        );
+
+        let hash = board.hash();
+        let entry = tt
+            .probe(hash)
+            .expect("spec_alpha_beta should have stored an entry for this position");
+
+        // Read back through the SAME score_from_tt the main search's alpha_beta
+        // calls on every real TT probe, at a different ply than this was found
+        // at -- exactly the scenario a transposition into this position from
+        // elsewhere in the tree would hit.
+        let read_at_ply = 2u32;
+        let decoded = crate::search::score_from_tt(entry.score, read_at_ply);
+
+        // A correctly ply-relative round trip leaves the absolute mate distance
+        // unchanged except for the shift between where it was found and where
+        // it's read: score_from_tt(score_to_tt(score, found_at_ply), read_at_ply)
+        // == score - found_at_ply + read_at_ply for a winning mate (both
+        // conversions add/subtract ply symmetrically). Asserted against that
+        // derivation directly, not a re-implementation of score_to_tt's own
+        // formula, so this test can't coincidentally pass by repeating the same
+        // mistake being tested for.
+        let expected = score - found_at_ply as i32 + read_at_ply as i32;
+        assert_eq!(
+            decoded, expected,
+            "TT entry stored by spec_alpha_beta must decode to the same absolute mate \
+             distance when read from a different ply, not the raw un-adjusted score \
+             (raw stored score was {}, decoded at ply {read_at_ply} was {decoded}, \
+             expected {expected})",
+            entry.score
+        );
+    }
+
+    // Regression, companion to the test above: `SpecGroup::spawn`'s own store (as
+    // opposed to spec_alpha_beta's two internal ones) uses a DIFFERENT ply basis --
+    // `b.undo_move(tok)` runs before that store, so it stores at the *original*
+    // (pre-move) position's hash, i.e. ply=0 for this search instance, not the `1`
+    // passed into `spec_alpha_beta` for the post-move position it actually searched.
+    // Pins that specific call site's ply argument, which a naive "match the nearby
+    // literal `1`" fix would have gotten wrong.
+    #[test]
+    fn spec_group_spawn_stores_ply_relative_mate_score_at_ply_zero() {
+        let board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        const MATE_SCORE: i32 = crate::search::MATE_SCORE;
+
+        // Find the actual mating move among all pseudo-legal candidates by
+        // directly trying each one through spec_alpha_beta (same depth/ply
+        // SpecGroup::spawn's own closure uses internally) -- avoids hand-
+        // deriving the exact destination square from the SFEN, which isn't
+        // independently checkable without running this.
+        let scratch_state = spec_state();
+        let winning_move = policy::top_n(&board, &scratch_state.tt, 50)
+            .into_iter()
+            .find(|&m| {
+                if board.piece_at(m.to).is_some_and(|p| p.kind == PieceKind::Ou) {
+                    return false; // pseudo-legal king-capture candidate, must skip (do_move would panic)
+                }
+                let mut b = board.clone();
+                let task_abort = AtomicBool::new(false);
+                let tok = b.do_move(m);
+                let s = spec_alpha_beta(&scratch_state, &task_abort, &mut b, -1_000_000, 1_000_000, 1, 1);
+                b.undo_move(tok);
+                -s >= MATE_SCORE - 1000 // -s: same "our score after m" convention the closure uses
+            })
+            .expect("MATE_IN_1_SFEN must have a mating move among its pseudo-legal candidates");
+
+        // Fresh TT/state for the real assertion, independent of the scratch
+        // search above (which wrote its own entries to scratch_state.tt).
+        let tt = Tt::new(1);
+        let state = Arc::new(SpecState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(1)
+                    .build()
+                    .unwrap(),
+            ),
+        });
+        let group = SpecGroup::spawn(&board, &state, 2, 50);
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let mut spawned_score = None;
+        while Instant::now() < deadline {
+            if let Some(r) = group.poll(winning_move) {
+                spawned_score = Some(r);
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        let spawned_score =
+            spawned_score.expect("speculative task for the mating move never completed");
+        assert!(
+            spawned_score >= MATE_SCORE - 1000,
+            "expected the mating move to report a forced mate via SpecGroup::poll, got {spawned_score}"
+        );
+
+        // `b.undo_move` runs before SpecGroup::spawn's closure stores, so it
+        // stores at the ORIGINAL (pre-move) position's hash -- board.hash(),
+        // not a post-move hash.
+        let entry = tt
+            .probe(board.hash())
+            .expect("closure should have stored an entry at the pre-move (root) hash");
+
+        // Decode at ply=0 -- the pre-move root position's ply for this search
+        // instance, matching what the closure's own store should have used.
+        // If the closure instead used `1` (matching the post-move ply passed
+        // into spec_alpha_beta, an easy off-by-one for a naive fix to make),
+        // this decode would be off by exactly 1 from `spawned_score`, since
+        // it's a genuine mate-range value, not merely coincidentally equal.
+        let decoded = crate::search::score_from_tt(entry.score, 0);
+        assert_eq!(
+            decoded, spawned_score,
+            "TT entry stored by SpecGroup::spawn's closure must decode (at ply=0, the \
+             pre-move root position's ply) to the exact score SpecGroup::poll reports \
+             (stored raw score was {}, decoded was {decoded}, expected {spawned_score})",
+            entry.score
         );
     }
 
