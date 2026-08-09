@@ -479,13 +479,24 @@ mod tests {
         let winning_move = policy::top_n(&board, &scratch_state.tt, 50)
             .into_iter()
             .find(|&m| {
-                if board.piece_at(m.to).is_some_and(|p| p.kind == PieceKind::Ou) {
+                if board
+                    .piece_at(m.to)
+                    .is_some_and(|p| p.kind == PieceKind::Ou)
+                {
                     return false; // pseudo-legal king-capture candidate, must skip (do_move would panic)
                 }
                 let mut b = board.clone();
                 let task_abort = AtomicBool::new(false);
                 let tok = b.do_move(m);
-                let s = spec_alpha_beta(&scratch_state, &task_abort, &mut b, -1_000_000, 1_000_000, 1, 1);
+                let s = spec_alpha_beta(
+                    &scratch_state,
+                    &task_abort,
+                    &mut b,
+                    -1_000_000,
+                    1_000_000,
+                    1,
+                    1,
+                );
                 b.undo_move(tok);
                 -s >= MATE_SCORE - 1000 // -s: same "our score after m" convention the closure uses
             })
