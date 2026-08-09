@@ -1431,8 +1431,12 @@ impl SpeculativeSearcher {
 /// Convert a ply-relative score to position-relative for TT storage.
 /// Mate scores encode the distance to mate; we strip the ply component so the stored
 /// score is "mate in N from THIS position" independent of when we found it.
+///
+/// `pub(crate)`: also called from `speculative.rs`, which writes to this same shared
+/// TT and must use the identical encoding, or `alpha_beta`'s `score_from_tt` on read
+/// will misinterpret an un-adjusted mate score as already ply-relative.
 #[inline]
-fn score_to_tt(score: i32, ply: u32) -> i32 {
+pub(crate) fn score_to_tt(score: i32, ply: u32) -> i32 {
     let p = ply as i32;
     if score > MATE_SCORE - 1000 {
         score + p
@@ -1448,8 +1452,13 @@ fn score_to_tt(score: i32, ply: u32) -> i32 {
 }
 
 /// Convert a position-relative TT score back to a ply-relative search score.
+///
+/// `pub(crate)`: exercised directly from `speculative.rs`'s own tests, which assert
+/// entries `speculative.rs` stores decode correctly through this same function (the
+/// one `alpha_beta` actually calls on a real TT probe), not a reimplementation of its
+/// logic in the test that could hide a matching bug in both places.
 #[inline]
-fn score_from_tt(stored: i32, ply: u32) -> i32 {
+pub(crate) fn score_from_tt(stored: i32, ply: u32) -> i32 {
     let p = ply as i32;
     if stored > MATE_SCORE - 1000 {
         stored - p
