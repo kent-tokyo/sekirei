@@ -1,0 +1,110 @@
+name: Publish to crates.io
+
+on:
+  workflow_dispatch:
+    inputs:
+      crates:
+        description: >-
+          Comma-separated crate names to publish. Allowed: sekirei-core,
+          sekirei-bench, sekirei-csa, sekirei-match-runner, sekirei-train,
+          sekirei. Publish order (core first) is enforced regardless of
+          input order. sekirei-train and sekirei depend on lineprior via
+          git (not yet on crates.io) -- publishing them will fail the
+          verify step until that's resolved.
+        required: true
+        default: sekirei-core
+      dry_run:
+        description: "Dry run only (recommended for first use of a crate) -- validates packaging without publishing"
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  DRY_RUN: ${{ inputs.dry_run }}
+  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    # Optional extra gate: create an environment named "crates-io" under
+    # Settings -> Environments with required reviewers to force a manual
+    # approval click before this job runs. No effect if left unconfigured.
+    environment: crates-io
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Show requested crates and mode
+        env:
+          CRATES_INPUT: ${{ inputs.crates }}
+        run: |
+          echo "Requested: $CRATES_INPUT"
+          echo "Dry run: $DRY_RUN"
+
+      # sekirei-core must publish (or already be published at this version)
+      # before any of the other 5, which depend on it via a path+version dep.
+      - name: Publish sekirei-core
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei-core --dry-run
+          else
+            cargo publish -p sekirei-core
+          fi
+
+      - name: Wait for sekirei-core to index on crates.io
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && inputs.dry_run == false }}
+        run: sleep 30
+
+      - name: Publish sekirei-bench
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei-bench --dry-run
+          else
+            cargo publish -p sekirei-bench
+          fi
+
+      - name: Publish sekirei-csa
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei-csa --dry-run
+          else
+            cargo publish -p sekirei-csa
+          fi
+
+      - name: Publish sekirei-match-runner
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei-match-runner --dry-run
+          else
+            cargo publish -p sekirei-match-runner
+          fi
+
+      # Depends on lineprior via git (crates/sekirei-train/Cargo.toml) --
+      # not resolvable from crates.io alone until lineprior is published there.
+      - name: Publish sekirei-train
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei-train --dry-run
+          else
+            cargo publish -p sekirei-train
+          fi
+
+      # Package name "sekirei", crate directory crates/sekirei-usi. Also
+      # depends on lineprior via git -- same caveat as sekirei-train above.
+      - name: Publish sekirei (sekirei-usi)
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') }}
+        run: |
+          if [ "$DRY_RUN" = "true" ]; then
+            cargo publish -p sekirei --dry-run
+          else
+            cargo publish -p sekirei
+          fi
