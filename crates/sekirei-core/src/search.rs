@@ -1138,9 +1138,15 @@ fn quiescence(
     // depth >= 1; only quiescence's own qply=0 stores use depth=0, see the
     // store sites below, which now only fire at qply=0 for the same reason).
     let hash = board.hash();
-    let mut tt_mv = None;
+    // Diagnostic Arm A (interaction ablation for issue #8 / PR #17 vs
+    // SpeculativeSearcher at SpecTopN=3 -- see
+    // docs/experiments/fixed_depth_gate_run_index.md): score/bound
+    // caching only. TT move ordering is intentionally NOT applied here
+    // -- entry.mv is not read -- to isolate whether the score/bound
+    // cutoff+store side alone reproduces R17_3's bestmove divergence
+    // and node-count outliers, independent of TT-move-ordering effects.
+    // Not for merge into PR #17 as-is.
     if let Some(entry) = state.tt.probe(hash) {
-        tt_mv = entry.mv; // safe as an ordering hint regardless of depth/producer/qply
         if qply == 0 && entry.depth == 0 {
             let adj = score_from_tt(entry.score, ply);
             match entry.bound {
@@ -1223,18 +1229,13 @@ fn quiescence(
         return alpha;
     }
 
-    // Order by a cheap MVV-LVA-style key, with a probed TT move (if any, and
-    // if it's among these candidates) taking priority. Recursive see_score
-    // here is too costly per node (qsearch is the hottest path); the coarse
-    // capture ordering is plenty otherwise and keeps each node fast enough
-    // to respect the clock.
-    //
-    // Ascending sort_by_cached_key: `false < true`, so `tt_mv != Some(m)`
-    // being `false` (m IS the TT move) sorts first -- NOT i32::MAX, which
-    // an earlier version of this line used and which sorts *last* under an
-    // ascending sort, the opposite of its own comment's intent.
+    // Order by a cheap MVV-LVA-style key. Recursive see_score here is too
+    // costly per node (qsearch is the hottest path); the coarse capture
+    // ordering is plenty otherwise and keeps each node fast enough to
+    // respect the clock. Arm A intentionally omits TT-move priority (see
+    // the probe comment above) -- plain capture-value ordering only.
     let mut ordered = moves;
-    ordered.sort_by_cached_key(|&m| (tt_mv != Some(m), -qsearch_order_key(board, m)));
+    ordered.sort_by_cached_key(|&m| -qsearch_order_key(board, m));
 
     let mut best_move: Option<Move> = None;
 
