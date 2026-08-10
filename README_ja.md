@@ -1,6 +1,8 @@
 # Sekirei
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
+[![Release](https://img.shields.io/github/v/release/kent-tokyo/sekirei)](https://github.com/kent-tokyo/sekirei/releases)
 
 [English](README.md)
 
@@ -15,6 +17,13 @@ Rustの所有権モデルを活用することで、アトミクスのみによ�
 - CSAクライアントでfloodgate接続中（アカウントは `.env` の `FLOODGATE_ACCOUNT` で設定）
 - NNUEスタイル評価対応（重みファイルは同梱なし・CSAデータからの訓練またはマテリアル評価にフォールバック）
 - floodgateレートは計測中（実戦テスト中）
+- crates.io へ公開済み（6 crate全て: `sekirei`, `sekirei-core`, `sekirei-bench`,
+  `sekirei-csa`, `sekirei-match-runner`, `sekirei-train`）。crates.io Trusted
+  Publishing（GitHub OIDC）経由で公開しており、長寿命の公開用tokenはこのrepoに
+  一切保存していません
+- v0.3.x系は探索の正しさ・再現性・配布品質に焦点を当てたリリースラインです
+  （詳細は `CHANGELOG.md`）。**Eloや棋力向上、他エンジンとの比較の主張は
+  一切していません** — 棋力の改善は今後の取り組みです
 
 ## 設計原則
 
@@ -75,6 +84,9 @@ crates/
 ## ビルドと実行
 
 ```bash
+# crates.io からUSIエンジンバイナリをインストール（ローカルclone不要）
+cargo install sekirei
+
 # 開発ビルド
 cargo build
 
@@ -309,7 +321,7 @@ Apple M4 Pro での実測値（`cargo build --release`、`target-cpu=native`）�
 | NNUE 評価（初期局面） | ~18.7 ns / 呼び出し |
 | 探索 depth 4（初期局面） | ~3.6 ms |
 | 探索 NPS（NNUE、10 秒秒読み） | ~1.1M nps、depth 13 |
-| テストスイート | 217 テスト全通過 |
+| テストスイート | 230 テスト全通過 |
 
 floodgate: 実戦テスト中（レートは計測中）。
 
@@ -319,6 +331,10 @@ floodgate: 実戦テスト中（レートは計測中）。
 - `setoption EvalFile` 対応済み。ゲーム中の重み再ロードにはエンジン再起動が必要
 - Pondering 対応済み（`go ponder` / `ponderhit`）。`setoption name Ponder value true` で有効化
 - MultiPV 対応済み（`setoption name MultiPV value N`）
+- 投機的探索の候補数は `setoption name SpecTopN value N` で調整・無効化可能
+  （デフォルト3、`0`で投機探索を完全に無効化）。注意: `SpecTopN>0`での探索は
+  同一binaryを自分自身に対して実行しても再現しない場合がある（並行投機タスクの
+  スケジューリング由来）。`SpecTopN=0`は決定的
 
 ## 名前の由来
 
