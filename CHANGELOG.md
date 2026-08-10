@@ -2,6 +2,60 @@
 
 ## Unreleased
 
+## [0.3.2] – 2026-08-10
+
+A distribution/reproducibility patch release — **no engine behavior,
+search algorithm, or public API changes**. Everything here is CI,
+dependency sourcing, and packaging, on top of the v0.3.1 code as
+published to crates.io.
+
+### Dependencies
+
+- `lineprior` switched from a git tag pin (`{ git = "...", tag = "v0.9.0" }`)
+  to a plain crates.io version requirement (`"0.9.0"`) in both
+  `sekirei-train` and `sekirei` (the `sekirei-usi` crate) — `lineprior`
+  0.9.0 is now published to crates.io. No source changes beyond the
+  manifests; the registry version resolves to the exact commit these
+  crates were already pinned to. This was the last blocker preventing
+  `sekirei-train`/`sekirei` from being published to crates.io at all
+  (cargo refuses to publish a crate with a git-sourced dependency that
+  has no version requirement).
+
+### Packaging / crates.io
+
+- All 6 workspace crates (`sekirei-core`, `sekirei-bench`, `sekirei-csa`,
+  `sekirei-match-runner`, `sekirei-train`, `sekirei`) are now published
+  to crates.io. `sekirei-core`/`bench`/`csa`/`match-runner` were
+  previously published at 0.3.1; `sekirei-train`/`sekirei` are newly
+  published starting with this release, now that the `lineprior`
+  blocker above is resolved.
+- Publishing moved from a manually-run `cargo publish` with a long-lived
+  API token to crates.io's **Trusted Publishing** (GitHub Actions OIDC):
+  a new `.github/workflows/cargo-publish.yml` authenticates per-crate via
+  a short-lived (30-minute), automatically-revoked token requested
+  through `rust-lang/crates-io-auth-action`. No `CARGO_REGISTRY_TOKEN`
+  repository secret exists.
+- That workflow is hardened against a real publish going wrong in ways
+  that can't be undone (a bad crates.io version can be yanked, never
+  deleted): it pins to an exact release tag rather than whatever ref
+  happened to trigger it, verifies every requested crate's `Cargo.toml`
+  version matches that tag before publishing anything, validates its
+  own crate-name input strictly, and polls the crates.io index for
+  `sekirei-core` to actually appear before publishing anything that
+  depends on it — instead of a fixed sleep.
+
+### CI
+
+- Fixed a `rustc` crash (`SIGILL`, illegal instruction) that could occur
+  compiling proc-macro dependencies on GitHub-hosted runners. Cause:
+  `.cargo/config.toml` sets `-C target-cpu=native` workspace-wide,
+  intentional for local release builds tuned to a known machine, but
+  GitHub Actions runners aren't guaranteed identical hardware between
+  runs — "native" CPU feature detection isn't reliable in that
+  environment. CI workflows (`ci.yml`, `cargo-publish.yml`,
+  `fixed-depth-ab.yml`) now override `RUSTFLAGS` to disable this for CI
+  specifically; local dev/release builds are unaffected.
+
 ## [0.3.1] – 2026-08-10
 
 This is the first published release since 0.2.4. A
