@@ -154,12 +154,91 @@ def _safe_int(s):
         return None
 
 
+REQUIRED_USI_OPTIONS = ("Threads", "SpecTopN")
+
+
+def probe_usi_capabilities(binary, threads, spec_top_n, timeout_s):
+    """Send usi/setoption/isready once (not per-position) and report which
+    options the binary actually advertised, plus whether it completed the
+    usiok/readyok handshake.
+
+    This exists because a candidate binary built from a commit that
+    predates a USI option's introduction silently ignores an unknown
+    `setoption` line and keeps its old hardcoded behavior -- ran once
+    (2026-08) with a pre-issue-#9 candidate binary silently running
+    SpecTopN=3 while base ran the requested SpecTopN=0, producing a bogus
+    238x node-count outlier. USI has no standard way to read back an
+    option's applied value, so advertised + setoption sent + isready
+    succeeding is treated as the minimum bar for "this option was
+    accepted" -- not proof of the exact applied value, but enough to catch
+    the silent-ignore case that actually occurred.
+    """
+    cmds = [
+        "usi",
+        f"setoption name Threads value {threads}",
+        f"setoption name SpecTopN value {spec_top_n}",
+        "isready",
+        "quit",
+    ]
+    proc = subprocess.run(
+        [str(binary)],
+        input="\n".join(cmds) + "\n",
+        capture_output=True,
+        text=True,
+        timeout=timeout_s,
+    )
+    advertised = set()
+    saw_usiok = False
+    saw_readyok = False
+    for line in proc.stdout.splitlines():
+        line = line.strip()
+        if line.startswith("option name "):
+            parts = line.split()
+            if len(parts) >= 3:
+                advertised.add(parts[2])
+        elif line == "usiok":
+            saw_usiok = True
+        elif line == "readyok":
+            saw_readyok = True
+    return {
+        "returncode": proc.returncode,
+        "advertised_options": sorted(advertised),
+        "saw_usiok": saw_usiok,
+        "saw_readyok": saw_readyok,
+        "stderr_tail": (proc.stderr or "").strip()[-2000:],
+    }
+
+
+def require_usi_capabilities(binary, label, threads, spec_top_n, timeout_s):
+    caps = probe_usi_capabilities(binary, threads, spec_top_n, timeout_s)
+    missing = [o for o in REQUIRED_USI_OPTIONS if o not in caps["advertised_options"]]
+    if missing:
+        print(
+            f"CONFIG_UNSUPPORTED: {label} binary does not advertise USI option(s) "
+            f"{', '.join(missing)} -- built from a commit that predates them?",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    if not caps["saw_usiok"] or not caps["saw_readyok"]:
+        print(
+            f"CONFIG_UNSUPPORTED: {label} binary did not complete the usiok/readyok "
+            f"handshake (usiok={caps['saw_usiok']} readyok={caps['saw_readyok']})",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return caps
+
+
 def cmd_run(args):
     corpus = load_corpus(args.corpus)
     binary = Path(args.binary)
     if not binary.exists():
         print(f"ERROR: binary not found: {binary}", file=sys.stderr)
         sys.exit(1)
+
+    usi_capabilities = require_usi_capabilities(
+        binary, args.label, args.threads, args.spec_top_n, args.timeout
+    )
 
     results = []
     for entry in corpus:
@@ -187,6 +266,7 @@ def cmd_run(args):
         "threads": args.threads,
         "spec_top_n": args.spec_top_n,
         "corpus": str(args.corpus),
+        "usi_capabilities": usi_capabilities,
         "results": results,
     }
     Path(args.output).write_text(json.dumps(out, indent=2))

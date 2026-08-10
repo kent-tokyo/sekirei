@@ -42,6 +42,14 @@ on:
         description: "Path (relative to repo root, resolved from THIS workflow's own checkout, not base/candidate) to the position corpus JSON"
         required: false
         default: "scripts/fixed_depth_corpus.json"
+      candidate_pr:
+        description: "Optional: PR number this candidate_sha belongs to, recorded in metadata.json for provenance only"
+        required: false
+        default: ""
+      allow_non_ancestor:
+        description: "Set true to allow candidate_sha that does NOT have base_sha as an ancestor (e.g. deliberately comparing two independent commits). Default false rejects a candidate built from a stale/diverged base, which produced a bogus 238x node-ratio outlier in run 31362228815 (candidate predated base's SpecTopN USI option, so setoption SpecTopN=0 was silently ignored)."
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -57,6 +65,8 @@ jobs:
       THREADS: ${{ inputs.threads }}
       SPEC_TOP_N: ${{ inputs.spec_top_n }}
       CORPUS_PATH: ${{ inputs.corpus_path }}
+      CANDIDATE_PR: ${{ inputs.candidate_pr }}
+      ALLOW_NON_ANCESTOR: ${{ inputs.allow_non_ancestor }}
       RUN_ID: ${{ github.run_id }}
     steps:
       - name: Checkout (full history, for base/candidate worktrees)
@@ -100,29 +110,61 @@ jobs:
           CANDIDATE_SHA=$(resolve_ref "$CANDIDATE_SHA_INPUT")
           echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+
+          # Reject a candidate that doesn't build on top of base unless
+          # explicitly overridden. Without this, a candidate built from a
+          # stale/diverged base can silently lack an option (or feature)
+          # base has, or vice versa -- run 31362228815 compared a
+          # post-PR#18 base (has the SpecTopN USI option) against a
+          # pre-PR#18 candidate (doesn't), so the requested SpecTopN=0 was
+          # never actually applied on the candidate side, producing a
+          # bogus 238x node-count outlier that had nothing to do with the
+          # qsearch-TT change under test.
+          if git merge-base --is-ancestor "$BASE_SHA" "$CANDIDATE_SHA"; then
+            BASE_IS_ANCESTOR=true
+          else
+            BASE_IS_ANCESTOR=false
+          fi
+          if [ "$BASE_IS_ANCESTOR" = "false" ] && [ "$ALLOW_NON_ANCESTOR" != "true" ]; then
+            echo "CANDIDATE_NOT_BASED_ON_BASE: candidate $CANDIDATE_SHA does not have base $BASE_SHA as an ancestor -- this would compare mixed vintages rather than an isolated diff. Pass allow_non_ancestor=true to override for a deliberate independent-commit comparison." >&2
+            exit 1
+          fi
+
           mkdir -p artifacts
           CORPUS_HASH=$(sha256sum "$CORPUS_PATH" | cut -d' ' -f1)
           RUSTC_VERSION=$(rustc --version)
           UTC_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          # All values embedded below are either hex SHAs, integers already
-          # validated by the workflow_dispatch input types, or command
-          # output with no quote/backslash characters (sha256sum hex digest,
-          # `rustc --version`, a UTC timestamp) -- safe to embed directly in
-          # a JSON string without an escaping library.
-          cat > artifacts/metadata.json <<JSONEOF
-          {
-            "base_sha": "$BASE_SHA",
-            "candidate_sha": "$CANDIDATE_SHA",
-            "depth": $DEPTH,
-            "threads": $THREADS,
-            "spec_top_n": $SPEC_TOP_N,
-            "corpus_path": "$CORPUS_PATH",
-            "corpus_sha256": "$CORPUS_HASH",
-            "rustc_version": "$RUSTC_VERSION",
-            "workflow_run_id": "$RUN_ID",
-            "utc_start": "$UTC_START"
+
+          # base_input/candidate_input/candidate_pr are free-text
+          # workflow_dispatch inputs (unlike the hex SHAs/digests below,
+          # not guaranteed quote/backslash-free) -- built via python's json
+          # module rather than a bash heredoc so they can't corrupt the
+          # JSON output the way the unescaped resolve_ref() bug did.
+          BASE_SHA="$BASE_SHA" CANDIDATE_SHA="$CANDIDATE_SHA" \
+          BASE_IS_ANCESTOR="$BASE_IS_ANCESTOR" CORPUS_HASH="$CORPUS_HASH" \
+          RUSTC_VERSION="$RUSTC_VERSION" UTC_START="$UTC_START" \
+          python3 -c '
+          import json, os
+
+          meta = {
+              "base_input": os.environ["BASE_SHA_INPUT"],
+              "base_sha": os.environ["BASE_SHA"],
+              "candidate_input": os.environ["CANDIDATE_SHA_INPUT"],
+              "candidate_sha": os.environ["CANDIDATE_SHA"],
+              "candidate_pr": os.environ.get("CANDIDATE_PR") or None,
+              "base_is_ancestor_of_candidate": os.environ["BASE_IS_ANCESTOR"] == "true",
+              "depth": int(os.environ["DEPTH"]),
+              "threads": int(os.environ["THREADS"]),
+              "spec_top_n": int(os.environ["SPEC_TOP_N"]),
+              "corpus_path": os.environ["CORPUS_PATH"],
+              "corpus_sha256": os.environ["CORPUS_HASH"],
+              "rustc_version": os.environ["RUSTC_VERSION"],
+              "workflow_run_id": os.environ["RUN_ID"],
+              "utc_start": os.environ["UTC_START"],
           }
-          JSONEOF
+          with open("artifacts/metadata.json", "w") as f:
+              json.dump(meta, f, indent=2)
+          '
           cat artifacts/metadata.json
 
       - name: Build base in its own worktree
