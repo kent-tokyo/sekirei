@@ -136,11 +136,13 @@ extension to the gate (within-binary variance across N repeats, base vs
 candidate) -- see below and the PR #16 section of this doc once results
 land.
 
-PR #17's own re-evaluation is paused until PR #16 (or a successor fix)
-demonstrably reduces `SpecTopN=3` variance -- re-measuring PR #17 against
-noise this large isn't informative. Same reasoning applies to PR #4's
-fixed-depth evaluation, which is also paused, independent of the local-CPU
-resource situation.
+PR #17's own re-evaluation was paused until PR #16 (or a successor fix)
+demonstrably reduced `SpecTopN=3` variance -- re-measuring PR #17 against
+noise this large wasn't informative. PR #16 merged (see below); PR #17's
+re-evaluation against the resulting lower-noise `main` is recorded further
+down in this doc -- see "run 31398746511 (PR #17 repeats-mode re-evaluation)".
+Same reasoning still applies to PR #4's fixed-depth evaluation, which
+remains paused, independent of the local-CPU resource situation.
 
 ## run 31367406754 (PR #16 repeatability) -- PARTIAL PASS
 
@@ -234,6 +236,99 @@ Filed as a tracked follow-up: audit the remaining shared-TT write topology
 equal-depth replacement rule) to find the second nondeterminism source the
 3 unchanged positions point at. Not started this session -- release work
 takes priority per explicit user instruction.
+
+## run 31398746511 (PR #17 repeats-mode re-evaluation) -- measured worse, not merge-recommended
+
+`repeats` mode, `base_sha=3f7d2d5` (main, post-PR#16), `candidate_sha=e6d50e1`
+(PR #17's rebased head, `feat/qsearch-tt`, issue #8), `candidate_pr=17`,
+`depth=9`, `threads=1`, `spec_top_n=3`, `repeats=3`. Base for this run is
+`main` **after** PR #16 merged, so this compares against a lower noise
+floor than the PR #16 evaluation itself did (that run's base showed 9/21
+bestmove-variable positions; this run's base shows 2/21) -- a more
+sensitive test, not a rerun of the same measurement.
+
+### Results
+
+| metric | base | candidate |
+|---|---|---|
+| positions with bestmove variance | 2 / 21 | 4 / 21 |
+| median node-swing ratio | 1.0316 | 1.1242 |
+| p90 node-swing ratio | 1.7355 | 1.7056 |
+| max node-swing ratio | 2.6578 | 2.3749 |
+| correctness failures (63 runs/side) | 0 | 0 |
+
+Base bestmove-variable positions (2): `king_danger_nyugyoku_insufficient_pieces`,
+`king_danger_nyugyoku_insufficient_points`.
+
+Candidate bestmove-variable positions (4): `opening_black_2f`,
+`king_danger_nyugyoku_full_army`, `king_danger_nyugyoku_insufficient_points`,
+`opening_1ply_2f`.
+
+### Reading the bestmove signal: unfavorable, and not a clean subset either direction
+
+Unlike PR #16 (candidate's unstable positions were a strict subset of
+base's, none newly introduced), PR #17's candidate: stabilizes 1 of base's
+2 unstable positions (`king_danger_nyugyoku_insufficient_pieces`, `unique_bestmoves`
+2 -> 1), leaves the other unchanged (`_insufficient_points`, `unique_bestmoves=2`,
+`modal_fraction=0.6667` both sides), and newly destabilizes 3 positions that
+were fully stable in base (`opening_black_2f`, `opening_1ply_2f`,
+`king_danger_nyugyoku_full_army`, all `unique_bestmoves` 1 -> 2). Net: 2/21 ->
+4/21, the primary metric moving in the unfavorable direction relative to an
+already-improved baseline.
+
+### Reading the node-swing signal: median worse, tails mixed
+
+Median node-swing ratio worsened (1.0316 -> 1.1242). Position by position,
+more individual positions got worse than better: 10 worsened, 4 improved, 6
+flat/unchanged, 1 excluded (`tactical_mate_in_1`, terminal position, no
+ratio). Corpus p90 was roughly flat (1.7355 -> 1.7056) and max improved
+(2.6578 -> 2.3749), but per the same n=3-per-position caveat applied to PR
+#16's tail stats, neither is treated as a resolved finding in either
+direction -- `max_over_min_node_ratio` is a single worst-of-3 draw per
+position, and corpus p90/max are percentiles over 21 of those draws.
+
+### SpecTopN=0 control: clean on both sides
+
+Same commits, same corpus, `spec_top_n=0`, `repeats=3` (run `31399124391`):
+base and candidate both show 0/21 bestmove variance and `max_over_min_node_ratio
+= 1.0` on every position (fully deterministic, as expected -- `SpecTopN=0`
+disables the concurrent speculative pool entirely). This is consistent with
+the hypothesis that the new variance is confined to the speculative-concurrency
+channel (new qsearch TT store sites racing `SpecGroup`'s concurrent workers)
+rather than a change to deterministic search logic -- but it's supporting
+evidence for that hypothesis, not proof of it. The mechanism is not
+established by this data; only that the effect requires `SpecTopN>0` to
+manifest, which the existing shared-TT write-topology follow-up (filed as
+issue, see below) is the right place to actually test it.
+
+### Verdict: not merge-recommended; magnitude unresolved at n=3
+
+The primary metric (bestmove-variance count) and the median node-swing ratio
+-- the two statistics PR #16's own PARTIAL PASS was judged on -- both moved
+in the unfavorable direction here, against a baseline that was already lower-noise
+than the one PR #16 was evaluated against. That does not clear PARTIAL PASS,
+let alone STRONG PASS. It is also not being called a confirmed regression:
+`unique_bestmoves` transitions are more robust than a continuous ratio (a
+discrete stability flip, not a single-draw extreme), but 3 positions flipping
+at 3 repeats each is still 3 draws per position, and this run's own base
+(2/21) differed from PR #16's evaluation run's base (3/21 candidate side,
+same commits) by one position -- the corpus-level noise floor itself is not
+perfectly stable run-to-run. **Conclusion: PR #17 stays draft.** No merge on
+this data. Resolving the magnitude (is this real candidate-introduced
+variance, or noise sampled unluckily at n=3) would need n>=10 repeats on the
+four candidate-variable positions specifically, which is not scheduled --
+NNUE/eval work is the higher-priority item per ROADMAP.md.
+
+### Follow-up
+
+The shared-TT write-topology audit that PR #16's follow-up already called
+for (issue, filed 2026-08-10) is the right next step for this data too:
+`spec_alpha_beta`, the new qsearch TT probe/store sites PR #17 adds at
+`depth=0`, `alpha_beta`, `root_search`, and `quiescence` are all producers
+into the same shared `Tt`, and PR #17's SpecTopN=0-vs-3 control is
+consistent with (not proof of) the new store sites interacting with
+`SpecGroup`'s concurrent workers as the mechanism. Cited as motivating
+evidence for that issue alongside PR #16's original 3 unchanged positions.
 
 ## run 31362228815 -- INVALID_CONFIG
 
