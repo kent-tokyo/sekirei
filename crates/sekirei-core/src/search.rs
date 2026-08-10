@@ -1105,41 +1105,68 @@ fn quiescence(
         return evaluate(board);
     }
 
-    // TT probe (issue #8): quiescence entries are stored at depth=0 (see the
-    // store sites below), the minimum possible depth. Tt::store is depth-
-    // preferred (rejects strictly-shallower writes only), so a depth=0 store
-    // can never overwrite a real main-search entry (depth >= 1) at the same
-    // hash. Symmetrically, alpha_beta's own probe requires `entry.depth >=
-    // depth as u8`, which a depth=0 entry can never satisfy for any real
-    // search node (depth >= 1) -- so a qsearch-origin entry can never be
-    // taken as a cutoff by the main search either. Both directions are
-    // already guaranteed by existing code; nothing new needed here. Reading
-    // is symmetric: any existing entry (any depth, always >= 0) is at least
-    // as trustworthy as a fresh qsearch computation, so no depth gate is
-    // applied on the read side.
+    // TT probe (issue #8, revised after CI caught the original version's
+    // read-side assumption). The TT is *shared* with SpeculativeSearcher,
+    // whose background tasks store real-depth (>= 1) entries concurrently,
+    // potentially at the exact hash quiescence is about to visit, before
+    // quiescence's own store for that position exists. The original version
+    // of this probe treated any existing entry (any depth, any producer) as
+    // a safe qsearch cutoff -- CI disproved that directly:
+    // `setoption_evalfile.rs`'s marker-weight fixture (every position's
+    // static eval is identically +10) turned it into an exact, reproducible
+    // sign flip. At `go depth 1`, `SpecGroup::spawn` explores the position
+    // after the root move at a *real* spec depth (>= 1); its negamax-negated
+    // result (-10) got stored as `Bound::Exact` at that hash. The main
+    // search's own `alpha_beta(depth=0)` for the same root move then called
+    // `quiescence` on that identical hash, whose probe trusted the
+    // speculative entry's score directly and returned -10 -- which the root
+    // then negated *again*, producing +10 instead of the expected -10.
+    //
+    // Fix: separate move-ordering use from score/bound-cutoff use. Any TT
+    // entry's `mv`, from any producer or depth, is still a safe ordering
+    // hint -- a wrong-layer suggestion can only misorder qsearch's own move
+    // loop, not corrupt its result. A score/bound is trusted only from an
+    // entry that is itself a qsearch ROOT entry point: `qply == 0` (quiet
+    // checks are only ever tried at qply=0, and the qply-based
+    // QSEARCH_MAX_PLY cap means a position's qsearch value genuinely depends
+    // on qply, not just on the board -- `V(position, qply=0)` and
+    // `V(position, qply=5)` are different search problems, so a generic
+    // depth=0 slot cannot safely represent every recursive qsearch state,
+    // only the qply=0 entry point specifically), identified via
+    // `entry.depth == 0` (every real search layer -- alpha_beta,
+    // root_search, spec_alpha_beta, SpecGroup's parent store -- stores at
+    // depth >= 1; only quiescence's own qply=0 stores use depth=0, see the
+    // store sites below, which now only fire at qply=0 for the same reason).
     let hash = board.hash();
-    let orig_alpha = alpha;
     let mut tt_mv = None;
     if let Some(entry) = state.tt.probe(hash) {
-        let adj = score_from_tt(entry.score, ply);
-        tt_mv = entry.mv;
-        match entry.bound {
-            Bound::Exact => return adj,
-            Bound::Lower => {
-                if adj >= beta {
-                    return adj;
+        tt_mv = entry.mv; // safe as an ordering hint regardless of depth/producer/qply
+        if qply == 0 && entry.depth == 0 {
+            let adj = score_from_tt(entry.score, ply);
+            match entry.bound {
+                Bound::Exact => return adj,
+                Bound::Lower => {
+                    if adj >= beta {
+                        return adj;
+                    }
+                    if adj > alpha {
+                        alpha = adj;
+                    }
                 }
-                if adj > alpha {
-                    alpha = adj;
-                }
-            }
-            Bound::Upper => {
-                if adj <= alpha {
-                    return adj;
+                Bound::Upper => {
+                    if adj <= alpha {
+                        return adj;
+                    }
                 }
             }
         }
     }
+    // Captured AFTER the TT bound adjustment above (not before it): an alpha
+    // raised only by a trusted Lower-bound TT hit -- no new search work at
+    // this node -- must not, by itself, make the end-of-function bound
+    // classification below think *this* call's own work improved on it,
+    // which would store an unearned Exact from a Lower bound alone.
+    let orig_alpha = alpha;
 
     let in_check = is_in_check(board, board.side_to_move);
 
@@ -1167,10 +1194,18 @@ fn quiescence(
         generate_legal_captures(board)
     };
 
+    // Only qsearch's own qply=0 entry point stores or trusts a cutoff score
+    // (see the probe comment above) -- recursive qply>0 calls still search
+    // fully and still use any TT move for ordering, they just never read or
+    // write a score/bound.
+    let cacheable = qply == 0;
+
     if moves.is_empty() {
         if in_check {
             let mate_score = -MATE_SCORE + ply as i32; // checkmate
-            store_tt(state, hash, mate_score, 0, Bound::Exact, None, ply);
+            if cacheable {
+                store_tt(state, hash, mate_score, 0, Bound::Exact, None, ply);
+            }
             return mate_score;
         }
         // No captures available and not in check: alpha already reflects
@@ -1182,7 +1217,9 @@ fn quiescence(
         } else {
             Bound::Upper
         };
-        store_tt(state, hash, alpha, 0, bound, None, ply);
+        if cacheable {
+            store_tt(state, hash, alpha, 0, bound, None, ply);
+        }
         return alpha;
     }
 
@@ -1191,14 +1228,13 @@ fn quiescence(
     // here is too costly per node (qsearch is the hottest path); the coarse
     // capture ordering is plenty otherwise and keeps each node fast enough
     // to respect the clock.
+    //
+    // Ascending sort_by_cached_key: `false < true`, so `tt_mv != Some(m)`
+    // being `false` (m IS the TT move) sorts first -- NOT i32::MAX, which
+    // an earlier version of this line used and which sorts *last* under an
+    // ascending sort, the opposite of its own comment's intent.
     let mut ordered = moves;
-    ordered.sort_by_cached_key(|&m| {
-        if tt_mv == Some(m) {
-            i32::MAX
-        } else {
-            -qsearch_order_key(board, m)
-        }
-    });
+    ordered.sort_by_cached_key(|&m| (tt_mv != Some(m), -qsearch_order_key(board, m)));
 
     let mut best_move: Option<Move> = None;
 
@@ -1211,7 +1247,9 @@ fn quiescence(
             return 0;
         }
         if score >= beta {
-            store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
+            if cacheable {
+                store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
+            }
             return score;
         }
         if score > alpha {
@@ -1258,7 +1296,9 @@ fn quiescence(
                 return 0;
             }
             if score >= beta {
-                store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
+                if cacheable {
+                    store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
+                }
                 return score;
             }
             if score > alpha {
@@ -1277,7 +1317,9 @@ fn quiescence(
     } else {
         Bound::Upper
     };
-    store_tt(state, hash, alpha, 0, bound, best_move, ply);
+    if cacheable {
+        store_tt(state, hash, alpha, 0, bound, best_move, ply);
+    }
     alpha
 }
 
@@ -2090,13 +2132,11 @@ mod regression_tests {
     // C: quiescence's own depth=0 stores must never win against a deeper,
     // already-present main-search entry -- verified via Tt::store's actual
     // depth-preferred replacement policy, not merely asserted. Seeds a
-    // Bound::Lower entry (rather than Exact) specifically so quiescence's own
-    // TT probe doesn't short-circuit the whole call before reaching its store
-    // site: a Lower bound whose score is far outside the (-inf, +inf) window
-    // used here only raises alpha and lets the function continue, unlike an
-    // Exact hit which would return immediately and never attempt a store at
-    // all (a different, also-correct outcome, but not what this test needs
-    // to isolate).
+    // depth=4 Bound::Lower entry; quiescence's own probe now ignores it
+    // entirely for cutoff purposes (entry.depth != 0), so it reaches its
+    // own store attempt regardless of the seeded bound's type -- which is
+    // exactly what this test needs to isolate (does the STORE get rejected
+    // by depth-preference, not "does the probe avoid an early return").
     #[test]
     fn quiescence_store_never_overwrites_a_deeper_main_search_entry() {
         let mut board = Board::startpos();
@@ -2189,6 +2229,161 @@ mod regression_tests {
         assert!(
             tt.probe(hash).is_none(),
             "an aborted quiescence call must not store anything"
+        );
+    }
+
+    // ---- qply/depth semantic-layer isolation (found by CI, not designed in
+    // advance -- see the probe comment in quiescence() for the full story) ----
+
+    // F1 (the CI regression itself, reproduced directly): a real-depth
+    // (>= 1) Exact entry at qsearch's own hash -- exactly what a concurrent
+    // SpeculativeSearcher task can leave behind at the same position before
+    // quiescence's own qply=0 call reaches it -- must not be trusted as a
+    // qsearch score/bound cutoff. Uses an obviously-wrong fake score so a
+    // wrongly-trusted cutoff is unambiguously detectable, rather than
+    // relying on marker weights or a live SpecGroup like the original CI
+    // failure did.
+    #[test]
+    fn quiescence_ignores_a_deeper_entry_for_score_cutoff_at_qply_zero() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        const FAKE_SCORE: i32 = 123_456;
+        store_tt(
+            &fresh_state(tt.clone()),
+            hash,
+            FAKE_SCORE,
+            1,
+            Bound::Exact,
+            None,
+            0,
+        );
+
+        let state = fresh_state(tt.clone());
+        let score = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0);
+
+        assert_ne!(
+            score, FAKE_SCORE,
+            "quiescence must not trust a real-depth (>= 1) TT entry as a score cutoff -- \
+             this is the exact mechanism that produced the CI sign-flip regression in \
+             setoption_evalfile.rs, where a concurrent SpeculativeSearcher task's real-\
+             depth entry at the same hash was wrongly returned by quiescence's original \
+             (pre-fix) probe"
+        );
+    }
+
+    // F2: the positive case -- quiescence's own qply=0, depth=0 entries ARE
+    // trusted as a cutoff (this is the whole point of caching them).
+    #[test]
+    fn quiescence_uses_a_depth_zero_qply_zero_entry_for_score_cutoff() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        const SEEDED_SCORE: i32 = 555;
+        store_tt(
+            &fresh_state(tt.clone()),
+            hash,
+            SEEDED_SCORE,
+            0,
+            Bound::Exact,
+            None,
+            3,
+        );
+
+        let state = fresh_state(tt.clone());
+        let score = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0);
+
+        assert_eq!(
+            score, SEEDED_SCORE,
+            "quiescence must trust its own qply=0, depth=0 entries as a cutoff"
+        );
+    }
+
+    // F3: qply semantic isolation, the converse of F2 -- the SAME depth=0
+    // Exact entry must NOT be trusted when queried from qply != 0.
+    // V(position, qply=0) and V(position, qply=1) are different search
+    // problems (quiet checks only run at qply=0; the qply-based
+    // QSEARCH_MAX_PLY cap also makes the value qply-dependent), so a
+    // qply=0 entry cannot safely answer a qply=1 query.
+    #[test]
+    fn quiescence_ignores_a_depth_zero_entry_for_score_cutoff_when_qply_is_nonzero() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        const SEEDED_SCORE: i32 = 555;
+        store_tt(
+            &fresh_state(tt.clone()),
+            hash,
+            SEEDED_SCORE,
+            0,
+            Bound::Exact,
+            None,
+            3,
+        );
+
+        let state = fresh_state(tt.clone());
+        // Same depth=0, same ply=3 as F2 -- only qply differs (1, not 0).
+        let score = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 1);
+
+        assert_ne!(
+            score, SEEDED_SCORE,
+            "quiescence must not trust a depth=0 entry for score cutoff when qply != 0"
+        );
+    }
+
+    // F4: recursive (qply != 0) quiescence calls must not store anything at
+    // all -- a generic depth=0 slot cannot safely represent every qply's
+    // search state (see F3's rationale), so only the qply=0 entry point
+    // stores.
+    #[test]
+    fn quiescence_does_not_store_when_qply_is_nonzero() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+
+        quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 1);
+
+        assert!(
+            tt.probe(hash).is_none(),
+            "quiescence must not store anything for a recursive (qply != 0) call"
+        );
+    }
+
+    // G: TT move ordering, pinned directly -- an earlier version of
+    // quiescence's sort key used `if tt_mv == Some(m) { i32::MAX } else {
+    // -qsearch_order_key(...) }` with `sort_by_cached_key`'s ASCENDING
+    // order: i32::MAX sorts LAST under ascending order, not first, the
+    // opposite of that code's own comment's intent. This pins the corrected
+    // tuple key directly against a real candidate list, independent of
+    // quiescence's other logic.
+    #[test]
+    fn qsearch_tt_move_ordering_key_sorts_the_tt_move_first() {
+        let mut board = Board::startpos();
+        let candidates = generate_legal_moves(&mut board);
+        assert!(
+            candidates.len() >= 3,
+            "startpos should offer several legal moves"
+        );
+
+        // An arbitrary candidate, not necessarily the one qsearch_order_key
+        // would naturally rank first on its own (most non-capturing,
+        // non-promoting startpos moves tie at qsearch_order_key == 0) --
+        // confirming THIS one sorts first demonstrates the TT-move
+        // override actually taking effect, not a coincidence of the
+        // underlying key.
+        let tt_mv = Some(candidates[candidates.len() / 2]);
+
+        let mut ordered = candidates.clone();
+        ordered.sort_by_cached_key(|&m| (tt_mv != Some(m), -qsearch_order_key(&board, m)));
+
+        assert_eq!(
+            Some(ordered[0]),
+            tt_mv,
+            "the TT move must sort first regardless of its own qsearch_order_key value"
         );
     }
 }
