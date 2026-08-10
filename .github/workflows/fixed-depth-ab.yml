@@ -64,6 +64,16 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Fetch all branches
+        # actions/checkout with fetch-depth:0 unshallows only the ref that
+        # triggered this run -- base_sha/candidate_sha commonly belong to a
+        # DIFFERENT branch (e.g. a PR branch), which wouldn't otherwise be
+        # reachable for `git rev-parse`/`git worktree add` below. This repo
+        # has no forks in play here (workflow_dispatch is already
+        # write-access-gated), so fetching every branch ref directly is
+        # safe and simple.
+        run: git fetch origin '+refs/heads/*:refs/remotes/origin/*' --prune
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
@@ -71,8 +81,15 @@ jobs:
         id: meta
         run: |
           set -euo pipefail
-          BASE_SHA=$(git rev-parse "$BASE_SHA_INPUT")
-          CANDIDATE_SHA=$(git rev-parse "$CANDIDATE_SHA_INPUT")
+          # Prefer origin/<input> (handles a plain branch name unambiguously,
+          # since a same-named local ref left over from checkout could
+          # otherwise shadow it); fall back to the raw input (handles a bare
+          # SHA or tag, which have no origin/ prefix form).
+          resolve_ref() {
+            git rev-parse "origin/$1" 2>/dev/null || git rev-parse "$1"
+          }
+          BASE_SHA=$(resolve_ref "$BASE_SHA_INPUT")
+          CANDIDATE_SHA=$(resolve_ref "$CANDIDATE_SHA_INPUT")
           echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
           echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
           mkdir -p artifacts
