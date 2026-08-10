@@ -30,8 +30,33 @@ const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "ke.tanabe@gmail.com";
 const DEFAULT_HASH_MB: usize = 64;
 const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
+// Dedicated speculative-search pool size. Was hardcoded in make_searcher()
+// with no USI option (issue #9); this is that same value now exposed as
+// the SpecTopN option's default, so not setting it changes nothing.
+const DEFAULT_SPEC_TOP_N: usize = 3;
 
 // ---- Main loop ----
+
+/// Abort and join any in-flight search thread before mutating shared search
+/// state. Shared by `go`, `usinewgame`, and every `setoption` branch that
+/// rebuilds `searcher` (`Hash`, `SpecTopN`) -- extracted after `setoption
+/// Hash` was found missing this exact sequence (issue #10; `SpecTopN`,
+/// issue #9, needs the identical sequence for the same reason: rebuilding
+/// the searcher's dedicated pool out from under an in-flight search thread
+/// is safe for the search itself, which holds its own `Arc` clone, but
+/// leaves nothing blocking the main loop from answering the next command
+/// before that thread's `bestmove` has actually been printed).
+fn abort_and_join_inflight_search(
+    search_abort: &mut Option<Arc<AtomicBool>>,
+    search_handle: &mut Option<JoinHandle<()>>,
+) {
+    if let Some(a) = search_abort.take() {
+        a.store(true, Ordering::Relaxed);
+    }
+    if let Some(h) = search_handle.take() {
+        h.join().ok();
+    }
+}
 
 fn main() {
     // Optional: load NNUE weights from first command-line argument
@@ -54,7 +79,8 @@ fn main() {
     let stdout = io::stdout();
 
     let mut hash_mb = DEFAULT_HASH_MB;
-    let mut searcher = make_searcher(hash_mb);
+    let mut spec_top_n = DEFAULT_SPEC_TOP_N;
+    let mut searcher = make_searcher(hash_mb, spec_top_n);
     let mut eval_file: Option<String> = None;
     let mut move_overhead_ms: u64 = 50;
     let mut multi_pv: u32 = 1;
@@ -107,6 +133,9 @@ fn main() {
                 println!("id author {ENGINE_AUTHOR}");
                 println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
                 println!("option name Threads type spin default 0 min 0 max 512");
+                println!(
+                    "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
+                );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
                 println!("option name Ponder type check default false");
                 println!("option name MultiPV type spin default 1 min 1 max 256");
@@ -159,19 +188,21 @@ fn main() {
                 if parts.get(1) == Some(&"Hash")
                     && let Some(mb) = parts.get(3).and_then(|s| s.parse().ok())
                 {
-                    // Abort and join any in-flight search before rebuilding the
-                    // searcher, same as "go" and "usinewgame" already do -- without
-                    // this, the old search thread's own bestmove output can arrive
-                    // after (interleaved with) whatever command comes after this
-                    // setoption, since nothing here previously blocked on it.
-                    if let Some(a) = search_abort.take() {
-                        a.store(true, Ordering::Relaxed);
-                    }
-                    if let Some(h) = search_handle.take() {
-                        h.join().ok();
-                    }
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                     hash_mb = mb;
-                    searcher = make_searcher(hash_mb);
+                    searcher = make_searcher(hash_mb, spec_top_n);
+                } else if parts.get(1) == Some(&"SpecTopN")
+                    && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
+                {
+                    // Same abort+join requirement as Hash just above, and for the
+                    // identical reason: this rebuilds the searcher's dedicated
+                    // speculative-search pool, which the in-flight search's own
+                    // Arc<SpeculativeSearcher> clone is unaffected by, but nothing
+                    // else here would otherwise block the main loop from moving on
+                    // to the next command before that search's bestmove is printed.
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    spec_top_n = n;
+                    searcher = make_searcher(hash_mb, spec_top_n);
                 } else if parts.get(1) == Some(&"Threads") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
                         threads = n as u32;
@@ -216,12 +247,7 @@ fn main() {
             }
 
             "usinewgame" => {
-                if let Some(a) = search_abort.take() {
-                    a.store(true, Ordering::Relaxed);
-                }
-                if let Some(h) = search_handle.take() {
-                    h.join().ok();
-                }
+                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 board = Board::startpos();
                 searcher.clear_tt();
                 game_counter += 1;
@@ -265,12 +291,7 @@ fn main() {
             "go" => {
                 // Abort any in-flight search and join before starting a new one.
                 // suppress_bm stays false so the dying thread still emits bestmove.
-                if let Some(prev) = search_abort.take() {
-                    prev.store(true, Ordering::Relaxed);
-                }
-                if let Some(h) = search_handle.take() {
-                    h.join().ok();
-                }
+                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 let pondering = rest.split_whitespace().any(|t| t == "ponder");
                 if pondering {
                     ponder_go_args = Some(rest.to_string());
@@ -399,24 +420,14 @@ fn main() {
             }
 
             "stop" => {
-                if let Some(a) = search_abort.take() {
-                    a.store(true, Ordering::Relaxed);
-                }
-                if let Some(h) = search_handle.take() {
-                    h.join().ok();
-                }
+                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
             }
 
             "ponderhit" => {
                 // Suppress bestmove from dying ponder thread, abort it, then restart
                 // with the original go-ponder time args (opponent's clock hasn't ticked).
                 suppress_bm.store(true, Ordering::Relaxed);
-                if let Some(a) = search_abort.take() {
-                    a.store(true, Ordering::Relaxed);
-                }
-                if let Some(h) = search_handle.take() {
-                    h.join().ok();
-                }
+                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 // Reset suppress before launching the real timed search.
                 suppress_bm.store(false, Ordering::Relaxed);
                 if let Some(ref args) = ponder_go_args.take() {
@@ -481,12 +492,7 @@ fn main() {
             "gameover" => {}
 
             "quit" => {
-                if let Some(a) = search_abort.take() {
-                    a.store(true, Ordering::Relaxed);
-                }
-                if let Some(h) = search_handle.take() {
-                    h.join().ok();
-                }
+                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 break;
             }
 
@@ -499,8 +505,8 @@ fn main() {
 
 // ---- Helpers ----
 
-fn make_searcher(hash_mb: usize) -> Arc<SpeculativeSearcher> {
-    Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb), 3))
+fn make_searcher(hash_mb: usize, spec_top_n: usize) -> Arc<SpeculativeSearcher> {
+    Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb), spec_top_n))
 }
 
 // ---- Go command time-control parsing ----
