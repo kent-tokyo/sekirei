@@ -6,23 +6,67 @@ elsewhere in this directory (e.g. `pr4_gate_attempt_index.md`). Runs are
 never deleted from GitHub Actions history when found invalid -- they're
 recorded here as provenance for why the gate infrastructure itself changed.
 
-## run 31364261314 (R17_0) -- VALID, GOOD
+## SpecTopN=3 fixed-depth results are noise-dominated (major finding, 2026-08-10)
+
+**Before reading any SpecTopN=3 result below**: two null A/A runs (the
+*identical* binary, `base_sha == candidate_sha`, run twice) at
+`SpecTopN=3, threads=1, depth=9` produced 5/21 and 6/21 bestmove diffs and
+node-ratio swings up to **5.79x** -- with zero code difference between the
+two sides. R17_3's 6/21 bestmove diffs and 2.15x max node ratio (PR #17 vs
+`main`) sit entirely inside that same-binary noise envelope. **The 6/21 and
+2.15x cannot be attributed to PR #17's code.**
+
+Mechanism: `SpecTopN=3` builds `SpeculativeSearcher`'s own rayon thread
+pool (`SpecState.pool`, sized `top_n.max(1)` in `SpeculativeSearcher::new`)
+independently of the `Threads` USI option -- `Threads=1` does not make a
+`SpecTopN=3` run single-threaded. Those background workers write the
+*shared* `Tt` concurrently; write ordering depends on OS thread scheduling,
+which varies run to run even for the identical binary on identical
+positions. **`SpecTopN=0` is currently the gate's only configuration with
+resolving power for node-count/bestmove comparison** -- confirmed
+separately below (run 31366255282: 0/21 bestmove diffs, node ratio exactly
+1.0 on every position at `SpecTopN=0`, same-binary). This governs how PR
+#16 and PR #4 must be evaluated too, not just PR #17.
+
+This reframes R17_3 from "MIXED, possibly a PR #17 regression" to
+**"no measurement -- the tool's SpecTopN=3 mode cannot currently
+distinguish a real effect from scheduling noise at this magnitude."** See
+`king_danger_nyugyoku_full_army`/`jishogi_mutual_impasse`/etc. below for
+the specific runs.
+
+Given this, `SpeculativeSearcher`'s shared-TT nondeterminism itself is now
+a higher-priority target than PR #17's fine-grained qsearch tuning -- see
+"Next: PR #16 as a reproducibility fix candidate" below. PR #17's own
+fixed-depth investigation is paused until a fix (PR #16 or a successor)
+demonstrably reduces this variance; re-evaluating PR #17 against noise this
+large isn't a meaningful measurement.
+
+## run 31364261314 (R17_0) -- VALID_GOOD_ISOLATED
 
 - workflow: `fixed-depth-ab.yml`, ref `fix/remote-gate-ref-resolution` (post-interactive-driver-fix)
-- dispatched: 2026-08-10, `base_sha=main` (`9f45ccf7`), `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17 head, `candidate_pr=17`), `depth=9`, `threads=1`, `spec_top_n=0`
-- provenance: `base_is_ancestor_of_candidate=true`; both binaries advertise `Threads`+`SpecTopN` and complete the `usiok`/`readyok` handshake (confirmed in `usi_capabilities` in both result JSONs)
+- `base_sha=main` (`9f45ccf7`), `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17 head, `candidate_pr=17`), `depth=9`, `threads=1`, **`spec_top_n=0`**
+- provenance: `base_is_ancestor_of_candidate=true`; both binaries advertise `Threads`+`SpecTopN`, handshake completes
 - **21/21 positions status=ok on both sides** -- zero panic/timeout/illegal/unexpected_resign/incomplete_output
 
-### Results (first trustworthy PR #17 measurement)
+### Results
 
 - median node ratio (candidate/base): **0.9987**
-- node ratio range: 0.7513 .. 1.0124 (no explosion; `opening_4ply` shows the largest reduction)
-- bestmove differs: 1/21 (`king_danger_nyugyoku_full_army`: base `6i5h` cp 0 vs candidate `5c5d` cp 50 -- well under the 200cp "notably different" threshold)
+- node ratio range: 0.7513 .. 1.0124
+- bestmove differs: 1/21 (`king_danger_nyugyoku_full_army`: base `6i5h` cp 0 vs candidate `5c5d` cp 50 -- well under the 200cp threshold)
 - score_cp differs by >200: 0/21
 
-Verdict per the GOOD/NEUTRAL/BAD framework: **GOOD** -- zero correctness issues, no unnatural bestmove/score divergence, no pathological node explosion. Still a draft-stays-draft result, not a merge decision by itself; this is the qsearch-TT-isolated measurement (`SpecTopN=0`, no speculative-search interaction).
+**Validated deterministic** by run 31366255282 (same-binary null A/A at
+`SpecTopN=0`: 0/21 bestmove diffs, node ratio exactly 1.0 everywhere) -- so
+this 1/21 diff and 0.75-1.01 range are real signal from PR #17's code, not
+noise.
 
-## run 31364492445 (R17_3) -- VALID_MIXED
+Verdict: **VALID_GOOD_ISOLATED** -- the qsearch-TT change itself, with
+speculation disabled, is structurally clean and approximately node-neutral.
+**Not** a strength-improvement claim -- only that it doesn't regress
+correctness or blow up node counts in isolation. Still a draft-stays-draft
+result on its own; see "PR #17 does not merge yet" below.
+
+## run 31364492445 (R17_3) -- VALID_NOISE_DOMINATED
 
 - workflow: `fixed-depth-ab.yml`, ref `fix/remote-gate-ref-resolution`
 - `base_sha=9f45ccf75758b92e67eea7cd5ae05c63f6cca8d9`, `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17 head, `candidate_pr=17`), `gate_tooling_sha=f97b6922aa6d6d68319b8c39186e94b65f1030d8`
@@ -34,55 +78,69 @@ Verdict per the GOOD/NEUTRAL/BAD framework: **GOOD** -- zero correctness issues,
 
 - bestmove differs: **6/21** (`check_evasion_plain_sennichite`, `check_evasion_continuous_check_white`, `king_danger_nyugyoku_full_army`, `king_danger_nyugyoku_bare_king`, `king_danger_nyugyoku_insufficient_points`, `opening_4ply`)
 - score_cp differs by >200: 0/21
-- median node ratio (candidate/base): 0.99505 -- neutral
+- median node ratio (candidate/base): 0.99505
 - node ratio range: **0.6115 .. 2.1541**
-- notable outliers (absolute node counts, not just ratios):
-  - `king_danger_nyugyoku_full_army`: base 684,641 -> candidate 1,474,816 nodes (ratio 2.1541, delta ~790k), bestmove `6i5h`->`5c5d`, score 150cp->50cp
-  - `king_danger_nyugyoku_insufficient_points`: base 28,556 -> candidate 48,277 nodes (ratio 1.6906), bestmove `8b8a+`->`9c9b+`, score 2249cp->2300cp
-  - `jishogi_mutual_impasse`: base 2,356 -> candidate 3,634 nodes (ratio 1.5424), bestmove unchanged
-  - `check_evasion_plain_sennichite`: base 565 -> candidate 792 nodes (ratio 1.4018, delta ~227 nodes -- small-N artifact, not a large-magnitude outlier despite the ratio)
 
-### Comparison against R17_0 (SpecTopN=0)
+### Noise-floor comparison (decisive)
 
-| | SpecTopN=0 (R17_0) | SpecTopN=3 (R17_3) |
-|---|---|---|
-| bestmove diffs | 1/21 | 6/21 |
-| median node ratio | 0.9987 | 0.99505 |
-| node ratio range | 0.7513 .. 1.0124 | 0.6115 .. 2.1541 |
+| run | base | candidate | code delta | bestmove diffs | node ratio range |
+|---|---|---|---|---|---|
+| R17_3 (31364492445) | main | PR #17 head | qsearch TT (all of it) | 6/21 | 0.61 .. 2.15 |
+| null A/A #1 (31365516737) | main | main (identical) | **none** | 6/21 | 0.56 .. **5.79** |
+| null A/A #2 (31365820361) | main | main (identical) | **none** | 5/21 | 0.31 .. 2.21 |
+| Arm A (31365816852) | main | qsearch cutoff+store only, no TT ordering | partial | 6/21 | 0.12 .. 1.96 |
+| Arm B (31365818510) | main | TT ordering only, no cutoff+store | partial | 5/21 | 0.54 .. 1.44 |
 
-qsearch TT alone (`SpecTopN=0`) is nearly neutral; the production-default
-interaction with `SpeculativeSearcher`'s concurrent background tasks
-(`SpecTopN=3`) shows materially more divergence. `king_danger_nyugyoku_full_army`
-gives the same bestmove flip (`6i5h`->`5c5d`) in both R17_0 and R17_3, with
-score deltas of 50cp and 100cp respectively, well under the 200cp
-threshold -- a TT added to qsearch legitimately changes move ordering, so a
-fixed-depth bestmove flip on a near-equal position here is an expected
-consequence of the feature working, not by itself evidence of a defect.
-The other 5 SpecTopN=3-only divergences and the node-count outliers are
-the open question this ablation is chasing.
+R17_3's 6/21 and 2.15x are **inside** the range produced by two
+zero-code-delta null A/A runs (which independently reach 5-6/21 and, in one
+case, 5.79x -- larger than R17_3's own max). Arm A and Arm B (the
+interaction ablation, see below) land in the same range regardless of which
+half of PR #17's change each keeps. **No configuration here shows a signal
+distinguishable from the SpecTopN=3 same-binary noise floor.**
 
-Verdict: **VALID_MIXED** -- provenance-clean and gate-clean (21/21 ok), but
-not GOOD: the 6/21 bestmove divergence rate and the 1.4x-2.15x local node
-outliers at the production `SpecTopN=3` default are not yet distinguishable
-from a real search-quality effect. **PR #17 stays draft, not merge-recommended,
-pending the ablation below.**
+Verdict: **VALID_NOISE_DOMINATED** -- provenance-clean and gate-clean
+(21/21 ok), but the measurement itself has no resolving power at this
+`SpecTopN=3`/depth/corpus configuration. **No candidate-specific regression
+has been demonstrated, and no candidate-specific improvement has either.**
+The earlier "MIXED, possibly a real interaction effect" framing is
+retracted -- it was a missing-noise-floor-baseline artifact, not evidence
+against PR #17.
 
-### Ablation plan (in progress)
+### Ablation (completed, inconclusive by construction)
 
-Three arms, same `base_sha=9f45ccf...`, `depth=9`, `threads=1`, `spec_top_n=3`, same corpus:
+Three arms, same `base_sha=9f45ccf...`, `depth=9`, `threads=1`,
+`spec_top_n=3`, same corpus, run once each:
 
-- **Arm A** (`diag/qsearch-tt-arm-a`, `72dd301b3376f2ac0c6c39d2ac6fc77a701baf80`): PR #17's qsearch score/bound cutoff+store kept, TT-move ordering removed.
-- **Arm B** (`diag/qsearch-tt-arm-b`, `c3ea17ad2c8515d42855a3ab9457d42a56348dfe`): PR #17's TT-move ordering kept, score/bound cutoff+store removed (forced `cacheable=false`).
-- **Arm C**: PR #17 unmodified -- this is R17_3 above.
+- **Arm A** (`diag/qsearch-tt-arm-a`, `72dd301b3376f2ac0c6c39d2ac6fc77a701baf80`): PR #17's qsearch score/bound cutoff+store kept, TT-move ordering removed. Run 31365816852: 6/21 bestmove diffs, node ratio 0.12 .. 1.96.
+- **Arm B** (`diag/qsearch-tt-arm-b`, `c3ea17ad2c8515d42855a3ab9457d42a56348dfe`): PR #17's TT-move ordering kept, score/bound cutoff+store removed (forced `cacheable=false`). Run 31365818510: 5/21 bestmove diffs, node ratio 0.54 .. 1.44.
+- **Arm C**: PR #17 unmodified -- R17_3 above.
 
-Both diagnostic branches are throwaway (not merge candidates); not committed
-to PR #17 itself.
+**Ablation inconclusive because each arm's observed differences lie within
+the SpecTopN=3 same-binary noise envelope** (see table above) -- there is no
+signal above the noise floor to attribute to either the score/bound-caching
+half or the TT-move-ordering half of PR #17's change. No further runs
+planned for these arms; both diagnostic branches are kept on `origin` as
+evidence but will not be opened as PRs.
 
-In parallel: two null A/A runs (`base_sha=candidate_sha=9f45ccf...`,
-same `depth`/`threads`/`spec_top_n=3`) to measure how much bestmove/node-count
-variance exists between two runs of the *identical* binary under concurrent
-speculative scheduling alone -- the noise floor R17_3's 6/21 and 2.15x must be
-compared against before attributing them to PR #17's code change.
+## Next: PR #16 as a reproducibility fix candidate
+
+PR #16 (`fix/spec-parent-tt-race`, issue #14) removes `SpecGroup::spawn`'s
+closure store to the **parent** hash -- i.e. it removes exactly the shape
+of nondeterministic write (`SpecGroup` candidate tasks racing to store
+competing `Bound::Exact` entries at the same hash, final content dependent
+on completion order) that plausibly explains what the null A/A runs just
+measured (same binary, same position, same depth, different bestmove, node
+swings up to 5.79x). PR #16 is being evaluated as a **search-reproducibility
+fix candidate**, not merely by average node count, using a `repeats`-mode
+extension to the gate (within-binary variance across N repeats, base vs
+candidate) -- see below and the PR #16 section of this doc once results
+land.
+
+PR #17's own re-evaluation is paused until PR #16 (or a successor fix)
+demonstrably reduces `SpecTopN=3` variance -- re-measuring PR #17 against
+noise this large isn't informative. Same reasoning applies to PR #4's
+fixed-depth evaluation, which is also paused, independent of the local-CPU
+resource situation.
 
 ## run 31362228815 -- INVALID_CONFIG
 
