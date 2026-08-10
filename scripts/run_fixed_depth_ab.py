@@ -12,7 +12,7 @@ binaries' search behavior (bestmove/score/nodes) at a fixed depth on a fixed
 position corpus, which is far more robust to host load than a wall-clock
 match (a slow host makes a fixed-depth search take longer, not search less).
 
-Two subcommands, run separately (once per binary, then once to compare) so
+Subcommands, run separately (once per binary, then once to compare) so
 each binary only needs to exist when it's actually being driven -- the
 calling workflow builds base, runs it, builds candidate (overwriting the
 same target/release/sekirei path), runs it, then compares the two already-
@@ -33,9 +33,35 @@ playing-strength signal; it's a fixed, reproducible, and IDENTICAL-across-
 binaries evaluation function, sufficient for the structural comparison this
 tool actually makes (does the code change alter search correctness, bestmove
 stability, or node counts at a fixed depth) without needing real weights.
+
+`run`/`compare` assume a fixed-depth search is DETERMINISTIC for a given
+binary -- true at `SpecTopN=0`, false at `SpecTopN>0` (SpeculativeSearcher
+runs its own concurrent thread pool independent of the `Threads` option, so
+its background workers write the shared TT with scheduling-dependent
+ordering -- see docs/experiments/fixed_depth_gate_run_index.md's null-A/A
+findings, where the *identical* binary run twice at SpecTopN=3 produced
+5-6/21 bestmove diffs and node-ratio swings up to 5.79x). A single-shot
+`run`+`compare` at SpecTopN>0 cannot distinguish a candidate's real effect
+from that noise floor.
+
+`repeat`/`analyze-repeatability`/`compare-repeatability` measure that noise
+floor directly -- WITHIN-binary variance across N repeats of the same
+binary/config, for base and candidate independently, then side by side:
+
+  run_fixed_depth_ab.py repeat --binary <path> --corpus <corpus.json> \
+      --depth 9 --threads 1 --spec-top-n 3 --repeats 3 \
+      --output <base_repeat.json> --label base
+
+  run_fixed_depth_ab.py analyze-repeatability --input <base_repeat.json> \
+      --output <base_metrics.json>
+
+  run_fixed_depth_ab.py compare-repeatability \
+      --base <base_metrics.json> --candidate <candidate_metrics.json> \
+      --output-dir <dir>   # writes repeatability_comparison.tsv/.md
 """
 import argparse
 import json
+import math
 import queue
 import statistics
 import subprocess
@@ -496,6 +522,230 @@ def cmd_run(args):
         print(f"WARNING: {args.label} run had non-ok positions -- see {args.output}", file=sys.stderr)
 
 
+def cmd_repeat(args):
+    """Drive ONE binary through the corpus `repeats` times (fresh process
+    per repeat, same isolation rationale as `run`), to measure within-
+    binary variance -- how much a position's bestmove/nodes swing between
+    two runs of the *identical* binary at the same config. Exists because
+    at SpecTopN > 0, SpeculativeSearcher's own thread pool makes this
+    swing large enough to dominate a single-shot base-vs-candidate `run`+
+    `compare` (see docs/experiments/fixed_depth_gate_run_index.md's
+    null-A/A findings) -- a real code effect can only be judged against
+    this per-binary noise floor, not assumed away."""
+    corpus = load_corpus(args.corpus)
+    binary = Path(args.binary)
+    if not binary.exists():
+        print(f"ERROR: binary not found: {binary}", file=sys.stderr)
+        sys.exit(1)
+
+    usi_capabilities = require_usi_capabilities(
+        binary, args.label, args.threads, args.spec_top_n, args.timeout
+    )
+
+    positions = {}
+    for entry in corpus:
+        runs = []
+        for rep in range(args.repeats):
+            r = run_one_position(
+                binary, entry, args.depth, args.threads, args.spec_top_n, args.timeout
+            )
+            runs.append(r)
+            print(
+                f"[{args.label}] {entry['id']:45s} rep={rep} {_status(r).upper():18s} "
+                f"bestmove={r['bestmove']} nodes={r['nodes']}"
+            )
+        positions[entry["id"]] = {
+            "category": entry.get("category", "unspecified"),
+            "runs": runs,
+        }
+
+    out = {
+        "label": args.label,
+        "binary": str(binary),
+        "depth": args.depth,
+        "threads": args.threads,
+        "spec_top_n": args.spec_top_n,
+        "repeats": args.repeats,
+        "corpus": str(args.corpus),
+        "usi_capabilities": usi_capabilities,
+        "positions": positions,
+    }
+    Path(args.output).write_text(json.dumps(out, indent=2))
+    print(f"Wrote {args.output}")
+
+
+def _position_repeatability(entry_id, category, runs):
+    """Per-position stability metrics over `runs` (one binary, N repeats
+    of the same position/config). Only `status == "ok"` repeats count
+    toward bestmove/score/node stability -- a panic/timeout/etc repeat is
+    not a comparable data point, it's a correctness_failures tally."""
+    ok_runs = [r for r in runs if _status(r) == "ok"]
+    metrics = {
+        "id": entry_id,
+        "category": category,
+        "repeats_total": len(runs),
+        "repeats_ok": len(ok_runs),
+        "correctness_failures": len(runs) - len(ok_runs),
+        "unique_bestmoves": None,
+        "modal_bestmove": None,
+        "modal_fraction": None,
+        "min_score_cp": None,
+        "max_score_cp": None,
+        "score_range_cp": None,
+        "min_nodes": None,
+        "median_nodes": None,
+        "max_nodes": None,
+        "max_over_min_node_ratio": None,
+        "max_over_min_node_log2": None,
+    }
+    if not ok_runs:
+        return metrics
+
+    bestmoves = [r["bestmove"] for r in ok_runs]
+    counts = {}
+    for m in bestmoves:
+        counts[m] = counts.get(m, 0) + 1
+    modal_move = max(counts, key=counts.get)
+    metrics["unique_bestmoves"] = len(counts)
+    metrics["modal_bestmove"] = modal_move
+    metrics["modal_fraction"] = round(counts[modal_move] / len(ok_runs), 4)
+
+    scores = [r["score_cp"] for r in ok_runs if r["score_cp"] is not None]
+    if scores:
+        metrics["min_score_cp"] = min(scores)
+        metrics["max_score_cp"] = max(scores)
+        metrics["score_range_cp"] = max(scores) - min(scores)
+
+    nodes = [r["nodes"] for r in ok_runs if r["nodes"] is not None]
+    if nodes:
+        metrics["min_nodes"] = min(nodes)
+        metrics["median_nodes"] = statistics.median(nodes)
+        metrics["max_nodes"] = max(nodes)
+        if metrics["min_nodes"] > 0:
+            ratio = metrics["max_nodes"] / metrics["min_nodes"]
+            metrics["max_over_min_node_ratio"] = round(ratio, 4)
+            metrics["max_over_min_node_log2"] = round(math.log2(ratio), 4) if ratio > 0 else None
+
+    return metrics
+
+
+def cmd_analyze_repeatability(args):
+    """Compute per-position + corpus-level repeatability metrics from a
+    single `repeat` output JSON. Corpus_ID for the two sides
+    (base/candidate) are analyzed independently by two invocations of
+    this command -- deliberately no cross-binary logic here, so the
+    within-binary noise floor can't accidentally leak a base-vs-candidate
+    comparison into what should be a pure noise measurement."""
+    data = json.loads(Path(args.input).read_text())
+    per_position = [
+        _position_repeatability(pid, p["category"], p["runs"])
+        for pid, p in data["positions"].items()
+    ]
+
+    ratios = [p["max_over_min_node_ratio"] for p in per_position if p["max_over_min_node_ratio"] is not None]
+    variable_positions = [p["id"] for p in per_position if (p["unique_bestmoves"] or 0) > 1]
+
+    summary = {
+        "label": data["label"],
+        "depth": data["depth"],
+        "threads": data["threads"],
+        "spec_top_n": data["spec_top_n"],
+        "repeats": data["repeats"],
+        "positions_total": len(per_position),
+        "positions_with_bestmove_variance": len(variable_positions),
+        "bestmove_variable_position_ids": variable_positions,
+        "correctness_failures_total": sum(p["correctness_failures"] for p in per_position),
+        "median_node_swing_ratio": round(statistics.median(ratios), 4) if ratios else None,
+        "p90_node_swing_ratio": round(_percentile(ratios, 90), 4) if ratios else None,
+        "max_node_swing_ratio": round(max(ratios), 4) if ratios else None,
+    }
+
+    out = {"summary": summary, "per_position": per_position}
+    Path(args.output).write_text(json.dumps(out, indent=2))
+    print(json.dumps(summary, indent=2))
+    print(f"Wrote {args.output}")
+
+
+def _percentile(values, pct):
+    """Nearest-rank percentile -- no numpy dependency for one corpus-sized list."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    idx = max(0, min(len(ordered) - 1, round(pct / 100 * (len(ordered) - 1))))
+    return ordered[idx]
+
+
+def cmd_compare_repeatability(args):
+    """Side-by-side base vs candidate repeatability comparison -- the
+    actual PR #16-style judgment input: within-base variance vs
+    within-candidate variance, not a single base-vs-candidate diff."""
+    base = json.loads(Path(args.base).read_text())
+    candidate = json.loads(Path(args.candidate).read_text())
+    bs, cs = base["summary"], candidate["summary"]
+
+    base_by_id = {p["id"]: p for p in base["per_position"]}
+    cand_by_id = {p["id"]: p for p in candidate["per_position"]}
+    ids = sorted(set(base_by_id) | set(cand_by_id))
+
+    out_dir = Path(args.output_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    cols = [
+        "id", "category",
+        "base_unique_bestmoves", "candidate_unique_bestmoves",
+        "base_modal_fraction", "candidate_modal_fraction",
+        "base_max_over_min_node_ratio", "candidate_max_over_min_node_ratio",
+        "base_correctness_failures", "candidate_correctness_failures",
+    ]
+    tsv_path = out_dir / "repeatability_comparison.tsv"
+    with open(tsv_path, "w") as f:
+        f.write("\t".join(cols) + "\n")
+        for pid in ids:
+            b = base_by_id.get(pid, {})
+            c = cand_by_id.get(pid, {})
+            row = {
+                "id": pid,
+                "category": b.get("category") or c.get("category"),
+                "base_unique_bestmoves": b.get("unique_bestmoves"),
+                "candidate_unique_bestmoves": c.get("unique_bestmoves"),
+                "base_modal_fraction": b.get("modal_fraction"),
+                "candidate_modal_fraction": c.get("modal_fraction"),
+                "base_max_over_min_node_ratio": b.get("max_over_min_node_ratio"),
+                "candidate_max_over_min_node_ratio": c.get("max_over_min_node_ratio"),
+                "base_correctness_failures": b.get("correctness_failures"),
+                "candidate_correctness_failures": c.get("correctness_failures"),
+            }
+            f.write("\t".join(str(row.get(c, "")) for c in cols) + "\n")
+
+    summary_lines = [
+        f"# Repeatability comparison: {bs['label']} vs {cs['label']}",
+        "",
+        f"- config: depth={bs['depth']} threads={bs['threads']} spec_top_n={bs['spec_top_n']} repeats={bs['repeats']} (base) / {cs['repeats']} (candidate)",
+        "",
+        "| metric | base | candidate |",
+        "|---|---|---|",
+        f"| positions with bestmove variance | {bs['positions_with_bestmove_variance']} / {bs['positions_total']} | {cs['positions_with_bestmove_variance']} / {cs['positions_total']} |",
+        f"| median node-swing ratio | {bs['median_node_swing_ratio']} | {cs['median_node_swing_ratio']} |",
+        f"| p90 node-swing ratio | {bs['p90_node_swing_ratio']} | {cs['p90_node_swing_ratio']} |",
+        f"| max node-swing ratio | {bs['max_node_swing_ratio']} | {cs['max_node_swing_ratio']} |",
+        f"| correctness failures (total repeats) | {bs['correctness_failures_total']} | {cs['correctness_failures_total']} |",
+        "",
+        f"Base bestmove-variable positions: {', '.join(bs['bestmove_variable_position_ids']) or 'none'}",
+        f"Candidate bestmove-variable positions: {', '.join(cs['bestmove_variable_position_ids']) or 'none'}",
+        "",
+        "Full per-position data in repeatability_comparison.tsv. This measures",
+        "WITHIN-binary variance across repeated runs at the same config for each",
+        "side independently -- not a base-vs-candidate single-shot diff. A",
+        "candidate that reduces these numbers relative to base is reducing",
+        "search nondeterminism, independent of any node-count/bestmove change",
+        "between the two binaries.",
+    ]
+    summary_path = out_dir / "repeatability_summary.md"
+    summary_path.write_text("\n".join(summary_lines) + "\n")
+    print("\n".join(summary_lines))
+    print(f"\nWrote {tsv_path} and {summary_path}")
+
+
 def cmd_compare(args):
     base = json.loads(Path(args.base).read_text())
     candidate = json.loads(Path(args.candidate).read_text())
@@ -644,6 +894,29 @@ def main():
     cmp_p.add_argument("--candidate", required=True)
     cmp_p.add_argument("--output-dir", required=True)
     cmp_p.set_defaults(func=cmd_compare)
+
+    rep_p = sub.add_parser("repeat", help="drive one binary through the corpus N times, to measure within-binary variance")
+    rep_p.add_argument("--binary", required=True)
+    rep_p.add_argument("--corpus", required=True)
+    rep_p.add_argument("--depth", type=int, required=True)
+    rep_p.add_argument("--threads", type=int, required=True)
+    rep_p.add_argument("--spec-top-n", type=int, required=True)
+    rep_p.add_argument("--repeats", type=int, required=True)
+    rep_p.add_argument("--output", required=True)
+    rep_p.add_argument("--label", required=True)
+    rep_p.add_argument("--timeout", type=int, default=DEFAULT_PER_POSITION_TIMEOUT_S)
+    rep_p.set_defaults(func=cmd_repeat)
+
+    ana_p = sub.add_parser("analyze-repeatability", help="compute per-position/corpus stability metrics from one repeat output")
+    ana_p.add_argument("--input", required=True)
+    ana_p.add_argument("--output", required=True)
+    ana_p.set_defaults(func=cmd_analyze_repeatability)
+
+    cmpr_p = sub.add_parser("compare-repeatability", help="side-by-side base vs candidate repeatability (within-binary variance for each)")
+    cmpr_p.add_argument("--base", required=True)
+    cmpr_p.add_argument("--candidate", required=True)
+    cmpr_p.add_argument("--output-dir", required=True)
+    cmpr_p.set_defaults(func=cmd_compare_repeatability)
 
     args = ap.parse_args()
     args.func(args)
