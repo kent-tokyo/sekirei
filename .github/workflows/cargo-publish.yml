@@ -17,13 +17,20 @@ on:
         required: true
         default: sekirei-core
       dry_run:
-        description: "Dry run only (recommended for first use of a crate) -- validates packaging without publishing, never touches CARGO_REGISTRY_TOKEN"
+        description: "Dry run only (recommended for first use of a crate) -- validates packaging without publishing, never requests a crates.io token"
         type: boolean
         required: true
         default: true
 
 permissions:
   contents: read
+  # Lets rust-lang/crates-io-auth-action request a short-lived OIDC token
+  # from GitHub's own identity provider (Trusted Publishing) -- no
+  # long-lived CARGO_REGISTRY_TOKEN secret exists in this repo at all. The
+  # OIDC token only becomes a real crates.io credential via crates.io's own
+  # Trusted Publisher config for each crate (repo/workflow/environment);
+  # granting this permission here does not by itself expose anything.
+  id-token: write
 
 jobs:
   publish:
@@ -31,12 +38,16 @@ jobs:
     # Optional extra gate: create an environment named "crates-io" under
     # Settings -> Environments with required reviewers to force a manual
     # approval click before this job runs. No effect if left unconfigured.
+    # If used, this same environment name must also be entered in each
+    # crate's Trusted Publisher config on crates.io.
     environment: crates-io
     env:
       DRY_RUN: ${{ inputs.dry_run }}
-      # CARGO_REGISTRY_TOKEN deliberately NOT set here. It is scoped to
-      # only the individual non-dry-run "Publish <crate>" steps below, so
-      # checkout/toolchain/cache/preflight/dry-run steps never see it.
+      # No CARGO_REGISTRY_TOKEN here or anywhere in this file -- each
+      # "Publish <crate>" step gets its own short-lived token from its
+      # preceding "Authenticate with crates.io (<crate>)" step (Trusted
+      # Publishing / OIDC), scoped to that one step only and auto-revoked
+      # when the job ends. Dry-run steps never authenticate at all.
     steps:
       - name: Validate release_tag format
         env:
@@ -162,11 +173,16 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && inputs.dry_run }}
         run: cargo publish -p sekirei-core --dry-run
 
+      - name: Authenticate with crates.io (sekirei-core)
+        id: auth-core
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei-core
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-core
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-core.outputs.token }}
 
       - name: Wait for sekirei-core to index on crates.io
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && !inputs.dry_run }}
@@ -189,31 +205,46 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') && inputs.dry_run }}
         run: cargo publish -p sekirei-bench --dry-run
 
+      - name: Authenticate with crates.io (sekirei-bench)
+        id: auth-bench
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei-bench
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-bench
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-bench.outputs.token }}
 
       - name: Dry-run publish sekirei-csa
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') && inputs.dry_run }}
         run: cargo publish -p sekirei-csa --dry-run
 
+      - name: Authenticate with crates.io (sekirei-csa)
+        id: auth-csa
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei-csa
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-csa
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-csa.outputs.token }}
 
       - name: Dry-run publish sekirei-match-runner
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') && inputs.dry_run }}
         run: cargo publish -p sekirei-match-runner --dry-run
 
+      - name: Authenticate with crates.io (sekirei-match-runner)
+        id: auth-match-runner
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei-match-runner
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-match-runner
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-match-runner.outputs.token }}
 
       # Blocked at preflight above (lineprior git dependency) -- these two
       # steps currently cannot be reached, kept ready for when that's lifted.
@@ -221,11 +252,16 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && inputs.dry_run }}
         run: cargo publish -p sekirei-train --dry-run
 
+      - name: Authenticate with crates.io (sekirei-train)
+        id: auth-train
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei-train
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-train
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-train.outputs.token }}
 
       # Package name "sekirei", crate directory crates/sekirei-usi. Also
       # blocked at preflight above -- same caveat as sekirei-train.
@@ -233,8 +269,13 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && inputs.dry_run }}
         run: cargo publish -p sekirei --dry-run
 
+      - name: Authenticate with crates.io (sekirei)
+        id: auth-usi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && !inputs.dry_run }}
+        uses: rust-lang/crates-io-auth-action@v1
+
       - name: Publish sekirei (sekirei-usi)
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && !inputs.dry_run }}
         run: cargo publish -p sekirei
         env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth-usi.outputs.token }}
