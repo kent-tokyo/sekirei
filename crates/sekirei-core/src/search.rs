@@ -1138,34 +1138,20 @@ fn quiescence(
     // depth >= 1; only quiescence's own qply=0 stores use depth=0, see the
     // store sites below, which now only fire at qply=0 for the same reason).
     let hash = board.hash();
+    // Diagnostic Arm B (interaction ablation for issue #8 / PR #17 vs
+    // SpeculativeSearcher at SpecTopN=3 -- see
+    // docs/experiments/fixed_depth_gate_run_index.md): TT move ordering
+    // only. entry.mv (from whatever producer/depth/qply wrote it) is
+    // still read as a move-ordering hint below, but the score/bound
+    // cutoff is intentionally removed here, and `cacheable` is forced
+    // false below so qsearch never stores anything -- isolating whether
+    // TT-move-ordering alone reproduces R17_3's bestmove divergence and
+    // node-count outliers, independent of the score/bound-caching side.
+    // Not for merge into PR #17 as-is.
     let mut tt_mv = None;
     if let Some(entry) = state.tt.probe(hash) {
-        tt_mv = entry.mv; // safe as an ordering hint regardless of depth/producer/qply
-        if qply == 0 && entry.depth == 0 {
-            let adj = score_from_tt(entry.score, ply);
-            match entry.bound {
-                Bound::Exact => return adj,
-                Bound::Lower => {
-                    if adj >= beta {
-                        return adj;
-                    }
-                    if adj > alpha {
-                        alpha = adj;
-                    }
-                }
-                Bound::Upper => {
-                    if adj <= alpha {
-                        return adj;
-                    }
-                }
-            }
-        }
+        tt_mv = entry.mv;
     }
-    // Captured AFTER the TT bound adjustment above (not before it): an alpha
-    // raised only by a trusted Lower-bound TT hit -- no new search work at
-    // this node -- must not, by itself, make the end-of-function bound
-    // classification below think *this* call's own work improved on it,
-    // which would store an unearned Exact from a Lower bound alone.
     let orig_alpha = alpha;
 
     let in_check = is_in_check(board, board.side_to_move);
@@ -1194,11 +1180,11 @@ fn quiescence(
         generate_legal_captures(board)
     };
 
-    // Only qsearch's own qply=0 entry point stores or trusts a cutoff score
-    // (see the probe comment above) -- recursive qply>0 calls still search
-    // fully and still use any TT move for ordering, they just never read or
-    // write a score/bound.
-    let cacheable = qply == 0;
+    // Arm B: qsearch never stores (score/bound caching disabled). Forced
+    // false rather than deleting each store_tt call site below, to keep
+    // this diagnostic diff minimal and directly comparable against Arm A
+    // and Arm C (PR #17 unmodified).
+    let cacheable = false;
 
     if moves.is_empty() {
         if in_check {
