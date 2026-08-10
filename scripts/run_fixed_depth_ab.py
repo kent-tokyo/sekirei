@@ -602,6 +602,17 @@ def cmd_compare(args):
         "a playing-strength/Elo measurement -- no real NNUE weights are used (see",
         "this script's own module docstring).",
     ]
+    if base.get("spec_top_n", 0) > 0 or candidate.get("spec_top_n", 0) > 0:
+        summary_lines += [
+            "",
+            "NOTE: SpecTopN > 0 on at least one side -- parallel speculative task",
+            "scheduling can make fixed-depth search nondeterministic even on the",
+            "same binary run twice (see run 31364492445 vs the null A/A runs in",
+            "docs/experiments/fixed_depth_gate_run_index.md). Don't attribute a",
+            "bestmove/node-count difference here to the candidate's code alone",
+            "without a same-binary A/A run at the same SpecTopN as a noise-floor",
+            "reference.",
+        ]
     summary_path = out_dir / "summary.md"
     summary_path.write_text("\n".join(summary_lines) + "\n")
 
