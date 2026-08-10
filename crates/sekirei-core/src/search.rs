@@ -2113,7 +2113,9 @@ mod regression_tests {
             Some(genuine_mv),
             0,
         );
-        let genuine = tt.probe(hash).expect("seed store must have written an entry");
+        let genuine = tt
+            .probe(hash)
+            .expect("seed store must have written an entry");
 
         let state = fresh_state(tt.clone());
         quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0);
@@ -2141,7 +2143,15 @@ mod regression_tests {
         let tt = Tt::new(1);
 
         const FAKE_SCORE: i32 = 123_456;
-        store_tt(&fresh_state(tt.clone()), hash, FAKE_SCORE, 0, Bound::Exact, None, 0);
+        store_tt(
+            &fresh_state(tt.clone()),
+            hash,
+            FAKE_SCORE,
+            0,
+            Bound::Exact,
+            None,
+            0,
+        );
 
         let state = fresh_state(tt.clone());
         let score = alpha_beta(&state, &mut board, NEG_INF, POS_INF, 2, 0, true, None, None);
