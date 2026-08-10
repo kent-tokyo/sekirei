@@ -79,24 +79,25 @@ jobs:
           CORPUS_HASH=$(sha256sum "$CORPUS_PATH" | cut -d' ' -f1)
           RUSTC_VERSION=$(rustc --version)
           UTC_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-          python3 - "$BASE_SHA" "$CANDIDATE_SHA" "$DEPTH" "$THREADS" "$SPEC_TOP_N" \
-            "$CORPUS_PATH" "$CORPUS_HASH" "$RUSTC_VERSION" "$RUN_ID" "$UTC_START" <<'PYEOF'
-          import json, sys
-          (base_sha, candidate_sha, depth, threads, spec_top_n,
-           corpus_path, corpus_sha256, rustc_version, run_id, utc_start) = sys.argv[1:]
-          json.dump({
-              "base_sha": base_sha,
-              "candidate_sha": candidate_sha,
-              "depth": int(depth),
-              "threads": int(threads),
-              "spec_top_n": int(spec_top_n),
-              "corpus_path": corpus_path,
-              "corpus_sha256": corpus_sha256,
-              "rustc_version": rustc_version,
-              "workflow_run_id": run_id,
-              "utc_start": utc_start,
-          }, open("artifacts/metadata.json", "w"), indent=2)
-          PYEOF
+          # All values embedded below are either hex SHAs, integers already
+          # validated by the workflow_dispatch input types, or command
+          # output with no quote/backslash characters (sha256sum hex digest,
+          # `rustc --version`, a UTC timestamp) -- safe to embed directly in
+          # a JSON string without an escaping library.
+          cat > artifacts/metadata.json <<JSONEOF
+          {
+            "base_sha": "$BASE_SHA",
+            "candidate_sha": "$CANDIDATE_SHA",
+            "depth": $DEPTH,
+            "threads": $THREADS,
+            "spec_top_n": $SPEC_TOP_N,
+            "corpus_path": "$CORPUS_PATH",
+            "corpus_sha256": "$CORPUS_HASH",
+            "rustc_version": "$RUSTC_VERSION",
+            "workflow_run_id": "$RUN_ID",
+            "utc_start": "$UTC_START"
+          }
+          JSONEOF
           cat artifacts/metadata.json
 
       - name: Build base in its own worktree
