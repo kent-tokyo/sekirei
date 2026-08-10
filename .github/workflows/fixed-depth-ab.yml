@@ -68,6 +68,7 @@ jobs:
       CANDIDATE_PR: ${{ inputs.candidate_pr }}
       ALLOW_NON_ANCESTOR: ${{ inputs.allow_non_ancestor }}
       RUN_ID: ${{ github.run_id }}
+      GATE_TOOLING_SHA: ${{ github.sha }}
     steps:
       - name: Checkout (full history, for base/candidate worktrees)
         uses: actions/checkout@v4
@@ -161,6 +162,12 @@ jobs:
               "rustc_version": os.environ["RUSTC_VERSION"],
               "workflow_run_id": os.environ["RUN_ID"],
               "utc_start": os.environ["UTC_START"],
+              # SHA of the ref this workflow file itself ran from --
+              # distinct from base_sha/candidate_sha (the engine source
+              # under comparison). Dispatching --ref <gate-tooling-branch>
+              # runs the workflow/script versions from that branch
+              # against engine SHAs that usually live elsewhere.
+              "gate_tooling_sha": os.environ["GATE_TOOLING_SHA"],
           }
           with open("artifacts/metadata.json", "w") as f:
               json.dump(meta, f, indent=2)
