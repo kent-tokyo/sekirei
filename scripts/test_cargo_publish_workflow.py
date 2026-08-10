@@ -12,7 +12,14 @@ CARGO_REGISTRY_TOKEN in job-level env (visible to every step, not just the
 ones that upload), and would happily start publishing sekirei-core/bench/
 csa/match-runner before discovering sekirei-train/sekirei can't actually be
 published (lineprior is git-pinned, not on crates.io) partway through an
-irreversible sequence.
+irreversible sequence. A second round then replaced the long-lived
+CARGO_REGISTRY_TOKEN repo secret entirely with crates.io Trusted Publishing
+(OIDC via rust-lang/crates-io-auth-action) -- sekirei-core/bench/csa/
+match-runner already have prior published versions on crates.io, so the
+"first release must use a token" constraint in crates.io's own Trusted
+Publishing rules doesn't block this. TokenScopeTests pins that no
+CARGO_REGISTRY_TOKEN secret reference exists anywhere in the file at all,
+not just that it's been moved somewhere narrower.
 
 Structural tests parse the real YAML (requires PyYAML; skipped with a
 clear message if unavailable -- this test file is a local verification
@@ -117,8 +124,11 @@ class TriggerAndPermissionsTests(unittest.TestCase):
     def test_workflow_dispatch_only(self):
         self.assertEqual(list(_on_triggers(_load()).keys()), ["workflow_dispatch"])
 
-    def test_permissions_contents_read_only(self):
-        self.assertEqual(_load()["permissions"], {"contents": "read"})
+    def test_permissions_are_exactly_contents_read_and_id_token_write(self):
+        # Exact-match, not subset, so an unrelated permission can't creep in
+        # unnoticed later -- id-token: write is required for Trusted
+        # Publishing (see TokenScopeTests.test_id_token_write_permission_present).
+        self.assertEqual(_load()["permissions"], {"contents": "read", "id-token": "write"})
 
     def test_dry_run_input_defaults_true(self):
         inputs = _on_triggers(_load())["workflow_dispatch"]["inputs"]
@@ -137,49 +147,89 @@ class CheckoutPinnedToReleaseTagTests(unittest.TestCase):
         self.assertEqual(checkout["with"]["ref"], "refs/tags/${{ inputs.release_tag }}")
 
 
+CRATE_AUTH_STEPS = [
+    ("sekirei-core", "Authenticate with crates.io (sekirei-core)", "auth-core", "Publish sekirei-core"),
+    ("sekirei-bench", "Authenticate with crates.io (sekirei-bench)", "auth-bench", "Publish sekirei-bench"),
+    ("sekirei-csa", "Authenticate with crates.io (sekirei-csa)", "auth-csa", "Publish sekirei-csa"),
+    (
+        "sekirei-match-runner",
+        "Authenticate with crates.io (sekirei-match-runner)",
+        "auth-match-runner",
+        "Publish sekirei-match-runner",
+    ),
+    ("sekirei-train", "Authenticate with crates.io (sekirei-train)", "auth-train", "Publish sekirei-train"),
+    ("sekirei", "Authenticate with crates.io (sekirei)", "auth-usi", "Publish sekirei (sekirei-usi)"),
+]
+
+DRY_RUN_STEP_NAMES = [
+    "Dry-run publish sekirei-core",
+    "Dry-run publish sekirei-bench",
+    "Dry-run publish sekirei-csa",
+    "Dry-run publish sekirei-match-runner",
+    "Dry-run publish sekirei-train",
+    "Dry-run publish sekirei (sekirei-usi)",
+]
+
+
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
 class TokenScopeTests(unittest.TestCase):
-    def test_no_workflow_level_token(self):
+    """No CARGO_REGISTRY_TOKEN secret exists anywhere in this repo for this
+    workflow -- every real publish step gets a short-lived OIDC token from
+    its own preceding Trusted Publishing auth step instead (rust-lang/
+    crates-io-auth-action). These tests pin that there is no long-lived
+    token fallback anywhere, not just that the OIDC path exists."""
+
+    def test_no_secrets_reference_anywhere_in_file(self):
+        text = WORKFLOW_PATH.read_text()
+        self.assertNotIn("secrets.CARGO_REGISTRY_TOKEN", text)
+        self.assertNotIn("secrets.", text, "no step in this workflow should reference any repo secret")
+
+    def test_id_token_write_permission_present(self):
+        self.assertEqual(_load()["permissions"].get("id-token"), "write")
+
+    def test_no_workflow_level_env(self):
         self.assertNotIn("env", _load())
 
     def test_no_job_level_token(self):
         job_env = _load()["jobs"]["publish"].get("env", {})
         self.assertNotIn("CARGO_REGISTRY_TOKEN", job_env)
 
-    def test_only_real_publish_steps_have_token(self):
-        for crate_display, step_name in [
-            ("sekirei-core", "Publish sekirei-core"),
-            ("sekirei-bench", "Publish sekirei-bench"),
-            ("sekirei-csa", "Publish sekirei-csa"),
-            ("sekirei-match-runner", "Publish sekirei-match-runner"),
-            ("sekirei-train", "Publish sekirei-train"),
-            ("sekirei", "Publish sekirei (sekirei-usi)"),
-        ]:
-            with self.subTest(crate=crate_display):
-                real_step = _step_by_name(step_name)
-                self.assertIn("CARGO_REGISTRY_TOKEN", real_step.get("env", {}))
+    def test_each_crate_has_a_dedicated_auth_step(self):
+        for crate, auth_name, auth_id, _publish_name in CRATE_AUTH_STEPS:
+            with self.subTest(crate=crate):
+                auth_step = _step_by_name(auth_name)
+                self.assertEqual(auth_step.get("id"), auth_id)
+                self.assertTrue(
+                    auth_step.get("uses", "").startswith("rust-lang/crates-io-auth-action@"),
+                    f"{auth_name} must use rust-lang/crates-io-auth-action, got {auth_step.get('uses')!r}",
+                )
 
-        for crate_display, step_name in [
-            ("sekirei-core", "Dry-run publish sekirei-core"),
-            ("sekirei-bench", "Dry-run publish sekirei-bench"),
-            ("sekirei-csa", "Dry-run publish sekirei-csa"),
-            ("sekirei-match-runner", "Dry-run publish sekirei-match-runner"),
-            ("sekirei-train", "Dry-run publish sekirei-train"),
-            ("sekirei", "Dry-run publish sekirei (sekirei-usi)"),
-        ]:
-            with self.subTest(crate=crate_display):
-                dry_step = _step_by_name(step_name)
-                self.assertNotIn("CARGO_REGISTRY_TOKEN", dry_step.get("env", {}))
+    def test_each_publish_step_uses_its_own_auth_step_output(self):
+        for crate, _auth_name, auth_id, publish_name in CRATE_AUTH_STEPS:
+            with self.subTest(crate=crate):
+                publish_step = _step_by_name(publish_name)
+                token_expr = publish_step.get("env", {}).get("CARGO_REGISTRY_TOKEN")
+                self.assertEqual(token_expr, f"${{{{ steps.{auth_id}.outputs.token }}}}")
 
-    def test_no_other_step_has_token(self):
-        exempt = {f"Publish {c}" for c in ALL_CRATE_NAMES} | {"Publish sekirei (sekirei-usi)"}
+    def test_auth_step_and_publish_step_share_the_same_if_condition(self):
+        for crate, auth_name, _auth_id, publish_name in CRATE_AUTH_STEPS:
+            with self.subTest(crate=crate):
+                auth_if = _step_by_name(auth_name).get("if")
+                publish_if = _step_by_name(publish_name).get("if")
+                self.assertEqual(auth_if, publish_if)
+
+    def test_dry_run_steps_never_authenticate_or_see_a_token(self):
+        for name in DRY_RUN_STEP_NAMES:
+            with self.subTest(step=name):
+                step = _step_by_name(name)
+                self.assertNotIn("CARGO_REGISTRY_TOKEN", step.get("env", {}))
+                self.assertNotIn("crates-io-auth-action", step.get("uses", ""))
+
+    def test_no_step_outside_the_known_auth_steps_uses_the_auth_action(self):
+        known_auth_names = {auth_name for _c, auth_name, _id, _p in CRATE_AUTH_STEPS}
         for s in _steps():
-            name = s.get("name", s.get("uses", "?"))
-            if name in exempt:
-                continue
-            self.assertNotIn(
-                "CARGO_REGISTRY_TOKEN", s.get("env", {}), f"unexpected token exposure in step: {name}"
-            )
+            if "crates-io-auth-action" in s.get("uses", ""):
+                self.assertIn(s.get("name"), known_auth_names)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
@@ -197,6 +247,16 @@ class PublishOrderTests(unittest.TestCase):
         ]:
             with self.subTest(step=name):
                 self.assertGreater(_step_index_by_name(name), wait_idx)
+
+    def test_each_auth_step_immediately_precedes_its_publish_step(self):
+        # GitHub Actions runs steps in file order -- if "Publish X" appeared
+        # before "Authenticate with crates.io (X)", steps.auth-X.outputs.token
+        # would be empty when the publish step ran.
+        for crate, auth_name, _auth_id, publish_name in CRATE_AUTH_STEPS:
+            with self.subTest(crate=crate):
+                auth_idx = _step_index_by_name(auth_name)
+                publish_idx = _step_index_by_name(publish_name)
+                self.assertEqual(publish_idx, auth_idx + 1)
 
     def test_blocked_crate_guard_runs_before_any_publish_step(self):
         guard_idx = _step_index_by_name("Reject known-blocked crates (lineprior not on crates.io)")
