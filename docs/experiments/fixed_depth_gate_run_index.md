@@ -22,6 +22,68 @@ recorded here as provenance for why the gate infrastructure itself changed.
 
 Verdict per the GOOD/NEUTRAL/BAD framework: **GOOD** -- zero correctness issues, no unnatural bestmove/score divergence, no pathological node explosion. Still a draft-stays-draft result, not a merge decision by itself; this is the qsearch-TT-isolated measurement (`SpecTopN=0`, no speculative-search interaction).
 
+## run 31364492445 (R17_3) -- VALID_MIXED
+
+- workflow: `fixed-depth-ab.yml`, ref `fix/remote-gate-ref-resolution`
+- `base_sha=9f45ccf75758b92e67eea7cd5ae05c63f6cca8d9`, `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17 head, `candidate_pr=17`), `gate_tooling_sha=f97b6922aa6d6d68319b8c39186e94b65f1030d8`
+- `depth=9`, `threads=1`, `spec_top_n=3` (production-default interaction case)
+- provenance: `base_is_ancestor_of_candidate=true`; both binaries advertise `Threads`+`SpecTopN`, handshake completes
+- **21/21 positions status=ok on both sides** -- zero panic/timeout/illegal/unexpected_resign/incomplete_output
+
+### Results
+
+- bestmove differs: **6/21** (`check_evasion_plain_sennichite`, `check_evasion_continuous_check_white`, `king_danger_nyugyoku_full_army`, `king_danger_nyugyoku_bare_king`, `king_danger_nyugyoku_insufficient_points`, `opening_4ply`)
+- score_cp differs by >200: 0/21
+- median node ratio (candidate/base): 0.99505 -- neutral
+- node ratio range: **0.6115 .. 2.1541**
+- notable outliers (absolute node counts, not just ratios):
+  - `king_danger_nyugyoku_full_army`: base 684,641 -> candidate 1,474,816 nodes (ratio 2.1541, delta ~790k), bestmove `6i5h`->`5c5d`, score 150cp->50cp
+  - `king_danger_nyugyoku_insufficient_points`: base 28,556 -> candidate 48,277 nodes (ratio 1.6906), bestmove `8b8a+`->`9c9b+`, score 2249cp->2300cp
+  - `jishogi_mutual_impasse`: base 2,356 -> candidate 3,634 nodes (ratio 1.5424), bestmove unchanged
+  - `check_evasion_plain_sennichite`: base 565 -> candidate 792 nodes (ratio 1.4018, delta ~227 nodes -- small-N artifact, not a large-magnitude outlier despite the ratio)
+
+### Comparison against R17_0 (SpecTopN=0)
+
+| | SpecTopN=0 (R17_0) | SpecTopN=3 (R17_3) |
+|---|---|---|
+| bestmove diffs | 1/21 | 6/21 |
+| median node ratio | 0.9987 | 0.99505 |
+| node ratio range | 0.7513 .. 1.0124 | 0.6115 .. 2.1541 |
+
+qsearch TT alone (`SpecTopN=0`) is nearly neutral; the production-default
+interaction with `SpeculativeSearcher`'s concurrent background tasks
+(`SpecTopN=3`) shows materially more divergence. `king_danger_nyugyoku_full_army`
+gives the same bestmove flip (`6i5h`->`5c5d`) in both R17_0 and R17_3, with
+score deltas of 50cp and 100cp respectively, well under the 200cp
+threshold -- a TT added to qsearch legitimately changes move ordering, so a
+fixed-depth bestmove flip on a near-equal position here is an expected
+consequence of the feature working, not by itself evidence of a defect.
+The other 5 SpecTopN=3-only divergences and the node-count outliers are
+the open question this ablation is chasing.
+
+Verdict: **VALID_MIXED** -- provenance-clean and gate-clean (21/21 ok), but
+not GOOD: the 6/21 bestmove divergence rate and the 1.4x-2.15x local node
+outliers at the production `SpecTopN=3` default are not yet distinguishable
+from a real search-quality effect. **PR #17 stays draft, not merge-recommended,
+pending the ablation below.**
+
+### Ablation plan (in progress)
+
+Three arms, same `base_sha=9f45ccf...`, `depth=9`, `threads=1`, `spec_top_n=3`, same corpus:
+
+- **Arm A** (`diag/qsearch-tt-arm-a`, `72dd301b3376f2ac0c6c39d2ac6fc77a701baf80`): PR #17's qsearch score/bound cutoff+store kept, TT-move ordering removed.
+- **Arm B** (`diag/qsearch-tt-arm-b`, `c3ea17ad2c8515d42855a3ab9457d42a56348dfe`): PR #17's TT-move ordering kept, score/bound cutoff+store removed (forced `cacheable=false`).
+- **Arm C**: PR #17 unmodified -- this is R17_3 above.
+
+Both diagnostic branches are throwaway (not merge candidates); not committed
+to PR #17 itself.
+
+In parallel: two null A/A runs (`base_sha=candidate_sha=9f45ccf...`,
+same `depth`/`threads`/`spec_top_n=3`) to measure how much bestmove/node-count
+variance exists between two runs of the *identical* binary under concurrent
+speculative scheduling alone -- the noise floor R17_3's 6/21 and 2.15x must be
+compared against before attributing them to PR #17's code change.
+
 ## run 31362228815 -- INVALID_CONFIG
 
 - workflow: `fixed-depth-ab.yml`, ref `main`
