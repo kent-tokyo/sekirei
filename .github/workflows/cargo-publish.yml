@@ -3,28 +3,27 @@ name: Publish to crates.io
 on:
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: "Exact release tag to publish, e.g. v0.3.1"
+        required: true
+        default: v0.3.1
       crates:
         description: >-
           Comma-separated crate names to publish. Allowed: sekirei-core,
           sekirei-bench, sekirei-csa, sekirei-match-runner, sekirei-train,
           sekirei. Publish order (core first) is enforced regardless of
-          input order. sekirei-train and sekirei depend on lineprior via
-          git (not yet on crates.io) -- publishing them will fail the
-          verify step until that's resolved.
+          input order. sekirei-train and sekirei are currently blocked at
+          preflight -- see the lineprior TODO below.
         required: true
         default: sekirei-core
       dry_run:
-        description: "Dry run only (recommended for first use of a crate) -- validates packaging without publishing"
+        description: "Dry run only (recommended for first use of a crate) -- validates packaging without publishing, never touches CARGO_REGISTRY_TOKEN"
         type: boolean
         required: true
         default: true
 
 permissions:
   contents: read
-
-env:
-  DRY_RUN: ${{ inputs.dry_run }}
-  CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
 jobs:
   publish:
@@ -33,10 +32,122 @@ jobs:
     # Settings -> Environments with required reviewers to force a manual
     # approval click before this job runs. No effect if left unconfigured.
     environment: crates-io
+    env:
+      DRY_RUN: ${{ inputs.dry_run }}
+      # CARGO_REGISTRY_TOKEN deliberately NOT set here. It is scoped to
+      # only the individual non-dry-run "Publish <crate>" steps below, so
+      # checkout/toolchain/cache/preflight/dry-run steps never see it.
     steps:
+      - name: Validate release_tag format
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          if ! [[ "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release_tag '$RELEASE_TAG' does not match ^v[0-9]+\.[0-9]+\.[0-9]+\$"
+            exit 1
+          fi
+          echo "release_tag OK: $RELEASE_TAG"
+
+      - name: Validate crates input
+        env:
+          CRATES_INPUT: ${{ inputs.crates }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+
+          allowed = {
+              "sekirei-core", "sekirei-bench", "sekirei-csa",
+              "sekirei-match-runner", "sekirei-train", "sekirei",
+          }
+          raw = os.environ["CRATES_INPUT"]
+          # str.split(",") deliberately used over a shell split -- it keeps
+          # empty fields from a leading/trailing/doubled comma instead of
+          # silently dropping them (bash's `read -ra ... <<<` drops a
+          # trailing empty field at EOF, which would let "sekirei-core,"
+          # through unnoticed).
+          parts = [p.strip() for p in raw.split(",")]
+
+          if parts == [""]:
+              print("::error::crates input is empty")
+              sys.exit(1)
+
+          seen = []
+          for name in parts:
+              if not name:
+                  print(f"::error::crates input contains an empty entry (check for stray commas): '{raw}'")
+                  sys.exit(1)
+              if name not in allowed:
+                  print(f"::error::unknown crate '{name}' in crates input. Allowed: {sorted(allowed)}")
+                  sys.exit(1)
+              if name in seen:
+                  print(f"::error::duplicate crate '{name}' in crates input: '{raw}'")
+                  sys.exit(1)
+              seen.append(name)
+
+          print(f"crates input OK: {seen}")
+          PYEOF
+
+      # TODO: remove this guard after lineprior is published to crates.io
+      # and crates/sekirei-train/Cargo.toml + crates/sekirei-usi/Cargo.toml
+      # both switch their `lineprior` dependency from a git tag to a plain
+      # crates.io version requirement.
+      - name: Reject known-blocked crates (lineprior not on crates.io)
+        env:
+          CRATES_INPUT: ${{ inputs.crates }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys
+
+          blocked = {"sekirei-train", "sekirei"}
+          parts = [p.strip() for p in os.environ["CRATES_INPUT"].split(",") if p.strip()]
+          hit = [name for name in parts if name in blocked]
+          if hit:
+              print(f"::error::BLOCKED_REGISTRY_DEPENDENCY: lineprior is not yet available from crates.io -- {hit} cannot be published yet")
+              sys.exit(1)
+          PYEOF
+
       - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ inputs.release_tag }}
+
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Verify Cargo.toml version matches release_tag
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+          CRATES_INPUT: ${{ inputs.crates }}
+        run: |
+          python3 - <<'PYEOF'
+          import os, sys, tomllib
+
+          release_tag = os.environ["RELEASE_TAG"]
+          expected_version = release_tag[1:]  # strip leading "v" -- format already validated
+          requested = [c.strip() for c in os.environ["CRATES_INPUT"].split(",") if c.strip()]
+
+          manifest_for = {
+              "sekirei-core": "crates/sekirei-core/Cargo.toml",
+              "sekirei-bench": "crates/sekirei-bench/Cargo.toml",
+              "sekirei-csa": "crates/sekirei-csa/Cargo.toml",
+              "sekirei-match-runner": "crates/sekirei-match-runner/Cargo.toml",
+              "sekirei-train": "crates/sekirei-train/Cargo.toml",
+              "sekirei": "crates/sekirei-usi/Cargo.toml",
+          }
+
+          mismatches = []
+          for name in requested:
+              path = manifest_for[name]
+              with open(path, "rb") as f:
+                  actual_version = tomllib.load(f)["package"]["version"]
+              if actual_version != expected_version:
+                  mismatches.append(f"{name} ({path}): expected {expected_version}, found {actual_version}")
+
+          if mismatches:
+              print("::error::VERSION_TAG_MISMATCH: " + "; ".join(mismatches))
+              sys.exit(1)
+
+          print(f"All requested crates match version {expected_version}")
+          PYEOF
 
       - name: Show requested crates and mode
         env:
@@ -47,64 +158,83 @@ jobs:
 
       # sekirei-core must publish (or already be published at this version)
       # before any of the other 5, which depend on it via a path+version dep.
+      - name: Dry-run publish sekirei-core
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && inputs.dry_run }}
+        run: cargo publish -p sekirei-core --dry-run
+
       - name: Publish sekirei-core
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei-core --dry-run
-          else
-            cargo publish -p sekirei-core
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei-core
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       - name: Wait for sekirei-core to index on crates.io
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && inputs.dry_run == false }}
-        run: sleep 30
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') && !inputs.dry_run }}
+        env:
+          RELEASE_TAG: ${{ inputs.release_tag }}
+        run: |
+          expected_version="${RELEASE_TAG#v}"
+          echo "Polling sparse index for sekirei-core $expected_version (every 10s, max 3m)..."
+          for i in $(seq 1 18); do
+            if curl -fsS "https://index.crates.io/se/ki/sekirei-core" 2>/dev/null | grep -q "\"vers\":\"$expected_version\""; then
+              echo "sekirei-core $expected_version is indexed."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::timed out after 3m waiting for sekirei-core $expected_version to appear in the crates.io sparse index -- refusing to publish dependent crates"
+          exit 1
+
+      - name: Dry-run publish sekirei-bench
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') && inputs.dry_run }}
+        run: cargo publish -p sekirei-bench --dry-run
 
       - name: Publish sekirei-bench
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei-bench --dry-run
-          else
-            cargo publish -p sekirei-bench
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-bench,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei-bench
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Dry-run publish sekirei-csa
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') && inputs.dry_run }}
+        run: cargo publish -p sekirei-csa --dry-run
 
       - name: Publish sekirei-csa
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei-csa --dry-run
-          else
-            cargo publish -p sekirei-csa
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-csa,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei-csa
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Dry-run publish sekirei-match-runner
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') && inputs.dry_run }}
+        run: cargo publish -p sekirei-match-runner --dry-run
 
       - name: Publish sekirei-match-runner
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei-match-runner --dry-run
-          else
-            cargo publish -p sekirei-match-runner
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-match-runner,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei-match-runner
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      # Depends on lineprior via git (crates/sekirei-train/Cargo.toml) --
-      # not resolvable from crates.io alone until lineprior is published there.
+      # Blocked at preflight above (lineprior git dependency) -- these two
+      # steps currently cannot be reached, kept ready for when that's lifted.
+      - name: Dry-run publish sekirei-train
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && inputs.dry_run }}
+        run: cargo publish -p sekirei-train --dry-run
+
       - name: Publish sekirei-train
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei-train --dry-run
-          else
-            cargo publish -p sekirei-train
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei-train
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       # Package name "sekirei", crate directory crates/sekirei-usi. Also
-      # depends on lineprior via git -- same caveat as sekirei-train above.
+      # blocked at preflight above -- same caveat as sekirei-train.
+      - name: Dry-run publish sekirei (sekirei-usi)
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && inputs.dry_run }}
+        run: cargo publish -p sekirei --dry-run
+
       - name: Publish sekirei (sekirei-usi)
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') }}
-        run: |
-          if [ "$DRY_RUN" = "true" ]; then
-            cargo publish -p sekirei --dry-run
-          else
-            cargo publish -p sekirei
-          fi
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && !inputs.dry_run }}
+        run: cargo publish -p sekirei
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
