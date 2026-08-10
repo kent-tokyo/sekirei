@@ -1,0 +1,155 @@
+# Remote fixed-depth A/B gate. See scripts/run_fixed_depth_ab.py's module
+# docstring and docs/experiments/gate_redesign_low_load.md §5A for the full
+# design rationale (moves fixed-depth base/candidate comparison off a
+# resource-contended local host onto a GitHub-hosted runner).
+#
+# manual dispatch only -- never runs on push/pull_request, and never plays
+# an engine-vs-engine game (no byoyomi match, no Elo/SPRT, no formal gate).
+# Every position is driven at a single fixed search depth, once per binary,
+# via direct USI stdin/stdout -- nothing here spawns sekirei-match or any
+# multi-game runner.
+#
+# Security note: every workflow_dispatch input is passed to shell steps via
+# `env:` and referenced as a shell variable (e.g. "$BASE_SHA"), never
+# interpolated directly into a `run:` script via `${{ inputs.* }}` -- this
+# avoids shell/command injection from a crafted input value, even though
+# workflow_dispatch is already restricted to users with write access.
+name: Fixed-depth A/B gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_sha:
+        description: "Base commit SHA (or ref) to build and run"
+        required: true
+        default: "main"
+      candidate_sha:
+        description: "Candidate commit SHA (or ref) to build and run"
+        required: true
+      depth:
+        description: "Fixed search depth (go depth N) for every position"
+        required: false
+        default: "9"
+      threads:
+        description: "USI Threads= value for both binaries"
+        required: false
+        default: "1"
+      spec_top_n:
+        description: "USI SpecTopN= value for both binaries (ignored by binaries built before issue #9's option existed)"
+        required: false
+        default: "3"
+      corpus_path:
+        description: "Path (relative to repo root, resolved from THIS workflow's own checkout, not base/candidate) to the position corpus JSON"
+        required: false
+        default: "scripts/fixed_depth_corpus.json"
+
+permissions:
+  contents: read
+
+jobs:
+  fixed-depth-ab:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      BASE_SHA_INPUT: ${{ inputs.base_sha }}
+      CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
+      DEPTH: ${{ inputs.depth }}
+      THREADS: ${{ inputs.threads }}
+      SPEC_TOP_N: ${{ inputs.spec_top_n }}
+      CORPUS_PATH: ${{ inputs.corpus_path }}
+      RUN_ID: ${{ github.run_id }}
+    steps:
+      - name: Checkout (full history, for base/candidate worktrees)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Resolve inputs and write metadata.json
+        id: meta
+        run: |
+          set -euo pipefail
+          BASE_SHA=$(git rev-parse "$BASE_SHA_INPUT")
+          CANDIDATE_SHA=$(git rev-parse "$CANDIDATE_SHA_INPUT")
+          echo "base_sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
+          echo "candidate_sha=$CANDIDATE_SHA" >> "$GITHUB_OUTPUT"
+          mkdir -p artifacts
+          CORPUS_HASH=$(sha256sum "$CORPUS_PATH" | cut -d' ' -f1)
+          RUSTC_VERSION=$(rustc --version)
+          UTC_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          python3 - "$BASE_SHA" "$CANDIDATE_SHA" "$DEPTH" "$THREADS" "$SPEC_TOP_N" \
+            "$CORPUS_PATH" "$CORPUS_HASH" "$RUSTC_VERSION" "$RUN_ID" "$UTC_START" <<'PYEOF'
+          import json, sys
+          (base_sha, candidate_sha, depth, threads, spec_top_n,
+           corpus_path, corpus_sha256, rustc_version, run_id, utc_start) = sys.argv[1:]
+          json.dump({
+              "base_sha": base_sha,
+              "candidate_sha": candidate_sha,
+              "depth": int(depth),
+              "threads": int(threads),
+              "spec_top_n": int(spec_top_n),
+              "corpus_path": corpus_path,
+              "corpus_sha256": corpus_sha256,
+              "rustc_version": rustc_version,
+              "workflow_run_id": run_id,
+              "utc_start": utc_start,
+          }, open("artifacts/metadata.json", "w"), indent=2)
+          PYEOF
+          cat artifacts/metadata.json
+
+      - name: Build base in its own worktree
+        run: |
+          set -euo pipefail
+          BASE_SHA="${{ steps.meta.outputs.base_sha }}"
+          git worktree add /tmp/base-checkout "$BASE_SHA"
+          cargo build --release --manifest-path /tmp/base-checkout/Cargo.toml -p sekirei
+          sha256sum /tmp/base-checkout/target/release/sekirei | tee artifacts/base_binary_sha256.txt
+
+      - name: Run base corpus
+        run: |
+          set -euo pipefail
+          python3 scripts/run_fixed_depth_ab.py run \
+            --binary /tmp/base-checkout/target/release/sekirei \
+            --corpus "$CORPUS_PATH" \
+            --depth "$DEPTH" \
+            --threads "$THREADS" \
+            --spec-top-n "$SPEC_TOP_N" \
+            --output artifacts/base_results.json \
+            --label base
+
+      - name: Build candidate in its own worktree
+        run: |
+          set -euo pipefail
+          CANDIDATE_SHA="${{ steps.meta.outputs.candidate_sha }}"
+          git worktree add /tmp/candidate-checkout "$CANDIDATE_SHA"
+          cargo build --release --manifest-path /tmp/candidate-checkout/Cargo.toml -p sekirei
+          sha256sum /tmp/candidate-checkout/target/release/sekirei | tee artifacts/candidate_binary_sha256.txt
+
+      - name: Run candidate corpus
+        run: |
+          set -euo pipefail
+          python3 scripts/run_fixed_depth_ab.py run \
+            --binary /tmp/candidate-checkout/target/release/sekirei \
+            --corpus "$CORPUS_PATH" \
+            --depth "$DEPTH" \
+            --threads "$THREADS" \
+            --spec-top-n "$SPEC_TOP_N" \
+            --output artifacts/candidate_results.json \
+            --label candidate
+
+      - name: Compare
+        run: |
+          python3 scripts/run_fixed_depth_ab.py compare \
+            --base artifacts/base_results.json \
+            --candidate artifacts/candidate_results.json \
+            --output-dir artifacts
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fixed-depth-ab-${{ github.run_id }}
+          path: artifacts/
+          retention-days: 90

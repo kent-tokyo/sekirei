@@ -1,0 +1,131 @@
+{
+  "description": "Fixed corpus for the remote fixed-depth A/B gate (docs/experiments/gate_redesign_low_load.md §5A / GitHub Actions fixed-depth-ab.yml). NOT drawn from any engine-vs-engine match, gate, or B1-vs-A artifact -- every entry is either a direct SFEN already used and verified by a passing test/fixture elsewhere in this repository (see each entry's 'source'), or a short, standard-opening move sequence applied from the canonical start position via the engine's own move generator (so validity is checked by the engine itself, not hand-typed board state). Categories are approximate, not authoritative.",
+  "positions": [
+    {
+      "id": "opening_startpos",
+      "category": "opening",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "source": "crates/sekirei-core/src/sfen.rs STARTPOS_SFEN"
+    },
+    {
+      "id": "opening_black_2f",
+      "category": "opening",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2",
+      "source": "crates/sekirei-train/src/positions.rs SFEN_2 / crates/sekirei-train/src/teacher_cache.rs SFEN_B"
+    },
+    {
+      "id": "tactical_mate_in_1",
+      "category": "tactical",
+      "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 1",
+      "source": "crates/sekirei-core/src/speculative.rs and search.rs MATE_IN_1_SFEN (hand-verified mate-in-1 fixture, reused by multiple regression tests)"
+    },
+    {
+      "id": "capture_king_candidate",
+      "category": "capture-heavy",
+      "sfen": "k8/9/9/9/R8/9/9/9/9 b - 1",
+      "source": "crates/sekirei-core/src/movegen.rs and speculative.rs KING_CAPTURE_CANDIDATE_SFEN"
+    },
+    {
+      "id": "check_evasion_plain_sennichite",
+      "category": "check-evasion",
+      "sfen": "9/9/9/9/4k4/9/9/9/4K4 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case plain_sennichite_no_check (initial position only, not the repetition move history)"
+    },
+    {
+      "id": "check_evasion_continuous_check_black",
+      "category": "check-evasion",
+      "sfen": "9/9/9/5k3/9/4R4/9/9/4K4 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case continuous_check_sennichite_black_checks (initial position only)"
+    },
+    {
+      "id": "check_evasion_continuous_check_white",
+      "category": "check-evasion",
+      "sfen": "9/9/9/5K3/9/4r4/9/9/4k4 w - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case continuous_check_sennichite_white_checks (initial position only)"
+    },
+    {
+      "id": "king_danger_nyugyoku_full_army",
+      "category": "king-danger",
+      "sfen": "lnsg1gsnl/1r5b1/ppppKpppp/9/9/9/PPPPkPPPP/1B5R1/LNSG1GSNL b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_boundary_full_army_present"
+    },
+    {
+      "id": "king_danger_nyugyoku_bare_king",
+      "category": "king-danger",
+      "sfen": "9/4K4/9/9/9/9/9/9/4k4 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_clearly_ineligible_bare_king"
+    },
+    {
+      "id": "king_danger_nyugyoku_declaration_eligible",
+      "category": "king-danger",
+      "sfen": "K1RPBPPP1/1GPGPSPS1/1NPNPLPL1/9/4k4/9/9/9/9 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_declaration_win_eligible"
+    },
+    {
+      "id": "king_danger_nyugyoku_insufficient_points",
+      "category": "king-danger",
+      "sfen": "K8/1P1P1P1P1/P1P1P1P1P/9/4k4/9/9/9/9 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_insufficient_points"
+    },
+    {
+      "id": "king_danger_nyugyoku_insufficient_pieces",
+      "category": "king-danger",
+      "sfen": "KRB6/PPPPPP3/9/9/4k4/9/9/9/9 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_insufficient_pieces_in_enemy_camp"
+    },
+    {
+      "id": "king_danger_nyugyoku_king_outside_camp",
+      "category": "king-danger",
+      "sfen": "RBGGGGSS1/SSNNNNLLL/LPPP5/4K4/9/4k4/9/9/9 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_king_outside_enemy_camp"
+    },
+    {
+      "id": "king_danger_nyugyoku_in_check_cannot_declare",
+      "category": "king-danger",
+      "sfen": "RB1nGGSS1/LLNNPPPP1/4K4/9/9/4k4/9/9/9 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case nyugyoku_in_check_cannot_declare"
+    },
+    {
+      "id": "jishogi_mutual_impasse",
+      "category": "king-danger",
+      "sfen": "2G4G1/4K4/9/9/9/9/9/4k4/2g4g1 b - 1",
+      "source": "crates/sekirei-core/tests/fixtures/rule_conformance_cases.jsonl case jishogi_mutual_impasse_boundary"
+    },
+    {
+      "id": "opening_1ply_7f",
+      "category": "opening",
+      "moves": ["7g7f"],
+      "source": "standard first move (Black 7f pawn push), applied to startpos via the engine's own move application, not a hand-typed SFEN"
+    },
+    {
+      "id": "opening_1ply_2f",
+      "category": "opening",
+      "moves": ["2g2f"],
+      "source": "standard first move (Black 2f pawn push, ranging-rook systems), applied to startpos via the engine's own move application"
+    },
+    {
+      "id": "opening_2ply",
+      "category": "opening",
+      "moves": ["7g7f", "3c3d"],
+      "source": "standard static-rook opening (Black 7f, White 3d pawn pushes), applied via the engine's own move application"
+    },
+    {
+      "id": "opening_4ply",
+      "category": "opening",
+      "moves": ["7g7f", "3c3d", "2g2f", "8c8d"],
+      "source": "standard opening continuation (both sides' rook- and bishop-side pawn pushes), applied via the engine's own move application"
+    },
+    {
+      "id": "middlegame_6ply",
+      "category": "middlegame",
+      "moves": ["7g7f", "3c3d", "2g2f", "8c8d", "6g6f", "7c7d"],
+      "source": "extended standard-opening pawn-push sequence, applied via the engine's own move application"
+    },
+    {
+      "id": "quiet_8ply",
+      "category": "quiet",
+      "moves": ["7g7f", "3c3d", "2g2f", "8c8d", "6g6f", "7c7d", "5g5f", "5c5d"],
+      "source": "further extended standard-opening pawn-push sequence (all quiet pawn moves, no captures/checks), applied via the engine's own move application"
+    }
+  ]
+}
