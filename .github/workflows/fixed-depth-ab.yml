@@ -50,6 +50,10 @@ on:
         description: "Set true to allow candidate_sha that does NOT have base_sha as an ancestor (e.g. deliberately comparing two independent commits). Default false rejects a candidate built from a stale/diverged base, which produced a bogus 238x node-ratio outlier in run 31362228815 (candidate predated base's SpecTopN USI option, so setoption SpecTopN=0 was silently ignored)."
         required: false
         default: "false"
+      repeats:
+        description: "1 (default) runs the normal single-shot base-vs-candidate compare. >1 switches to repeatability mode: each binary is run through the corpus this many times, reporting WITHIN-binary variance (base vs candidate independently) instead of a single-shot diff -- required at spec_top_n>0, where SpeculativeSearcher's own thread pool makes a single-shot compare indistinguishable from noise (see docs/experiments/fixed_depth_gate_run_index.md)."
+        required: false
+        default: "1"
 
 permissions:
   contents: read
@@ -67,6 +71,7 @@ jobs:
       CORPUS_PATH: ${{ inputs.corpus_path }}
       CANDIDATE_PR: ${{ inputs.candidate_pr }}
       ALLOW_NON_ANCESTOR: ${{ inputs.allow_non_ancestor }}
+      REPEATS: ${{ inputs.repeats }}
       RUN_ID: ${{ github.run_id }}
       GATE_TOOLING_SHA: ${{ github.sha }}
     steps:
@@ -157,6 +162,7 @@ jobs:
               "depth": int(os.environ["DEPTH"]),
               "threads": int(os.environ["THREADS"]),
               "spec_top_n": int(os.environ["SPEC_TOP_N"]),
+              "repeats": int(os.environ["REPEATS"]),
               "corpus_path": os.environ["CORPUS_PATH"],
               "corpus_sha256": os.environ["CORPUS_HASH"],
               "rustc_version": os.environ["RUSTC_VERSION"],
@@ -182,7 +188,8 @@ jobs:
           cargo build --release --manifest-path /tmp/base-checkout/Cargo.toml -p sekirei
           sha256sum /tmp/base-checkout/target/release/sekirei | tee artifacts/base_binary_sha256.txt
 
-      - name: Run base corpus
+      - name: Run base corpus (single-shot)
+        if: ${{ inputs.repeats == '1' }}
         run: |
           set -euo pipefail
           python3 scripts/run_fixed_depth_ab.py run \
@@ -194,6 +201,23 @@ jobs:
             --output artifacts/base_results.json \
             --label base
 
+      - name: Run base repeatability
+        if: ${{ inputs.repeats != '1' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/run_fixed_depth_ab.py repeat \
+            --binary /tmp/base-checkout/target/release/sekirei \
+            --corpus "$CORPUS_PATH" \
+            --depth "$DEPTH" \
+            --threads "$THREADS" \
+            --spec-top-n "$SPEC_TOP_N" \
+            --repeats "$REPEATS" \
+            --output artifacts/base_repeat.json \
+            --label base
+          python3 scripts/run_fixed_depth_ab.py analyze-repeatability \
+            --input artifacts/base_repeat.json \
+            --output artifacts/base_repeatability_metrics.json
+
       - name: Build candidate in its own worktree
         run: |
           set -euo pipefail
@@ -202,7 +226,8 @@ jobs:
           cargo build --release --manifest-path /tmp/candidate-checkout/Cargo.toml -p sekirei
           sha256sum /tmp/candidate-checkout/target/release/sekirei | tee artifacts/candidate_binary_sha256.txt
 
-      - name: Run candidate corpus
+      - name: Run candidate corpus (single-shot)
+        if: ${{ inputs.repeats == '1' }}
         run: |
           set -euo pipefail
           python3 scripts/run_fixed_depth_ab.py run \
@@ -214,11 +239,37 @@ jobs:
             --output artifacts/candidate_results.json \
             --label candidate
 
-      - name: Compare
+      - name: Run candidate repeatability
+        if: ${{ inputs.repeats != '1' }}
+        run: |
+          set -euo pipefail
+          python3 scripts/run_fixed_depth_ab.py repeat \
+            --binary /tmp/candidate-checkout/target/release/sekirei \
+            --corpus "$CORPUS_PATH" \
+            --depth "$DEPTH" \
+            --threads "$THREADS" \
+            --spec-top-n "$SPEC_TOP_N" \
+            --repeats "$REPEATS" \
+            --output artifacts/candidate_repeat.json \
+            --label candidate
+          python3 scripts/run_fixed_depth_ab.py analyze-repeatability \
+            --input artifacts/candidate_repeat.json \
+            --output artifacts/candidate_repeatability_metrics.json
+
+      - name: Compare (single-shot)
+        if: ${{ inputs.repeats == '1' }}
         run: |
           python3 scripts/run_fixed_depth_ab.py compare \
             --base artifacts/base_results.json \
             --candidate artifacts/candidate_results.json \
+            --output-dir artifacts
+
+      - name: Compare repeatability
+        if: ${{ inputs.repeats != '1' }}
+        run: |
+          python3 scripts/run_fixed_depth_ab.py compare-repeatability \
+            --base artifacts/base_repeatability_metrics.json \
+            --candidate artifacts/candidate_repeatability_metrics.json \
             --output-dir artifacts
 
       - name: Upload artifacts

@@ -35,6 +35,8 @@ from pathlib import Path
 
 from run_fixed_depth_ab import (
     _classify,
+    _percentile,
+    _position_repeatability,
     _status,
     probe_usi_capabilities,
     require_usi_capabilities,
@@ -284,6 +286,85 @@ class ClassifyResignTests(unittest.TestCase):
         _classify(result, allow_resign=False)
         self.assertTrue(result["incomplete_output"])
         self.assertEqual(_status(result), "incomplete_output")
+
+
+def _ok_run(bestmove, score_cp=0, nodes=100):
+    return {
+        "bestmove": bestmove,
+        "score_cp": score_cp,
+        "nodes": nodes,
+        "depth_reached": 9,
+        "timed_out": False,
+        "panicked": False,
+        "illegal_move": False,
+        "unexpected_resign": False,
+        "incomplete_output": False,
+    }
+
+
+def _panic_run():
+    r = _ok_run(None, None, None)
+    r["panicked"] = True
+    return r
+
+
+class PositionRepeatabilityTests(unittest.TestCase):
+    def test_identical_runs_show_zero_variance(self):
+        runs = [_ok_run("7g7f", nodes=100) for _ in range(3)]
+        m = _position_repeatability("p1", "opening", runs)
+        self.assertEqual(m["repeats_ok"], 3)
+        self.assertEqual(m["unique_bestmoves"], 1)
+        self.assertEqual(m["modal_bestmove"], "7g7f")
+        self.assertEqual(m["modal_fraction"], 1.0)
+        self.assertEqual(m["max_over_min_node_ratio"], 1.0)
+        self.assertEqual(m["max_over_min_node_log2"], 0.0)
+
+    def test_varying_bestmove_and_nodes_computes_correct_stats(self):
+        runs = [
+            _ok_run("7g7f", score_cp=10, nodes=100),
+            _ok_run("7g7f", score_cp=20, nodes=200),
+            _ok_run("2g2f", score_cp=15, nodes=50),
+        ]
+        m = _position_repeatability("p1", "opening", runs)
+        self.assertEqual(m["unique_bestmoves"], 2)
+        self.assertEqual(m["modal_bestmove"], "7g7f")
+        self.assertAlmostEqual(m["modal_fraction"], 2 / 3, places=4)
+        self.assertEqual(m["min_nodes"], 50)
+        self.assertEqual(m["max_nodes"], 200)
+        self.assertEqual(m["median_nodes"], 100)
+        self.assertEqual(m["max_over_min_node_ratio"], 4.0)
+        self.assertEqual(m["max_over_min_node_log2"], 2.0)
+        self.assertEqual(m["min_score_cp"], 10)
+        self.assertEqual(m["max_score_cp"], 20)
+        self.assertEqual(m["score_range_cp"], 10)
+
+    def test_correctness_failures_excluded_from_stability_but_counted(self):
+        runs = [_ok_run("7g7f", nodes=100), _panic_run(), _ok_run("7g7f", nodes=100)]
+        m = _position_repeatability("p1", "opening", runs)
+        self.assertEqual(m["repeats_total"], 3)
+        self.assertEqual(m["repeats_ok"], 2)
+        self.assertEqual(m["correctness_failures"], 1)
+        self.assertEqual(m["unique_bestmoves"], 1)
+        self.assertEqual(m["max_over_min_node_ratio"], 1.0)
+
+    def test_all_failures_yields_no_stats(self):
+        runs = [_panic_run(), _panic_run()]
+        m = _position_repeatability("p1", "opening", runs)
+        self.assertEqual(m["repeats_ok"], 0)
+        self.assertEqual(m["correctness_failures"], 2)
+        self.assertIsNone(m["unique_bestmoves"])
+        self.assertIsNone(m["max_over_min_node_ratio"])
+
+
+class PercentileTests(unittest.TestCase):
+    def test_nearest_rank_percentile(self):
+        values = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+        self.assertEqual(_percentile(values, 0), 1)
+        self.assertEqual(_percentile(values, 100), 10)
+        self.assertEqual(_percentile(values, 90), 9)
+
+    def test_empty_list_returns_none(self):
+        self.assertIsNone(_percentile([], 90))
 
 
 if __name__ == "__main__":
