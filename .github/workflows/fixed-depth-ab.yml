@@ -85,8 +85,16 @@ jobs:
           # since a same-named local ref left over from checkout could
           # otherwise shadow it); fall back to the raw input (handles a bare
           # SHA or tag, which have no origin/ prefix form).
+          #
+          # --verify -q is required on the first attempt: plain `git
+          # rev-parse origin/<bare-sha>` still prints the raw argument to
+          # stdout as a "maybe a pathspec" fallback even though it exits
+          # non-zero, and since only stderr is redirected away here, that
+          # stray line concatenates with the second attempt's real output
+          # inside $(...). --verify -q makes a failed lookup print nothing
+          # and exit 1 cleanly.
           resolve_ref() {
-            git rev-parse "origin/$1" 2>/dev/null || git rev-parse "$1"
+            git rev-parse --verify -q "origin/$1" 2>/dev/null || git rev-parse --verify "$1"
           }
           BASE_SHA=$(resolve_ref "$BASE_SHA_INPUT")
           CANDIDATE_SHA=$(resolve_ref "$CANDIDATE_SHA_INPUT")
