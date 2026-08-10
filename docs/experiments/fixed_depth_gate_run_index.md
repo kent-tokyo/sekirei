@@ -6,6 +6,22 @@ elsewhere in this directory (e.g. `pr4_gate_attempt_index.md`). Runs are
 never deleted from GitHub Actions history when found invalid -- they're
 recorded here as provenance for why the gate infrastructure itself changed.
 
+## run 31364261314 (R17_0) -- VALID, GOOD
+
+- workflow: `fixed-depth-ab.yml`, ref `fix/remote-gate-ref-resolution` (post-interactive-driver-fix)
+- dispatched: 2026-08-10, `base_sha=main` (`9f45ccf7`), `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17 head, `candidate_pr=17`), `depth=9`, `threads=1`, `spec_top_n=0`
+- provenance: `base_is_ancestor_of_candidate=true`; both binaries advertise `Threads`+`SpecTopN` and complete the `usiok`/`readyok` handshake (confirmed in `usi_capabilities` in both result JSONs)
+- **21/21 positions status=ok on both sides** -- zero panic/timeout/illegal/unexpected_resign/incomplete_output
+
+### Results (first trustworthy PR #17 measurement)
+
+- median node ratio (candidate/base): **0.9987**
+- node ratio range: 0.7513 .. 1.0124 (no explosion; `opening_4ply` shows the largest reduction)
+- bestmove differs: 1/21 (`king_danger_nyugyoku_full_army`: base `6i5h` cp 0 vs candidate `5c5d` cp 50 -- well under the 200cp "notably different" threshold)
+- score_cp differs by >200: 0/21
+
+Verdict per the GOOD/NEUTRAL/BAD framework: **GOOD** -- zero correctness issues, no unnatural bestmove/score divergence, no pathological node explosion. Still a draft-stays-draft result, not a merge decision by itself; this is the qsearch-TT-isolated measurement (`SpecTopN=0`, no speculative-search interaction).
+
 ## run 31362228815 -- INVALID_CONFIG
 
 - workflow: `fixed-depth-ab.yml`, ref `main`
