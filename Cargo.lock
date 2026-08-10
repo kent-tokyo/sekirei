@@ -447,9 +447,9 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lineprior"
-version = "0.9.0"
+version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a08ff3629dae7886f5de1820cbde43962b7d7b84311b16ccb57600961766f189"
+checksum = "3ddfae574258de48684704da77bfe041cdb05dab918992cd421eefddd2357476"
 dependencies = [
  "serde",
  "serde_json",
