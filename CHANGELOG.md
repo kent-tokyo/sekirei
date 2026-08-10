@@ -2,7 +2,220 @@
 
 ## Unreleased
 
+## [0.3.1] – 2026-08-10
+
+This is the first published release since 0.2.4. A
+`v0.3.0` tag exists in git history (2026-07-16) but no GitHub Release was
+ever published from it — see the note on the 0.3.0
+section below. Accordingly, everything in this section covers the full
+`v0.2.4...v0.3.1` range, including some pre-existing work that landed
+before the `v0.3.0` tag but was never previously written up in this file
+(the [0.3.0] section below only ever documented training-pipeline changes).
+Training-pipeline changes from before the tag are **not** repeated here —
+see the [0.3.0] section for those.
+
+### Search
+
+- **Fixed a structural search-depth stall** (PR #5, headline fix of this
+  release). `SpeculativeSearcher` submitted its background tasks to rayon's
+  shared *global* pool — the same pool the main alpha-beta search's own
+  parallel (YBW) dispatch depends on. Since speculative tasks are unbounded
+  and never cancelled, they could occupy every worker thread and starve the
+  main search of a thread to run on, freezing search depth regardless of
+  remaining time budget. Confirmed via profiling (main search thread blocked
+  in `pthread_cond_wait` while a worker computed an unbounded speculative
+  line) and reproducible depth-scaling tests. Fix: `SpeculativeSearcher` now
+  gets its own dedicated thread pool, structurally isolated from the main
+  search's pool.
+- Fixed speculative-search TT mate-score corruption (issue #7, PR #13):
+  speculative search's internal TT stores didn't apply the ply-relative
+  mate-score encoding every other read/write site already used, so a
+  mate-adjacent score computed by a speculative task could be misread later
+  from a different ply via the shared TT.
+- Fixed a same-parent-hash race in speculative search (issue #14, PR #16):
+  every candidate move's speculative task independently stored its result at
+  the same shared parent TT entry, so the surviving entry was whichever task
+  finished last rather than the best candidate — a real source of
+  `SpecTopN>0` search nondeterminism, confirmed and measured (not just
+  theorized) via a purpose-built gate `repeats` mode: across 21 positions run
+  3 times each at `SpecTopN=3`, the number of positions with an unstable
+  bestmove dropped from 9/21 to 3/21 after this fix. Node-count variance
+  improved on the primary (median) measure but the picture is genuinely
+  mixed at the tail — see Known limitations below; not claimed as a full fix
+  for issue #14.
+- A search/gate-hang fix predating the `v0.3.0` tag: bounded qsearch depth,
+  time-bounded speculative tasks, and an OS-thread watchdog on the hard
+  deadline, plus a fix for the TT not being cleared on `usinewgame` and CPU
+  oversubscription in self-play from a missing `Threads` `setoption`.
+  Also from this era: recursive SEE, a quiet-check safety filter with a YBW
+  sibling cap, and NMP/LMR/delta-pruning refinements.
+- Two related fixes remain **implemented but not merged**, excluded from
+  this release — see Known limitations: quiescence-search TT integration
+  (issue #8, PR #17) and singular-extension verification search (issue #6,
+  PR #4).
+
+### USI / Runtime
+
+- Fixed a `setoption Hash` output-ordering race (issue #10, PR #15):
+  `setoption Hash` now aborts and joins any in-flight search before
+  rebuilding the searcher's TT and thread pool, closing a window where a
+  stale `bestmove` from the old search could arrive interleaved with later
+  protocol output.
+- New `SpecTopN` USI option (issue #9, PR #18): exposes speculative search's
+  top-N candidate count (default 3, matching prior hardcoded behavior — no
+  behavior change unless set), including `0` to disable speculation
+  entirely, without a rebuild. The abort-and-join fix from PR #15 was
+  generalized into a shared helper applied at all 7 places engine state gets
+  rebuilt (`go`, `usinewgame`, `setoption Hash`, `setoption SpecTopN`,
+  `stop`, `ponderhit`, `quit`).
+- New runtime safety invariants (direct commits, no PR): the engine now
+  hard-aborts with a full diagnostic dump instead of silently continuing
+  whenever a computed bestmove is actually illegal, or whenever an
+  independently-replayed shadow reconstruction of a `position` command's
+  move history disagrees with the engine's own incrementally-maintained
+  board. Runs unconditionally on every `position` command. This is a
+  detection safety net for an intermittent, still-unreproduced
+  position-replay corruption observed during a training gate — see Known
+  limitations; the underlying root cause remains open.
+- Predating the `v0.3.0` tag, not previously documented: pondering, MultiPV,
+  a soft-limit instability extension, `binc`/`winc`/`movestogo` time
+  control, and a fix for `setoption EvalFile` never actually activating NNUE
+  when set via GUI (only worked from the CLI).
+
+### Training
+
+Training-pipeline work in this range that predates the `v0.3.0` tag —
+including the `TrainWeights::new_seeded(seed)` symmetry-collapse fix — is
+documented in the 0.3.0 section below, not repeated
+here. New since that tag:
+
+- Extensive off-by-default diagnostic instrumentation investigating an
+  epoch-1 L2/FT neuron-collapse and CP/WDL gradient-target dynamics:
+  per-neuron per-position tracing, a shuffle-seed control (found data
+  order — not initialization — materially affects whether collapsed L2
+  neurons recover), CP/WDL gradient decomposition, and configurable WDL
+  target scale. All opt-in and off by default; findings recorded under
+  `docs/experiments/`.
+- A "teacher-conflict masking" training strategy (halting the FT/L2 update
+  wherever the CP and WDL teachers disagree) was implemented and evaluated
+  in a paired gate against a rate-matched control. **Rejected, not
+  adopted** — underperformed the control.
+- Fixes: shuffle seed is now recorded in checkpoint metadata (previously
+  missing); validation now emits the same progress heartbeat training
+  already had; the teacher-search cache now writes via temp-file+atomic
+  rename instead of truncating in place, and filters entries by
+  `label_depth` so caches from different depths can't silently blend;
+  `scripts/select_longrun_checkpoint.py`'s hardcoded L2 width was corrected
+  to the actual architecture (verified zero effect on prior checkpoint
+  selections).
+
+### Match / Gates / Validation
+
+- Phase A2 launch-readiness hardening (PR #2): a fixed-seed, resumable
+  Fisher-Yates permutation of the B1-vs-A opening corpus with a real
+  diversity/contamination gate, `TimeForfeit` added as its own
+  distinguishable end reason (previously collapsed into generic engine
+  errors, so it could never actually be counted by the contamination
+  check), and an immutable, append-only, hash-verified manifest. Bundled in
+  the same PR: a match-runner protocol hardening (`stop` →
+  `usinewgame` → `isready`/`readyok` draining, illegal-move/timeout process
+  retirement) closing a stale-`bestmove`-leak-across-game-boundaries bug,
+  plus per-move transcript logging.
+- Read-only resource preflight checker (PR #12,
+  `scripts/gate_resource_preflight.py`): inspects host load/swap/memory/disk/
+  contending-process state before a gate or match launch and refuses, rather
+  than silently proceeding, whenever any check can't be confirmed safe.
+- Remote fixed-depth A/B tool (PR #19): an opt-in, `workflow_dispatch`-only
+  GitHub Actions workflow that builds two engine binaries and drives them
+  through a small fixed-position corpus at one fixed search depth, entirely
+  on a GitHub-hosted runner. Explicitly a correctness/node-count structural
+  pre-filter, not an Elo/SPRT/strength gate — CI has no NNUE weights
+  available, so both binaries run the deterministic default evaluation.
+- Hardened the same tool (PR #20), after dogfooding it against PR #17
+  surfaced two real tooling bugs: a config-mismatch guard (fails closed if
+  `Threads`/`SpecTopN` aren't both advertised by a binary, instead of
+  silently comparing incompatible configurations) and a rewrite of the USI
+  driver from a single blocking all-at-once command send to an interactive
+  driver that waits for a real `bestmove` before ever sending `quit` (the
+  engine's `go` is asynchronous; the old driver could race its own `quit`
+  ahead of an in-flight search and misreport a real position as
+  `bestmove resign`). Also added a `repeats` mode (run each side N times,
+  report within-binary bestmove/node-count variance) — necessary because
+  `SpecTopN>0` search was separately discovered, via this same dogfooding,
+  to be measurably nondeterministic even for an identical binary run
+  against itself (see Known limitations); a single-shot diff at
+  `SpecTopN>0` has no resolving power, and `repeats` mode is now the
+  standard way to evaluate any such candidate.
+- `spread_ok`'s decile-keying semantics in the B1-vs-A gate design were
+  audited and documented (PR #3) — read-only, no gate behavior changed.
+- Predating the `v0.3.0` tag, not previously documented: the CI-based Elo
+  gate (`sekirei-match gate`, later extended to `gate --sprt` — documented
+  in [0.3.0] below) replaced an earlier ad-hoc point-estimate+LOS check, and
+  a required opening-diversity check was added to strength gates after a
+  350-game run was found to collapse into a handful of repeated games.
+- The intermittent position-replay-desync investigation (see USI/Runtime
+  above) originated from, and was closed out against, a training gate: the
+  shadow-replay invariant closed the detection gap that let the original
+  corruption go unflagged, and a follow-up gate run completed cleanly with
+  it enabled. The root cause itself is still unresolved.
+
+### Tooling
+
+- `scripts/gate_resource_preflight.py` and the remote fixed-depth A/B
+  tooling (both above).
+- Predating the `v0.3.0` tag, not previously documented: the gate dashboard
+  (`scripts/gate_dashboard.py`) gained live external-gate-run watching, an
+  AI chat assistant panel, dark mode, a responsive layout, and pipeline
+  visualization, ahead of the embedded-review-panels work already
+  documented in [0.3.0] below.
+- CI/build hygiene: fixed a `cargo doc -D warnings` bare-URL lint failure;
+  assorted `cargo fmt` fixups.
+
+### Dependencies
+
+- `lineprior` bumped to 0.9.0 (still git-pinned by tag, not yet published to
+  crates.io); required adding two new required fields
+  (`observed_at_unix_seconds`, `source`) to an `Observation` construction
+  site.
+- `veridict` bumped to 0.15.0 and switched from a pinned git revision to a
+  published crates.io version now that one exists — required adapting 3
+  breaking API changes (`MetricConfig::Elo` becoming a struct variant with a
+  `FailurePolicy`, `compare_one` gaining a `cluster_by_id: bool`,
+  `sprt::run` gaining 4 trailing parameters), all pinned to values that
+  reproduce prior behavior exactly.
+- `shogiesa`/`quietset` version-pin comments updated to 0.9.0/0.16.0
+  (docs-only; verified compatible end-to-end against a hand-written
+  schema-v11 fixture).
+
+### Known limitations
+
+- Issue #14 (speculative-search parent-hash TT race) is **partially**
+  fixed by PR #16 in this release: bestmove nondeterminism at `SpecTopN=3`
+  measurably improves (9/21 → 3/21 unstable positions across 3 repeats in
+  the gate corpus used for evaluation), but a second, still-unidentified
+  source of node-count variance remains. Tracked as a follow-up: a static
+  audit of the remaining shared-TT write topology.
+- `SpecTopN>0` search (the production default) is measurably
+  nondeterministic even for an identical binary run against itself — this
+  is intrinsic scheduling-order variance in `SpeculativeSearcher`'s
+  concurrent background workers, not specific to any one change. Any future
+  fixed-depth A/B evaluation at `SpecTopN>0` needs the gate's `repeats` mode
+  (see above), not a single-shot diff.
+- Issue #8 (quiescence-search TT integration, PR #17) is implemented,
+  CI-green, and structurally clean at `SpecTopN=0`, but shows no
+  distinguishable effect from the `SpecTopN=3` production-default noise
+  floor. Not merged, not included in this release; no strength or
+  node-reduction claim is made for it.
+- Issue #6 (singular-extension verification search, PR #4) was not
+  re-evaluated this release cycle and is not included.
+- An intermittent position-replay desync (see USI/Runtime above) has a
+  detection safety net in place but an undiagnosed root cause.
+- This release makes no Elo or playing-strength claims. No comparison
+  against other engines is made or implied.
+
 ## [0.3.0] – 2026-07-16
+
+_Tag created, but no GitHub Release was published from it._
 
 ### Added
 - `sekirei-train --lr <f> --lr-schedule constant|step-half|cosine --min-lr <f> --warmup-epochs <n>` — replaces the previously hardcoded `0.001 * 0.5^(epoch-1)` schedule (both `--games` and `--positions` paths). `step-half` remains the default and reproduces the old formula exactly. `min-lr` floors every schedule, not just `cosine` — unfloored `step-half` decays toward zero (~2e-9 by epoch 20), which made an early-stopped checkpoint hard to interpret (undertrained, or already past the point where the schedule mattered?).
