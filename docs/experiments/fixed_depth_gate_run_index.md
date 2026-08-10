@@ -299,7 +299,14 @@ rather than a change to deterministic search logic -- but it's supporting
 evidence for that hypothesis, not proof of it. The mechanism is not
 established by this data; only that the effect requires `SpecTopN>0` to
 manifest, which the existing shared-TT write-topology follow-up (filed as
-issue, see below) is the right place to actually test it.
+issue, see below) is the right place to actually test it. **Update
+(2026-08-11)**: issue #32's static audit (PR #34,
+`docs/design/shared_tt_write_topology_audit.md`) found this control rules
+out less than the paragraph above implies -- the new qsearch stores can, in
+principle, race with each other purely through `alpha_beta`'s pre-existing
+YBW parallelism, with no `SpeculativeSearcher` involvement at all, so
+"requires `SpecTopN>0`" may reflect contention/timing rather than the
+speculative code path being the actual colliding producer.
 
 ### Verdict: not merge-recommended; magnitude unresolved at n=3
 
