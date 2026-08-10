@@ -159,6 +159,17 @@ fn main() {
                 if parts.get(1) == Some(&"Hash")
                     && let Some(mb) = parts.get(3).and_then(|s| s.parse().ok())
                 {
+                    // Abort and join any in-flight search before rebuilding the
+                    // searcher, same as "go" and "usinewgame" already do -- without
+                    // this, the old search thread's own bestmove output can arrive
+                    // after (interleaved with) whatever command comes after this
+                    // setoption, since nothing here previously blocked on it.
+                    if let Some(a) = search_abort.take() {
+                        a.store(true, Ordering::Relaxed);
+                    }
+                    if let Some(h) = search_handle.take() {
+                        h.join().ok();
+                    }
                     hash_mb = mb;
                     searcher = make_searcher(hash_mb);
                 } else if parts.get(1) == Some(&"Threads") {
