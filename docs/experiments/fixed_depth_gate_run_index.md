@@ -142,6 +142,99 @@ noise this large isn't informative. Same reasoning applies to PR #4's
 fixed-depth evaluation, which is also paused, independent of the local-CPU
 resource situation.
 
+## run 31367406754 (PR #16 repeatability) -- PARTIAL PASS
+
+`repeats` mode, `base_sha=9f45ccf7` (main), `candidate_sha=63cddcae`
+(PR #16's rebased head, `fix/spec-parent-tt-race`), `candidate_pr=16`,
+`depth=9`, `threads=1`, `spec_top_n=3`, `repeats=3`. First real dispatch
+of `repeats` mode against production binaries -- completed end-to-end
+with zero `CONFIG_UNSUPPORTED`/`CANDIDATE_NOT_BASED_ON_BASE`/tooling
+errors, which itself validates PR #20's `repeats` implementation.
+
+### Results
+
+| metric | base | candidate |
+|---|---|---|
+| positions with bestmove variance | 9 / 21 | 3 / 21 |
+| median node-swing ratio | 1.0906 | 1.0213 |
+| p90 node-swing ratio | 1.4356 | 2.0954 |
+| max node-swing ratio | 2.3774 | 3.2015 |
+| correctness failures (126 runs/side) | 0 | 0 |
+
+Base bestmove-variable positions (9): `check_evasion_continuous_check_white`,
+`check_evasion_plain_sennichite`, `jishogi_mutual_impasse`,
+`king_danger_nyugyoku_bare_king`, `king_danger_nyugyoku_full_army`,
+`king_danger_nyugyoku_insufficient_pieces`,
+`king_danger_nyugyoku_insufficient_points`, `opening_2ply`, `opening_4ply`.
+
+Candidate bestmove-variable positions (3): `king_danger_nyugyoku_full_army`,
+`king_danger_nyugyoku_insufficient_pieces`,
+`king_danger_nyugyoku_insufficient_points`.
+
+### Reading the bestmove signal: real, and directionally clean
+
+6 of the 9 base-variable positions became fully stable (`unique_bestmoves`
+1, `modal_fraction` 1.0) under the candidate: `check_evasion_continuous_check_white`,
+`check_evasion_plain_sennichite`, `jishogi_mutual_impasse`,
+`king_danger_nyugyoku_bare_king`, `opening_2ply`, `opening_4ply`. The
+remaining 3 are **unchanged, not improved-and-then-regressed**:
+`unique_bestmoves=2` and `modal_fraction=0.6667` are identical on both
+sides for `king_danger_nyugyoku_full_army`, `_insufficient_pieces`, and
+`_insufficient_points`. That's a clean signature -- PR #16 eliminates one
+concrete source of bestmove nondeterminism (the parent-hash last-writer-wins
+race) and leaves a second, untouched source fully intact in exactly the
+3 positions where it was already present. Zero correctness failures
+across 126 invocations per side (21 positions x 3 repeats x base/candidate).
+
+### Reading the node-swing signal: median improved, p90/max not resolvable at n=3
+
+Median node-swing ratio improved modestly (1.0906 -> 1.0213) and, position
+by position, more individual positions improved than worsened (10
+improved, 8 worsened, 2 flat, 1 excluded -- `tactical_mate_in_1` has no
+ratio, it terminates identically every repeat).
+
+The corpus-level p90 and max both got worse (1.4356 -> 2.0954,
+2.3774 -> 3.2015), concentrated almost entirely in the
+`king_danger_nyugyoku_*` category (6 of the 8 worsened positions), which
+already had the largest base ratios in the corpus. **This is not treated
+as a demonstrated regression.** `max_over_min_node_ratio` is computed from
+only 3 repeats per position, so it is itself a single worst-of-3 draw, and
+the corpus p90/max are percentiles over 21 of those already-noisy
+per-position draws. Three worsened positions have byte-identical
+`unique_bestmoves`/`modal_fraction` to base (`king_danger_nyugyoku_in_check_cannot_declare`,
+`_declaration_eligible`, `king_outside_camp`, all `unique_bestmoves=1`
+both sides) -- their node count varies run-to-run even though the search
+outcome is stable, consistent with residual scheduling noise being sampled
+unluckily rather than a candidate-specific cost increase. Distinguishing
+"PR #16 makes tail node-count variance worse" from "3 samples landed
+differently in an already-high-variance category" is not possible with
+this data; it would need n >= 10 repeats on the `king_danger_nyugyoku_*`
+positions specifically to resolve.
+
+### Verdict: PARTIAL PASS
+
+Per the evaluation framework agreed before this run: PR #16 does not meet
+STRONG PASS (that requires the node-swing tail to be materially *reduced*,
+not merely inconclusive) but clears PARTIAL PASS -- variance is
+substantially, directionally reduced on the primary metric (bestmove
+stability, 9/21 -> 3/21) without eliminating it, confirming the parent-hash
+race was **a** real source of `SpecTopN=3` nondeterminism, not the only
+one. Combined with PR #16's standalone value as a correctness fix (removes
+an actual last-writer-wins data race on a shared TT entry, independent of
+whether it's measurable at this sample size), this is a legitimate merge
+candidate. The unresolved node-swing tail and the 3 untouched bestmove-variable
+positions are carried forward as a follow-up, not treated as blocking or
+as evidence PR #16 didn't work.
+
+### Follow-up
+
+Filed as a tracked follow-up: audit the remaining shared-TT write topology
+(`SpecGroup` task bodies, `spec_alpha_beta`, `alpha_beta`, `root_search`,
+`quiescence` -- all producers into the same `Tt`, focusing on `Tt::store`'s
+equal-depth replacement rule) to find the second nondeterminism source the
+3 unchanged positions point at. Not started this session -- release work
+takes priority per explicit user instruction.
+
 ## run 31362228815 -- INVALID_CONFIG
 
 - workflow: `fixed-depth-ab.yml`, ref `main`
