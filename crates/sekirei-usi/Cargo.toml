@@ -13,4 +13,4 @@ path = "src/main.rs"
 [dependencies]
 sekirei-core = { path = "../sekirei-core", version = "0.3.1" }
 rayon = "1"
-lineprior = { git = "https://github.com/kent-tokyo/lineprior", tag = "v0.9.0" }
+lineprior = "0.9.0"
