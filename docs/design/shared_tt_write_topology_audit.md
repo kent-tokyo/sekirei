@@ -508,6 +508,27 @@ though its practical exposure window is narrow (only fires right at a
 deadline, and only when at least one move already completed before the
 abort).
 
+**Update (2026-08-11): filed as issue #36, fixed by PR #37.** The fix
+matches what this section already recommended (an `aborted` flag gating the
+final store, matching `spec_alpha_beta`'s early-return pattern) — but
+implementing it surfaced a second, more severe fall-through this section
+didn't cover: both mid-function loops only call `should_abort()` at the
+*top* of each iteration, never immediately after that iteration's own
+recursive call (the `nw_results` loop's full-depth re-search;
+the tail loop's own `alpha_beta` recursion). If the deadline lands
+*during* that recursive call rather than before it, the call returns
+through its own `if state.budget.should_abort() { return 0; }` guard —
+and the caller, having already passed its top-of-loop check for this
+iteration, used that `0` directly as the sibling's score. That corrupts
+`best_score`/`best_move` for the rest of the (already-partial) search, and
+in the tail loop's case can additionally fire that same iteration's
+mid-loop beta-cutoff store with a `Bound::Lower` entry built from the
+fabricated score — a second write, not caught by an `aborted` flag that
+only gates the *final* store. Fixed by adding an `should_abort()` recheck
+immediately after each loop's own recursive call, before its result is
+used — see PR #37 for the full diff and 3 deterministic regression tests
+(one per confirmed path, each verified to fail without the fix).
+
 ## 8. Benign / expected nondeterminism
 
 Covered under Race Classification C/D above (§6) — the NMP-verification and
@@ -614,9 +635,9 @@ not preferred as a first move.
    Finding 3.
 4. PR #17 remains draft, unaffected by this audit's outcome either way —
    this audit does not itself change PR #17's merge status.
-5. **Finding 4 is a separate decision from the race-hunt this audit was
-   scoped for** — it's confirmed, not merely plausible, and cheap to fix,
-   but it wasn't what issue #32 asked to investigate and this audit doesn't
-   implement anything per §9 of the instructions. Flagged for the user to
-   decide whether it's worth a small standalone fix independent of whatever
-   happens with Findings 1-3.
+5. ~~Finding 4 is a separate decision...~~ — **resolved (2026-08-11)**:
+   filed as issue #36, fixed by PR #37, kept explicitly separate from the
+   Findings 1-3 race-hunt per the user's own instruction. See the update
+   note at the end of the Finding 4 write-up above for the second
+   fall-through the fix work surfaced beyond what this section originally
+   described.
