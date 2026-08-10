@@ -8,6 +8,18 @@ on:
 permissions:
   contents: read
 
+env:
+  # .cargo/config.toml sets -C target-cpu=native, intentional for local
+  # release builds tuned to a known machine. GitHub-hosted runners are not
+  # guaranteed identical hardware between runs, and native feature
+  # detection has been observed to advertise instructions the runner's
+  # virtualized CPU doesn't actually execute correctly -- rustc itself
+  # crashed with SIGILL compiling a proc-macro dependency this way (PR #27's
+  # smoke job, reproduced on rerun, not a one-off). This RUSTFLAGS override
+  # takes precedence over the config file for every job in this workflow,
+  # without touching the local/release-build setting.
+  RUSTFLAGS: ""
+
 jobs:
   test:
     runs-on: ubuntu-latest

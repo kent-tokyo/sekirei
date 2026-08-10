@@ -63,6 +63,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
+      # .cargo/config.toml sets -C target-cpu=native for local release
+      # builds; overridden empty here because GitHub-hosted runners aren't
+      # guaranteed identical hardware and native codegen has crashed rustc
+      # with SIGILL on this fleet (see ci.yml's identical override for the
+      # incident). Also relevant to this workflow specifically: base and
+      # candidate are always built in the same job/runner instance, so a
+      # single run's own comparison isn't biased by native codegen -- but
+      # node-count/timing comparisons ACROSS separate workflow_dispatch
+      # runs could differ by runner hardware generation, not search
+      # behavior, if left enabled. Not re-litigating past run results here.
+      RUSTFLAGS: ""
       BASE_SHA_INPUT: ${{ inputs.base_sha }}
       CANDIDATE_SHA_INPUT: ${{ inputs.candidate_sha }}
       DEPTH: ${{ inputs.depth }}

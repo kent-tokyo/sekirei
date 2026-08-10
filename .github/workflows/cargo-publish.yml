@@ -43,6 +43,13 @@ jobs:
     environment: crates-io
     env:
       DRY_RUN: ${{ inputs.dry_run }}
+      # .cargo/config.toml sets -C target-cpu=native for local release
+      # builds; overridden empty here because GitHub-hosted runners aren't
+      # guaranteed identical hardware and native codegen has crashed rustc
+      # with SIGILL on this fleet (see ci.yml's identical override for the
+      # incident). cargo publish's own verify-build step runs the same
+      # compile, so this workflow needs the same protection.
+      RUSTFLAGS: ""
       # No CARGO_REGISTRY_TOKEN here or anywhere in this file -- each
       # "Publish <crate>" step gets its own short-lived token from its
       # preceding "Authenticate with crates.io (<crate>)" step (Trusted
