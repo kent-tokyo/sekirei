@@ -74,3 +74,79 @@ about qsearch-TT correctness or performance.
 
 See `fix/remote-gate-ref-resolution` branch for the guard implementation
 and `.github/workflows/fixed-depth-ab.yml` for the current guarded version.
+
+## run 31363151597 -- INVALID_HARNESS
+
+- workflow: `fixed-depth-ab.yml`, ref `fix/remote-gate-ref-resolution`
+- dispatched: 2026-08-10, `base_sha=main`, `candidate_sha=5def97690d3dc6df06846ff2a06048a2ace3f4be` (PR #17's head, freshly rebased onto post-PR#19 main), `depth=9`, `threads=1`, `spec_top_n=0`
+- status: **INVALID_HARNESS** -- not usable as PR #17 fixed-depth A/B evidence
+
+### Configuration provenance: VALID
+
+Unlike run 31362228815, this run's setup was correct:
+
+- base is an ancestor of candidate (branch-ancestry guard passed)
+- both binaries advertise `Threads`
+- both binaries advertise `SpecTopN`
+- the requested `SpecTopN=0` was accepted through the USI handshake on
+  both sides (option-capability guard passed)
+
+### Invalidation reason
+
+`run_fixed_depth_ab.py`'s `run_one_position()` (at this run's version)
+sent the entire command script -- `usi`, `setoption`, `isready`,
+`position`, `go depth N`, `quit` -- as one string via
+`subprocess.run(input=...)`. Sekirei's `go` is asynchronous: it spawns a
+search thread and the main USI loop returns immediately to read the next
+stdin line, which in this driver's script was always `quit`. The main
+loop then read `quit` and called `abort_and_join_inflight_search()`,
+which aborts the in-flight search before it can complete -- the search
+thread's own abort path still emits a `bestmove` line, but with
+`info.best_move == None` it prints `bestmove resign` instead of a real
+move, with no preceding `info depth ...` line.
+
+In effect, every position's actual search time was however long it took
+the OS to schedule `quit` behind `go` -- close to zero, and racing against
+however long that position's search would otherwise take. Positions whose
+search happened to still complete first for other unrelated timing reasons
+returned real results; positions that lost the race returned
+`bestmove resign` with `depth=None, nodes=None`. Observed directly in this
+run's data: `opening_startpos` (base), `check_evasion_continuous_check_white`
+and `opening_1ply_7f` (candidate) all returned `bestmove resign`.
+
+This is a bug in the gate driver, not a PR #17 regression.
+
+### Results NOT to be cited as PR #17 evidence
+
+No node ratio, bestmove-difference, or score comparison from this run may
+be used as PR #17 evidence -- an unknown number of the remaining "ok"-looking
+positions may also have won the race by chance rather than completing a
+real depth-9 search, so even superficially clean-looking rows aren't
+trustworthy from this run.
+
+### What IS still valid from this run
+
+Provenance-guard smoke evidence only: the branch-ancestry guard and the
+USI option-capability guard (added after run 31362228815) both passed
+correctly on this run, confirming those two guards work as intended. This
+says nothing about qsearch-TT correctness or performance.
+
+### Follow-up (implemented same day)
+
+`run_one_position()` rewritten from a single `subprocess.run(input=...)`
+call to an interactive `subprocess.Popen`-based USI driver (reader
+thread + queue for stdout, bounded by an overall per-position deadline) that
+waits for `usiok`, then `readyok`, then an actual `bestmove` line before
+ever sending `quit`. A timeout now escalates `stop` -> short grace period
+for a bestmove -> `quit` -> kill, and never treats anything read during
+that escalation as a normal-timing result. `bestmove resign` when not
+explicitly allowed by the corpus entry (`allow_resign`, default `false`)
+is now a hard `unexpected_resign` correctness failure, and a non-resign
+bestmove with no `depth_reached` is `incomplete_output` -- both excluded
+from node-ratio/bestmove-diff computation in `compare`, matching how
+panic/timeout/illegal were already excluded. Regression tests:
+`scripts/test_run_fixed_depth_ab.py` (`InteractiveDriverTests`,
+`ClassifyResignTests`) -- a fake engine models the real engine's
+asynchronous `go`, confirming the old all-at-once-input approach still
+reproduces the resign race against it while the new interactive driver
+gets the real result.
