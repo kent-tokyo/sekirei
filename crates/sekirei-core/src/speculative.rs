@@ -112,19 +112,16 @@ impl SpecGroup {
                     );
                     b.undo_move(tok);
 
-                    // Only write to TT if the search completed without abort.
-                    // An aborted search may have propagated score=0 up the tree,
-                    // which would poison TT entries read by the main search.
+                    // Deliberately does NOT store to the shared TT here (issue #14):
+                    // every candidate task in this group undoes its own move and would
+                    // otherwise store Bound::Exact at the SAME parent (pre-move) hash --
+                    // whichever task's store happened to run last won, regardless of
+                    // move/score quality, a last-writer-wins race independent of `poll`/
+                    // `promote`'s later winner selection. `poll`/`promote`/speculation-hit
+                    // tracking all read `result` directly (the AtomicI32 below), not the
+                    // TT, so removing this store does not affect them.
                     if !abort_c.load(Ordering::Relaxed) && !state_c.budget.should_abort() {
-                        state_c.tt.store(
-                            b.hash(),
-                            TtEntry {
-                                score: -score, // negate: score is opponent's, -score is ours
-                                depth: depth as u8,
-                                bound: Bound::Exact,
-                                mv: Some(m),
-                            },
-                        );
+                        // negate: score is opponent's, -score is ours
                         result_c.store(-score, Ordering::Release);
                     } else {
                         result_c.store(0, Ordering::Relaxed);
@@ -602,6 +599,90 @@ mod tests {
             winning_decoded - winning,
             -(losing_decoded - losing),
             "winning-mate and losing-mate ply shifts must be exact mirror images"
+        );
+    }
+
+    // Regression (issue #14): every candidate task `SpecGroup::spawn` launches
+    // used to undo its own move and store its own `Bound::Exact` result at the
+    // SAME parent (pre-move) hash -- concurrent candidates racing on that one
+    // slot meant whichever task's store happened to run last won, independent
+    // of move/score quality and independent of `poll`/`promote`'s own later
+    // winner selection. Fixed by removing that store entirely (`poll`/
+    // `promote`/speculation-hit tracking all read `result`, an `AtomicI32`,
+    // directly -- never the TT -- so nothing downstream depended on it).
+    //
+    // depth=1 passed to `spawn` gives `spec_alpha_beta` depth=0 internally,
+    // which returns via its own `evaluate()` branch strictly BEFORE any TT
+    // probe/store (the `depth == 0` check precedes `let hash = board.hash()`
+    // in `spec_alpha_beta`). So `spec_alpha_beta`'s own two internal stores
+    // (unrelated to this fix, unchanged, still correct) cannot fire at all in
+    // this test -- if a parent-hash entry appeared, it could only be
+    // attributed to `SpecGroup::spawn`'s own closure, uniquely isolating
+    // exactly the code path this regression targets.
+    //
+    // Deterministic by construction, not by timing: this doesn't try to make
+    // one particular candidate "win" a race or arrive last -- it asserts NO
+    // candidate's store reaches the TT at all, so completion order is
+    // irrelevant to the outcome either way.
+    #[test]
+    fn spec_group_tasks_do_not_store_candidate_scores_as_parent_exact_entries() {
+        let board = Board::startpos();
+        let parent_hash = board.hash();
+
+        let tt = Tt::new(1);
+        assert!(
+            tt.probe(parent_hash).is_none(),
+            "startpos hash must not already have a TT entry before this test spawns anything"
+        );
+
+        let state = Arc::new(SpecState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            pool: Arc::new(
+                rayon::ThreadPoolBuilder::new()
+                    .num_threads(2)
+                    .build()
+                    .unwrap(),
+            ),
+        });
+
+        let group = SpecGroup::spawn(&board, &state, 1, 2);
+        assert!(
+            group.tasks.len() >= 2,
+            "expected at least 2 candidate tasks from top_n=2 at startpos, got {}",
+            group.tasks.len()
+        );
+
+        // Wait for every task's own result to leave RUNNING -- direct field
+        // access (same module), not `poll()`, so this step and the next are
+        // two genuinely separate checks rather than one call doing both.
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for t in &group.tasks {
+            loop {
+                if t.result.load(Ordering::Acquire) != RUNNING {
+                    break;
+                }
+                if Instant::now() >= deadline {
+                    panic!("a speculative task never left RUNNING within the deadline");
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+
+        // Every task that completed must still be pollable through the public API.
+        for t in &group.tasks {
+            assert!(
+                group.poll(t.mv).is_some(),
+                "poll() must return a completed result for every task that finished"
+            );
+        }
+
+        assert!(
+            tt.probe(parent_hash).is_none(),
+            "SpecGroup::spawn's tasks must not store any entry at the shared parent \
+             (pre-move) hash after completing -- concurrent candidates racing to store \
+             unrelated Bound::Exact results at this exact hash was the bug fixed for \
+             issue #14"
         );
     }
 
