@@ -19,7 +19,11 @@ match-runner already have prior published versions on crates.io, so the
 "first release must use a token" constraint in crates.io's own Trusted
 Publishing rules doesn't block this. TokenScopeTests pins that no
 CARGO_REGISTRY_TOKEN secret reference exists anywhere in the file at all,
-not just that it's been moved somewhere narrower.
+not just that it's been moved somewhere narrower. The BLOCKED_REGISTRY_
+DEPENDENCY preflight guard mentioned above (and its tests) were removed
+once lineprior actually published 0.9.0 to crates.io and both manifests
+switched off the git dependency -- no crate is unpublishable by this
+workflow anymore.
 
 Structural tests parse the real YAML (requires PyYAML; skipped with a
 clear message if unavailable -- this test file is a local verification
@@ -57,7 +61,6 @@ ALL_CRATE_NAMES = [
     "sekirei-train",
     "sekirei",
 ]
-BLOCKED_CRATE_NAMES = ["sekirei-train", "sekirei"]  # lineprior git dependency
 
 
 def _load():
@@ -258,15 +261,6 @@ class PublishOrderTests(unittest.TestCase):
                 publish_idx = _step_index_by_name(publish_name)
                 self.assertEqual(publish_idx, auth_idx + 1)
 
-    def test_blocked_crate_guard_runs_before_any_publish_step(self):
-        guard_idx = _step_index_by_name("Reject known-blocked crates (lineprior not on crates.io)")
-        for s in _steps():
-            name = s.get("name", "")
-            if name.startswith("Publish ") or name.startswith("Dry-run publish "):
-                self.assertLess(
-                    guard_idx, _steps().index(s), f"blocked-crate guard must precede {name!r}"
-                )
-
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
 class ValidateCratesInputBehaviorTests(unittest.TestCase):
@@ -307,34 +301,6 @@ class ValidateCratesInputBehaviorTests(unittest.TestCase):
         result = self._run("sekirei-core,,sekirei-bench")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("empty entry", result.stdout)
-
-
-@unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
-class BlockedCrateBehaviorTests(unittest.TestCase):
-    def _run(self, crates_input):
-        return _run_embedded_python(
-            "Reject known-blocked crates (lineprior not on crates.io)",
-            env={"CRATES_INPUT": crates_input},
-        )
-
-    def test_unblocked_crates_pass(self):
-        result = self._run("sekirei-core,sekirei-bench,sekirei-csa,sekirei-match-runner")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_sekirei_train_refused(self):
-        result = self._run("sekirei-train")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
-
-    def test_sekirei_usi_package_refused(self):
-        result = self._run("sekirei")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
-
-    def test_blocked_crate_mixed_with_allowed_still_refused(self):
-        result = self._run("sekirei-core,sekirei-train")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")

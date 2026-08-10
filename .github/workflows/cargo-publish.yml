@@ -12,8 +12,7 @@ on:
           Comma-separated crate names to publish. Allowed: sekirei-core,
           sekirei-bench, sekirei-csa, sekirei-match-runner, sekirei-train,
           sekirei. Publish order (core first) is enforced regardless of
-          input order. sekirei-train and sekirei are currently blocked at
-          preflight -- see the lineprior TODO below.
+          input order.
         required: true
         default: sekirei-core
       dry_run:
@@ -103,25 +102,6 @@ jobs:
               seen.append(name)
 
           print(f"crates input OK: {seen}")
-          PYEOF
-
-      # TODO: remove this guard after lineprior is published to crates.io
-      # and crates/sekirei-train/Cargo.toml + crates/sekirei-usi/Cargo.toml
-      # both switch their `lineprior` dependency from a git tag to a plain
-      # crates.io version requirement.
-      - name: Reject known-blocked crates (lineprior not on crates.io)
-        env:
-          CRATES_INPUT: ${{ inputs.crates }}
-        run: |
-          python3 - <<'PYEOF'
-          import os, sys
-
-          blocked = {"sekirei-train", "sekirei"}
-          parts = [p.strip() for p in os.environ["CRATES_INPUT"].split(",") if p.strip()]
-          hit = [name for name in parts if name in blocked]
-          if hit:
-              print(f"::error::BLOCKED_REGISTRY_DEPENDENCY: lineprior is not yet available from crates.io -- {hit} cannot be published yet")
-              sys.exit(1)
           PYEOF
 
       - uses: actions/checkout@v4
@@ -253,8 +233,6 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-match-runner.outputs.token }}
 
-      # Blocked at preflight above (lineprior git dependency) -- these two
-      # steps currently cannot be reached, kept ready for when that's lifted.
       - name: Dry-run publish sekirei-train
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && inputs.dry_run }}
         run: cargo publish -p sekirei-train --dry-run
@@ -270,8 +248,7 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth-train.outputs.token }}
 
-      # Package name "sekirei", crate directory crates/sekirei-usi. Also
-      # blocked at preflight above -- same caveat as sekirei-train.
+      # Package name "sekirei", crate directory crates/sekirei-usi.
       - name: Dry-run publish sekirei (sekirei-usi)
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && inputs.dry_run }}
         run: cargo publish -p sekirei --dry-run
