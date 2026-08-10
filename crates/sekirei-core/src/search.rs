@@ -518,6 +518,11 @@ fn root_search_inner(
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
+    // Set when the loop bails out because the deadline hit, not because every
+    // ordered move was actually tried -- gates the store below so a partial
+    // result isn't persisted to the shared TT labeled as if the search had
+    // run to natural completion.
+    let mut aborted = false;
 
     for &m in ordered {
         let tok = board.do_move(m);
@@ -525,6 +530,7 @@ fn root_search_inner(
         board.undo_move(tok);
 
         if state.budget.should_abort() {
+            aborted = true;
             break;
         }
 
@@ -537,7 +543,7 @@ fn root_search_inner(
         }
     }
 
-    if let Some(m) = best_move {
+    if !aborted && let Some(m) = best_move {
         let bound = if alpha >= hi {
             Bound::Lower // fail-high: true score ≥ alpha, exact unknown
         } else {
@@ -853,6 +859,12 @@ fn alpha_beta(
         return best_score;
     }
 
+    // Set when either loop below bails out early because the deadline hit
+    // (not a natural move-loop exhaustion or cutoff) -- gates the final
+    // store below so an abort-truncated `best_score`/`best_move` is never
+    // persisted to the shared TT as if the search had actually completed.
+    let mut aborted = false;
+
     // ---------- Young brothers ----------
     // Returns the index in `rest` where sequential processing should begin:
     // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW).
@@ -902,6 +914,7 @@ fn alpha_beta(
         // Sequential pass: handle fail-highs, update heuristics, apply history malus
         for (m, nw_score, _idx) in nw_results {
             if state.budget.should_abort() {
+                aborted = true;
                 break;
             }
 
@@ -927,6 +940,16 @@ fn alpha_beta(
             } else {
                 nw_score
             };
+
+            // The full-depth re-search above can itself have been aborted mid-flight,
+            // in which case `s` is `alpha_beta`'s own abort sentinel (0), not a real
+            // score -- re-check before trusting it, matching the discipline the
+            // first-child check above already applies (`should_abort()` right after
+            // computing a recursive result, before using it for best_score/a cutoff).
+            if state.budget.should_abort() {
+                aborted = true;
+                break;
+            }
 
             if s > best_score {
                 best_score = s;
@@ -976,6 +999,7 @@ fn alpha_beta(
         for (j, &m) in rest[seq_start..].iter().enumerate() {
             let i = seq_start + j;
             if state.budget.should_abort() {
+                aborted = true;
                 break;
             }
 
@@ -1034,6 +1058,14 @@ fn alpha_beta(
             }
             board.undo_move(tok);
 
+            // Same reasoning as the nw_results loop above: the LMR probe / full-depth
+            // re-search just above can itself have aborted mid-flight, in which case
+            // `s` is `alpha_beta`'s abort sentinel (0), not a real score.
+            if state.budget.should_abort() {
+                aborted = true;
+                break;
+            }
+
             if s > best_score {
                 best_score = s;
                 best_move = Some(m);
@@ -1065,12 +1097,14 @@ fn alpha_beta(
         }
     }
 
-    let bound = if best_score > orig_alpha {
-        Bound::Exact
-    } else {
-        Bound::Upper
-    };
-    store_tt(state, hash, best_score, depth, bound, best_move, ply);
+    if !aborted {
+        let bound = if best_score > orig_alpha {
+            Bound::Exact
+        } else {
+            Bound::Upper
+        };
+        store_tt(state, hash, best_score, depth, bound, best_move, ply);
+    }
     best_score
 }
 
@@ -1863,6 +1897,247 @@ mod regression_tests {
             "an aborted call must not overwrite the genuine entry's score"
         );
         assert_eq!(after.bound, genuine.bound);
+    }
+
+    // ---- Regressions for the abort-driven TT store bug (issue #36) ----
+    //
+    // `Budget`'s internal deadline only latches at an exact multiple of 4096
+    // `tick()` calls (`budget.rs`'s own `& 0xFFF == 0` throttle), and does so
+    // as soon as *any* nonzero time has elapsed once `time_limit =
+    // Some(Duration::ZERO)` -- the same pattern `budget.rs`'s own
+    // `tick_latches_abort_after_deadline_and_stays_latched` test already
+    // relies on. This makes "abort partway through a move loop" a function
+    // of node count alone, not wall-clock speed: same position, same code,
+    // same 4096th-node crossing point, every run, on any machine.
+
+    // Regression: `root_search_inner` used to fall through to an
+    // unconditional store after its move loop broke due to the deadline,
+    // even when at least one earlier move had already updated
+    // `best_move`/`alpha` with a genuine result -- storing a partial search
+    // labeled as if it had run to completion (issue #36, failure mode a).
+    //
+    // The same real legal move is repeated many times in `ordered`: the
+    // first iteration costs ~19 nodes and genuinely sets `best_move`/`alpha`
+    // (confirmed below via `best_move.is_some()` -- this is the assertion
+    // that distinguishes this test from `external_abort_does_not_corrupt_existing_tt_entry`
+    // above, which passes even without this fix because it aborts before
+    // any move ever completes). With 4300 repeats the 4096-node deadline
+    // reliably latches partway through -- a ~200x margin over the first
+    // iteration's own cost, not a hair-trigger threshold a small unrelated
+    // change could flip.
+    #[test]
+    fn root_search_inner_skips_store_when_deadline_latches_mid_loop() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        // Genuine sentinel at a *shallower* depth than the aborting call
+        // below -- Tt::store's depth-preferred rule would happily let a
+        // real depth=2 result overwrite this, so the sentinel surviving is
+        // evidence of the `aborted` guard specifically, not of the
+        // pre-existing depth-preferred check in `tt.rs`.
+        root_search_inner(
+            &fresh_state(tt.clone()),
+            &mut board,
+            1,
+            &moves[0..1],
+            NEG_INF,
+            POS_INF,
+        );
+        let sentinel = tt.probe(hash).expect("sentinel store must have landed");
+        assert_eq!(sentinel.depth, 1);
+
+        let repeated: Vec<Move> = std::iter::repeat_n(moves[0], 4300).collect();
+        let aborting_budget = Arc::new(Budget::new(
+            Some(Duration::ZERO),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        let aborting_state = Arc::new(SearchState {
+            tt: tt.clone(),
+            budget: aborting_budget.clone(),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+        let (best_move, _alpha) =
+            root_search_inner(&aborting_state, &mut board, 2, &repeated, NEG_INF, POS_INF);
+
+        assert!(
+            aborting_budget.should_abort(),
+            "the repeated-move loop must actually cross the deadline for this test to be meaningful"
+        );
+        assert!(
+            best_move.is_some(),
+            "the first iteration must complete before the deadline latches, or this test can't \
+             distinguish the fix from root_search_inner's pre-existing (correct) check-before-update \
+             ordering"
+        );
+
+        let after = tt
+            .probe(hash)
+            .expect("sentinel entry must still be present");
+        assert_eq!(
+            after.depth, 1,
+            "an aborted call must not overwrite the shallower sentinel with its own deeper-but-partial result"
+        );
+    }
+
+    // Regression: `alpha_beta`'s sequential tail loop (the pass over
+    // `rest[seq_start..]`) has the identical fall-through-to-unconditional-store
+    // shape as root_search_inner, plus a second failure mode: `s` is used
+    // (`if s > best_score`, `if s >= beta`) without re-checking abort after
+    // the LMR probe / full-depth re-search that computed it -- if that
+    // recursive call itself gets aborted mid-flight, `s` is `alpha_beta`'s
+    // own abort sentinel (0), not a real score (issue #36, failure mode b).
+    //
+    // `depth=2` is chosen specifically because `MIN_SPLIT_DEPTH == 3`: this
+    // guarantees `seq_start == 0` (no YBW split at all), so every move in
+    // `rest` -- and the recursive calls the tail loop makes -- run
+    // sequentially, single-threaded, with no rayon involvement and no
+    // scheduling-dependent behavior. The wide-hand position's ~26k total
+    // nodes at depth=2 gives a large margin over the 4096 threshold.
+    #[test]
+    fn alpha_beta_tail_loop_skips_store_when_deadline_latches_mid_loop() {
+        let board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b RB2G2S2N2L9P 1").expect("valid sfen");
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        // Genuine sentinel at depth=1 (shallower than the depth=2 aborting call).
+        let mut b1 = board.clone();
+        alpha_beta(
+            &fresh_state(tt.clone()),
+            &mut b1,
+            NEG_INF,
+            POS_INF,
+            1,
+            0,
+            true,
+            None,
+            None,
+        );
+        let sentinel = tt.probe(hash).expect("sentinel store must have landed");
+        assert_eq!(sentinel.depth, 1);
+
+        let aborting_budget = Arc::new(Budget::new(
+            Some(Duration::ZERO),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        let aborting_state = Arc::new(SearchState {
+            tt: tt.clone(),
+            budget: aborting_budget.clone(),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+        let mut b2 = board.clone();
+        let score = alpha_beta(
+            &aborting_state,
+            &mut b2,
+            NEG_INF,
+            POS_INF,
+            2,
+            0,
+            true,
+            None,
+            None,
+        );
+
+        assert!(
+            aborting_budget.should_abort(),
+            "depth=2 on this position must cross the deadline"
+        );
+        assert_ne!(
+            score, 0,
+            "a score of exactly 0 would suggest the very first move itself aborted \
+             (alpha_beta's own already-correct early-return path), not a genuine partial search"
+        );
+
+        let after = tt
+            .probe(hash)
+            .expect("sentinel entry must still be present");
+        assert_eq!(
+            after.depth, 1,
+            "an aborted call must not overwrite the shallower sentinel with its own deeper-but-partial result"
+        );
+    }
+
+    // Regression: same bug, but specifically targeting `alpha_beta`'s
+    // *parallel* young-brothers pass (`nw_results`, populated via
+    // `into_par_iter()...collect()` when `depth >= MIN_SPLIT_DEPTH`) rather
+    // than the sequential tail loop above. `depth=3` is the minimum depth
+    // that triggers this path. The `.collect()` call is a synchronous join
+    // barrier -- by the time the sequential post-collect loop this test
+    // targets runs, all parallel work has already finished, so the failure
+    // mode being tested (a recursive call's aborted-0 result used without a
+    // recheck) is itself single-threaded and deterministic; only the
+    // *upstream* parallel probe phase involves real concurrency, and its
+    // total node contribution is a plain atomic sum over a fixed set of
+    // subtrees -- identical every run regardless of thread interleaving,
+    // since addition is commutative. Verified stable across repeated runs
+    // before being committed (not asserted here, since re-running N times
+    // in CI would just waste time once already established).
+    #[test]
+    fn alpha_beta_ybw_loop_skips_store_when_deadline_latches_mid_loop() {
+        let board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b RB 1").expect("valid sfen");
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        let mut b1 = board.clone();
+        alpha_beta(
+            &fresh_state(tt.clone()),
+            &mut b1,
+            NEG_INF,
+            POS_INF,
+            1,
+            0,
+            true,
+            None,
+            None,
+        );
+        let sentinel = tt.probe(hash).expect("sentinel store must have landed");
+        assert_eq!(sentinel.depth, 1);
+
+        let aborting_budget = Arc::new(Budget::new(
+            Some(Duration::ZERO),
+            Arc::new(AtomicBool::new(false)),
+        ));
+        let aborting_state = Arc::new(SearchState {
+            tt: tt.clone(),
+            budget: aborting_budget.clone(),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+        let mut b2 = board.clone();
+        let score = alpha_beta(
+            &aborting_state,
+            &mut b2,
+            NEG_INF,
+            POS_INF,
+            3,
+            0,
+            true,
+            None,
+            None,
+        );
+
+        assert!(
+            aborting_budget.should_abort(),
+            "depth=3 on this position must cross the deadline"
+        );
+        assert_ne!(
+            score, 0,
+            "a score of exactly 0 would suggest the very first move itself aborted"
+        );
+
+        let after = tt
+            .probe(hash)
+            .expect("sentinel entry must still be present");
+        assert_eq!(
+            after.depth, 1,
+            "an aborted call must not overwrite the shallower sentinel with its own deeper-but-partial result"
+        );
     }
 
     // Two hand-built, hand-verified positions for the mate-direction regression
