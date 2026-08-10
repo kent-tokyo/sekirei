@@ -1105,6 +1105,42 @@ fn quiescence(
         return evaluate(board);
     }
 
+    // TT probe (issue #8): quiescence entries are stored at depth=0 (see the
+    // store sites below), the minimum possible depth. Tt::store is depth-
+    // preferred (rejects strictly-shallower writes only), so a depth=0 store
+    // can never overwrite a real main-search entry (depth >= 1) at the same
+    // hash. Symmetrically, alpha_beta's own probe requires `entry.depth >=
+    // depth as u8`, which a depth=0 entry can never satisfy for any real
+    // search node (depth >= 1) -- so a qsearch-origin entry can never be
+    // taken as a cutoff by the main search either. Both directions are
+    // already guaranteed by existing code; nothing new needed here. Reading
+    // is symmetric: any existing entry (any depth, always >= 0) is at least
+    // as trustworthy as a fresh qsearch computation, so no depth gate is
+    // applied on the read side.
+    let hash = board.hash();
+    let orig_alpha = alpha;
+    let mut tt_mv = None;
+    if let Some(entry) = state.tt.probe(hash) {
+        let adj = score_from_tt(entry.score, ply);
+        tt_mv = entry.mv;
+        match entry.bound {
+            Bound::Exact => return adj,
+            Bound::Lower => {
+                if adj >= beta {
+                    return adj;
+                }
+                if adj > alpha {
+                    alpha = adj;
+                }
+            }
+            Bound::Upper => {
+                if adj <= alpha {
+                    return adj;
+                }
+            }
+        }
+    }
+
     let in_check = is_in_check(board, board.side_to_move);
 
     // Stand-pat and delta pruning only apply when not in check.
@@ -1132,18 +1168,39 @@ fn quiescence(
     };
 
     if moves.is_empty() {
-        return if in_check {
-            -MATE_SCORE + ply as i32 // checkmate
+        if in_check {
+            let mate_score = -MATE_SCORE + ply as i32; // checkmate
+            store_tt(state, hash, mate_score, 0, Bound::Exact, None, ply);
+            return mate_score;
+        }
+        // No captures available and not in check: alpha already reflects
+        // stand-pat (and possibly the TT probe above). Store consistently
+        // with the end-of-function bound logic below so this terminal
+        // position is a genuine cache entry too, not a silent gap.
+        let bound = if alpha > orig_alpha {
+            Bound::Exact
         } else {
-            alpha
+            Bound::Upper
         };
+        store_tt(state, hash, alpha, 0, bound, None, ply);
+        return alpha;
     }
 
-    // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
-    // per node (qsearch is the hottest path); the coarse capture ordering is
-    // plenty for quiescence and keeps each node fast enough to respect the clock.
+    // Order by a cheap MVV-LVA-style key, with a probed TT move (if any, and
+    // if it's among these candidates) taking priority. Recursive see_score
+    // here is too costly per node (qsearch is the hottest path); the coarse
+    // capture ordering is plenty otherwise and keeps each node fast enough
+    // to respect the clock.
     let mut ordered = moves;
-    ordered.sort_by_cached_key(|&m| -qsearch_order_key(board, m));
+    ordered.sort_by_cached_key(|&m| {
+        if tt_mv == Some(m) {
+            i32::MAX
+        } else {
+            -qsearch_order_key(board, m)
+        }
+    });
+
+    let mut best_move: Option<Move> = None;
 
     for m in ordered {
         let tok = board.do_move(m);
@@ -1154,10 +1211,12 @@ fn quiescence(
             return 0;
         }
         if score >= beta {
+            store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
             return score;
         }
         if score > alpha {
             alpha = score;
+            best_move = Some(m);
         }
     }
 
@@ -1199,10 +1258,12 @@ fn quiescence(
                 return 0;
             }
             if score >= beta {
+                store_tt(state, hash, score, 0, Bound::Lower, Some(m), ply);
                 return score;
             }
             if score > alpha {
                 alpha = score;
+                best_move = Some(m);
             }
             qcheck_count += 1;
             if qcheck_count >= MAX_QCHECKS {
@@ -1211,6 +1272,12 @@ fn quiescence(
         }
     }
 
+    let bound = if alpha > orig_alpha {
+        Bound::Exact
+    } else {
+        Bound::Upper
+    };
+    store_tt(state, hash, alpha, 0, bound, best_move, ply);
     alpha
 }
 
@@ -1936,4 +2003,182 @@ mod regression_tests {
     // speculative.rs's own independent copy of the mate-score formula. That
     // second call site (`spec_alpha_beta`) is tested directly in
     // speculative.rs::tests::shorter_mate_scores_higher_in_spec_alpha_beta.
+
+    // ---- issue #8: quiescence TT probe/store ----
+
+    // A: terminal, no-capture position (startpos has none) hits quiescence's
+    // moves.is_empty()-and-not-in-check branch, storing `alpha` (== stand-pat
+    // here). Confirms the stored entry decodes back to exactly the returned
+    // score -- score_to_tt/score_from_tt are no-ops outside the mate range,
+    // so this is really checking the store/probe plumbing itself, not the
+    // encoding math (that's test B below).
+    #[test]
+    fn quiescence_stores_ordinary_score_at_terminal_no_capture_position() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+
+        let found_at_ply = 3u32;
+        let score = quiescence(&state, &mut board, NEG_INF, POS_INF, found_at_ply, 0);
+
+        let entry = tt.probe(hash).expect(
+            "quiescence should store a terminal entry when there are no captures available",
+        );
+        let decoded = score_from_tt(entry.score, found_at_ply);
+        assert_eq!(
+            decoded, score,
+            "stored entry must decode back to exactly the returned score at the same ply"
+        );
+    }
+
+    // B: mate-in-qsearch (in_check with zero legal replies) must apply the
+    // SAME ply-relative encoding alpha_beta/spec_alpha_beta use, derived the
+    // same way as PR #13's tests (search_lineage_after_pr5.md's sibling work
+    // on speculative.rs) -- not by copying score_to_tt's formula. This is the
+    // losing-mate direction (the position being scored is the CHECKMATED
+    // side's own quiescence call): score_to_tt subtracts the storing ply,
+    // score_from_tt adds the reading ply, net `score - found_ply + read_ply`,
+    // the mirror image of the winning-mate case.
+    #[test]
+    fn quiescence_stores_ply_relative_losing_mate_score() {
+        let mut board = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        let mating_move = generate_legal_moves(&mut board)
+            .into_iter()
+            .find(|&m| {
+                let tok = board.do_move(m);
+                let mated = generate_legal_moves(&mut board).is_empty()
+                    && is_in_check(&board, board.side_to_move);
+                board.undo_move(tok);
+                mated
+            })
+            .expect("MATE_IN_1_SFEN must have a mating move among its legal moves");
+
+        let tok = board.do_move(mating_move);
+        // `board` is now checkmate for the side to move (white) -- quiescence
+        // hits its in_check-and-no-legal-replies terminal branch directly.
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+
+        let found_at_ply = 4u32;
+        let score = quiescence(&state, &mut board, NEG_INF, POS_INF, found_at_ply, 0);
+        assert!(
+            score <= -MATE_SCORE + 1000,
+            "expected a losing-mate score from the checkmated side's own perspective, got {score}"
+        );
+
+        let entry = tt
+            .probe(hash)
+            .expect("quiescence should store the mate-in-qsearch entry");
+        assert_eq!(entry.bound, Bound::Exact);
+
+        let read_at_ply = 1u32;
+        let decoded = score_from_tt(entry.score, read_at_ply);
+        let expected = score - found_at_ply as i32 + read_at_ply as i32;
+        assert_eq!(
+            decoded, expected,
+            "TT entry stored by quiescence's mate branch must decode to the same absolute \
+             mate distance when read from a different ply (raw stored score was {}, decoded \
+             at ply {read_at_ply} was {decoded}, expected {expected})",
+            entry.score
+        );
+
+        board.undo_move(tok);
+    }
+
+    // C: quiescence's own depth=0 stores must never win against a deeper,
+    // already-present main-search entry -- verified via Tt::store's actual
+    // depth-preferred replacement policy, not merely asserted. Seeds a
+    // Bound::Lower entry (rather than Exact) specifically so quiescence's own
+    // TT probe doesn't short-circuit the whole call before reaching its store
+    // site: a Lower bound whose score is far outside the (-inf, +inf) window
+    // used here only raises alpha and lets the function continue, unlike an
+    // Exact hit which would return immediately and never attempt a store at
+    // all (a different, also-correct outcome, but not what this test needs
+    // to isolate).
+    #[test]
+    fn quiescence_store_never_overwrites_a_deeper_main_search_entry() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        let genuine_mv = generate_legal_moves(&mut board)[0];
+        store_tt(
+            &fresh_state(tt.clone()),
+            hash,
+            -500_000,
+            4,
+            Bound::Lower,
+            Some(genuine_mv),
+            0,
+        );
+        let genuine = tt.probe(hash).expect("seed store must have written an entry");
+
+        let state = fresh_state(tt.clone());
+        quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0);
+
+        let after = tt.probe(hash).expect("entry must still be present");
+        assert_eq!(
+            after.depth, genuine.depth,
+            "quiescence's depth=0 store must not overwrite a deeper existing entry's depth"
+        );
+        assert_eq!(after.score, genuine.score, "...or its score");
+        assert_eq!(after.bound, genuine.bound, "...or its bound");
+        assert_eq!(after.mv, genuine.mv, "...or its move");
+    }
+
+    // D: the converse direction, pinned as its own regression -- alpha_beta's
+    // existing `entry.depth >= depth as u8` probe guard must keep excluding a
+    // depth=0 (qsearch-origin) entry from ever being trusted as a cutoff by a
+    // real search node (depth >= 1). This guards against a future refactor
+    // weakening that check without realizing qsearch entries now depend on
+    // it structurally, not just "usually work out".
+    #[test]
+    fn alpha_beta_at_real_depth_ignores_a_depth_zero_qsearch_entry() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        const FAKE_SCORE: i32 = 123_456;
+        store_tt(&fresh_state(tt.clone()), hash, FAKE_SCORE, 0, Bound::Exact, None, 0);
+
+        let state = fresh_state(tt.clone());
+        let score = alpha_beta(&state, &mut board, NEG_INF, POS_INF, 2, 0, true, None, None);
+
+        assert_ne!(
+            score, FAKE_SCORE,
+            "alpha_beta at a real depth must not trust a depth=0 qsearch-origin entry as a cutoff"
+        );
+        assert!(
+            state.budget.nodes() > 1,
+            "alpha_beta must have done real search work, not an instant TT-trusted return"
+        );
+    }
+
+    // E: an aborted quiescence call must bail (via its existing, unmodified
+    // top-of-function tick()/should_abort() guard) before ever reaching a
+    // store site -- mirrors external_abort_does_not_corrupt_existing_tt_entry
+    // above, for quiescence's new store paths specifically.
+    #[test]
+    fn quiescence_does_not_store_when_aborted() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+
+        let aborted_state = Arc::new(SearchState {
+            tt: tt.clone(),
+            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(true)))),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+
+        quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0);
+
+        assert!(
+            tt.probe(hash).is_none(),
+            "an aborted quiescence call must not store anything"
+        );
+    }
 }
