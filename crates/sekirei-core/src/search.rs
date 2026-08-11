@@ -602,7 +602,13 @@ fn alpha_beta(
         if !matches!(entry.bound, Bound::Upper) {
             tt_se_score = Some(adj); // lower or exact bound is usable for SE
         }
-        if entry.depth >= depth as u8 {
+        // skip_move.is_none(): a singular-extension verification search
+        // (skip_move.is_some()) re-probes this exact hash before any move has
+        // been made, so it would otherwise hit the very entry that made it
+        // eligible in the first place and bounce the cached score straight
+        // back -- collapsing the verification search to a single node and
+        // making `sing_ext` structurally always 0.
+        if entry.depth >= depth as u8 && skip_move.is_none() {
             match entry.bound {
                 Bound::Exact => return adj,
                 Bound::Lower => {
@@ -1863,6 +1869,45 @@ mod regression_tests {
             "an aborted call must not overwrite the genuine entry's score"
         );
         assert_eq!(after.bound, genuine.bound);
+    }
+
+    // Regression: the singular-extension verification search (called with
+    // skip_move = Some(tt_mv), at the SAME hash, before any move is made)
+    // used to re-hit the TT-cutoff at the top of alpha_beta -- the very TT
+    // entry that made SE eligible in the first place. Whenever that entry's
+    // depth was deep enough (guaranteed by the SE eligibility filter's
+    // `tt_se_depth >= depth - 3`) and its bound was Exact (guaranteed by the
+    // SE eligibility filter's `!matches!(entry.bound, Bound::Upper)`), the
+    // cutoff returned the cached score outright, collapsing the
+    // verification search to a single node. `sing_ext` (search.rs, "Singular
+    // Extension" block) could then never observe a fail-low, so it was
+    // always 0 -- dead code. The fix excludes skip_move.is_some() from the
+    // cutoff so the verification search actually searches.
+    #[test]
+    fn singular_extension_verification_does_not_short_circuit_on_tt_hit() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let moves = generate_legal_moves(&mut board);
+        let tt_mv = moves[0];
+
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+
+        // Seed exactly what a prior full search would have stored for this
+        // position/move before an SE verification search is ever attempted
+        // on it: deep enough and Exact, matching the eligibility filter.
+        store_tt(&state, hash, 50, 4, Bound::Exact, Some(tt_mv), 0);
+
+        // Mirror the real SE verification call's shape: same hash (no
+        // do_move yet), a narrow window, skip_move = the TT move.
+        alpha_beta(&state, &mut board, -14, 50, 4, 0, false, None, Some(tt_mv));
+
+        assert!(
+            state.budget.nodes() > 1,
+            "SE verification search returned instantly off the TT hit \
+             ({} node(s) explored) instead of performing a real search",
+            state.budget.nodes()
+        );
     }
 
     // Two hand-built, hand-verified positions for the mate-direction regression
