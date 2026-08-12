@@ -577,6 +577,10 @@ impl TrainWeights {
 
 // ---- Trainer ----
 
+/// Number of win-probability buckets `ValidStats`'s calibration fields
+/// sort samples into (deciles). See `diagnostics::expected_calibration_error`.
+pub const CALIBRATION_BUCKETS: usize = 10;
+
 /// Per-game validation accumulator returned by `Trainer::eval_game`,
 /// folded across a validation set's games. `cp_mse_sum`/`wdl_loss_sum` are
 /// computed against the raw teacher components regardless of the run's own
@@ -601,6 +605,17 @@ pub struct ValidStats {
     // not (0.0, 0.0) -- see `Default` below.
     pub output_min: f32,
     pub output_max: f32,
+    // Calibration: is a position the network scores as "X% win probability"
+    // actually won X% of the time? Bucketed by the network's OWN predicted
+    // win probability -- `(score / wdl_target_scale + 0.5).clamp(0, 1)`, the
+    // exact inverse of `wdl_target_cp`'s own linear mapping, not an
+    // unrelated sigmoid -- so this measures calibration against what the
+    // network was actually trained to predict, on the same scale
+    // `wdl_target_scale` already defines. Only positions with a real
+    // `wdl_target` contribute (same guard as `wdl_loss_sum`/`wdl_count`).
+    pub calibration_bucket_count: [u64; CALIBRATION_BUCKETS],
+    pub calibration_bucket_predicted_sum: [f64; CALIBRATION_BUCKETS],
+    pub calibration_bucket_actual_sum: [f64; CALIBRATION_BUCKETS],
 }
 
 impl Default for ValidStats {
@@ -615,6 +630,9 @@ impl Default for ValidStats {
             output_sum_sq: 0.0,
             output_min: f32::INFINITY,
             output_max: f32::NEG_INFINITY,
+            calibration_bucket_count: [0; CALIBRATION_BUCKETS],
+            calibration_bucket_predicted_sum: [0.0; CALIBRATION_BUCKETS],
+            calibration_bucket_actual_sum: [0.0; CALIBRATION_BUCKETS],
         }
     }
 }
@@ -622,6 +640,14 @@ impl Default for ValidStats {
 impl std::ops::Add for ValidStats {
     type Output = ValidStats;
     fn add(self, other: ValidStats) -> ValidStats {
+        let mut calibration_bucket_count = self.calibration_bucket_count;
+        let mut calibration_bucket_predicted_sum = self.calibration_bucket_predicted_sum;
+        let mut calibration_bucket_actual_sum = self.calibration_bucket_actual_sum;
+        for i in 0..CALIBRATION_BUCKETS {
+            calibration_bucket_count[i] += other.calibration_bucket_count[i];
+            calibration_bucket_predicted_sum[i] += other.calibration_bucket_predicted_sum[i];
+            calibration_bucket_actual_sum[i] += other.calibration_bucket_actual_sum[i];
+        }
         ValidStats {
             loss_sum: self.loss_sum + other.loss_sum,
             count: self.count + other.count,
@@ -632,6 +658,9 @@ impl std::ops::Add for ValidStats {
             output_sum_sq: self.output_sum_sq + other.output_sum_sq,
             output_min: self.output_min.min(other.output_min),
             output_max: self.output_max.max(other.output_max),
+            calibration_bucket_count,
+            calibration_bucket_predicted_sum,
+            calibration_bucket_actual_sum,
         }
     }
 }
@@ -1730,6 +1759,16 @@ impl Trainer {
                 let wdl_err = (score - wdl_target) as f64;
                 stats.wdl_loss_sum += wdl_err * wdl_err;
                 stats.wdl_count += 1;
+
+                // Same linear cp<->probability mapping wdl_target_cp itself
+                // uses (not a sigmoid) -- see ValidStats's doc comment.
+                let predicted_prob = ((score / wdl_target_scale) as f64 + 0.5).clamp(0.0, 1.0);
+                let actual_prob = ((wdl_target / wdl_target_scale) as f64 + 0.5).clamp(0.0, 1.0);
+                let bucket = ((predicted_prob * CALIBRATION_BUCKETS as f64) as usize)
+                    .min(CALIBRATION_BUCKETS - 1);
+                stats.calibration_bucket_count[bucket] += 1;
+                stats.calibration_bucket_predicted_sum[bucket] += predicted_prob;
+                stats.calibration_bucket_actual_sum[bucket] += actual_prob;
             }
 
             stats.output_sum += score as f64;
