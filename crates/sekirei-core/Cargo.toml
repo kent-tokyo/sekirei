@@ -9,6 +9,12 @@ repository = "https://github.com/kent-tokyo/sekirei"
 [dependencies]
 rayon = "1"
 
+[features]
+# King-relative NNUE board features (9-zone "B-small" variant). Default OFF:
+# disabling it leaves the flat piece-square evaluator byte-for-byte
+# unchanged. See crates/sekirei-core/src/nnue.rs's module doc.
+king_relative_b_small = []
+
 [lib]
 name = "sekirei_core"
 

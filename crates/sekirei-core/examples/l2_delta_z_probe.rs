@@ -39,11 +39,12 @@ const FT_SCALE: f32 = 64.0;
 /// against an explicit checkpoint -- same math `NnueAcc::refresh`/`add_col`
 /// use, just not routed through the global `weights()`.
 fn ft_output(board: &Board, perspective: Color, w: &NnueWeights) -> [f32; L1] {
+    let own_king_sq = board.pieces(perspective, PieceKind::Ou).lsb().unwrap();
     let mut acc = w.ft_bias;
     for i in 0..Square::NUM {
         let sq = Square::from_index(i as u8);
         if let Some(piece) = board.piece_at(sq) {
-            let feat = feature_index(sq, piece.kind, piece.color, perspective);
+            let feat = feature_index(sq, piece.kind, piece.color, perspective, own_king_sq);
             for (j, a) in acc.iter_mut().enumerate() {
                 *a = a.saturating_add(w.ft[feat][j]);
             }
