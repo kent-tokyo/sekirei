@@ -33,6 +33,14 @@ pub fn hash_file(path: &str) -> Option<u64> {
 /// Cheap order-sensitive fold of the accumulator's raw values -- not
 /// cryptographic, just enough to tell "unchanged" from "changed" across a
 /// search, and to compare between candidate/control at the same ply.
+///
+/// Folds in `king_sq` alongside `values`: under `king_relative_b_small`,
+/// `king_sq` drift and `values` drift always coincide today (both are only
+/// ever updated together, from `NnueAcc::add_piece`/`refresh`), but this
+/// hash exists precisely to catch accumulator-vs-board desync bugs -- a
+/// future change that reads/updates `king_sq` through a different path
+/// should not be able to silently escape this check just because this
+/// function forgot about a field `NnueAcc` grew after it was written.
 pub fn hash_accumulator(acc: &NnueAcc) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for perspective in &acc.values {
@@ -40,6 +48,10 @@ pub fn hash_accumulator(acc: &NnueAcc) -> u64 {
             h ^= v as u16 as u64;
             h = h.wrapping_mul(0x100000001b3);
         }
+    }
+    for king_sq in &acc.king_sq {
+        h ^= king_sq.index() as u64;
+        h = h.wrapping_mul(0x100000001b3);
     }
     h
 }
@@ -458,6 +470,30 @@ mod tests {
         assert_eq!(
             hash_accumulator(&reset.acc),
             hash_accumulator(&pristine.acc)
+        );
+    }
+
+    /// `hash_accumulator` must fold in `king_sq`, not just `values` -- two
+    /// accumulators with identical `values` but different `king_sq` (a
+    /// desync this replay-verification module exists specifically to catch)
+    /// must hash differently.
+    #[test]
+    fn hash_accumulator_detects_king_sq_only_divergence() {
+        let a = NnueAcc::new();
+        let mut b = NnueAcc::new();
+        assert_eq!(a.king_sq, b.king_sq, "precondition: both start equal");
+        assert_eq!(hash_accumulator(&a), hash_accumulator(&b));
+
+        b.king_sq[0] = Square::from_index(a.king_sq[0].index() ^ 1);
+        assert_ne!(a.king_sq, b.king_sq);
+        assert_eq!(
+            a.values, b.values,
+            "values must stay identical -- isolating king_sq"
+        );
+        assert_ne!(
+            hash_accumulator(&a),
+            hash_accumulator(&b),
+            "hash_accumulator missed a king_sq-only divergence"
         );
     }
 
