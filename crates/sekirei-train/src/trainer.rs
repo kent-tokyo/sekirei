@@ -2976,13 +2976,23 @@ fn active_features(board: &Board, perspective: Color) -> Vec<usize> {
         PieceKind::Hisha,
     ];
 
+    // `perspective`'s own king square -- feeds king-relative board features
+    // under `king_relative_b_small` (ignored by `feature_index` otherwise).
+    // Same expression `movegen::is_in_check` uses; no incremental-update
+    // complexity here since this whole function is a full recompute per
+    // position, never carried across a game trajectory.
+    let own_king_sq = board
+        .pieces(perspective, PieceKind::Ou)
+        .lsb()
+        .expect("a legal position always has a king for both colors");
+
     let mut features = Vec::with_capacity(60);
     // Board features
     for &kind in &ALL_KINDS {
         for color in [Color::Black, Color::White] {
             let mut bb = board.pieces(color, kind);
             while let Some(sq) = bb.pop_lsb() {
-                features.push(feature_index(sq, kind, color, perspective));
+                features.push(feature_index(sq, kind, color, perspective, own_king_sq));
             }
         }
     }

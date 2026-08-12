@@ -18,3 +18,7 @@ lineprior = "0.10.0"
 
 [dev-dependencies]
 tempfile = "3"
+
+[features]
+# Forward to sekirei-core; see that crate's Cargo.toml / nnue.rs module doc.
+king_relative_b_small = ["sekirei-core/king_relative_b_small"]

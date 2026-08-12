@@ -39,6 +39,15 @@ use positions::load_positions;
 use scored::load_scored;
 use trainer::{ConflictMaskLayer, FreezeLayer, LrSchedule, ReplayComponent, Trainer};
 
+/// Human-greppable NNUE feature-set name, recorded in `.meta.json` alongside
+/// the `INPUT`/`L1`/`L2` sizes -- distinguishes checkpoints across the
+/// `king_relative_b_small` feature flag at a glance (the sizes alone would
+/// require cross-referencing `nnue.rs`).
+#[cfg(not(feature = "king_relative_b_small"))]
+const ARCH_NAME: &str = "A-flat-ps";
+#[cfg(feature = "king_relative_b_small")]
+const ARCH_NAME: &str = "B-small-king9zone";
+
 // ---- CLI argument parsing ----
 
 struct Args {
@@ -1307,6 +1316,7 @@ fn save_checkpoint_meta(
             sekirei_core::nnue::L1,
             sekirei_core::nnue::L2
         ),
+        "arch_name": ARCH_NAME,
         "git_commit": git_commit,
         "dataset_hash": dataset_hash,
         // FNV-1a over the just-saved checkpoint's raw weight bytes -- lets a

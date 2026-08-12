@@ -79,6 +79,12 @@ impl Square {
             Some(Square::from_fr(nf as u8, nr as u8))
         }
     }
+
+    /// 3x3-region bucket of this square (0..9), for king-relative NNUE features.
+    #[inline]
+    pub const fn king_zone(self) -> usize {
+        (self.file_0() / 3) as usize * 3 + (self.rank_0() / 3) as usize
+    }
 }
 
 /// Movement directions
@@ -131,5 +137,51 @@ impl Direction {
             Direction::KnightS1 => (-1, 2),
             Direction::KnightS2 => (1, 2),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn king_zone_covers_full_range_with_no_gaps() {
+        let mut seen = [false; 9];
+        for i in 0..81u8 {
+            let z = Square::from_index(i).king_zone();
+            assert!(z < 9, "zone {z} out of range for square {i}");
+            seen[z] = true;
+        }
+        assert!(seen.iter().all(|&s| s), "every zone 0..9 must be reachable");
+    }
+
+    #[test]
+    fn king_zone_corners_are_distinct() {
+        // file_0=0/rank_0=0 (top-right), file_0=8/rank_0=8 (bottom-left), and
+        // the center all land in different 3x3 regions.
+        let top_right = Square::from_fr(0, 0).king_zone();
+        let bottom_left = Square::from_fr(8, 8).king_zone();
+        let center = Square::from_fr(4, 4).king_zone();
+        assert_ne!(top_right, bottom_left);
+        assert_ne!(top_right, center);
+        assert_ne!(bottom_left, center);
+    }
+
+    #[test]
+    fn king_zone_same_region_shares_zone() {
+        // (0,0) and (2,2) both sit in file_0/3==0, rank_0/3==0 -> zone 0.
+        assert_eq!(
+            Square::from_fr(0, 0).king_zone(),
+            Square::from_fr(2, 2).king_zone()
+        );
+    }
+
+    #[test]
+    fn king_zone_adjacent_region_differs() {
+        // (2,0) is in the same region; (3,0) crosses into the next file-region.
+        assert_ne!(
+            Square::from_fr(2, 0).king_zone(),
+            Square::from_fr(3, 0).king_zone()
+        );
     }
 }

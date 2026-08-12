@@ -3,14 +3,24 @@
 #![allow(clippy::needless_range_loop)]
 //!
 //! # Feature set
-//! PS + hand features:
-//!   Board: piece_sq × 14 × 2  = 2 268  (piece-square × own/opp)
-//!   Hand:  38 thresholds × 4  =   152  (per-count binary flags for each (color, perspective))
-//!   INPUT = 2 420
+//! PS + hand features. Two variants, selected at compile time by the
+//! `king_relative_b_small` Cargo feature (default OFF):
 //!
-//! Hand features encode "side C has ≥ N pieces of kind K in hand" for each threshold N,
-//! from both color perspectives. Incremental: capture adds one threshold feature, drop
-//! removes one — O(1) update exactly like board features.
+//! - **Default ("A", flat)**: board features are plain piece-square, no king
+//!   dependency. `Board: piece_sq × 14 × 2 = 2 268`. `INPUT = 2 420`.
+//! - **`king_relative_b_small` ("B-small")**: each board feature is additionally
+//!   bucketed by the *perspective's own* king's 3×3-region zone
+//!   (`Square::king_zone`, 9 zones) — `Board: 9 × piece_sq × 14 × 2 = 20 412`.
+//!   `INPUT = 20 564`. Hand features are unconditional in both variants.
+//!
+//! Hand features (`HAND_INPUT = 152`, both variants) encode "side C has ≥ N
+//! pieces of kind K in hand" for each threshold N, from both color
+//! perspectives. Incremental: capture adds one threshold feature, drop
+//! removes one — O(1) update exactly like flat board features. Under
+//! `king_relative_b_small`, a **king move** invalidates every board feature
+//! for that perspective (its own-king-zone changed), so it triggers a full
+//! `NnueAcc::refresh` from `Board::do_move`/`undo_move` rather than an
+//! incremental update — see `board.rs`.
 //!
 //! # Architecture
 //!   Input → FT (L1=256, per perspective) → ClippedReLU → L2 (32) → ClippedReLU → Out
@@ -19,21 +29,29 @@
 //! Default weights are generated at first access via an LCG.
 //! Trained weights loaded via `load_weights(path)`.
 //!
-//! # Binary file format (SEKIRW01)
+//! # Binary file format (SEKIRW01 flat / SEKIRW02 king-relative)
+//!
+//! Same byte layout in both variants, `INPUT` differs per the feature set above:
 //!
 //!   Offset        Size           Content
-//!   0             8              Magic: b"SEKIRW01"
-//!   8             INPUT*L1*2     ft_weights: INPUT × L1 × i16 (INPUT=2420)
+//!   0             8              Magic: b"SEKIRW01" (flat) or b"SEKIRW02" (king-relative)
+//!   8             INPUT*L1*2     ft_weights: INPUT × L1 × i16
 //!   +L1*2         L1*2           ft_bias: L1 × i16
 //!   +2*L1*L2*4    2*L1*L2*4     l2_weights: (2×L1) × L2 × f32
 //!   +L2*4         L2*4           l2_bias: L2 × f32
 //!   +L2*4         L2*4           out_weights: L2 × f32
 //!   +4            4              out_bias: f32
-//!   Total: ≈ 1.24 MB
+//!   Total: ≈ 1.24 MB (flat) / ≈ 10.0 MB (king-relative)
+//!
+//! A binary built for one variant refuses to load the other's weights file:
+//! the magic string differs, and `read_weights` now requires an *exact*
+//! byte-length match (not just `>=`), so a wrong-variant file is rejected
+//! with a clear error instead of being silently misparsed.
 //!
 //! # SIMD-friendliness
 //! `add_col` / `sub_col` loop over contiguous `[i16; L1]` slices; LLVM emits
-//! VPADDW / VPSUBW (AVX2) or PADDW (SSE2).
+//! VPADDW / VPSUBW (AVX2) or PADDW (SSE2). `L1` is unaffected by either
+//! feature-set variant, so this hot loop's codegen doesn't change.
 
 use std::io::{self, Error, ErrorKind};
 use std::path::Path;
@@ -46,8 +64,22 @@ use crate::square::Square;
 
 // ---- Dimensions ----
 
+/// Board features for one king zone (or the entire board, under the flat
+/// scheme): square × piece kind × own/opp perspective.
+const BOARD_FEATURES_PER_ZONE: usize = 81 * 14 * 2; // 2 268
+
+/// Number of king-relative zones (3x3 board regions, see `Square::king_zone`).
+/// Only meaningful under `king_relative_b_small`.
+#[cfg(feature = "king_relative_b_small")]
+pub const KING_ZONES: usize = 9;
+
 /// Board-feature input dimension: square × piece kind × own/opp perspective.
-pub const BOARD_INPUT: usize = 81 * 14 * 2; // 2 268  (piece-square × own/opp)
+#[cfg(not(feature = "king_relative_b_small"))]
+pub const BOARD_INPUT: usize = BOARD_FEATURES_PER_ZONE; // 2 268
+/// Board-feature input dimension: square × piece kind × own/opp perspective,
+/// times the number of king zones (`KING_ZONES`).
+#[cfg(feature = "king_relative_b_small")]
+pub const BOARD_INPUT: usize = KING_ZONES * BOARD_FEATURES_PER_ZONE; // 20 412
 
 // Hand piece thresholds: "has ≥ N of kind K" binary features.
 // Max counts: Fu:18, Kyou:4, Kei:4, Gin:4, Kin:4, Kaku:2, Hisha:2 → 38 total.
@@ -189,12 +221,17 @@ pub fn weights_active() -> bool {
     NNUE_ACTIVE.load(Ordering::Relaxed)
 }
 
-/// Load weights from a SEKIRW01 binary file and activate NNUE evaluation.
+/// Load weights from a SEKIRW01 (flat) or SEKIRW02 (king-relative) binary
+/// file, matching this binary's own compiled feature set, and activate NNUE
+/// evaluation.
 ///
-/// Also accepts the legacy `JANOSW03` magic: the project rename (Janos → Sekirei)
-/// only changed the 8-byte magic string, not the binary layout, so those weights
-/// load and evaluate identically. (Older `JANOSW02` differs in layout and is not
-/// accepted — the size check below also rejects it.)
+/// Under the default (flat) build, also accepts the legacy `JANOSW03` magic:
+/// the project rename (Janos → Sekirei) only changed the 8-byte magic
+/// string, not the binary layout, so those weights load and evaluate
+/// identically. (Older `JANOSW02` differs in layout and is not accepted —
+/// the size check below also rejects it. Not to be confused with this
+/// module's own `SEKIRW02`, an unrelated later magic reused for the
+/// king-relative variant.)
 pub fn load_weights(path: &Path) -> io::Result<()> {
     let w = read_weights(path)?;
     if WEIGHTS.set(w).is_ok() {
@@ -219,8 +256,17 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
 /// baseline while scoring the loaded checkpoint as the candidate) needs
 /// this side-effect-free path instead of `load_weights`.
 pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
+    #[cfg(not(feature = "king_relative_b_small"))]
     const MAGIC: &[u8] = b"SEKIRW01";
-    const MAGIC_LEGACY: &[u8] = b"JANOSW03";
+    #[cfg(feature = "king_relative_b_small")]
+    const MAGIC: &[u8] = b"SEKIRW02";
+    // Legacy JANOSW03 fallback only applies to the flat format it was
+    // written in -- no king-relative file has ever used it.
+    #[cfg(not(feature = "king_relative_b_small"))]
+    const MAGIC_LEGACY: Option<&[u8]> = Some(b"JANOSW03");
+    #[cfg(feature = "king_relative_b_small")]
+    const MAGIC_LEGACY: Option<&[u8]> = None;
+
     let ft_bytes = INPUT * L1 * 2;
     let bias_bytes = L1 * 2;
     let l2_bytes = 2 * L1 * L2 * 4;
@@ -230,20 +276,31 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
 
     let data = std::fs::read(path)?;
 
-    if data.len() < expected {
+    // Exact match, not just `>=`: a wrong-variant file (e.g. this binary's
+    // opposite king_relative_b_small setting) generally has a *different*
+    // total length too, and an exact check catches that directly instead of
+    // silently truncating/misparsing an oversized file that happens to be
+    // long enough. The magic-string check below is still the primary guard.
+    if data.len() != expected {
         return Err(Error::new(
             ErrorKind::InvalidData,
             format!(
-                "expected {expected} bytes, got {} (wrong format?)",
+                "expected exactly {expected} bytes, got {} (wrong format, or built with a different king_relative_b_small setting?)",
                 data.len()
             ),
         ));
     }
-    if &data[..8] != MAGIC && &data[..8] != MAGIC_LEGACY {
+    if &data[..8] != MAGIC && MAGIC_LEGACY != Some(&data[..8]) {
         return Err(Error::new(
             ErrorKind::InvalidData,
             format!(
-                "bad magic — expected SEKIRW01 or JANOSW03, got {:?}. Weights from an older version need retraining.",
+                "bad magic — expected {:?}{}, got {:?}. Weights from an older/different version need retraining.",
+                std::str::from_utf8(MAGIC).unwrap_or("?"),
+                if MAGIC_LEGACY.is_some() {
+                    " or JANOSW03"
+                } else {
+                    ""
+                },
                 &data[..8]
             ),
         ));
@@ -297,12 +354,16 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
     })
 }
 
-/// Serialise weights to a binary file in SEKIRW01 format.
+/// Serialise weights to a binary file in SEKIRW01 (flat) or SEKIRW02
+/// (king-relative) format, matching this binary's own compiled feature set.
 pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
     let capacity = 8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4;
     let mut data = Vec::with_capacity(capacity);
 
+    #[cfg(not(feature = "king_relative_b_small"))]
     data.extend_from_slice(b"SEKIRW01");
+    #[cfg(feature = "king_relative_b_small")]
+    data.extend_from_slice(b"SEKIRW02");
     for row in &w.ft {
         for &v in row {
             data.extend_from_slice(&v.to_le_bytes());
@@ -327,13 +388,117 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
     std::fs::write(path, &data)
 }
 
+#[cfg(test)]
+mod weights_format_tests {
+    use super::*;
+
+    /// save_weights -> read_weights must round-trip every field exactly,
+    /// under whichever feature configuration this test itself was compiled
+    /// with (magic string and INPUT both follow that same configuration).
+    #[test]
+    fn round_trip_preserves_all_fields() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "sekirei_nnue_roundtrip_test_{}.bin",
+            std::process::id()
+        ));
+        let w = NnueWeights::default_lcg();
+
+        save_weights(&w, &path).expect("save_weights");
+        let w2 = read_weights(&path).expect("read_weights");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(w.ft, w2.ft, "ft weights mismatch after round-trip");
+        assert_eq!(w.ft_bias, w2.ft_bias, "ft_bias mismatch after round-trip");
+        assert_eq!(w.l2, w2.l2, "l2 weights mismatch after round-trip");
+        assert_eq!(w.l2_bias, w2.l2_bias, "l2_bias mismatch after round-trip");
+        assert_eq!(w.out, w2.out, "out weights mismatch after round-trip");
+        assert_eq!(
+            w.out_bias, w2.out_bias,
+            "out_bias mismatch after round-trip"
+        );
+    }
+
+    /// A file with the right length but wrong magic bytes must be rejected
+    /// with a clear error, never panic or silently misparse.
+    #[test]
+    fn read_weights_rejects_wrong_magic() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "sekirei_nnue_badmagic_test_{}.bin",
+            std::process::id()
+        ));
+        let w = NnueWeights::default_lcg();
+        save_weights(&w, &path).expect("save_weights");
+
+        let mut data = std::fs::read(&path).expect("read back saved file");
+        data[0..8].copy_from_slice(b"BOGUSMAG");
+        std::fs::write(&path, &data).expect("write corrupted magic");
+
+        let result = read_weights(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_err(),
+            "read_weights must reject a file with unrecognized magic bytes"
+        );
+    }
+
+    /// A file whose length doesn't match this build's expected layout
+    /// (e.g. saved by the opposite king_relative_b_small setting) must be
+    /// rejected, not silently truncated/misparsed -- see the exact-length
+    /// check in read_weights (not just `>=`).
+    #[test]
+    fn read_weights_rejects_wrong_length() {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!(
+            "sekirei_nnue_badlen_test_{}.bin",
+            std::process::id()
+        ));
+        let w = NnueWeights::default_lcg();
+        save_weights(&w, &path).expect("save_weights");
+
+        let mut data = std::fs::read(&path).expect("read back saved file");
+        data.extend_from_slice(&[0u8; 16]); // pad past the expected length
+        std::fs::write(&path, &data).expect("write oversized file");
+
+        let result = read_weights(&path);
+        let _ = std::fs::remove_file(&path);
+        assert!(
+            result.is_err(),
+            "read_weights must reject a file whose length doesn't exactly match"
+        );
+    }
+}
+
 // ---- Feature index ----
 
 /// Compute the feature index for a piece as seen from `perspective`'s point of view.
+///
+/// `own_king_sq` is `perspective`'s own king square. Ignored under the
+/// default flat build; under `king_relative_b_small`, the board-feature
+/// index is additionally bucketed by that king's zone (`Square::king_zone`)
+/// — every board feature for a perspective depends on that same
+/// perspective's own king position, never the opponent's.
 #[inline]
-pub fn feature_index(sq: Square, kind: PieceKind, piece_color: Color, perspective: Color) -> usize {
+pub fn feature_index(
+    sq: Square,
+    kind: PieceKind,
+    piece_color: Color,
+    perspective: Color,
+    own_king_sq: Square,
+) -> usize {
     let opp_flag = (piece_color != perspective) as usize;
-    sq.index() as usize * (14 * 2) + kind.index() * 2 + opp_flag
+    let base = sq.index() as usize * (14 * 2) + kind.index() * 2 + opp_flag;
+
+    #[cfg(feature = "king_relative_b_small")]
+    {
+        own_king_sq.king_zone() * BOARD_FEATURES_PER_ZONE + base
+    }
+    #[cfg(not(feature = "king_relative_b_small"))]
+    {
+        let _ = own_king_sq;
+        base
+    }
 }
 
 // ---- Accumulator ----
@@ -343,6 +508,13 @@ pub fn feature_index(sq: Square, kind: PieceKind, piece_color: Color, perspectiv
 pub struct NnueAcc {
     /// Per-perspective (Black, White) accumulator vectors.
     pub values: [[i16; L1]; 2],
+    /// Each color's own king square, indexed by `Color::index()`. Always
+    /// tracked (not `cfg`-gated) so `refresh()`'s two-pass ordering — locate
+    /// both kings, then place pieces — is exercised by default CI regardless
+    /// of the `king_relative_b_small` feature; only `feature_index` actually
+    /// reads it under that feature. Meaningless on an empty board (`new()`);
+    /// always correct after `refresh()`.
+    pub king_sq: [Square; 2],
 }
 
 impl NnueAcc {
@@ -350,6 +522,7 @@ impl NnueAcc {
     pub fn new() -> Self {
         NnueAcc {
             values: [weights().ft_bias; 2],
+            king_sq: [Square::from_index(0); 2],
         }
     }
 
@@ -357,11 +530,19 @@ impl NnueAcc {
     /// `hand[color_idx][kind_idx]` = count of that piece in hand.
     pub fn refresh(&mut self, mailbox: &[Option<(PieceKind, Color)>; 81], hand: &[[u8; 7]; 2]) {
         self.values = [weights().ft_bias; 2];
+        // Locate each side's own king BEFORE placing any piece: king-relative
+        // feature_index (king_relative_b_small) depends on it, so it must be
+        // known before the piece-placement pass below computes any feature.
+        for (i, cell) in mailbox.iter().enumerate() {
+            if let Some((PieceKind::Ou, color)) = cell {
+                self.king_sq[color.index()] = Square::from_index(i as u8);
+            }
+        }
         for (i, cell) in mailbox.iter().enumerate() {
             if let Some((kind, color)) = cell {
                 let sq = Square::from_index(i as u8);
                 for p in [Color::Black, Color::White] {
-                    let feat = feature_index(sq, *kind, *color, p);
+                    let feat = feature_index(sq, *kind, *color, p, self.king_sq[p.index()]);
                     self.add_col(p.index(), feat);
                 }
             }
@@ -403,17 +584,34 @@ impl NnueAcc {
     // --- Incremental piece updates ---
 
     /// Incrementally update the accumulator for a piece placed at `sq`.
+    ///
+    /// When `kind == PieceKind::Ou`, this first updates `self.king_sq` to
+    /// `sq` (cheap, unconditional bookkeeping — always correct, in both
+    /// feature-set variants) *before* computing this call's own feature —
+    /// correct for the king's own newly-placed feature, and for `king_sq`
+    /// itself going forward. What it does **not** do is fix up every other
+    /// already-accumulated piece's feature for that perspective, which under
+    /// `king_relative_b_small` all shifted (their board feature depends on
+    /// this same king's zone). The caller (`Board::do_move`/`undo_move`) is
+    /// expected to follow up any king move with a full `refresh()`, which
+    /// discards and rebuilds every feature from scratch — this call's own
+    /// contribution becomes wasted-but-harmless work in that case, not
+    /// unsound, since the refresh always has the last word.
     pub fn add_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        if kind == PieceKind::Ou {
+            self.king_sq[color.index()] = sq;
+        }
         for p in [Color::Black, Color::White] {
-            let feat = feature_index(sq, kind, color, p);
+            let feat = feature_index(sq, kind, color, p, self.king_sq[p.index()]);
             self.add_col(p.index(), feat);
         }
     }
 
     /// Incrementally update the accumulator for a piece removed from `sq`.
+    /// Same king-move caveat as `add_piece`.
     pub fn remove_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
         for p in [Color::Black, Color::White] {
-            let feat = feature_index(sq, kind, color, p);
+            let feat = feature_index(sq, kind, color, p, self.king_sq[p.index()]);
             self.sub_col(p.index(), feat);
         }
     }

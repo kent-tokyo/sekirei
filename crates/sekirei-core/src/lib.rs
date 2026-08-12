@@ -271,6 +271,117 @@ mod tests {
         }
     }
 
+    /// A king move that crosses a `king_zone` boundary must fully invalidate
+    /// and correctly rebuild that perspective's board features. Load-bearing
+    /// under `king_relative_b_small` (a no-op check under the default flat
+    /// build, since `feature_index` ignores its king-square argument there —
+    /// still worth running in both configurations so the hook itself is
+    /// always exercised, not just the feature it enables).
+    #[test]
+    fn nnue_acc_king_move_matches_scratch() {
+        use crate::color::Color;
+        use crate::mv::Move;
+        use crate::piece::{Piece, PieceKind};
+        use crate::square::Square;
+
+        let mut board = Board::empty();
+        // Black king file 7 (file_0=2, zone-x=0) -> file 6 (file_0=3,
+        // zone-x=1), same rank: crosses a king_zone boundary. A couple of
+        // other pieces on board so board features aren't trivially all-zero.
+        board.setup_piece(
+            Square::from_shogi(7, 1),
+            Piece::new(Color::Black, PieceKind::Ou),
+        );
+        board.setup_piece(
+            Square::from_shogi(9, 9),
+            Piece::new(Color::White, PieceKind::Ou),
+        );
+        board.setup_piece(
+            Square::from_shogi(5, 5),
+            Piece::new(Color::Black, PieceKind::Fu),
+        );
+        board.setup_piece(
+            Square::from_shogi(3, 3),
+            Piece::new(Color::White, PieceKind::Kin),
+        );
+        board.recompute_derived();
+        assert_eq!(board.acc, fresh_acc(&board), "initial position mismatch");
+
+        let king_move = Move::normal(
+            Square::from_shogi(7, 1),
+            Square::from_shogi(6, 1),
+            PieceKind::Ou,
+            false,
+        );
+        let tok = board.do_move(king_move);
+        assert_eq!(
+            board.acc,
+            fresh_acc(&board),
+            "acc wrong after king move crossing a king_zone boundary"
+        );
+
+        board.undo_move(tok);
+        assert_eq!(
+            board.acc,
+            fresh_acc(&board),
+            "acc wrong after undo of king move"
+        );
+    }
+
+    /// Same as `nnue_acc_king_move_matches_scratch`, but the king's move is
+    /// itself a capture. Exercises `undo_move`'s ordering: the king-move
+    /// refresh must happen *after* the captured piece's hand-count is
+    /// restored, since `refresh()` reads hand counts.
+    #[test]
+    fn nnue_acc_king_capture_matches_scratch() {
+        use crate::color::Color;
+        use crate::mv::Move;
+        use crate::piece::{Piece, PieceKind};
+        use crate::square::Square;
+
+        let mut board = Board::empty();
+        board.setup_piece(
+            Square::from_shogi(7, 1),
+            Piece::new(Color::Black, PieceKind::Ou),
+        );
+        board.setup_piece(
+            Square::from_shogi(9, 9),
+            Piece::new(Color::White, PieceKind::Ou),
+        );
+        // White pawn adjacent to Black's king, capturable by a king move that
+        // also crosses a king_zone boundary (file 7 -> file 6, same rank).
+        board.setup_piece(
+            Square::from_shogi(6, 1),
+            Piece::new(Color::White, PieceKind::Fu),
+        );
+        board.setup_piece(
+            Square::from_shogi(3, 3),
+            Piece::new(Color::White, PieceKind::Kin),
+        );
+        board.recompute_derived();
+        assert_eq!(board.acc, fresh_acc(&board), "initial position mismatch");
+
+        let king_capture = Move::normal(
+            Square::from_shogi(7, 1),
+            Square::from_shogi(6, 1),
+            PieceKind::Ou,
+            false,
+        );
+        let tok = board.do_move(king_capture);
+        assert_eq!(
+            board.acc,
+            fresh_acc(&board),
+            "acc wrong after king move that captures"
+        );
+
+        board.undo_move(tok);
+        assert_eq!(
+            board.acc,
+            fresh_acc(&board),
+            "acc wrong after undo of a king-captures move"
+        );
+    }
+
     /// Zobrist hash must survive a do_move / undo_move round-trip.
     /// After undo, the hash must equal the hash before the move.
     #[test]
