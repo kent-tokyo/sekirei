@@ -62,6 +62,20 @@
 # nothing to validate against. Only needed if you plan to hand-combine
 # sprints from separate invocations -- ask if so.
 #
+# ENGINE1_BIN/ENGINE2_BIN (env override, both default to the one auto-built
+# ./target/release/sekirei below): lets the two sides run DIFFERENT
+# binaries, not just different weight files -- needed whenever the compared
+# candidate is a compile-time difference (e.g. a Cargo feature flag) rather
+# than just a weights swap, since one binary can't be both. The auto-build
+# step below always (re)builds the default ./target/release/sekirei
+# regardless -- harmless when overridden (that path just goes unused), but
+# it means a caller supplying custom binaries is responsible for having
+# built those themselves beforehand (e.g. scripts/run_king_relative_phase2.sh
+# --build's train binaries are a different case -- for engine binaries
+# specifically, `cargo build --release -p sekirei --features <flag>`,
+# copied to a distinct path so this script's own auto-build doesn't
+# overwrite it).
+#
 # Exit code: forwarded from `sekirei-match gate` (0=PASS, 1=FAIL, 2=INCONCLUSIVE)
 set -e
 
@@ -69,6 +83,9 @@ NEW=${1:?Usage: $0 <new_weights.bin> <base_weights.bin> <n_sprints> [games_per_p
 BASE=${2:?Usage: $0 <new_weights.bin> <base_weights.bin> <n_sprints> [games_per_position]}
 N_SPRINTS=${3:?Usage: $0 <new_weights.bin> <base_weights.bin> <n_sprints> [games_per_position]}
 GAMES_PER_POSITION=${4:-4}
+
+ENGINE1_BIN=${ENGINE1_BIN:-./target/release/sekirei}
+ENGINE2_BIN=${ENGINE2_BIN:-./target/release/sekirei}
 
 SPRT=${SPRT:-0}
 ELO0=${ELO0:-0}
@@ -103,6 +120,9 @@ else
 fi
 echo "  run dir: $RUN_DIR"
 echo "  openings: $OPENINGS"
+if [ "$ENGINE1_BIN" != "./target/release/sekirei" ] || [ "$ENGINE2_BIN" != "./target/release/sekirei" ]; then
+  echo "  engine1: $ENGINE1_BIN  engine2: $ENGINE2_BIN (overridden -- not rebuilt by this script)"
+fi
 
 cargo build --release -q -p sekirei-match-runner -p sekirei
 
@@ -159,8 +179,8 @@ for ((i = 1; i <= N_SPRINTS; i++)); do
     # defaults to rayon's full-core-count pool, oversubscribing the
     # machine's cores -- see tasks/lessons.md.
     cargo run --release -q -p sekirei-match-runner -- \
-      --engine1 ./target/release/sekirei --args1 "$NEW" \
-      --engine2 ./target/release/sekirei --args2 "$BASE" \
+      --engine1 "$ENGINE1_BIN" --args1 "$NEW" \
+      --engine2 "$ENGINE2_BIN" --args2 "$BASE" \
       --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
       --positions "$SHARD" --games-per-position "$GAMES_PER_POSITION" --byoyomi 1000 \
       --output "$RUN_DIR/kifu_${ii}" \
