@@ -2,6 +2,68 @@
 
 ## Unreleased
 
+## [0.3.4] – 2026-08-12
+
+Groundwork for the next strength-lever experiment (king-relative NNUE
+features), landed as opt-in infrastructure. **No default-build behavior
+change**: `king_relative_b_small` is a Cargo feature flag, default OFF —
+`sekirei`/`sekirei-train` built without it are unaffected in every way
+(same byte layout, same weight-file format, same search behavior). This
+release makes no Elo or playing-strength claim for the new feature; see
+"Known limitations."
+
+### NNUE (opt-in, default OFF)
+
+- New `king_relative_b_small` Cargo feature (`sekirei-core`, forwarded from
+  `sekirei`/`sekirei-train`): king-relative board features, bucketed by a
+  3×3-region zone (`Square::king_zone`) around each perspective's own king
+  (`INPUT` 2420 → 20564 when enabled; weight file magic bumps to
+  `SEKIRW02`, no legacy-format fallback for that variant). `Board::do_move`/
+  `undo_move` gain a feature-gated hook that fully rebuilds the NNUE
+  accumulator on a king move (every board feature for that perspective
+  depends on the moved king's zone); `NnueAcc.king_sq` is tracked
+  unconditionally (both build configurations) so this path is exercised by
+  default CI regardless of the flag. `Board::startpos()` switched from a
+  hand-rolled per-piece accumulator loop to a full refresh — a real
+  correctness fix for the flag-enabled build, a no-op under the default one.
+- Structural sanity, not strength: a fixed-depth A/B comparison (base vs.
+  `king_relative_b_small`, same commit, deterministic LCG-default
+  evaluation, 21 positions) found zero correctness issues (no
+  panic/timeout/illegal-move/incomplete-output either side).
+
+### Training pipeline
+
+- New calibration metric (`diagnostics::expected_calibration_error`):
+  Expected Calibration Error over predicted-win-probability deciles, using
+  the same linear cp↔probability mapping the WDL training target itself
+  uses. Wired into the `.meta.json` sidecar, `--eval-only`, and the
+  per-epoch console output, alongside the existing `valid_cp_mse`/
+  `valid_wdl_loss` metrics.
+- New `scripts/run_king_relative_phase2.sh` (multi-seed training
+  orchestration) and `scripts/select_king_relative_checkpoint.py`
+  (validation-metrics-only pass/fail gate, ≥2-of-3-seeds bar with
+  collapse/saturation-regression hard stops) — not yet run against real
+  training data.
+
+### CI / gate tooling
+
+- `.github/workflows/fixed-depth-ab.yml`: new `base_features`/
+  `candidate_features` inputs, so a run can compare one commit's Cargo
+  feature flag on vs. off, not just two different commits.
+- `scripts/sprint_gate.sh`: new `ENGINE1_BIN`/`ENGINE2_BIN` env overrides
+  (both default to the existing single auto-built binary — an unset
+  invocation is unchanged), for comparing two different binaries rather
+  than only two weight files.
+- New CI job (`king-relative-feature`) builds/clippies/tests the workspace
+  with `king_relative_b_small` enabled on every push/PR — previously that
+  code path was verified only by local runs.
+
+### Housekeeping
+
+- Removed 8 small `results/` files left tracked in git from before that
+  directory was gitignored (2026-07-01–07-04 debris, nothing referencing
+  them).
+
 ## [0.3.3] – 2026-08-12
 
 A search-correctness patch release, plus documentation/evaluation-provenance
