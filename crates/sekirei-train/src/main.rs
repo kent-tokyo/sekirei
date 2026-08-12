@@ -1236,6 +1236,7 @@ fn save_checkpoint_meta(
         valid_output_min,
         valid_output_max,
         valid_output_range,
+        valid_calibration_error,
     ) = match valid_stats {
         Some(s) => {
             let cp_mse = if s.count > 0 {
@@ -1261,9 +1262,27 @@ fn save_checkpoint_meta(
             } else {
                 (None, None, None)
             };
-            (cp_mse, wdl_loss, Some(mean), Some(std), min, max, range)
+            let calibration_error = if s.wdl_count > 0 {
+                Some(diagnostics::expected_calibration_error(
+                    &s.calibration_bucket_count,
+                    &s.calibration_bucket_predicted_sum,
+                    &s.calibration_bucket_actual_sum,
+                ))
+            } else {
+                None
+            };
+            (
+                cp_mse,
+                wdl_loss,
+                Some(mean),
+                Some(std),
+                min,
+                max,
+                range,
+                calibration_error,
+            )
         }
-        None => (None, None, None, None, None, None, None),
+        None => (None, None, None, None, None, None, None, None),
     };
     let meta = serde_json::json!({
         "epoch": epoch,
@@ -1464,6 +1483,11 @@ fn save_checkpoint_meta(
         // (unlike `valid_loss`, which is only comparable within one λ).
         "valid_cp_mse": valid_cp_mse,
         "valid_wdl_loss": valid_wdl_loss,
+        // Expected Calibration Error over predicted-win-probability deciles
+        // (diagnostics::expected_calibration_error) -- 0.0 = perfectly
+        // calibrated, i.e. positions scored "X% win" actually won X% of the
+        // time. Same wdl_count>0 guard as valid_wdl_loss.
+        "valid_calibration_error": valid_calibration_error,
         "valid_output_mean": valid_output_mean,
         "valid_output_std": valid_output_std,
         // min/max/range computed directly (no variance-formula cancellation)
@@ -2262,6 +2286,15 @@ fn main() {
         } else {
             0.0
         };
+        let calibration_error = if stats.wdl_count > 0 {
+            diagnostics::expected_calibration_error(
+                &stats.calibration_bucket_count,
+                &stats.calibration_bucket_predicted_sum,
+                &stats.calibration_bucket_actual_sum,
+            )
+        } else {
+            0.0
+        };
         let (out_mean, out_std) =
             diagnostics::mean_std(stats.output_sum, stats.output_sum_sq, stats.count);
         let out_range = if stats.count > 0 {
@@ -2270,7 +2303,7 @@ fn main() {
             0.0
         };
         println!(
-            "eval-only {:?}: valid_loss={vloss:.4}  valid_cp_mse={cp_mse:.4}  valid_wdl_loss={wdl_loss:.4}  valid_output_mean={out_mean:.3}  valid_output_std={out_std:.6}  valid_output_range={out_range:.6}  samples={}  wdl_samples={}",
+            "eval-only {:?}: valid_loss={vloss:.4}  valid_cp_mse={cp_mse:.4}  valid_wdl_loss={wdl_loss:.4}  valid_calibration_error={calibration_error:.4}  valid_output_mean={out_mean:.3}  valid_output_std={out_std:.6}  valid_output_range={out_range:.6}  samples={}  wdl_samples={}",
             eval_ckpt, stats.count, stats.wdl_count,
         );
         return;
@@ -2404,6 +2437,15 @@ fn main() {
         } else {
             0.0
         };
+        let valid_calibration_error = if valid_stats.wdl_count > 0 {
+            diagnostics::expected_calibration_error(
+                &valid_stats.calibration_bucket_count,
+                &valid_stats.calibration_bucket_predicted_sum,
+                &valid_stats.calibration_bucket_actual_sum,
+            )
+        } else {
+            0.0
+        };
         let (valid_output_mean, valid_output_std) =
             diagnostics::mean_std(valid_stats.output_sum, valid_stats.output_sum_sq, vcount);
         let valid_output_range = if vcount > 0 {
@@ -2418,7 +2460,7 @@ fn main() {
                 0.0
             };
             eprintln!(
-                "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.6}  out_range={valid_output_range:.6}  samples={vcount}"
+                "  valid: loss={vloss:.4}  cp_mse={valid_cp_mse:.4}  wdl_loss={valid_wdl_loss:.4}  calibration_error={valid_calibration_error:.4}  out_mean={valid_output_mean:.3}  out_std={valid_output_std:.6}  out_range={valid_output_range:.6}  samples={vcount}"
             );
         }
 

@@ -712,6 +712,40 @@ pub fn l2_dead_neurons(zero_count: &[u64], sample_count: u64) -> usize {
     zero_count.iter().filter(|&&z| z == sample_count).count()
 }
 
+/// Expected Calibration Error over `ValidStats`'s win-probability buckets:
+/// a sample-count-weighted average, across buckets, of `|mean predicted
+/// probability - mean actual outcome|` within that bucket. 0.0 = perfectly
+/// calibrated (a position the network calls "70% win" wins 70% of the
+/// time, on average); the theoretical worst case is 1.0. Empty buckets
+/// (no validation sample landed in that decile) don't contribute --
+/// weighting by count already zeroes them out, this just avoids a 0/0.
+///
+/// Takes the three parallel per-bucket arrays directly (`ValidStats`'s own
+/// fields), not the whole struct -- matches this module's existing
+/// convention (`l2_dead_neurons`, `l2_activation_frequency_per_neuron`) of
+/// pure functions over raw counters, not a dependency on `trainer`'s types.
+pub fn expected_calibration_error(
+    bucket_count: &[u64],
+    bucket_predicted_sum: &[f64],
+    bucket_actual_sum: &[f64],
+) -> f64 {
+    let total: u64 = bucket_count.iter().sum();
+    if total == 0 {
+        return 0.0;
+    }
+    let mut error_sum = 0.0;
+    for i in 0..bucket_count.len() {
+        let n = bucket_count[i];
+        if n == 0 {
+            continue;
+        }
+        let predicted_mean = bucket_predicted_sum[i] / n as f64;
+        let actual_mean = bucket_actual_sum[i] / n as f64;
+        error_sum += (n as f64) * (predicted_mean - actual_mean).abs();
+    }
+    error_sum / total as f64
+}
+
 /// Percentiles of `values` at each fraction in `qs` (each in `[0, 1]`),
 /// nearest-rank on a full sort.
 ///
@@ -944,6 +978,52 @@ mod tests {
     #[test]
     fn l2_dead_neurons_zero_samples_is_zero() {
         assert_eq!(l2_dead_neurons(&[0, 0], 0), 0);
+    }
+
+    #[test]
+    fn expected_calibration_error_zero_samples_is_zero() {
+        assert_eq!(
+            expected_calibration_error(&[0, 0], &[0.0, 0.0], &[0.0, 0.0]),
+            0.0
+        );
+    }
+
+    #[test]
+    fn expected_calibration_error_perfectly_calibrated_is_zero() {
+        // Bucket 0: 10 samples, network predicted 0.15 on average, and they
+        // actually won (from stm's pov) 15% of the time on average.
+        let count = [10u64, 5];
+        let predicted_sum = [0.15 * 10.0, 0.80 * 5.0];
+        let actual_sum = [0.15 * 10.0, 0.80 * 5.0];
+        assert_eq!(
+            expected_calibration_error(&count, &predicted_sum, &actual_sum),
+            0.0
+        );
+    }
+
+    #[test]
+    fn expected_calibration_error_matches_hand_computed_value() {
+        // Bucket 0: 4 samples, predicted mean 0.1, actual mean 0.4 -> |err|=0.3
+        // Bucket 1: 1 sample,  predicted mean 0.9, actual mean 0.9 -> |err|=0.0
+        // Weighted: (4*0.3 + 1*0.0) / 5 = 0.24
+        let count = [4u64, 1];
+        let predicted_sum = [0.1 * 4.0, 0.9];
+        let actual_sum = [0.4 * 4.0, 0.9];
+        let ece = expected_calibration_error(&count, &predicted_sum, &actual_sum);
+        assert!((ece - 0.24).abs() < 1e-9, "got {ece}");
+    }
+
+    #[test]
+    fn expected_calibration_error_ignores_empty_buckets() {
+        // An empty bucket sandwiched between populated ones must not skew
+        // the weighted average (it contributes neither error nor weight).
+        let count = [3u64, 0, 3];
+        let predicted_sum = [0.2 * 3.0, 0.0, 0.8 * 3.0];
+        let actual_sum = [0.2 * 3.0, 0.0, 0.8 * 3.0];
+        assert_eq!(
+            expected_calibration_error(&count, &predicted_sum, &actual_sum),
+            0.0
+        );
     }
 
     #[test]
