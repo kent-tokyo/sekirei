@@ -9,6 +9,15 @@
 # via direct USI stdin/stdout -- nothing here spawns sekirei-match or any
 # multi-game runner.
 #
+# base_features/candidate_features (both default empty): lets base_sha ==
+# candidate_sha with only a Cargo feature flag differing, e.g. comparing a
+# default-off flag on vs off at one commit -- not just two different
+# commits, which base_sha/candidate_sha alone can only express. Added for
+# PR #41's king_relative_b_small flag; no NNUE weights are still supplied
+# either way (see the LCG-default-eval note below), so this only exercises
+# search-structural behavior (illegal/panic/bestmove/node-count), never a
+# strength signal.
+#
 # Security note: every workflow_dispatch input is passed to shell steps via
 # `env:` and referenced as a shell variable (e.g. "$BASE_SHA"), never
 # interpolated directly into a `run:` script via `${{ inputs.* }}` -- this
@@ -54,6 +63,14 @@ on:
         description: "1 (default) runs the normal single-shot base-vs-candidate compare. >1 switches to repeatability mode: each binary is run through the corpus this many times, reporting WITHIN-binary variance (base vs candidate independently) instead of a single-shot diff -- required at spec_top_n>0, where SpeculativeSearcher's own thread pool makes a single-shot compare indistinguishable from noise (see docs/experiments/fixed_depth_gate_run_index.md)."
         required: false
         default: "1"
+      base_features:
+        description: "Comma-separated Cargo --features for the base binary (default: none, i.e. base_sha's own default build). Lets base_sha == candidate_sha with only this differing -- e.g. comparing a feature flag on vs off at one commit, not just two commits."
+        required: false
+        default: ""
+      candidate_features:
+        description: "Comma-separated Cargo --features for the candidate binary (default: none)."
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -83,6 +100,8 @@ jobs:
       CANDIDATE_PR: ${{ inputs.candidate_pr }}
       ALLOW_NON_ANCESTOR: ${{ inputs.allow_non_ancestor }}
       REPEATS: ${{ inputs.repeats }}
+      BASE_FEATURES: ${{ inputs.base_features }}
+      CANDIDATE_FEATURES: ${{ inputs.candidate_features }}
       RUN_ID: ${{ github.run_id }}
       GATE_TOOLING_SHA: ${{ github.sha }}
     steps:
@@ -174,6 +193,8 @@ jobs:
               "threads": int(os.environ["THREADS"]),
               "spec_top_n": int(os.environ["SPEC_TOP_N"]),
               "repeats": int(os.environ["REPEATS"]),
+              "base_features": os.environ.get("BASE_FEATURES") or None,
+              "candidate_features": os.environ.get("CANDIDATE_FEATURES") or None,
               "corpus_path": os.environ["CORPUS_PATH"],
               "corpus_sha256": os.environ["CORPUS_HASH"],
               "rustc_version": os.environ["RUSTC_VERSION"],
@@ -196,7 +217,15 @@ jobs:
           set -euo pipefail
           BASE_SHA="${{ steps.meta.outputs.base_sha }}"
           git worktree add /tmp/base-checkout "$BASE_SHA"
-          cargo build --release --manifest-path /tmp/base-checkout/Cargo.toml -p sekirei
+          # BASE_FEATURES (job-level env, from the base_features
+          # workflow_dispatch input) defaults to empty -- a plain array
+          # element, never interpolated into the script text itself, so an
+          # empty/crafted value can't inject a shell command here.
+          FEATURE_ARGS=()
+          if [ -n "$BASE_FEATURES" ]; then
+            FEATURE_ARGS=(--features "$BASE_FEATURES")
+          fi
+          cargo build --release --manifest-path /tmp/base-checkout/Cargo.toml -p sekirei "${FEATURE_ARGS[@]}"
           sha256sum /tmp/base-checkout/target/release/sekirei | tee artifacts/base_binary_sha256.txt
 
       - name: Run base corpus (single-shot)
@@ -234,7 +263,12 @@ jobs:
           set -euo pipefail
           CANDIDATE_SHA="${{ steps.meta.outputs.candidate_sha }}"
           git worktree add /tmp/candidate-checkout "$CANDIDATE_SHA"
-          cargo build --release --manifest-path /tmp/candidate-checkout/Cargo.toml -p sekirei
+          # Same rationale as the base build step's FEATURE_ARGS.
+          FEATURE_ARGS=()
+          if [ -n "$CANDIDATE_FEATURES" ]; then
+            FEATURE_ARGS=(--features "$CANDIDATE_FEATURES")
+          fi
+          cargo build --release --manifest-path /tmp/candidate-checkout/Cargo.toml -p sekirei "${FEATURE_ARGS[@]}"
           sha256sum /tmp/candidate-checkout/target/release/sekirei | tee artifacts/candidate_binary_sha256.txt
 
       - name: Run candidate corpus (single-shot)
