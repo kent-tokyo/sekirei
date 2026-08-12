@@ -167,6 +167,93 @@ only, safely, in a form that can be run right now without violating the
 current CPU-light constraint (its own resource cost is a handful of `ps`/
 `sysctl` calls, not a build or a match).
 
+## 5D. Swap-percentage inversion under macOS dynamic swap-file resizing (found 2026-08-12, design-only)
+
+Status: design-only, like §5C — nothing in this section has been coded yet.
+Found while resuming the B-vs-C YBW gate (`results/elo_gate/t2`,
+`ROADMAP.md` §1.5), not during this design pass specifically, but it directly
+invalidates a numeric assumption both §5C's launch-refusal/continuation-abort
+tables and `gate_orchestrator.py`'s own separate, simpler resource monitor
+(`DEFAULT_MAX_SWAP_PCT = 50.0`, unrelated code path from
+`gate_resource_preflight.py`, duplicating a weaker version of the same idea —
+worth unifying eventually, not attempted here) both make: that swap
+used/total (%) moves *with* contention.
+
+### The empirical finding
+
+Two `sysctl vm.swapusage` snapshots taken ~11 minutes apart on this same
+host, while independently confirmed idle (swapins +16 pages over a 20s
+window, swapouts flat, load average stable) via the 5-signal check in
+[[sekirei_resource_resume_criteria]] / this repo's standing pre-build
+checklist:
+
+| Time | `total` | `used` | used/total |
+|---|---|---|---|
+| 06:02 | 8192.0 MB | 6483.56 MB | 79.1% |
+| 06:13 | 7168.0 MB | 6378.56 MB | 89.0% |
+
+`used` barely moved (-105 MB, noise-level). `total` dropped 1024 MB. The
+*percentage* rose 10 points **while the machine got quieter, not busier** —
+macOS shrinks the dynamic swap file itself once paging pressure eases, and
+does so independently of how much is still resident in it. A fixed
+used/total threshold is measuring the wrong thing here: it can trip (or
+stay tripped) precisely when contention is easing, and — the more
+important direction for a launch-refusal gate — it can also silently
+loosen under *rising* pressure if `total` grows faster than `used` during
+a spike, though that direction wasn't directly observed today.
+
+### Why this matters for both existing designs
+
+- §5C's launch-refusal table (30%) and continuation-abort table (70%) are
+  both used/total-based (`parse_swap_used_fraction`,
+  `scripts/gate_resource_preflight.py:126-136`) — same failure mode.
+- `gate_orchestrator.py`'s independent `should_pause_launching` (50%
+  default) hit exactly this today: raised to 85% mid-session as a
+  workaround, still false-tripped once `total` shrank further. No fixed
+  percentage is safe against a moving denominator — this isn't a threshold-
+  tuning problem, it's a metric-choice problem.
+
+### Revised signal design
+
+Load average and free physical memory (both already in §5C's table)
+don't have this problem — `uptime`'s load average is contention-derived
+directly, not swap-file-size-derived, and `vm_stat`'s free-page count is an
+absolute quantity, not a ratio against a moving total. Only the swap
+signal needs to change:
+
+| Signal | Current (§5C) | Revised | Why |
+|---|---|---|---|
+| Load average (1min) | `>= physical_cores - 2` refuses | **unchanged** | Already absolute-denominator (core count doesn't move), not affected by this finding |
+| Free physical memory | `< 2GB` refuses | **unchanged** | Already an absolute quantity |
+| Swap | used/total `> 30%` (launch) / `> 70%` (continuation) | **absolute swap `used` (MB), not a fraction** — e.g. refuse if `used` climbs `> N` MB above a *session-start baseline* reading, rather than any fixed absolute number (this host's steady-state idle `used` has itself ranged ~6.1-6.5 GB across sessions per today's and prior logs — a fixed absolute cutoff would need the same re-tuning problem as a fixed percentage unless it's baseline-relative) | `used` was empirically flat (±105 MB) while genuinely idle today; a moving-total ratio isn't. A delta-from-baseline avoids hard-coding today's ~6.4GB idle level as if it were universal. |
+
+Concretely: `collect_swap_usage()`/`parse_swap_used_fraction()` in
+`scripts/gate_resource_preflight.py` would gain a sibling
+`parse_swap_used_mb()` (trivial — the regex already captures `used` before
+dividing by `total`; the fraction division is the only part to drop), and
+the launch-refusal/continuation-abort tables' swap rows would key off
+`used_mb - baseline_used_mb` (baseline captured once at process/session
+start) instead of `used / total`. `gate_orchestrator.py`'s own
+`should_pause_launching`/`resource_snapshot` would need the equivalent
+change, or — simpler — could stop duplicating this logic and shell out to
+`gate_resource_preflight.py`'s (revised) checks instead; not decided here,
+flagged as the unification noted above.
+
+### Interim workaround (recommended, not yet applied)
+
+Per the user's own explicit choice when this was first hit mid-session
+2026-08-12, the recommended immediate stopgap for `gate_orchestrator.py` is
+`--max-swap-pct 100` (swap gate effectively disabled, `--max-load-mult`
+left as the sole brake) — but the T2 run that hit this actually reached
+its decisive verdict on its own (swap happened to drop back under the
+already-raised 85% threshold before anyone acted on the 100% choice), so
+this flag has not actually been used in a real run yet. It's a pragmatic
+stopgap either way, not an implementation of the design above. This
+section is the from-scratch redesign that stopgap stands in for;
+implementing it (the `parse_swap_used_mb`/baseline-delta change above) is
+a small, scoped code change, not attempted in this pass per the "no CPU,
+design only" framing this section was written under.
+
 ## Exact commands for the next retry (once §5C passes and is re-run manually)
 
 ```bash
