@@ -2,6 +2,71 @@
 
 ## Unreleased
 
+## [0.3.3] – 2026-08-12
+
+A search-correctness patch release, plus documentation/evaluation-provenance
+cleanup. One real engine-behavior fix (below); everything else is docs,
+dependency, and process hygiene on top of v0.3.2.
+
+### Search correctness
+
+- **Fixed (issue #36, PR #37): abort-driven TT store could persist a
+  mislabeled bound, or a corrupted `0` score, from a truncated search.**
+  `root_search_inner` and two loops in `alpha_beta` (`crates/sekirei-core/src/search.rs`)
+  used to `break` on a search-deadline abort but then fall through to an
+  unconditional final TT store, persisting a partial result as if the
+  search had completed. A second, more severe path: the abort check only
+  ran at the top of each loop iteration, not immediately after that
+  iteration's own recursive `alpha_beta` call — if the deadline landed
+  *during* that recursive call, its abort-sentinel return value (`0`)
+  could be used as a real score, corrupting `best_score`/`best_move`, or
+  even firing a fabricated `Bound::Lower` TT store mid-loop. Fix: an
+  `aborted` flag now gates every final store, and a `should_abort()`
+  recheck runs immediately after each loop's recursive call, before its
+  result is used — matching the ordering `spec_alpha_beta` already used
+  correctly. 3 new deterministic regression tests (no timing dependence),
+  each independently confirmed to fail without the fix.
+
+### Dependencies
+
+- `lineprior` 0.9.0 → 0.10.0. The dependency's own CHANGELOG confirms the
+  only source-breaking change (3 new `TuneParam` variants) is never
+  referenced by Sekirei; diff scoped to `sekirei-train`/`sekirei-usi`/
+  `Cargo.lock`.
+
+### Documentation / evaluation provenance
+
+- **Corrected an evaluation-provenance issue in a prior internal
+  experiment.** An internal B-vs-C strength gate comparing `UseYBW=true`
+  vs. `UseYBW=false` had been run against a commit that turned out **not
+  to be an ancestor of `main`** — an unmerged side branch that predates
+  several of this release's own correctness fixes and adds
+  measurement-only toggles that don't exist on `main`. That gate's result
+  is **not** treated as evidence about `main`'s YBW implementation and is
+  not cited as such anywhere in this project's planning docs; see
+  `docs/experiments/gate_redesign_low_load.md` and internal roadmap notes
+  for the corrected framing. No code or default behavior is affected by
+  this correction — it's a documentation/process fix.
+- New: `docs/design/nnue_architecture_next_candidate.md` — a first
+  research pass comparing candidate next-step NNUE architecture changes
+  (king-relative input features vs. widening the feature transformer vs.
+  widening the second hidden layer) on parameter count, inference cost,
+  and weight/training-data compatibility. No implementation in this
+  release.
+- New: `docs/design/shared_tt_write_topology_audit.md` (issue #32) —
+  static audit of the shared transposition table's write topology under
+  YBW/speculative-search concurrency. Confirmed `Tt::store`'s equal-depth
+  replacement is unconditional last-writer-wins with no CAS, and that the
+  XOR-trick storage format can't produce cross-writer field mixing.
+  Classified 3 plausible-but-unconfirmed concurrency races; found this
+  release's issue #36 as a byproduct. No fix applied yet — recommended
+  next step (an instrumented live replay) is not started.
+- Recorded: PR #17's (quiescence-search TT integration, issue #8)
+  `repeats`-mode re-evaluation came back unfavorable — worse bestmove-
+  variance and node-swing than an already-lower-noise baseline. Not a
+  confirmed regression, but not merge-recommended either. PR #17 stays
+  draft.
+
 ## [0.3.2] – 2026-08-10
 
 A distribution/reproducibility patch release — **no engine behavior,
