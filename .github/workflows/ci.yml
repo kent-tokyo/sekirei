@@ -52,3 +52,29 @@ jobs:
           cargo check -p sekirei-csa
           cargo check -p sekirei-train
           cargo check -p sekirei-match-runner
+
+  king-relative-feature:
+    # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module
+    # doc): the `test`/`smoke` jobs above only ever exercise the flag OFF.
+    # Without this job, real logic behind the flag (do_move/undo_move's
+    # king-move refresh hook, the 20k-input king-relative feature indexing,
+    # the SEKIRW02 weight format) would only ever be verified by whoever
+    # happens to run it locally -- lighter than the main `test` job
+    # (clippy + test only, no doc/build/fmt, since those don't vary by
+    # feature) rather than doubling full CI cost for an experimental flag.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: clippy (king_relative_b_small)
+        run: |
+          cargo clippy --workspace --all-targets \
+            --features sekirei-core/king_relative_b_small,sekirei/king_relative_b_small,sekirei-train/king_relative_b_small \
+            -- -D warnings
+      - name: test (king_relative_b_small)
+        run: |
+          cargo test --release -p sekirei-core -p sekirei -p sekirei-train \
+            --features sekirei-core/king_relative_b_small,sekirei/king_relative_b_small,sekirei-train/king_relative_b_small
