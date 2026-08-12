@@ -115,11 +115,23 @@ own baseline):
 
 ## Open questions (not resolved by this design pass)
 
-- Exact zone-bucketing scheme for B-small (simple 3×3 grid over the 9×9
-  board? something shaped by actual king-safety geometry, e.g. castle
-  formations?) — needs its own small design pass, not decided here.
-- Whether `NnueAcc`'s king-move-triggers-refresh path has an acceptable
-  perf cost in this engine's actual search hot path — not benchmarked.
+- ~~Exact zone-bucketing scheme for B-small~~ — **resolved during
+  implementation (PR #41, 2026-08-12)**: a plain 3×3 grid
+  (`Square::king_zone`, `(file_0/3)*3 + rank_0/3`), matching this doc's own
+  example. Not a rigorous design pass on its own, but a reasonable default
+  that's now shipped behind `king_relative_b_small`; a king-safety-geometry
+  scheme (castle formations etc.) remains a possible future refinement, not
+  attempted here.
+- ~~Whether `NnueAcc`'s king-move-triggers-refresh path has an acceptable
+  perf cost~~ — **first real data point (2026-08-12)**: a fixed-depth
+  structural comparison ([workflow run
+  31600576135](https://github.com/kent-tokyo/sekirei/actions/runs/31600576135),
+  depth 9, 21 positions, same commit both sides) found zero correctness
+  issues and a median node ratio of 0.999 (candidate/base) — not a
+  strength or wall-clock benchmark (no real NNUE weights are used by that
+  tool, by design), but it does show the refresh hook doesn't blow up
+  search-node cost at this shallow depth. A real per-move wall-clock cost
+  under `Threads>1`/real weights is still unmeasured.
 - Whether L2 saturation should be fixed *before* B is trained regardless
   (a saturated L2 may cap how much of B's improved input signal is usable)
   — this design pass didn't investigate mitigation options beyond the
