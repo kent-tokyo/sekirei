@@ -2324,4 +2324,28 @@ mod regression_tests {
         );
         assert_eq!(after.mv, genuine.mv, "skip_move call must not overwrite mv");
     }
+
+    // Regression/fixture (issue #9): capacity planning for this engine
+    // depends on the formula "real concurrent compute-thread demand =
+    // Threads + SpecTopN" (`docs/design/pr5_pool_isolation_static_audit.md`
+    // Finding 1) -- Threads sizes rayon's global pool (`main.rs`'s
+    // `ThreadPoolBuilder::num_threads`), SpecTopN sizes this dedicated
+    // `spec_pool`. That formula silently drifts if `SpeculativeSearcher::new`
+    // ever stops sizing its pool at exactly `top_n.max(1)` threads (e.g. a
+    // future refactor that adds a fixed overhead thread, or reuses the
+    // global pool for some candidates). This test pins the actual, live
+    // thread count of a constructed pool to the formula's `top_n` term,
+    // independent of `main.rs`'s USI wiring.
+    #[test]
+    fn speculative_searcher_pool_size_matches_configured_top_n() {
+        for top_n in [0usize, 1, 3, 5] {
+            let searcher = SpeculativeSearcher::new(Tt::new(1), top_n);
+            assert_eq!(
+                searcher.spec_pool.current_num_threads(),
+                top_n.max(1),
+                "spec_pool's live thread count must match configured top_n \
+                 (top_n=0 is clamped to 1 -- a zero-thread pool can't run any tasks)"
+            );
+        }
+    }
 }
