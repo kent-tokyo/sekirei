@@ -837,7 +837,16 @@ fn alpha_beta(
             board,
             prev_mv,
         );
-        store_tt(state, hash, score0, depth, Bound::Lower, best_move, ply);
+        store_tt(
+            state,
+            hash,
+            score0,
+            depth,
+            Bound::Lower,
+            best_move,
+            ply,
+            skip_move,
+        );
         return score0;
     }
     if score0 > alpha {
@@ -855,7 +864,9 @@ fn alpha_beta(
         } else {
             Bound::Upper
         };
-        store_tt(state, hash, best_score, depth, bound, best_move, ply);
+        store_tt(
+            state, hash, best_score, depth, bound, best_move, ply, skip_move,
+        );
         return best_score;
     }
 
@@ -971,7 +982,16 @@ fn alpha_beta(
                     prev_mv,
                 );
                 nw_abort.store(true, Ordering::Relaxed);
-                store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
+                store_tt(
+                    state,
+                    hash,
+                    best_score,
+                    depth,
+                    Bound::Lower,
+                    best_move,
+                    ply,
+                    skip_move,
+                );
                 return best_score;
             }
             if s > alpha {
@@ -1085,7 +1105,16 @@ fn alpha_beta(
                     board,
                     prev_mv,
                 );
-                store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
+                store_tt(
+                    state,
+                    hash,
+                    best_score,
+                    depth,
+                    Bound::Lower,
+                    best_move,
+                    ply,
+                    skip_move,
+                );
                 return best_score;
             }
             if s > alpha {
@@ -1103,7 +1132,9 @@ fn alpha_beta(
         } else {
             Bound::Upper
         };
-        store_tt(state, hash, best_score, depth, bound, best_move, ply);
+        store_tt(
+            state, hash, best_score, depth, bound, best_move, ply, skip_move,
+        );
     }
     best_score
 }
@@ -1507,7 +1538,11 @@ pub(crate) fn score_from_tt(stored: i32, ply: u32) -> i32 {
     }
 }
 
+/// `skip_move` must be the same exclusion the caller searched under (singular-extension
+/// verification search) -- when `Some`, the result was computed with a move hidden from
+/// search and must never be written into the shared TT under this position's ordinary hash.
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn store_tt(
     state: &SearchState,
     hash: u64,
@@ -1516,7 +1551,11 @@ fn store_tt(
     bound: Bound,
     mv: Option<Move>,
     ply: u32,
+    skip_move: Option<Move>,
 ) {
+    if skip_move.is_some() {
+        return;
+    }
     state.tt.store(
         hash,
         TtEntry {
@@ -2211,4 +2250,78 @@ mod regression_tests {
     // speculative.rs's own independent copy of the mate-score formula. That
     // second call site (`spec_alpha_beta`) is tested directly in
     // speculative.rs::tests::shorter_mate_scores_higher_in_spec_alpha_beta.
+
+    // Regression (issue #6): none of alpha_beta's 5 store_tt call sites were
+    // guarded on skip_move. The singular-extension verification search runs
+    // with a move hidden from search (`skip_move = Some(tt_mv)`) and its
+    // result must never be written into the shared TT under this position's
+    // ordinary hash -- a probe can't tell that entry apart from a real,
+    // unrestricted search result. Depth-preferred `Tt::store` incidentally
+    // blocked this in practice (the verification search's own store depth
+    // is always less than the eligibility floor that let it run at all, for
+    // every depth SE can trigger at), but that was never an enforced
+    // invariant -- it silently depended on three independently-tunable
+    // constants staying in a specific relationship. This test removes that
+    // confound by storing at the SAME depth on both calls: depth-preference
+    // alone would have permitted the second (skip_move) call to overwrite
+    // the first, so only store_tt's own guard can be what protects the
+    // entry here. Uses SE_MIN_DEPTH directly, matching the issue's own
+    // request for a realistic SE-triggering depth rather than an
+    // arbitrarily shallow one.
+    #[test]
+    fn singular_extension_verification_search_never_stores_to_shared_tt() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let skip = moves[0];
+        let tt = Tt::new(1);
+        let hash = board.hash();
+
+        // A genuine, unrestricted search populates a real TT entry.
+        alpha_beta(
+            &fresh_state(tt.clone()),
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            SE_MIN_DEPTH,
+            0,
+            true,
+            None,
+            None,
+        );
+        let genuine = tt
+            .probe(hash)
+            .expect("unrestricted search should have stored a TT entry");
+
+        // A verification-search-shaped call: same position, same depth, one
+        // legal move excluded via skip_move -- must never touch the shared
+        // TT entry for this hash.
+        alpha_beta(
+            &fresh_state(tt.clone()),
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            SE_MIN_DEPTH,
+            0,
+            true,
+            None,
+            Some(skip),
+        );
+
+        let after = tt
+            .probe(hash)
+            .expect("genuine entry must still be present after the skip_move call");
+        assert_eq!(
+            after.depth, genuine.depth,
+            "skip_move call must not overwrite depth"
+        );
+        assert_eq!(
+            after.score, genuine.score,
+            "skip_move call must not overwrite score"
+        );
+        assert_eq!(
+            after.bound, genuine.bound,
+            "skip_move call must not overwrite bound"
+        );
+        assert_eq!(after.mv, genuine.mv, "skip_move call must not overwrite mv");
+    }
 }
