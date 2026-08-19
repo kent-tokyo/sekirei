@@ -326,6 +326,65 @@ class TrendReviewNeverReturnsPassFailTests(unittest.TestCase):
             shutil.rmtree(fresh_dir, ignore_errors=True)
 
 
+class PipelineStatusPathTraversalTests(unittest.TestCase):
+    """Regression for the CodeQL py/path-injection findings in
+    get_pipeline_status: `run_id` comes straight from the /api/pipeline
+    query string with no allowlist (unlike start_run's/get_opening_sanity_data's
+    e1/e2, checked against list_weights()), so it must be validated as a
+    plain directory basename before reaching any path join.
+    """
+
+    def setUp(self):
+        # A file outside data/runs/ that a traversal payload could reach if
+        # the guard were missing -- named manifest.json so it would satisfy
+        # get_pipeline_status's own "if os.path.isfile(root_manifest_path)"
+        # check and get its contents merged straight into the response.
+        self.secret_path = os.path.join(_DATA_DIR, "manifest.json")
+        _write_json(self.secret_path, {"leaked": True})
+
+    def tearDown(self):
+        if os.path.exists(self.secret_path):
+            os.remove(self.secret_path)
+        shutil.rmtree(os.path.join(_DATA_DIR, "runs"), ignore_errors=True)
+        os.makedirs(os.path.join(_DATA_DIR, "runs"), exist_ok=True)
+
+    def test_valid_run_id_still_works(self):
+        _make_pipeline_run("run_ok", [{"valid_cp_mse": 1000.0}])
+        status = gd.get_pipeline_status("run_ok")
+        self.assertIsNotNone(status)
+        self.assertEqual(status["id"], "run_ok")
+
+    def test_rejects_bare_dotdot_that_would_escape_to_data_dir(self):
+        # data/runs/.. == data/ -- os.path.basename("..") == ".." (no
+        # separator to strip), so a naive `basename(x) == x` check alone
+        # would NOT catch this one; it needs an explicit check.
+        self.assertIsNone(gd.get_pipeline_status(".."))
+
+    def test_rejects_bare_dot(self):
+        self.assertIsNone(gd.get_pipeline_status("."))
+
+    def test_rejects_relative_traversal(self):
+        self.assertIsNone(gd.get_pipeline_status("../"))
+        self.assertIsNone(gd.get_pipeline_status("../.."))
+        self.assertIsNone(gd.get_pipeline_status("foo/../.."))
+
+    def test_rejects_absolute_path(self):
+        self.assertIsNone(gd.get_pipeline_status(os.path.dirname(_DATA_DIR)))
+
+    def test_rejects_embedded_separator(self):
+        self.assertIsNone(gd.get_pipeline_status("a/b"))
+
+    def test_rejects_empty_string(self):
+        self.assertIsNone(gd.get_pipeline_status(""))
+
+    def test_traversal_payload_never_reaches_the_secret_file(self):
+        # End-to-end: even if some future refactor changes the exact
+        # rejection mechanics above, the observable contract that matters
+        # is that this specific payload can never surface {"leaked": True}.
+        result = gd.get_pipeline_status("..")
+        self.assertIsNone(result)
+
+
 if __name__ == "__main__":
     try:
         unittest.main(verbosity=2)

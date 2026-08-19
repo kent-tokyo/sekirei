@@ -506,7 +506,19 @@ def get_pipeline_status(run_id):
     pipeline.log for progress on a still-running stage -- this is the
     *only* source for quietset's "kept X/Y" line (stderr-only, never
     written to any JSON) and sekirei-train's "Epoch N/M" progress.
+
+    `run_id` comes straight from the `/api/pipeline` query string (do_GET)
+    -- reject anything that isn't a plain directory basename before it
+    reaches any path join. `list_pipeline_runs()` only ever hands out
+    `os.path.basename(d)` values, so a legitimate `run_id` can never
+    itself contain a separator or be "." / ".." (glob.glob's "*" never
+    yields either). `os.path.basename(x) == x` alone isn't enough --
+    `os.path.basename("..")` is `".."` itself (no separator to strip), so
+    a bare ".." would pass that check and still escape one directory
+    level (`DATA_DIR/runs/..` == `DATA_DIR`); reject it explicitly too.
     """
+    if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
+        return None
     run_dir = os.path.join(DATA_DIR, "runs", run_id)
     if not os.path.isdir(run_dir):
         return None
