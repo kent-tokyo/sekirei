@@ -495,6 +495,36 @@ def _last_match(pattern, text):
     return matches[-1] if matches else None
 
 
+def _resolve_pipeline_run_dir(run_id):
+    """Validates `run_id` (a query-string value on both /api/pipeline's
+    `run` param, consumed by get_pipeline_status, and /api/review's `run`
+    param for kind=pipeline, consumed by get_pipeline_review) and returns
+    the real, contained `data/runs/<run_id>` directory, or None.
+
+    `list_pipeline_runs()` only ever hands out `os.path.basename(d)`
+    values, so a legitimate `run_id` can never itself contain a separator
+    or be "." / ".." (glob.glob's "*" never yields either).
+    `os.path.basename(x) == x` alone isn't enough -- `os.path.basename("..")`
+    is `".."` itself (no separator to strip), so a bare ".." would pass
+    that check and still escape one directory level (`DATA_DIR/runs/..`
+    == `DATA_DIR`); reject it explicitly too.
+
+    Belt-and-suspenders: even with the basename check, also confirm the
+    resolved directory is actually inside `DATA_DIR/runs/` before
+    returning it (`os.path.realpath` + prefix check) -- the canonical
+    containment-check shape, which also closes a symlink-based escape the
+    basename check alone wouldn't catch (a `data/runs/<name>` entry that
+    is itself a symlink pointing outside the tree).
+    """
+    if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
+        return None
+    runs_root = os.path.realpath(os.path.join(DATA_DIR, "runs"))
+    run_dir = os.path.realpath(os.path.join(runs_root, run_id))
+    if run_dir != runs_root and not run_dir.startswith(runs_root + os.sep):
+        return None
+    return run_dir
+
+
 def get_pipeline_status(run_id):
     """Derives 4-stage (extract/mine -> label/filter -> score -> train)
     status for a data/runs/<run_id>/ directory, from whatever's on disk --
@@ -506,21 +536,9 @@ def get_pipeline_status(run_id):
     pipeline.log for progress on a still-running stage -- this is the
     *only* source for quietset's "kept X/Y" line (stderr-only, never
     written to any JSON) and sekirei-train's "Epoch N/M" progress.
-
-    `run_id` comes straight from the `/api/pipeline` query string (do_GET)
-    -- reject anything that isn't a plain directory basename before it
-    reaches any path join. `list_pipeline_runs()` only ever hands out
-    `os.path.basename(d)` values, so a legitimate `run_id` can never
-    itself contain a separator or be "." / ".." (glob.glob's "*" never
-    yields either). `os.path.basename(x) == x` alone isn't enough --
-    `os.path.basename("..")` is `".."` itself (no separator to strip), so
-    a bare ".." would pass that check and still escape one directory
-    level (`DATA_DIR/runs/..` == `DATA_DIR`); reject it explicitly too.
     """
-    if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
-        return None
-    run_dir = os.path.join(DATA_DIR, "runs", run_id)
-    if not os.path.isdir(run_dir):
+    run_dir = _resolve_pipeline_run_dir(run_id)
+    if run_dir is None or not os.path.isdir(run_dir):
         return None
 
     log = ""
@@ -638,8 +656,15 @@ def get_pipeline_review(run_id):
     so a training run's own diagnostics being numerically healthy is never
     read as a claim about playing strength (this session's own B recipe had
     improving valid_loss but never got promoted after a real quick gate).
+
+    `run_id` reaches here from `/api/review?kind=pipeline&run=...` (do_GET
+    -> get_review_data) -- same untrusted-query-string shape
+    get_pipeline_status guards against, so it goes through the same
+    `_resolve_pipeline_run_dir` containment check.
     """
-    run_dir = os.path.join(DATA_DIR, "runs", run_id)
+    run_dir = _resolve_pipeline_run_dir(run_id)
+    if run_dir is None:
+        return None
     manifest = _read_json_safe(os.path.join(run_dir, "manifest.json"))
     if manifest is None:
         return None
