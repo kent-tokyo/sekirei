@@ -104,7 +104,7 @@ jobs:
           print(f"crates input OK: {seen}")
           PYEOF
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: refs/tags/${{ inputs.release_tag }}
 
