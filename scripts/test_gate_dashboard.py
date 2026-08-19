@@ -385,6 +385,33 @@ class PipelineStatusPathTraversalTests(unittest.TestCase):
         self.assertIsNone(result)
 
 
+class PipelineReviewPathTraversalTests(unittest.TestCase):
+    """get_pipeline_review (reached via /api/review?kind=pipeline&run=...,
+    not /api/pipeline) shares get_pipeline_status's exact untrusted-run_id
+    shape and was found to share the same unguarded
+    os.path.join(DATA_DIR, "runs", run_id) during that fix -- not itself
+    one of the 12 originally CodeQL-flagged lines, but the identical bug.
+    Both now route through the same _resolve_pipeline_run_dir helper.
+    """
+
+    def setUp(self):
+        self.secret_path = os.path.join(_DATA_DIR, "manifest.json")
+        _write_json(self.secret_path, {"leaked": True})
+
+    def tearDown(self):
+        if os.path.exists(self.secret_path):
+            os.remove(self.secret_path)
+        shutil.rmtree(os.path.join(_DATA_DIR, "runs"), ignore_errors=True)
+        os.makedirs(os.path.join(_DATA_DIR, "runs"), exist_ok=True)
+
+    def test_valid_run_id_still_works(self):
+        _make_pipeline_run("run_ok", [{"valid_cp_mse": 1000.0}])
+        self.assertIsNotNone(gd.get_pipeline_review("run_ok"))
+
+    def test_traversal_payload_never_reaches_the_secret_file(self):
+        self.assertIsNone(gd.get_pipeline_review(".."))
+
+
 if __name__ == "__main__":
     try:
         unittest.main(verbosity=2)
