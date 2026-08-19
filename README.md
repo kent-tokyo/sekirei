@@ -347,6 +347,12 @@ floodgate status: active testing; rating is currently volatile.
   `setoption name SpecTopN value N` (default 3, `0` disables speculation entirely). Note:
   `SpecTopN>0` search is measurably nondeterministic even for an identical binary run against
   itself (concurrent speculative-thread scheduling) — `SpecTopN=0` is deterministic
+- No production-recommended NNUE weight file exists yet, and no official mobile (iOS/Android)
+  FFI layer — see [`docs/nnue_weights.md`](docs/nnue_weights.md) (weight licensing, format
+  compatibility, model-card template) and [`docs/mobile_integration.md`](docs/mobile_integration.md)
+  (current integration surface, resource-planning USI options) before building on either assumption
+- `sekirei --build-info` prints this build's architecture/version/weight-format as JSON, without
+  starting a USI session — useful for detecting a weight-file/binary mismatch before loading one
 
 ## Name Origin
 

@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+## [0.3.5] – 2026-08-19
+
+Safer search contracts and clearer integration documentation. No search
+behavior change for the default build; no strength claim.
+
+### Search correctness
+
+- Fixed #6: none of `alpha_beta`'s 5 `store_tt` call sites were guarded on
+  `skip_move`, so the singular-extension verification search (which
+  excludes `tt_mv`) could write its result into the shared TT under the
+  position's ordinary hash — indistinguishable at probe time from a
+  genuine unrestricted search. `Tt::store`'s depth-preferred replacement
+  rule incidentally blocked this in practice, but that was never an
+  enforced invariant. `skip_move` is now threaded into `store_tt` itself
+  (single guarded call site), with a regression test that removes the
+  depth-preference confound by storing at matched depth.
+
+### Testing / resource predictability
+
+- Fixed #9: added the one missing piece of `SpecTopN`'s USI-option
+  exposure — a fixture pinning `SpeculativeSearcher`'s dedicated thread
+  pool size to the configured `top_n`, so the `Threads + SpecTopN`
+  capacity-planning formula (`docs/design/pr5_pool_isolation_static_audit.md`)
+  has regression coverage on the `SpecTopN` side.
+
+### Documentation
+
+- `docs/design/shared_tt_write_topology_audit.md` updated with the issue
+  #36/PR #37 abort-driven-TT-store fix outcome (the audit's own Finding 4
+  follow-up).
+- New `docs/nnue_weights.md`: NNUE weight model card and licensing —
+  clarifies that no production-recommended weight file is currently
+  distributed, that the software license (MIT/Apache-2.0) does not
+  automatically extend to any future weight file, the `SEKIRW01`/
+  `SEKIRW02`/`JANOSW03` format compatibility table, the king-relative
+  ("B-small") architecture's current `MECHANICAL_PASS / EXPERIMENTAL_HOLD`
+  status, and a model-card template for tracking a specific checkpoint's
+  provenance.
+- New `docs/mobile_integration.md`: current on-device/mobile integration
+  surface (USI binary only, no official FFI layer), the small
+  mobile-relevant dependency footprint, resource-planning USI options
+  (`Threads`, `SpecTopN`, `Hash`, `EvalFile`), and explicit "not yet true"
+  limitations — written for the real integration questions raised in #44.
+
+### Engineering
+
+- New `sekirei --build-info`: prints this build's name/version/NNUE
+  architecture/weight-format-magic/expected-weight-size/`SpecTopN`
+  default as JSON, without starting a USI session — lets a caller detect
+  a weight-file/binary architecture mismatch before attempting to load
+  one, rather than only at `read_weights`'s runtime error.
+
 ## [0.3.4] – 2026-08-12
 
 Groundwork for the next strength-lever experiment (king-relative NNUE

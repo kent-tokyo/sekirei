@@ -35,6 +35,49 @@ const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 // the SpecTopN option's default, so not setting it changes nothing.
 const DEFAULT_SPEC_TOP_N: usize = 3;
 
+// Mirrors sekirei-train's own ARCH_NAME/weight-magic cfg pair (main.rs)
+// exactly, so a caller comparing `--build-info` output against a training
+// run's `.meta.json` sidecar sees the same architecture name on both
+// sides. See `nnue.rs`'s module doc for the full format table this
+// duplicates the two string literals from -- kept here rather than
+// exported from sekirei-core because `--build-info` is a USI-binary-only
+// concept, not a library API.
+#[cfg(not(feature = "king_relative_b_small"))]
+const NNUE_ARCH: &str = "A-flat-ps";
+#[cfg(feature = "king_relative_b_small")]
+const NNUE_ARCH: &str = "B-small-king9zone";
+#[cfg(not(feature = "king_relative_b_small"))]
+const WEIGHT_MAGIC: &str = "SEKIRW01";
+#[cfg(feature = "king_relative_b_small")]
+const WEIGHT_MAGIC: &str = "SEKIRW02";
+
+/// Expected weight-file byte length for this build's architecture --
+/// identical arithmetic to `nnue.rs::to_nnue_weights`'s own `capacity`
+/// calculation (magic + ft + ft_bias + l2 + l2_bias + out + out_bias),
+/// duplicated here rather than exported since it's only needed for this
+/// diagnostic printout, not by any library caller.
+fn expected_weight_size() -> usize {
+    use sekirei_core::nnue::{INPUT, L1, L2};
+    8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4
+}
+
+/// `sekirei --build-info`: machine-readable JSON describing this build's
+/// architecture/version/defaults, printed to stdout, no USI session
+/// started. Exists so a caller (a release script, a bug report, a mobile
+/// app bundling a specific binary) can detect which weight format/
+/// architecture a binary expects *before* trying to load a weights file
+/// into it, rather than discovering a mismatch only via `read_weights`'s
+/// runtime error (see `docs/nnue_weights.md`).
+fn print_build_info() {
+    let version = env!("CARGO_PKG_VERSION");
+    let weight_size_expected = expected_weight_size();
+    let king_relative_b_small = cfg!(feature = "king_relative_b_small");
+    let spec_top_n_default = DEFAULT_SPEC_TOP_N;
+    println!(
+        "{{\n  \"name\": \"sekirei\",\n  \"version\": \"{version}\",\n  \"nnue_arch\": \"{NNUE_ARCH}\",\n  \"weight_magic\": \"{WEIGHT_MAGIC}\",\n  \"weight_size_expected\": {weight_size_expected},\n  \"king_relative_b_small\": {king_relative_b_small},\n  \"spec_top_n_default\": {spec_top_n_default}\n}}"
+    );
+}
+
 // ---- Main loop ----
 
 /// Abort and join any in-flight search thread before mutating shared search
@@ -59,6 +102,13 @@ fn abort_and_join_inflight_search(
 }
 
 fn main() {
+    // `--build-info` short-circuits before the weight-path arg below would
+    // otherwise try to load it as a weights file.
+    if std::env::args().nth(1).as_deref() == Some("--build-info") {
+        print_build_info();
+        return;
+    }
+
     // Optional: load NNUE weights from first command-line argument
     // Usage: cargo run --release -p usi -- weights.bin
     let mut weight_path = String::new();
