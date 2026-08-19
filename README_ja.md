@@ -335,6 +335,12 @@ floodgate: 実戦テスト中（レートは計測中）。
   （デフォルト3、`0`で投機探索を完全に無効化）。注意: `SpecTopN>0`での探索は
   同一binaryを自分自身に対して実行しても再現しない場合がある（並行投機タスクの
   スケジューリング由来）。`SpecTopN=0`は決定的
+- production向けに推奨できるNNUE重みファイルはまだ存在せず、公式のモバイル（iOS/Android）
+  FFI層も未整備 — 重みのライセンス・フォーマット互換性・model-card雛形は
+  [`docs/nnue_weights.md`](docs/nnue_weights.md)、現在の統合surfaceとリソース計画用USI
+  optionは [`docs/mobile_integration.md`](docs/mobile_integration.md) を、前提として使う前に参照
+- `sekirei --build-info` は、USIセッションを開始せずにこのbuildのarchitecture・version・
+  weight形式をJSONで出力する — weightファイルとbinaryの不一致をロード前に検出できる
 
 ## 名前の由来
 
