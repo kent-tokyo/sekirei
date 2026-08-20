@@ -337,6 +337,11 @@ Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).
 
 floodgate status: active testing; rating is currently volatile.
 
+See [`docs/amateur_analysis_benchmark.md`](docs/amateur_analysis_benchmark.md)
+for a reproducible format/tooling kit (`scripts/usi_analysis_export.py`)
+for comparing analysis quality — not Elo — against a reference USI
+engine. Format and tooling only; no results published yet.
+
 ## Current Limitations
 
 - NNUE weights are not bundled; train from floodgate CSA data or use the material eval fallback
