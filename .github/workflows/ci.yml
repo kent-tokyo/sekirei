@@ -53,6 +53,17 @@ jobs:
           cargo check -p sekirei-train
           cargo check -p sekirei-match-runner
 
+  python-tools:
+    # Independent job (not a step in `test` above) so a Rust fmt/clippy
+    # failure elsewhere can't mask a Python regression here, and vice
+    # versa. Only runs this one file, not `unittest discover` across
+    # scripts/, so it doesn't sweep in unrelated/WIP test_*.py files.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: usi_analysis_export parser unit tests
+        run: python3 scripts/test_usi_analysis_export.py
+
   king-relative-feature:
     # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module
     # doc): the `test`/`smoke` jobs above only ever exercise the flag OFF.

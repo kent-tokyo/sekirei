@@ -325,6 +325,11 @@ Apple M4 Pro での実測値（`cargo build --release`、`target-cpu=native`）�
 
 floodgate: 実戦テスト中（レートは計測中）。
 
+参照USIエンジンとの解析品質比較（Eloではない）のための再現可能な
+フォーマット・ツール一式（`scripts/usi_analysis_export.py`）については
+[`docs/amateur_analysis_benchmark.md`](docs/amateur_analysis_benchmark.md)
+を参照してください。現時点ではフォーマットとツールのみで、結果は未公開です。
+
 ## 現在の制限事項
 
 - NNUE 重みファイルは同梱なし。floodgate CSA データから訓練するかマテリアル評価にフォールバック
