@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sekirei Explorer — static viewer, not a live engine</title>
+<meta name="description" content="Static demo viewer for Sekirei shogi analysis records. No engine runs in your browser.">
+<link rel="stylesheet" href="explorer.css">
+</head>
+<body>
+<header>
+  <h1>Sekirei Explorer</h1>
+  <div class="disclosure" role="note" aria-label="What this page is and is not">
+    <ul>
+      <li>Static viewer only — nothing here computes a new analysis. No WASM, no backend, no server.</li>
+      <li>No production-quality NNUE weights are included or implied.</li>
+      <li>No playing-strength claim of any kind.</li>
+      <li>Bundled sample analyses are illustrative/fabricated for UI demonstration — not measured output from a real engine run.</li>
+    </ul>
+  </div>
+</header>
+
+<nav aria-label="Page sections">
+  <a href="#about">About</a>
+  <a href="#limitations">Limitations</a>
+  <a href="#viewer">Load Analysis</a>
+  <a href="#links">Docs &amp; Links</a>
+</nav>
+
+<main>
+  <section id="about">
+    <h2>About</h2>
+    <p>
+      Sekirei is an experimental, 100% Pure Rust shogi engine. Its core search
+      and evaluation logic contains zero <code>unsafe</code> code — concurrency
+      (a speculative parallel search with instant-cancel via atomics) is handled
+      entirely through Rust's type system and safe primitives, not manual memory
+      tricks. The project's current focus is search correctness and
+      reproducibility, not chasing a playing-strength number.
+    </p>
+    <p>
+      This page exists because a real prospective integrator asked concrete
+      questions about adopting Sekirei for a commercial mobile analysis app
+      (see <a href="#links">Docs &amp; Links</a> below) — the most useful answer
+      is a small, honest, inspectable artifact, not a sales pitch.
+    </p>
+  </section>
+
+  <section id="limitations">
+    <h2>Current limitations</h2>
+    <ul>
+      <li>No production-recommended NNUE weight file exists yet. Without one, Sekirei
+        falls back to a genuine material-count evaluation — correct shogi play, but not
+        the strength-relevant evaluation NNUE-class engines are built around.</li>
+      <li>No official iOS/Android FFI layer, C ABI, or JNI/Swift binding exists. The only
+        currently supported integration surface is the USI protocol binary.</li>
+      <li>Floodgate rating is volatile — this project is under active testing, not a
+        finished, benchmarked product.</li>
+      <li>This page cannot verify anything about a file you load — see the provenance
+        badges in the viewer below.</li>
+    </ul>
+  </section>
+
+  <section id="viewer">
+    <h2>Load an analysis record</h2>
+    <p>
+      Load a JSON, JSON-array, or JSONL file shaped like an
+      <code>analysis_record_v1</code> record (one position's engine analysis:
+      SFEN position, per-candidate score/PV/bestmove, status). This viewer
+      degrades gracefully on a partial or unexpected shape — it will show
+      whatever fields are present rather than failing outright.
+    </p>
+
+    <div class="sample-buttons" role="group" aria-label="Load a bundled illustrative sample">
+      <button type="button" data-sample-load="0">Load sample 1: Startpos (illustrative)</button>
+      <button type="button" data-sample-download="0">Download sample 1 as JSONL</button>
+      <button type="button" data-sample-load="1">Load sample 2: Real game excerpt (illustrative)</button>
+      <button type="button" data-sample-download="1">Download sample 2 as JSONL</button>
+      <button type="button" data-sample-load="2">Load sample 3: Mate-in-1 (illustrative)</button>
+      <button type="button" data-sample-download="2">Download sample 3 as JSONL</button>
+    </div>
+
+    <label id="file-drop-label" for="file-input">
+      Drop a .json / .jsonl file here, or click to choose one.
+      <input type="file" id="file-input" accept=".json,.jsonl,application/json,text/plain">
+    </label>
+
+    <p id="import-status" role="status" aria-live="polite"></p>
+
+    <select id="record-picker" aria-label="Select which loaded record to view" hidden></select>
+
+    <div id="record-panel"></div>
+  </section>
+
+  <section id="links">
+    <h2>Docs &amp; links</h2>
+    <ul>
+      <li><a href="https://github.com/kent-tokyo/sekirei/issues/44">Issue #44</a> — the commercial mobile integration discussion that motivated this page</li>
+      <li><a href="https://github.com/kent-tokyo/sekirei/blob/main/docs/nnue_weights.md">docs/nnue_weights.md</a> — NNUE weight licensing and current status</li>
+      <li><a href="https://github.com/kent-tokyo/sekirei/blob/main/docs/mobile_integration.md">docs/mobile_integration.md</a> — current mobile/embedding integration surface</li>
+      <li><a href="https://github.com/kent-tokyo/sekirei/blob/main/README.md">Project README</a></li>
+      <li><a href="https://github.com/kent-tokyo/sekirei">Source repository</a></li>
+    </ul>
+  </section>
+</main>
+
+<footer>
+  <p>Static demo, not a live engine. Dual-licensed MIT/Apache-2.0, same terms as the rest of this repository.</p>
+</footer>
+
+<script src="samples.js"></script>
+<script src="explorer.js"></script>
+</body>
+</html>
