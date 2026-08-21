@@ -78,6 +78,82 @@ fn print_build_info() {
     );
 }
 
+/// Distance below `MATE_SCORE` (in either direction) still counted as a
+/// mate score, not an ordinary evaluation -- matches the exact threshold
+/// `sekirei_core::search`/`speculative` already use pervasively to detect
+/// "this is a mate-range score" (e.g. `search.rs`'s aspiration-window and
+/// pruning guards), so this doesn't introduce a second, potentially
+/// diverging magic number.
+const MATE_SCORE_THRESHOLD: i32 = sekirei_core::search::MATE_SCORE - 1000;
+
+/// Formats an internal score (centipawns, or `MATE_SCORE` offset by ply
+/// distance to mate -- see `SearchInfo::score`'s doc comment) as the
+/// value half of a USI `score cp N` / `score mate N` token pair (the
+/// caller supplies the `score ` prefix). Every `info` line printed by
+/// this binary must go through this function rather than assuming
+/// `cp` -- a mate-distance score previously leaked out as a literal
+/// (e.g.) `score cp 899999`, which is not a real evaluation and breaks
+/// any USI consumer that treats `score cp` as a calibrated centipawn
+/// value (issue found via scripts/usi_analysis_export.py's first real
+/// end-to-end run against this binary).
+fn score_to_usi(score: i32) -> String {
+    if score >= MATE_SCORE_THRESHOLD {
+        format!("mate {}", sekirei_core::search::MATE_SCORE - score)
+    } else if score <= -MATE_SCORE_THRESHOLD {
+        format!("mate -{}", sekirei_core::search::MATE_SCORE + score)
+    } else {
+        format!("cp {score}")
+    }
+}
+
+#[cfg(test)]
+mod score_to_usi_tests {
+    use super::*;
+
+    #[test]
+    fn ordinary_cp_scores() {
+        assert_eq!(score_to_usi(0), "cp 0");
+        assert_eq!(score_to_usi(42), "cp 42");
+        assert_eq!(score_to_usi(-137), "cp -137");
+    }
+
+    #[test]
+    fn winning_mate_scores() {
+        // mate in 1 ply (the smallest possible): search.rs's own
+        // MATE_IN_1_SFEN test expects exactly this raw score.
+        assert_eq!(score_to_usi(sekirei_core::search::MATE_SCORE - 1), "mate 1");
+        assert_eq!(score_to_usi(sekirei_core::search::MATE_SCORE - 3), "mate 3");
+    }
+
+    #[test]
+    fn losing_mate_scores() {
+        assert_eq!(
+            score_to_usi(-(sekirei_core::search::MATE_SCORE - 1)),
+            "mate -1"
+        );
+        assert_eq!(
+            score_to_usi(-(sekirei_core::search::MATE_SCORE - 4)),
+            "mate -4"
+        );
+    }
+
+    #[test]
+    fn boundary_values() {
+        // Exactly at the threshold: still classified as mate.
+        assert_eq!(score_to_usi(MATE_SCORE_THRESHOLD), "mate 1000");
+        assert_eq!(score_to_usi(-MATE_SCORE_THRESHOLD), "mate -1000");
+        // One point inside the threshold on either side: ordinary cp.
+        assert_eq!(
+            score_to_usi(MATE_SCORE_THRESHOLD - 1),
+            format!("cp {}", MATE_SCORE_THRESHOLD - 1)
+        );
+        assert_eq!(
+            score_to_usi(-(MATE_SCORE_THRESHOLD - 1)),
+            format!("cp {}", -(MATE_SCORE_THRESHOLD - 1))
+        );
+    }
+}
+
 // ---- Main loop ----
 
 /// Abort and join any in-flight search thread before mutating shared search
@@ -417,10 +493,10 @@ fn main() {
                     if info.pv_list.len() > 1 {
                         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
                             println!(
-                                "info multipv {} depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                                "info multipv {} depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                                 i + 1,
                                 info.depth,
-                                score,
+                                score_to_usi(score),
                                 info.nodes,
                                 nps,
                                 elapsed_ms,
@@ -430,9 +506,9 @@ fn main() {
                         }
                     } else if let Some(m) = info.best_move {
                         println!(
-                            "info depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                             info.depth,
-                            info.score,
+                            score_to_usi(info.score),
                             info.nodes,
                             nps,
                             elapsed_ms,
@@ -506,9 +582,9 @@ fn main() {
                         let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
                         if let Some(m) = info.best_move {
                             println!(
-                                "info depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                                "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                                 info.depth,
-                                info.score,
+                                score_to_usi(info.score),
                                 info.nodes,
                                 nps,
                                 elapsed_ms,
