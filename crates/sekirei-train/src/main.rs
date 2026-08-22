@@ -208,6 +208,15 @@ struct Args {
     // (the default) means the feature is off -- no `.trace.json` written,
     // see `Trainer::maybe_trace_snapshot`.
     trace_positions: Vec<u64>,
+    // Early-stop once `param_update_norm` (the L2 diff between consecutive
+    // epochs' full parameter snapshot) stays below `patience_threshold`
+    // for `patience` consecutive epochs (tasks/todo.md's "--patience/early
+    // stopping実装", proposed 2026-07-14). 0 (default) = disabled -- this
+    // only saves wasted compute on already-converged epochs, it does NOT
+    // fix overfitting and does not change what any single epoch trains --
+    // do not conflate the two, per that same TODO entry's own warning.
+    patience: u32,
+    patience_threshold: Option<f32>, // required (validated) if patience > 0
 }
 
 fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
@@ -274,6 +283,8 @@ fn parse_args() -> Result<Args, String> {
     let mut seed = 42u64;
     let mut l2_bias_init = 0.5f32;
     let mut trace_positions: Vec<u64> = Vec::new();
+    let mut patience = 0u32;
+    let mut patience_threshold: Option<f32> = None;
     let mut shuffle_seed: Option<u64> = None;
     let mut cp_wdl_grad_trace = false;
     let mut wdl_target_scale = 1200.0f32;
@@ -337,6 +348,18 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 if let Some(s) = argv.get(i) {
                     epochs = s.parse().unwrap_or(3);
+                }
+            }
+            "--patience" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    patience = s.parse().unwrap_or(0);
+                }
+            }
+            "--patience-threshold" => {
+                i += 1;
+                if let Some(s) = argv.get(i) {
+                    patience_threshold = s.parse().ok();
                 }
             }
             "--sample" => {
@@ -707,6 +730,11 @@ fn parse_args() -> Result<Args, String> {
     if eval_only.is_some() && positions_path.is_some() {
         return Err("--eval-only requires --games (CSA path)".to_string());
     }
+    if patience > 0 && patience_threshold.is_none() {
+        return Err(
+            "--patience requires --patience-threshold -- no default is provided, since \"practically zero\" for param_update_norm depends on dataset/architecture scale; check a real run's own printed update_norm values first".to_string(),
+        );
+    }
     let lr_schedule_epochs =
         trainer::resolve_schedule_epochs(epochs as u32, lr_schedule_epochs, warmup_epochs)?;
 
@@ -752,6 +780,8 @@ fn parse_args() -> Result<Args, String> {
         l2_clip_norm,
         out_clip_norm,
         trace_positions,
+        patience,
+        patience_threshold,
         shuffle_seed,
         cp_wdl_grad_trace,
         wdl_target_scale,
@@ -1523,6 +1553,12 @@ fn print_usage() {
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
     eprintln!("  --output <file>     Output weight file (default: weights.bin)");
     eprintln!("  --epochs <n>        Training epochs (default: 3)");
+    eprintln!(
+        "  --patience <n>      Stop early after n consecutive epochs with param_update_norm below --patience-threshold (default: 0 = disabled). Saves wasted compute on an already-converged run -- does NOT fix overfitting, does not change what any single epoch trains."
+    );
+    eprintln!(
+        "  --patience-threshold <f>  param_update_norm value counted as \"converged\" (required if --patience > 0; no default -- check a real run's own printed update_norm values first, it depends on dataset/architecture scale)"
+    );
     eprintln!("  --sample <n>        Sample every N plies per game (default: 4)");
     eprintln!("  --best-every <n>    Save best-loss checkpoint every N games (default: 0 = off)");
     eprintln!(
@@ -1843,6 +1879,7 @@ fn main() {
         let mut prev_snapshot: Option<Vec<f32>> = None;
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
+        let mut patience_streak = 0u32;
 
         for epoch in 1..=args.epochs {
             trainer.lr = trainer::compute_lr(
@@ -2074,6 +2111,22 @@ fn main() {
             if args.validation_ratio > 0.0 && vcount > 0 && vloss_raw < best_valid_loss {
                 best_valid_loss = vloss_raw;
                 best_valid_checkpoint = Some(checkpoint.clone());
+            }
+
+            // Patience check runs last in the epoch body -- this epoch's
+            // checkpoint/meta.json/best-checkpoint bookkeeping above always
+            // completes normally; only the *next* iteration is skipped.
+            if args.patience > 0 {
+                let threshold = args.patience_threshold.unwrap(); // validated present when patience > 0
+                let converged = diag.param_update_norm.is_some_and(|n| n < threshold);
+                patience_streak = if converged { patience_streak + 1 } else { 0 };
+                if patience_streak >= args.patience {
+                    eprintln!(
+                        "  patience reached: param_update_norm < {threshold} for {patience_streak} consecutive epoch(s) -- stopping early at epoch {epoch}/{}",
+                        args.epochs
+                    );
+                    break;
+                }
             }
         }
 
@@ -2313,6 +2366,7 @@ fn main() {
     let mut prev_snapshot: Option<Vec<f32>> = None;
     let mut best_valid_loss = f64::MAX;
     let mut best_valid_checkpoint: Option<PathBuf> = None;
+    let mut patience_streak = 0u32;
     // Shared across epochs and across train/valid: a position's teacher
     // score never changes between epochs (the searcher's eval function is
     // fixed for the process lifetime), so caching it turns epochs 2+ into
@@ -2641,6 +2695,22 @@ fn main() {
             if vloss < best_valid_loss {
                 best_valid_loss = vloss;
                 best_valid_checkpoint = Some(checkpoint.clone());
+            }
+        }
+
+        // Patience check runs last in the epoch body -- this epoch's
+        // checkpoint/meta.json/best-checkpoint bookkeeping above always
+        // completes normally; only the *next* iteration is skipped.
+        if args.patience > 0 {
+            let threshold = args.patience_threshold.unwrap(); // validated present when patience > 0
+            let converged = diag.param_update_norm.is_some_and(|n| n < threshold);
+            patience_streak = if converged { patience_streak + 1 } else { 0 };
+            if patience_streak >= args.patience {
+                eprintln!(
+                    "  patience reached: param_update_norm < {threshold} for {patience_streak} consecutive epoch(s) -- stopping early at epoch {epoch}/{}",
+                    args.epochs
+                );
+                break;
             }
         }
     }
