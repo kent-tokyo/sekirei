@@ -140,16 +140,15 @@ in this project's own history that `select_longrun_checkpoint.py`'s "minimize CP
 predicts real strength**, and the one decisive data point actively contradicts it. That is enough to motivate
 P1 (checkpoint selector redesign) without needing more data than what's already on disk.
 
-## Discovered, separate bug (not part of the audit's own conclusion, flagged because it directly concerns the
-## selector this audit is about)
+## Historical bug, already fixed — correction to an earlier draft of this document
 
-`scripts/select_longrun_checkpoint.py` hardcodes `L2 = 16` for its L2 dead-neuron health check. The real
-architecture is `L1=256 L2=32` (confirmed in every `.meta.json`'s `architecture` field and in
-`crates/sekirei-core/src/nnue.rs`) — the constant is wrong by a factor of 2. It happened not to change any past
-selection outcome (no epoch in the teacher-conflict-masking longrun had `l2_dead_neurons` in the now-affected
-`[16,31]` range — `docs/experiments/teacher_conflict_masking.md:159-164`,
-`docs/experiments/quietset_teacher_conflict_falsification.md:186-193`), but it is a real correctness bug in a
-script that gates checkpoint health, not a hypothetical one, and belongs in the record of anyone picking up P1.
+An earlier draft of this document reported `scripts/select_longrun_checkpoint.py`'s `L2 = 16` constant as a
+live, unfixed bug. **Verified against the current script directly (not re-asserted from the historical writeup
+alone) — this was already corrected on 2026-07-20** (`L2 = 32`, with an in-script comment citing the fix and
+its verified blast radius: no epoch in the teacher-conflict-masking longrun ever had `l2_dead_neurons` in the
+then-affected `[16,31]` range, so the bug never actually changed a past selection outcome). No action needed;
+recorded here only so this document doesn't ship a false claim about the current state of the selector it's
+auditing.
 
 ## Recommendation for P1 (not decided here — this is a design choice, not a mechanical fix)
 
