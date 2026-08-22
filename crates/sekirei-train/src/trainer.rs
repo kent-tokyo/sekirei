@@ -1352,7 +1352,23 @@ impl Trainer {
         teacher_cache: &HashMap<String, i32>,
         new_entries: &mut Vec<(String, i32)>,
     ) {
-        for sample in samples {
+        // Progress logging: an uncached label-depth search per position can
+        // make one epoch take ~2h with zero output otherwise (observed
+        // directly this session -- see tasks/todo.md's "epoch内進捗ログ"
+        // item, 2026-07-13). Logged before any `continue` below so it fires
+        // reliably every 1,000 positions regardless of dropped/missing ones.
+        let total = samples.len();
+        let progress_start = std::time::Instant::now();
+        let mut cache_hits = 0u64;
+        let mut cache_misses = 0u64;
+        for (i, sample) in samples.iter().enumerate() {
+            if i > 0 && i % 1000 == 0 {
+                eprintln!(
+                    "    train progress: {i}/{total} ({:.1}%) cache_hits={cache_hits} cache_misses={cache_misses} elapsed={:.1}s",
+                    100.0 * i as f64 / total as f64,
+                    progress_start.elapsed().as_secs_f64()
+                );
+            }
             let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
             let stability = if scored.is_empty() {
                 1.0f32
@@ -1379,8 +1395,10 @@ impl Trainer {
             let weight = stability * phase_w * side_w;
 
             let score_cp = if let Some(&cp) = teacher_cache.get(&sfen) {
+                cache_hits += 1;
                 cp
             } else {
+                cache_misses += 1;
                 let config = SearchConfig {
                     max_depth: label_depth,
                     time_limit: None,
@@ -1430,11 +1448,24 @@ impl Trainer {
         let mut loss_weighted = 0.0f64;
         let mut total_w = 0.0f64;
         let mut count = 0u64;
-        for sample in samples {
+        let total = samples.len();
+        let progress_start = std::time::Instant::now();
+        let mut cache_hits = 0u64;
+        let mut cache_misses = 0u64;
+        for (i, sample) in samples.iter().enumerate() {
+            if i > 0 && i % 1000 == 0 {
+                eprintln!(
+                    "    valid progress: {i}/{total} ({:.1}%) cache_hits={cache_hits} cache_misses={cache_misses} elapsed={:.1}s",
+                    100.0 * i as f64 / total as f64,
+                    progress_start.elapsed().as_secs_f64()
+                );
+            }
             let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
             let teacher_cp = if let Some(&cp) = teacher_cache.get(&sfen) {
+                cache_hits += 1;
                 cp
             } else {
+                cache_misses += 1;
                 let config = SearchConfig {
                     max_depth: label_depth,
                     time_limit: None,
@@ -5287,5 +5318,75 @@ mod tests {
         assert_eq!(plain.total_loss, traced.total_loss);
         assert_eq!(plain.l2_dacc_sum, traced.l2_dacc_sum);
         assert_eq!(plain.ft_grad_norm_sum, traced.ft_grad_norm_sum);
+    }
+
+    #[test]
+    fn train_positions_progress_logging_crosses_the_1000_boundary_without_panicking() {
+        // Regression coverage for the "epoch内進捗ログ" fix (tasks/todo.md,
+        // 2026-07-13): >1000 samples must not panic/index-out-of-bounds at
+        // the periodic-log boundary. All samples share one cached sfen, so
+        // every lookup is a cache hit -- no real label-depth search runs,
+        // keeping this test fast regardless of dataset size.
+        let mut trainer = Trainer::new(1, 0.5);
+        let board = Board::startpos();
+        let sfen = sekirei_core::sfen::board_to_sfen(&board);
+        let samples: Vec<crate::positions::PositionSample> = (0..2500)
+            .map(|_| crate::positions::PositionSample {
+                board: board.clone(),
+                phase: "opening".to_string(),
+                side_to_move: "black".to_string(),
+                ply: 1,
+                source: "test".to_string(),
+            })
+            .collect();
+        let mut teacher_cache = HashMap::new();
+        teacher_cache.insert(sfen, 42);
+        let mut new_entries = Vec::new();
+        trainer.train_positions(
+            &samples,
+            4,
+            &HashMap::new(),
+            false,
+            &HashMap::new(),
+            &HashMap::new(),
+            &teacher_cache,
+            &mut new_entries,
+        );
+        assert!(
+            new_entries.is_empty(),
+            "every sample shared the cached sfen -- no search should have run"
+        );
+    }
+
+    #[test]
+    fn eval_positions_progress_logging_crosses_the_1000_boundary_without_panicking() {
+        let mut trainer = Trainer::new(1, 0.5);
+        let board = Board::startpos();
+        let sfen = sekirei_core::sfen::board_to_sfen(&board);
+        let samples: Vec<crate::positions::PositionSample> = (0..2500)
+            .map(|_| crate::positions::PositionSample {
+                board: board.clone(),
+                phase: "opening".to_string(),
+                side_to_move: "black".to_string(),
+                ply: 1,
+                source: "test".to_string(),
+            })
+            .collect();
+        let mut teacher_cache = HashMap::new();
+        teacher_cache.insert(sfen, 42);
+        let mut new_entries = Vec::new();
+        let (_, _, count) = trainer.eval_positions(
+            &samples,
+            4,
+            &HashMap::new(),
+            &HashMap::new(),
+            &teacher_cache,
+            &mut new_entries,
+        );
+        assert_eq!(count, 2500);
+        assert!(
+            new_entries.is_empty(),
+            "every sample shared the cached sfen -- no search should have run"
+        );
     }
 }
