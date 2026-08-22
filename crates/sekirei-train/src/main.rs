@@ -865,6 +865,22 @@ fn checkpoint_hash(bytes: &[u8]) -> u64 {
     h
 }
 
+/// Where per-epoch checkpoints go: `--checkpoint-dir` if given, else
+/// `--output`'s own parent directory (so an unspecified `--checkpoint-dir`
+/// behaves exactly as before this existed). Shared by the `--positions` and
+/// `--games` paths so both honor `--checkpoint-dir` identically.
+fn resolve_checkpoint_dir(explicit: Option<&Path>, output: &Path) -> PathBuf {
+    explicit
+        .map(PathBuf::from)
+        .unwrap_or_else(|| output.parent().unwrap_or(Path::new(".")).to_path_buf())
+}
+
+/// Per-epoch checkpoint filename, shared by the `--positions` and `--games`
+/// paths: `<checkpoint_dir>/<output_stem>.epoch<N>.bin`.
+fn epoch_checkpoint_path(checkpoint_dir: &Path, output_stem: &str, epoch: usize) -> PathBuf {
+    checkpoint_dir.join(format!("{output_stem}.epoch{epoch}.bin"))
+}
+
 /// Folds `Trainer::eval_game` over every game in `valid_idxs` -- the CSA
 /// path's validation pass, shared by the per-epoch loop and `--eval-only`
 /// (which runs it once against an externally loaded checkpoint instead of
@@ -1812,10 +1828,7 @@ fn main() {
             );
         }
 
-        let checkpoint_dir = args
-            .checkpoint_dir
-            .clone()
-            .unwrap_or_else(|| args.output.parent().unwrap_or(Path::new(".")).to_path_buf());
+        let checkpoint_dir = resolve_checkpoint_dir(args.checkpoint_dir.as_deref(), &args.output);
         let output_stem = args
             .output
             .file_stem()
@@ -2018,7 +2031,7 @@ fn main() {
                 );
             }
 
-            let checkpoint = checkpoint_dir.join(format!("{output_stem}.epoch{epoch}.bin"));
+            let checkpoint = epoch_checkpoint_path(&checkpoint_dir, &output_stem, epoch);
             let w = trainer.weights.to_nnue_weights();
             let mut ckpt_hash = 0u64;
             match sekirei_core::nnue::save_weights(&w, &checkpoint) {
@@ -2362,6 +2375,17 @@ fn main() {
         return;
     }
 
+    let checkpoint_dir = resolve_checkpoint_dir(args.checkpoint_dir.as_deref(), &args.output);
+    if let Err(e) = fs::create_dir_all(&checkpoint_dir) {
+        eprintln!("warning: could not create --checkpoint-dir {checkpoint_dir:?}: {e}");
+    }
+    let output_stem = args
+        .output
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("weights")
+        .to_string();
+
     let mut best_loss = f64::MAX;
     let mut prev_snapshot: Option<Vec<f32>> = None;
     let mut best_valid_loss = f64::MAX;
@@ -2582,7 +2606,7 @@ fn main() {
 
         // Save checkpoint after each epoch
         let serialize_phase_start = Instant::now();
-        let checkpoint = args.output.with_extension(format!("epoch{epoch}.bin"));
+        let checkpoint = epoch_checkpoint_path(&checkpoint_dir, &output_stem, epoch);
         let w = trainer.weights.to_nnue_weights();
         let mut ckpt_hash = 0u64;
         match save_weights(&w, &checkpoint) {
@@ -2741,6 +2765,80 @@ fn main() {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    // resolve_checkpoint_dir / epoch_checkpoint_path are shared by the
+    // `--positions` and `--games` paths (the `--games` path used to bypass
+    // `resolve_checkpoint_dir` entirely and hardcode `args.output`'s own
+    // directory, silently ignoring `--checkpoint-dir` -- these tests cover
+    // both call shapes so a future regression on either path fails here).
+
+    #[test]
+    fn resolve_checkpoint_dir_uses_explicit_dir_when_given() {
+        let out = PathBuf::from("data/runs/x/candidate.bin");
+        let got = resolve_checkpoint_dir(Some(Path::new("data/runs/x/checkpoints")), &out);
+        assert_eq!(got, PathBuf::from("data/runs/x/checkpoints"));
+    }
+
+    #[test]
+    fn resolve_checkpoint_dir_falls_back_to_outputs_parent_when_unset() {
+        // Unspecified `--checkpoint-dir` must keep behaving exactly as it
+        // did before this existed, on both the `--positions` and `--games`
+        // paths.
+        let out = PathBuf::from("data/runs/x/candidate.bin");
+        let got = resolve_checkpoint_dir(None, &out);
+        assert_eq!(got, PathBuf::from("data/runs/x"));
+    }
+
+    #[test]
+    fn resolve_checkpoint_dir_falls_back_to_empty_relative_dir_when_output_has_no_directory_component()
+     {
+        // `Path::parent()` on a single-component relative path returns
+        // `Some("")` (an empty, still-valid relative path meaning "current
+        // directory"), not `None` -- so `unwrap_or(Path::new("."))`'s
+        // fallback is pre-existing dead code for this shape, not something
+        // this fix changes. Documented here rather than silently assumed.
+        let out = PathBuf::from("candidate.bin");
+        let got = resolve_checkpoint_dir(None, &out);
+        assert_eq!(got, PathBuf::from(""));
+    }
+
+    #[test]
+    fn epoch_checkpoint_path_joins_checkpoint_dir_and_output_stem() {
+        // --positions-path shape: an explicit --checkpoint-dir separate
+        // from --output's own directory.
+        let got = epoch_checkpoint_path(Path::new("data/runs/x/checkpoints"), "weights", 3);
+        assert_eq!(
+            got,
+            PathBuf::from("data/runs/x/checkpoints/weights.epoch3.bin")
+        );
+    }
+
+    #[test]
+    fn epoch_checkpoint_path_matches_games_path_candidate_naming() {
+        // --games-path shape (this fix's regression case): with
+        // --checkpoint-dir unset, resolve_checkpoint_dir falls back to
+        // --output's parent, and the epoch file must land next to
+        // --output under the same stem -- exactly where it already landed
+        // before this fix, not a new location.
+        let out = PathBuf::from("data/runs/nnue_v1_tier2/candidate_seed7.bin");
+        let dir = resolve_checkpoint_dir(None, &out);
+        let got = epoch_checkpoint_path(&dir, "candidate_seed7", 14);
+        assert_eq!(
+            got,
+            PathBuf::from("data/runs/nnue_v1_tier2/candidate_seed7.epoch14.bin")
+        );
+    }
+
+    #[test]
+    fn checkpoint_dir_is_created_when_it_does_not_exist_yet() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("checkpoints_seed7"); // does not exist yet
+        assert!(!dir.exists());
+        fs::create_dir_all(&dir).unwrap();
+        let checkpoint = epoch_checkpoint_path(&dir, "candidate_seed7", 1);
+        fs::write(&checkpoint, b"placeholder").unwrap();
+        assert!(checkpoint.exists());
+    }
 
     #[test]
     fn split_games_by_index_partitions_every_index_exactly_once() {
