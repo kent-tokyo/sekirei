@@ -1,12 +1,14 @@
 # Official NNUE v1, Tier 2 — 3-seed training report
 
 Reports execution of the preregistered Tier 2 recipe
-(`docs/experiments/official_nnue_v1_preregistration.md`, PR #55) on the real, full CSA corpus. This document
+(`docs/experiments/official_nnue_v1_preregistration.md`, PR #55) on the complete preregistered 300-file Tier 2
+subset. This document
 covers **training execution and candidate selection only** — it is not Gate 1 (that is its own branch,
 `docs/official-nnue-v1-validation`, per the preregistration's "Gate 1" section) and stamps no strength or
 quality verdict.
 
-- **Phase**: Tier 2, Phase 2 (3-seed production training). Phase 1 (teacher-cache warm-up) and dataset sizing
+- **Phase**: Tier 2, Phase 2 (3-seed Tier 2 candidate training — not "production": Gate 1-3 have not run yet).
+  Phase 1 (teacher-cache warm-up) and dataset sizing
   (PR #60) preceded this and are not re-described in full here.
 - **Base SHA**: `c9b95ad9fe5c498902f0d3a806e97e540e070d86` (main tip after PR #60 merged; recorded directly from
   each checkpoint's own `meta.json` `git_commit` field, not asserted from memory).
@@ -132,30 +134,50 @@ No zero-init-style uniform-row collapse observed in any of the three (`ft_active
 `l2_row_weight_norm_per_neuron` values per checkpoint's `meta.json` — spot-checked for seed 7, not tabulated
 here for space).
 
-## Median-seed selection — an unresolved ambiguity, flagged rather than silently decided
+## Median-seed selection — decided: Reading A, seed 7
 
 The preregistration states: *"Seed selection for the candidate that proceeds to Gate 1: median, not best, of
-the 3 runs' **final** `valid_loss`."* This sentence is ambiguous between two readings, and **they select
+the 3 runs' **final** `valid_loss`."* This sentence read two ways at draft time, and **the two readings select
 different seeds**:
 
 - **Reading A — "final" = each run's selected (best-tracked) checkpoint's valid_loss** (consistent with the
   immediately preceding bullet, "checkpoint selection: the trainer's own built-in best-valid_loss tracking"):
-  sorted `[123: 178121.19, 7: 178383.73, 42: 180858.97]` → **median = seed 7**.
+  sorted `[123: 178121.19, 7: 178383.73, 42: 180858.97]` → median = seed 7.
 - **Reading B — "final" = literally epoch 20's valid_loss**: sorted `[7: 178824.08, 123: 179831.30,
-  42: 181361.11]` → **median = seed 123**.
+  42: 181361.11]` → median = seed 123.
 
-Reading A is what this report recommends, for two reasons: (1) it is the self-consistent one — the artifact
-that actually ships per-seed is each run's *best* checkpoint (epoch 3 for all three), so ranking seeds by a
-different epoch's (epoch 20's) metric while shipping the epoch-3 file would rank seeds by a number that isn't
-the one attached to the shipped file; (2) Reading B would make seed 123 the "median" seed under the ranking
-metric, while seed 123's *actual shipped checkpoint* (`.best.bin`, epoch 3, valid_loss=178121.19) is the
-**lowest of all three** at epoch 3 — i.e., Reading B smuggles in exactly the "best-of-3 cherry-picking" the
-rule's own stated purpose (*"a 'best of 3' checkpoint is partly measuring luck, not recipe quality"*) says to
-avoid.
+**Decision (user, 2026-08-23): Reading A.** The preregistration is two-stage — first pick each seed's
+representative checkpoint via the trainer's own built-in best-valid_loss tracking, then take the median of
+those three *selected* checkpoints' valid_loss. Epoch 20 is an upper bound, not a claim that epoch 20 is the
+right stopping point; nothing in the preregistration says to rank seeds by epoch 20's metric. Reading B also
+reintroduces best-of-3 cherry-picking through the back door: under Reading B, seed 123 would be labeled
+"median" while its own shipped checkpoint (`.best.bin`, epoch 3, valid_loss=178121.19) is the *lowest* of all
+three at epoch 3 — exactly what "median, not best" was written to prevent.
 
-**This report does not unilaterally resolve the ambiguity** — it is a real fork in what ships to Gate 1, not a
-formatting nit. **Recommended: seed 7's `candidate_seed7.best.bin`** (Reading A). Holding for explicit
-confirmation before that file is passed to Gate 1.
+**Selected candidate**: `candidate_seed7.best.bin`
+
+```
+SHA-256: e4da09316ef8e5892ea58f1a338b13851ff9db54b11b5634aac2492fd05d8da4
+init_seed: 7  split_seed: 42  shuffle_seed: 7  epoch: 3
+selection metric: valid_loss = 178383.7306 (median of the three runs' best-checkpoint valid_loss)
+```
+
+Also copied to a stable, decision-tagged location with a selection manifest (not overwriting or removing the
+original run outputs): `data/runs/nnue_v1_tier2/selected/official_nnue_v1_candidate.{bin,meta.json}` +
+`selection_manifest.json` — see that manifest for the full provenance record (dataset/split hashes, teacher
+cache SHA-256, training git commit, architecture, decision date, this PR).
+
+**LR-schedule truncation (StepHalf collapsing the nominal 20-epoch budget to an effective ~4 epochs, see
+"Training dynamics" above) is accepted as a known, documented limitation of this candidate — not grounds to
+retrain with a different schedule this round.** The run executed exactly as preregistered, reproduced the same
+pattern identically across all three independent seeds (not a one-off artifact), used the trainer's own
+preregistered checkpoint-selection method, and shows no NaN or zero-init-style collapse. Rerunning with a
+different schedule now, having already seen these results, would be a new, non-preregistered experiment rather
+than executing the preregistered one — the correct next step is to carry this candidate through Gate 1 (and,
+if warranted, Gate 2/3) and decide from real gate outcomes whether the schedule needs revisiting, not to
+retroactively change the recipe. Gate 1 must treat schedule-truncation as a named, known risk factor when
+weighing its HEALTHY/WARNING/INVALID verdict (in particular alongside seed 7's own 8/32 dead L2 neurons) —
+not silently ignored, but also not by itself a reason to invalidate this run.
 
 ## Discovered work (not fixed here, out of this branch's scope)
 
@@ -182,22 +204,24 @@ is not a quality, strength, or Gate-1 HEALTHY/WARNING verdict.
 ## Next operation
 
 **Gate 1 (training-diagnostic validation, its own branch `docs/official-nnue-v1-validation` per the
-preregistration)** — compute the `HEALTHY`/`WARNING`/`INSUFFICIENT_DATA`/`INVALID` verdict from the metrics
-already gathered above. **Not heavy**: no new training/labeling/compute needed, purely analysis of data already
-on disk. **Not started this round** — held pending (a) the median-seed ambiguity resolution above, since Gate 1
-grades a specific candidate file, and (b) this project's established per-phase stop-and-report pattern (every
-prior Tier 1/Tier 2 phase this session ended with a report + PR and waited for explicit "merge and next step"
-rather than self-chaining into the next phase).
+preregistration)** — user-authorized GO (2026-08-23). Compute the `HEALTHY`/`WARNING`/`INSUFFICIENT_DATA`/
+`INVALID` verdict for `candidate_seed7.best.bin` from the metrics already gathered above, evaluated against
+existing project criteria (not adjusted post-hoc based on the result). **Not heavy**: no new training/labeling/
+compute, purely analysis of data already on disk. LR-schedule truncation must be named explicitly as a known
+risk factor in that verdict. Does not auto-proceed to Gate 2.
+
+**Separately, independent of Gate 1**: a small standalone fix PR for the `--checkpoint-dir`/`--games` no-op
+(discovered work, above), branch `fix/games-checkpoint-dir` — does not block this PR or Gate 1, and does not
+retrigger the 3-seed training (this candidate's artifacts are unaffected by that bug, since checkpoints still
+saved correctly next to `--output`).
 
 ## Merge status
 
-Not merged. PR to be opened from this branch, reporting only, per this roadmap's standing "no auto-merge" rule.
+**Merged** (user-authorized, 2026-08-23) after the above wording fixes and the median-seed decision were
+added, and CI confirmed green.
 
 ## Items needing approval / explicit confirmation
 
-1. **Median-seed reading (Reading A vs. B above)** — recommend Reading A (seed 7). Needs explicit confirmation
-   before Gate 1 grades a specific file.
-2. **Whether to proceed to Gate 1 next** (cheap, analysis-only, no heavy compute) once (1) is resolved.
-3. **Whether the `--checkpoint-dir`/`--games` no-op (discovered work, above) is worth a small standalone fix
-   PR**, and if so, whether it belongs on its own branch (recommended, since it is unrelated to Tier 2's own
-   scope) rather than this one.
+Resolved (user, 2026-08-23): median-seed = Reading A / seed 7; Gate 1 = GO; `--checkpoint-dir` fix = separate
+PR, does not block Gate 1; PR #61 = merge GO after these edits; no retraining with a different LR schedule this
+round.
