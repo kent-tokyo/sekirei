@@ -3,10 +3,11 @@
 - Phase: Gate 3 (SPRT strength gate vs. material baseline)
 - Base SHA: `a0acf36` (main, includes PR #64 — Gate 2 merged 2026-08-23)
 - Branch/worktree: `experiment/official-nnue-v1-strength-gate` / `sekirei-nnue-v1-gate3`
-- Status: **preregistered, not launched** — blocked on `scripts/gate_resource_preflight.py`
-  returning REFUSE (see "Launch blockers" below). This doc fixes the design *before* any game
-  is played, per this project's standing practice (avoid the T2-gate mistake of running first
-  and discovering a validity problem afterward — see ROADMAP.md §1.5).
+- Status: **preregistered and confirmed by user (2026-08-23), not launched** — blocked on
+  `scripts/gate_resource_preflight.py` returning REFUSE (see "Launch blockers" below). This doc
+  fixes the design *before* any game is played, per this project's standing practice (avoid the
+  T2-gate mistake of running first and discovering a validity problem afterward — see
+  ROADMAP.md §1.5).
 
 ## What this gate measures
 
@@ -38,9 +39,9 @@ here and would need its own preregistration.
 - Same `Threads`, `MultiPV=1`, no `Ponder`, `UseBook=false` (book usage would confound the
   opening-corpus control below).
 
-## Proposed match parameters (defaults, following `results/elo_gate/` precedent — flag if wrong)
+## Match parameters (confirmed by user, 2026-08-23)
 
-| Parameter | Proposed value | Rationale |
+| Parameter | Value | Rationale |
 |---|---|---|
 | SPRT bar | `elo0=0, elo1=20, alpha=0.05, beta=0.05` (Wald, LLR ±2.944) | This project's one standing SPRT bar, reused unmodified — not re-derived. |
 | Byoyomi | 1500ms | Matches the `results/elo_gate/` T2 precedent; no NNUE-specific reason found to change it. |
@@ -77,8 +78,8 @@ commit, unlike T2.
 
 ## Items needing approval before launch
 
-- This preregistration itself — parameters above are proposed defaults, not yet confirmed.
-- Actually starting `gate_orchestrator.py run` once the preflight check passes.
+- Parameters above are confirmed. Only remaining approval gate: actually starting
+  `gate_orchestrator.py run`, which requires the preflight check to pass first.
 
 ## Not done this round
 
