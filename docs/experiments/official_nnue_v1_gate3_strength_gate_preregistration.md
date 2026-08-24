@@ -83,7 +83,24 @@ it is committed to any branch. This worktree (`sekirei-nnue-v1-gate3`) does not 
 all; it was checked out fresh from `origin/main`. Before Gate 3 can launch, someone has to decide
 where this tooling — and today's fix — actually gets committed: its own PR to `main` as shared gate
 infrastructure (matches how `gate_resource_preflight.py`, which *is* tracked, got there), or onto
-this Gate 3 branch specifically. Not decided as of this update.
+this Gate 3 branch specifically. Not decided as of this update. **Explicitly ruled out**: committing
+a copy on *both* — that would leave two divergent harness copies, and whichever one actually ran the
+gate would be ambiguous from the result alone, reproducing the exact "which commit produced this
+number" problem §1.5 (T2) exists to warn against. Pick one.
+
+## Third launch prerequisite: a smoke run (not yet done)
+
+The `--option1 EvalFile=...`-only activation path for Arm A (no `--weights`, no CLI-arg weight
+load) has **never been exercised end-to-end**. Every prior gate on this project loaded weights via
+`argv[1]`. The two new `LaunchShardWeightsTest` tests assert the *constructed command list* is
+shaped correctly (`--args1`/`--args2` present or absent, `EvalFile=...` present in
+`--engine-option1`) — they mock `subprocess.Popen` and never run a real `sekirei` process, so they
+do not prove a real engine actually reaches `nnue::weights_active() == true` via the `isready`
+handler when launched this way. Before committing 1200 real games to this path, run a 2-position
+smoke shard (`--shard-positions 1 --max-positions 2`, same `--option1 EvalFile=...`/`--weights`-omitted
+config) and confirm: Arm A's stderr contains `NNUE weights loaded from <path>`, Arm B's stderr does
+not. This needs a `cargo build --release` in this worktree first (not yet done, deferred pending the
+commit-location decision above, since the smoke run needs the fixed `gate_orchestrator.py` present).
 
 ## Launch blockers (last checked 2026-08-24)
 
@@ -94,10 +111,10 @@ Resource signals have fluctuated across repeated checks on 2026-08-23/24 (disk f
 signals — swap 90–97% used, ~0.06GB free RAM, load avg 5–10.5 (above the <8 limit most checks), a
 named contention job (`renkin` / an unrelated `pipeline_v2_vs_rdkit_dump` process), 7 concurrent
 Claude sessions — are ordinary shared-machine contention expected to clear once other work on this
-machine finishes, per the user's own estimate (~30–60 min as of 2026-08-23 late evening). **Even
-once these clear, the harness gap above is a second, independent blocker** — do not launch on a
-resource PASS alone; the fix must be committed and the launch command must use `--option1
-EvalFile=...` with `--weights` omitted, not the original shared-`--weights` form.
+machine finishes, per the user's own estimate (revised 2026-08-25: ~2-3 hours from other work
+finishing). **Resource preflight is the third blocker, not the first or only one** — do not launch
+on a resource PASS alone; the commit-location decision and the smoke run above must both happen
+first.
 
 ## External validity
 
@@ -111,11 +128,11 @@ commit, unlike T2.
 ## Items needing approval before launch
 
 - Match parameters are confirmed.
-- **New**: where `gate_orchestrator.py` (and its currently-untracked sibling scripts) gets
-  committed — own PR to `main`, or onto this branch. User decision, not yet made.
-- Actually starting `gate_orchestrator.py run`, which requires both the preflight check to pass
-  and the harness gap above to be resolved (fix committed, launch command uses `--option1
-  EvalFile=...` with `--weights` omitted).
+- **Where `gate_orchestrator.py` (and its currently-untracked sibling scripts) gets committed** —
+  own PR to `main`, or onto this branch, not both. User decision, not yet made.
+- The 2-position smoke run above, once the harness is committed and built.
+- Actually starting `gate_orchestrator.py run`, which additionally requires the resource preflight
+  to pass.
 
 ## Not done this round
 
