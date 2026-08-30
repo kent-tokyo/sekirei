@@ -19,6 +19,7 @@
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
@@ -31,6 +32,7 @@ const MARKER_OUT_BIAS: f32 = 640.0; // -> static score 10 (640 / 64), constant a
 // signal, just the bias), that one negation flips it to -10 at the root,
 // deterministically.
 const EXPECTED_SCORE_CP: i32 = -10;
+static TEST_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn write_marker_weights() -> std::path::PathBuf {
     let w = NnueWeights {
@@ -42,15 +44,38 @@ fn write_marker_weights() -> std::path::PathBuf {
         out_bias: MARKER_OUT_BIAS,
     };
     let path = std::env::temp_dir().join(format!(
-        "sekirei_test_evalfile_marker_{}.bin",
-        std::process::id()
+        "sekirei_test_evalfile_marker_{}-{}.bin",
+        std::process::id(),
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     save_weights(&w, &path).expect("failed to write synthetic weight file");
     path
 }
 
 fn spawn_engine() -> (Child, Receiver<String>, ChildStdin) {
-    spawn_engine_with_args(&[])
+    let mut child = Command::new(env!("CARGO_BIN_EXE_sekirei"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .expect("failed to spawn sekirei binary");
+
+    let stdout = child.stdout.take().unwrap();
+    let stdin = child.stdin.take().unwrap();
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        for line in BufReader::new(stdout).lines() {
+            match line {
+                Ok(l) => {
+                    if tx.send(l).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+    (child, rx, stdin)
 }
 
 fn spawn_engine_with_args(args: &[&std::path::Path]) -> (Child, Receiver<String>, ChildStdin) {
@@ -165,8 +190,9 @@ fn setoption_evalfile_then_isready_activates_nnue() {
 fn duplicate_evalfile_load_is_reported_as_failure() {
     let first_path = write_marker_weights();
     let second_path = first_path.with_file_name(format!(
-        "sekirei_test_evalfile_duplicate_{}.bin",
-        std::process::id()
+        "sekirei_test_evalfile_duplicate_{}-{}.bin",
+        std::process::id(),
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     std::fs::copy(&first_path, &second_path).expect("failed to copy synthetic weight file");
 

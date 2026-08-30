@@ -1812,6 +1812,12 @@ mod see_tests {
         );
 
         let mut speculative_board = Board::startpos();
+        let config = SearchConfig {
+            max_depth: 1,
+            time_limit: Some(Duration::ZERO),
+            soft_limit: None,
+            multi_pv: 1,
+        };
         let speculative =
             SpeculativeSearcher::new(Tt::new(1), 1).search(&mut speculative_board, config);
         let speculative_move = speculative

@@ -149,9 +149,7 @@ fn main() {
             }
 
             "isready" => {
-                if let Some(ref path) = eval_file
-                    && !sekirei_core::nnue::weights_active()
-                {
+                if let Some(ref path) = eval_file {
                     match sekirei_core::nnue::load_weights(Path::new(path)) {
                         Ok(()) => {
                             println!("info string NNUE weights loaded from {path}");
