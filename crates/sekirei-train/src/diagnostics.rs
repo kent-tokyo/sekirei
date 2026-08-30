@@ -658,11 +658,13 @@ pub fn mean_std(sum: f64, sum_sq: f64, n: u64) -> (f64, f64) {
 /// same-length snapshots from `TrainWeights::snapshot_params`.
 pub fn l2_diff_norm(prev: &[f32], curr: &[f32]) -> f32 {
     debug_assert_eq!(prev.len(), curr.len());
-    prev.iter()
+    let result = prev
+        .iter()
         .zip(curr.iter())
         .map(|(a, b)| (a - b) * (a - b))
         .sum::<f32>()
-        .sqrt()
+        .sqrt();
+    if result.is_finite() { result } else { 0.0 }
 }
 
 /// Fraction of quantised FT weights (i16, post `to_nnue_weights`) that
@@ -743,13 +745,14 @@ pub fn percentiles(values: &[f32], qs: &[f32]) -> Vec<f32> {
 pub fn l2_row_weight_norm_per_neuron(l2: &[f32], rows: usize, cols: usize) -> Vec<f32> {
     (0..cols)
         .map(|o| {
-            (0..rows)
+            let result = (0..rows)
                 .map(|i| {
                     let v = l2[i * cols + o];
                     v * v
                 })
                 .sum::<f32>()
-                .sqrt()
+                .sqrt();
+            if result.is_finite() { result } else { 0.0 }
         })
         .collect()
 }
@@ -759,7 +762,8 @@ pub fn l2_row_weight_norm_per_neuron(l2: &[f32], rows: usize, cols: usize) -> Ve
 /// the whole-vector norm, unlike `l2_row_weight_norm_per_neuron`'s
 /// per-output-neuron breakdown of the wider L2 layer.
 pub fn output_weight_norm(out: &[f32]) -> f32 {
-    out.iter().map(|&x| x * x).sum::<f32>().sqrt()
+    let result = out.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    if result.is_finite() { result } else { 0.0 }
 }
 
 /// Pearson correlation coefficient between two equal-length series
@@ -871,6 +875,12 @@ mod tests {
         let a = [0.0f32, 0.0];
         let b = [3.0f32, 4.0];
         assert_eq!(l2_diff_norm(&a, &b), 5.0); // 3-4-5 triangle
+    }
+
+    #[test]
+    fn l2_diff_norm_non_finite_input_is_zero() {
+        assert_eq!(l2_diff_norm(&[f32::NAN], &[1.0]), 0.0);
+        assert_eq!(l2_diff_norm(&[f32::INFINITY], &[1.0]), 0.0);
     }
 
     #[test]
@@ -1005,6 +1015,12 @@ mod tests {
         // rows=2, cols=2, flat row-major: col0 = [3,4] (norm 5), col1 = [0,0]
         let l2 = [3.0f32, 0.0, 4.0, 0.0];
         assert_eq!(l2_row_weight_norm_per_neuron(&l2, 2, 2), vec![5.0, 0.0]);
+    }
+
+    #[test]
+    fn weight_norms_non_finite_input_are_zero() {
+        assert_eq!(l2_row_weight_norm_per_neuron(&[f32::NAN], 1, 1), vec![0.0]);
+        assert_eq!(output_weight_norm(&[f32::INFINITY]), 0.0);
     }
 
     #[test]

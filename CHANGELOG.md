@@ -33,6 +33,8 @@
 - Diagnostic mean/std and accumulated cosine metrics now return neutral zero
   values for non-finite inputs instead of propagating `NaN`/`Inf`.
 - Pearson and vector-cosine diagnostics now apply the same finite-value guard.
+- Diagnostic weight-difference and weight-norm calculations now return zero
+  for non-finite results instead of poisoning checkpoint metadata.
 
 ## [0.3.6] – 2026-08-30
 
