@@ -38,6 +38,7 @@
 use std::io::{self, Error, ErrorKind, Write};
 use std::path::Path;
 use std::sync::OnceLock;
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::color::Color;
@@ -182,6 +183,7 @@ impl NnueWeights {
 static WEIGHTS: OnceLock<NnueWeights> = OnceLock::new();
 static DEFAULT_WEIGHTS: OnceLock<NnueWeights> = OnceLock::new();
 static NNUE_ACTIVE: AtomicBool = AtomicBool::new(false);
+static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Return the active weight set. Falls back to (separately cached) LCG defaults
 /// until `load_weights()` succeeds.
@@ -352,9 +354,10 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
         )
     })?;
     let temp_name = format!(
-        ".{}.tmp-{}",
+        ".{}.tmp-{}-{}",
         file_name.to_string_lossy(),
-        std::process::id()
+        std::process::id(),
+        SAVE_COUNTER.fetch_add(1, Ordering::Relaxed)
     );
     let temp_path = path.with_file_name(temp_name);
 

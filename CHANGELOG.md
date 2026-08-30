@@ -43,6 +43,8 @@
   instead of silently truncating to the shorter vector.
 - Added a deterministic NNUE weight save/load roundtrip guard covering every
   layer and bias array.
+- Atomic NNUE, teacher-cache, and training-sidecar writes now use per-process
+  unique temporary names, avoiding collisions between concurrent saves.
 - Added lightweight material-evaluation probes for start-position neutrality,
   hand-piece value, and side-to-move sign handling.
 - Extended the material probes to cover on-board piece value and side-to-move

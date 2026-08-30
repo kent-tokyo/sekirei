@@ -28,6 +28,7 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use sekirei_core::board::Board;
@@ -38,6 +39,8 @@ use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
 use trainer::{ConflictMaskLayer, FreezeLayer, LrSchedule, ReplayComponent, Trainer};
+
+static SIDECARE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ---- CLI argument parsing ----
 
@@ -1211,9 +1214,10 @@ where
         )
     })?;
     let temp_path = path.with_file_name(format!(
-        ".{}.tmp-{}",
+        ".{}.tmp-{}-{}",
         file_name.to_string_lossy(),
-        std::process::id()
+        std::process::id(),
+        SIDECARE_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
     ));
     let write_result = (|| -> io::Result<()> {
         let file = File::create(&temp_path)?;

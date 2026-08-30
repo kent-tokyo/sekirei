@@ -2,6 +2,9 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::{BufWriter, Write};
 use std::path::Path;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+static WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Load teacher scores from a JSONL cache file, keeping only entries whose
 /// recorded `label_depth` matches `expected_depth`. A search at a different
@@ -87,7 +90,11 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
 /// byte-identical artifacts across processes.
 /// `entries`: sfen → score_cp mapping; `label_depth` is recorded per line.
 pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> std::io::Result<()> {
-    let tmp_path = path.with_extension("jsonl.tmp");
+    let tmp_path = path.with_extension(format!(
+        "jsonl.tmp-{}-{}",
+        std::process::id(),
+        WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     let write_result = (|| -> std::io::Result<()> {
         let f = fs::File::create(&tmp_path)?;
         let mut w = BufWriter::new(f);
