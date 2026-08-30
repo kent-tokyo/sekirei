@@ -583,10 +583,11 @@ pub fn build_trace_layer_snapshot(
 /// own convention.
 fn cosine_similarity(dot_sum: f64, a_sq_sum: f64, b_sq_sum: f64) -> f32 {
     let denom = (a_sq_sum * b_sq_sum).sqrt();
-    if denom == 0.0 {
+    if denom == 0.0 || !denom.is_finite() || !dot_sum.is_finite() {
         return 0.0;
     }
-    (dot_sum / denom) as f32
+    let result = (dot_sum / denom) as f32;
+    if result.is_finite() { result } else { 0.0 }
 }
 
 /// Builds one layer's `CpWdlLayerTrace` from `--cp-wdl-grad-trace`'s
@@ -642,7 +643,7 @@ pub fn ratio(flags: &[bool]) -> f32 {
 /// Mean and (population) standard deviation from a running sum and
 /// sum-of-squares, e.g. `Trainer::output_sum`/`output_sum_sq`.
 pub fn mean_std(sum: f64, sum_sq: f64, n: u64) -> (f64, f64) {
-    if n == 0 {
+    if n == 0 || !sum.is_finite() || !sum_sq.is_finite() {
         return (0.0, 0.0);
     }
     let n = n as f64;
@@ -841,6 +842,12 @@ mod tests {
     }
 
     #[test]
+    fn mean_std_non_finite_input_is_zero() {
+        assert_eq!(mean_std(f64::NAN, 1.0, 3), (0.0, 0.0));
+        assert_eq!(mean_std(1.0, f64::INFINITY, 3), (0.0, 0.0));
+    }
+
+    #[test]
     fn l2_diff_norm_zero_for_identical_snapshots() {
         let a = [1.0f32, 2.0, 3.0];
         assert_eq!(l2_diff_norm(&a, &a), 0.0);
@@ -857,6 +864,12 @@ mod tests {
     fn cosine_similarity_identical_vectors_is_one() {
         let a = [1.0f32, 2.0, -3.0];
         assert!((vector_cosine_similarity(&a, &a) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn accumulated_cosine_similarity_non_finite_input_is_zero() {
+        assert_eq!(cosine_similarity(f64::NAN, 1.0, 1.0), 0.0);
+        assert_eq!(cosine_similarity(1.0, f64::INFINITY, 1.0), 0.0);
     }
 
     #[test]

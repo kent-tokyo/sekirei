@@ -30,6 +30,8 @@
   silently ignored.
 - Diagnostic percentile calculations now ignore non-finite samples instead
   of panicking during sorting.
+- Diagnostic mean/std and accumulated cosine metrics now return neutral zero
+  values for non-finite inputs instead of propagating `NaN`/`Inf`.
 
 ## [0.3.6] – 2026-08-30
 
