@@ -11,7 +11,7 @@ name = "train"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.6" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.7" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 lineprior = "0.9.0"

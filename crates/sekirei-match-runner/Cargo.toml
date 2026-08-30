@@ -11,5 +11,5 @@ name = "sekirei-match"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.6" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.7" }
 veridict = "0.15.0"

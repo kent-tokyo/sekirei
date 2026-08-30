@@ -7,7 +7,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/kent-tokyo/sekirei"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.6" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.7" }
 rayon = "1"
 
 [dev-dependencies]

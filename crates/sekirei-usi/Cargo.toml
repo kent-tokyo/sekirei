@@ -11,6 +11,6 @@ name = "sekirei"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.6" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.7" }
 rayon = "1"
 lineprior = "0.9.0"
