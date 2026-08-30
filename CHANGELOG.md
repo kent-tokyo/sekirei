@@ -14,6 +14,8 @@
   creating a checkpoint file.
 - Teacher-cache writes now flush the completed temporary file before the
   atomic rename and clean up the temporary file on write or rename failure.
+- Teacher-cache entries are now written in sorted SFEN order for deterministic
+  artifacts and reproducible cache hashes.
 
 ## [0.3.6] – 2026-08-30
 

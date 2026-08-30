@@ -79,13 +79,18 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
 /// truncated -- `fs::File::create` + direct in-place write would instead
 /// truncate `path` immediately, so an interruption could lose every
 /// previously-cached entry, not just fail to add new ones.
+/// Entries are written in sorted SFEN order so identical maps produce
+/// byte-identical artifacts across processes.
 /// `entries`: sfen → score_cp mapping; `label_depth` is recorded per line.
 pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> std::io::Result<()> {
     let tmp_path = path.with_extension("jsonl.tmp");
     let write_result = (|| -> std::io::Result<()> {
         let f = fs::File::create(&tmp_path)?;
         let mut w = BufWriter::new(f);
-        for (sfen, &cp) in entries {
+        let mut sfens: Vec<&String> = entries.keys().collect();
+        sfens.sort_unstable();
+        for sfen in sfens {
+            let cp = entries[sfen];
             writeln!(
                 w,
                 r#"{{"sfen":{},"label_depth":{},"score_cp":{}}}"#,
@@ -199,5 +204,23 @@ mod tests {
             "the intermediate .tmp file must be renamed away, not left behind"
         );
         assert_eq!(load(f.path(), 4), entries);
+    }
+
+    #[test]
+    fn write_is_deterministic_for_identical_maps() {
+        let first = NamedTempFile::new().unwrap();
+        let second = NamedTempFile::new().unwrap();
+        let mut entries = HashMap::new();
+        entries.insert(SFEN_A.to_string(), 48i32);
+        entries.insert(SFEN_B.to_string(), -120i32);
+
+        write(first.path(), &entries, 4).unwrap();
+        write(second.path(), &entries, 4).unwrap();
+
+        assert_eq!(
+            fs::read(first.path()).unwrap(),
+            fs::read(second.path()).unwrap(),
+            "identical cache maps must produce identical artifacts"
+        );
     }
 }
