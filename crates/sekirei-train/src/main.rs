@@ -1242,6 +1242,35 @@ fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
     write_atomic_stream(path, |out| out.write_all(contents))
 }
 
+/// Copy a completed checkpoint into its stable selection path without ever
+/// exposing a partially copied `.best.bin`. The source is already an
+/// atomically-written checkpoint, so only the destination needs a temporary
+/// sibling, flush, and rename.
+fn copy_atomic(source: &Path, destination: &Path) -> io::Result<u64> {
+    let file_name = destination.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "checkpoint destination path must name a file",
+        )
+    })?;
+    let temp_path = destination.with_file_name(format!(
+        ".{}.tmp-{}-{}",
+        file_name.to_string_lossy(),
+        std::process::id(),
+        SIDECARE_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let result = (|| -> io::Result<u64> {
+        let copied = fs::copy(source, &temp_path)?;
+        File::open(&temp_path)?.sync_all()?;
+        fs::rename(&temp_path, destination)?;
+        Ok(copied)
+    })();
+    if result.is_err() {
+        let _ = fs::remove_file(&temp_path);
+    }
+    result
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -2091,7 +2120,7 @@ fn main() {
 
         if let Some(best_ckpt) = &best_valid_checkpoint {
             let best_path = args.output.with_extension("best.bin");
-            match fs::copy(best_ckpt, &best_path) {
+            match copy_atomic(best_ckpt, &best_path) {
                 Ok(_) => eprintln!(
                     "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
                     best_path, best_ckpt
@@ -2636,7 +2665,7 @@ fn main() {
 
     if let Some(best_ckpt) = &best_valid_checkpoint {
         let best_path = args.output.with_extension("best.bin");
-        match fs::copy(best_ckpt, &best_path) {
+        match copy_atomic(best_ckpt, &best_path) {
             Ok(_) => eprintln!(
                 "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
                 best_path, best_ckpt
@@ -2735,6 +2764,29 @@ mod tests {
             !path
                 .with_file_name(format!(".checkpoint.meta.json.tmp-{}", std::process::id()))
                 .exists()
+        );
+    }
+
+    #[test]
+    fn best_checkpoint_copy_is_atomic_and_cleans_up_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("weights.epoch1.bin");
+        let destination = dir.path().join("weights.best.bin");
+        fs::write(&source, b"new checkpoint").unwrap();
+        fs::write(&destination, b"old checkpoint").unwrap();
+
+        assert_eq!(copy_atomic(&source, &destination).unwrap(), 14);
+        assert_eq!(fs::read(&destination).unwrap(), b"new checkpoint");
+        assert_eq!(
+            fs::read_dir(dir.path())
+                .unwrap()
+                .filter_map(Result::ok)
+                .filter(|entry| entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".best.bin.tmp-"))
+                .count(),
+            0
         );
     }
 
