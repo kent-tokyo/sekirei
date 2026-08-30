@@ -2,365 +2,113 @@
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
-[![Release](https://img.shields.io/github/v/release/kent-tokyo/sekirei)](https://github.com/kent-tokyo/sekirei/releases)
 
 [English](README.md)
 
-Sekireiは、投機的並列探索とNNUEスタイル評価を探求するRust製の実験的将棋エンジンです。
-USI/CSA経由で対局可能ですが、棋力・時間制御・評価品質はまだ改善中です。
-
-Rustの所有権モデルを活用することで、アトミクスのみによる安全な並行探索（`unsafe`なし）を探求しています。
+Sekirei は Rust で実装した実験的な将棋エンジンです。USI、CSA/floodgate クライアント、
+USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
+ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
 ## 現在の状態
 
-- USI対応（ShogiGUI 等で利用可能）
-- CSAクライアントでfloodgate接続中（アカウントは `.env` の `FLOODGATE_ACCOUNT` で設定）
-- NNUEスタイル評価対応（重みファイルは同梱なし・CSAデータからの訓練またはマテリアル評価にフォールバック）
-- floodgateレートは計測中（実戦テスト中）
-- crates.io へ公開済み（6 crate全て: `sekirei`, `sekirei-core`, `sekirei-bench`,
-  `sekirei-csa`, `sekirei-match-runner`, `sekirei-train`）。crates.io Trusted
-  Publishing（GitHub OIDC）経由で公開しており、長寿命の公開用tokenはこのrepoに
-  一切保存していません
-- v0.3.x系は探索の正しさ・再現性・配布品質に焦点を当てたリリースラインです
-  （詳細は `CHANGELOG.md`）。**Eloや棋力向上、他エンジンとの比較の主張は
-  一切していません** — 棋力の改善は今後の取り組みです
+- ピュア Rust。コアの探索・評価コードに `unsafe` はありません。
+- USI エンジン: `sekirei`
+- CSA クライアント: `sekirei-csa`
+- 棋力テスト: `sekirei-match`
+- NNUE 訓練: `train`（パッケージ名は `sekirei-train`）
+- NNUE 重みはファイルから読み込み、リポジトリには同梱していません。
 
-## 設計原則
+## 構成
 
-- **コアロジックにおける `unsafe` ゼロ** — 並行処理はすべてRustの型システム・アトミクス・安全なプリミティブで実装
-- **100% Pure Rust** — 探索・評価パスにC++ラッパーやFFIを一切使用しない
-
-## アーキテクチャ
-
-```
-crates/
-  sekirei-core/   — エンジン本体ライブラリ
-    board.rs      — 局面表現 + do_move/undo_move/do_null_move
-    movegen.rs    — 合法手生成（generate_legal_moves, generate_legal_captures）
-    search.rs     — YBW並列アルファ・ベータ + 一般的な探索最適化
-    eval.rs       — NNUE評価（重み未ロード時はマテリアルにフォールバック）
-    nnue.rs       — NNUEアキュムレータ（差分更新・SIMD対応・実行時重みロード）
-    tt.rs         — ロックフリー置換表（XOR-trick・深さ優先置換）
-    speculative.rs — 投機的先読み + RAIIキャンセル
-    policy.rs     — 先読み用軽量手スコアリング
-  sekirei-usi/          — USIサーバー → バイナリ: sekirei
-  sekirei-csa/          — floodgate CSAクライアント → バイナリ: sekirei-csa
-  sekirei-match-runner/ — USI対USI棋力テスト管理 → バイナリ: sekirei-match
-  sekirei-train/        — NNUE訓練パイプライン（CSAパーサー・Adam SGD・重みI/O）
-  sekirei-bench/        — マイクロベンチマーク（手生成・perft・探索・評価）
+```text
+crates/sekirei-core/         局面、合法手生成、探索、置換表、評価
+crates/sekirei-usi/          USI エンジン（sekirei）
+crates/sekirei-csa/          CSA/floodgate クライアント（sekirei-csa）
+crates/sekirei-match-runner/ USI 対 USI 棋力テスト（sekirei-match）
+crates/sekirei-train/        NNUE 訓練（train）
+crates/sekirei-bench/        ベンチマーク
+scripts/                     訓練・棋力テスト用スクリプト
 ```
 
-## 探索機能（現在実装済み）
+コアには alpha-beta/negamax、PVS/YBW 並列探索、反復深化、静止探索、ロックフリー置換表、
+手順序付け・枝刈りの各種ヒューリスティック、任意の投機的探索を実装しています。
+`SpecTopN=0` で投機的探索を無効にできます。
 
-| 技術 | 状態 |
-|------|------|
-| アルファ・ベータ（Negamax） | yes |
-| PVS + YBW並列探索（rayon） | yes |
-| 反復深化 | yes |
-| ロックフリー置換表（深さ優先） | yes |
-| 静止探索 + Delta Pruning | yes |
-| キラームーブ（ply毎に2手） | yes |
-| ヒストリーヒューリスティック | yes |
-| アスピレーションウィンドウ | yes |
-| Late Move Reduction（LMR） | yes |
-| Null Move Pruning（R=3） | yes |
-| Reverse Futility Pruning（depth ≤ 3） | yes |
-| Futility Pruning（depth 1） | yes |
-| Late Move Pruning（depth ≤ 2） | yes |
-| 投機的先読み探索 | yes |
-| NNUE評価 | `cargo run -p sekirei -- weights.bin` で有効化 |
-
-## ロードマップ
-
-| フェーズ | 目標 | 状態 |
-|---------|------|------|
-| 1 | 基盤構築：Bitboard MoveGen・do/undoムーブ・Perft | 完了 |
-| 2 | ロックフリー置換表 & YBW並列探索 | 完了 |
-| 2.5 | 探索最適化（killer・history・LMR・NMP・RFP・futility・LMP） | 完了 |
-| 3 | 投機的エンジン（先読みスポーン・RAIIキャンセル） | 完了 |
-| 4 | NNUE統合（重みI/O・eval配線・訓練パイプライン） | 完了 |
-| 5 | プロトコル & 実戦（CSA/floodgate・マッチ管理） | 進行中 |
-
-## ビルドと実行
+## ビルドとテスト
 
 ```bash
-# crates.io からUSIエンジンバイナリをインストール（ローカルclone不要）
-cargo install sekirei
-
-# 開発ビルド
-cargo build
-
-# 最適化ビルド（.cargo/config.toml 経由で target-cpu=native 適用）
 cargo build --release
-
-# テスト
-cargo test
-
-# ベンチマーク
-cargo bench --bench movegen
-
-# USIエンジン起動（マテリアル評価フォールバック）
-cargo run --release -p sekirei
-
-# USIエンジン起動（NNUE有効）
-cargo run --release -p sekirei -- weights.bin
-
-# floodgate 接続（CSAクライアント）
-cargo run --release -p sekirei-csa -- --user <名前> --password <パスワード> --loop
-
-# 棋力テスト: sekirei vs sekirei（10局・1秒秒読み）
-cargo run --release -p sekirei-match-runner -- \
-  --engine1 ./target/release/sekirei \
-  --engine2 ./target/release/sekirei \
-  --games 10 --byoyomi 1000
-
-# 棋力テスト: sekirei vs 外部エンジン
-cargo run --release -p sekirei-match-runner -- \
-  --engine1 ./target/release/sekirei \
-  --engine2 /path/to/suisho5 \
-  --games 100 --byoyomi 10000
-
-# NNUE訓練（floodgate CSAファイルを別途ダウンロード）
-# データ: http://wdoor.c.u-tokyo.ac.jp/shogi/
-cargo run --release -p sekirei-train -- --games /path/to/csa_dir --output weights.bin --epochs 3
+cargo test --release
+cargo bench --bench movegen -p sekirei-bench
 ```
+
+マテリアル評価で起動:
+
+```bash
+cargo run --release -p sekirei-usi
+```
+
+NNUE 重みを指定して起動:
+
+```bash
+cargo run --release -p sekirei-usi -- /path/to/weights.bin
+```
+
+## USI オプション
+
+`usi` コマンド後に全オプションを表示します。主なものは次の通りです。
+
+- `Hash`, `Threads`, `MoveOverhead`
+- `Ponder`, `MultiPV`
+- `EvalFile`（`isready` 時に読み込み）
+- `SpecTopN`（デフォルト `3`、`0` で無効）
+- `UseBook`, `BookFile`, `BookMaxPly`, `BookMinConfidence`
+
+`SpecTopN > 0` では投機タスクのスケジューリングにより、同一条件でも探索結果が変わる
+場合があります。再現性を優先する比較では、可能な限り `SpecTopN=0` を使用してください。
+
+## CSA / floodgate
+
+```bash
+cargo run --release -p sekirei-csa -- \
+  --user <name> --trip <secret> --game floodgate-300-10F --loop
+```
+
+`FLOODGATE_ACCOUNT` と `FLOODGATE_TRIP` も利用できます。認証情報、棋譜、重み、訓練データを
+コミットしないでください。
+
+## 棋力テスト
+
+```bash
+cargo run --release -p sekirei-match-runner -- \
+  --engine1 ./target/release/sekirei \
+  --engine2 /path/to/other-engine \
+  --games 100 --byoyomi 10000 \
+  --positions data/gate/openings_standard.sfen \
+  --games-per-position 4 --json results/run.json
+```
+
+既存の結果 JSON は `gate` で判定できます。自己対局の Elo は指定したベースラインに対する
+相対値であり、floodgate レーティングではありません。
 
 ## NNUE 訓練
 
-耐久性のある設計メモ(容量崩壊とその修正、validation-split方針、teacher-searchキャッシュ、
-チェックポイントの再現性フィールド)は `docs/training_lessons.md` を、個別の実験記録は
-`docs/experiments/` を参照してください。
-
-### CSA ファイルから（スタンドアロン）
+CSA 対局または抽出済み局面を入力できます。全オプションは次で確認してください。
 
 ```bash
-# 基本: floodgate CSA から訓練（http://wdoor.c.u-tokyo.ac.jp/shogi/ からダウンロード）
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights.bin \
-  --epochs 3 --quiet --min-ply 20 --min-rate 1800 --label-depth 4
-
-# WDL(対局結果)項を教師にブレンドする場合(CSAパスのみ):
-# teacher = λ·eval_teacher + (1-λ)·wdl_target。λ=0.7 はスイープを始める際の
-# 妥当な初期値。中断・タイムアウト・反則負けの対局(GameResult::Unknown)由来の
-# 局面は自動的にeval-onlyにフォールバックします。
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights.bin \
-  --epochs 3 --quiet --min-ply 20 --min-rate 1800 --label-depth 4 --wdl-lambda 0.7
-
-# CSAパスでの設定可能なLRスケジュール + held-out validation。--validation-ratio は
-# ゲーム単位で分割します(リークなし: 1ゲームから抽出した局面は必ず片側に揃う)。
-# cosineは最終epochでこのフロア値まで減衰するため --min-lr が必要です(0まで
-# 減衰するわけではない)。フロアなしのstep-half スケジュールがなぜ早期停止した
-# チェックポイントを解釈しづらくするか、また本コマンドが出力・checkpointの
-# .meta.json に記録するepoch毎の診断値(active/saturation比率、output std、
-# update norm)については docs/training_lessons.md を参照してください。
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights.bin \
-  --epochs 20 --wdl-lambda 0.7 --lr-schedule cosine --min-lr 0.00001 --warmup-epochs 1 \
-  --validation-ratio 0.15 --seed 42
+cargo run --release -p sekirei-train -- --help
 ```
 
-### Quietset を使った安定性フィルタリング
-
-[quietset](https://github.com/kent-tokyo/quietset) は複数の探索深度でのラベル安定性を評価し、ノイズの多い教師ラベルを除外します。
+例:
 
 ```bash
-# 1. 複数深度で観測データを出力
 cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --export observations.jsonl \
-  --depths 2,4,6,8 --quiet --min-ply 20 --min-rate 1800
-
-# 2. 安定度スコアリング
-quietset score observations.jsonl > scored.jsonl
-
-# 3a. 安定局面のみで学習（stability >= 0.85）
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights_keep.bin \
-  --scored scored.jsonl --min-stability 0.85 --epochs 3
-
-# 3b. または stability_score でロスを重み付け（不安定局面の寄与を小さくする）
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights_weighted.bin \
-  --scored scored.jsonl --stability-weighted --epochs 3
+  --games /path/to/csa_dir --output weights.bin --epochs 3
 ```
 
-### shogiesa + quietset 公式パイプライン
-
-[shogiesa](https://github.com/kent-tokyo/shogiesa) が局面の抽出・ラベリングを担当し、
-[quietset](https://github.com/kent-tokyo/quietset) が安定性スコアリングを担当します。
-sekirei-train は `--positions` で positions.jsonl を直接受け取ります（CSA パース不要）。
-
-ワンショットのパイプラインスクリプトで全ステージを実行し、最後に Elo gate を通します：
-
-```bash
-# Tier 1 — クイック（depths 2,4、数時間）
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
-
-# Tier 2 — 標準（depths 2,4,6）
-DEPTHS=2,4,6 bash scripts/train_with_shogiesa_quietset.sh data/csa weights_new.bin data/weights_v007.bin
-
-# Tier 3 — ディープ: 境界局面のみ depth 4,6,8 で再ラベルして再訓練
-# Step 1: 境界局面を高 depth でスコアして別ファイルに保存
-quietset select data/stage3/scored.jsonl --class borderline \
-  | shogiesa label --engine ./target/release/sekirei --depths 4,6,8 \
-  | quietset score --profile game-ai-single-engine \
-  > data/stage3/deep_scored.jsonl
-# Step 2: EXTRA_SCORED でマージしながら再訓練
-EXTRA_SCORED=data/stage3/deep_scored.jsonl \
-DEPTHS=2,4,6 \
-bash scripts/train_with_shogiesa_quietset.sh data/csa weights_deep.bin data/weights_v007.bin
-```
-
-中間ファイルは `data/runs/<タイムスタンプ>/` 以下に保存されます（`RUN_DIR=...` で変更可）。
-各実行後に `manifest.json` が生成され、重みとパラメータが紐付けられます。
-環境変数オーバーライド: `DEPTHS`, `GAMES`, `MIN_PLY`, `MAX_PLY`, `RUN_DIR`, `EXTRA_SCORED`。手動で各ステージを実行する場合：
-
-```bash
-# Stage 1: 局面抽出
-shogiesa extract --input ./data/csa --out data/stage1/positions.jsonl \
-  --min-ply 20 --max-ply 160 --every-n-plies 4 --dedup
-
-# Stage 2: ラベル付け
-shogiesa label --input data/stage1/positions.jsonl \
-  --engine ./target/release/sekirei --depths 2,4 --timeout-ms 10000 \
-  --out data/stage2/observations.jsonl
-
-# Stage 3: 安定性スコアリング
-quietset score data/stage2/observations.jsonl --profile game-ai > data/stage3/scored.jsonl
-
-# 訓練
-cargo run --release -p sekirei-train -- \
-  --positions data/stage1/positions.jsonl \
-  --scored data/stage3/scored.jsonl \
-  --stability-weighted --validation-ratio 0.1 \
-  --checkpoint-dir data/checkpoints \
-  --output data/weights_new.bin
-```
-
-## 棋力回帰テスト
-
-変更が本当に棋力向上につながったかを確認するには、既知のベースラインと対局して Elo gate を通してください。重みの変更は必ず gate を通過してから採用します。
-
-決定的な2つのエンジン同士の `startpos` 限定対局は、局面の多様性が生まれず(TT/スレッド数がどちらも
-揺らぎの源になり得なくなったため)、少数の対局が何度も繰り返されるだけになり得ます — 400「局」でも
-実質40局分程度の統計的検出力しかないことがあります。そのため `strength_regression.sh` はデフォルトで
-`--positions`(`data/gate/openings_standard.sfen`、ヘッダーコメント1行を含む99局面 × `--games-per-position`)による本物の
-序盤多様性を要求します。`startpos` 限定のスモークチェックは `ALLOW_STARTPOS_GATE=1` で引き続き可能
-ですが、これは明示的に「棋力測定ではない」ものとして扱われます。`gate` も多様性が低い実行結果を
-PASS/FAIL と判定することを拒否します(下記の `--min-diversity-ratio` 参照)。
-
-```bash
-# ワンショット回帰（ビルド → data/gate/openings_standard.sfen で実行 → PASS/FAIL/INCONCLUSIVE を出力）
-bash scripts/strength_regression.sh weights_new.bin weights_base.bin
-
-# または既存の result JSON に対して gate を手動実行
-cargo run --release -p sekirei-match-runner -- gate result.json \
-  --pass-elo 20 --pass-los 0.95 --fail-elo -10 --min-diversity-ratio 0.3
-```
-
-フルゲートは実行に時間がかかり、つきっきりで監視するのは現実的でないことがあります。
-`scripts/sprint_gate.sh` は序盤局面群を N 個の短い独立したセッションに局面単位で分割し、
-それぞれ再開可能な形で実行してから、最後に1つの判定可能な結果へ結合します：
-
-```bash
-bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4       # 4スプリント、games-per-position=4
-RUN_ID=my_run bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 4  # my_run を再開
-
-# 逐次検定(SPRT)モード: 各sprint終了ごとに判定を確認し、決着がつき次第
-# 停止します(常にN_SPRINTS全部を実行するのではなく)。
-SPRT=1 bash scripts/sprint_gate.sh weights_new.bin weights_base.bin 20
-```
-
-match runner は対局ごとの結果を `--json` の `<name>.json` と並べて `<name>.jsonl` にも
-保存します。`gate` はこの JSONL を読み込み、[veridict](https://github.com/kent-tokyo/veridict)
-（`--metric elo`）で判定をやり直します。veridict は点推定ではなく**信頼区間**で判定します：
-
-| 判定 | 条件 |
-|------|------|
-| **PASS** | 信頼区間の下限 ≥ pass 閾値（デフォルト +20 elo） |
-| **FAIL** | 信頼区間の上限 ≤ fail 閾値（デフォルト −10 elo） |
-| **INCONCLUSIVE** | 両閾値をまたぐ — 局数を増やして再試験 |
-
-`gate --sprt` は代わりに逐次検定を実行します(H0: elo≤`elo0` vs H1: elo≥`elo1`、
-デフォルトは0/20、alpha=beta=デフォルト0.05): `alpha`/`beta` は点推定への閾値
-ではなく検定自体が保証する誤り率のため、固定局数に達する前に決定的な
-PASS/FAILへ到達できます — PASSは「その誤検出率でH1が採択された」ことを
-意味し、「`elo1` 以上であると証明された」わけではありません。`SPRT=1`の
-`MAX_GAMES`(デフォルト1600)環境変数はN_SPRINTSとは独立した計算予算の上限で、
-これが無いと`elo0`と`elo1`の間に真の効果がある場合に無期限に実行され続け
-得ます。
-
-これは単純な点推定判定より厳格です：信頼区間が 0 をまたいでいる限り、たまたま良い点推定が
-出ても PASS にはならず INCONCLUSIVE のままです。Elo/LOS の点推定（同じ対局データから算出）は
-引き続き人間向けレポート行として表示され、result JSON の `elo_diff`、`elo_ci_low`、
-`elo_ci_high`、`los` も従来通り含まれます。`.jsonl` が存在しない古い result JSON
-（この変更より前に生成されたもの）は、従来の点推定 + LOS 判定にフォールバックし、
-その旨が gate の出力に明示されます。
-
-自己対局の Elo は、その対局における `engine2` に対する相対値でしかなく、floodgate のような
-外部レーティングプールとは本来無関係です。ベースラインの絶対レーティングについて何らかの見込みが
-あるなら、`--anchor <rating>` で判定に使われた Elo 効果量を大まかな推定値に変換できます:
-`est_rating ≈ anchor + effect`。あくまで方向性の目安であり実測ではありません（自己対局の Elo と
-レーティングプールの Elo は同じスケールではないため）。デフォルト値は無く、省略時の出力は従来通り
-変わりません。
-
-```bash
-cargo run --release -p sekirei-match-runner -- gate result.json --anchor 1850
-# report: elo_diff=+82.6  los=96.9%  games=60
-# veridict: metric=elo  effect=+82.6 elo  95% CI=[+41.0, +124.2]  CI lower bound ... meets the pass threshold ...
-# PASS  est_rating≈1933 (anchor=1850)
-```
-
-## ベンチマーク
-
-Apple M4 Pro での実測値（`cargo build --release`、`target-cpu=native`）。
-
-| 指標 | 値 |
-|------|---|
-| 合法手生成（初期局面） | ~5.5 µs / 呼び出し |
-| NNUE 評価（初期局面） | ~18.7 ns / 呼び出し |
-| 探索 depth 4（初期局面） | ~3.6 ms |
-| 探索 NPS（NNUE、10 秒秒読み） | ~1.1M nps、depth 13 |
-| テストスイート | 230 テスト全通過 |
-
-floodgate: 実戦テスト中（レートは計測中）。
-
-## 現在の制限事項
-
-- NNUE 重みファイルは同梱なし。floodgate CSA データから訓練するかマテリアル評価にフォールバック
-- `setoption EvalFile` 対応済み。ゲーム中の重み再ロードにはエンジン再起動が必要
-- Pondering 対応済み（`go ponder` / `ponderhit`）。`setoption name Ponder value true` で有効化
-- MultiPV 対応済み（`setoption name MultiPV value N`）
-- 投機的探索の候補数は `setoption name SpecTopN value N` で調整・無効化可能
-  （デフォルト3、`0`で投機探索を完全に無効化）。注意: `SpecTopN>0`での探索は
-  同一binaryを自分自身に対して実行しても再現しない場合がある（並行投機タスクの
-  スケジューリング由来）。`SpecTopN=0`は決定的
-
-## 名前の由来
-
-**SEKIREI** — *Shogi Engine for Kifu-Informed Reasoning and Efficient Inference*
-
-セキレイ（鶺鴒）は、ハクセキレイなどに代表される小型の鳥で、
-尾をリズミカルに上下に振りながら素早く動き回ることで知られています。
-
-小さく俊敏で、常に動き続ける——
-投機的先読みで早めに手を絞り込み、探索しながら修正していく
-このエンジンのスタイルと重なります。
+訓練データ、チェックポイント、重み、対局結果、実験ログはローカル生成物として公開リポジトリ
+から除外しています。
 
 ## ライセンス
 
-以下のいずれかのライセンスの下に提供されます（お好みで選択可）。
-
-- Apache License, Version 2.0
-  ([LICENSE-APACHE](LICENSE-APACHE) または https://www.apache.org/licenses/LICENSE-2.0)
-- MIT license
-  ([LICENSE-MIT](LICENSE-MIT) または https://opensource.org/licenses/MIT)
-
-## コントリビューション
-
-特段の申告がない限り、本プロジェクトに意図的に提出されたコントリビューションは
-上記のデュアルライセンス条件の下でライセンスされます。
-
-Sekirei はピュア Rust のオリジナル将棋エンジンです。GPL ライセンスのコードは
-含みません。アルゴリズムは先行研究から学びますが、実装はクリーンルームで行い、
-プロジェクトのパーミッシブライセンスと互換性を維持します。
+Apache License, Version 2.0 または MIT license のいずれかを選択できます。

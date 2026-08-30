@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.6] – 2026-08-30
+
+- Aligned all workspace crate versions and `Cargo.lock` with the `v0.3.6` release.
+- Updated the public documentation and release metadata for the current distribution.
+
 ## [0.3.1] – 2026-08-10
 
 This is the first published release since 0.2.4. A
@@ -94,8 +99,7 @@ here. New since that tag:
   per-neuron per-position tracing, a shuffle-seed control (found data
   order — not initialization — materially affects whether collapsed L2
   neurons recover), CP/WDL gradient decomposition, and configurable WDL
-  target scale. All opt-in and off by default; findings recorded under
-  `docs/experiments/`.
+  target scale. All opt-in and off by default.
 - A "teacher-conflict masking" training strategy (halting the FT/L2 update
   wherever the CP and WDL teachers disagree) was implemented and evaluated
   in a paired gate against a rate-matched control. **Rejected, not
@@ -230,10 +234,8 @@ _Tag created, but no GitHub Release was published from it._
 - `sekirei-train --wdl-lambda <f>` (`--games`/CSA path only) — blends the game's own result into the training teacher: `teacher = λ·eval_teacher + (1-λ)·wdl_target`. Positions from `GameResult::Unknown` games (aborted, timed out, illegal move, ...) fall back to eval-only, since there's no result signal to mix in for those.
 - `csa.rs`: `GameResult` now recognizes `%SENNICHITE` (repetition → draw) and `%KACHI` (27-point declaration → win for the side that just moved) — previously both silently fell into `Unknown` (a combined ~13.9k games, ~3.9% of the current floodgate corpus).
 - `scripts/cleanup_runs.sh` — prunes `data/runs/*/stage1`-`stage3` intermediates (raw extracts/observations/scored jsonl, often multi-GB) once a run has a `manifest.json` and is older than `MIN_AGE_DAYS` (default 3); skips runs referenced by name in `scripts/*.sh` (live cross-run dependencies) and runs with no manifest (still running or ad-hoc). Dry run by default, `APPLY=1` to delete. Wired into `redo_quietset_bc.sh`/`train_with_loss_mining.sh`/`train_with_shogiesa_quietset.sh` so old runs get pruned automatically each time a new one starts.
-- `sekirei-train --grad-clip-norm <f>` (global) and independent per-layer `--ft-clip-norm`/`--l2-clip-norm`/`--out-clip-norm` — gradient-norm clipping, each layer scaled against its own gradient norm only when a per-layer threshold is set. All optional, default unset/disabled, no auto-enable. Investigated as a fix for output-layer scale runaway and an epoch-1 output collapse; **not adopted** — neither global nor output-only clipping improved either failure mode, and FT's gradient tail being measurably trimmed didn't translate into better generalization either way. Full writeup: `docs/experiments/global_gradient_clipping.md`.
-- `sekirei-train --l2-bias-init <f>` — tunable L2 layer bias at initialization (default `0.5`, matching prior hardcoded behavior exactly when omitted). Investigated as a fix for the same epoch-1 collapse after warmup ruled out update magnitude as the cause; eliminates dead-at-init L2 neurons cleanly (0% in 3/3 seeds tested) but **not adopted** — real training's epoch-1 update relocates the collapse to the opposite ClippedReLU wall (saturation) rather than resolving it. Full writeup: `docs/experiments/l2_bias_init.md`.
-- `docs/experiments/output_warmup.md` — `--warmup-epochs` tested against the same epoch-1 collapse; **not adopted** (dead-neuron count is completely insensitive to a 2× change in the first epoch's LR).
-- `docs/training_lessons.md` and `docs/experiments/` — durable NNUE-training design notes and a running record of single-variable training experiments (promoted and rejected alike), linked from the README.
+- `sekirei-train --grad-clip-norm <f>` (global) and independent per-layer `--ft-clip-norm`/`--l2-clip-norm`/`--out-clip-norm` — optional gradient-norm clipping controls.
+- `sekirei-train --l2-bias-init <f>` — tunable L2 layer bias at initialization (default `0.5`).
 - `scripts/gate_dashboard.py`: embedded review panels (training-pipeline, individual gate result, project-wide trend) with deterministic Python-computed numbers/verdicts and an optional, strictly descriptive LLM narrative (never allowed to originate a number or override a verdict). Three distinct, deliberately non-interchangeable verdict vocabularies — gate: `PASS`/`FAIL`/`INCONCLUSIVE`; pipeline: `HEALTHY`/`WARNING`/`INSUFFICIENT_DATA`/`INVALID`; project trend: `IMPROVING`/`MIXED`/`FLAT`/`REGRESSING`/`INSUFFICIENT_EVIDENCE` with an explicit confidence level and positive/negative evidence lists, never a bare pass/fail — so a numerically healthy training run is never conflated with a playing-strength claim.
 
 ### Fixed
