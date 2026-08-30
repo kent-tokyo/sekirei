@@ -87,40 +87,47 @@ fn json_escape(value: &str) -> String {
     escaped
 }
 
-fn print_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) {
+fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String {
+    use std::fmt::Write;
+
     let min = scores.iter().copied().min().unwrap_or(0);
     let max = scores.iter().copied().max().unwrap_or(0);
     let range = i64::from(max) - i64::from(min);
-    print!(
+    let mut output = format!(
         "{{\"weights\":\"{}\",\"probes\":[",
         json_escape(&weights_path.display().to_string())
     );
     for (index, ((name, sfen), score)) in probes.iter().zip(scores).enumerate() {
         if index > 0 {
-            print!(",");
+            output.push(',');
         }
-        print!(
+        write!(
+            output,
             "{{\"name\":\"{}\",\"score_cp\":{},\"sfen\":\"{}\"}}",
             json_escape(name),
             score,
             json_escape(sfen)
-        );
+        )
+        .unwrap();
     }
-    print!("],\"score_range_cp\":{}", range);
+    write!(output, "],\"score_range_cp\":{}", range).unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
-        print!(
+        write!(
+            output,
             ",\"delta_reference\":\"{}\",\"deltas_cp\":[",
             json_escape(name)
-        );
+        )
+        .unwrap();
         for (index, score) in scores.iter().skip(1).enumerate() {
             if index > 0 {
-                print!(",");
+                output.push(',');
             }
-            print!("{}", i64::from(*score) - i64::from(reference));
+            write!(output, "{}", i64::from(*score) - i64::from(reference)).unwrap();
         }
-        print!("]");
+        output.push(']');
     }
-    println!("}}");
+    output.push('}');
+    output
 }
 
 fn main() -> Result<(), String> {
@@ -152,7 +159,7 @@ fn main() -> Result<(), String> {
     }
 
     if json {
-        print_json(&weights_path, &sfens, &scores);
+        println!("{}", render_json(&weights_path, &sfens, &scores));
         return Ok(());
     }
 
@@ -221,5 +228,20 @@ mod tests {
     #[test]
     fn json_escape_quotes_backslashes_and_controls() {
         assert_eq!(json_escape("a\"b\\c\n"), "a\\\"b\\\\c\\n");
+    }
+
+    #[test]
+    fn json_render_contains_scores_range_and_reference_deltas() {
+        let probes = vec![
+            ("first".to_string(), "sfen-1".to_string()),
+            ("second".to_string(), "sfen-2".to_string()),
+        ];
+        let output = render_json(Path::new("weights.bin"), &probes, &[10, -5]);
+        assert!(output.starts_with("{\"weights\":\"weights.bin\""));
+        assert!(output.contains("\"score_cp\":10"));
+        assert!(output.contains("\"score_cp\":-5"));
+        assert!(output.contains("\"score_range_cp\":15"));
+        assert!(output.contains("\"delta_reference\":\"first\",\"deltas_cp\":[-15]"));
+        assert!(output.ends_with('}'));
     }
 }

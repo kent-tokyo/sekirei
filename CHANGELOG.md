@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.14] – 2026-08-30
+
+- Added regression coverage for `nnue_probe` JSON rendering, including score
+  ranges, reference deltas, and escaped string values.
+
 ## [0.3.13] – 2026-08-30
 
 - Added machine-readable JSON output to `nnue_probe` for automated evaluator
