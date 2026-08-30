@@ -335,7 +335,31 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
     }
     data.extend_from_slice(&w.out_bias.to_le_bytes());
 
-    std::fs::write(path, &data)
+    // Write beside the destination and rename only after the complete file is
+    // durable in the filesystem namespace. A killed trainer must not leave a
+    // truncated artifact at the path consumed by the engine.
+    let file_name = path.file_name().ok_or_else(|| {
+        Error::new(
+            ErrorKind::InvalidInput,
+            "NNUE weight output path must name a file",
+        )
+    })?;
+    let temp_name = format!(
+        ".{}.tmp-{}",
+        file_name.to_string_lossy(),
+        std::process::id()
+    );
+    let temp_path = path.with_file_name(temp_name);
+
+    if let Err(error) = std::fs::write(&temp_path, &data) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    if let Err(error) = std::fs::rename(&temp_path, path) {
+        let _ = std::fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    Ok(())
 }
 
 // ---- Feature index ----
@@ -597,5 +621,30 @@ mod tests {
         };
         assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert!(error.to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn save_weights_atomically_replaces_existing_file() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_atomic_{}.bin",
+            std::process::id()
+        ));
+        let weights = NnueWeights::default_lcg();
+        save_weights(&weights, &path).expect("failed to write initial weights");
+        save_weights(&weights, &path).expect("failed to replace weights");
+
+        let loaded = read_weights(&path).expect("atomically written weights must load");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(loaded.ft_bias, weights.ft_bias);
+        assert_eq!(loaded.out_bias, weights.out_bias);
+        assert!(
+            !path
+                .with_file_name(format!(
+                    ".{}.tmp-{}",
+                    path.file_name().unwrap().to_string_lossy(),
+                    std::process::id()
+                ))
+                .exists()
+        );
     }
 }

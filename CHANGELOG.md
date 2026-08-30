@@ -6,6 +6,8 @@
   silently accepting a malformed or incompatible artifact.
 - NNUE weight loading now rejects `NaN` and infinite floating-point values
   before they can enter evaluation.
+- NNUE weight saving now writes through a same-directory temporary file and
+  atomic rename, preventing interrupted saves from leaving truncated artifacts.
 
 ## [0.3.6] – 2026-08-30
 
