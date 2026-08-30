@@ -750,6 +750,9 @@ pub fn percentiles(values: &[f32], qs: &[f32]) -> Vec<f32> {
 /// `o`, the norm over the `rows`-length column `l2[.., o]` of a flat
 /// `rows` × `cols` row-major matrix (matches `TrainWeights::l2`'s layout).
 pub fn l2_row_weight_norm_per_neuron(l2: &[f32], rows: usize, cols: usize) -> Vec<f32> {
+    if rows.checked_mul(cols) != Some(l2.len()) {
+        return vec![0.0; cols];
+    }
     (0..cols)
         .map(|o| {
             let result = (0..rows)
@@ -1041,6 +1044,14 @@ mod tests {
     fn weight_norms_non_finite_input_are_zero() {
         assert_eq!(l2_row_weight_norm_per_neuron(&[f32::NAN], 1, 1), vec![0.0]);
         assert_eq!(output_weight_norm(&[f32::INFINITY]), 0.0);
+    }
+
+    #[test]
+    fn l2_row_weight_norm_length_mismatch_is_zero_filled() {
+        assert_eq!(
+            l2_row_weight_norm_per_neuron(&[1.0, 2.0], 1, 3),
+            vec![0.0, 0.0, 0.0]
+        );
     }
 
     #[test]

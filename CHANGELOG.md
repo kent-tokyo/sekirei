@@ -45,6 +45,8 @@
   layer and bias array.
 - Atomic NNUE, teacher-cache, and training-sidecar writes now use per-process
   unique temporary names, avoiding collisions between concurrent saves.
+- L2 diagnostic norm helpers now reject malformed matrix shapes without
+  panicking or indexing beyond the provided data.
 - Added lightweight material-evaluation probes for start-position neutrality,
   hand-piece value, and side-to-move sign handling.
 - Extended the material probes to cover on-board piece value and side-to-move
