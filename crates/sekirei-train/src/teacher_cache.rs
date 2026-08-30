@@ -82,7 +82,7 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
 /// `entries`: sfen → score_cp mapping; `label_depth` is recorded per line.
 pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> std::io::Result<()> {
     let tmp_path = path.with_extension("jsonl.tmp");
-    {
+    let write_result = (|| -> std::io::Result<()> {
         let f = fs::File::create(&tmp_path)?;
         let mut w = BufWriter::new(f);
         for (sfen, &cp) in entries {
@@ -95,8 +95,17 @@ pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> s
             )?;
         }
         w.flush()?;
+        let file = w.into_inner().map_err(|error| error.into_error())?;
+        file.sync_all()
+    })();
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(error);
     }
-    fs::rename(&tmp_path, path)?;
+    if let Err(error) = fs::rename(&tmp_path, path) {
+        let _ = fs::remove_file(&tmp_path);
+        return Err(error);
+    }
     Ok(())
 }
 

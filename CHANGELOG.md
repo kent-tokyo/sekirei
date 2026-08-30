@@ -12,6 +12,8 @@
   completed save is flushed before it becomes visible at the final path.
 - NNUE weight saving now rejects non-finite floating-point values before
   creating a checkpoint file.
+- Teacher-cache writes now flush the completed temporary file before the
+  atomic rename and clean up the temporary file on write or rename failure.
 
 ## [0.3.6] – 2026-08-30
 
