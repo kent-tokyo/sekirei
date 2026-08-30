@@ -22,6 +22,8 @@
   atomic-rename path as weight checkpoints.
 - Diagnostic trace sidecars now use atomic writes as well, preventing partial
   JSON/JSONL artifacts after an interrupted training run.
+- Checkpoint metadata serialization errors are now returned cleanly instead of
+  panicking the trainer.
 
 ## [0.3.6] – 2026-08-30
 

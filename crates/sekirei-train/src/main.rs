@@ -1494,10 +1494,9 @@ fn save_checkpoint_meta(
         "valid_output_max": valid_output_max,
         "valid_output_range": valid_output_range,
     });
-    write_atomic(
-        path,
-        serde_json::to_string_pretty(&meta).unwrap().as_bytes(),
-    )
+    let json = serde_json::to_vec_pretty(&meta)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    write_atomic(path, &json)
 }
 
 /// Partitions `0..n_games` into (train_idxs, valid_idxs) by hashing each
