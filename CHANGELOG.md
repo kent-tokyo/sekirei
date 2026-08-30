@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.12] – 2026-08-30
+
+- Added focused argument-parsing tests for `nnue_probe`, covering default
+  probe names, custom SFEN ordering, and malformed options.
+
 ## [0.3.11] – 2026-08-30
 
 - Improved `nnue_probe` with named default probes and score deltas from the
