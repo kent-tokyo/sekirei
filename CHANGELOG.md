@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.3.9] – 2026-08-30
+
+- Added side-effect-free NNUE checkpoint evaluation via explicit weight
+  instances, so diagnostics and candidate comparisons do not depend on the
+  process-global `EvalFile` load order.
+- Added a regression test proving explicit evaluation preserves the board and
+  incremental accumulator state.
+
 ## [0.3.8] – 2026-08-30
 
 - Hardened NNUE reload and search-abort result attribution.

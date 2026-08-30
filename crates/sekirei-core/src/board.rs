@@ -5,7 +5,7 @@ use crate::bitboard::Bitboard;
 use crate::color::Color;
 use crate::hand::Hand;
 use crate::mv::{Move, MoveToken};
-use crate::nnue::NnueAcc;
+use crate::nnue::{NnueAcc, NnueWeights};
 use crate::piece::{Piece, PieceKind};
 use crate::square::Square;
 use crate::zobrist;
@@ -289,6 +289,37 @@ impl Board {
         };
         let hand_counts = hand_counts_array(&self.hand);
         self.acc.refresh(&snapshot, &hand_counts);
+    }
+
+    /// Evaluate this position with an explicitly supplied NNUE checkpoint.
+    ///
+    /// The board's normal incremental accumulator is intentionally left
+    /// untouched.  This gives diagnostics and candidate comparisons an
+    /// isolated, one-shot path that does not depend on the process-global
+    /// `nnue::load_weights()` singleton or on load order.
+    pub fn evaluate_with_weights(&self, weights: &NnueWeights) -> i32 {
+        let mut snapshot = [None; 81];
+        for (i, cell) in snapshot.iter_mut().enumerate() {
+            *cell = self.mailbox[i].map(|p| (p.kind, p.color));
+        }
+        let hand_kinds = [
+            PieceKind::Fu,
+            PieceKind::Kyou,
+            PieceKind::Kei,
+            PieceKind::Gin,
+            PieceKind::Kin,
+            PieceKind::Kaku,
+            PieceKind::Hisha,
+        ];
+        let mut hand_counts = [[0u8; 7]; 2];
+        for color in [Color::Black, Color::White] {
+            for (index, &kind) in hand_kinds.iter().enumerate() {
+                hand_counts[color.index()][index] = self.hand[color.index()].get(kind);
+            }
+        }
+        let mut acc = NnueAcc::new_with(weights);
+        acc.refresh_with(weights, &snapshot, &hand_counts);
+        acc.evaluate_with(weights, self.side_to_move)
     }
 
     // ---- Starting position ----

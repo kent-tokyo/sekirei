@@ -406,16 +406,43 @@ impl NnueAcc {
         }
     }
 
+    /// Initialize from an explicitly supplied weight set.
+    ///
+    /// This is the side-effect-free counterpart to [`NnueAcc::new`].  It is
+    /// used by diagnostic and candidate-comparison callers that loaded a
+    /// checkpoint with [`read_weights`] and must not depend on the process
+    /// global `WEIGHTS` singleton.
+    pub fn new_with(weights: &NnueWeights) -> Self {
+        NnueAcc {
+            values: [weights.ft_bias; 2],
+        }
+    }
+
     /// Full recompute from a board mailbox + hand counts.
     /// `hand[color_idx][kind_idx]` = count of that piece in hand.
     pub fn refresh(&mut self, mailbox: &[Option<(PieceKind, Color)>; 81], hand: &[[u8; 7]; 2]) {
-        self.values = [weights().ft_bias; 2];
+        self.refresh_with(weights(), mailbox, hand);
+    }
+
+    /// Full recompute using an explicitly supplied weight set.
+    ///
+    /// Unlike [`NnueAcc::refresh`], this never reads the process-global
+    /// weights.  Incremental updates after this refresh still require the
+    /// board's active global weights; use this method for one-shot,
+    /// side-effect-free evaluation of a checkpoint.
+    pub fn refresh_with(
+        &mut self,
+        weights: &NnueWeights,
+        mailbox: &[Option<(PieceKind, Color)>; 81],
+        hand: &[[u8; 7]; 2],
+    ) {
+        self.values = [weights.ft_bias; 2];
         for (i, cell) in mailbox.iter().enumerate() {
             if let Some((kind, color)) = cell {
                 let sq = Square::from_index(i as u8);
                 for p in [Color::Black, Color::White] {
                     let feat = feature_index(sq, *kind, *color, p);
-                    self.add_col(p.index(), feat);
+                    self.add_col_with(weights, p.index(), feat);
                 }
             }
         }
@@ -425,7 +452,13 @@ impl NnueAcc {
             for ki in 0..7usize {
                 let kind = PieceKind::from_u8(ki as u8).unwrap();
                 for n in 1..=hand[ci][ki] {
-                    self.add_hand(kind, n, color);
+                    for p in [Color::Black, Color::White] {
+                        self.add_col_with(
+                            weights,
+                            p.index(),
+                            hand_feature_index(kind, n, color, p),
+                        );
+                    }
                 }
             }
         }
@@ -476,7 +509,12 @@ impl NnueAcc {
     /// Evaluate the position; positive = good for `stm`.
     /// FT ClippedReLU → L2 (f32) → ClippedReLU → output → centipawn score.
     pub fn evaluate(&self, stm: Color) -> i32 {
-        let w = weights();
+        self.evaluate_with(weights(), stm)
+    }
+
+    /// Evaluate with an explicitly supplied weight set, without touching the
+    /// process-global loader state.
+    pub fn evaluate_with(&self, w: &NnueWeights, stm: Color) -> i32 {
         let us = stm.index();
         let them = 1 - us;
 
@@ -519,7 +557,12 @@ impl NnueAcc {
     /// acc[persp] += weights().ft[feat]  — LLVM emits VPADDW (AVX2)
     #[inline]
     fn add_col(&mut self, persp: usize, feat: usize) {
-        let w = &weights().ft[feat];
+        self.add_col_with(weights(), persp, feat);
+    }
+
+    #[inline]
+    fn add_col_with(&mut self, weights: &NnueWeights, persp: usize, feat: usize) {
+        let w = &weights.ft[feat];
         let a = &mut self.values[persp];
         for i in 0..L1 {
             a[i] = a[i].saturating_add(w[i]);

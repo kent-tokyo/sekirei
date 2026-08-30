@@ -214,6 +214,26 @@ mod tests {
         }
     }
 
+    /// Explicit checkpoint evaluation must not depend on the process-global
+    /// NNUE loader, and must leave the board's incremental state untouched.
+    #[test]
+    fn explicit_nnue_evaluation_is_isolated() {
+        let board = Board::startpos();
+        let mut candidate = nnue::NnueWeights::default_lcg();
+        let before = board.hash();
+        let baseline = eval::evaluate_with_weights(&board, &candidate);
+
+        // A 64-centipawn change in the output bias is exactly one score unit
+        // after the evaluator's final /64 quantisation.
+        candidate.out_bias += 64.0;
+        assert_eq!(
+            eval::evaluate_with_weights(&board, &candidate),
+            baseline + 1
+        );
+        assert_eq!(board.hash(), before);
+        assert_eq!(board.acc, fresh_acc(&board));
+    }
+
     /// Capture: the captured piece must disappear from both perspectives.
     #[test]
     fn nnue_acc_capture_removes_victim() {

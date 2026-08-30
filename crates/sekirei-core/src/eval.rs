@@ -3,6 +3,7 @@
 //! Scores are in centipawns from the perspective of the side to move (negamax convention).
 
 use crate::board::Board;
+use crate::nnue::NnueWeights;
 use crate::piece::PieceKind;
 
 /// Approximate piece values in centipawns (standard shogi heuristics)
@@ -59,6 +60,17 @@ pub fn evaluate(board: &Board) -> i32 {
     } else {
         material_score(board)
     }
+}
+
+/// Evaluate a position with an explicitly supplied NNUE checkpoint.
+///
+/// This is intended for diagnostics and candidate comparisons. It rebuilds a
+/// private accumulator from the position and does not alter the board or the
+/// process-global `EvalFile` state. Unlike [`evaluate`], it always uses NNUE;
+/// callers should load and validate the checkpoint with
+/// [`crate::nnue::read_weights`] first.
+pub fn evaluate_with_weights(board: &Board, weights: &NnueWeights) -> i32 {
+    board.evaluate_with_weights(weights)
 }
 
 fn material_score(board: &Board) -> i32 {
