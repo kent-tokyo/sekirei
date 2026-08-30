@@ -26,6 +26,8 @@
   panicking the trainer.
 - Opening-book and dataset-export outputs now use flushed atomic writes,
   preventing interrupted runs from leaving partial artifacts.
+- Book and dataset-export write errors are now propagated instead of being
+  silently ignored.
 
 ## [0.3.6] – 2026-08-30
 

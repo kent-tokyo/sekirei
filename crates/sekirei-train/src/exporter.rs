@@ -1,4 +1,4 @@
-use std::io::Write;
+use std::io::{self, Write};
 
 use sekirei_core::{
     board::Board,
@@ -19,7 +19,7 @@ pub fn export_game<W: Write>(
     depths: &[u32],
     label_threshold_cp: i32,
     out: &mut W,
-) {
+) -> io::Result<()> {
     let searcher = Searcher::new(Tt::new(4));
     let mut board = Board::startpos();
 
@@ -52,7 +52,7 @@ pub fn export_game<W: Write>(
             } else {
                 "equal"
             };
-            let _ = writeln!(
+            writeln!(
                 out,
                 r#"{{"sample_id":{},"label":"{}","score":{:.4},"evaluator_id":"sekirei-search","budget":{},"model_id":"{}"}}"#,
                 json_string(&sfen),
@@ -60,11 +60,12 @@ pub fn export_game<W: Write>(
                 score,
                 depth,
                 model_id
-            );
+            )?;
         }
 
         board.do_move(mv);
     }
+    Ok(())
 }
 
 fn json_string(s: &str) -> String {

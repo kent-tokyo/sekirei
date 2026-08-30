@@ -14,7 +14,7 @@
 //! opponent deviates, so the eval still needs to carry its own weight past
 //! the book's coverage.
 
-use std::io::Write;
+use std::io::{self, Write};
 
 use lineprior::{BuildConfig, Observation, Outcome};
 use sekirei_core::board::Board;
@@ -28,7 +28,12 @@ use crate::csa::{CsaGame, GameResult};
 /// ranking. Games are assumed already rating-filtered by the caller (reuses
 /// `--min-rate`, same as `--export` mode, rather than adding a separate
 /// book-specific flag).
-pub fn build_book(games: &[CsaGame], max_ply: usize, min_count: u64, out: &mut impl Write) {
+pub fn build_book(
+    games: &[CsaGame],
+    max_ply: usize,
+    min_count: u64,
+    out: &mut impl Write,
+) -> io::Result<()> {
     let mut observations = Vec::new();
 
     for (game_idx, game) in games.iter().enumerate() {
@@ -81,16 +86,17 @@ pub fn build_book(games: &[CsaGame], max_ply: usize, min_count: u64, out: &mut i
         Ok(b) => b,
         Err(e) => {
             eprintln!("book: lineprior build failed: {e}");
-            return;
+            return Err(io::Error::other(e.to_string()));
         }
     };
 
     let kept = book.entries.len();
     if let Err(e) = lineprior::save_prior_book(&book, &mut *out) {
         eprintln!("book: failed to write prior book: {e}");
-        return;
+        return Err(io::Error::other(e.to_string()));
     }
     eprintln!(
         "book: {kept} positions kept (of {seen} observations, min_count={min_count}, max_ply={max_ply})"
     );
+    Ok(())
 }

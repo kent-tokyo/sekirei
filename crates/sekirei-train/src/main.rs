@@ -2145,8 +2145,7 @@ fn main() {
             book_path, args.book_max_ply, args.book_min_count
         );
         if let Err(e) = write_atomic_stream(book_path, |out| {
-            book::build_book(&games, args.book_max_ply, args.book_min_count, out);
-            Ok(())
+            book::build_book(&games, args.book_max_ply, args.book_min_count, out)
         }) {
             eprintln!("Cannot write book file: {e}");
             std::process::exit(1);
@@ -2168,7 +2167,7 @@ fn main() {
                     &args.depths,
                     args.label_threshold_cp,
                     out,
-                );
+                )?;
             }
             Ok(())
         }) {
