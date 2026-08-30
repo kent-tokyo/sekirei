@@ -35,6 +35,8 @@
 - Pearson and vector-cosine diagnostics now apply the same finite-value guard.
 - Diagnostic weight-difference and weight-norm calculations now return zero
   for non-finite results instead of poisoning checkpoint metadata.
+- Diagnostic vector and layer norm calculations now apply the same finite
+  result guard.
 
 ## [0.3.6] – 2026-08-30
 
