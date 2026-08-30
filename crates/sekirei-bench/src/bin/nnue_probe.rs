@@ -93,6 +93,7 @@ fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String 
     let min = scores.iter().copied().min().unwrap_or(0);
     let max = scores.iter().copied().max().unwrap_or(0);
     let range = i64::from(max) - i64::from(min);
+    let (mean, variance) = score_moments(scores);
     let mut output = format!(
         "{{\"weights\":\"{}\",\"probes\":[",
         json_escape(&weights_path.display().to_string())
@@ -110,7 +111,12 @@ fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String 
         )
         .unwrap();
     }
-    write!(output, "],\"score_range_cp\":{}", range).unwrap();
+    write!(
+        output,
+        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{}",
+        range, mean, variance
+    )
+    .unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
         write!(
             output,
@@ -128,6 +134,22 @@ fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String 
     }
     output.push('}');
     output
+}
+
+fn score_moments(scores: &[i32]) -> (f64, f64) {
+    if scores.is_empty() {
+        return (0.0, 0.0);
+    }
+    let mean = scores.iter().map(|&score| f64::from(score)).sum::<f64>() / scores.len() as f64;
+    let variance = scores
+        .iter()
+        .map(|&score| {
+            let delta = f64::from(score) - mean;
+            delta * delta
+        })
+        .sum::<f64>()
+        / scores.len() as f64;
+    (mean, variance)
 }
 
 fn main() -> Result<(), String> {
@@ -165,7 +187,10 @@ fn main() -> Result<(), String> {
 
     let min = scores.iter().copied().min().unwrap_or(0);
     let max = scores.iter().copied().max().unwrap_or(0);
+    let (mean, variance) = score_moments(&scores);
     println!("score_range_cp: {}", max - min);
+    println!("score_mean_cp: {mean:.3}");
+    println!("score_variance_cp2: {variance:.3}");
     if let Some(&reference) = scores.first() {
         for score in scores.iter().skip(1) {
             println!(
@@ -241,7 +266,14 @@ mod tests {
         assert!(output.contains("\"score_cp\":10"));
         assert!(output.contains("\"score_cp\":-5"));
         assert!(output.contains("\"score_range_cp\":15"));
+        assert!(output.contains("\"score_mean_cp\":2.5"));
+        assert!(output.contains("\"score_variance_cp2\":56.25"));
         assert!(output.contains("\"delta_reference\":\"first\",\"deltas_cp\":[-15]"));
         assert!(output.ends_with('}'));
+    }
+
+    #[test]
+    fn empty_score_moments_are_zero() {
+        assert_eq!(score_moments(&[]), (0.0, 0.0));
     }
 }

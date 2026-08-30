@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.16] – 2026-08-30
+
+- Added score mean and variance to `nnue_probe` diagnostics for detecting
+  constant-output checkpoints cheaply.
+
 ## [0.3.15] – 2026-08-30
 
 - Documented `nnue_probe` JSON and custom-SFEN usage in the English and
