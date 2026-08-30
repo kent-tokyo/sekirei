@@ -26,7 +26,7 @@ mod trainer;
 
 use std::collections::HashMap;
 use std::fs::{self, File};
-use std::io::BufWriter;
+use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -1198,6 +1198,36 @@ fn save_weight_snapshots(checkpoint: &Path, snapshots: &[(u64, trainer::TrainWei
     }
 }
 
+/// Write checkpoint sidecars without exposing a truncated metadata file when
+/// the trainer is interrupted during serialization or flushing.
+fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let file_name = path.file_name().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "checkpoint metadata path must name a file",
+        )
+    })?;
+    let temp_path = path.with_file_name(format!(
+        ".{}.tmp-{}",
+        file_name.to_string_lossy(),
+        std::process::id()
+    ));
+    let write_result = (|| -> io::Result<()> {
+        let mut file = File::create(&temp_path)?;
+        file.write_all(contents)?;
+        file.sync_all()
+    })();
+    if let Err(error) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    if let Err(error) = fs::rename(&temp_path, path) {
+        let _ = fs::remove_file(&temp_path);
+        return Err(error);
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 fn save_checkpoint_meta(
     path: &Path,
@@ -1464,7 +1494,10 @@ fn save_checkpoint_meta(
         "valid_output_max": valid_output_max,
         "valid_output_range": valid_output_range,
     });
-    fs::write(path, serde_json::to_string_pretty(&meta).unwrap())
+    write_atomic(
+        path,
+        serde_json::to_string_pretty(&meta).unwrap().as_bytes(),
+    )
 }
 
 /// Partitions `0..n_games` into (train_idxs, valid_idxs) by hashing each
@@ -2680,6 +2713,21 @@ mod tests {
         fs::write(&a, "hello, much longer content now").unwrap();
         let after = dataset_hash(&[a]);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn checkpoint_sidecar_write_is_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("checkpoint.meta.json");
+        write_atomic(&path, b"first").unwrap();
+        write_atomic(&path, b"second").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"second");
+        assert!(
+            !path
+                .with_file_name(format!(".checkpoint.meta.json.tmp-{}", std::process::id()))
+                .exists()
+        );
     }
 
     #[test]

@@ -18,6 +18,8 @@
   artifacts and reproducible cache hashes.
 - Teacher-cache loading now ignores score values outside the representable
   `i32` range instead of allowing a lossy integer cast.
+- Checkpoint metadata sidecars now use the same flushed temporary-file and
+  atomic-rename path as weight checkpoints.
 
 ## [0.3.6] – 2026-08-30
 
