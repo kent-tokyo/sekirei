@@ -605,18 +605,40 @@ pub fn build_cp_wdl_layer_trace(
     dot_sum: &[f64],
     sample_count: u64,
 ) -> CpWdlLayerTrace {
+    let n = cp_sum.len();
+    let lengths_match = [
+        cp_sq_sum.len(),
+        cp_pos_count.len(),
+        cp_neg_count.len(),
+        wdl_sum.len(),
+        wdl_sq_sum.len(),
+        wdl_pos_count.len(),
+        wdl_neg_count.len(),
+        dot_sum.len(),
+    ]
+    .into_iter()
+    .all(|length| length == n);
+    if !lengths_match {
+        return CpWdlLayerTrace {
+            cp_gradient_mean: vec![0.0; n],
+            wdl_gradient_mean: vec![0.0; n],
+            cp_gradient_sign_consistency: vec![0.0; n],
+            wdl_gradient_sign_consistency: vec![0.0; n],
+            cosine_similarity: vec![0.0; n],
+        };
+    }
     let mean = |sum: &[f64]| -> Vec<f32> {
         sum.iter()
             .map(|&s| {
                 if sample_count > 0 {
-                    (s / sample_count as f64) as f32
+                    let result = (s / sample_count as f64) as f32;
+                    if result.is_finite() { result } else { 0.0 }
                 } else {
                     0.0
                 }
             })
             .collect()
     };
-    let n = cp_sum.len();
     CpWdlLayerTrace {
         cp_gradient_mean: mean(cp_sum),
         wdl_gradient_mean: mean(wdl_sum),
@@ -853,6 +875,25 @@ mod tests {
     #[test]
     fn ratio_counts_true_fraction() {
         assert_eq!(ratio(&[true, false, true, true]), 0.75);
+    }
+
+    #[test]
+    fn cp_wdl_trace_shape_mismatch_is_zero_filled() {
+        let trace = build_cp_wdl_layer_trace(
+            &[1.0, 2.0],
+            &[1.0],
+            &[1, 1],
+            &[0, 0],
+            &[1.0, 2.0],
+            &[1.0, 1.0],
+            &[1, 1],
+            &[0, 0],
+            &[1.0, 1.0],
+            2,
+        );
+        assert_eq!(trace.cp_gradient_mean, vec![0.0, 0.0]);
+        assert_eq!(trace.wdl_gradient_mean, vec![0.0, 0.0]);
+        assert_eq!(trace.cosine_similarity, vec![0.0, 0.0]);
     }
 
     #[test]
