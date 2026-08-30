@@ -1789,6 +1789,39 @@ mod see_tests {
             "search overran its time limit: {elapsed:?}"
         );
     }
+
+    #[test]
+    fn immediate_deadline_still_returns_a_legal_move_for_both_searchers() {
+        use crate::tt::Tt;
+
+        let config = SearchConfig {
+            max_depth: 1,
+            time_limit: Some(Duration::ZERO),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+
+        let mut sequential_board = Board::startpos();
+        let sequential = Searcher::new(Tt::new(1)).search(&mut sequential_board, config);
+        let sequential_move = sequential
+            .best_move
+            .expect("sequential search must fall back to a move at an immediate deadline");
+        assert!(
+            generate_legal_moves(&mut sequential_board).contains(&sequential_move),
+            "sequential fallback must be legal"
+        );
+
+        let mut speculative_board = Board::startpos();
+        let speculative = SpeculativeSearcher::new(Tt::new(1), 1)
+            .search(&mut speculative_board, config);
+        let speculative_move = speculative
+            .best_move
+            .expect("speculative search must fall back to a move at an immediate deadline");
+        assert!(
+            generate_legal_moves(&mut speculative_board).contains(&speculative_move),
+            "speculative fallback must be legal"
+        );
+    }
 }
 
 #[cfg(test)]
