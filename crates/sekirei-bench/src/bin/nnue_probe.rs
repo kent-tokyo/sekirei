@@ -113,8 +113,11 @@ fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String 
     }
     write!(
         output,
-        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{}",
-        range, mean, variance
+        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{}",
+        range,
+        mean,
+        variance,
+        variance == 0.0
     )
     .unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
@@ -191,6 +194,7 @@ fn main() -> Result<(), String> {
     println!("score_range_cp: {}", max - min);
     println!("score_mean_cp: {mean:.3}");
     println!("score_variance_cp2: {variance:.3}");
+    println!("constant_output: {}", variance == 0.0);
     if let Some(&reference) = scores.first() {
         for score in scores.iter().skip(1) {
             println!(
@@ -268,6 +272,7 @@ mod tests {
         assert!(output.contains("\"score_range_cp\":15"));
         assert!(output.contains("\"score_mean_cp\":2.5"));
         assert!(output.contains("\"score_variance_cp2\":56.25"));
+        assert!(output.contains("\"constant_output\":false"));
         assert!(output.contains("\"delta_reference\":\"first\",\"deltas_cp\":[-15]"));
         assert!(output.ends_with('}'));
     }
@@ -275,5 +280,13 @@ mod tests {
     #[test]
     fn empty_score_moments_are_zero() {
         assert_eq!(score_moments(&[]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn equal_scores_are_reported_as_constant_output() {
+        let probes = vec![("only".to_string(), "sfen".to_string())];
+        let output = render_json(Path::new("weights.bin"), &probes, &[7]);
+        assert!(output.contains("\"score_variance_cp2\":0"));
+        assert!(output.contains("\"constant_output\":true"));
     }
 }

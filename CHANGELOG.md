@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.3.18] – 2026-08-30
+
+- Added an explicit `constant_output` flag to `nnue_probe` diagnostics.
+
 ## [0.3.17] – 2026-08-30
 
 - Clarified `nnue_probe` help text to include its mean and variance diagnostics.

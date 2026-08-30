@@ -99,8 +99,8 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 ```
 
 The probe reports evaluator scores, score range, mean, variance, and reference
-deltas. Add `--json` for machine-readable output. It is a diagnostic, not a
-strength test.
+deltas, plus a `constant_output` flag when every probe score is identical. Add
+`--json` for machine-readable output. It is a diagnostic, not a strength test.
 
 Run the USI engine without weights (material evaluation fallback):
 
