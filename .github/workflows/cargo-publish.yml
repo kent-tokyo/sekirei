@@ -134,8 +134,7 @@ jobs:
           }
 
           mismatches = []
-          for name in requested:
-              path = manifest_for[name]
+          for name, path in manifest_for.items():
               with open(path, "rb") as f:
                   actual_version = tomllib.load(f)["package"]["version"]
               if actual_version != expected_version:
@@ -145,7 +144,7 @@ jobs:
               print("::error::VERSION_TAG_MISMATCH: " + "; ".join(mismatches))
               sys.exit(1)
 
-          print(f"All requested crates match version {expected_version}")
+          print(f"All workspace crates match version {expected_version}")
           PYEOF
 
       - name: Show requested crates and mode

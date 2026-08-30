@@ -331,6 +331,12 @@ class VersionTagMatchBehaviorTests(unittest.TestCase):
         result = self._run(f"v{current}", "sekirei-core")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_all_workspace_packages_match_release_tag(self):
+        current = _current_sekirei_core_version()
+        result = self._run(f"v{current}", ",".join(ALL_CRATE_NAMES))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("All workspace crates match", result.stdout)
+
     def test_mismatched_version_refused(self):
         result = self._run("v0.0.1", "sekirei-core")
         self.assertNotEqual(result.returncode, 0)
