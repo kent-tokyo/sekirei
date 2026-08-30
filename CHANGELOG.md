@@ -32,6 +32,7 @@
   of panicking during sorting.
 - Diagnostic mean/std and accumulated cosine metrics now return neutral zero
   values for non-finite inputs instead of propagating `NaN`/`Inf`.
+- Pearson and vector-cosine diagnostics now apply the same finite-value guard.
 
 ## [0.3.6] – 2026-08-30
 

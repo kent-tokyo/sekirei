@@ -778,7 +778,13 @@ pub fn pearson_correlation(
     sum_y2: f64,
     sum_xy: f64,
 ) -> f64 {
-    if n < 2 {
+    if n < 2
+        || !sum_x.is_finite()
+        || !sum_x2.is_finite()
+        || !sum_y.is_finite()
+        || !sum_y2.is_finite()
+        || !sum_xy.is_finite()
+    {
         return 0.0;
     }
     let n = n as f64;
@@ -786,10 +792,11 @@ pub fn pearson_correlation(
     let var_x = sum_x2 - sum_x * sum_x / n;
     let var_y = sum_y2 - sum_y * sum_y / n;
     let denom = (var_x * var_y).max(0.0).sqrt();
-    if denom <= 0.0 {
+    if denom <= 0.0 || !denom.is_finite() || !cov.is_finite() {
         return 0.0;
     }
-    (cov / denom).clamp(-1.0, 1.0)
+    let result = (cov / denom).clamp(-1.0, 1.0);
+    if result.is_finite() { result } else { 0.0 }
 }
 
 /// Cosine similarity between two equal-length raw vectors -- distinct from
@@ -804,10 +811,16 @@ pub fn vector_cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
     let dot: f32 = a.iter().zip(b).map(|(&x, &y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|&x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|&x| x * x).sum::<f32>().sqrt();
-    if norm_a <= 0.0 || norm_b <= 0.0 {
+    if norm_a <= 0.0
+        || norm_b <= 0.0
+        || !norm_a.is_finite()
+        || !norm_b.is_finite()
+        || !dot.is_finite()
+    {
         return 0.0;
     }
-    (dot / (norm_a * norm_b)).clamp(-1.0, 1.0)
+    let result = (dot / (norm_a * norm_b)).clamp(-1.0, 1.0);
+    if result.is_finite() { result } else { 0.0 }
 }
 
 #[cfg(test)]
@@ -877,6 +890,12 @@ mod tests {
         let a = [1.0f32, 2.0, -3.0];
         let b = [-1.0f32, -2.0, 3.0];
         assert!((vector_cosine_similarity(&a, &b) - (-1.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn vector_cosine_similarity_non_finite_input_is_zero() {
+        assert_eq!(vector_cosine_similarity(&[f32::NAN], &[1.0]), 0.0);
+        assert_eq!(vector_cosine_similarity(&[f32::INFINITY], &[1.0]), 0.0);
     }
 
     #[test]
@@ -1035,5 +1054,14 @@ mod tests {
     fn pearson_correlation_fewer_than_two_samples_is_zero() {
         assert_eq!(pearson_correlation(0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.0);
         assert_eq!(pearson_correlation(1, 5.0, 25.0, 5.0, 25.0, 25.0), 0.0);
+    }
+
+    #[test]
+    fn pearson_correlation_non_finite_input_is_zero() {
+        assert_eq!(pearson_correlation(2, f64::NAN, 1.0, 1.0, 1.0, 1.0), 0.0);
+        assert_eq!(
+            pearson_correlation(2, 1.0, 1.0, 1.0, f64::INFINITY, 1.0),
+            0.0
+        );
     }
 }
