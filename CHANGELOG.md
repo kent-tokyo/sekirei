@@ -43,6 +43,8 @@
   instead of silently truncating to the shorter vector.
 - Added a deterministic NNUE weight save/load roundtrip guard covering every
   layer and bias array.
+- Added lightweight material-evaluation probes for start-position neutrality,
+  hand-piece value, and side-to-move sign handling.
 
 ## [0.3.6] – 2026-08-30
 

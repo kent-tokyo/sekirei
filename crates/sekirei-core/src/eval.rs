@@ -102,3 +102,28 @@ pub fn move_order_score(board: &Board, m: crate::mv::Move) -> i32 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn material_score_is_zero_for_startpos() {
+        assert_eq!(material_score(&Board::startpos()), 0);
+    }
+
+    #[test]
+    fn material_score_reflects_hand_value_from_side_to_move() {
+        let black = Board::from_sfen("9/9/9/9/4K4/9/9/9/4k4 b R 1").unwrap();
+        let white = Board::from_sfen("9/9/9/9/4K4/9/9/9/4k4 w R 1").unwrap();
+
+        assert_eq!(
+            material_score(&black),
+            PIECE_VALUE[PieceKind::Hisha.index()]
+        );
+        assert_eq!(
+            material_score(&white),
+            -PIECE_VALUE[PieceKind::Hisha.index()]
+        );
+    }
+}
