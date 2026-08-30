@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.11] – 2026-08-30
+
+- Improved `nnue_probe` with named default probes and score deltas from the
+  reference position for clearer lightweight evaluator diagnostics.
+
 ## [0.3.10] – 2026-08-30
 
 - Added the lightweight `nnue_probe` diagnostic for checkpoint score range and

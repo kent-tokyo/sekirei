@@ -16,7 +16,8 @@ const ROOK_ON_BOARD: &str = "9/9/9/9/4R3/9/9/9/4k4 b - 1";
 fn usage() -> &'static str {
     "usage: nnue_probe <weights.bin> [--sfen <SFEN>]...\n\n\
         Without --sfen, probes startpos, a rook in hand, and a rook on board.\n\
-        This reports diagnostic score range only; it is not a strength test."
+        Reports score range and deltas from the first probe; this is not a \
+        strength test."
 }
 
 fn main() -> Result<(), String> {
@@ -30,21 +31,21 @@ fn main() -> Result<(), String> {
         None => return Err(usage().to_string()),
     };
 
-    let mut sfens = Vec::new();
+    let mut sfens: Vec<(String, String)> = Vec::new();
     while let Some(flag) = args.next() {
         if flag != "--sfen" {
             return Err(format!("unknown argument: {flag}\n\n{}", usage()));
         }
-        sfens.push(
-            args.next()
-                .ok_or_else(|| format!("--sfen requires a value\n\n{}", usage()))?,
-        );
+        let sfen = args
+            .next()
+            .ok_or_else(|| format!("--sfen requires a value\n\n{}", usage()))?;
+        sfens.push((format!("probe_{:02}", sfens.len() + 1), sfen));
     }
     if sfens.is_empty() {
         sfens.extend([
-            STARTPOS.to_string(),
-            ROOK_IN_HAND.to_string(),
-            ROOK_ON_BOARD.to_string(),
+            ("startpos".to_string(), STARTPOS.to_string()),
+            ("rook_in_hand".to_string(), ROOK_IN_HAND.to_string()),
+            ("rook_on_board".to_string(), ROOK_ON_BOARD.to_string()),
         ]);
     }
 
@@ -52,16 +53,25 @@ fn main() -> Result<(), String> {
         .map_err(|error| format!("failed to read {}: {error}", weights_path.display()))?;
     let mut scores = Vec::with_capacity(sfens.len());
     println!("weights: {}", weights_path.display());
-    for (index, sfen) in sfens.iter().enumerate() {
+    for (index, (name, sfen)) in sfens.iter().enumerate() {
         let board =
             Board::from_sfen(sfen).map_err(|error| format!("SFEN {}: {error}", index + 1))?;
         let score = evaluate_with_weights(&board, &weights);
         scores.push(score);
-        println!("probe_{:02}: score_cp={score} sfen=\"{sfen}\"", index + 1);
+        println!("{name}: score_cp={score} sfen=\"{sfen}\"");
     }
 
     let min = scores.iter().copied().min().unwrap_or(0);
     let max = scores.iter().copied().max().unwrap_or(0);
     println!("score_range_cp: {}", max - min);
+    if let Some(&reference) = scores.first() {
+        for score in scores.iter().skip(1) {
+            println!(
+                "delta_vs_{}_cp: {}",
+                sfens[0].0,
+                score.saturating_sub(reference)
+            );
+        }
+    }
     Ok(())
 }
