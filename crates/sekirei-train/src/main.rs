@@ -1200,7 +1200,10 @@ fn save_weight_snapshots(checkpoint: &Path, snapshots: &[(u64, trainer::TrainWei
 
 /// Write checkpoint sidecars without exposing a truncated metadata file when
 /// the trainer is interrupted during serialization or flushing.
-fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+fn write_atomic_stream<F>(path: &Path, write: F) -> io::Result<()>
+where
+    F: FnOnce(&mut BufWriter<File>) -> io::Result<()>,
+{
     let file_name = path.file_name().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -1213,8 +1216,11 @@ fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
         std::process::id()
     ));
     let write_result = (|| -> io::Result<()> {
-        let mut file = File::create(&temp_path)?;
-        file.write_all(contents)?;
+        let file = File::create(&temp_path)?;
+        let mut out = BufWriter::new(file);
+        write(&mut out)?;
+        out.flush()?;
+        let file = out.into_inner().map_err(|error| error.into_error())?;
         file.sync_all()
     })();
     if let Err(error) = write_result {
@@ -1226,6 +1232,10 @@ fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
         return Err(error);
     }
     Ok(())
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
+    write_atomic_stream(path, |out| out.write_all(contents))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2134,15 +2144,13 @@ fn main() {
             "Book mode → {:?}  max_ply={} min_count={}",
             book_path, args.book_max_ply, args.book_min_count
         );
-        let file = match File::create(book_path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Cannot create book file: {e}");
-                std::process::exit(1);
-            }
-        };
-        let mut out = BufWriter::new(file);
-        book::build_book(&games, args.book_max_ply, args.book_min_count, &mut out);
+        if let Err(e) = write_atomic_stream(book_path, |out| {
+            book::build_book(&games, args.book_max_ply, args.book_min_count, out);
+            Ok(())
+        }) {
+            eprintln!("Cannot write book file: {e}");
+            std::process::exit(1);
+        }
         eprintln!("Book done → {:?}", book_path);
         return;
     }
@@ -2150,24 +2158,22 @@ fn main() {
     // Export mode: write observations JSONL for quietset, then exit
     if let Some(export_path) = &args.export {
         eprintln!("Export mode → {:?}  depths={:?}", export_path, args.depths);
-        let file = match File::create(export_path) {
-            Ok(f) => f,
-            Err(e) => {
-                eprintln!("Cannot create export file: {e}");
-                std::process::exit(1);
+        if let Err(e) = write_atomic_stream(export_path, |out| {
+            for game in &games {
+                export_game(
+                    game,
+                    args.sample,
+                    args.quiet,
+                    args.min_ply,
+                    &args.depths,
+                    args.label_threshold_cp,
+                    out,
+                );
             }
-        };
-        let mut out = BufWriter::new(file);
-        for game in &games {
-            export_game(
-                game,
-                args.sample,
-                args.quiet,
-                args.min_ply,
-                &args.depths,
-                args.label_threshold_cp,
-                &mut out,
-            );
+            Ok(())
+        }) {
+            eprintln!("Cannot write export file: {e}");
+            std::process::exit(1);
         }
         eprintln!("Export done → {:?}", export_path);
         return;

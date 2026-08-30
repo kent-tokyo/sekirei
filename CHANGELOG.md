@@ -24,6 +24,8 @@
   JSON/JSONL artifacts after an interrupted training run.
 - Checkpoint metadata serialization errors are now returned cleanly instead of
   panicking the trainer.
+- Opening-book and dataset-export outputs now use flushed atomic writes,
+  preventing interrupted runs from leaving partial artifacts.
 
 ## [0.3.6] – 2026-08-30
 
