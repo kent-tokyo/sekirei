@@ -216,10 +216,13 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
     let w = read_weights(path)?;
     if WEIGHTS.set(w).is_ok() {
         NNUE_ACTIVE.store(true, Ordering::Relaxed);
+        Ok(())
     } else {
-        eprintln!("[nnue] weights already loaded; ignoring duplicate load");
+        Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "NNUE weights are already loaded for this process",
+        ))
     }
-    Ok(())
 }
 
 /// Parses a SEKIRW01 (or legacy JANOSW03) binary weights file into an
