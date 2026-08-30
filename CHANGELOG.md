@@ -28,6 +28,8 @@
   preventing interrupted runs from leaving partial artifacts.
 - Book and dataset-export write errors are now propagated instead of being
   silently ignored.
+- Diagnostic percentile calculations now ignore non-finite samples instead
+  of panicking during sorting.
 
 ## [0.3.6] – 2026-08-30
 

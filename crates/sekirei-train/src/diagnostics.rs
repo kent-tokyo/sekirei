@@ -723,7 +723,11 @@ pub fn percentiles(values: &[f32], qs: &[f32]) -> Vec<f32> {
         return vec![0.0; qs.len()];
     }
     let mut sorted: Vec<f32> = values.to_vec();
-    sorted.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    sorted.retain(|value| value.is_finite());
+    if sorted.is_empty() {
+        return vec![0.0; qs.len()];
+    }
+    sorted.sort_by(|a, b| a.total_cmp(b));
     qs.iter()
         .map(|&q| {
             let idx = (q.clamp(0.0, 1.0) * (sorted.len() - 1) as f32).round() as usize;
@@ -955,6 +959,13 @@ mod tests {
     #[test]
     fn percentiles_of_empty_is_zero_filled() {
         assert_eq!(percentiles(&[], &[0.5, 0.9]), vec![0.0, 0.0]);
+    }
+
+    #[test]
+    fn percentiles_ignores_non_finite_values() {
+        let values = [f32::NAN, 3.0, f32::INFINITY, 1.0];
+        assert_eq!(percentiles(&values, &[0.0, 0.5, 1.0]), vec![1.0, 3.0, 3.0]);
+        assert_eq!(percentiles(&[f32::NAN], &[0.5]), vec![0.0]);
     }
 
     #[test]
