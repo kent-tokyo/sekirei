@@ -683,4 +683,23 @@ mod tests {
                 .exists()
         );
     }
+
+    #[test]
+    fn save_and_read_weights_are_bitwise_deterministic() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_roundtrip_{}.bin",
+            std::process::id()
+        ));
+        let weights = NnueWeights::default_lcg();
+        save_weights(&weights, &path).expect("failed to write test weights");
+        let loaded = read_weights(&path).expect("failed to read test weights");
+        let _ = std::fs::remove_file(&path);
+
+        assert_eq!(loaded.ft, weights.ft);
+        assert_eq!(loaded.ft_bias, weights.ft_bias);
+        assert_eq!(loaded.l2, weights.l2);
+        assert_eq!(loaded.l2_bias, weights.l2_bias);
+        assert_eq!(loaded.out, weights.out);
+        assert_eq!(loaded.out_bias, weights.out_bias);
+    }
 }

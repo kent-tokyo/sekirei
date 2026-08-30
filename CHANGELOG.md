@@ -41,6 +41,8 @@
   exposing them to checkpoint metadata.
 - Diagnostic vector comparisons now return zero for length-mismatched inputs
   instead of silently truncating to the shorter vector.
+- Added a deterministic NNUE weight save/load roundtrip guard covering every
+  layer and bias array.
 
 ## [0.3.6] – 2026-08-30
 
