@@ -662,7 +662,9 @@ pub fn mean_std(sum: f64, sum_sq: f64, n: u64) -> (f64, f64) {
 /// Whole-parameter-vector L2 (Euclidean) distance between two
 /// same-length snapshots from `TrainWeights::snapshot_params`.
 pub fn l2_diff_norm(prev: &[f32], curr: &[f32]) -> f32 {
-    debug_assert_eq!(prev.len(), curr.len());
+    if prev.len() != curr.len() {
+        return 0.0;
+    }
     let result = prev
         .iter()
         .zip(curr.iter())
@@ -817,6 +819,9 @@ pub fn pearson_correlation(
 /// same "printed diagnostic, not further arithmetic" convention as
 /// `pearson_correlation`.
 pub fn vector_cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
     let dot: f32 = a.iter().zip(b).map(|(&x, &y)| x * y).sum();
     let norm_a: f32 = a.iter().map(|&x| x * x).sum::<f32>().sqrt();
     let norm_b: f32 = b.iter().map(|&x| x * x).sum::<f32>().sqrt();
@@ -889,6 +894,11 @@ mod tests {
     }
 
     #[test]
+    fn l2_diff_norm_length_mismatch_is_zero() {
+        assert_eq!(l2_diff_norm(&[1.0], &[1.0, 2.0]), 0.0);
+    }
+
+    #[test]
     fn cosine_similarity_identical_vectors_is_one() {
         let a = [1.0f32, 2.0, -3.0];
         assert!((vector_cosine_similarity(&a, &a) - 1.0).abs() < 1e-6);
@@ -911,6 +921,11 @@ mod tests {
     fn vector_cosine_similarity_non_finite_input_is_zero() {
         assert_eq!(vector_cosine_similarity(&[f32::NAN], &[1.0]), 0.0);
         assert_eq!(vector_cosine_similarity(&[f32::INFINITY], &[1.0]), 0.0);
+    }
+
+    #[test]
+    fn vector_cosine_similarity_length_mismatch_is_zero() {
+        assert_eq!(vector_cosine_similarity(&[1.0], &[1.0, 2.0]), 0.0);
     }
 
     #[test]

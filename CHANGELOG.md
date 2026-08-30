@@ -39,6 +39,8 @@
   result guard.
 - `mean_std` now validates its computed mean and standard deviation before
   exposing them to checkpoint metadata.
+- Diagnostic vector comparisons now return zero for length-mismatched inputs
+  instead of silently truncating to the shorter vector.
 
 ## [0.3.6] – 2026-08-30
 
