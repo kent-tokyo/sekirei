@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.13] – 2026-08-30
+
+- Added machine-readable JSON output to `nnue_probe` for automated evaluator
+  diagnostics and checkpoint comparisons.
+
 ## [0.3.12] – 2026-08-30
 
 - Added focused argument-parsing tests for `nnue_probe`, covering default
