@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.3.19] – 2026-08-30
+
+- Added deterministic reload verification to `nnue_probe` output.
+
 ## [0.3.18] – 2026-08-30
 
 - Added an explicit `constant_output` flag to `nnue_probe` diagnostics.

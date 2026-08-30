@@ -87,7 +87,12 @@ fn json_escape(value: &str) -> String {
     escaped
 }
 
-fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String {
+fn render_json(
+    weights_path: &Path,
+    probes: &[Probe],
+    scores: &[i32],
+    reload_deterministic: bool,
+) -> String {
     use std::fmt::Write;
 
     let min = scores.iter().copied().min().unwrap_or(0);
@@ -113,11 +118,12 @@ fn render_json(weights_path: &Path, probes: &[Probe], scores: &[i32]) -> String 
     }
     write!(
         output,
-        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{}",
+        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{},\"reload_deterministic\":{}",
         range,
         mean,
         variance,
-        variance == 0.0
+        variance == 0.0,
+        reload_deterministic
     )
     .unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
@@ -183,8 +189,19 @@ fn main() -> Result<(), String> {
         }
     }
 
+    let reloaded_weights = read_weights(&weights_path)
+        .map_err(|error| format!("failed to reload {}: {error}", weights_path.display()))?;
+    let reload_deterministic = sfens.iter().zip(&scores).all(|((_, sfen), &score)| {
+        Board::from_sfen(sfen)
+            .map(|board| evaluate_with_weights(&board, &reloaded_weights) == score)
+            .unwrap_or(false)
+    });
+
     if json {
-        println!("{}", render_json(&weights_path, &sfens, &scores));
+        println!(
+            "{}",
+            render_json(&weights_path, &sfens, &scores, reload_deterministic)
+        );
         return Ok(());
     }
 
@@ -195,6 +212,7 @@ fn main() -> Result<(), String> {
     println!("score_mean_cp: {mean:.3}");
     println!("score_variance_cp2: {variance:.3}");
     println!("constant_output: {}", variance == 0.0);
+    println!("reload_deterministic: {reload_deterministic}");
     if let Some(&reference) = scores.first() {
         for score in scores.iter().skip(1) {
             println!(
@@ -265,7 +283,7 @@ mod tests {
             ("first".to_string(), "sfen-1".to_string()),
             ("second".to_string(), "sfen-2".to_string()),
         ];
-        let output = render_json(Path::new("weights.bin"), &probes, &[10, -5]);
+        let output = render_json(Path::new("weights.bin"), &probes, &[10, -5], true);
         assert!(output.starts_with("{\"weights\":\"weights.bin\""));
         assert!(output.contains("\"score_cp\":10"));
         assert!(output.contains("\"score_cp\":-5"));
@@ -273,6 +291,7 @@ mod tests {
         assert!(output.contains("\"score_mean_cp\":2.5"));
         assert!(output.contains("\"score_variance_cp2\":56.25"));
         assert!(output.contains("\"constant_output\":false"));
+        assert!(output.contains("\"reload_deterministic\":true"));
         assert!(output.contains("\"delta_reference\":\"first\",\"deltas_cp\":[-15]"));
         assert!(output.ends_with('}'));
     }
@@ -285,8 +304,9 @@ mod tests {
     #[test]
     fn equal_scores_are_reported_as_constant_output() {
         let probes = vec![("only".to_string(), "sfen".to_string())];
-        let output = render_json(Path::new("weights.bin"), &probes, &[7]);
+        let output = render_json(Path::new("weights.bin"), &probes, &[7], false);
         assert!(output.contains("\"score_variance_cp2\":0"));
         assert!(output.contains("\"constant_output\":true"));
+        assert!(output.contains("\"reload_deterministic\":false"));
     }
 }
