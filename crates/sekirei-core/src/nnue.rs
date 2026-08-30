@@ -489,3 +489,56 @@ impl Default for NnueAcc {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn feature_index_separates_square_kind_color_and_perspective() {
+        let sq = Square::from_index(10);
+        let other_sq = Square::from_index(11);
+
+        let own = feature_index(sq, PieceKind::Fu, Color::Black, Color::Black);
+        let opponent = feature_index(sq, PieceKind::Fu, Color::White, Color::Black);
+        let other_perspective = feature_index(sq, PieceKind::Fu, Color::Black, Color::White);
+        let other_kind = feature_index(sq, PieceKind::Kyou, Color::Black, Color::Black);
+        let other_square = feature_index(other_sq, PieceKind::Fu, Color::Black, Color::Black);
+
+        assert_ne!(own, opponent);
+        assert_ne!(own, other_perspective);
+        assert_ne!(own, other_kind);
+        assert_ne!(own, other_square);
+        assert!(
+            [own, opponent, other_perspective, other_kind, other_square]
+                .into_iter()
+                .all(|index| index < BOARD_INPUT)
+        );
+    }
+
+    #[test]
+    fn incremental_piece_and_hand_updates_match_full_refresh() {
+        let mut mailbox = [None; 81];
+        let mut hand = [[0u8; 7]; 2];
+        let sq = Square::from_index(40);
+        let piece = (PieceKind::Kaku, Color::Black);
+        mailbox[sq.index() as usize] = Some(piece);
+        hand[Color::White.index()][PieceKind::Fu.index()] = 3;
+
+        let mut incremental = NnueAcc::new();
+        incremental.add_piece(sq, piece.0, piece.1);
+        for count in 1..=3 {
+            incremental.add_hand(PieceKind::Fu, count, Color::White);
+        }
+
+        let mut refreshed = NnueAcc::new();
+        refreshed.refresh(&mailbox, &hand);
+        assert_eq!(incremental, refreshed);
+
+        incremental.remove_hand(PieceKind::Fu, 3, Color::White);
+        incremental.remove_hand(PieceKind::Fu, 2, Color::White);
+        incremental.remove_hand(PieceKind::Fu, 1, Color::White);
+        incremental.remove_piece(sq, piece.0, piece.1);
+        assert_eq!(incremental, NnueAcc::new());
+    }
+}
