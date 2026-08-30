@@ -1123,7 +1123,7 @@ fn save_trace_json(path: &Path, snapshots: &[diagnostics::TraceSnapshot]) -> std
         return Ok(());
     }
     let json = serde_json::to_string_pretty(snapshots)?;
-    fs::write(path, json)
+    write_atomic(path, json.as_bytes())
 }
 
 /// One JSON object per line (not a pretty array like `save_trace_json`) --
@@ -1141,7 +1141,7 @@ fn save_sample_grad_jsonl(
         out.push_str(&serde_json::to_string(r)?);
         out.push('\n');
     }
-    fs::write(path, out)
+    write_atomic(path, out.as_bytes())
 }
 
 /// `--diagnostic-shadow-trace-probe-set`: one SFEN board per line, blank
@@ -1178,7 +1178,7 @@ fn save_shadow_trace_jsonl(
         out.push_str(&serde_json::to_string(r)?);
         out.push('\n');
     }
-    fs::write(path, out)
+    write_atomic(path, out.as_bytes())
 }
 
 /// `--trace-weights`: one full weights checkpoint per `--trace-positions`

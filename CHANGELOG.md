@@ -20,6 +20,8 @@
   `i32` range instead of allowing a lossy integer cast.
 - Checkpoint metadata sidecars now use the same flushed temporary-file and
   atomic-rename path as weight checkpoints.
+- Diagnostic trace sidecars now use atomic writes as well, preventing partial
+  JSON/JSONL artifacts after an interrupted training run.
 
 ## [0.3.6] – 2026-08-30
 
