@@ -292,4 +292,47 @@ mod tests {
         );
         assert_eq!(tt.probe(hash).unwrap().depth, 1);
     }
+
+    #[test]
+    fn depth_preferred_store_keeps_deeper_entry_and_accepts_deeper_replacement() {
+        let tt = Tt::new(1);
+        let hash = 0x0bad_f00d_dead_beef;
+
+        tt.store(
+            hash,
+            TtEntry {
+                score: 10,
+                depth: 8,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        tt.store(
+            hash,
+            TtEntry {
+                score: 99,
+                depth: 3,
+                bound: Bound::Lower,
+                mv: None,
+            },
+        );
+        let retained = tt.probe(hash).unwrap();
+        assert_eq!(retained.depth, 8);
+        assert_eq!(retained.score, 10);
+        assert_eq!(retained.bound, Bound::Exact);
+
+        tt.store(
+            hash,
+            TtEntry {
+                score: 20,
+                depth: 12,
+                bound: Bound::Upper,
+                mv: None,
+            },
+        );
+        let replaced = tt.probe(hash).unwrap();
+        assert_eq!(replaced.depth, 12);
+        assert_eq!(replaced.score, 20);
+        assert_eq!(replaced.bound, Bound::Upper);
+    }
 }
