@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- NNUE weight loading now rejects files with trailing bytes instead of
+  silently accepting a malformed or incompatible artifact.
+
 ## [0.3.6] – 2026-08-30
 
 - Aligned all workspace crate versions and `Cargo.lock` with the `v0.3.6` release.

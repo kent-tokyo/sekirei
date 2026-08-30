@@ -230,11 +230,11 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
 
     let data = std::fs::read(path)?;
 
-    if data.len() < expected {
+    if data.len() != expected {
         return Err(Error::new(
             ErrorKind::InvalidData,
             format!(
-                "expected {expected} bytes, got {} (wrong format?)",
+                "expected exactly {expected} bytes, got {} (wrong format?)",
                 data.len()
             ),
         ));
@@ -540,5 +540,28 @@ mod tests {
         incremental.remove_hand(PieceKind::Fu, 1, Color::White);
         incremental.remove_piece(sq, piece.0, piece.1);
         assert_eq!(incremental, NnueAcc::new());
+    }
+
+    #[test]
+    fn read_weights_rejects_trailing_bytes() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_trailing_{}.bin",
+            std::process::id()
+        ));
+        let mut bytes = Vec::new();
+        let weights = NnueWeights::default_lcg();
+        save_weights(&weights, &path).expect("failed to write test weights");
+        bytes.extend(std::fs::read(&path).expect("failed to read test weights"));
+        bytes.push(0);
+        std::fs::write(&path, bytes).expect("failed to append test byte");
+
+        let result = read_weights(&path);
+        let _ = std::fs::remove_file(&path);
+        let error = match result {
+            Ok(_) => panic!("trailing bytes must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(error.to_string().contains("expected exactly"));
     }
 }
