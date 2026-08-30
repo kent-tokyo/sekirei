@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## [0.3.8] – 2026-08-30
+
+- Hardened NNUE reload and search-abort result attribution.
+- Added TT depth-preference and immediate-deadline legality regression tests.
+- Improved release, publish, and test-harness reproducibility checks.
+
 ## [0.3.7] – 2026-08-30
 
 - Hardened NNUE checkpoint loading and saving against malformed, non-finite,
