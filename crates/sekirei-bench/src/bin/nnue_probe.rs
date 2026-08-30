@@ -24,7 +24,7 @@ struct ParsedProbeArgs {
 fn usage() -> &'static str {
     "usage: nnue_probe <weights.bin> [--json] [--sfen <SFEN>]...\n\n\
         Without --sfen, probes startpos, a rook in hand, and a rook on board.\n\
-        Reports score range and deltas from the first probe; this is not a \
+        Reports score range, mean, variance, and deltas from the first probe; this is not a \
         strength test. --json emits one machine-readable JSON object."
 }
 

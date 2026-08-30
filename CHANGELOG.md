@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## [0.3.17] – 2026-08-30
+
+- Clarified `nnue_probe` help text to include its mean and variance diagnostics.
+
 ## [0.3.16] – 2026-08-30
 
 - Added score mean and variance to `nnue_probe` diagnostics for detecting
