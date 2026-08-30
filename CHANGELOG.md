@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.10] – 2026-08-30
+
+- Added the lightweight `nnue_probe` diagnostic for checkpoint score range and
+  material-sensitivity checks without process-global weight state.
+
 ## [0.3.9] – 2026-08-30
 
 - Added side-effect-free NNUE checkpoint evaluation via explicit weight
