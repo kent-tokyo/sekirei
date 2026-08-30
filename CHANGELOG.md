@@ -8,6 +8,8 @@
   before they can enter evaluation.
 - NNUE weight saving now writes through a same-directory temporary file and
   atomic rename, preventing interrupted saves from leaving truncated artifacts.
+- NNUE weight saves now call `sync_all()` before the atomic rename so a
+  completed save is flushed before it becomes visible at the final path.
 
 ## [0.3.6] – 2026-08-30
 

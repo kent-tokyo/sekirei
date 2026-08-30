@@ -35,7 +35,7 @@
 //! `add_col` / `sub_col` loop over contiguous `[i16; L1]` slices; LLVM emits
 //! VPADDW / VPSUBW (AVX2) or PADDW (SSE2).
 
-use std::io::{self, Error, ErrorKind};
+use std::io::{self, Error, ErrorKind, Write};
 use std::path::Path;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -351,7 +351,12 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
     );
     let temp_path = path.with_file_name(temp_name);
 
-    if let Err(error) = std::fs::write(&temp_path, &data) {
+    let write_result = (|| -> io::Result<()> {
+        let mut file = std::fs::File::create(&temp_path)?;
+        file.write_all(&data)?;
+        file.sync_all()
+    })();
+    if let Err(error) = write_result {
         let _ = std::fs::remove_file(&temp_path);
         return Err(error);
     }
