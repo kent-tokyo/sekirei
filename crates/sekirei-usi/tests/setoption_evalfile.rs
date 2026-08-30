@@ -50,7 +50,13 @@ fn write_marker_weights() -> std::path::PathBuf {
 }
 
 fn spawn_engine() -> (Child, Receiver<String>, ChildStdin) {
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sekirei"))
+    spawn_engine_with_args(&[])
+}
+
+fn spawn_engine_with_args(args: &[&std::path::Path]) -> (Child, Receiver<String>, ChildStdin) {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sekirei"));
+    command.args(args);
+    let mut child = command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -153,4 +159,45 @@ fn setoption_evalfile_then_isready_activates_nnue() {
     send(&mut stdin, "quit");
     let _ = child.wait();
     let _ = std::fs::remove_file(&weights_path);
+}
+
+#[test]
+fn duplicate_evalfile_load_is_reported_as_failure() {
+    let first_path = write_marker_weights();
+    let second_path = first_path.with_file_name(format!(
+        "sekirei_test_evalfile_duplicate_{}.bin",
+        std::process::id()
+    ));
+    std::fs::copy(&first_path, &second_path).expect("failed to copy synthetic weight file");
+
+    // CLI loading activates the process-wide weight store before the USI
+    // handshake. A later EvalFile request cannot replace that OnceLock, so
+    // isready must report the duplicate as a failure instead of claiming that
+    // the second path was activated.
+    let (mut child, rx, mut stdin) = spawn_engine_with_args(&[first_path.as_path()]);
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name EvalFile value {}", second_path.display()),
+    );
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("info string weight load failed")),
+        "duplicate EvalFile must be reported as a load failure; saw: {lines:?}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|l| l.starts_with("info string NNUE weights loaded")),
+        "duplicate EvalFile must not be reported as loaded; saw: {lines:?}"
+    );
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&first_path);
+    let _ = std::fs::remove_file(&second_path);
 }

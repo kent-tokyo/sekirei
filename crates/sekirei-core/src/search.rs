@@ -1812,8 +1812,8 @@ mod see_tests {
         );
 
         let mut speculative_board = Board::startpos();
-        let speculative = SpeculativeSearcher::new(Tt::new(1), 1)
-            .search(&mut speculative_board, config);
+        let speculative =
+            SpeculativeSearcher::new(Tt::new(1), 1).search(&mut speculative_board, config);
         let speculative_move = speculative
             .best_move
             .expect("speculative search must fall back to a move at an immediate deadline");
