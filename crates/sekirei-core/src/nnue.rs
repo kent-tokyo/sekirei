@@ -287,6 +287,17 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
 
     let out_bias = f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
 
+    if !l2.iter().flatten().all(|value| value.is_finite())
+        || !l2_bias.iter().all(|value| value.is_finite())
+        || !out.iter().all(|value| value.is_finite())
+        || !out_bias.is_finite()
+    {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            "NNUE weights contain a non-finite floating-point value",
+        ));
+    }
+
     Ok(NnueWeights {
         ft,
         ft_bias,
@@ -563,5 +574,28 @@ mod tests {
         };
         assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert!(error.to_string().contains("expected exactly"));
+    }
+
+    #[test]
+    fn read_weights_rejects_non_finite_values() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_non_finite_{}.bin",
+            std::process::id()
+        ));
+        let weights = NnueWeights::default_lcg();
+        save_weights(&weights, &path).expect("failed to write test weights");
+        let mut bytes = std::fs::read(&path).expect("failed to read test weights");
+        let last = bytes.len() - std::mem::size_of::<f32>();
+        bytes[last..].copy_from_slice(&f32::NAN.to_le_bytes());
+        std::fs::write(&path, bytes).expect("failed to write malformed test weights");
+
+        let result = read_weights(&path);
+        let _ = std::fs::remove_file(&path);
+        let error = match result {
+            Ok(_) => panic!("non-finite values must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(error.to_string().contains("non-finite"));
     }
 }
