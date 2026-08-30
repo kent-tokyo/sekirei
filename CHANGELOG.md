@@ -16,6 +16,8 @@
   atomic rename and clean up the temporary file on write or rename failure.
 - Teacher-cache entries are now written in sorted SFEN order for deterministic
   artifacts and reproducible cache hashes.
+- Teacher-cache loading now ignores score values outside the representable
+  `i32` range instead of allowing a lossy integer cast.
 
 ## [0.3.6] – 2026-08-30
 

@@ -39,6 +39,10 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
             skipped += 1;
             continue;
         };
+        let Ok(cp) = i32::try_from(cp) else {
+            skipped += 1;
+            continue;
+        };
         match val.get("label_depth").and_then(|v| v.as_u64()) {
             Some(d) if d as u32 == expected_depth => {}
             Some(_) => {
@@ -54,7 +58,7 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
         // JSONL is read top-to-bottom, and matches `write`'s own contract
         // (it always writes the current in-memory value, so a re-written
         // file's later lines reflect the most recent search).
-        map.insert(sfen.to_string(), cp as i32);
+        map.insert(sfen.to_string(), cp);
     }
     if skipped > 0 {
         eprintln!("teacher cache: {skipped} lines skipped (unparseable)");
@@ -151,6 +155,18 @@ mod tests {
     fn missing_score_cp_skipped() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4}}"#).unwrap();
+        let loaded = load(f.path(), 4);
+        assert!(loaded.is_empty());
+    }
+
+    #[test]
+    fn out_of_range_score_cp_is_skipped() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":2147483648}}"#
+        )
+        .unwrap();
         let loaded = load(f.path(), 4);
         assert!(loaded.is_empty());
     }
