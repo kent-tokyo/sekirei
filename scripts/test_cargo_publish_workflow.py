@@ -342,6 +342,11 @@ class VersionTagMatchBehaviorTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("VERSION_TAG_MISMATCH", result.stdout)
 
+    def test_version_check_includes_cargo_lock(self):
+        run_script = _step_by_name("Verify Cargo.toml version matches release_tag")["run"]
+        self.assertIn('open("Cargo.lock", "rb")', run_script)
+        self.assertIn("lock_mismatches", run_script)
+
 
 if __name__ == "__main__":
     unittest.main()

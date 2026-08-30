@@ -144,7 +144,22 @@ jobs:
               print("::error::VERSION_TAG_MISMATCH: " + "; ".join(mismatches))
               sys.exit(1)
 
-          print(f"All workspace crates match version {expected_version}")
+          with open("Cargo.lock", "rb") as f:
+              lock_packages = {
+                  package["name"]: package["version"]
+                  for package in tomllib.load(f).get("package", [])
+                  if package["name"] in manifest_for
+              }
+          lock_mismatches = [
+              f"{name} (Cargo.lock): expected {expected_version}, found {lock_packages.get(name, '<missing>')}"
+              for name in manifest_for
+              if lock_packages.get(name) != expected_version
+          ]
+          if lock_mismatches:
+              print("::error::VERSION_TAG_MISMATCH: " + "; ".join(lock_mismatches))
+              sys.exit(1)
+
+          print(f"All workspace crates and Cargo.lock entries match version {expected_version}")
           PYEOF
 
       - name: Show requested crates and mode
