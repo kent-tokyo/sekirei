@@ -4,6 +4,8 @@
 
 - NNUE weight loading now rejects files with trailing bytes instead of
   silently accepting a malformed or incompatible artifact.
+- NNUE weight loading now rejects `NaN` and infinite floating-point values
+  before they can enter evaluation.
 
 ## [0.3.6] – 2026-08-30
 
