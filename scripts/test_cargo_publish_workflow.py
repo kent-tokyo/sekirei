@@ -57,7 +57,6 @@ ALL_CRATE_NAMES = [
     "sekirei-train",
     "sekirei",
 ]
-BLOCKED_CRATE_NAMES = ["sekirei-train", "sekirei"]  # lineprior git dependency
 
 
 def _load():
@@ -258,16 +257,6 @@ class PublishOrderTests(unittest.TestCase):
                 publish_idx = _step_index_by_name(publish_name)
                 self.assertEqual(publish_idx, auth_idx + 1)
 
-    def test_blocked_crate_guard_runs_before_any_publish_step(self):
-        guard_idx = _step_index_by_name("Reject known-blocked crates (lineprior not on crates.io)")
-        for s in _steps():
-            name = s.get("name", "")
-            if name.startswith("Publish ") or name.startswith("Dry-run publish "):
-                self.assertLess(
-                    guard_idx, _steps().index(s), f"blocked-crate guard must precede {name!r}"
-                )
-
-
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
 class ValidateCratesInputBehaviorTests(unittest.TestCase):
     def _run(self, crates_input):
@@ -310,31 +299,22 @@ class ValidateCratesInputBehaviorTests(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
-class BlockedCrateBehaviorTests(unittest.TestCase):
-    def _run(self, crates_input):
-        return _run_embedded_python(
-            "Reject known-blocked crates (lineprior not on crates.io)",
-            env={"CRATES_INPUT": crates_input},
-        )
+class RegistryCrateBehaviorTests(unittest.TestCase):
+    def test_no_stale_lineprior_blocker_remains(self):
+        names = [s.get("name", "") for s in _steps()]
+        self.assertFalse(any("blocked" in name.lower() for name in names))
 
-    def test_unblocked_crates_pass(self):
-        result = self._run("sekirei-core,sekirei-bench,sekirei-csa,sekirei-match-runner")
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_sekirei_train_refused(self):
-        result = self._run("sekirei-train")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
-
-    def test_sekirei_usi_package_refused(self):
-        result = self._run("sekirei")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
-
-    def test_blocked_crate_mixed_with_allowed_still_refused(self):
-        result = self._run("sekirei-core,sekirei-train")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("BLOCKED_REGISTRY_DEPENDENCY", result.stdout)
+    def test_all_workspace_crates_have_publish_steps(self):
+        names = {s.get("name", "") for s in _steps()}
+        expected = {
+            "Publish sekirei-core",
+            "Publish sekirei-bench",
+            "Publish sekirei-csa",
+            "Publish sekirei-match-runner",
+            "Publish sekirei-train",
+            "Publish sekirei (sekirei-usi)",
+        }
+        self.assertTrue(expected <= names)
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
