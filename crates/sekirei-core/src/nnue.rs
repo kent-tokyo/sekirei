@@ -158,6 +158,21 @@ impl NnueWeights {
             out_bias: 0.0,
         }
     }
+
+    fn validate_finite(&self) -> io::Result<()> {
+        if self.l2.iter().flatten().all(|value| value.is_finite())
+            && self.l2_bias.iter().all(|value| value.is_finite())
+            && self.out.iter().all(|value| value.is_finite())
+            && self.out_bias.is_finite()
+        {
+            Ok(())
+        } else {
+            Err(Error::new(
+                ErrorKind::InvalidData,
+                "NNUE weights contain a non-finite floating-point value",
+            ))
+        }
+    }
 }
 
 // ============================================================
@@ -287,29 +302,21 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
 
     let out_bias = f32::from_le_bytes([data[off], data[off + 1], data[off + 2], data[off + 3]]);
 
-    if !l2.iter().flatten().all(|value| value.is_finite())
-        || !l2_bias.iter().all(|value| value.is_finite())
-        || !out.iter().all(|value| value.is_finite())
-        || !out_bias.is_finite()
-    {
-        return Err(Error::new(
-            ErrorKind::InvalidData,
-            "NNUE weights contain a non-finite floating-point value",
-        ));
-    }
-
-    Ok(NnueWeights {
+    let weights = NnueWeights {
         ft,
         ft_bias,
         l2,
         l2_bias,
         out,
         out_bias,
-    })
+    };
+    weights.validate_finite()?;
+    Ok(weights)
 }
 
 /// Serialise weights to a binary file in SEKIRW01 format.
 pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
+    w.validate_finite()?;
     let capacity = 8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4;
     let mut data = Vec::with_capacity(capacity);
 
@@ -626,6 +633,30 @@ mod tests {
         };
         assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert!(error.to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn save_weights_rejects_non_finite_values_before_writing() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_save_non_finite_{}.bin",
+            std::process::id()
+        ));
+        let mut weights = NnueWeights::default_lcg();
+        weights.out_bias = f32::INFINITY;
+
+        let error = save_weights(&weights, &path).expect_err("non-finite weights must be rejected");
+        let _ = std::fs::remove_file(&path);
+        let temp_path = path.with_file_name(format!(
+            ".{}.tmp-{}",
+            path.file_name().unwrap().to_string_lossy(),
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&temp_path);
+
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(error.to_string().contains("non-finite"));
+        assert!(!path.exists());
+        assert!(!temp_path.exists());
     }
 
     #[test]

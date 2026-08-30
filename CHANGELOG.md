@@ -10,6 +10,8 @@
   atomic rename, preventing interrupted saves from leaving truncated artifacts.
 - NNUE weight saves now call `sync_all()` before the atomic rename so a
   completed save is flushed before it becomes visible at the final path.
+- NNUE weight saving now rejects non-finite floating-point values before
+  creating a checkpoint file.
 
 ## [0.3.6] – 2026-08-30
 
