@@ -27,13 +27,29 @@ scripts/test_gate_resource_preflight.py convention: stdlib unittest only.
 
 Run: python3 scripts/test_run_fixed_depth_ab.py
 """
+import os
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-from run_fixed_depth_ab import (
+try:
+    from run_fixed_depth_ab import (
+        _classify,
+        _percentile,
+        _position_repeatability,
+        _status,
+        probe_usi_capabilities,
+        require_usi_capabilities,
+        run_one_position,
+    )
+except ModuleNotFoundError:
+    # Also support `python -m unittest scripts.test_run_fixed_depth_ab`
+    # from the repository root, where scripts/ is not on sys.path.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from run_fixed_depth_ab import (
     _classify,
     _percentile,
     _position_repeatability,
@@ -41,7 +57,7 @@ from run_fixed_depth_ab import (
     probe_usi_capabilities,
     require_usi_capabilities,
     run_one_position,
-)
+    )
 
 FULL_SUPPORT_SCRIPT = """#!/bin/sh
 echo "id name fake-engine"

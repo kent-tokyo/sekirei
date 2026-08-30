@@ -15,9 +15,30 @@ Run: python3 scripts/test_gate_resource_preflight.py
 was under sustained CPU/swap pressure and GitHub CI is the first executable
 validation for this change.)
 """
+import os
+import sys
 import unittest
 
-from gate_resource_preflight import (
+try:
+    from gate_resource_preflight import (
+        Check,
+        build_checks,
+        evaluate_thread_budget,
+        parse_contending_pids,
+        parse_disk_free_gb,
+        parse_free_memory_gb,
+        parse_int,
+        parse_load_average_1min,
+        parse_pgrep_pids,
+        parse_process_count,
+        parse_process_present,
+        parse_swap_used_fraction,
+    )
+except ModuleNotFoundError:
+    # Also support `python -m unittest scripts.test_gate_resource_preflight`
+    # from the repository root, where scripts/ is not on sys.path.
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from gate_resource_preflight import (
     Check,
     build_checks,
     evaluate_thread_budget,
@@ -30,7 +51,7 @@ from gate_resource_preflight import (
     parse_process_count,
     parse_process_present,
     parse_swap_used_fraction,
-)
+    )
 
 SAMPLE_UPTIME = "07:59  up 24 days, 20:34, 5 users, load averages: 17.51 15.32 14.20\n"
 
