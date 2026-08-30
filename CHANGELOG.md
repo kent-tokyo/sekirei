@@ -37,6 +37,8 @@
   for non-finite results instead of poisoning checkpoint metadata.
 - Diagnostic vector and layer norm calculations now apply the same finite
   result guard.
+- `mean_std` now validates its computed mean and standard deviation before
+  exposing them to checkpoint metadata.
 
 ## [0.3.6] – 2026-08-30
 

@@ -651,7 +651,12 @@ pub fn mean_std(sum: f64, sum_sq: f64, n: u64) -> (f64, f64) {
     // max(0.0) guards against a tiny negative from floating-point rounding
     // when the true variance is ~0 (e.g. output collapsed to a constant).
     let variance = (sum_sq / n - mean * mean).max(0.0);
-    (mean, variance.sqrt())
+    let std = variance.sqrt();
+    if mean.is_finite() && std.is_finite() {
+        (mean, std)
+    } else {
+        (0.0, 0.0)
+    }
 }
 
 /// Whole-parameter-vector L2 (Euclidean) distance between two
