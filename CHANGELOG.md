@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.3.7] – 2026-08-30
+
+- Hardened NNUE checkpoint loading and saving against malformed, non-finite,
+  truncated, and colliding artifacts.
+- Made teacher-cache, diagnostic sidecar, opening-book, and dataset-export
+  outputs atomic, durable, deterministic, and error-propagating.
+- Added lightweight evaluator and diagnostic probes without running heavy
+  training or strength measurements.
+- Search now returns a legal fallback move when a hard deadline arrives before
+  the first iterative-deepening result completes.
+
 - NNUE weight loading now rejects files with trailing bytes instead of
   silently accepting a malformed or incompatible artifact.
 - NNUE weight loading now rejects `NaN` and infinite floating-point values

@@ -370,6 +370,16 @@ impl Searcher {
             prev_best = best_move;
         }
 
+        // Even if the hard deadline fires before depth 1 completes, return a
+        // legal move whenever the position has one. This keeps a slow or
+        // heavily contended environment from producing an invalid bestmove.
+        if best_move.is_none() {
+            best_move = generate_legal_moves(board).into_iter().next();
+            if best_move.is_some() {
+                best_score = evaluate(board);
+            }
+        }
+
         SearchInfo {
             best_move,
             score: best_score,
@@ -1405,6 +1415,16 @@ impl SpeculativeSearcher {
                 break;
             }
             prev_best = best_move;
+        }
+
+        // A deadline may arrive before any complete iterative-deepening
+        // result, especially on a contended or slow host. Still return a
+        // legal move instead of an empty bestmove response.
+        if best_move.is_none() {
+            best_move = generate_legal_moves(board).into_iter().next();
+            if best_move.is_some() {
+                best_score = evaluate(board);
+            }
         }
 
         state.budget.abort_now();
