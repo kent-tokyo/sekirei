@@ -1,13 +1,53 @@
-# Sekirei
+# Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
+[![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
 Sekirei は Rust で実装した実験的な将棋エンジンです。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
+
+Rust製の将棋（日本のチェス）エンジン、USI対応エンジン、NNUE評価、並列探索、CSA/Floodgate
+対局、自己対局による棋力テストに関心がある開発者向けの実験プロジェクトです。
+
+## まず動かす
+
+crates.ioからUSIエンジンをインストールできます。
+
+```bash
+cargo install sekirei
+sekirei
+```
+
+ソースからビルドする場合:
+
+```bash
+git clone https://github.com/kent-tokyo/sekirei.git
+cd sekirei
+cargo run --release -p sekirei-usi
+```
+
+USIコマンドを標準入力から読み取るため、対応する将棋GUIでインストール済みの
+`sekirei`実行ファイルをエンジンとして指定できます。重みファイルなしではマテリアル評価を
+使い、先頭引数にNNUE重みファイルを渡すと学習済み評価を有効化します。
+
+```bash
+sekirei /path/to/weights.bin
+```
+
+## 主な機能
+
+- 9×9盤、合法手生成、成り、駒打ち、SFEN、USI指し手に対応。
+- 将棋GUI接続用のUSIエンジン。
+- 反復深化、negamax/alpha-beta、PVS/YBW並列探索、静止探索、手順序付け、枝刈り。
+- ロックフリー置換表と、任意で有効化できる投機的並列探索。
+- ファイルから読み込むNNUEスタイルの差分評価。
+- CSA v2.2 / Floodgateクライアント。
+- 自己対局、回帰テスト、相対Elo推定用のUSI対USIマッチランナー。
+- CSA棋譜または抽出済み局面からのNNUE学習パイプライン。
 
 ## 現在の状態
 
@@ -17,6 +57,9 @@ USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています
 - 棋力テスト: `sekirei-match`
 - NNUE 訓練: `train`（パッケージ名は `sekirei-train`）
 - NNUE 重みはファイルから読み込み、リポジトリには同梱していません。
+
+crates.ioの`sekirei`パッケージはUSIエンジンのバイナリです。リポジトリはCargo workspace
+として構成され、再利用可能な`sekirei-core`ライブラリと補助CLIツールも公開しています。
 
 ## 構成
 
@@ -41,6 +84,16 @@ cargo build --release
 cargo test --release
 cargo bench --bench movegen -p sekirei-bench
 ```
+
+プロセス全体の重みを変更せずに NNUE チェックポイントを確認する場合:
+
+```bash
+cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
+# 自動処理では --json、任意局面では --sfen "<SFEN>" を繰り返し指定
+```
+
+評価値、スコアレンジ、基準局面との差分を表示します。`--json` で機械可読形式にできます。
+このプローブは診断用であり、棋力テストではありません。
 
 マテリアル評価で起動:
 

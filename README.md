@@ -1,13 +1,58 @@
-# Sekirei
+# Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
+[![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in Rust. It supports USI, a CSA/floodgate
-client, self-play match testing, and an NNUE-style evaluator. Playing strength and evaluation
-quality are still under development; no absolute rating or superiority claim is made here.
+Sekirei is an experimental **shogi (Japanese chess) engine written in Rust**. It speaks the
+Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
+includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
+testing.
+
+This project is for developers interested in Rust game engines, shogi search, safe parallelism,
+NNUE evaluation, and reproducible engine experiments. Playing strength and evaluation quality
+are still under development; Sekirei makes no absolute rating or superiority claim.
+
+## Quick start
+
+Install the USI engine from crates.io:
+
+```bash
+cargo install sekirei
+sekirei
+```
+
+Or build the latest source checkout:
+
+```bash
+git clone https://github.com/kent-tokyo/sekirei.git
+cd sekirei
+cargo run --release -p sekirei-usi
+```
+
+The binary reads USI commands from standard input. To connect Sekirei to a compatible shogi GUI,
+select the installed `sekirei` executable as the engine command. Sekirei can run without a
+checkpoint using its material-evaluation fallback; pass an NNUE weight file as the first argument
+to enable a trained evaluator:
+
+```bash
+sekirei /path/to/weights.bin
+```
+
+## Features
+
+- Rust shogi engine with a 9×9 board, legal move generation, promotion, drops, SFEN, and USI moves.
+- USI engine binary for shogi GUI integration and command-line analysis.
+- Iterative deepening, negamax/alpha-beta search, PVS/YBW parallel search, quiescence search,
+  move ordering, and pruning heuristics.
+- Lock-free transposition table and optional speculative parallel search.
+- NNUE-style efficiently updatable evaluation with file-based checkpoints.
+- CSA v2.2 / Floodgate client for automated games.
+- USI-vs-USI match runner for self-play, regression testing, and relative Elo estimation.
+- NNUE training pipeline from CSA games or extracted positions.
+- Pure Rust core logic with no `unsafe` blocks in the core search and evaluation code.
 
 ## Status
 
@@ -17,6 +62,9 @@ quality are still under development; no absolute rating or superiority claim is 
 - Match runner binary: `sekirei-match`.
 - NNUE training binary: `train` (package: `sekirei-train`).
 - NNUE weights are loaded from a file and are not bundled.
+
+The `sekirei` package on crates.io is the USI engine binary. The repository is a Cargo workspace
+that also publishes the reusable `sekirei-core` library and supporting command-line tools.
 
 ## Repository layout
 
@@ -42,6 +90,16 @@ cargo build --release
 cargo test --release
 cargo bench --bench movegen -p sekirei-bench
 ```
+
+Probe an NNUE checkpoint without enabling process-global engine weights:
+
+```bash
+cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
+# For automation, add --json; custom positions use repeated --sfen "<SFEN>".
+```
+
+The probe reports evaluator scores, score range, and reference deltas. Add
+`--json` for machine-readable output. It is a diagnostic, not a strength test.
 
 Run the USI engine without weights (material evaluation fallback):
 

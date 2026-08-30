@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## [0.3.15] – 2026-08-30
+
+- Documented `nnue_probe` JSON and custom-SFEN usage in the English and
+  Japanese README files.
+
 ## [0.3.14] – 2026-08-30
 
 - Added regression coverage for `nnue_probe` JSON rendering, including score
