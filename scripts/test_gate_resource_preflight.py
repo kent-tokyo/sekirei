@@ -21,10 +21,12 @@ from gate_resource_preflight import (
     Check,
     build_checks,
     evaluate_thread_budget,
+    parse_contending_pids,
     parse_disk_free_gb,
     parse_free_memory_gb,
     parse_int,
     parse_load_average_1min,
+    parse_pgrep_pids,
     parse_process_count,
     parse_process_present,
     parse_swap_used_fraction,
@@ -132,6 +134,49 @@ class ParseProcessPresentTests(unittest.TestCase):
 
     def test_none_input_is_unknown(self):
         self.assertIsNone(parse_process_present(None))
+
+
+class ParsePgrepPidsTests(unittest.TestCase):
+    def test_extracts_pids_from_pgrep_fl_output(self):
+        raw = "47087 npm exec @upstash/context7-mcp\n52012 cargo build --release\n"
+        self.assertEqual(parse_pgrep_pids(raw), [47087, 52012])
+
+    def test_empty_output_is_empty_list_not_unknown(self):
+        self.assertEqual(parse_pgrep_pids(""), [])
+
+    def test_none_input_is_unknown(self):
+        self.assertIsNone(parse_pgrep_pids(None))
+
+
+class ParseContendingPidsTests(unittest.TestCase):
+    # 2026-08-27: a 6-day-old, idle `npm exec @upstash/context7-mcp` process
+    # matched --contention-job renkin via `pgrep -f` (its cwd contained the
+    # substring) and refused launch for days despite consuming ~0% CPU, while
+    # the actual heavy build it was meant to detect had already finished.
+    # These tests cover the CPU-threshold filter added to fix that.
+
+    def test_process_above_threshold_is_contending(self):
+        raw = "47087  87.3\n"
+        self.assertEqual(parse_contending_pids(raw, threshold_percent=5.0), [47087])
+
+    def test_idle_process_below_threshold_is_not_contending(self):
+        # The exact false-positive shape: present, but ~0% CPU.
+        raw = "47087   0.0\n"
+        self.assertEqual(parse_contending_pids(raw, threshold_percent=5.0), [])
+
+    def test_mixed_pids_filters_to_only_contending_ones(self):
+        raw = "47087   0.0\n52012  63.8\n"
+        self.assertEqual(parse_contending_pids(raw, threshold_percent=5.0), [52012])
+
+    def test_empty_output_is_empty_list_not_unknown(self):
+        self.assertEqual(parse_contending_pids("", threshold_percent=5.0), [])
+
+    def test_none_input_is_unknown(self):
+        self.assertIsNone(parse_contending_pids(None, threshold_percent=5.0))
+
+    def test_malformed_line_is_skipped_not_fatal(self):
+        raw = "not a valid ps line\n52012  63.8\n"
+        self.assertEqual(parse_contending_pids(raw, threshold_percent=5.0), [52012])
 
 
 class ParseProcessCountTests(unittest.TestCase):

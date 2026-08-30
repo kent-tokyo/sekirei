@@ -1,6 +1,8 @@
 # Sekirei
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
+[![Release](https://img.shields.io/github/v/release/kent-tokyo/sekirei)](https://github.com/kent-tokyo/sekirei/releases)
 
 [日本語](README_ja.md)
 
@@ -17,6 +19,12 @@ The project is motivated by how Rust's ownership model enables safe concurrent s
 - CSA client for floodgate (account set via `FLOODGATE_ACCOUNT` in `.env`)
 - NNUE-style evaluation available; weights not bundled — train from CSA data or use material fallback
 - Floodgate rating is volatile (active testing)
+- Published to crates.io (all 6 workspace crates: `sekirei`, `sekirei-core`, `sekirei-bench`,
+  `sekirei-csa`, `sekirei-match-runner`, `sekirei-train`) via crates.io Trusted Publishing
+  (GitHub OIDC — no long-lived publish token stored in this repo)
+- v0.3.x is a search-correctness/reproducibility/distribution-focused release line — see
+  `CHANGELOG.md`. It does **not** claim an Elo/playing-strength improvement or a comparison
+  against other engines; strength work is the current focus going forward
 
 ## Principles
 
@@ -77,6 +85,9 @@ crates/
 ## Building & Running
 
 ```bash
+# Install the USI engine binary from crates.io (no local clone needed)
+cargo install sekirei
+
 # Development build
 cargo build
 
@@ -322,7 +333,7 @@ Measured on Apple M4 Pro (`cargo build --release`, `target-cpu=native`).
 | NNUE evaluate (startpos) | ~18.7 ns / call |
 | Search depth 4 (startpos) | ~3.6 ms |
 | Search NPS with NNUE (10 s time control) | ~1.1M nps, depth 13 |
-| Test suite | 217 tests pass |
+| Test suite | 230 tests pass |
 
 floodgate status: active testing; rating is currently volatile.
 
@@ -332,6 +343,10 @@ floodgate status: active testing; rating is currently volatile.
 - `setoption EvalFile` supported; in-game weight reload requires engine restart
 - Pondering: supported (`go ponder` / `ponderhit`); enable via `setoption name Ponder value true`
 - MultiPV: supported via `setoption name MultiPV value N`
+- Speculative search's candidate count is tunable/disableable via
+  `setoption name SpecTopN value N` (default 3, `0` disables speculation entirely). Note:
+  `SpecTopN>0` search is measurably nondeterministic even for an identical binary run against
+  itself (concurrent speculative-thread scheduling) — `SpecTopN=0` is deterministic
 
 ## Name Origin
 
