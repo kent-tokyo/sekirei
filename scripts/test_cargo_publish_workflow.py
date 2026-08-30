@@ -4,15 +4,15 @@
 Motivation: a crates.io publish can never be fully undone (a bad version
 can be yanked, never deleted), so this workflow's safety properties --
 which git ref actually gets published, which steps can see the registry
-token, which crates are refused outright, and in what order publishing
-happens -- are pinned here rather than trusted to hold by inspection alone.
+token, which crates are accepted, and in what order publishing happens -- are
+pinned here rather than trusted to hold by inspection alone.
 Written after a review round caught: the original workflow published
 whatever ref triggered workflow_dispatch (not a specific release tag), put
 CARGO_REGISTRY_TOKEN in job-level env (visible to every step, not just the
 ones that upload), and would happily start publishing sekirei-core/bench/
-csa/match-runner before discovering sekirei-train/sekirei can't actually be
-published (lineprior is git-pinned, not on crates.io) partway through an
-irreversible sequence. A second round then replaced the long-lived
+csa/match-runner before discovering sekirei-train/sekirei could not actually
+be published partway through an irreversible sequence. A second round then
+replaced the long-lived
 CARGO_REGISTRY_TOKEN repo secret entirely with crates.io Trusted Publishing
 (OIDC via rust-lang/crates-io-auth-action) -- sekirei-core/bench/csa/
 match-runner already have prior published versions on crates.io, so the

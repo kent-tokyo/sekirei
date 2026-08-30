@@ -182,8 +182,8 @@ here. New since that tag:
 
 ### Dependencies
 
-- `lineprior` bumped to 0.9.0 (still git-pinned by tag, not yet published to
-  crates.io); required adding two new required fields
+- `lineprior` bumped to 0.9.0 from its crates.io release; required adding two
+  new required fields
   (`observed_at_unix_seconds`, `source`) to an `Observation` construction
   site.
 - `veridict` bumped to 0.15.0 and switched from a pinned git revision to a
