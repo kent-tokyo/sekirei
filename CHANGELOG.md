@@ -45,6 +45,8 @@
   layer and bias array.
 - Added lightweight material-evaluation probes for start-position neutrality,
   hand-piece value, and side-to-move sign handling.
+- Extended the material probes to cover on-board piece value and side-to-move
+  sign handling.
 
 ## [0.3.6] – 2026-08-30
 

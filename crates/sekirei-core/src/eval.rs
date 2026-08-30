@@ -126,4 +126,19 @@ mod tests {
             -PIECE_VALUE[PieceKind::Hisha.index()]
         );
     }
+
+    #[test]
+    fn material_score_reflects_board_piece_value() {
+        let black = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 b - 1").unwrap();
+        let white = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 w - 1").unwrap();
+
+        assert_eq!(
+            material_score(&black),
+            PIECE_VALUE[PieceKind::Hisha.index()]
+        );
+        assert_eq!(
+            material_score(&white),
+            -PIECE_VALUE[PieceKind::Hisha.index()]
+        );
+    }
 }
