@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## [0.3.20] – 2026-08-31
+
+- Promoted the official A-flat NNUE v1 candidate after a preregistered Gate 3
+  SPRT pass against the material baseline: 56 wins, 2 losses, 0 draws in 58
+  games, with an estimated relative advantage of +578.9 Elo.
+- Added reproducibility records for the Gate 3 configuration, artifact hashes,
+  and the limitation that this result is relative to the material baseline,
+  not an absolute Floodgate rating.
+
 ## [0.3.19] – 2026-08-30
 
 - Added deterministic reload verification to `nnue_probe` output.
