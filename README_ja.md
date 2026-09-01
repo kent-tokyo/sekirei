@@ -166,7 +166,8 @@ cargo run --release -p sekirei-train -- \
 ## ライセンスと帰属表示
 
 Sekireiのソースコードは、利用者の選択によりMIT LicenseまたはApache License, Version 2.0で
-ライセンスします。[NOTICE](NOTICE)に記載された著作権表示と帰属表示を保持してください。
+ライセンスします。[LICENSE-MIT](LICENSE-MIT)または[LICENSE-APACHE](LICENSE-APACHE)を参照してください。
+[NOTICE](NOTICE)に記載された著作権表示と帰属表示を保持してください。
 
 Sekireiをベースにした製品での推奨表示：
 

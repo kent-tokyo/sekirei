@@ -173,7 +173,8 @@ project are licensed separately under CC BY 4.0; see [NNUE-LICENSE.md](NNUE-LICE
 ## License and attribution
 
 The Sekirei source code is licensed under the MIT License or the Apache License, Version 2.0,
-at your option. Please retain [NOTICE](NOTICE), including the copyright and attribution notice.
+at your option: [LICENSE-MIT](LICENSE-MIT) or [LICENSE-APACHE](LICENSE-APACHE). Please retain
+[NOTICE](NOTICE), including the copyright and attribution notice.
 
 Recommended attribution for products based on Sekirei:
 
