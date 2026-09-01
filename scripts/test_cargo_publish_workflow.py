@@ -125,7 +125,7 @@ class TriggerAndPermissionsTests(unittest.TestCase):
 
     def test_permissions_are_exactly_contents_read(self):
         # Exact-match, not subset, so an unrelated permission can't creep in unnoticed later.
-        self.assertEqual(_load()["permissions"], {"contents": "read"})
+        self.assertEqual(_load()["permissions"], {"contents": "read", "id-token": "write"})
 
     def test_dry_run_input_defaults_true(self):
         inputs = _on_triggers(_load())["workflow_dispatch"]["inputs"]
@@ -153,6 +153,11 @@ CRATE_PUBLISH_STEPS = [
     ("sekirei", "Publish sekirei (sekirei-usi)"),
 ]
 
+CRATE_OIDC_STEPS = [
+    ("sekirei-train", "Authenticate with crates.io (sekirei-train)", "auth-train", "Publish sekirei-train"),
+    ("sekirei", "Authenticate with crates.io (sekirei)", "auth-usi", "Publish sekirei (sekirei-usi)"),
+]
+
 DRY_RUN_STEP_NAMES = [
     "Dry-run publish sekirei-core",
     "Dry-run publish sekirei-bench",
@@ -169,7 +174,7 @@ class TokenScopeTests(unittest.TestCase):
 
     def test_secret_reference_is_scoped_to_publish_steps(self):
         text = WORKFLOW_PATH.read_text()
-        self.assertEqual(text.count("secrets.CARGO_REGISTRY_TOKEN"), 6)
+        self.assertEqual(text.count("secrets.CARGO_REGISTRY_TOKEN"), 4)
 
     def test_no_workflow_level_env(self):
         self.assertNotIn("env", _load())
@@ -183,6 +188,8 @@ class TokenScopeTests(unittest.TestCase):
             with self.subTest(crate=crate):
                 publish_step = _step_by_name(publish_name)
                 token_expr = publish_step.get("env", {}).get("CARGO_REGISTRY_TOKEN")
+                if crate in {"sekirei-train", "sekirei"}:
+                    continue
                 self.assertEqual(token_expr, "${{ secrets.CARGO_REGISTRY_TOKEN }}")
 
     def test_dry_run_steps_never_authenticate_or_see_a_token(self):
@@ -192,8 +199,16 @@ class TokenScopeTests(unittest.TestCase):
                 self.assertNotIn("CARGO_REGISTRY_TOKEN", step.get("env", {}))
                 self.assertNotIn("crates-io-auth-action", step.get("uses", ""))
 
-    def test_no_oidc_auth_action_remains(self):
-        self.assertNotIn("crates-io-auth-action", WORKFLOW_PATH.read_text())
+    def test_required_crates_use_oidc(self):
+        for crate, auth_name, auth_id, publish_name in CRATE_OIDC_STEPS:
+            with self.subTest(crate=crate):
+                auth_step = _step_by_name(auth_name)
+                self.assertEqual(auth_step.get("id"), auth_id)
+                self.assertTrue(auth_step.get("uses", "").startswith("rust-lang/crates-io-auth-action@"))
+                self.assertEqual(
+                    _step_by_name(publish_name).get("env", {}).get("CARGO_REGISTRY_TOKEN"),
+                    f"${{{{ steps.{auth_id}.outputs.token }}}}",
+                )
 
 
 @unittest.skipUnless(HAVE_YAML, "PyYAML not installed -- pip install pyyaml")
