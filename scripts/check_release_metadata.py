@@ -27,6 +27,15 @@ def main() -> int:
     if licenses != {"MIT OR Apache-2.0"}:
         errors.append(f"crate licenses disagree: {sorted(licenses)}")
 
+    if expected := next(iter(versions), None):
+        for name, package in packages.items():
+            dependency = package.get("dependencies", {}).get("sekirei-core")
+            if isinstance(dependency, dict) and dependency.get("version") != expected:
+                errors.append(
+                    f"{name} sekirei-core dependency version disagrees: "
+                    f"{dependency.get('version')!r} != {expected!r}"
+                )
+
     lock = tomllib.loads((ROOT / "Cargo.lock").read_text())
     lock_versions = {
         package["name"]: package["version"]
