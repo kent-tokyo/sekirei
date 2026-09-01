@@ -311,3 +311,43 @@ fn multipv_emits_numbered_info_lines() {
     send(&mut stdin, "quit");
     let _ = child.wait();
 }
+
+#[test]
+fn usinewgame_resets_book_ply_tracking() {
+    let book_path = std::env::temp_dir().join(format!(
+        "sekirei_test_book_reset_{}-{}.jsonl",
+        std::process::id(),
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let book = r#"{"state":"lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1","actions":[{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.9,"confidence":0.9}]}"#;
+    std::fs::write(&book_path, book).expect("failed to write test book");
+
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name BookFile value {}", book_path.display()),
+    );
+    send(&mut stdin, "setoption name BookMaxPly value 1");
+    send(&mut stdin, "isready");
+    recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+
+    // At ply 1 the strict BookMaxPly=1 boundary excludes the book.
+    send(&mut stdin, "position startpos moves 7g7f");
+    send(&mut stdin, "go depth 1");
+    let first = recv_until(&rx, |l| l.starts_with("bestmove"), Duration::from_secs(5));
+    assert!(!first.iter().any(|l| l == "info string book move"));
+
+    // A new game must restore ply 0 so the same book can be used again.
+    send(&mut stdin, "usinewgame");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let second = recv_until(&rx, |l| l.starts_with("bestmove"), Duration::from_secs(5));
+    assert!(second.iter().any(|l| l == "info string book move"));
+    assert!(second.iter().any(|l| l == "bestmove 7g7f"));
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+    let _ = std::fs::remove_file(book_path);
+}

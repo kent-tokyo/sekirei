@@ -262,6 +262,8 @@ fn main() {
             "usinewgame" => {
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 board = Board::startpos();
+                current_ply = 0;
+                last_position_cmd = String::from("startpos");
                 searcher.clear_tt();
                 game_counter += 1;
             }
