@@ -12,6 +12,7 @@
   schedule horizon.
 - Corrected USI info output to report forced mates as `score mate N` instead
   of exposing internal mate scores as centipawns.
+- Added `sekirei --version` and `sekirei -V` for release and packaging checks.
 
 ## [0.3.20] – 2026-08-31
 

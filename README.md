@@ -114,6 +114,12 @@ Run it with NNUE weights:
 cargo run --release -p sekirei-usi -- /path/to/weights.bin
 ```
 
+Print the version without starting the USI loop:
+
+```bash
+cargo run --release -p sekirei-usi -- --version
+```
+
 ## USI options
 
 The engine reports the complete option list after `usi`. The main options are:

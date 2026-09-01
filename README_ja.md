@@ -107,6 +107,12 @@ NNUE 重みを指定して起動:
 cargo run --release -p sekirei-usi -- /path/to/weights.bin
 ```
 
+USIループを開始せずにバージョンを表示:
+
+```bash
+cargo run --release -p sekirei-usi -- --version
+```
+
 ## USI オプション
 
 `usi` コマンド後に全オプションを表示します。主なものは次の通りです。

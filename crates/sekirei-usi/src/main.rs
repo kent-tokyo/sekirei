@@ -74,6 +74,13 @@ fn abort_and_join_inflight_search(
 }
 
 fn main() {
+    if let Some(arg) = std::env::args().nth(1)
+        && matches!(arg.as_str(), "--version" | "-V")
+    {
+        println!("Sekirei {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     // Optional: load NNUE weights from first command-line argument
     // Usage: cargo run --release -p usi -- weights.bin
     let mut weight_path = String::new();
