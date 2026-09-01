@@ -24,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   publish:
@@ -223,29 +222,19 @@ jobs:
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && inputs.dry_run }}
         run: cargo publish -p sekirei-train --dry-run
 
-      - name: Authenticate with crates.io (sekirei-train)
-        id: auth-train
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && !inputs.dry_run }}
-        uses: rust-lang/crates-io-auth-action@v1
-
       - name: Publish sekirei-train
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-train,') && !inputs.dry_run }}
         run: cargo publish -p sekirei-train
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-train.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
       # Package name "sekirei", crate directory crates/sekirei-usi.
       - name: Dry-run publish sekirei (sekirei-usi)
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && inputs.dry_run }}
         run: cargo publish -p sekirei --dry-run
 
-      - name: Authenticate with crates.io (sekirei)
-        id: auth-usi
-        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && !inputs.dry_run }}
-        uses: rust-lang/crates-io-auth-action@v1
-
       - name: Publish sekirei (sekirei-usi)
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei,') && !inputs.dry_run }}
         run: cargo publish -p sekirei
         env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth-usi.outputs.token }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
