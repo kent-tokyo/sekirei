@@ -39,6 +39,10 @@ jobs:
         run: cargo test --release
       - name: build
         run: cargo build --release
+      - name: release metadata
+        run: python3 scripts/check_release_metadata.py
+      - name: NNUE diagnostic tests
+        run: python3 scripts/test_nnue_diagnostics.py
 
   smoke:
     runs-on: ubuntu-latest
