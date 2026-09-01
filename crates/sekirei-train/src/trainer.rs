@@ -3706,6 +3706,36 @@ mod tests {
     }
 
     #[test]
+    fn seeded_init_probe_distinguishes_float_and_saved_output() {
+        const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
+        const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
+        let trainer = Trainer::new(7, 0.5);
+        let start = Board::startpos();
+        let corner = Board::from_sfen(KING_CORNER).unwrap();
+        let rook = Board::from_sfen(ROOK_IN_HAND).unwrap();
+        let float_delta = (trainer.forward(&start) - trainer.forward(&corner)).abs();
+        let float_material_delta = (trainer.forward(&rook) - trainer.forward(&corner)).abs();
+        let weights = trainer.weights.to_nnue_weights();
+        let saved_delta =
+            (start.evaluate_with_weights(&weights) - corner.evaluate_with_weights(&weights)).abs();
+        let saved_material_delta =
+            (rook.evaluate_with_weights(&weights) - corner.evaluate_with_weights(&weights)).abs();
+        assert!(
+            float_delta.is_finite() && float_delta > 0.0,
+            "initial floating-point path has no king-placement signal: float_delta={float_delta}"
+        );
+        assert!(
+            float_material_delta.is_finite() && float_material_delta > 0.0,
+            "initial floating-point path has no material signal: float_material_delta={float_material_delta}"
+        );
+        assert!(
+            (saved_delta as f32) <= float_delta.ceil() + 1.0
+                && (saved_material_delta as f32) <= float_material_delta.ceil() + 1.0,
+            "saved output must not invent a larger signal: king float={float_delta} saved={saved_delta}, material float={float_material_delta} saved={saved_material_delta}"
+        );
+    }
+
+    #[test]
     fn seeded_init_differs_across_seeds() {
         let a = TrainWeights::new_seeded(1, 0.5);
         let b = TrainWeights::new_seeded(2, 0.5);

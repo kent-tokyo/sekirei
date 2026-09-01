@@ -178,11 +178,12 @@ struct Args {
     checkpoint_dir: Option<PathBuf>,                     // --checkpoint-dir
     teacher_cache_path: Option<PathBuf>,                 // --teacher-cache
     reuse_teacher_cache: bool,                           // --reuse-teacher-cache
+    cache_only: bool, // --cache-only: never search for a missing teacher label
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,                 // --lr (base learning rate, default 0.001)
+    lr: f32,          // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
-    min_lr: f32,             // --min-lr (floor applied to every schedule, default 0.0)
-    warmup_epochs: u32,      // --warmup-epochs (linear ramp to base_lr, default 0 = off)
+    min_lr: f32,      // --min-lr (floor applied to every schedule, default 0.0)
+    warmup_epochs: u32, // --warmup-epochs (linear ramp to base_lr, default 0 = off)
     // Schedule horizon the LR curve is shaped for -- may exceed `epochs`,
     // to reproduce the first N epochs of a longer schedule. Defaults to
     // `epochs` (today's original behavior) when --lr-schedule-epochs is
@@ -298,6 +299,7 @@ fn parse_args() -> Result<Args, String> {
     let mut checkpoint_dir: Option<PathBuf> = None;
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
+    let mut cache_only = false;
     let mut wdl_lambda: Option<f32> = None;
     let mut lr = 0.001f32;
     let mut lr_schedule = LrSchedule::StepHalf;
@@ -678,6 +680,9 @@ fn parse_args() -> Result<Args, String> {
             "--reuse-teacher-cache" => {
                 reuse_teacher_cache = true;
             }
+            "--cache-only" => {
+                cache_only = true;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -700,6 +705,11 @@ fn parse_args() -> Result<Args, String> {
     }
     if eval_only.is_some() && positions_path.is_some() {
         return Err("--eval-only requires --games (CSA path)".to_string());
+    }
+    if cache_only && !reuse_teacher_cache {
+        return Err(
+            "--cache-only requires --reuse-teacher-cache --teacher-cache <path>".to_string(),
+        );
     }
     let lr_schedule_epochs =
         trainer::resolve_schedule_epochs(epochs as u32, lr_schedule_epochs, warmup_epochs)?;
@@ -734,6 +744,7 @@ fn parse_args() -> Result<Args, String> {
         checkpoint_dir,
         teacher_cache_path,
         reuse_teacher_cache,
+        cache_only,
         wdl_lambda,
         lr,
         lr_schedule,
@@ -1358,6 +1369,7 @@ fn save_checkpoint_meta(
         "lr_schedule": format!("{:?}", args.lr_schedule),
         "min_lr": args.min_lr,
         "warmup_epochs": args.warmup_epochs,
+        "cache_only": args.cache_only,
         // `epochs` is the run's planned total epoch count; `lr_schedule_epochs`
         // is the (possibly longer) horizon the LR curve was shaped for --
         // e.g. epochs=3/lr_schedule_epochs=20 reproduces the first 3 epochs
@@ -1714,6 +1726,9 @@ fn print_usage() {
     eprintln!("  --checkpoint-dir <dir>  Directory for epoch checkpoints");
     eprintln!("  --teacher-cache <path>  JSONL cache of teacher scores (sfen → score_cp)");
     eprintln!("  --reuse-teacher-cache   Load teacher cache; skip search on cache hits");
+    eprintln!(
+        "  --cache-only            Keep only cached positions; fail-safe for bounded runs (requires --reuse-teacher-cache)"
+    );
     eprintln!();
     eprintln!("Data: download floodgate archives from http://wdoor.c.u-tokyo.ac.jp/shogi/");
 }
@@ -1781,12 +1796,12 @@ fn main() {
 
         // Deterministic validation split via SFEN hash
         let split_threshold = (args.validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
-        let (train_samples, valid_samples): (Vec<_>, Vec<_>) =
+        let (mut train_samples, mut valid_samples): (Vec<_>, Vec<_>) =
             all_samples.into_iter().partition(|s| {
                 let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
                 positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
             });
-        let split_h = split_hash(
+        let mut split_h = split_hash(
             valid_samples
                 .iter()
                 .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
@@ -1821,6 +1836,13 @@ fn main() {
             .checkpoint_dir
             .clone()
             .unwrap_or_else(|| args.output.parent().unwrap_or(Path::new(".")).to_path_buf());
+        if let Err(e) = fs::create_dir_all(&checkpoint_dir) {
+            eprintln!(
+                "error: cannot create checkpoint directory {:?}: {e}",
+                checkpoint_dir
+            );
+            std::process::exit(1);
+        }
         let output_stem = args
             .output
             .file_stem()
@@ -1840,6 +1862,31 @@ fn main() {
         } else {
             HashMap::new()
         };
+
+        if args.cache_only {
+            let (filtered_train, train_total) =
+                positions::retain_cached_samples(train_samples, &combined_cache);
+            let (filtered_valid, valid_total) =
+                positions::retain_cached_samples(valid_samples, &combined_cache);
+            eprintln!(
+                "  cache-only: kept train {}/{} valid {}/{} positions",
+                filtered_train.len(),
+                train_total,
+                filtered_valid.len(),
+                valid_total
+            );
+            train_samples = filtered_train;
+            valid_samples = filtered_valid;
+            split_h = split_hash(
+                valid_samples
+                    .iter()
+                    .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
+            );
+            if train_samples.is_empty() && valid_samples.is_empty() {
+                eprintln!("error: --cache-only found no matching teacher labels");
+                std::process::exit(1);
+            }
+        }
 
         let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
         trainer.grad_clip_norm = args.grad_clip_norm;

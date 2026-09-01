@@ -124,6 +124,22 @@ pub fn apply_source_cap(
         .collect()
 }
 
+/// Retain only samples whose canonical SFEN is present in a teacher cache.
+/// This is an explicit opt-in guard for bounded experiments: unlike the
+/// normal training path, it must never fall back to an expensive teacher
+/// search for a missing label.
+pub fn retain_cached_samples(
+    samples: Vec<PositionSample>,
+    cache: &HashMap<String, i32>,
+) -> (Vec<PositionSample>, usize) {
+    let total = samples.len();
+    let kept = samples
+        .into_iter()
+        .filter(|sample| cache.contains_key(&board_to_sfen(&sample.board)))
+        .collect();
+    (kept, total)
+}
+
 /// FNV-1a hash XORed with seed — used for deterministic split and source cap.
 pub fn sfen_hash(sfen: &str, seed: u64) -> u64 {
     let mut h = 14695981039346656037u64;
@@ -259,5 +275,24 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].phase, "middlegame");
         assert_eq!(samples[0].side_to_move, "");
+    }
+
+    #[test]
+    fn retain_cached_samples_filters_by_canonical_sfen() {
+        let f = make_jsonl(&[
+            (STARTPOS_SFEN, "opening", "black", 1, "a"),
+            (SFEN_2, "middlegame", "white", 2, "a"),
+        ]);
+        let samples = load_positions(f.path());
+        let mut cache = HashMap::new();
+        cache.insert(board_to_sfen(&samples[0].board), 12);
+
+        let (kept, total) = retain_cached_samples(samples, &cache);
+        assert_eq!(total, 2);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            board_to_sfen(&kept[0].board),
+            board_to_sfen(&Board::from_sfen(STARTPOS_SFEN).unwrap())
+        );
     }
 }

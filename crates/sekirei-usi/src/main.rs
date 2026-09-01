@@ -370,6 +370,7 @@ fn main() {
                     pondering,
                     multi_pv,
                 );
+                searcher.reset_abort_flag();
                 let abort = searcher.abort_flag();
                 search_abort = Some(abort);
 
@@ -464,6 +465,7 @@ fn main() {
                 if let Some(ref args) = ponder_go_args.take() {
                     let config =
                         parse_go(args, board.side_to_move, move_overhead_ms, false, multi_pv);
+                    searcher.reset_abort_flag();
                     let abort = searcher.abort_flag();
                     search_abort = Some(abort);
                     let searcher2 = Arc::clone(&searcher);

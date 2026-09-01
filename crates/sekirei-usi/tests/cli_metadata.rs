@@ -11,7 +11,7 @@ fn version_flag_reports_package_version_without_starting_usi() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "Sekirei 0.3.21"
+        "Sekirei 0.3.22"
     );
 }
 
@@ -24,7 +24,7 @@ fn short_version_flag_is_supported() {
     assert!(output.status.success());
     assert_eq!(
         String::from_utf8_lossy(&output.stdout).trim(),
-        "Sekirei 0.3.21"
+        "Sekirei 0.3.22"
     );
 }
 

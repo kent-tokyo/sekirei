@@ -100,7 +100,11 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 
 The probe reports evaluator scores, score range, mean, variance, and reference
 deltas, plus `constant_output` and `reload_deterministic` flags. Add `--json`
-for machine-readable output. It is a diagnostic, not a strength test.
+for machine-readable output; `--strict` exits non-zero for constant or
+near-constant output (range below 8 cp) or non-deterministic reload. It is a
+diagnostic, not a strength test.
+JSON output also includes `strict_min_range_cp` and `strict_pass` so automated
+candidate selection can record the exact health rule used.
 
 Run the USI engine without weights (material evaluation fallback):
 

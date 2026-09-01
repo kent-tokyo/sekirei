@@ -38,15 +38,38 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
             skipped += 1;
             continue;
         };
-        let Some(cp) = val.get("score_cp").and_then(|v| v.as_i64()) else {
-            skipped += 1;
-            continue;
+        // Accept the native cache shape, plus the existing analysis_record_v1
+        // shape produced by Gate 2.  The latter is only a compatibility
+        // bridge: its settings.depth and first PV score must still match the
+        // requested teacher depth before it can be reused.
+        let (cp, recorded_depth) = if let Some(cp) = val.get("score_cp").and_then(|v| v.as_i64()) {
+            (cp, val.get("label_depth").and_then(|v| v.as_u64()))
+        } else {
+            let Some(depth) = val
+                .get("settings")
+                .and_then(|settings| settings.get("depth"))
+                .and_then(|v| v.as_u64())
+            else {
+                skipped += 1;
+                continue;
+            };
+            let Some(cp) = val
+                .get("lines")
+                .and_then(|lines| lines.as_array())
+                .and_then(|lines| lines.first())
+                .and_then(|line| line.get("score_cp"))
+                .and_then(|v| v.as_i64())
+            else {
+                skipped += 1;
+                continue;
+            };
+            (cp, Some(depth))
         };
         let Ok(cp) = i32::try_from(cp) else {
             skipped += 1;
             continue;
         };
-        match val.get("label_depth").and_then(|v| v.as_u64()) {
+        match recorded_depth {
             Some(d) if d as u32 == expected_depth => {}
             Some(_) => {
                 depth_mismatch += 1;
@@ -156,6 +179,29 @@ mod tests {
         let loaded = load(f.path(), 4);
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[SFEN_A], 100);
+    }
+
+    #[test]
+    fn analysis_record_v1_can_seed_a_matching_depth_cache() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{SFEN_A}","settings":{{"depth":4}},"lines":[{{"score_cp":-120}}]}}"#
+        )
+        .unwrap();
+        let loaded = load(f.path(), 4);
+        assert_eq!(loaded.get(SFEN_A), Some(&-120));
+    }
+
+    #[test]
+    fn analysis_record_v1_wrong_depth_is_not_reused() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{SFEN_A}","settings":{{"depth":2}},"lines":[{{"score_cp":-120}}]}}"#
+        )
+        .unwrap();
+        assert!(load(f.path(), 4).is_empty());
     }
 
     #[test]

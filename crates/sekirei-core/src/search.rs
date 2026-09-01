@@ -326,11 +326,16 @@ impl Searcher {
         self.external_abort.clone()
     }
 
+    /// Clear a previous stop signal before starting a new search.
+    pub fn reset_abort_flag(&self) {
+        self.external_abort.store(false, Ordering::Relaxed);
+    }
+
     /// Run iterative-deepening search from the current position up to `config.max_depth`
     /// or until a time limit / abort signal fires, returning the best line found.
+    ///
+    /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
-        self.external_abort.store(false, Ordering::Relaxed);
-
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),
@@ -1286,6 +1291,11 @@ impl SpeculativeSearcher {
         self.external_abort.clone()
     }
 
+    /// Clear a previous stop signal before starting a new search.
+    pub fn reset_abort_flag(&self) {
+        self.external_abort.store(false, Ordering::Relaxed);
+    }
+
     /// Probe the TT for the best move stored at `hash` (used to extract ponder move).
     pub fn probe_tt(&self, hash: u64) -> Option<Move> {
         self.tt.probe(hash).and_then(|e| e.mv)
@@ -1299,9 +1309,9 @@ impl SpeculativeSearcher {
 
     /// Run iterative-deepening search with preemptive speculative parallelism on
     /// candidate replies, returning the best line plus speculation statistics.
+    ///
+    /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {
-        self.external_abort.store(false, Ordering::Relaxed);
-
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),

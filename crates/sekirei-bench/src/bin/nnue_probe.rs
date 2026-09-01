@@ -12,6 +12,9 @@ use sekirei_core::{board::Board, eval::evaluate_with_weights, nnue::read_weights
 const STARTPOS: &str = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
 const ROOK_ON_BOARD: &str = "9/9/9/9/4R3/9/9/9/4k4 b - 1";
+const KING_CENTER: &str = "9/9/9/9/4K4/9/9/9/4k4 b - 1";
+const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
+const MIN_STRICT_RANGE_CP: i64 = 8;
 
 type Probe = (String, String);
 
@@ -19,13 +22,15 @@ struct ParsedProbeArgs {
     weights_path: PathBuf,
     probes: Vec<Probe>,
     json: bool,
+    strict: bool,
 }
 
 fn usage() -> &'static str {
-    "usage: nnue_probe <weights.bin> [--json] [--sfen <SFEN>]...\n\n\
-        Without --sfen, probes startpos, a rook in hand, and a rook on board.\n\
+    "usage: nnue_probe <weights.bin> [--json] [--strict] [--sfen <SFEN>]...\n\n\
+        Without --sfen, probes startpos, material sensitivity, and king placement.\n\
         Reports score range, mean, variance, and deltas from the first probe; this is not a \
-        strength test. --json emits one machine-readable JSON object."
+        strength test. --json emits one machine-readable JSON object. --strict exits non-zero \
+        for constant/near-constant output or non-deterministic reload."
 }
 
 fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> {
@@ -39,11 +44,17 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
     let weights_path = PathBuf::from(first);
     let mut sfens: Vec<(String, String)> = Vec::new();
     let mut json = false;
+    let mut strict = false;
     let mut index = 1;
     while index < args.len() {
         let flag = &args[index];
         if flag == "--json" {
             json = true;
+            index += 1;
+            continue;
+        }
+        if flag == "--strict" {
+            strict = true;
             index += 1;
             continue;
         }
@@ -62,12 +73,15 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
             ("startpos".to_string(), STARTPOS.to_string()),
             ("rook_in_hand".to_string(), ROOK_IN_HAND.to_string()),
             ("rook_on_board".to_string(), ROOK_ON_BOARD.to_string()),
+            ("king_center".to_string(), KING_CENTER.to_string()),
+            ("king_corner".to_string(), KING_CORNER.to_string()),
         ]);
     }
     Ok(Some(ParsedProbeArgs {
         weights_path,
         probes: sfens,
         json,
+        strict,
     }))
 }
 
@@ -118,12 +132,14 @@ fn render_json(
     }
     write!(
         output,
-        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{},\"reload_deterministic\":{}",
+        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{},\"reload_deterministic\":{},\"strict_min_range_cp\":{},\"strict_pass\":{}",
         range,
         mean,
         variance,
         variance == 0.0,
-        reload_deterministic
+        reload_deterministic,
+        MIN_STRICT_RANGE_CP,
+        strict_failures(scores, reload_deterministic).is_empty()
     )
     .unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
@@ -161,6 +177,19 @@ fn score_moments(scores: &[i32]) -> (f64, f64) {
     (mean, variance)
 }
 
+fn strict_failures(scores: &[i32], reload_deterministic: bool) -> Vec<&'static str> {
+    let mut failures = Vec::new();
+    let score_range = i64::from(scores.iter().copied().max().unwrap_or(0))
+        - i64::from(scores.iter().copied().min().unwrap_or(0));
+    if score_range < MIN_STRICT_RANGE_CP {
+        failures.push("constant_output");
+    }
+    if !reload_deterministic {
+        failures.push("reload_nondeterministic");
+    }
+    failures
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     let Some(parsed) = parse_probe_args(&args)? else {
@@ -171,6 +200,7 @@ fn main() -> Result<(), String> {
         weights_path,
         probes: sfens,
         json,
+        strict,
     } = parsed;
 
     let weights = read_weights(&weights_path)
@@ -202,6 +232,14 @@ fn main() -> Result<(), String> {
             "{}",
             render_json(&weights_path, &sfens, &scores, reload_deterministic)
         );
+    }
+    if strict {
+        let failures = strict_failures(&scores, reload_deterministic);
+        if !failures.is_empty() {
+            return Err(format!("strict NNUE probe failed: {}", failures.join(", ")));
+        }
+    }
+    if json {
         return Ok(());
     }
 
@@ -213,6 +251,11 @@ fn main() -> Result<(), String> {
     println!("score_variance_cp2: {variance:.3}");
     println!("constant_output: {}", variance == 0.0);
     println!("reload_deterministic: {reload_deterministic}");
+    println!("strict_min_range_cp: {}", MIN_STRICT_RANGE_CP);
+    println!(
+        "strict_pass: {}",
+        strict_failures(&scores, reload_deterministic).is_empty()
+    );
     if let Some(&reference) = scores.first() {
         for score in scores.iter().skip(1) {
             println!(
@@ -233,11 +276,14 @@ mod tests {
     fn defaults_are_named_and_complete() {
         let args = vec!["weights.bin".to_string()];
         let parsed = parse_probe_args(&args).unwrap().unwrap();
-        assert_eq!(parsed.probes.len(), 3);
+        assert_eq!(parsed.probes.len(), 5);
         assert_eq!(parsed.probes[0].0, "startpos");
         assert_eq!(parsed.probes[1].0, "rook_in_hand");
         assert_eq!(parsed.probes[2].0, "rook_on_board");
+        assert_eq!(parsed.probes[3].0, "king_center");
+        assert_eq!(parsed.probes[4].0, "king_corner");
         assert!(!parsed.json);
+        assert!(!parsed.strict);
     }
 
     #[test]
@@ -269,6 +315,15 @@ mod tests {
         let args = vec!["weights.bin".to_string(), "--json".to_string()];
         let parsed = parse_probe_args(&args).unwrap().unwrap();
         assert!(parsed.json);
+        assert!(!parsed.strict);
+        assert_eq!(parsed.probes[0].0, "startpos");
+    }
+
+    #[test]
+    fn strict_flag_is_recorded_without_changing_probe_order() {
+        let args = vec!["weights.bin".to_string(), "--strict".to_string()];
+        let parsed = parse_probe_args(&args).unwrap().unwrap();
+        assert!(parsed.strict);
         assert_eq!(parsed.probes[0].0, "startpos");
     }
 
@@ -292,6 +347,8 @@ mod tests {
         assert!(output.contains("\"score_variance_cp2\":56.25"));
         assert!(output.contains("\"constant_output\":false"));
         assert!(output.contains("\"reload_deterministic\":true"));
+        assert!(output.contains("\"strict_min_range_cp\":8"));
+        assert!(output.contains("\"strict_pass\":true"));
         assert!(output.contains("\"delta_reference\":\"first\",\"deltas_cp\":[-15]"));
         assert!(output.ends_with('}'));
     }
@@ -308,5 +365,16 @@ mod tests {
         assert!(output.contains("\"score_variance_cp2\":0"));
         assert!(output.contains("\"constant_output\":true"));
         assert!(output.contains("\"reload_deterministic\":false"));
+        assert!(output.contains("\"strict_pass\":false"));
+    }
+
+    #[test]
+    fn strict_rejects_near_constant_output() {
+        assert_eq!(strict_failures(&[0, 2, 1], true), vec!["constant_output"]);
+        assert!(strict_failures(&[0, 8], true).is_empty());
+        assert_eq!(
+            strict_failures(&[0, 8], false),
+            vec!["reload_nondeterministic"]
+        );
     }
 }

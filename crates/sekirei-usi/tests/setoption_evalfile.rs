@@ -111,6 +111,11 @@ fn send(stdin: &mut ChildStdin, line: &str) {
     stdin.flush().unwrap();
 }
 
+fn terminate(mut child: Child, stdin: &mut ChildStdin) {
+    send(stdin, "quit");
+    let _ = child.wait();
+}
+
 fn recv_until(
     rx: &Receiver<String>,
     mut pred: impl FnMut(&str) -> bool,
@@ -134,6 +139,26 @@ fn recv_until(
             Err(_) => panic!("engine stdout closed before expected line arrived; saw: {seen:?}"),
         }
     }
+}
+
+#[test]
+fn ponderhit_restarts_a_ponder_search_even_if_sent_immediately() {
+    let (child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+    send(&mut stdin, "position startpos");
+
+    // Keep the two commands adjacent: this is the race where the worker can
+    // enter search() after ponderhit has already set the abort flag.
+    send(&mut stdin, "go ponder movetime 50");
+    send(&mut stdin, "ponderhit");
+    recv_until(&rx, |l| l.starts_with("bestmove"), Duration::from_secs(5));
+
+    terminate(child, &mut stdin);
 }
 
 #[test]

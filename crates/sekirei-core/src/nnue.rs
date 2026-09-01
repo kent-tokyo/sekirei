@@ -639,6 +639,55 @@ mod tests {
     }
 
     #[test]
+    fn explicit_weights_preserve_piece_sensitivity_and_side_sign() {
+        let mut weights = NnueWeights {
+            ft: vec![[0i16; L1]; INPUT],
+            ft_bias: [0i16; L1],
+            l2: vec![[0.0f32; L2]; 2 * L1],
+            l2_bias: [0.0f32; L2],
+            out: [0.0f32; L2],
+            out_bias: 0.0,
+        };
+
+        // Cover every square so the assertion tests feature plumbing rather
+        // than depending on the SFEN-to-Square coordinate convention.
+        for index in 0..Square::NUM {
+            let square = Square::from_index(index as u8);
+            let black_feature = feature_index(square, PieceKind::Hisha, Color::Black, Color::Black);
+            weights.ft[black_feature][0] = 64;
+        }
+
+        // Two ReLU outputs encode +feature and -feature.  This keeps the
+        // assertion independent of the process-global NNUE singleton.
+        weights.l2[0][0] = 1.0;
+        weights.l2[L1][0] = -1.0;
+        weights.l2[0][1] = -1.0;
+        weights.l2[L1][1] = 1.0;
+        weights.out[0] = 64.0;
+        weights.out[1] = -64.0;
+
+        let mut mailbox = [None; 81];
+        mailbox[Square::from_shogi(5, 5).index() as usize] = Some((PieceKind::Hisha, Color::Black));
+        let mut direct = NnueAcc::new_with(&weights);
+        direct.refresh_with(&weights, &mailbox, &[[0; 7]; 2]);
+        assert_eq!(direct.values[Color::Black.index()][0], 64);
+
+        let black_score = direct.evaluate_with(&weights, Color::Black);
+        let white_score = direct.evaluate_with(&weights, Color::White);
+        assert!(
+            black_score > 0,
+            "black rook must improve the black-side score: {black_score}"
+        );
+        assert_eq!(
+            white_score, -black_score,
+            "side-to-move perspective must invert"
+        );
+        let mut empty = NnueAcc::new_with(&weights);
+        empty.refresh_with(&weights, &[None; 81], &[[0; 7]; 2]);
+        assert_eq!(empty.evaluate_with(&weights, Color::Black), 0);
+    }
+
+    #[test]
     fn read_weights_rejects_trailing_bytes() {
         let path = std::env::temp_dir().join(format!(
             "sekirei_test_nnue_trailing_{}.bin",

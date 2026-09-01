@@ -14,6 +14,22 @@
   of exposing internal mate scores as centipawns.
 - Added `sekirei --version` and `sekirei -V` for release and packaging checks.
 - Added `sekirei --help` and `sekirei -h` with a concise usage summary.
+- Fixed the USI `ponderhit` abort/restart race and added an immediate-command
+  regression test.
+- Added `nnue_probe --strict` to reject constant-output or non-deterministic
+  checkpoint probes automatically.
+- Added a near-constant-output threshold (8 cp) to the strict NNUE probe so
+  collapsed checkpoints do not pass the basic health screen accidentally.
+- Included the strict threshold and pass/fail result in machine-readable probe
+  output for auditable candidate selection.
+- Extended the default NNUE probe set with king-placement sensitivity cases.
+- Added `--cache-only` training mode and `analysis_record_v1` teacher-cache
+  compatibility for bounded pilots that must not launch fallback searches.
+
+## [0.3.22] – 2026-09-01
+
+- Improved NNUE candidate-health diagnostics and bounded teacher-cache
+  training controls.
 
 ## [0.3.20] – 2026-08-31
 

@@ -16,7 +16,10 @@ from pathlib import Path
 
 
 def probe(binary: Path, weights: Path, sfens: list[str]) -> list[int]:
-    argv = [str(binary), str(weights), "--json"]
+    # A calibration comparison is invalid if either checkpoint is constant or
+    # changes after reload.  Enforce the same health gate used by direct probes
+    # before interpreting any candidate-vs-baseline statistic.
+    argv = [str(binary), str(weights), "--strict", "--json"]
     for sfen in sfens:
         argv.extend(("--sfen", sfen))
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
