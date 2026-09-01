@@ -12,12 +12,13 @@ ROOT = Path(__file__).resolve().parent.parent
 def main() -> int:
     errors: list[str] = []
     tracked = subprocess.run(
-        ["git", "ls-files", "--error-unmatch", "ROADMAP.md"],
+        ["git", "ls-files"],
         cwd=ROOT,
         capture_output=True,
         text=True,
     )
-    if tracked.returncode == 0:
+    tracked_paths = {line.strip().lower() for line in tracked.stdout.splitlines()}
+    if "roadmap.md" in tracked_paths:
         errors.append("internal ROADMAP.md must not be tracked")
 
     required_links = {
