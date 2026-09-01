@@ -287,3 +287,27 @@ fn position_and_usinewgame_allow_a_followup_search() {
     send(&mut stdin, "quit");
     let _ = child.wait();
 }
+
+#[test]
+fn multipv_emits_numbered_info_lines() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "setoption name MultiPV value 2");
+    send(&mut stdin, "isready");
+    recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let lines = recv_until(&rx, |l| l.starts_with("bestmove"), Duration::from_secs(5));
+    assert!(
+        lines.iter().any(|l| l.starts_with("info multipv 1 ")),
+        "MultiPV=2 must emit a numbered first variation; saw: {lines:?}"
+    );
+    assert!(
+        lines.iter().any(|l| l.starts_with("info multipv 2 ")),
+        "MultiPV=2 must emit a numbered second variation; saw: {lines:?}"
+    );
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
