@@ -80,6 +80,15 @@ fn main() {
         println!("Sekirei {}", env!("CARGO_PKG_VERSION"));
         return;
     }
+    if let Some(arg) = std::env::args().nth(1)
+        && matches!(arg.as_str(), "--help" | "-h")
+    {
+        println!(
+            "Sekirei {}\n\nUSI shogi engine\n\nUsage:\n  sekirei [NNUE_WEIGHTS]\n  sekirei --version\n  sekirei --help\n\nThe engine reads USI commands from stdin.",
+            env!("CARGO_PKG_VERSION")
+        );
+        return;
+    }
 
     // Optional: load NNUE weights from first command-line argument
     // Usage: cargo run --release -p usi -- weights.bin

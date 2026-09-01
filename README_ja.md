@@ -113,6 +113,8 @@ USIループを開始せずにバージョンを表示:
 cargo run --release -p sekirei-usi -- --version
 ```
 
+簡単な使い方は `--help` で表示できます。
+
 ## USI オプション
 
 `usi` コマンド後に全オプションを表示します。主なものは次の通りです。

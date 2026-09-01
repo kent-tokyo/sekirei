@@ -120,6 +120,8 @@ Print the version without starting the USI loop:
 cargo run --release -p sekirei-usi -- --version
 ```
 
+Use `--help` for a concise usage summary.
+
 ## USI options
 
 The engine reports the complete option list after `usi`. The main options are:

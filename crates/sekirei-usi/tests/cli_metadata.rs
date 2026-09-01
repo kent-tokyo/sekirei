@@ -27,3 +27,16 @@ fn short_version_flag_is_supported() {
         "Sekirei 0.3.21"
     );
 }
+
+#[test]
+fn help_flag_describes_usi_usage_without_starting_the_loop() {
+    let output = Command::new(env!("CARGO_BIN_EXE_sekirei"))
+        .arg("--help")
+        .output()
+        .expect("failed to run sekirei --help");
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("USI shogi engine"));
+    assert!(stdout.contains("sekirei [NNUE_WEIGHTS]"));
+    assert!(stdout.contains("The engine reads USI commands from stdin."));
+}
