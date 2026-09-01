@@ -737,6 +737,27 @@ mod tests {
     }
 
     #[test]
+    fn infinite_go_has_no_limits() {
+        let cfg = parse_go("infinite", Color::White, 50, false, 1);
+        assert!(cfg.time_limit.is_none());
+        assert!(cfg.soft_limit.is_none());
+    }
+
+    #[test]
+    fn multipv_value_reaches_search_config() {
+        let cfg = parse_go("depth 2", Color::Black, 0, false, 3);
+        assert_eq!(cfg.multi_pv, 3);
+        assert_eq!(cfg.max_depth, 2);
+    }
+
+    #[test]
+    fn malformed_clock_value_is_ignored_without_panicking() {
+        let cfg = parse_go("btime not-a-number depth 1", Color::Black, 0, false, 1);
+        assert!(cfg.time_limit.is_none());
+        assert_eq!(cfg.max_depth, 1);
+    }
+
+    #[test]
     fn movetime_overhead_deducted() {
         // movetime 1000, overhead 50 → hard = 950
         let cfg = parse_go("movetime 1000", Color::Black, 50, false, 1);
