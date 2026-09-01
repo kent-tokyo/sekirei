@@ -227,3 +227,37 @@ fn duplicate_evalfile_load_is_reported_as_failure() {
     let _ = std::fs::remove_file(&first_path);
     let _ = std::fs::remove_file(&second_path);
 }
+
+#[test]
+fn missing_evalfile_is_reported_as_failure() {
+    let path = std::env::temp_dir().join(format!(
+        "sekirei_test_evalfile_missing_{}-{}.bin",
+        std::process::id(),
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    assert!(!path.exists(), "test path unexpectedly exists: {path:?}");
+
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name EvalFile value {}", path.display()),
+    );
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.starts_with("info string weight load failed")),
+        "missing EvalFile must be reported as a load failure; saw: {lines:?}"
+    );
+    assert!(
+        !lines
+            .iter()
+            .any(|l| l.starts_with("info string NNUE weights loaded")),
+        "missing EvalFile must not be reported as loaded; saw: {lines:?}"
+    );
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
