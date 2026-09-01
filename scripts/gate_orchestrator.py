@@ -207,7 +207,13 @@ def verify_weights_loaded(outdir, shard, timeout_s=15):
     with open(paths["stderr"]) as f:
         content = f.read()
     loaded = content.count("NNUE weights loaded")
-    failed = content.count("weight load failed")
+    # A shard keeps each engine process alive for the color-swapped pair. The
+    # runner's game-boundary setup may resend EvalFile on the second game; the
+    # engine reports that as "weight load failed" even though the weights are
+    # already active and the first load succeeded. Treat only failures that
+    # are not this benign idempotent reload as a real load failure.
+    benign_reload = content.count("NNUE weights are already loaded for this process")
+    failed = content.count("weight load failed") - benign_reload
     if failed > 0:
         return False
     if loaded >= 2:

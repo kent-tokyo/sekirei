@@ -17,7 +17,7 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from gate_orchestrator import launch_shard, shard_is_alive
+from gate_orchestrator import launch_shard, shard_is_alive, verify_weights_loaded
 
 
 class ShardIsAliveTest(unittest.TestCase):
@@ -83,6 +83,26 @@ class LaunchShardWeightsTest(unittest.TestCase):
         args2_idx = cmd.index("--args2")
         self.assertEqual(cmd[args1_idx + 1], "shared.bin")
         self.assertEqual(cmd[args2_idx + 1], "shared.bin")
+
+
+class VerifyWeightsLoadedTest(unittest.TestCase):
+    def test_idempotent_second_game_reload_is_not_a_failure(self):
+        with tempfile.TemporaryDirectory() as outdir:
+            with open(os.path.join(outdir, "shard_0000.stderr.log"), "w") as f:
+                f.write("NNUE weights loaded\n")
+                f.write(
+                    "info string weight load failed: "
+                    "NNUE weights are already loaded for this process\n"
+                )
+            shard = {"shard_id": 0}
+            self.assertIsNone(verify_weights_loaded(outdir, shard))
+
+    def test_actual_weight_load_failure_is_still_rejected(self):
+        with tempfile.TemporaryDirectory() as outdir:
+            with open(os.path.join(outdir, "shard_0000.stderr.log"), "w") as f:
+                f.write("info string weight load failed: invalid checkpoint\n")
+            shard = {"shard_id": 0}
+            self.assertFalse(verify_weights_loaded(outdir, shard))
 
 
 if __name__ == "__main__":

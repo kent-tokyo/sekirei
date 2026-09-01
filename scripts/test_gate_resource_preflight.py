@@ -61,11 +61,17 @@ SAMPLE_SWAPUSAGE_LOW = "vm.swapusage: total = 5120.00M  used = 512.00M  free = 4
 SAMPLE_VM_STAT_OK = (
     "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
     "Pages free:                             524288.\n"
+    "Pages inactive:                         0.\n"
+    "Pages speculative:                      0.\n"
+    "Pages purgeable:                        0.\n"
     "Pages active:                           100000.\n"
 )
 SAMPLE_VM_STAT_LOW = (
     "Mach Virtual Memory Statistics: (page size of 4096 bytes)\n"
     "Pages free:                                100.\n"
+    "Pages inactive:                            0.\n"
+    "Pages speculative:                         0.\n"
+    "Pages purgeable:                           0.\n"
     "Pages active:                           900000.\n"
 )
 
@@ -123,6 +129,13 @@ class ParseFreeMemoryTests(unittest.TestCase):
     def test_low_memory(self):
         gb = parse_free_memory_gb(SAMPLE_VM_STAT_LOW)
         self.assertLess(gb, 0.001)
+
+    def test_reclaimable_pages_are_counted(self):
+        vm_stat = SAMPLE_VM_STAT_LOW.replace(
+            "Pages inactive:                            0.",
+            "Pages inactive:                       524288.",
+        )
+        self.assertAlmostEqual(parse_free_memory_gb(vm_stat), 2.0, places=3)
 
     def test_none_input(self):
         self.assertIsNone(parse_free_memory_gb(None))

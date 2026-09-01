@@ -29,6 +29,15 @@
 #   EXTRA_SCORED=path    extra scored.jsonl to merge before training (for Tier 3 deep relabel)
 #   JOBS=N               parallel shogiesa label workers (default: physical cores - 2)
 #   SHOGIESA=path        path to shogiesa binary (default: auto-detect, see below)
+#   TRAIN_EPOCHS=3       short-run early-stop point (default: 3; avoids the
+#                        observed post-epoch-3 cosine overfit)
+#   LR_SCHEDULE=cosine   schedule used by the corrected recipe
+#   LR_SCHEDULE_EPOCHS=20  shape the schedule horizon independently of the
+#                        short run, preserving the first three cosine epochs
+#   WARMUP_EPOCHS=0      optional linear warmup (default: 0)
+#   MIN_LR=0.00001       cosine floor (default: 1e-5)
+#   BEST_EVERY=0         train-loss checkpoint cadence; validation best is
+#                        always selected when validation is enabled
 #
 # Examples:
 #   bash scripts/train_with_shogiesa_quietset.sh
@@ -50,6 +59,12 @@ GAMES_PER_POSITION=${GAMES_PER_POSITION:-4}
 MIN_PLY=${MIN_PLY:-20}
 MAX_PLY=${MAX_PLY:-160}
 EXTRA_SCORED=${EXTRA_SCORED:-}
+TRAIN_EPOCHS=${TRAIN_EPOCHS:-3}
+LR_SCHEDULE=${LR_SCHEDULE:-cosine}
+LR_SCHEDULE_EPOCHS=${LR_SCHEDULE_EPOCHS:-20}
+WARMUP_EPOCHS=${WARMUP_EPOCHS:-0}
+MIN_LR=${MIN_LR:-0.00001}
+BEST_EVERY=${BEST_EVERY:-0}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR=${RUN_DIR:-"data/runs/$TIMESTAMP"}
 
@@ -94,6 +109,7 @@ echo "  baseline  : $BASELINE"
 echo "  depths    : $DEPTHS"
 echo "  games     : $GAMES"
 echo "  run dir   : $RUN_DIR"
+echo "  training  : epochs=$TRAIN_EPOCHS schedule=$LR_SCHEDULE horizon=$LR_SCHEDULE_EPOCHS warmup=$WARMUP_EPOCHS min_lr=$MIN_LR best_every=$BEST_EVERY"
 [ -n "$EXTRA_SCORED" ] && echo "  extra     : $EXTRA_SCORED"
 echo ""
 
@@ -169,6 +185,12 @@ cargo run --release -q -p sekirei-train -- \
   --stability-weighted \
   --min-stability 0 \
   --label-depth "$LABEL_DEPTH" \
+  --epochs "$TRAIN_EPOCHS" \
+  --best-every "$BEST_EVERY" \
+  --lr-schedule "$LR_SCHEDULE" \
+  --lr-schedule-epochs "$LR_SCHEDULE_EPOCHS" \
+  --warmup-epochs "$WARMUP_EPOCHS" \
+  --min-lr "$MIN_LR" \
   --validation-ratio 0.1 \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints" \

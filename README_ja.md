@@ -160,8 +160,24 @@ cargo run --release -p sekirei-train -- \
 ```
 
 訓練データ、チェックポイント、重み、対局結果、実験ログはローカル生成物として公開リポジトリ
-から除外しています。
+から除外しています。プロジェクトで生成したNNUE重みはCC BY 4.0で別途ライセンスします。
+詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
-## ライセンス
+## ライセンスと帰属表示
 
-Apache License, Version 2.0 または MIT license のいずれかを選択できます。
+Sekireiのソースコードは、利用者の選択によりMIT LicenseまたはApache License, Version 2.0で
+ライセンスします。[NOTICE](NOTICE)に記載された著作権表示と帰属表示を保持してください。
+
+Sekireiをベースにした製品での推奨表示：
+
+```text
+This product is based on Sekirei,
+an open-source shogi engine developed by Kentaro Tanabe.
+
+https://github.com/kent-tokyo/sekirei
+```
+
+製品にLegal Notices画面がある場合は、上記を表示例として利用できます。これは強く推奨する
+表示ですが、標準ライセンスによる広告上の必須条件ではありません。許可なくSekireiの名前や
+ロゴを使い、公式承認済みであるかのように示してはいけません。NNUE重みは別個の成果物として
+CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。

@@ -167,8 +167,25 @@ cargo run --release -p sekirei-train -- \
 ```
 
 Training data, checkpoints, weights, match output, and experiment logs are local artifacts and
-are intentionally excluded from the public repository.
+are intentionally excluded from the public repository. NNUE weight files produced for this
+project are licensed separately under CC BY 4.0; see [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
-## License
+## License and attribution
 
-Licensed under either the Apache License, Version 2.0 or the MIT license, at your option.
+The Sekirei source code is licensed under the MIT License or the Apache License, Version 2.0,
+at your option. Please retain [NOTICE](NOTICE), including the copyright and attribution notice.
+
+Recommended attribution for products based on Sekirei:
+
+```text
+This product is based on Sekirei,
+an open-source shogi engine developed by Kentaro Tanabe.
+
+https://github.com/kent-tokyo/sekirei
+```
+
+If a product has a Legal Notices screen, the attribution above is a suitable display. The
+attribution is strongly recommended, but it is not an advertising requirement of the standard
+licenses. Do not use the Sekirei name or logo to imply official endorsement or approval without
+permission. NNUE weight files are separate artifacts and are licensed under CC BY 4.0 as
+described in [NNUE-LICENSE.md](NNUE-LICENSE.md).

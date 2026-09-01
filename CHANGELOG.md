@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Restored the Rust-standard MIT OR Apache-2.0 source-code licensing and added
+  a NOTICE with Kentaro Tanabe attribution and recommended product wording.
+- Documented CC BY 4.0 as the separate license for project-produced NNUE
+  weight artifacts; third-party training data remains subject to its own terms.
+- Added reproducible NNUE calibration and SFEN outlier-classification
+  diagnostics, and corrected the training pipeline to use a short early-stop
+  run with validation-best checkpoint selection and an explicit cosine
+  schedule horizon.
+
 ## [0.3.20] – 2026-08-31
 
 - Promoted the official A-flat NNUE v1 candidate after a preregistered Gate 3

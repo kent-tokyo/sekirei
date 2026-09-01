@@ -156,15 +156,27 @@ def parse_swap_used_fraction(swapusage_output):
 
 
 def parse_free_memory_gb(vm_stat_output):
+    """Return macOS pages that can be reclaimed without swapping.
+
+    ``Pages free`` alone is misleading on macOS: clean inactive, speculative,
+    and purgeable pages are immediately reusable, but are not reported as
+    free.  Counting those pages matches the memory-pressure model used by the
+    OS while still excluding active, wired, and compressed pages.
+    """
     if vm_stat_output is None:
         return None
     page_size_m = re.search(r"page size of (\d+) bytes", vm_stat_output)
-    free_m = re.search(r"Pages free:\s+(\d+)", vm_stat_output)
-    if not (page_size_m and free_m):
+    if not page_size_m:
         return None
     page_size = int(page_size_m.group(1))
-    free_pages = int(free_m.group(1))
-    return (free_pages * page_size) / (1024**3)
+    page_counts = []
+    for label in ("Pages free", "Pages inactive", "Pages speculative", "Pages purgeable"):
+        match = re.search(rf"{re.escape(label)}:\s+(\d+)", vm_stat_output)
+        if match:
+            page_counts.append(int(match.group(1)))
+    if not page_counts:
+        return None
+    return (sum(page_counts) * page_size) / (1024**3)
 
 
 def parse_disk_free_gb(df_output):

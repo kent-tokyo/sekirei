@@ -1,0 +1,18 @@
+Sekirei
+Copyright 2026 Kentaro Tanabe
+
+Sekirei is an open-source shogi engine developed by Kentaro Tanabe.
+The source code is licensed under the MIT License or the Apache License,
+Version 2.0, at the user's option. See LICENSE-MIT and LICENSE-APACHE.
+
+Recommended attribution for products based on Sekirei:
+
+This product is based on Sekirei,
+an open-source shogi engine developed by Kentaro Tanabe.
+
+https://github.com/kent-tokyo/sekirei
+
+Retaining this NOTICE and the applicable license notices is required by the
+copyright licenses. The recommended attribution text is not an advertising
+requirement. Sekirei's name and logo must not be used to suggest official
+endorsement or approval without permission.
