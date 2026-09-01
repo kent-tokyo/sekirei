@@ -14,7 +14,7 @@ use sekirei_core::{
     board::Board,
     color::Color,
     nnue::load_weights,
-    search::{SearchConfig, SpeculativeSearcher},
+    search::{MATE_SCORE, SearchConfig, SpeculativeSearcher},
     sfen::{board_to_sfen, move_to_usi, parse_position_cmd},
     tt::Tt,
 };
@@ -34,6 +34,21 @@ const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 // with no USI option (issue #9); this is that same value now exposed as
 // the SpecTopN option's default, so not setting it changes nothing.
 const DEFAULT_SPEC_TOP_N: usize = 3;
+
+/// Render an engine score using the USI score grammar.
+///
+/// Search mate scores are encoded near `MATE_SCORE`; exposing those raw
+/// centipawn sentinels makes a forced mate look like an absurd evaluation to
+/// GUIs and analysis tools.  Ordinary scores remain unchanged.
+fn score_to_usi(score: i32) -> String {
+    if score >= MATE_SCORE - 1000 {
+        format!("mate {}", MATE_SCORE - score)
+    } else if score <= -MATE_SCORE + 1000 {
+        format!("mate -{}", MATE_SCORE + score)
+    } else {
+        format!("cp {score}")
+    }
+}
 
 // ---- Main loop ----
 
@@ -365,10 +380,10 @@ fn main() {
                     if info.pv_list.len() > 1 {
                         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
                             println!(
-                                "info multipv {} depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                                "info multipv {} depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                                 i + 1,
                                 info.depth,
-                                score,
+                                score_to_usi(score),
                                 info.nodes,
                                 nps,
                                 elapsed_ms,
@@ -378,9 +393,9 @@ fn main() {
                         }
                     } else if let Some(m) = info.best_move {
                         println!(
-                            "info depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                             info.depth,
-                            info.score,
+                            score_to_usi(info.score),
                             info.nodes,
                             nps,
                             elapsed_ms,
@@ -454,9 +469,9 @@ fn main() {
                         let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
                         if let Some(m) = info.best_move {
                             println!(
-                                "info depth {} score cp {} nodes {} nps {} time {} hashfull {} pv {}",
+                                "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
                                 info.depth,
-                                info.score,
+                                score_to_usi(info.score),
                                 info.nodes,
                                 nps,
                                 elapsed_ms,
@@ -637,6 +652,21 @@ fn parse_go(
 mod tests {
     use super::*;
     use sekirei_core::color::Color;
+
+    #[test]
+    fn score_to_usi_preserves_cp_and_converts_mates() {
+        assert_eq!(score_to_usi(137), "cp 137");
+        assert_eq!(score_to_usi(-892), "cp -892");
+        assert_eq!(score_to_usi(MATE_SCORE - 1), "mate 1");
+        assert_eq!(score_to_usi(-(MATE_SCORE - 3)), "mate -3");
+    }
+
+    #[test]
+    fn score_to_usi_keeps_mate_threshold_consistent() {
+        assert_eq!(score_to_usi(MATE_SCORE - 1000), "mate 1000");
+        assert_eq!(score_to_usi(-(MATE_SCORE - 1000)), "mate -1000");
+        assert_eq!(score_to_usi(MATE_SCORE - 1001), "cp 898999");
+    }
 
     #[test]
     fn parse_go_binc_winc() {

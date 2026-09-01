@@ -10,6 +10,8 @@
   diagnostics, and corrected the training pipeline to use a short early-stop
   run with validation-best checkpoint selection and an explicit cosine
   schedule horizon.
+- Corrected USI info output to report forced mates as `score mate N` instead
+  of exposing internal mate scores as centipawns.
 
 ## [0.3.20] – 2026-08-31
 
