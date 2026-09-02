@@ -16,6 +16,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CORPUS = ROOT / "scripts" / "competitor_parity_corpus.json"
 MOVE_RE = re.compile(r"^(?:[1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])$")
+HAND_RE = re.compile(r"^(?:-|(?:(?:[1-9]\d*)?[PLNSGBR])+)$")
 CHECKS = {
     "sfen_roundtrip",
     "do_undo",
@@ -39,19 +40,29 @@ def validate_sfen(sfen: object, case_id: str) -> None:
         raise ValueError(f"{case_id}: board must have nine ranks")
     for rank in rows:
         width = 0
-        for char in rank:
+        index = 0
+        while index < len(rank):
+            char = rank[index]
             if char.isdigit():
                 if char == "0":
                     raise ValueError(f"{case_id}: board contains zero-width digit")
                 width += int(char)
-            elif char in "plnsgbrkPLNSGBRK+":
+            elif char == "+":
+                if index + 1 >= len(rank) or rank[index + 1] not in "plnsgbrkPLNSGBRK":
+                    raise ValueError(f"{case_id}: promotion marker is not followed by a piece")
+                width += 1
+                index += 1
+            elif char in "plnsgbrkPLNSGBRK":
                 width += 1
             else:
                 raise ValueError(f"{case_id}: invalid board character {char!r}")
+            index += 1
         if width != 9:
             raise ValueError(f"{case_id}: rank width is {width}, expected 9")
     if fields[1] not in {"b", "w"}:
         raise ValueError(f"{case_id}: side-to-move must be b or w")
+    if not HAND_RE.fullmatch(fields[2]):
+        raise ValueError(f"{case_id}: invalid hand field")
     if fields[3] != "1" and not fields[3].isdigit():
         raise ValueError(f"{case_id}: move number must be numeric")
 

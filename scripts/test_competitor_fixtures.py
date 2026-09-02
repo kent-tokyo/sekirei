@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate_competitor_corpus import validate_corpus
+from validate_competitor_corpus import validate_corpus, validate_sfen
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,6 +25,13 @@ class CompetitorFixtureTests(unittest.TestCase):
             path.write_text(json.dumps(document), encoding="utf-8")
             with self.assertRaises(ValueError):
                 validate_corpus(path)
+
+    def test_promoted_piece_counts_as_one_square(self):
+        validate_sfen("4k4/9/9/9/9/9/9/4+n4/4K4 b - 1", "promoted")
+
+    def test_invalid_hand_is_rejected(self):
+        with self.assertRaises(ValueError):
+            validate_sfen("4k4/9/9/9/9/9/9/9/4K4 b X 1", "bad-hand")
 
 
 if __name__ == "__main__":
