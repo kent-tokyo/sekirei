@@ -5,7 +5,7 @@
   "cases": [
     {
       "id": "startpos",
-      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
       "moves": [],
       "checks": ["sfen_roundtrip", "do_undo", "legal_moves", "perft"],
       "perft": {"1": 30, "2": 900}
