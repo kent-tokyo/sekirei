@@ -846,7 +846,16 @@ fn alpha_beta(
             board,
             prev_mv,
         );
-        store_tt(state, hash, score0, depth, Bound::Lower, best_move, ply);
+        store_tt(
+            state,
+            hash,
+            score0,
+            depth,
+            Bound::Lower,
+            best_move,
+            ply,
+            skip_move,
+        );
         return score0;
     }
     if score0 > alpha {
@@ -864,7 +873,9 @@ fn alpha_beta(
         } else {
             Bound::Upper
         };
-        store_tt(state, hash, best_score, depth, bound, best_move, ply);
+        store_tt(
+            state, hash, best_score, depth, bound, best_move, ply, skip_move,
+        );
         return best_score;
     }
 
@@ -963,7 +974,16 @@ fn alpha_beta(
                     prev_mv,
                 );
                 nw_abort.store(true, Ordering::Relaxed);
-                store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
+                store_tt(
+                    state,
+                    hash,
+                    best_score,
+                    depth,
+                    Bound::Lower,
+                    best_move,
+                    ply,
+                    skip_move,
+                );
                 return best_score;
             }
             if s > alpha {
@@ -1068,7 +1088,16 @@ fn alpha_beta(
                     board,
                     prev_mv,
                 );
-                store_tt(state, hash, best_score, depth, Bound::Lower, best_move, ply);
+                store_tt(
+                    state,
+                    hash,
+                    best_score,
+                    depth,
+                    Bound::Lower,
+                    best_move,
+                    ply,
+                    skip_move,
+                );
                 return best_score;
             }
             if s > alpha {
@@ -1085,7 +1114,9 @@ fn alpha_beta(
     } else {
         Bound::Upper
     };
-    store_tt(state, hash, best_score, depth, bound, best_move, ply);
+    store_tt(
+        state, hash, best_score, depth, bound, best_move, ply, skip_move,
+    );
     best_score
 }
 
@@ -1504,6 +1535,7 @@ pub(crate) fn score_from_tt(stored: i32, ply: u32) -> i32 {
 }
 
 #[inline]
+#[allow(clippy::too_many_arguments)]
 fn store_tt(
     state: &SearchState,
     hash: u64,
@@ -1512,7 +1544,16 @@ fn store_tt(
     bound: Bound,
     mv: Option<Move>,
     ply: u32,
+    skip_move: Option<Move>,
 ) {
+    // A singular-extension verification search excludes one legal move from
+    // the move set. Its result is therefore not a valid TT result for the
+    // unrestricted position. PR #4 fixes the read-side self-hit; keep the
+    // corresponding write-side invariant explicit rather than relying on
+    // Tt's incidental depth-preferred replacement policy.
+    if skip_move.is_some() {
+        return;
+    }
     state.tt.store(
         hash,
         TtEntry {
@@ -1876,6 +1917,47 @@ mod regression_tests {
             .probe(hash)
             .expect("root_search_inner should have stored a TT entry");
         assert_eq!(entry.bound, Bound::Lower);
+    }
+
+    #[test]
+    fn singular_verification_does_not_store_an_unrestricted_tt_entry() {
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        let hash = 0x5eed_u64;
+        let original = TtEntry {
+            score: 321,
+            depth: 12,
+            bound: Bound::Exact,
+            mv: None,
+        };
+        tt.store(hash, original);
+
+        // This is the write-side half of the PR #4/PR #45 composition: a
+        // verification search has an excluded move and must not publish its
+        // partial move-set result under the unrestricted position hash.
+        store_tt(
+            &state,
+            hash,
+            -999,
+            20,
+            Bound::Lower,
+            None,
+            0,
+            Some(Move::drop(Square::from_index(0), PieceKind::Fu)),
+        );
+
+        assert_eq!(
+            tt.probe(hash).expect("seed entry must remain").score,
+            original.score
+        );
+        assert_eq!(
+            tt.probe(hash).expect("seed entry must remain").depth,
+            original.depth
+        );
+        assert_eq!(
+            tt.probe(hash).expect("seed entry must remain").bound,
+            original.bound
+        );
     }
 
     // Regression: `external_abort` (USI "stop") used to only be checked at

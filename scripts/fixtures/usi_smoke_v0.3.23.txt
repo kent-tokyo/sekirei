@@ -1,0 +1,36 @@
+# Deterministic USI smoke transcript
+# Binary: target/release/sekirei
+# Options: Threads=1, Parallel=1, SpecTopN=0
+# Input commands are shown with >; observed stdout is shown with <.
+
+$ sekirei --version
+< Sekirei 0.3.23
+
+> usi
+< id name Sekirei
+< id author ke.tanabe@gmail.com
+< option name Hash type spin default 64 min 1 max 2048
+< option name Threads type spin default 0 min 0 max 512
+< option name SpecTopN type spin default 3 min 0 max 512
+< option name MoveOverhead type spin default 50 min 0 max 5000
+< option name Ponder type check default false
+< option name MultiPV type spin default 1 min 1 max 256
+< option name EvalFile type string default
+< option name UseBook type check default true
+< option name BookMaxPly type spin default 30 min 0 max 200
+< option name BookMinConfidence type string default 0.20
+< option name BookFile type string default data/opening_book.jsonl
+< usiok
+> isready
+< info string opening book load failed (data/opening_book.jsonl): data/opening_book.jsonl: No such file or directory (os error 2)
+< readyok
+> position startpos
+> setoption name Threads value 1
+> setoption name Parallel value 1
+> setoption name SpecTopN value 0
+> go depth 1
+< info depth 1 score cp 0 nodes 60 nps 5454 time 11 hashfull 0 pv 9g9f
+< bestmove 9g9f
+> quit
+
+# The missing optional opening-book file is expected in this isolated smoke run.

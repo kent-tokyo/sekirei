@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.23",
+  "commit": "37bbe0e2380c29315102d0ad6d209cf6b66ee758",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.23",
+    "sekirei-core": "0.3.23",
+    "sekirei-bench": "0.3.23",
+    "sekirei-csa": "0.3.23",
+    "sekirei-match-runner": "0.3.23",
+    "sekirei-train": "0.3.23"
+  },
+  "dependencies": {
+    "lineprior": "0.11.1"
+  },
+  "toolchain": "stable (GitHub publish workflow); local verification rustc -Vv recorded in Phase 0 manifest",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "0ae0bdf4943cc28224167f4d933a14d017eaea9eeab78c7cbe0e174406c52aaa"
+  },
+  "publish": {
+    "workflow_run": "33627078298",
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "not included"
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is for the local release build used for the smoke transcript; crates.io artifact identity is verified separately by registry metadata.",
+    "No external-engine match or strength claim is part of this release manifest."
+  ]
+}
