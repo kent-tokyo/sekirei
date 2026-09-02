@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.24`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -75,7 +75,8 @@ scripts/                     訓練・棋力テスト用スクリプト
 
 コアには alpha-beta/negamax、PVS/YBW 並列探索、反復深化、静止探索、ロックフリー置換表、
 手順序付け・枝刈りの各種ヒューリスティック、任意の投機的探索を実装しています。
-`SpecTopN=0` で投機的探索を無効にできます。
+`SpecTopN=0` で投機的探索を無効にできます。特異延長の検証探索は無制限の置換表書き込みから
+除外しており、部分的な検証結果が親ノードの再利用可能なエントリを上書きしないようにしています。
 
 ## ビルドとテスト
 
@@ -94,6 +95,8 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 
 評価値、スコアレンジ、平均、分散、基準局面との差分を表示します。標準プローブには駒得と王位置の感度検査も含まれます。`--json` で機械可読形式にでき、`--strict` ではスコアレンジが 8 cp 未満の定数・準定数出力、または再読込非決定を異常終了にできます。
 出力分散の確認にも使えます。このプローブは診断用であり、棋力テストではありません。
+チェックポイントは `nnue_probe` や `EvalFile` で読み込める推論互換形式ですが、オプティマイザ状態は保存しないため、
+訓練再開時に Adam の実行状態まで復元するものではありません。
 JSON出力には判定閾値 `strict_min_range_cp` と判定結果 `strict_pass` も含まれます。
 
 マテリアル評価で起動:
@@ -127,7 +130,8 @@ cargo run --release -p sekirei-usi -- --version
 - `UseBook`, `BookFile`, `BookMaxPly`, `BookMinConfidence`
 
 `SpecTopN > 0` では投機タスクのスケジューリングにより、同一条件でも探索結果が変わる
-場合があります。再現性を優先する比較では、可能な限り `SpecTopN=0` を使用してください。
+場合があります。再現性を優先する比較では、可能な限り `SpecTopN=0` を使用してください。正しさの診断では
+`Threads=1`、`Parallel=1`、`SpecTopN=0` を固定し、速度測定や対局結果とは分けて記録します。
 
 ## CSA / floodgate
 
@@ -191,3 +195,7 @@ https://github.com/kent-tokyo/sekirei
 表示ですが、標準ライセンスによる広告上の必須条件ではありません。許可なくSekireiの名前や
 ロゴを使い、公式承認済みであるかのように示してはいけません。NNUE重みは別個の成果物として
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
+
+リリース監査の例は [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json) と
+[`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt) に保存しています。
+パッケージ・タグ整合性と小規模USI transcriptの記録であり、棋力の主張ではありません。

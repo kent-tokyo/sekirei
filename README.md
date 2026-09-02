@@ -6,7 +6,8 @@
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental **shogi (Japanese chess) engine written in Rust**. It speaks the
+Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
+`0.3.24`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -81,7 +82,9 @@ scripts/                     training and strength-test helpers
 The core currently includes alpha-beta/negamax, PVS/YBW parallel search, iterative deepening,
 quiescence search, a lock-free transposition table, common move-ordering and pruning heuristics,
 and optional speculative search. `SpecTopN=0` disables speculative search and is useful when a
-repeatable run is required.
+repeatable run is required. A verification search used by singular extensions is deliberately
+excluded from unrestricted TT writes, so a partial verification result cannot overwrite the
+parent node's reusable entry.
 
 ## Build and test
 
@@ -105,6 +108,10 @@ near-constant output (range below 8 cp) or non-deterministic reload. It is a
 diagnostic, not a strength test.
 JSON output also includes `strict_min_range_cp` and `strict_pass` so automated
 candidate selection can record the exact health rule used.
+
+Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFile`. Current
+training checkpoints contain weights and metadata, but not optimizer state; resuming training
+does not restore a full Adam run.
 
 Run the USI engine without weights (material evaluation fallback):
 
@@ -137,7 +144,9 @@ The engine reports the complete option list after `usi`. The main options are:
 - `UseBook`, `BookFile`, `BookMaxPly`, `BookMinConfidence`
 
 With `SpecTopN > 0`, scheduling of speculative tasks can make otherwise identical searches
-nondeterministic. Use `SpecTopN=0` for deterministic comparisons where practical.
+nondeterministic. Use `SpecTopN=0` for deterministic comparisons where practical. For correctness
+diagnostics, keep `Threads=1`, `Parallel=1`, and `SpecTopN=0`; this control is separate from
+timing and match-strength measurements.
 
 ## CSA / floodgate
 
@@ -202,3 +211,7 @@ attribution is strongly recommended, but it is not an advertising requirement of
 licenses. Do not use the Sekirei name or logo to imply official endorsement or approval without
 permission. NNUE weight files are separate artifacts and are licensed under CC BY 4.0 as
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
+
+Release-audit examples are kept in [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json)
+and [`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt). They
+record package/tag consistency and a small USI transcript; they are not a strength claim.

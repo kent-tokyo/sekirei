@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## [0.3.24] – 2026-09-02
+
+- Made singular-extension verification-search TT write exclusion explicit and
+  added a regression test for the protected parent entry.
+- Recorded the Phase 5 correctness checks and Phase 7 release-audit artifacts.
+- Aligned English and Japanese documentation with deterministic controls,
+  inference-compatible NNUE checkpoints, and the current attribution policy.
+
 - Restored the Rust-standard MIT OR Apache-2.0 source-code licensing and added
   a NOTICE with Kentaro Tanabe attribution and recommended product wording.
 - Documented CC BY 4.0 as the separate license for project-produced NNUE

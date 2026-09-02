@@ -13,6 +13,7 @@ whether changes were made. The full legal code is available at:
 https://creativecommons.org/licenses/by/4.0/legalcode.en
 
 This file does not change the license of the Sekirei source code, which is
-licensed under the Apache License, Version 2.0. It also does not relicense
+licensed under the MIT License or Apache License, Version 2.0, at the user's
+option. It also does not relicense
 third-party training data or other inputs whose terms do not permit this
 license; those materials remain subject to their own terms.
