@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.competitor-parity.v1",
+  "purpose": "Small deterministic SFEN/do-undo/legal-move/Perft corpus for Phase 0.5.",
+  "expected_counts_source": "sekirei-core perft tests or standard shogi perft references; verify independently before H measurements.",
+  "cases": [
+    {
+      "id": "startpos",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "moves": [],
+      "checks": ["sfen_roundtrip", "do_undo", "legal_moves", "perft"],
+      "perft": {"1": 30, "2": 900}
+    },
+    {
+      "id": "opening_two_ply",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/2P6/9/PP1PPPPPP/1B5R1/LNSGKGSNL b - 3",
+      "moves": ["7g7f", "3c3d"],
+      "checks": ["sfen_roundtrip", "do_undo", "legal_moves", "perft"]
+    },
+    {
+      "id": "promotion_boundary",
+      "sfen": "4k4/3P5/9/9/9/9/9/9/4K4 b - 1",
+      "moves": [],
+      "checks": ["sfen_roundtrip", "legal_moves", "promotion"]
+    },
+    {
+      "id": "capture_and_drop",
+      "sfen": "4k4/9/9/9/4R4/9/9/9/4K4 b P 1",
+      "moves": [],
+      "checks": ["sfen_roundtrip", "do_undo", "legal_moves", "drops"]
+    },
+    {
+      "id": "check_evasion",
+      "sfen": "4k4/9/9/9/4R4/9/9/9/4K4 w - 1",
+      "moves": [],
+      "checks": ["sfen_roundtrip", "legal_moves", "check_detection"]
+    },
+    {
+      "id": "repetition_fixture",
+      "sfen": "4k4/9/9/9/9/9/9/9/4K4 b - 1",
+      "moves": ["5i5h", "5a5b", "5h5i", "5b5a"],
+      "checks": ["sfen_roundtrip", "do_undo", "repetition"]
+    }
+  ]
+}
