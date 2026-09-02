@@ -1,0 +1,24 @@
+# Captured from a clean worktree at tag v0.3.24.
+# Control: Threads=1, Parallel=1, SpecTopN=0; no NNUE weight file.
+# Timing/nps are host-dependent. The opening-book warning is expected without data/opening_book.jsonl.
+$ sekirei --version
+Sekirei 0.3.24
+$ printf 'usi\nisready\nsetoption name Threads value 1\nsetoption name Parallel value 1\nsetoption name SpecTopN value 0\nposition startpos\ngo depth 1\nquit\n' | sekirei
+id name Sekirei
+id author ke.tanabe@gmail.com
+option name Hash type spin default 64 min 1 max 2048
+option name Threads type spin default 0 min 0 max 512
+option name SpecTopN type spin default 3 min 0 max 512
+option name MoveOverhead type spin default 50 min 0 max 5000
+option name Ponder type check default false
+option name MultiPV type spin default 1 min 1 max 256
+option name EvalFile type string default 
+option name UseBook type check default true
+option name BookMaxPly type spin default 30 min 0 max 200
+option name BookMinConfidence type string default 0.20
+option name BookFile type string default data/opening_book.jsonl
+usiok
+info string opening book load failed (data/opening_book.jsonl): data/opening_book.jsonl: No such file or directory (os error 2)
+readyok
+info depth 1 score cp 0 nodes 60 nps 15000 time 4 hashfull 0 pv 9g9f
+bestmove 9g9f

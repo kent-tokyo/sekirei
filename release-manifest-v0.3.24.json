@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.24",
+  "commit": "95972692c6f88a2f5e593f9c104be496030559ac",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.24",
+    "sekirei-core": "0.3.24",
+    "sekirei-bench": "0.3.24",
+    "sekirei-csa": "0.3.24",
+    "sekirei-match-runner": "0.3.24",
+    "sekirei-train": "0.3.24"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "stable (GitHub publish workflow); clean tag worktree local build",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "742e76a8e5087da8b72ed812a77f75f9cf4c12143509c4507a7c1c8f52dfbad5"
+  },
+  "publish": {
+    "workflow_run": "33630575728",
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "not included"
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is for the clean tag worktree release build; registry artifact identity is verified separately by registry metadata.",
+    "The smoke run reports a missing optional opening-book file in the clean worktree.",
+    "No external-engine match or strength claim is part of this release manifest."
+  ]
+}
