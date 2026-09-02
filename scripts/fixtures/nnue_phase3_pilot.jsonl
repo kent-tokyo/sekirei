@@ -1,0 +1,6 @@
+{"sfen":"lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1","tags":{"phase":"opening","side_to_move":"black"},"source":{"path":"phase3-pilot","ply":1}}
+{"sfen":"lnsgkgsnl/1r4k2/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1","tags":{"phase":"opening","side_to_move":"black"},"source":{"path":"phase3-pilot","ply":2}}
+{"sfen":"lnsgkgsnl/1r5b1/ppppppppp/9/4R4/9/PPPPPPPPP/1B6/LNSGKGSNL b - 1","tags":{"phase":"middlegame","side_to_move":"black"},"source":{"path":"phase3-pilot","ply":3}}
+{"sfen":"lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w R 1","tags":{"phase":"middlegame","side_to_move":"white"},"source":{"path":"phase3-pilot","ply":4}}
+{"sfen":"4k4/9/9/9/4R4/9/9/9/4K4 b - 1","tags":{"phase":"endgame","side_to_move":"black"},"source":{"path":"phase3-pilot","ply":5}}
+{"sfen":"4k4/9/9/9/9/9/9/9/4K4 b R 1","tags":{"phase":"endgame","side_to_move":"black"},"source":{"path":"phase3-pilot","ply":6}}
