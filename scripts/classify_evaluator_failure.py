@@ -22,6 +22,18 @@ CATEGORIES = {
 }
 
 
+def load_json(path: Path) -> dict:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"{path}: top-level JSON value must be an object")
+    return value
+
+
+def make_record(paths: dict[str, Path]) -> dict:
+    """Combine separate evidence files without inventing missing evidence."""
+    return {section: load_json(path) for section, path in paths.items()}
+
+
 def classify(record: dict) -> dict:
     probe = record.get("probe", {})
     training = record.get("training", {})
@@ -70,10 +82,23 @@ def classify(record: dict) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("record", type=Path, help="JSON diagnostic record")
+    parser.add_argument("record", type=Path, nargs="?", help="JSON diagnostic record")
+    for section in ("probe", "training", "inference", "search", "gate"):
+        parser.add_argument(f"--{section}", type=Path, help=f"{section} JSON evidence")
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
-    result = classify(json.loads(args.record.read_text(encoding="utf-8")))
+    if args.record:
+        record = load_json(args.record)
+    else:
+        paths = {section: getattr(args, section) for section in ("probe", "training", "inference", "search", "gate")}
+        paths = {section: path for section, path in paths.items() if path is not None}
+        if not paths:
+            parser.error("provide RECORD or at least one evidence option")
+        record = make_record(paths)
+    result = {
+        "evidence": record,
+        **classify(record),
+    }
     text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         args.output.write_text(text, encoding="utf-8")

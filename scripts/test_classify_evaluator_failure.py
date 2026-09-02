@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import unittest
 import sys
+import json
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classify_evaluator_failure import classify
+from classify_evaluator_failure import classify, make_record
 
 
 class EvaluatorFailureClassificationTests(unittest.TestCase):
@@ -24,6 +26,17 @@ class EvaluatorFailureClassificationTests(unittest.TestCase):
         result = classify({"probe": {"strict_pass": True}})
         self.assertEqual(result["classification"], "undetermined")
         self.assertEqual(result["confidence"], "low")
+
+    def test_separate_evidence_files_are_combined_without_inference(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            probe = directory / "probe.json"
+            gate = directory / "gate.json"
+            probe.write_text(json.dumps({"strict_pass": True}), encoding="utf-8")
+            gate.write_text(json.dumps({"games": 12, "elo_diff": 4}), encoding="utf-8")
+            record = make_record({"probe": probe, "gate": gate})
+        self.assertEqual(record["gate"]["games"], 12)
+        self.assertEqual(classify(record)["classification"], "undetermined")
 
 
 if __name__ == "__main__":
