@@ -26,6 +26,11 @@
 - Added `--cache-only` training mode and `analysis_record_v1` teacher-cache
   compatibility for bounded pilots that must not launch fallback searches.
 
+## [0.3.23] – 2026-09-02
+
+- Updated the `lineprior` dependency from 0.9.0 to 0.11.1 in the USI and
+  training crates; workspace compilation and tests pass with the new API.
+
 ## [0.3.22] – 2026-09-01
 
 - Improved NNUE candidate-health diagnostics and bounded teacher-cache
