@@ -2,10 +2,19 @@
 
 ## Unreleased
 
+## [0.3.25] – 2026-09-03
+
 - Added release-manifest-shaped evaluator diagnostic output without mutating
   the source manifest.
 - Added training-only Adam checkpoints with raw parameters, all first/second
   moments, validation, atomic writes, and `--resume-adam` restoration.
+- Added a validated diagnostic release-manifest fixture and epoch-boundary
+  `--resume-checkpoint` files carrying epoch, data cursor, recipe fingerprint,
+  weights, and Adam state.
+- Connected manifest validation to CI and added optional atomic mid-epoch
+  checkpoints with a data cursor and teacher-cache snapshot.
+- Added a controlled stop-after-checkpoint CLI mode and documented resume
+  rejection conditions.
 
 ## [0.3.24] – 2026-09-02
 

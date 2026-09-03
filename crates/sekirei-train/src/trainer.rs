@@ -422,7 +422,137 @@ struct AdamCheckpoint {
     step: u64,
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+struct ResumeCheckpoint {
+    schema: String,
+    version: u32,
+    epoch_completed: u64,
+    next_game_index: u64,
+    config_fingerprint: String,
+    #[serde(default)]
+    teacher_cache: HashMap<String, i32>,
+    optimizer: AdamCheckpoint,
+}
+
+/// State restored at an epoch boundary. `next_game_index` is retained in the
+/// schema even though the current writer emits zero (the safe boundary after
+/// validation); this makes the cursor explicit and rejects future partial
+/// checkpoints unless the caller handles that cursor deliberately.
+pub struct ResumeState {
+    pub weights: TrainWeights,
+    pub epoch_completed: u64,
+    pub next_game_index: u64,
+    pub config_fingerprint: String,
+    pub teacher_cache: HashMap<String, i32>,
+}
+
 impl TrainWeights {
+    fn adam_checkpoint(&self) -> AdamCheckpoint {
+        AdamCheckpoint {
+            schema: "sekirei.adam-checkpoint.v1".to_string(),
+            version: 1,
+            ft: self.ft.clone(),
+            ft_bias: self.ft_bias.clone(),
+            l2: self.l2.clone(),
+            l2_bias: self.l2_bias.clone(),
+            out: self.out.clone(),
+            out_bias: self.out_bias,
+            ft_m: self.ft_m.clone(),
+            ft_v: self.ft_v.clone(),
+            bias_m: self.bias_m.clone(),
+            bias_v: self.bias_v.clone(),
+            l2_m: self.l2_m.clone(),
+            l2_v: self.l2_v.clone(),
+            l2bias_m: self.l2bias_m.clone(),
+            l2bias_v: self.l2bias_v.clone(),
+            out_m: self.out_m.clone(),
+            out_v: self.out_v.clone(),
+            obias_m: self.obias_m,
+            obias_v: self.obias_v,
+            step: self.step,
+        }
+    }
+
+    fn from_adam_checkpoint(state: AdamCheckpoint) -> io::Result<Self> {
+        if state.schema != "sekirei.adam-checkpoint.v1" || state.version != 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "unsupported Adam checkpoint schema",
+            ));
+        }
+        let expected = [
+            ("ft", state.ft.len(), INPUT * L1),
+            ("ft_bias", state.ft_bias.len(), L1),
+            ("l2", state.l2.len(), 2 * L1 * L2),
+            ("l2_bias", state.l2_bias.len(), L2),
+            ("out", state.out.len(), L2),
+            ("ft_m", state.ft_m.len(), INPUT * L1),
+            ("ft_v", state.ft_v.len(), INPUT * L1),
+            ("bias_m", state.bias_m.len(), L1),
+            ("bias_v", state.bias_v.len(), L1),
+            ("l2_m", state.l2_m.len(), 2 * L1 * L2),
+            ("l2_v", state.l2_v.len(), 2 * L1 * L2),
+            ("l2bias_m", state.l2bias_m.len(), L2),
+            ("l2bias_v", state.l2bias_v.len(), L2),
+            ("out_m", state.out_m.len(), L2),
+            ("out_v", state.out_v.len(), L2),
+        ];
+        if let Some((name, actual, expected)) = expected.into_iter().find(|(_, a, e)| a != e) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{name} length {actual}, expected {expected}"),
+            ));
+        }
+        let finite = state
+            .ft
+            .iter()
+            .chain(&state.ft_bias)
+            .chain(&state.l2)
+            .chain(&state.l2_bias)
+            .chain(&state.out)
+            .chain(&state.ft_m)
+            .chain(&state.ft_v)
+            .chain(&state.bias_m)
+            .chain(&state.bias_v)
+            .chain(&state.l2_m)
+            .chain(&state.l2_v)
+            .chain(&state.l2bias_m)
+            .chain(&state.l2bias_v)
+            .chain(&state.out_m)
+            .chain(&state.out_v)
+            .all(|v| v.is_finite())
+            && state.out_bias.is_finite()
+            && state.obias_m.is_finite()
+            && state.obias_v.is_finite();
+        if !finite {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "Adam checkpoint contains non-finite values",
+            ));
+        }
+        Ok(Self {
+            ft: state.ft,
+            ft_bias: state.ft_bias,
+            l2: state.l2,
+            l2_bias: state.l2_bias,
+            out: state.out,
+            out_bias: state.out_bias,
+            ft_m: state.ft_m,
+            ft_v: state.ft_v,
+            bias_m: state.bias_m,
+            bias_v: state.bias_v,
+            l2_m: state.l2_m,
+            l2_v: state.l2_v,
+            l2bias_m: state.l2bias_m,
+            l2bias_v: state.l2bias_v,
+            out_m: state.out_m,
+            out_v: state.out_v,
+            obias_m: state.obias_m,
+            obias_v: state.obias_v,
+            step: state.step,
+        })
+    }
+
     /// Seeded He/Kaiming-uniform init. Zero-initialising `ft`/`l2`/`out`
     /// (the pre-2026-07-09 behaviour) never breaks symmetry: every unit in a
     /// layer starts identical and receives an identical gradient every step
@@ -526,29 +656,7 @@ impl TrainWeights {
     /// This is separate from the inference `.bin` format, whose FT layer is
     /// quantised and intentionally contains no optimizer state.
     pub fn save_adam_checkpoint(&self, path: &Path) -> io::Result<()> {
-        let state = AdamCheckpoint {
-            schema: "sekirei.adam-checkpoint.v1".to_string(),
-            version: 1,
-            ft: self.ft.clone(),
-            ft_bias: self.ft_bias.clone(),
-            l2: self.l2.clone(),
-            l2_bias: self.l2_bias.clone(),
-            out: self.out.clone(),
-            out_bias: self.out_bias,
-            ft_m: self.ft_m.clone(),
-            ft_v: self.ft_v.clone(),
-            bias_m: self.bias_m.clone(),
-            bias_v: self.bias_v.clone(),
-            l2_m: self.l2_m.clone(),
-            l2_v: self.l2_v.clone(),
-            l2bias_m: self.l2bias_m.clone(),
-            l2bias_v: self.l2bias_v.clone(),
-            out_m: self.out_m.clone(),
-            out_v: self.out_v.clone(),
-            obias_m: self.obias_m,
-            obias_v: self.obias_v,
-            step: self.step,
-        };
+        let state = self.adam_checkpoint();
         let bytes = serde_json::to_vec_pretty(&state)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
         let temporary = path.with_extension("adam.json.tmp");
@@ -569,85 +677,65 @@ impl TrainWeights {
     pub fn load_adam_checkpoint(path: &Path) -> io::Result<Self> {
         let state: AdamCheckpoint = serde_json::from_slice(&fs::read(path)?)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        if state.schema != "sekirei.adam-checkpoint.v1" || state.version != 1 {
+        Self::from_adam_checkpoint(state)
+    }
+
+    /// Save the complete epoch-boundary resume state. The data cursor is
+    /// explicit so a future mid-epoch writer can be added without silently
+    /// changing the meaning of existing checkpoints.
+    pub fn save_resume_checkpoint_with_cache(
+        &self,
+        path: &Path,
+        epoch_completed: u64,
+        next_game_index: u64,
+        config_fingerprint: &str,
+        teacher_cache: &HashMap<String, i32>,
+    ) -> io::Result<()> {
+        let state = ResumeCheckpoint {
+            schema: "sekirei.resume-checkpoint.v1".to_string(),
+            version: 1,
+            epoch_completed,
+            next_game_index,
+            config_fingerprint: config_fingerprint.to_string(),
+            teacher_cache: teacher_cache.clone(),
+            optimizer: self.adam_checkpoint(),
+        };
+        let bytes = serde_json::to_vec_pretty(&state)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        let temporary = path.with_extension("resume.json.tmp");
+        let result = (|| {
+            let mut file = fs::File::create(&temporary)?;
+            file.write_all(&bytes)?;
+            file.sync_all()?;
+            fs::rename(&temporary, path)
+        })();
+        if result.is_err() {
+            let _ = fs::remove_file(&temporary);
+        }
+        result
+    }
+
+    pub fn load_resume_checkpoint(path: &Path) -> io::Result<ResumeState> {
+        let state: ResumeCheckpoint = serde_json::from_slice(&fs::read(path)?)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        if state.schema != "sekirei.resume-checkpoint.v1" || state.version != 1 {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                "unsupported Adam checkpoint schema",
+                "unsupported resume checkpoint schema",
             ));
         }
-        let expected = [
-            ("ft", state.ft.len(), INPUT * L1),
-            ("ft_bias", state.ft_bias.len(), L1),
-            ("l2", state.l2.len(), 2 * L1 * L2),
-            ("l2_bias", state.l2_bias.len(), L2),
-            ("out", state.out.len(), L2),
-            ("ft_m", state.ft_m.len(), INPUT * L1),
-            ("ft_v", state.ft_v.len(), INPUT * L1),
-            ("bias_m", state.bias_m.len(), L1),
-            ("bias_v", state.bias_v.len(), L1),
-            ("l2_m", state.l2_m.len(), 2 * L1 * L2),
-            ("l2_v", state.l2_v.len(), 2 * L1 * L2),
-            ("l2bias_m", state.l2bias_m.len(), L2),
-            ("l2bias_v", state.l2bias_v.len(), L2),
-            ("out_m", state.out_m.len(), L2),
-            ("out_v", state.out_v.len(), L2),
-        ];
-        if let Some((name, actual, expected)) = expected
-            .into_iter()
-            .find(|(_, actual, expected)| actual != expected)
-        {
+        if state.config_fingerprint.is_empty() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("{name} length {actual}, expected {expected}"),
+                "resume checkpoint has empty config fingerprint",
             ));
         }
-        let finite = state
-            .ft
-            .iter()
-            .chain(&state.ft_bias)
-            .chain(&state.l2)
-            .chain(&state.l2_bias)
-            .chain(&state.out)
-            .chain(&state.ft_m)
-            .chain(&state.ft_v)
-            .chain(&state.bias_m)
-            .chain(&state.bias_v)
-            .chain(&state.l2_m)
-            .chain(&state.l2_v)
-            .chain(&state.l2bias_m)
-            .chain(&state.l2bias_v)
-            .chain(&state.out_m)
-            .chain(&state.out_v)
-            .all(|value| value.is_finite())
-            && state.out_bias.is_finite()
-            && state.obias_m.is_finite()
-            && state.obias_v.is_finite();
-        if !finite {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                "Adam checkpoint contains non-finite values",
-            ));
-        }
-        Ok(Self {
-            ft: state.ft,
-            ft_bias: state.ft_bias,
-            l2: state.l2,
-            l2_bias: state.l2_bias,
-            out: state.out,
-            out_bias: state.out_bias,
-            ft_m: state.ft_m,
-            ft_v: state.ft_v,
-            bias_m: state.bias_m,
-            bias_v: state.bias_v,
-            l2_m: state.l2_m,
-            l2_v: state.l2_v,
-            l2bias_m: state.l2bias_m,
-            l2bias_v: state.l2bias_v,
-            out_m: state.out_m,
-            out_v: state.out_v,
-            obias_m: state.obias_m,
-            obias_v: state.obias_v,
-            step: state.step,
+        Ok(ResumeState {
+            weights: Self::from_adam_checkpoint(state.optimizer)?,
+            epoch_completed: state.epoch_completed,
+            next_game_index: state.next_game_index,
+            config_fingerprint: state.config_fingerprint,
+            teacher_cache: state.teacher_cache,
         })
     }
 
@@ -3881,6 +3969,24 @@ mod tests {
             Err(error) => error,
         };
         assert!(error.to_string().contains("missing field"));
+    }
+
+    #[test]
+    fn resume_checkpoint_round_trips_cursor_epoch_and_recipe() {
+        let original = TrainWeights::new_seeded(7, 0.5);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("weights.resume.json");
+        let cache = HashMap::from([(String::from("sfen"), 123)]);
+        original
+            .save_resume_checkpoint_with_cache(&path, 4, 12, "recipe-abc", &cache)
+            .unwrap();
+        let restored = TrainWeights::load_resume_checkpoint(&path).unwrap();
+        assert_eq!(restored.epoch_completed, 4);
+        assert_eq!(restored.next_game_index, 12);
+        assert_eq!(restored.config_fingerprint, "recipe-abc");
+        assert_eq!(restored.teacher_cache, cache);
+        assert_eq!(restored.weights.ft, original.ft);
+        assert_eq!(restored.weights.step, original.step);
     }
 
     #[test]

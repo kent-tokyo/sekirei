@@ -177,6 +177,9 @@ struct Args {
     diagnostic_rate_matched_mask_seed: u64,              // --diagnostic-rate-matched-mask-seed
     checkpoint_dir: Option<PathBuf>,                     // --checkpoint-dir
     resume_adam: Option<PathBuf>,                        // --resume-adam <checkpoint.json>
+    resume_checkpoint: Option<PathBuf>,                  // --resume-checkpoint <path>
+    resume_checkpoint_every_games: usize,                // --resume-checkpoint-every-games
+    stop_after_resume_checkpoint: bool,                  // --stop-after-resume-checkpoint
     teacher_cache_path: Option<PathBuf>,                 // --teacher-cache
     reuse_teacher_cache: bool,                           // --reuse-teacher-cache
     cache_only: bool, // --cache-only: never search for a missing teacher label
@@ -299,6 +302,9 @@ fn parse_args() -> Result<Args, String> {
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
     let mut resume_adam: Option<PathBuf> = None;
+    let mut resume_checkpoint: Option<PathBuf> = None;
+    let mut resume_checkpoint_every_games = 0usize;
+    let mut stop_after_resume_checkpoint = false;
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
     let mut cache_only = false;
@@ -679,6 +685,18 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 resume_adam = argv.get(i).map(PathBuf::from);
             }
+            "--resume-checkpoint" => {
+                i += 1;
+                resume_checkpoint = argv.get(i).map(PathBuf::from);
+            }
+            "--resume-checkpoint-every-games" => {
+                i += 1;
+                resume_checkpoint_every_games =
+                    argv.get(i).and_then(|s| s.parse().ok()).unwrap_or(0);
+            }
+            "--stop-after-resume-checkpoint" => {
+                stop_after_resume_checkpoint = true;
+            }
             "--teacher-cache" => {
                 i += 1;
                 teacher_cache_path = argv.get(i).map(PathBuf::from);
@@ -749,6 +767,9 @@ fn parse_args() -> Result<Args, String> {
         split_seed: split_seed.unwrap_or(seed),
         checkpoint_dir,
         resume_adam,
+        resume_checkpoint,
+        resume_checkpoint_every_games,
+        stop_after_resume_checkpoint,
         teacher_cache_path,
         reuse_teacher_cache,
         cache_only,
@@ -845,6 +866,38 @@ fn checkpoint_hash(bytes: &[u8]) -> u64 {
         h = h.wrapping_mul(1099511628211);
     }
     h
+}
+
+/// Stable recipe identity for complete resume. Output paths and the total
+/// target epoch are intentionally excluded: extending a run must be allowed,
+/// while changing data or any optimization/label setting must be rejected.
+fn resume_config_fingerprint(args: &Args, dataset: u64, split: u64) -> String {
+    let mut phase_weights: Vec<_> = args.phase_weights.iter().collect();
+    phase_weights.sort_by(|a, b| a.0.cmp(b.0));
+    let recipe = format!(
+        "dataset={dataset};split={split};sample={};quiet={};min_ply={};label_depth={};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
+        args.sample,
+        args.quiet,
+        args.min_ply,
+        args.label_depth,
+        args.min_rate,
+        args.min_stability,
+        args.stability_weighted,
+        args.side_balance,
+        args.source_cap,
+        args.validation_ratio,
+        args.init_seed,
+        args.split_seed,
+        args.shuffle_seed,
+        args.wdl_lambda,
+        args.wdl_target_scale,
+        args.lr,
+        args.lr_schedule,
+        args.min_lr,
+        args.warmup_epochs,
+        args.lr_schedule_epochs,
+    );
+    format!("{:016x}", positions::sfen_hash(&recipe, 0))
 }
 
 /// Folds `Trainer::eval_game` over every game in `valid_idxs` -- the CSA
@@ -1734,6 +1787,15 @@ fn print_usage() {
     eprintln!(
         "  --resume-adam <path>   Resume raw weights and Adam state from a training checkpoint"
     );
+    eprintln!(
+        "  --resume-checkpoint <path>  Resume epoch, data cursor, recipe, weights, and Adam state"
+    );
+    eprintln!(
+        "  --resume-checkpoint-every-games <n>  Save resumable CSA state every n games (0 = epoch end only)"
+    );
+    eprintln!(
+        "  --stop-after-resume-checkpoint  Exit successfully immediately after the first atomic mid-epoch save"
+    );
     eprintln!("  --teacher-cache <path>  JSONL cache of teacher scores (sfen → score_cp)");
     eprintln!("  --reuse-teacher-cache   Load teacher cache; skip search on cache hits");
     eprintln!(
@@ -1898,7 +1960,52 @@ fn main() {
             }
         }
 
+        let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h);
+        let mut resume_epoch_completed = 0u64;
+        let mut resume_cursor = 0usize;
+        let mut resume_teacher_cache = HashMap::new();
         let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+        if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
+            eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
+            std::process::exit(1);
+        }
+        if let Some(path) = &args.resume_checkpoint {
+            let state = match trainer::TrainWeights::load_resume_checkpoint(path) {
+                Ok(state) => state,
+                Err(error) => {
+                    eprintln!(
+                        "error: failed to load resume checkpoint {:?}: {error}",
+                        path
+                    );
+                    std::process::exit(1);
+                }
+            };
+            if state.config_fingerprint != resume_fingerprint {
+                eprintln!(
+                    "error: resume checkpoint recipe fingerprint mismatch (checkpoint={}, current={})",
+                    state.config_fingerprint, resume_fingerprint
+                );
+                std::process::exit(1);
+            }
+            resume_epoch_completed = state.epoch_completed;
+            resume_cursor = state.next_game_index as usize;
+            resume_teacher_cache = state.teacher_cache;
+            trainer.weights = state.weights;
+            eprintln!(
+                "  resumed complete state from {:?} (epoch={}, next_data_index={})",
+                path, resume_epoch_completed, resume_cursor
+            );
+        } else if let Some(path) = &args.resume_adam {
+            trainer.weights = match trainer::TrainWeights::load_adam_checkpoint(path) {
+                Ok(weights) => weights,
+                Err(error) => {
+                    eprintln!("error: failed to load Adam checkpoint {:?}: {error}", path);
+                    std::process::exit(1);
+                }
+            };
+            eprintln!("  resumed Adam state from {:?}", path);
+        }
+        combined_cache.extend(resume_teacher_cache);
         trainer.grad_clip_norm = args.grad_clip_norm;
         trainer.ft_clip_norm = args.ft_clip_norm;
         trainer.l2_clip_norm = args.l2_clip_norm;
@@ -1942,7 +2049,15 @@ fn main() {
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
 
-        for epoch in 1..=args.epochs {
+        let first_epoch = resume_epoch_completed.saturating_add(1) as usize;
+        if first_epoch > args.epochs && resume_epoch_completed > 0 {
+            eprintln!(
+                "error: resume checkpoint already completed {} epochs; --epochs is {}",
+                resume_epoch_completed, args.epochs
+            );
+            std::process::exit(1);
+        }
+        for epoch in first_epoch..=args.epochs {
             trainer.lr = trainer::compute_lr(
                 args.lr_schedule,
                 args.lr,
@@ -1960,26 +2075,84 @@ fn main() {
             // same order. `None` (the default) skips this entirely --
             // `epoch_samples` just borrows `train_samples` unchanged.
             let shuffled_samples: Vec<positions::PositionSample>;
-            let epoch_samples: &[positions::PositionSample] = if let Some(seed) = args.shuffle_seed
-            {
-                let order = trainer::shuffled_order(train_samples.len(), seed ^ epoch as u64);
-                shuffled_samples = order.iter().map(|&i| train_samples[i].clone()).collect();
-                &shuffled_samples
+            let epoch_resume_offset = if epoch == first_epoch {
+                resume_cursor
             } else {
-                &train_samples
+                0
             };
+            let mut epoch_samples: &[positions::PositionSample] =
+                if let Some(seed) = args.shuffle_seed {
+                    let order = trainer::shuffled_order(train_samples.len(), seed ^ epoch as u64);
+                    shuffled_samples = order.iter().map(|&i| train_samples[i].clone()).collect();
+                    &shuffled_samples
+                } else {
+                    &train_samples
+                };
+            if epoch == first_epoch {
+                if resume_cursor > epoch_samples.len() {
+                    eprintln!(
+                        "error: resume data cursor {} exceeds position cursor {}",
+                        resume_cursor,
+                        epoch_samples.len()
+                    );
+                    std::process::exit(1);
+                }
+                epoch_samples = &epoch_samples[resume_cursor..];
+                resume_cursor = 0;
+            }
 
             let mut new_entries: Vec<(String, i32)> = Vec::new();
-            trainer.train_positions(
-                epoch_samples,
-                args.label_depth,
-                &scored,
-                args.stability_weighted,
-                &args.phase_weights,
-                &side_weights,
-                &combined_cache,
-                &mut new_entries,
-            );
+            if args.resume_checkpoint_every_games > 0 {
+                let chunk_size = args.resume_checkpoint_every_games;
+                for (chunk_index, chunk) in epoch_samples.chunks(chunk_size).enumerate() {
+                    let mut chunk_entries = Vec::new();
+                    trainer.train_positions(
+                        chunk,
+                        args.label_depth,
+                        &scored,
+                        args.stability_weighted,
+                        &args.phase_weights,
+                        &side_weights,
+                        &combined_cache,
+                        &mut chunk_entries,
+                    );
+                    for (sfen, cp) in &chunk_entries {
+                        combined_cache.entry(sfen.clone()).or_insert(*cp);
+                    }
+                    new_entries.extend(chunk_entries);
+                    let resume_path = args.output.with_extension("resume.json");
+                    let cursor = ((chunk_index + 1) * chunk_size).min(epoch_samples.len());
+                    if let Err(error) = trainer.weights.save_resume_checkpoint_with_cache(
+                        &resume_path,
+                        epoch.saturating_sub(1) as u64,
+                        (epoch_resume_offset + cursor) as u64,
+                        &resume_fingerprint,
+                        &combined_cache,
+                    ) {
+                        eprintln!("  mid-epoch resume checkpoint save failed: {error}");
+                    } else {
+                        eprintln!(
+                            "  mid-epoch resume checkpoint → {:?} (next position {})",
+                            resume_path, cursor
+                        );
+                        if args.stop_after_resume_checkpoint {
+                            eprintln!("  stopping after requested atomic resume checkpoint");
+                            return;
+                        }
+                    }
+                }
+            } else {
+                trainer.train_positions(
+                    epoch_samples,
+                    args.label_depth,
+                    &scored,
+                    args.stability_weighted,
+                    &args.phase_weights,
+                    &side_weights,
+                    &combined_cache,
+                    &mut new_entries,
+                );
+            }
 
             let mut new_val_entries: Vec<(String, i32)> = Vec::new();
             let (vloss_raw, vloss_w, vcount) = if valid_samples.is_empty() {
@@ -2097,6 +2270,18 @@ fn main() {
                 eprintln!("  Adam checkpoint save failed: {e}");
             } else {
                 eprintln!("  Adam checkpoint → {:?}", adam_checkpoint);
+            }
+            let resume_checkpoint = checkpoint.with_extension("resume.json");
+            if let Err(e) = trainer.weights.save_resume_checkpoint_with_cache(
+                &resume_checkpoint,
+                epoch as u64,
+                0,
+                &resume_fingerprint,
+                &combined_cache,
+            ) {
+                eprintln!("  resume checkpoint save failed: {e}");
+            } else {
+                eprintln!("  resume checkpoint → {:?}", resume_checkpoint);
             }
 
             let snapshot = trainer.weights.snapshot_params();
@@ -2299,8 +2484,42 @@ fn main() {
         args.split_seed
     );
 
+    let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h);
+    let mut resume_epoch_completed = 0u64;
+    let mut resume_cursor = 0usize;
+    let mut resume_teacher_cache = HashMap::new();
     let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
-    if let Some(path) = &args.resume_adam {
+    if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
+        eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
+        std::process::exit(1);
+    }
+    if let Some(path) = &args.resume_checkpoint {
+        let state = match trainer::TrainWeights::load_resume_checkpoint(path) {
+            Ok(state) => state,
+            Err(error) => {
+                eprintln!(
+                    "error: failed to load resume checkpoint {:?}: {error}",
+                    path
+                );
+                std::process::exit(1);
+            }
+        };
+        if state.config_fingerprint != resume_fingerprint {
+            eprintln!(
+                "error: resume checkpoint recipe fingerprint mismatch (checkpoint={}, current={})",
+                state.config_fingerprint, resume_fingerprint
+            );
+            std::process::exit(1);
+        }
+        resume_epoch_completed = state.epoch_completed;
+        resume_cursor = state.next_game_index as usize;
+        resume_teacher_cache = state.teacher_cache;
+        trainer.weights = state.weights;
+        eprintln!(
+            "  resumed complete state from {:?} (epoch={}, next_game_index={})",
+            path, resume_epoch_completed, resume_cursor
+        );
+    } else if let Some(path) = &args.resume_adam {
         trainer.weights = match trainer::TrainWeights::load_adam_checkpoint(path) {
             Ok(weights) => weights,
             Err(error) => {
@@ -2434,8 +2653,17 @@ fn main() {
     } else {
         HashMap::new()
     };
+    teacher_cache.extend(resume_teacher_cache);
 
-    for epoch in 1..=args.epochs {
+    let first_epoch = resume_epoch_completed.saturating_add(1) as usize;
+    if first_epoch > args.epochs && resume_epoch_completed > 0 {
+        eprintln!(
+            "error: resume checkpoint already completed {} epochs; --epochs is {}",
+            resume_epoch_completed, args.epochs
+        );
+        std::process::exit(1);
+    }
+    for epoch in first_epoch..=args.epochs {
         trainer.lr = trainer::compute_lr(
             args.lr_schedule,
             args.lr,
@@ -2450,12 +2678,29 @@ fn main() {
         // `--shuffle-seed`: same reasoning as the positions path's
         // `epoch_samples` above -- reshuffled fresh each epoch, `None`
         // (default) leaves `train_idxs`'s original order untouched.
-        let epoch_train_idxs: Vec<usize> = if let Some(seed) = args.shuffle_seed {
+        let mut epoch_train_idxs: Vec<usize> = if let Some(seed) = args.shuffle_seed {
             let order = trainer::shuffled_order(train_idxs.len(), seed ^ epoch as u64);
             order.iter().map(|&oi| train_idxs[oi]).collect()
         } else {
             train_idxs.clone()
         };
+        let epoch_resume_offset = if epoch == first_epoch {
+            resume_cursor
+        } else {
+            0
+        };
+        if epoch == first_epoch {
+            if resume_cursor > epoch_train_idxs.len() {
+                eprintln!(
+                    "error: resume data cursor {} exceeds epoch train cursor {}",
+                    resume_cursor,
+                    epoch_train_idxs.len()
+                );
+                std::process::exit(1);
+            }
+            epoch_train_idxs.drain(..resume_cursor);
+            resume_cursor = 0;
+        }
 
         let train_phase_start = Instant::now();
         let mut last_progress = Instant::now();
@@ -2477,6 +2722,29 @@ fn main() {
             );
 
             let game_num = i + 1;
+            if args.resume_checkpoint_every_games > 0
+                && game_num % args.resume_checkpoint_every_games == 0
+            {
+                let resume_path = args.output.with_extension("resume.json");
+                if let Err(error) = trainer.weights.save_resume_checkpoint_with_cache(
+                    &resume_path,
+                    epoch.saturating_sub(1) as u64,
+                    (epoch_resume_offset + game_num) as u64,
+                    &resume_fingerprint,
+                    &teacher_cache,
+                ) {
+                    eprintln!("  mid-epoch resume checkpoint save failed: {error}");
+                } else {
+                    eprintln!(
+                        "  mid-epoch resume checkpoint → {:?} (next game {})",
+                        resume_path, game_num
+                    );
+                    if args.stop_after_resume_checkpoint {
+                        eprintln!("  stopping after requested atomic resume checkpoint");
+                        return;
+                    }
+                }
+            }
             // Time-based (not count-based) heartbeat: a count-based-only
             // interval (see the game_num % 10_000 block below) never fires
             // on small datasets (e.g. 337 games), leaving a run with zero
@@ -2637,6 +2905,18 @@ fn main() {
             eprintln!("  Adam checkpoint save failed: {e}");
         } else {
             eprintln!("  Adam checkpoint saved → {:?}", adam_checkpoint);
+        }
+        let resume_checkpoint = checkpoint.with_extension("resume.json");
+        if let Err(e) = trainer.weights.save_resume_checkpoint_with_cache(
+            &resume_checkpoint,
+            epoch as u64,
+            0,
+            &resume_fingerprint,
+            &teacher_cache,
+        ) {
+            eprintln!("  resume checkpoint save failed: {e}");
+        } else {
+            eprintln!("  resume checkpoint saved → {:?}", resume_checkpoint);
         }
 
         let snapshot = trainer.weights.snapshot_params();

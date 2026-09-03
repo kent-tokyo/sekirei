@@ -1,0 +1,14 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.24",
+  "commit": "95972692c6f88a2f5e593f9c104be496030559ac",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {"sekirei":"0.3.24","sekirei-core":"0.3.24","sekirei-bench":"0.3.24","sekirei-csa":"0.3.24","sekirei-match-runner":"0.3.24","sekirei-train":"0.3.24"},
+  "dependencies": {"lineprior":"0.11.1"},
+  "toolchain": "stable",
+  "binary": {"path":"target/release/sekirei", "sha256":"742e76a8e5087da8b72ed812a77f75f9cf4c12143509c4507a7c1c8f52dfbad5"},
+  "publish": {"workflow_run":"33630575728","registry":"crates.io","status":"verified","crates":["sekirei","sekirei-core","sekirei-bench","sekirei-csa","sekirei-match-runner","sekirei-train"]},
+  "internal_measurement": {"spec_top_n":0,"threads":1,"parallel":1,"strength_claim":false},
+  "external_opponents": {"status":"not_run","configuration":"kept separate"},
+  "evaluator_diagnostic": {"schema":"sekirei.evaluator-diagnostic.v1","classification":"undetermined","confidence":"low","reasons":["No causal evidence attached."],"evidence":{"source":"fixture"}}
+}

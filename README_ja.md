@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.24`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.25`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -95,8 +95,8 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 
 評価値、スコアレンジ、平均、分散、基準局面との差分を表示します。標準プローブには駒得と王位置の感度検査も含まれます。`--json` で機械可読形式にでき、`--strict` ではスコアレンジが 8 cp 未満の定数・準定数出力、または再読込非決定を異常終了にできます。
 出力分散の確認にも使えます。このプローブは診断用であり、棋力テストではありません。
-チェックポイントは `nnue_probe` や `EvalFile` で読み込める推論互換形式ですが、オプティマイザ状態は保存しないため、
-訓練再開時に Adam の実行状態まで復元するものではありません。
+チェックポイントは `nnue_probe` や `EvalFile` で読み込める推論互換形式です。推論用`.bin`は
+オプティマイザ状態を持たず、訓練用にはAdam sidecarと完全resume sidecarを別に保存します。
 JSON出力には判定閾値 `strict_min_range_cp` と判定結果 `strict_pass` も含まれます。
 
 マテリアル評価で起動:
@@ -186,6 +186,31 @@ python3 scripts/classify_evaluator_failure.py diagnostic.json \
   --manifest release-manifest-v0.3.24.json \
   --output release-manifest-v0.3.24-diagnostic.json
 ```
+
+実運用fixtureと生成物は `python3 scripts/validate_release_manifest.py
+scripts/fixtures/release_manifest_diagnostic_v1.json` でschema検証できます。完全resumeは
+`--resume-checkpoint`を使うと、raw重み、Adam状態、完了epoch、データカーソル、学習設定fingerprintを
+epoch境界で復元し、設定不一致を拒否します。`--resume-checkpoint-every-games N`を指定すると、
+CSAではゲーム境界、positions modeでは位置chunk境界でもatomicに保存します。teacher cacheも含めるため、
+再開時にラベル生成条件が黙って変わりません。
+小規模なCLI統合回帰は `bash scripts/test_resume_cli_fixture.sh` で実行できます。
+resume検証の系譜は `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`
+で記録できます。生成物は `sekirei.resume-manifest.v1` schemaで、checkpointとログのhashを分けて保持します。
+検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.24.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
+接続後の `resume_verification.artifacts` にはcheckpointと実行ログを別artifactとして記録します。
+
+atomicなcheckpoint境界で意図的に停止して再開する例:
+
+```bash
+cargo run -p sekirei-train -- --positions positions.jsonl --epochs 20 \
+  --checkpoint-dir checkpoints --output weights.bin \
+  --resume-checkpoint-every-games 1000 --stop-after-resume-checkpoint
+cargo run -p sekirei-train -- --positions positions.jsonl --epochs 20 \
+  --output weights.bin --resume-checkpoint weights.resume.json
+```
+
+resumeは、未対応schema、optimizer状態の欠落・形式不正・非有限値、学習設定fingerprint不一致、
+現在のepochを超えるカーソル、`--resume-adam`との同時指定、完了済みepoch以下の目標epochを拒否します。
 
 ## ライセンスと帰属表示
 

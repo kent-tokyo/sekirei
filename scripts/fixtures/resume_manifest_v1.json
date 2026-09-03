@@ -1,0 +1,20 @@
+{
+  "schema": "sekirei.resume-manifest.v1",
+  "checkpoint": {
+    "path": "checkpoints/weights.resume.json",
+    "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+    "schema": "sekirei.resume-checkpoint.v1",
+    "epoch_completed": 1,
+    "next_game_index": 2,
+    "config_fingerprint": "0123456789abcdef",
+    "optimizer_step": 12,
+    "teacher_cache_entries": 8
+  },
+  "execution": {
+    "dataset": "scripts/fixtures/nnue_phase3_pilot.jsonl",
+    "log_path": "logs/resume.log",
+    "log_sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+    "resume_loaded": true,
+    "stopped_after_checkpoint": true
+  }
+}

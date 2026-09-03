@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.24`). It speaks the
+`0.3.25`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -109,9 +109,8 @@ diagnostic, not a strength test.
 JSON output also includes `strict_min_range_cp` and `strict_pass` so automated
 candidate selection can record the exact health rule used.
 
-Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFile`. Current
-training checkpoints contain weights and metadata, but not optimizer state; resuming training
-does not restore a full Adam run.
+Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFile`. The inference
+`.bin` remains optimizer-free; training emits separate Adam and full-resume sidecars.
 
 Run the USI engine without weights (material evaluation fallback):
 
@@ -201,6 +200,36 @@ python3 scripts/classify_evaluator_failure.py diagnostic.json \
   --manifest release-manifest-v0.3.24.json \
   --output release-manifest-v0.3.24-diagnostic.json
 ```
+
+Validate the operational fixture or a generated copy with
+`python3 scripts/validate_release_manifest.py scripts/fixtures/release_manifest_diagnostic_v1.json`.
+For an epoch-boundary full training resume, use `--resume-checkpoint`; it restores the raw weights,
+Adam state, completed epoch, data cursor, and recipe fingerprint and rejects recipe mismatches. Set
+`--resume-checkpoint-every-games N` to persist an atomic mid-epoch cursor (for positions mode, N is
+the position chunk size); the teacher cache is included so a resumed run does not silently change labels.
+The small end-to-end regression is available as `bash scripts/test_resume_cli_fixture.sh`.
+Resume verification lineage can be recorded with
+`python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`.
+The generated artifact uses the `sekirei.resume-manifest.v1` schema and keeps checkpoint/log hashes separate.
+Attach verified resume evidence to a release-manifest copy with
+`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.24.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
+The source release manifest is not modified.
+The attached `resume_verification.artifacts` list identifies the checkpoint and execution log separately.
+
+For a controlled interruption at an atomic checkpoint boundary:
+
+```bash
+cargo run -p sekirei-train -- --positions positions.jsonl --epochs 20 \
+  --checkpoint-dir checkpoints --output weights.bin \
+  --resume-checkpoint-every-games 1000 --stop-after-resume-checkpoint
+cargo run -p sekirei-train -- --positions positions.jsonl --epochs 20 \
+  --output weights.bin --resume-checkpoint weights.resume.json
+```
+
+Resume rejects an unsupported schema, missing or malformed optimizer state,
+non-finite values, a recipe fingerprint mismatch, a cursor beyond the current
+epoch, simultaneous `--resume-adam` and `--resume-checkpoint`, or a target
+epoch that has already been completed.
 
 ## License and attribution
 

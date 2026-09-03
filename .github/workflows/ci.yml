@@ -45,6 +45,20 @@ jobs:
         run: python3 scripts/check_public_surface.py
       - name: NNUE diagnostic tests
         run: python3 scripts/test_nnue_diagnostics.py
+      - name: release manifest schema
+        run: |
+          python3 scripts/test_release_manifest.py
+          python3 scripts/validate_release_manifest.py scripts/fixtures/release_manifest_diagnostic_v1.json
+      - name: resume CLI fixture
+        run: bash scripts/test_resume_cli_fixture.sh
+      - name: resume manifest schema
+        run: |
+          python3 scripts/validate_resume_manifest.py scripts/fixtures/resume_manifest_v1.json
+          python3 scripts/attach_resume_manifest.py \
+            --release-manifest release-manifest-v0.3.24.json \
+            --resume-manifest scripts/fixtures/resume_manifest_v1.json \
+            --output /tmp/release-manifest-with-resume.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-resume.json
 
   smoke:
     runs-on: ubuntu-latest
