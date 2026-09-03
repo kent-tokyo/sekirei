@@ -176,6 +176,17 @@ cargo run --release -p sekirei-train -- \
 から除外しています。プロジェクトで生成したNNUE重みはCC BY 4.0で別途ライセンスします。
 詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
+epochごとのチェックポイントには、raw f32重み、Adamのモーメント、optimizer stepを含む
+訓練専用の`.adam.json` sidecarも保存されます。`--resume-adam`でこの状態を復元できます。
+推論用`.bin`は分離され、エンジン互換形式のままです。診断分類は元のmanifestを変更せず、
+release manifest形式のコピーへ追加できます。
+
+```bash
+python3 scripts/classify_evaluator_failure.py diagnostic.json \
+  --manifest release-manifest-v0.3.24.json \
+  --output release-manifest-v0.3.24-diagnostic.json
+```
+
 ## ライセンスと帰属表示
 
 Sekireiのソースコードは、利用者の選択によりMIT LicenseまたはApache License, Version 2.0で

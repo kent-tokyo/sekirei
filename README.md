@@ -191,6 +191,17 @@ Training data, checkpoints, weights, match output, and experiment logs are local
 are intentionally excluded from the public repository. NNUE weight files produced for this
 project are licensed separately under CC BY 4.0; see [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
+Epoch checkpoints also write a training-only `.adam.json` sidecar containing raw f32 parameters,
+Adam moments, and the optimizer step. Resume that state with `--resume-adam`; the inference `.bin`
+file remains separate and compatible with the engine. A diagnostic classification can be attached
+to a release-manifest-shaped copy without modifying the original:
+
+```bash
+python3 scripts/classify_evaluator_failure.py diagnostic.json \
+  --manifest release-manifest-v0.3.24.json \
+  --output release-manifest-v0.3.24-diagnostic.json
+```
+
 ## License and attribution
 
 The Sekirei source code is licensed under the MIT License or the Apache License, Version 2.0,

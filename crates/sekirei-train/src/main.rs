@@ -176,6 +176,7 @@ struct Args {
     diagnostic_rate_matched_mask_total: u64,             // --diagnostic-rate-matched-mask-total
     diagnostic_rate_matched_mask_seed: u64,              // --diagnostic-rate-matched-mask-seed
     checkpoint_dir: Option<PathBuf>,                     // --checkpoint-dir
+    resume_adam: Option<PathBuf>,                        // --resume-adam <checkpoint.json>
     teacher_cache_path: Option<PathBuf>,                 // --teacher-cache
     reuse_teacher_cache: bool,                           // --reuse-teacher-cache
     cache_only: bool, // --cache-only: never search for a missing teacher label
@@ -297,6 +298,7 @@ fn parse_args() -> Result<Args, String> {
     let mut init_seed: Option<u64> = None;
     let mut split_seed: Option<u64> = None;
     let mut checkpoint_dir: Option<PathBuf> = None;
+    let mut resume_adam: Option<PathBuf> = None;
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
     let mut cache_only = false;
@@ -673,6 +675,10 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 checkpoint_dir = argv.get(i).map(PathBuf::from);
             }
+            "--resume-adam" => {
+                i += 1;
+                resume_adam = argv.get(i).map(PathBuf::from);
+            }
             "--teacher-cache" => {
                 i += 1;
                 teacher_cache_path = argv.get(i).map(PathBuf::from);
@@ -742,6 +748,7 @@ fn parse_args() -> Result<Args, String> {
         l2_bias_init,
         split_seed: split_seed.unwrap_or(seed),
         checkpoint_dir,
+        resume_adam,
         teacher_cache_path,
         reuse_teacher_cache,
         cache_only,
@@ -1724,6 +1731,9 @@ fn print_usage() {
         "  --split-seed <n>        Validation-split/source_cap seed only, overrides --seed (default: --seed's value)"
     );
     eprintln!("  --checkpoint-dir <dir>  Directory for epoch checkpoints");
+    eprintln!(
+        "  --resume-adam <path>   Resume raw weights and Adam state from a training checkpoint"
+    );
     eprintln!("  --teacher-cache <path>  JSONL cache of teacher scores (sfen → score_cp)");
     eprintln!("  --reuse-teacher-cache   Load teacher cache; skip search on cache hits");
     eprintln!(
@@ -2082,6 +2092,12 @@ fn main() {
                 }
                 Err(e) => eprintln!("  checkpoint save failed: {e}"),
             }
+            let adam_checkpoint = checkpoint.with_extension("adam.json");
+            if let Err(e) = trainer.weights.save_adam_checkpoint(&adam_checkpoint) {
+                eprintln!("  Adam checkpoint save failed: {e}");
+            } else {
+                eprintln!("  Adam checkpoint → {:?}", adam_checkpoint);
+            }
 
             let snapshot = trainer.weights.snapshot_params();
             let param_update_norm = prev_snapshot
@@ -2284,6 +2300,16 @@ fn main() {
     );
 
     let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+    if let Some(path) = &args.resume_adam {
+        trainer.weights = match trainer::TrainWeights::load_adam_checkpoint(path) {
+            Ok(weights) => weights,
+            Err(error) => {
+                eprintln!("error: failed to load Adam checkpoint {:?}: {error}", path);
+                std::process::exit(1);
+            }
+        };
+        eprintln!("  resumed Adam state from {:?}", path);
+    }
     trainer.grad_clip_norm = args.grad_clip_norm;
     trainer.ft_clip_norm = args.ft_clip_norm;
     trainer.l2_clip_norm = args.l2_clip_norm;
@@ -2605,6 +2631,12 @@ fn main() {
                 }
             }
             Err(e) => eprintln!("  checkpoint save failed: {e}"),
+        }
+        let adam_checkpoint = checkpoint.with_extension("adam.json");
+        if let Err(e) = trainer.weights.save_adam_checkpoint(&adam_checkpoint) {
+            eprintln!("  Adam checkpoint save failed: {e}");
+        } else {
+            eprintln!("  Adam checkpoint saved → {:?}", adam_checkpoint);
         }
 
         let snapshot = trainer.weights.snapshot_params();

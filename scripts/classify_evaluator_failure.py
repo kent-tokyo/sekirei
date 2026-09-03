@@ -34,6 +34,23 @@ def make_record(paths: dict[str, Path]) -> dict:
     return {section: load_json(path) for section, path in paths.items()}
 
 
+def attach_to_release_manifest(manifest: dict, report: dict) -> dict:
+    """Return a release-manifest-shaped copy with diagnostic evidence attached."""
+    if manifest.get("schema") != "sekirei.release-manifest.v1":
+        raise ValueError("unexpected release manifest schema")
+    if report.get("classification") not in CATEGORIES:
+        raise ValueError("diagnostic report has an unknown classification")
+    result = dict(manifest)
+    result["evaluator_diagnostic"] = {
+        "schema": "sekirei.evaluator-diagnostic.v1",
+        "classification": report["classification"],
+        "confidence": report.get("confidence"),
+        "reasons": report.get("reasons", []),
+        "evidence": report.get("evidence", {}),
+    }
+    return result
+
+
 def classify(record: dict) -> dict:
     probe = record.get("probe", {})
     training = record.get("training", {})
@@ -86,6 +103,7 @@ def main() -> None:
     for section in ("probe", "training", "inference", "search", "gate"):
         parser.add_argument(f"--{section}", type=Path, help=f"{section} JSON evidence")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--manifest", type=Path, help="release manifest to augment")
     args = parser.parse_args()
     if args.record:
         record = load_json(args.record)
@@ -99,6 +117,8 @@ def main() -> None:
         "evidence": record,
         **classify(record),
     }
+    if args.manifest:
+        result = attach_to_release_manifest(load_json(args.manifest), result)
     text = json.dumps(result, indent=2, ensure_ascii=False) + "\n"
     if args.output:
         args.output.write_text(text, encoding="utf-8")

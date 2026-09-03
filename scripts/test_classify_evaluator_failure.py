@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from classify_evaluator_failure import classify, make_record
+from classify_evaluator_failure import attach_to_release_manifest, classify, make_record
 
 
 class EvaluatorFailureClassificationTests(unittest.TestCase):
@@ -37,6 +37,13 @@ class EvaluatorFailureClassificationTests(unittest.TestCase):
             record = make_record({"probe": probe, "gate": gate})
         self.assertEqual(record["gate"]["games"], 12)
         self.assertEqual(classify(record)["classification"], "undetermined")
+
+    def test_report_can_be_attached_to_release_manifest(self):
+        manifest = {"schema": "sekirei.release-manifest.v1", "release": "v0.3.24"}
+        report = {"classification": "undetermined", "confidence": "low", "reasons": []}
+        attached = attach_to_release_manifest(manifest, report)
+        self.assertEqual(attached["release"], "v0.3.24")
+        self.assertEqual(attached["evaluator_diagnostic"]["schema"], "sekirei.evaluator-diagnostic.v1")
 
 
 if __name__ == "__main__":

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Added release-manifest-shaped evaluator diagnostic output without mutating
+  the source manifest.
+- Added training-only Adam checkpoints with raw parameters, all first/second
+  moments, validation, atomic writes, and `--resume-adam` restoration.
+
 ## [0.3.24] – 2026-09-02
 
 - Made singular-extension verification-search TT write exclusion explicit and
