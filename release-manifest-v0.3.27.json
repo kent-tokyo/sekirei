@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.27",
+  "commit": "57baac97030dda60f50aa6b51dcf4715a33a3e1f",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.27",
+    "sekirei-core": "0.3.27",
+    "sekirei-bench": "0.3.27",
+    "sekirei-csa": "0.3.27",
+    "sekirei-match-runner": "0.3.27",
+    "sekirei-train": "0.3.27"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); GitHub publish workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "e9cbcdccaf4c9c34727d5de0552971964c2968cc9068b6bc94e055034fb06141"
+  },
+  "publish": {
+    "workflow_run": "33882191353",
+    "workflow_runs": ["33881999265", "33882191353"],
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Local move-generation, Perft, and fixed-depth timing snapshots are documented in CHANGELOG.md; no Elo inference is made."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result or strength claim is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is from the locally verified release build of the tagged source; registry artifacts were verified separately through the crates.io sparse index.",
+    "The first publish run released four token-enabled crates and stopped when sekirei-train required Trusted Publishing; the second run used OIDC and released sekirei-train and sekirei.",
+    "No external-engine match or playing-strength claim is part of this release manifest."
+  ]
+}

@@ -263,8 +263,8 @@ https://github.com/kent-tokyo/sekirei
 ロゴを使い、公式承認済みであるかのように示してはいけません。NNUE重みは別個の成果物として
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
-release manifest schemaの例は
-[`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json)に保存しています。現行のLazy SMP
+現在のrelease manifestは
+[`release-manifest-v0.3.27.json`](release-manifest-v0.3.27.json)に保存しています。現行のLazy SMP
 USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt)です。
 いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 

@@ -286,8 +286,8 @@ licenses. Do not use the Sekirei name or logo to imply official endorsement or a
 permission. NNUE weight files are separate artifacts and are licensed under CC BY 4.0 as
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
-The release-manifest schema example is kept in
-[`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json). The current Lazy SMP USI smoke
+The current release record is kept in
+[`release-manifest-v0.3.27.json`](release-manifest-v0.3.27.json). The current Lazy SMP USI smoke
 transcript is [`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt).
 These are release-audit evidence, not strength claims.
 
