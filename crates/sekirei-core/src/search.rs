@@ -23,8 +23,8 @@
 //!   - Delta Pruning in Quiescence Search
 
 use rayon::prelude::*;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use crate::board::Board;
@@ -75,6 +75,12 @@ const SE_MARGIN: i32 = 64;
 const PC_MIN_DEPTH: u32 = 8;
 /// ProbCut: how far above beta a capture must score (shallow) to prune the node.
 const PC_MARGIN: i32 = 200;
+
+/// Exact cache of the existing floating-point LMR formula for all representable
+/// TT depths and the practical maximum shogi move count. This removes two
+/// transcendental `ln` calls from every late-move probe without changing the
+/// reduction chosen by the search.
+static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 // ============================================================
 // Killer Move Table
@@ -251,6 +257,7 @@ impl HistoryTable {
 // ============================================================
 
 /// Iterative-deepening search parameters.
+#[derive(Clone, Copy, Debug)]
 pub struct SearchConfig {
     /// Maximum depth to search via iterative deepening.
     pub max_depth: u32,
@@ -319,10 +326,13 @@ pub struct Searcher {
 impl Searcher {
     /// Create a searcher backed by the given shared transposition table.
     pub fn new(tt: Arc<Tt>) -> Self {
-        Searcher {
-            tt,
-            external_abort: Arc::new(AtomicBool::new(false)),
-        }
+        Self::with_abort_flag(tt, Arc::new(AtomicBool::new(false)))
+    }
+
+    /// Create a searcher using a caller-owned abort flag. This lets independent
+    /// Lazy SMP workers stop as one group without sharing mutable search state.
+    pub fn with_abort_flag(tt: Arc<Tt>, external_abort: Arc<AtomicBool>) -> Self {
+        Searcher { tt, external_abort }
     }
 
     /// Returns an `Arc` to the abort flag; store `true` to stop the search early.
@@ -544,7 +554,19 @@ fn root_search_inner(
 
     for &m in ordered {
         let tok = board.do_move(m);
-        let score = -alpha_beta(state, board, -hi, -alpha, depth - 1, 1, true, Some(m), None);
+        let child_in_check = is_in_check(board, board.side_to_move);
+        let score = -alpha_beta(
+            state,
+            board,
+            -hi,
+            -alpha,
+            depth - 1,
+            1,
+            true,
+            Some(m),
+            None,
+            Some(child_in_check),
+        );
         board.undo_move(tok);
 
         if state.budget.should_abort() {
@@ -595,6 +617,7 @@ fn alpha_beta(
     can_null: bool,
     prev_mv: Option<Move>, // the move that led to this position (for countermove heuristic)
     skip_move: Option<Move>, // excluded move for singular extension search (None normally)
+    known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
 ) -> i32 {
     if state.budget.tick() {
         return 0;
@@ -608,7 +631,7 @@ fn alpha_beta(
     }
 
     if depth == 0 {
-        return quiescence(state, board, alpha, beta, ply, 0);
+        return quiescence(state, board, alpha, beta, ply, 0, known_in_check);
     }
 
     // TT probe
@@ -659,7 +682,7 @@ fn alpha_beta(
 
     // Static eval — computed once per node for RFP and Futility Pruning.
     // Skipped when in check (position is not "quiet") or depth > 5 (overhead not justified).
-    let in_check = is_in_check(board, stm);
+    let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     let static_eval: Option<i32> = if !in_check && depth <= 5 {
         Some(evaluate(board))
     } else {
@@ -693,6 +716,7 @@ fn alpha_beta(
                 break;
             }
             let tok = board.do_move(cap);
+            let child_in_check = is_in_check(board, board.side_to_move);
             let pc_score = -alpha_beta(
                 state,
                 board,
@@ -703,6 +727,7 @@ fn alpha_beta(
                 false,
                 Some(cap),
                 None,
+                Some(child_in_check),
             );
             board.undo_move(tok);
             if pc_score >= pc_beta {
@@ -726,6 +751,7 @@ fn alpha_beta(
             false,
             None,
             None,
+            None,
         );
         board.undo_null_move(null_tok);
 
@@ -743,6 +769,7 @@ fn alpha_beta(
                     false,
                     prev_mv,
                     None,
+                    Some(in_check),
                 );
                 if verify >= beta {
                     return null_score;
@@ -801,6 +828,7 @@ fn alpha_beta(
             false,
             prev_mv,
             tt_mv,
+            Some(in_check),
         );
         u32::from(sval < se_beta) // 1 if TT move is singular, else 0
     } else {
@@ -814,7 +842,8 @@ fn alpha_beta(
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
     let tok = board.do_move(first_move);
-    let ext0 = check_ext(board, ply + 1);
+    let child_in_check = is_in_check(board, board.side_to_move);
+    let ext0 = check_ext(child_in_check, ply + 1);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
     let first_ext = ext0
         + if tt_mv.is_some_and(|t| t == first_move) {
@@ -832,6 +861,7 @@ fn alpha_beta(
         true,
         Some(first_move),
         None,
+        Some(child_in_check),
     );
     board.undo_move(tok);
 
@@ -891,34 +921,34 @@ fn alpha_beta(
     // Returns the index in `rest` where sequential processing should begin:
     // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW).
     let seq_start = if depth >= MIN_SPLIT_DEPTH {
-        let nw_abort = Arc::new(AtomicBool::new(false));
+        let nw_abort = AtomicBool::new(false);
         let alpha_for_nw = alpha;
 
         // ponytail: limit parallel siblings; tail searched sequentially after YBW pass
         const YBW_MAX_SIBLINGS: usize = 6;
         let ybw_end = rest.len().min(YBW_MAX_SIBLINGS);
 
-        #[allow(clippy::type_complexity)]
-        let work: Vec<(Move, usize, Board, Arc<SearchState>, Arc<AtomicBool>)> = rest[..ybw_end]
-            .iter()
-            .enumerate()
-            .map(|(i, &m)| (m, i + 1, board.clone(), state.clone(), nw_abort.clone()))
-            .collect();
-
         // Null-window parallel probe (with LMR for quiet late moves)
-        let nw_results: Vec<(Move, i32, usize)> = work
-            .into_par_iter()
-            .filter_map(|(m, idx, mut b, ctx, lab)| {
-                if lab.load(Ordering::Relaxed) || ctx.budget.should_abort() {
+        // Rayon joins before returning, so the closure can borrow state and the
+        // abort flag directly. Clone only the worker's private Board; the old
+        // staging Vec also cloned every Arc and allocated once per split.
+        let nw_results: Vec<(Move, i32, usize)> = rest[..ybw_end]
+            .par_iter()
+            .enumerate()
+            .filter_map(|(i, &m)| {
+                if nw_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
                     return None;
                 }
-                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &ctx.history, stm);
+                let idx = i + 1;
+                let mut b = board.clone();
+                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm);
                 let tok = b.do_move(m);
-                let ext = check_ext(&b, ply + 1);
+                let child_in_check = is_in_check(&b, b.side_to_move);
+                let ext = check_ext(child_in_check, ply + 1);
                 let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
                 let probe_depth = depth.saturating_sub(1 + reduce) + ext;
                 let s = -alpha_beta(
-                    &ctx,
+                    state,
                     &mut b,
                     -alpha_for_nw - 1,
                     -alpha_for_nw,
@@ -927,6 +957,7 @@ fn alpha_beta(
                     true,
                     Some(m),
                     None,
+                    Some(child_in_check),
                 );
                 b.undo_move(tok);
                 Some((m, s, idx))
@@ -944,7 +975,8 @@ fn alpha_beta(
             let s = if nw_score > alpha {
                 // Fail-high: re-search at full depth with full window
                 let tok = board.do_move(m);
-                let ext = check_ext(board, ply + 1);
+                let child_in_check = is_in_check(board, board.side_to_move);
+                let ext = check_ext(child_in_check, ply + 1);
                 let full = -alpha_beta(
                     state,
                     board,
@@ -955,6 +987,7 @@ fn alpha_beta(
                     true,
                     Some(m),
                     None,
+                    Some(child_in_check),
                 );
                 board.undo_move(tok);
                 full
@@ -1044,7 +1077,8 @@ fn alpha_beta(
 
             let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm);
             let tok = board.do_move(m);
-            let ext = check_ext(board, ply + 1);
+            let child_in_check = is_in_check(board, board.side_to_move);
+            let ext = check_ext(child_in_check, ply + 1);
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
 
             // LMR probe
@@ -1059,6 +1093,7 @@ fn alpha_beta(
                 true,
                 Some(m),
                 None,
+                Some(child_in_check),
             );
 
             // Re-search at full depth if LMR probe fails high
@@ -1073,6 +1108,7 @@ fn alpha_beta(
                     true,
                     Some(m),
                     None,
+                    Some(child_in_check),
                 );
             }
             board.undo_move(tok);
@@ -1143,6 +1179,7 @@ fn quiescence(
     beta: i32,
     ply: u32,
     qply: u32,
+    known_in_check: Option<bool>,
 ) -> i32 {
     // Enforce the hard time limit here too: a heavy qsearch subtree (quiet checks
     // + recursive SEE) can run for many seconds without returning to alpha_beta,
@@ -1195,7 +1232,7 @@ fn quiescence(
     // exact merely because the cached bound was present.
     let orig_alpha = alpha;
 
-    let in_check = is_in_check(board, board.side_to_move);
+    let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, board.side_to_move));
 
     // Stand-pat and delta pruning only apply when not in check.
     // In check the side to move has no quiet option, so stand-pat is invalid.
@@ -1281,7 +1318,7 @@ fn quiescence(
     let mut best_move = None;
     for m in ordered {
         let tok = board.do_move(m);
-        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
+        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
         board.undo_move(tok);
 
         if state.budget.should_abort() {
@@ -1340,7 +1377,7 @@ fn quiescence(
                     continue;
                 }
             }
-            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
+            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
             board.undo_move(tok);
 
             if state.budget.should_abort() {
@@ -1809,8 +1846,8 @@ fn see_recapture(board: &mut Board, sq: Square, depth: u32) -> i32 {
 /// Returns 1 if the move just played (reflected in `board`) gives check, 0 otherwise.
 /// Capped at `CHECK_EXT_MAX_PLY` to prevent infinite extension chains in perpetual check.
 #[inline]
-fn check_ext(board: &Board, ply: u32) -> u32 {
-    if ply < CHECK_EXT_MAX_PLY && is_in_check(board, board.side_to_move) {
+fn check_ext(in_check: bool, ply: u32) -> u32 {
+    if ply < CHECK_EXT_MAX_PLY && in_check {
         1
     } else {
         0
@@ -1854,10 +1891,7 @@ fn lmr_reduce(
     if killers[1].is_some_and(|k| k == m) {
         return 0;
     }
-    // Depth × move-index scaling: conservative at shallow depth, more aggressive deeper.
-    // Formula: floor(1 + ln(depth) * ln(move_idx) / 2)
-    let r = 1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0;
-    let mut r = r as u32;
+    let mut r = lmr_base_reduction(depth, move_idx);
     // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
     let hist = history.get(stm, m.piece_kind, m.to);
     if hist > 3_000 {
@@ -1866,6 +1900,27 @@ fn lmr_reduce(
         r += 1;
     }
     r
+}
+
+#[inline]
+fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
+    const DEPTHS: usize = 128;
+    const MOVES: usize = 600;
+    if (depth as usize) < DEPTHS && move_idx < MOVES {
+        let table = LMR_REDUCTION_TABLE.get_or_init(|| {
+            let move_lns: [f32; MOVES] = std::array::from_fn(|index| (index.max(1) as f32).ln());
+            (0..DEPTHS)
+                .map(|d| {
+                    let depth_ln = (d.max(1) as f32).ln();
+                    std::array::from_fn(|index| (1.0 + depth_ln * move_lns[index] / 2.0) as u8)
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        });
+        table[depth as usize][move_idx] as u32
+    } else {
+        (1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0) as u32
+    }
 }
 
 fn order_moves(
@@ -1917,6 +1972,16 @@ mod see_tests {
     use super::*;
     use crate::board::Board;
     use std::time::Instant;
+
+    #[test]
+    fn lmr_table_is_bit_exact_with_previous_formula() {
+        for depth in 3..128u32 {
+            for move_idx in 2..600usize {
+                let expected = (1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0) as u32;
+                assert_eq!(lmr_base_reduction(depth, move_idx), expected);
+            }
+        }
+    }
 
     // Black rook on 5g captures a white pawn on 5e defended by a white pawn on 5d.
     // RxP wins a pawn (100) but loses the rook (1040) to PxR → SEE = 100 - 1040 = -940.
@@ -2181,7 +2246,7 @@ mod regression_tests {
         let state = fresh_state(tt.clone());
         let mut board = Board::startpos();
         let hash = board.hash();
-        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0);
+        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0, None);
         let entry = tt
             .probe(hash)
             .expect("top-level qsearch should store depth zero");
@@ -2190,7 +2255,7 @@ mod regression_tests {
 
         // An exact depth-zero hit must avoid re-searching the same top-level
         // qsearch, while remaining valid at the original ply.
-        let second = quiescence(&state, &mut board, first - 1, first + 1, 3, 0);
+        let second = quiescence(&state, &mut board, first - 1, first + 1, 3, 0, None);
         assert_eq!(second, first);
     }
 
@@ -2209,7 +2274,7 @@ mod regression_tests {
                 mv: None,
             },
         );
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0);
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
         assert_eq!(tt.probe(hash).expect("deeper entry must remain").depth, 4);
 
         let aborted_tt = Tt::new(1);
@@ -2220,11 +2285,51 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
         });
-        let _ = quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0);
+        let _ = quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0, None);
         assert!(
             aborted_tt.probe(hash).is_none(),
             "aborted qsearch must not publish a TT entry"
         );
+    }
+
+    #[test]
+    fn supplied_check_state_matches_recomputed_state() {
+        for sfen in [crate::sfen::STARTPOS_SFEN, "4r3k/9/9/9/9/9/9/9/4K4 b - 1"] {
+            let mut recomputed_board = Board::from_sfen(sfen).unwrap();
+            let recomputed_state = fresh_state(Tt::new(1));
+            let recomputed = alpha_beta(
+                &recomputed_state,
+                &mut recomputed_board,
+                NEG_INF,
+                POS_INF,
+                2,
+                0,
+                true,
+                None,
+                None,
+                None,
+            );
+
+            let mut supplied_board = Board::from_sfen(sfen).unwrap();
+            let supplied_check = is_in_check(&supplied_board, supplied_board.side_to_move);
+            let supplied_state = fresh_state(Tt::new(1));
+            let supplied = alpha_beta(
+                &supplied_state,
+                &mut supplied_board,
+                NEG_INF,
+                POS_INF,
+                2,
+                0,
+                true,
+                None,
+                None,
+                Some(supplied_check),
+            );
+            assert_eq!(
+                supplied, recomputed,
+                "known check state changed score for {sfen}"
+            );
+        }
     }
 
     // Two hand-built, hand-verified positions for the mate-direction regression
@@ -2265,6 +2370,7 @@ mod regression_tests {
             true,
             None,
             None,
+            None,
         );
 
         let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
@@ -2277,6 +2383,7 @@ mod regression_tests {
             2,
             3,
             true,
+            None,
             None,
             None,
         );

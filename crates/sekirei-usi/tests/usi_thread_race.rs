@@ -67,6 +67,42 @@ fn recv_line_matching(
 
 #[test]
 fn stop_flushes_bestmove_before_answering_the_next_command() {
+    stop_flushes_bestmove_before_answering_next_command(None);
+}
+
+#[test]
+fn lazy_smp_stop_flushes_bestmove_before_answering_next_command() {
+    stop_flushes_bestmove_before_answering_next_command(Some("LazySMP"));
+}
+
+#[test]
+fn lazy_smp_quit_joins_inflight_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name SearchMode value LazySMP");
+    send(&mut stdin, "setoption name Threads value 2");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(150));
+    send(&mut stdin, "quit");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().expect("failed to poll engine") {
+            assert!(status.success(), "engine exited unsuccessfully: {status}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "quit did not join the Lazy SMP search"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+fn stop_flushes_bestmove_before_answering_next_command(mode: Option<&str>) {
     let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
@@ -74,6 +110,13 @@ fn stop_flushes_bestmove_before_answering_the_next_command() {
 
     send(&mut stdin, "isready");
     recv_line_matching(&rx, |l| l == "readyok", Duration::from_secs(5));
+
+    if let Some(mode) = mode {
+        send(
+            &mut stdin,
+            &format!("setoption name SearchMode value {mode}"),
+        );
+    }
 
     send(&mut stdin, "position startpos");
 

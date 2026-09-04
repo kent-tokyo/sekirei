@@ -1,0 +1,53 @@
+# Phase 0.5 capability audit. Documentation evidence only: no speed, Elo,
+# or feature-equivalence claim follows from this file.
+
+[source]
+repository = "https://github.com/SH11235/rshogi"
+ref = "main"
+commit = "8a32891a120b9f92b2a270247ca6d29546de4f58"
+retrieved_utc = "2026-09-04"
+evidence = "README.md"
+
+[[capability]]
+name = "nnue_variants"
+status = "documented"
+evidence = "README.md:187-191"
+note = "HalfKP, HalfKA, and HalfKA_hm are listed."
+
+[[capability]]
+name = "lazy_smp"
+status = "documented"
+evidence = "README.md:193-195"
+note = "Lazy SMP parallel search is listed."
+
+[[capability]]
+name = "lock_free_tt"
+status = "documented"
+evidence = "README.md:191-193"
+note = "A lock-free concurrent hash table is listed."
+
+[[capability]]
+name = "adaptive_time_management"
+status = "documented"
+evidence = "README.md:192-194"
+note = "Adaptive time control is listed."
+
+[[capability]]
+name = "usi"
+status = "documented"
+evidence = "README.md:193-195"
+note = "USI protocol support is listed."
+
+[[capability]]
+name = "sprt_and_tournament_tools"
+status = "documented"
+evidence = "README.md:217-224"
+note = "Tournament and SPRT tooling is described in the tools section."
+
+[sekirei]
+nnue_variants = "implemented_single_runtime_format"
+lazy_smp = "implemented_opt_in"
+lock_free_tt = "implemented"
+adaptive_time_management = "implemented"
+usi = "implemented"
+sprt_and_tournament_tools = "measurement_harness_not_equivalent"

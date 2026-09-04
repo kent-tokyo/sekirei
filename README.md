@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.26`). It speaks the
+`0.3.27`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -30,7 +30,7 @@ Or build the latest source checkout:
 ```bash
 git clone https://github.com/kent-tokyo/sekirei.git
 cd sekirei
-cargo run --release -p sekirei-usi
+cargo run --release -p sekirei
 ```
 
 The binary reads USI commands from standard input. To connect Sekirei to a compatible shogi GUI,
@@ -48,7 +48,8 @@ sekirei /path/to/weights.bin
 - USI engine binary for shogi GUI integration and command-line analysis.
 - Iterative deepening, negamax/alpha-beta search, PVS/YBW parallel search, quiescence search,
   move ordering, and pruning heuristics.
-- Lock-free transposition table and optional speculative parallel search.
+- Lock-free transposition table, optional speculative parallel search, and an
+  opt-in Lazy SMP search backend.
 - NNUE-style efficiently updatable evaluation with file-based checkpoints.
 - CSA v2.2 / Floodgate client for automated games.
 - USI-vs-USI match runner for self-play, regression testing, and relative Elo estimation.
@@ -81,8 +82,8 @@ scripts/                     training and strength-test helpers
 
 The core currently includes alpha-beta/negamax, PVS/YBW parallel search, iterative deepening,
 quiescence search, a lock-free transposition table, common move-ordering and pruning heuristics,
-and optional speculative search. `SpecTopN=0` disables speculative search and is useful when a
-repeatable run is required. A verification search used by singular extensions is deliberately
+optional speculative search, and an opt-in Lazy SMP backend. `SpecTopN=0` disables speculative
+search and is useful when a repeatable run is required. A verification search used by singular extensions is deliberately
 excluded from unrestricted TT writes, so a partial verification result cannot overwrite the
 parent node's reusable entry.
 
@@ -93,6 +94,14 @@ cargo build --release
 cargo test --release
 cargo bench --bench movegen -p sekirei-bench
 ```
+
+### Local performance snapshot
+
+The v0.3.27 hot-path pass reduced the median start-position timings on the development Mac from
+8.2711 us to 2.2151 us for legal move generation, from 9.2530 ms to 2.1082 ms for Perft(3), and
+from 22.544 ms to 7.659 ms for depth-4 search. The longer search sample used 20 measurements.
+These are local mechanism diagnostics on heterogeneous Apple CPU cores, not portable performance,
+playing-strength, or Elo claims.
 
 Probe an NNUE checkpoint without enabling process-global engine weights:
 
@@ -115,19 +124,19 @@ Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFi
 Run the USI engine without weights (material evaluation fallback):
 
 ```bash
-cargo run --release -p sekirei-usi
+cargo run --release -p sekirei
 ```
 
 Run it with NNUE weights:
 
 ```bash
-cargo run --release -p sekirei-usi -- /path/to/weights.bin
+cargo run --release -p sekirei -- /path/to/weights.bin
 ```
 
 Print the version without starting the USI loop:
 
 ```bash
-cargo run --release -p sekirei-usi -- --version
+cargo run --release -p sekirei -- --version
 ```
 
 Use `--help` for a concise usage summary.
@@ -137,6 +146,7 @@ Use `--help` for a concise usage summary.
 The engine reports the complete option list after `usi`. The main options are:
 
 - `Hash`, `Threads`, `MoveOverhead`
+- `SearchMode` (`Speculative` by default; optional `LazySMP`)
 - `Ponder`, `MultiPV`
 - `EvalFile` (loaded on `isready`)
 - `SpecTopN` (default `3`; `0` disables speculation)
@@ -146,6 +156,10 @@ With `SpecTopN > 0`, scheduling of speculative tasks can make otherwise identica
 nondeterministic. Use `SpecTopN=0` for deterministic comparisons where practical. For correctness
 diagnostics, keep `Threads=1`, `Parallel=1`, and `SpecTopN=0`; this control is separate from
 timing and match-strength measurements.
+
+In `SearchMode=LazySMP`, `Threads` selects the number of independent workers. Workers use private
+boards and heuristic tables while sharing the lock-free transposition table and stop flag. This
+mode remains opt-in; the default is `SearchMode=Speculative`.
 
 ## CSA / floodgate
 
@@ -272,9 +286,10 @@ licenses. Do not use the Sekirei name or logo to imply official endorsement or a
 permission. NNUE weight files are separate artifacts and are licensed under CC BY 4.0 as
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
-Release-audit examples are kept in [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json)
-and [`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt). They
-record package/tag consistency and a small USI transcript; they are not a strength claim.
+The release-manifest schema example is kept in
+[`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json). The current Lazy SMP USI smoke
+transcript is [`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt).
+These are release-audit evidence, not strength claims.
 
 Before a release, check the public metadata without compiling or running the engine:
 

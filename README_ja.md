@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.26`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.27`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -27,7 +27,7 @@ sekirei
 ```bash
 git clone https://github.com/kent-tokyo/sekirei.git
 cd sekirei
-cargo run --release -p sekirei-usi
+cargo run --release -p sekirei
 ```
 
 USIコマンドを標準入力から読み取るため、対応する将棋GUIでインストール済みの
@@ -43,7 +43,7 @@ sekirei /path/to/weights.bin
 - 9×9盤、合法手生成、成り、駒打ち、SFEN、USI指し手に対応。
 - 将棋GUI接続用のUSIエンジン。
 - 反復深化、negamax/alpha-beta、PVS/YBW並列探索、静止探索、手順序付け、枝刈り。
-- ロックフリー置換表と、任意で有効化できる投機的並列探索。
+- ロックフリー置換表、任意で有効化できる投機的並列探索、opt-inのLazy SMP探索。
 - ファイルから読み込むNNUEスタイルの差分評価。
 - CSA v2.2 / Floodgateクライアント。
 - 自己対局、回帰テスト、相対Elo推定用のUSI対USIマッチランナー。
@@ -74,7 +74,7 @@ scripts/                     訓練・棋力テスト用スクリプト
 ```
 
 コアには alpha-beta/negamax、PVS/YBW 並列探索、反復深化、静止探索、ロックフリー置換表、
-手順序付け・枝刈りの各種ヒューリスティック、任意の投機的探索を実装しています。
+手順序付け・枝刈りの各種ヒューリスティック、任意の投機的探索、opt-inのLazy SMP探索を実装しています。
 `SpecTopN=0` で投機的探索を無効にできます。特異延長の検証探索は無制限の置換表書き込みから
 除外しており、部分的な検証結果が親ノードの再利用可能なエントリを上書きしないようにしています。
 
@@ -85,6 +85,13 @@ cargo build --release
 cargo test --release
 cargo bench --bench movegen -p sekirei-bench
 ```
+
+### ローカル性能スナップショット
+
+v0.3.27のホットパス最適化により、開発用Macのstartpos中央値は、合法手生成が
+8.2711 usから2.2151 us、Perft(3)が9.2530 msから2.1082 ms、深さ4探索が
+22.544 msから7.659 msになりました。探索の長い方の確認では20サンプルを使用しています。
+これは異種Apple CPUコア上のローカルな機構診断であり、他環境での性能、棋力、Eloの主張ではありません。
 
 プロセス全体の重みを変更せずに NNUE チェックポイントを確認する場合:
 
@@ -102,19 +109,19 @@ JSON出力には判定閾値 `strict_min_range_cp` と判定結果 `strict_pass`
 マテリアル評価で起動:
 
 ```bash
-cargo run --release -p sekirei-usi
+cargo run --release -p sekirei
 ```
 
 NNUE 重みを指定して起動:
 
 ```bash
-cargo run --release -p sekirei-usi -- /path/to/weights.bin
+cargo run --release -p sekirei -- /path/to/weights.bin
 ```
 
 USIループを開始せずにバージョンを表示:
 
 ```bash
-cargo run --release -p sekirei-usi -- --version
+cargo run --release -p sekirei -- --version
 ```
 
 簡単な使い方は `--help` で表示できます。
@@ -124,6 +131,7 @@ cargo run --release -p sekirei-usi -- --version
 `usi` コマンド後に全オプションを表示します。主なものは次の通りです。
 
 - `Hash`, `Threads`, `MoveOverhead`
+- `SearchMode`（デフォルトは`Speculative`、任意で`LazySMP`）
 - `Ponder`, `MultiPV`
 - `EvalFile`（`isready` 時に読み込み）
 - `SpecTopN`（デフォルト `3`、`0` で無効）
@@ -132,6 +140,10 @@ cargo run --release -p sekirei-usi -- --version
 `SpecTopN > 0` では投機タスクのスケジューリングにより、同一条件でも探索結果が変わる
 場合があります。再現性を優先する比較では、可能な限り `SpecTopN=0` を使用してください。正しさの診断では
 `Threads=1`、`Parallel=1`、`SpecTopN=0` を固定し、速度測定や対局結果とは分けて記録します。
+
+`SearchMode=LazySMP`では、`Threads`が独立worker数を指定します。各workerは局面とheuristic
+tableを専有し、ロックフリー置換表と停止flagだけを共有します。このモードはopt-inで、
+デフォルトは`SearchMode=Speculative`です。
 
 ## CSA / floodgate
 
@@ -251,9 +263,10 @@ https://github.com/kent-tokyo/sekirei
 ロゴを使い、公式承認済みであるかのように示してはいけません。NNUE重みは別個の成果物として
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
-リリース監査の例は [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json) と
-[`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt) に保存しています。
-パッケージ・タグ整合性と小規模USI transcriptの記録であり、棋力の主張ではありません。
+release manifest schemaの例は
+[`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json)に保存しています。現行のLazy SMP
+USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt)です。
+いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 
 リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。
 

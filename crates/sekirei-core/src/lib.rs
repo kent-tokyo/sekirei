@@ -9,6 +9,7 @@ mod budget;
 pub mod color;
 pub mod eval;
 pub mod hand;
+pub mod lazy_smp;
 pub mod movegen;
 pub mod mv;
 pub mod nnue;
@@ -572,5 +573,57 @@ mod tests {
 
         // Different moves should (almost certainly) give different hashes
         assert_ne!(h_after_m1, h_after_m2, "distinct moves gave same hash");
+    }
+
+    /// Independent Lazy SMP workers must return a legal result and preserve the
+    /// caller's board while sharing the lock-free TT.
+    #[test]
+    fn lazy_smp_is_valid_and_preserves_board() {
+        use lazy_smp::LazySmpSearcher;
+        use search::SearchConfig;
+        use tt::Tt;
+
+        let board = Board::startpos();
+        let hash = board.hash();
+        let smp = LazySmpSearcher::new(Tt::new(16), 2);
+        let info = smp.search(
+            &board,
+            SearchConfig {
+                max_depth: 3,
+                time_limit: None,
+                node_limit: Some(20_000),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+
+        assert_eq!(info.workers, 2);
+        assert!(info.result.best_move.is_some());
+        assert_eq!(board.hash(), hash);
+    }
+
+    /// One worker is the deterministic isolation control and must match the
+    /// existing Searcher under a reproducible node budget.
+    #[test]
+    fn lazy_smp_one_worker_matches_searcher() {
+        use lazy_smp::LazySmpSearcher;
+        use search::{SearchConfig, Searcher};
+        use tt::Tt;
+
+        let cfg = SearchConfig {
+            max_depth: 3,
+            time_limit: None,
+            node_limit: Some(20_000),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let board = Board::startpos();
+        let mut sequential_board = board.clone();
+        let sequential = Searcher::new(Tt::new(16)).search(&mut sequential_board, cfg);
+        let smp = LazySmpSearcher::new(Tt::new(16), 1).search(&board, cfg);
+
+        assert_eq!(smp.result.best_move, sequential.best_move);
+        assert_eq!(smp.result.score, sequential.score);
+        assert_eq!(smp.result.depth, sequential.depth);
     }
 }

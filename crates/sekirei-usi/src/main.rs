@@ -13,8 +13,9 @@ use std::time::Duration;
 use sekirei_core::{
     board::Board,
     color::Color,
+    lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     nnue::load_weights,
-    search::{MATE_SCORE, SearchConfig, SpeculativeSearcher},
+    search::{MATE_SCORE, SearchConfig, SpecSearchInfo, SpeculativeSearcher},
     sfen::{board_to_sfen, move_to_usi, parse_position_cmd},
     tt::Tt,
 };
@@ -27,13 +28,112 @@ use invariant::DiagCtx;
 // ---- Engine identity ----
 
 const ENGINE_NAME: &str = "Sekirei";
-const ENGINE_AUTHOR: &str = "ke.tanabe@gmail.com";
+const ENGINE_AUTHOR: &str = "Kentaro Tanabe";
 const DEFAULT_HASH_MB: usize = 64;
 const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 // Dedicated speculative-search pool size. Was hardcoded in make_searcher()
 // with no USI option (issue #9); this is that same value now exposed as
 // the SpecTopN option's default, so not setting it changes nothing.
 const DEFAULT_SPEC_TOP_N: usize = 3;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SearchMode {
+    Speculative,
+    LazySmp,
+}
+
+struct SearchResult {
+    best_move: Option<sekirei_core::mv::Move>,
+    score: i32,
+    depth: u32,
+    nodes: u64,
+    elapsed: Duration,
+    hashfull: u32,
+    pv_list: Vec<(sekirei_core::mv::Move, i32)>,
+    worker_stats: Vec<LazySmpWorkerInfo>,
+}
+
+enum SearchBackend {
+    Speculative(Arc<SpeculativeSearcher>),
+    LazySmp(Arc<LazySmpSearcher>),
+}
+
+impl SearchBackend {
+    fn speculative(hash_mb: usize, spec_top_n: usize) -> Self {
+        Self::Speculative(Arc::new(SpeculativeSearcher::new(
+            Tt::new(hash_mb),
+            spec_top_n,
+        )))
+    }
+
+    fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
+        Self::LazySmp(Arc::new(LazySmpSearcher::new(Tt::new(hash_mb), workers)))
+    }
+
+    fn abort_flag(&self) -> Arc<AtomicBool> {
+        match self {
+            Self::Speculative(s) => s.abort_flag(),
+            Self::LazySmp(s) => s.abort_flag(),
+        }
+    }
+
+    fn reset_abort_flag(&self) {
+        match self {
+            Self::Speculative(s) => s.reset_abort_flag(),
+            Self::LazySmp(s) => s.reset_abort_flag(),
+        }
+    }
+
+    fn clear_tt(&self) {
+        match self {
+            Self::Speculative(s) => s.clear_tt(),
+            Self::LazySmp(s) => s.clear_tt(),
+        }
+    }
+
+    fn probe_tt(&self, hash: u64) -> Option<sekirei_core::mv::Move> {
+        match self {
+            Self::Speculative(s) => s.probe_tt(hash),
+            Self::LazySmp(s) => s.probe_tt(hash),
+        }
+    }
+
+    fn search(&self, board: &mut Board, config: SearchConfig) -> SearchResult {
+        match self {
+            Self::Speculative(s) => normalize_spec_result(s.search(board, config)),
+            Self::LazySmp(s) => {
+                let info = s.search(board, config);
+                let result = info.result;
+                SearchResult {
+                    best_move: result.best_move,
+                    score: result.score,
+                    depth: result.depth,
+                    nodes: info.total_nodes,
+                    // The selected worker's duration is not the duration of
+                    // the Lazy SMP group; use wall time for truthful NPS and
+                    // USI timing diagnostics.
+                    elapsed: info.elapsed,
+                    hashfull: result.hashfull,
+                    pv_list: Vec::new(),
+                    worker_stats: info.worker_results,
+                }
+            }
+        }
+    }
+}
+
+fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
+    SearchResult {
+        best_move: info.best_move,
+        score: info.score,
+        depth: info.depth,
+        nodes: info.nodes,
+        elapsed: info.elapsed,
+        hashfull: info.hashfull,
+        pv_list: info.pv_list,
+        worker_stats: Vec::new(),
+    }
+}
 
 /// Render an engine score using the USI score grammar.
 ///
@@ -111,7 +211,10 @@ fn main() {
 
     let mut hash_mb = DEFAULT_HASH_MB;
     let mut spec_top_n = DEFAULT_SPEC_TOP_N;
-    let mut searcher = make_searcher(hash_mb, spec_top_n);
+    // Mirrors the USI Threads option; zero means one Lazy SMP worker.
+    let mut threads: u32 = 0;
+    let mut search_mode = SearchMode::Speculative;
+    let mut searcher = make_searcher(hash_mb, spec_top_n, threads_for_lazy_smp(0), search_mode);
     let mut eval_file: Option<String> = None;
     let mut move_overhead_ms: u64 = 50;
     let mut multi_pv: u32 = 1;
@@ -135,9 +238,6 @@ fn main() {
     let mut game_counter: u64 = 0;
     // Raw body of the last "position" command, for the same reason.
     let mut last_position_cmd = String::from("startpos");
-    // Mirrors the "Threads" setoption value (0 = unset/rayon default).
-    let mut threads: u32 = 0;
-
     // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
     let mut search_handle: Option<JoinHandle<()>> = None;
@@ -164,6 +264,9 @@ fn main() {
                 println!("id author {ENGINE_AUTHOR}");
                 println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
                 println!("option name Threads type spin default 0 min 0 max 512");
+                println!(
+                    "option name SearchMode type combo default Speculative var Speculative var LazySMP"
+                );
                 println!(
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
                 );
@@ -219,7 +322,12 @@ fn main() {
                 {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                     hash_mb = mb;
-                    searcher = make_searcher(hash_mb, spec_top_n);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
                 } else if parts.get(1) == Some(&"SpecTopN")
                     && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
                 {
@@ -231,7 +339,12 @@ fn main() {
                     // to the next command before that search's bestmove is printed.
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                     spec_top_n = n;
-                    searcher = make_searcher(hash_mb, spec_top_n);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
                 } else if parts.get(1) == Some(&"Threads") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
                         threads = n as u32;
@@ -239,7 +352,32 @@ fn main() {
                         let _ = rayon::ThreadPoolBuilder::new()
                             .num_threads(n)
                             .build_global();
+                        if search_mode == SearchMode::LazySmp {
+                            abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                            searcher = make_searcher(
+                                hash_mb,
+                                spec_top_n,
+                                threads_for_lazy_smp(threads),
+                                search_mode,
+                            );
+                        }
                     }
+                } else if parts.get(1) == Some(&"SearchMode")
+                    && let Some(mode) = parts.get(3)
+                {
+                    let new_mode = match *mode {
+                        "LazySMP" => SearchMode::LazySmp,
+                        "Speculative" => SearchMode::Speculative,
+                        _ => continue,
+                    };
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    search_mode = new_mode;
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
                 } else if parts.get(1) == Some(&"MoveOverhead") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
                         move_overhead_ms = n;
@@ -396,6 +534,21 @@ fn main() {
 
                     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
                     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
+                    if !info.worker_stats.is_empty() {
+                        let summary = info
+                            .worker_stats
+                            .iter()
+                            .enumerate()
+                            .map(|(i, worker)| {
+                                format!(
+                                    "w{i}:d{}:n{}:s{}",
+                                    worker.depth, worker.nodes, worker.score
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(",");
+                        println!("info string lazy_smp {summary}");
+                    }
                     if info.pv_list.len() > 1 {
                         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
                             println!(
@@ -538,8 +691,20 @@ fn main() {
 
 // ---- Helpers ----
 
-fn make_searcher(hash_mb: usize, spec_top_n: usize) -> Arc<SpeculativeSearcher> {
-    Arc::new(SpeculativeSearcher::new(Tt::new(hash_mb), spec_top_n))
+fn threads_for_lazy_smp(threads: u32) -> usize {
+    threads.max(1) as usize
+}
+
+fn make_searcher(
+    hash_mb: usize,
+    spec_top_n: usize,
+    threads: usize,
+    mode: SearchMode,
+) -> Arc<SearchBackend> {
+    Arc::new(match mode {
+        SearchMode::Speculative => SearchBackend::speculative(hash_mb, spec_top_n),
+        SearchMode::LazySmp => SearchBackend::lazy_smp(hash_mb, threads),
+    })
 }
 
 // ---- Go command time-control parsing ----

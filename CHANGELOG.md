@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## [0.3.27] – 2026-09-04
+
+- Added an opt-in USI `SearchMode=LazySMP` backend. Workers keep private board
+  and heuristic state while sharing the lock-free transposition table and a
+  common cancellation flag; `Threads` selects the worker count.
+- Added deterministic Lazy SMP correctness coverage for board preservation,
+  one-worker equivalence, legal result selection, and USI stop/quit joining.
+- Added a pinned, documentation-only rshogi capability audit and CI validator;
+  it deliberately makes no speed, feature-equivalence, or Elo claim.
+- Aligned the USI `id author` value with the public attribution name,
+  `Kentaro Tanabe`.
+- Accelerated legality probes by skipping temporary NNUE accumulator updates,
+  added a capture-only generator for quiescence search, pre-unioned attack
+  bitboards, cached the bit-exact LMR formula, and removed transient YBW
+  allocation and duplicate child-check work.
+- Extended the Criterion suite with explicit NNUE, do/undo, and tactical
+  capture-generation cases. A local fixed-depth diagnostic measured depth-4
+  start-position search at 7.659 ms versus 22.544 ms before this optimization
+  pass; this is a machine-local performance result, not a strength or Elo claim.
 - Updated the documented shogiesa pipeline baseline from 0.9.0 to 0.9.2;
   shogiesa remains an external data-generation tool rather than a Cargo
   dependency of Sekirei.

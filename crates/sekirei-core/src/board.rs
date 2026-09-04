@@ -389,6 +389,22 @@ impl Board {
     /// Apply `m` and return a token needed to undo it.
     /// Updates Zobrist hash and NNUE accumulator incrementally.
     pub fn do_move(&mut self, m: Move) -> MoveToken {
+        self.do_move_impl::<true>(m)
+    }
+
+    /// Apply a move only for a short-lived rules/legality probe.
+    ///
+    /// The board, hands, side-to-move, ply, and hash are updated exactly like
+    /// [`Self::do_move`], but the NNUE accumulator is deliberately left at the
+    /// parent position.  Callers must not evaluate the temporary position and
+    /// must restore it with [`Self::undo_move_for_legality`].  Keeping the token
+    /// type private to the crate prevents accidentally pairing this path with
+    /// the normal NNUE-restoring undo operation.
+    pub(crate) fn do_move_for_legality(&mut self, m: Move) -> LegalityMoveToken {
+        LegalityMoveToken(self.do_move_impl::<false>(m))
+    }
+
+    fn do_move_impl<const UPDATE_NNUE: bool>(&mut self, m: Move) -> MoveToken {
         let color = self.side_to_move;
         let prev_hash = self.hash;
 
@@ -407,9 +423,11 @@ impl Board {
                 self.hash ^= zobrist::piece_key(m.to, color, m.piece_kind);
 
                 // NNUE: threshold feature for old_count turns off (drop: N → N-1)
-                self.acc.remove_hand(m.piece_kind, old_count, color);
-                // NNUE: piece appears on board
-                self.acc.add_piece(m.to, m.piece_kind, color);
+                if UPDATE_NNUE {
+                    self.acc.remove_hand(m.piece_kind, old_count, color);
+                    // NNUE: piece appears on board
+                    self.acc.add_piece(m.to, m.piece_kind, color);
+                }
 
                 MoveToken {
                     from: None,
@@ -427,7 +445,9 @@ impl Board {
                 self.hash ^= zobrist::piece_key(from, color, moved.kind);
 
                 // NNUE: remove piece from its old square
-                self.acc.remove_piece(from, moved.kind, color);
+                if UPDATE_NNUE {
+                    self.acc.remove_piece(from, moved.kind, color);
+                }
 
                 let captured = self.take(m.to);
                 if let Some(cap) = captured {
@@ -438,8 +458,10 @@ impl Board {
                     self.hand[color.index()].add_captured(cap.kind);
 
                     // NNUE: captured piece leaves the board; threshold feature for new_count turns on
-                    self.acc.remove_piece(m.to, cap.kind, cap.color);
-                    self.acc.add_hand(base, new_count, color);
+                    if UPDATE_NNUE {
+                        self.acc.remove_piece(m.to, cap.kind, cap.color);
+                        self.acc.add_hand(base, new_count, color);
+                    }
                 }
 
                 let pre_kind = moved.kind;
@@ -450,7 +472,9 @@ impl Board {
                 self.hash ^= zobrist::piece_key(m.to, color, moved.kind);
 
                 // NNUE: piece arrives at its new square (possibly promoted)
-                self.acc.add_piece(m.to, moved.kind, color);
+                if UPDATE_NNUE {
+                    self.acc.add_piece(m.to, moved.kind, color);
+                }
 
                 MoveToken {
                     from: Some(from),
@@ -471,6 +495,15 @@ impl Board {
     /// Restore position to before `do_move` using inverse NNUE deltas.
     /// No accumulator stack needed — the deltas are symmetric.
     pub fn undo_move(&mut self, token: MoveToken) {
+        self.undo_move_impl::<true>(token);
+    }
+
+    /// Restore a temporary position created by [`Self::do_move_for_legality`].
+    pub(crate) fn undo_move_for_legality(&mut self, token: LegalityMoveToken) {
+        self.undo_move_impl::<false>(token.0);
+    }
+
+    fn undo_move_impl<const UPDATE_NNUE: bool>(&mut self, token: MoveToken) {
         self.hash = token.prev_hash;
         self.side_to_move = self.side_to_move.flip();
         self.ply -= 1;
@@ -483,9 +516,11 @@ impl Board {
                 self.hand[color.index()].restore(token.moved.kind);
 
                 // NNUE inverse: piece leaves the board; threshold feature for restored count turns on
-                self.acc.remove_piece(token.to, token.moved.kind, color);
-                let restored = self.hand[color.index()].get(token.moved.kind);
-                self.acc.add_hand(token.moved.kind, restored, color);
+                if UPDATE_NNUE {
+                    self.acc.remove_piece(token.to, token.moved.kind, color);
+                    let restored = self.hand[color.index()].get(token.moved.kind);
+                    self.acc.add_hand(token.moved.kind, restored, color);
+                }
             }
             Some(from) => {
                 // The piece currently at `to` may be the promoted form
@@ -498,12 +533,16 @@ impl Board {
                 self.take(token.to);
 
                 // NNUE inverse: remove the piece that was at `to`
-                self.acc.remove_piece(token.to, kind_at_to, color);
+                if UPDATE_NNUE {
+                    self.acc.remove_piece(token.to, kind_at_to, color);
+                }
 
                 self.put(from, token.moved); // restore pre-promotion piece
 
                 // NNUE inverse: put back the original piece at `from`
-                self.acc.add_piece(from, token.moved.kind, color);
+                if UPDATE_NNUE {
+                    self.acc.add_piece(from, token.moved.kind, color);
+                }
 
                 if let Some(cap) = token.captured {
                     self.put(token.to, cap);
@@ -511,9 +550,11 @@ impl Board {
                     self.hand[color.index()].remove(cap.kind.unpromoted());
 
                     // NNUE inverse: captured piece reappears on board; threshold feature for before_remove turns off
-                    self.acc.add_piece(token.to, cap.kind, cap.color);
-                    self.acc
-                        .remove_hand(cap.kind.unpromoted(), before_remove, color);
+                    if UPDATE_NNUE {
+                        self.acc.add_piece(token.to, cap.kind, cap.color);
+                        self.acc
+                            .remove_hand(cap.kind.unpromoted(), before_remove, color);
+                    }
                 }
             }
         }
@@ -537,6 +578,9 @@ impl Board {
         self.side_to_move = self.side_to_move.flip();
     }
 }
+
+/// Opaque token for the accumulator-skipping legality probe path.
+pub(crate) struct LegalityMoveToken(MoveToken);
 
 /// Opaque token returned by `Board::do_null_move`; passed to `Board::undo_null_move`.
 #[derive(Clone, Copy, Debug)]
