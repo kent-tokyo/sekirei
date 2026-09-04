@@ -48,6 +48,14 @@ import sys
 DEFAULT_SPEC_TOP_N = 3
 ENGINES_PER_SHARD = 2  # base + candidate, one sekirei-match shard
 
+# --contention-job matches by `pgrep -f` substring, which is a full-command-
+# line match -- it can hit an unrelated, near-idle process whose cwd/args
+# merely contain the pattern (confirmed 2026-08-27: a 6-day-old, near-zero-
+# CPU MCP helper process running from a directory named after a real
+# contention job falsely refused launch for days). A matched pid only
+# counts as actual contention if it's consuming meaningful CPU right now.
+CONTENTION_CPU_THRESHOLD_PERCENT = 5.0
+
 
 # ------------------------------------------------------------------
 # OS-facing collection: thin wrappers, raw text (or None) out, no parsing.
@@ -95,6 +103,17 @@ def collect_disk_free(path="."):
 
 def collect_pgrep_matches(name):
     return run(["pgrep", "-fl", name])
+
+
+def collect_process_cpu(pids):
+    """%CPU for each of the given pids, via `ps -o pid=,pcpu= -p <pids>`.
+    Empty input needs no subprocess call (ps -p with no pids is itself an
+    error on macOS) -- returns "" directly, a legitimate empty result, not
+    None/unknown. A pid that exited between the pgrep and this call is
+    silently omitted by ps, not an error."""
+    if not pids:
+        return ""
+    return run(["ps", "-o", "pid=,pcpu=", "-p", ",".join(str(p) for p in pids)])
 
 
 def collect_claude_sessions():
@@ -167,6 +186,54 @@ def parse_process_present(pgrep_output):
     if pgrep_output is None:
         return None
     return bool(pgrep_output.strip())
+
+
+def parse_pgrep_pids(pgrep_output):
+    """PIDs from `pgrep -fl <name>` output (one "pid comm..." line each) as
+    a list of ints, or None if the command couldn't be run. A `-f` substring
+    match on the full command line can hit an unrelated, long-lived, idle
+    process whose cwd/args merely contain the pattern (e.g. an MCP helper
+    launched from a directory that happens to share a project's name) --
+    this list is raw matches, not yet filtered for whether any of them are
+    actually doing anything; see parse_contending_pids."""
+    if pgrep_output is None:
+        return None
+    pids = []
+    for line in pgrep_output.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        pid_field = line.split(None, 1)[0]
+        try:
+            pids.append(int(pid_field))
+        except ValueError:
+            continue
+    return pids
+
+
+def parse_contending_pids(ps_output, threshold_percent):
+    """Given `ps -o pid=,pcpu= -p <pids>` output, the subset of pids whose
+    %CPU is at or above threshold_percent -- i.e. actually consuming CPU
+    right now, not merely present. None if the command couldn't be run.
+    A pid that exited between pgrep and this call simply has no line here
+    (ps silently omits it), which correctly drops out as non-contending
+    rather than erroring."""
+    if ps_output is None:
+        return None
+    contending = []
+    for line in ps_output.splitlines():
+        parts = line.split()
+        if len(parts) != 2:
+            continue
+        pid_field, cpu_field = parts
+        try:
+            pid = int(pid_field)
+            cpu = float(cpu_field)
+        except ValueError:
+            continue
+        if cpu >= threshold_percent:
+            contending.append(pid)
+    return contending
 
 
 def parse_process_count(pgrep_output):
@@ -342,10 +409,16 @@ def main():
     contention_hits = []
     contention_unknown = False
     for job in args.contention_job:
-        present = parse_process_present(collect_pgrep_matches(job))
-        if present is None:
+        pids = parse_pgrep_pids(collect_pgrep_matches(job))
+        if pids is None:
             contention_unknown = True
-        elif present:
+            continue
+        if not pids:
+            continue
+        contending = parse_contending_pids(collect_process_cpu(pids), CONTENTION_CPU_THRESHOLD_PERCENT)
+        if contending is None:
+            contention_unknown = True
+        elif contending:
             contention_hits.append(job)
     contention_hits_value = None if contention_unknown else contention_hits
 
