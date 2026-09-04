@@ -7,14 +7,13 @@ use std::sync::atomic::{AtomicU64, Ordering};
 static WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 /// Load teacher scores from a JSONL cache file, keeping only entries whose
-/// recorded `label_depth` matches `expected_depth`. A search at a different
-/// depth is a different teacher signal -- without this filter, reusing a
-/// cache file across depths would silently blend in wrong-depth scores as
-/// if they were cache hits at the requested depth. One file is expected to
-/// hold one depth (see the `_depth4` naming convention); a mismatch here
-/// means the wrong cache file was pointed at, so it's reported loudly.
-/// Each line: `{"sfen":"...","label_depth":N,"score_cp":N}`.
-pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
+/// recorded `label_depth` and `teacher_identity` match the requested teacher.
+/// A different depth or fixed evaluator is a different signal; mixing either
+/// into one run would make cache hits silently change the objective.
+/// Legacy cache lines without a teacher identity are treated as `material`.
+/// Each native line includes `sfen`, `label_depth`, `teacher_identity`, and
+/// `score_cp`.
+pub fn load(path: &Path, expected_depth: u32, expected_teacher: &str) -> HashMap<String, i32> {
     let content = match fs::read_to_string(path) {
         Ok(c) => c,
         Err(e) => {
@@ -25,6 +24,7 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
     let mut map = HashMap::new();
     let mut skipped = 0usize;
     let mut depth_mismatch = 0usize;
+    let mut teacher_mismatch = 0usize;
     for line in content.lines() {
         let line = line.trim();
         if line.is_empty() {
@@ -80,6 +80,14 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
                 continue;
             }
         }
+        let recorded_teacher = val
+            .get("teacher_identity")
+            .and_then(|v| v.as_str())
+            .unwrap_or("material");
+        if recorded_teacher != expected_teacher {
+            teacher_mismatch += 1;
+            continue;
+        }
         // Last occurrence wins on a duplicate key -- deterministic given
         // JSONL is read top-to-bottom, and matches `write`'s own contract
         // (it always writes the current in-memory value, so a re-written
@@ -92,6 +100,11 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
     if depth_mismatch > 0 {
         eprintln!(
             "teacher cache: {depth_mismatch} entries skipped (label_depth != {expected_depth})"
+        );
+    }
+    if teacher_mismatch > 0 {
+        eprintln!(
+            "teacher cache: {teacher_mismatch} entries skipped (teacher_identity != {expected_teacher})"
         );
     }
     eprintln!(
@@ -111,8 +124,14 @@ pub fn load(path: &Path, expected_depth: u32) -> HashMap<String, i32> {
 /// previously-cached entry, not just fail to add new ones.
 /// Entries are written in sorted SFEN order so identical maps produce
 /// byte-identical artifacts across processes.
-/// `entries`: sfen → score_cp mapping; `label_depth` is recorded per line.
-pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> std::io::Result<()> {
+/// `entries`: sfen → score_cp mapping; depth and teacher identity are recorded
+/// per line so a cache cannot be reused under another labeling contract.
+pub fn write(
+    path: &Path,
+    entries: &HashMap<String, i32>,
+    label_depth: u32,
+    teacher_identity: &str,
+) -> std::io::Result<()> {
     let tmp_path = path.with_extension(format!(
         "jsonl.tmp-{}-{}",
         std::process::id(),
@@ -127,9 +146,10 @@ pub fn write(path: &Path, entries: &HashMap<String, i32>, label_depth: u32) -> s
             let cp = entries[sfen];
             writeln!(
                 w,
-                r#"{{"sfen":{},"label_depth":{},"score_cp":{}}}"#,
+                r#"{{"sfen":{},"label_depth":{},"teacher_identity":{},"score_cp":{}}}"#,
                 json_string(sfen),
                 label_depth,
+                json_string(teacher_identity),
                 cp
             )?;
         }
@@ -166,8 +186,8 @@ mod tests {
         let mut expected = HashMap::new();
         expected.insert(SFEN_A.to_string(), 48i32);
         expected.insert(SFEN_B.to_string(), -120i32);
-        write(f.path(), &expected, 4).unwrap();
-        let loaded = load(f.path(), 4);
+        write(f.path(), &expected, 4, "material").unwrap();
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded, expected);
     }
 
@@ -176,7 +196,7 @@ mod tests {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "not json").unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":100}}"#).unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[SFEN_A], 100);
     }
@@ -189,7 +209,7 @@ mod tests {
             r#"{{"sfen":"{SFEN_A}","settings":{{"depth":4}},"lines":[{{"score_cp":-120}}]}}"#
         )
         .unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded.get(SFEN_A), Some(&-120));
     }
 
@@ -201,14 +221,14 @@ mod tests {
             r#"{{"sfen":"{SFEN_A}","settings":{{"depth":2}},"lines":[{{"score_cp":-120}}]}}"#
         )
         .unwrap();
-        assert!(load(f.path(), 4).is_empty());
+        assert!(load(f.path(), 4, "material").is_empty());
     }
 
     #[test]
     fn missing_score_cp_skipped() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4}}"#).unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert!(loaded.is_empty());
     }
 
@@ -220,7 +240,7 @@ mod tests {
             r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":2147483648}}"#
         )
         .unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert!(loaded.is_empty());
     }
 
@@ -233,7 +253,7 @@ mod tests {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":100}}"#).unwrap();
         write!(f, r#"{{"sfen":"{SFEN_B}","label_depth":4,"sco"#).unwrap(); // cut off, no newline
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[SFEN_A], 100);
     }
@@ -243,7 +263,7 @@ mod tests {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":1,"score_cp":999}}"#).unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_B}","label_depth":4,"score_cp":100}}"#).unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded.len(), 1);
         assert_eq!(loaded[SFEN_B], 100);
         assert!(
@@ -257,7 +277,7 @@ mod tests {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":100}}"#).unwrap();
         writeln!(f, r#"{{"sfen":"{SFEN_A}","label_depth":4,"score_cp":250}}"#).unwrap();
-        let loaded = load(f.path(), 4);
+        let loaded = load(f.path(), 4, "material");
         assert_eq!(loaded[SFEN_A], 250);
     }
 
@@ -266,13 +286,13 @@ mod tests {
         let f = NamedTempFile::new().unwrap();
         let mut entries = HashMap::new();
         entries.insert(SFEN_A.to_string(), 48i32);
-        write(f.path(), &entries, 4).unwrap();
+        write(f.path(), &entries, 4, "material").unwrap();
         let tmp_path = f.path().with_extension("jsonl.tmp");
         assert!(
             !tmp_path.exists(),
             "the intermediate .tmp file must be renamed away, not left behind"
         );
-        assert_eq!(load(f.path(), 4), entries);
+        assert_eq!(load(f.path(), 4, "material"), entries);
     }
 
     #[test]
@@ -283,13 +303,25 @@ mod tests {
         entries.insert(SFEN_A.to_string(), 48i32);
         entries.insert(SFEN_B.to_string(), -120i32);
 
-        write(first.path(), &entries, 4).unwrap();
-        write(second.path(), &entries, 4).unwrap();
+        write(first.path(), &entries, 4, "material").unwrap();
+        write(second.path(), &entries, 4, "material").unwrap();
 
         assert_eq!(
             fs::read(first.path()).unwrap(),
             fs::read(second.path()).unwrap(),
             "identical cache maps must produce identical artifacts"
         );
+    }
+
+    #[test]
+    fn fixed_nnue_cache_is_bound_to_exact_teacher_identity() {
+        let f = NamedTempFile::new().unwrap();
+        let mut entries = HashMap::new();
+        entries.insert(SFEN_A.to_string(), 48i32);
+        write(f.path(), &entries, 4, "nnue:0123456789abcdef").unwrap();
+
+        assert_eq!(load(f.path(), 4, "nnue:0123456789abcdef"), entries);
+        assert!(load(f.path(), 4, "nnue:fedcba9876543210").is_empty());
+        assert!(load(f.path(), 4, "material").is_empty());
     }
 }

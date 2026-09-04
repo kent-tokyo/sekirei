@@ -308,7 +308,7 @@ mod tests {
     fn spec_state() -> Arc<SpecState> {
         Arc::new(SpecState {
             tt: Tt::new(1),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -399,7 +399,7 @@ mod tests {
         let tt = Tt::new(1);
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -478,7 +478,7 @@ mod tests {
         let tt = Tt::new(1);
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -637,7 +637,7 @@ mod tests {
 
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(2)
@@ -711,7 +711,7 @@ mod tests {
 
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)
@@ -786,7 +786,7 @@ mod tests {
         let tt = Tt::new(1);
         let state = Arc::new(SpecState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             pool: Arc::new(
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(1)

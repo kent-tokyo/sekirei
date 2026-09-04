@@ -172,6 +172,25 @@ cargo run --release -p sekirei-train -- \
   --games /path/to/csa_dir --output weights.bin --epochs 3
 ```
 
+教師探索の葉評価はデフォルトで駒得評価です。固定教師による自己蒸留実験では、変更しない
+checkpointを1つ指定します。
+
+```bash
+cargo run --release -p sekirei-train -- \
+  --games /path/to/csa_dir --output student.bin --epochs 3 \
+  --teacher-eval nnue --teacher-weights teacher.bin
+```
+
+教師重みのhashはteacher cache、完全resume fingerprint、checkpoint metadataに記録されます。
+別の教師で作成したcacheやresume checkpointは、ラベル生成元を黙って混在させず拒否します。
+このオプションは実験条件を固定するものであり、それ自体は棋力向上の証拠ではありません。
+
+固定深さのラベル生成に極端な外れ値がある場合、`--label-time-ms N`でcache missごとの教師探索に
+wall-clock上限を設定できます。この上限もcache identity、resume fingerprint、checkpoint metadataへ
+含まれるため、上限付きラベルと無制限ラベルが混在することはありません。
+単一threadの再現可能なラベル生成では`--label-nodes N`を優先してください。host負荷に依存しない
+決定論的node上限を設定し、同じcache／resume／metadata契約へ含めます。
+
 訓練データ、チェックポイント、重み、対局結果、実験ログはローカル生成物として公開リポジトリ
 から除外しています。プロジェクトで生成したNNUE重みはCC BY 4.0で別途ライセンスします。
 詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
@@ -235,3 +254,12 @@ CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.m
 リリース監査の例は [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json) と
 [`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt) に保存しています。
 パッケージ・タグ整合性と小規模USI transcriptの記録であり、棋力の主張ではありません。
+
+リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。
+
+```bash
+python3 scripts/check_release_metadata.py
+```
+
+全crateのmanifest、`Cargo.lock`、CHANGELOG、英日README、ライセンス・帰属表示ファイルが
+現行バージョンと一致することを検査します。

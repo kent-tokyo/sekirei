@@ -186,6 +186,26 @@ cargo run --release -p sekirei-train -- \
   --games /path/to/csa_dir --output weights.bin --epochs 3
 ```
 
+Teacher-search leaves use material evaluation by default. To run a
+fixed-teacher/self-distillation experiment, select one immutable checkpoint:
+
+```bash
+cargo run --release -p sekirei-train -- \
+  --games /path/to/csa_dir --output student.bin --epochs 3 \
+  --teacher-eval nnue --teacher-weights teacher.bin
+```
+
+The teacher weight hash is included in teacher-cache entries, complete-resume fingerprints, and
+checkpoint metadata. A cache or resume checkpoint from another teacher is rejected instead of
+silently mixing label sources. This option defines an experiment contract; it is not by itself a
+strength claim.
+
+Use `--label-time-ms N` to place a hard wall-clock limit on each cache-miss teacher search when
+fixed-depth labeling has pathological outliers. The limit is part of the cache identity, resume
+fingerprint, and checkpoint metadata, so bounded labels cannot be mixed with unlimited labels.
+For reproducible single-thread labeling, prefer `--label-nodes N`: it applies a deterministic node
+budget and is bound into the same cache/resume/metadata contract without depending on host load.
+
 Training data, checkpoints, weights, match output, and experiment logs are local artifacts and
 are intentionally excluded from the public repository. NNUE weight files produced for this
 project are licensed separately under CC BY 4.0; see [NNUE-LICENSE.md](NNUE-LICENSE.md).
@@ -255,3 +275,12 @@ described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 Release-audit examples are kept in [`release-manifest-v0.3.24.json`](release-manifest-v0.3.24.json)
 and [`scripts/fixtures/usi_smoke_v0.3.24.txt`](scripts/fixtures/usi_smoke_v0.3.24.txt). They
 record package/tag consistency and a small USI transcript; they are not a strength claim.
+
+Before a release, check the public metadata without compiling or running the engine:
+
+```bash
+python3 scripts/check_release_metadata.py
+```
+
+This verifies that all crate manifests, `Cargo.lock`, the changelog, the English and Japanese
+README, and the license/attribution files agree on the current version.

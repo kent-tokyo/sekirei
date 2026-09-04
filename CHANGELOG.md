@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- Added an explicit fixed-NNUE teacher mode for training, with teacher-hash
+  isolation across caches, complete-resume fingerprints, and checkpoint
+  metadata, plus a six-position CI fixture.
+- Added a deterministic teacher-search node budget (`--label-nodes`) and bound
+  it into cache identities, complete-resume fingerprints, and metadata.
+- Added top-level quiescence-search TT probing, TT-move ordering, and guarded
+  depth-zero bound storage; recursive qsearch and aborted searches do not
+  publish reusable entries.
+
 ## [0.3.25] – 2026-09-03
 
 - Added release-manifest-shaped evaluator diagnostic output without mutating
@@ -155,6 +164,8 @@
   artifacts and reproducible cache hashes.
 - Teacher-cache loading now ignores score values outside the representable
   `i32` range instead of allowing a lossy integer cast.
+- Teacher labeling accepts an optional per-search hard time limit whose value
+  is bound into cache identity, resume fingerprints, and checkpoint metadata.
 - Checkpoint metadata sidecars now use the same flushed temporary-file and
   atomic-rename path as weight checkpoints.
 - Diagnostic trace sidecars now use atomic writes as well, preventing partial

@@ -256,6 +256,9 @@ pub struct SearchConfig {
     pub max_depth: u32,
     /// Hard time budget; the search aborts as soon as this elapses.
     pub time_limit: Option<Duration>,
+    /// Hard node budget; unlike a wall-clock limit, this is reproducible for
+    /// deterministic single-thread searches.
+    pub node_limit: Option<u64>,
     /// Soft limit: exit after completing a depth if elapsed >= soft_limit and bestmove is stable.
     pub soft_limit: Option<Duration>,
     /// Number of PV lines to return (1 = normal, >1 = MultiPV).
@@ -267,6 +270,7 @@ impl Default for SearchConfig {
         SearchConfig {
             max_depth: 6,
             time_limit: None,
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         }
@@ -338,7 +342,11 @@ impl Searcher {
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
-            budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),
+            budget: Arc::new(Budget::new(
+                config.time_limit,
+                config.node_limit,
+                self.external_abort.clone(),
+            )),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -1151,6 +1159,42 @@ fn quiescence(
         return evaluate(board);
     }
 
+    // A depth-zero TT entry represents only the top-level qsearch problem.
+    // Recursive qsearch values depend on qply (quiet checks are expanded only
+    // at qply 0), so they must not be reused as if they were interchangeable.
+    // Main-search entries have depth >= 1 and are intentionally ignored here:
+    // a shared speculative TT entry can have a different search window and
+    // score semantics from this qsearch node.
+    let hash = board.hash();
+    let mut tt_mv = None;
+    if qply == 0
+        && let Some(entry) = state.tt.probe(hash)
+        && entry.depth == 0
+    {
+        let adj = score_from_tt(entry.score, ply);
+        tt_mv = entry.mv;
+        match entry.bound {
+            Bound::Exact => return adj,
+            Bound::Lower => {
+                if adj >= beta {
+                    return adj;
+                }
+                if adj > alpha {
+                    alpha = adj;
+                }
+            }
+            Bound::Upper => {
+                if adj <= alpha {
+                    return adj;
+                }
+            }
+        }
+    }
+    // Bounds below are relative to the post-probe window. A non-cutting lower
+    // bound may have raised alpha and must not make the eventual result look
+    // exact merely because the cached bound was present.
+    let orig_alpha = alpha;
+
     let in_check = is_in_check(board, board.side_to_move);
 
     // Stand-pat and delta pruning only apply when not in check.
@@ -1158,6 +1202,17 @@ fn quiescence(
     if !in_check {
         let stand_pat = evaluate(board);
         if stand_pat >= beta {
+            if qply == 0 && !state.budget.should_abort() {
+                state.tt.store(
+                    hash,
+                    TtEntry {
+                        score: score_to_tt(stand_pat, ply),
+                        depth: 0,
+                        bound: Bound::Lower,
+                        mv: None,
+                    },
+                );
+            }
             return stand_pat;
         }
         if stand_pat > alpha {
@@ -1167,6 +1222,17 @@ fn quiescence(
         // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
         const DELTA_MARGIN: i32 = 1_800;
         if stand_pat + DELTA_MARGIN < alpha {
+            if qply == 0 && !state.budget.should_abort() {
+                state.tt.store(
+                    hash,
+                    TtEntry {
+                        score: score_to_tt(alpha, ply),
+                        depth: 0,
+                        bound: Bound::Upper,
+                        mv: None,
+                    },
+                );
+            }
             return alpha;
         }
     }
@@ -1178,19 +1244,41 @@ fn quiescence(
     };
 
     if moves.is_empty() {
-        return if in_check {
+        let score = if in_check {
             -MATE_SCORE + ply as i32 // checkmate
         } else {
             alpha
         };
+        if qply == 0 && !state.budget.should_abort() {
+            state.tt.store(
+                hash,
+                TtEntry {
+                    score: score_to_tt(score, ply),
+                    depth: 0,
+                    bound: if in_check || score > orig_alpha {
+                        Bound::Exact
+                    } else {
+                        Bound::Upper
+                    },
+                    mv: None,
+                },
+            );
+        }
+        return score;
     }
 
     // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
     // per node (qsearch is the hottest path); the coarse capture ordering is
     // plenty for quiescence and keeps each node fast enough to respect the clock.
     let mut ordered = moves;
-    ordered.sort_by_cached_key(|&m| -qsearch_order_key(board, m));
+    ordered.sort_by_cached_key(|&m| {
+        (
+            if Some(m) == tt_mv { 0 } else { 1 },
+            -qsearch_order_key(board, m),
+        )
+    });
 
+    let mut best_move = None;
     for m in ordered {
         let tok = board.do_move(m);
         let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1);
@@ -1200,10 +1288,22 @@ fn quiescence(
             return 0;
         }
         if score >= beta {
+            if qply == 0 && !state.budget.should_abort() {
+                state.tt.store(
+                    hash,
+                    TtEntry {
+                        score: score_to_tt(score, ply),
+                        depth: 0,
+                        bound: Bound::Lower,
+                        mv: Some(m),
+                    },
+                );
+            }
             return score;
         }
         if score > alpha {
             alpha = score;
+            best_move = Some(m);
         }
     }
 
@@ -1213,7 +1313,9 @@ fn quiescence(
     if !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
-        for m in generate_legal_moves(board) {
+        let mut qchecks = generate_legal_moves(board);
+        qchecks.sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
+        for m in qchecks {
             // Skip captures — already handled above
             if m.from.is_some() && board.piece_at(m.to).is_some() {
                 continue;
@@ -1245,10 +1347,22 @@ fn quiescence(
                 return 0;
             }
             if score >= beta {
+                if !state.budget.should_abort() {
+                    state.tt.store(
+                        hash,
+                        TtEntry {
+                            score: score_to_tt(score, ply),
+                            depth: 0,
+                            bound: Bound::Lower,
+                            mv: Some(m),
+                        },
+                    );
+                }
                 return score;
             }
             if score > alpha {
                 alpha = score;
+                best_move = Some(m);
             }
             qcheck_count += 1;
             if qcheck_count >= MAX_QCHECKS {
@@ -1257,6 +1371,21 @@ fn quiescence(
         }
     }
 
+    if qply == 0 && !state.budget.should_abort() {
+        state.tt.store(
+            hash,
+            TtEntry {
+                score: score_to_tt(alpha, ply),
+                depth: 0,
+                bound: if alpha > orig_alpha {
+                    Bound::Exact
+                } else {
+                    Bound::Upper
+                },
+                mv: best_move,
+            },
+        );
+    }
     alpha
 }
 
@@ -1345,7 +1474,11 @@ impl SpeculativeSearcher {
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
-            budget: Arc::new(Budget::new(config.time_limit, self.external_abort.clone())),
+            budget: Arc::new(Budget::new(
+                config.time_limit,
+                config.node_limit,
+                self.external_abort.clone(),
+            )),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -1825,6 +1958,7 @@ mod see_tests {
             // under parallel-test rayon contention, so there is always a move;
             // tiny next to a depth-99 search, which would never finish unbounded.
             time_limit: Some(Duration::from_millis(1000)),
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
@@ -1842,12 +1976,36 @@ mod see_tests {
     }
 
     #[test]
+    fn sequential_search_respects_node_limit() {
+        use crate::tt::Tt;
+
+        let searcher = Searcher::new(Tt::new(1));
+        let mut board = Board::startpos();
+        let info = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 99,
+                time_limit: None,
+                node_limit: Some(64),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        assert_eq!(info.nodes, 64);
+        let best = info
+            .best_move
+            .expect("node-limited search must fall back to a legal move");
+        assert!(generate_legal_moves(&mut board).contains(&best));
+    }
+
+    #[test]
     fn immediate_deadline_still_returns_a_legal_move_for_both_searchers() {
         use crate::tt::Tt;
 
         let config = SearchConfig {
             max_depth: 1,
             time_limit: Some(Duration::ZERO),
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
@@ -1866,6 +2024,7 @@ mod see_tests {
         let config = SearchConfig {
             max_depth: 1,
             time_limit: Some(Duration::ZERO),
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
@@ -1889,7 +2048,7 @@ mod regression_tests {
     fn fresh_state(tt: Arc<Tt>) -> Arc<SearchState> {
         Arc::new(SearchState {
             tt,
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(false)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -1995,7 +2154,7 @@ mod regression_tests {
         // simulating a USI "stop" that arrived before this root search began.
         let aborted_state = Arc::new(SearchState {
             tt: tt.clone(),
-            budget: Arc::new(Budget::new(None, Arc::new(AtomicBool::new(true)))),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(true)))),
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
@@ -2014,6 +2173,58 @@ mod regression_tests {
             "an aborted call must not overwrite the genuine entry's score"
         );
         assert_eq!(after.bound, genuine.bound);
+    }
+
+    #[test]
+    fn qsearch_stores_and_reuses_only_a_top_level_entry() {
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0);
+        let entry = tt
+            .probe(hash)
+            .expect("top-level qsearch should store depth zero");
+        assert_eq!(entry.depth, 0);
+        assert_eq!(score_from_tt(entry.score, 3), first);
+
+        // An exact depth-zero hit must avoid re-searching the same top-level
+        // qsearch, while remaining valid at the original ply.
+        let second = quiescence(&state, &mut board, first - 1, first + 1, 3, 0);
+        assert_eq!(second, first);
+    }
+
+    #[test]
+    fn qsearch_does_not_store_after_abort_or_overwrite_deeper_entry() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        tt.store(
+            hash,
+            TtEntry {
+                score: 777,
+                depth: 4,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0);
+        assert_eq!(tt.probe(hash).expect("deeper entry must remain").depth, 4);
+
+        let aborted_tt = Tt::new(1);
+        let aborted_state = Arc::new(SearchState {
+            tt: aborted_tt.clone(),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(true)))),
+            killers: KillerTable::new(),
+            history: HistoryTable::new(),
+            countermoves: CountermoveTable::new(),
+        });
+        let _ = quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0);
+        assert!(
+            aborted_tt.probe(hash).is_none(),
+            "aborted qsearch must not publish a TT entry"
+        );
     }
 
     // Two hand-built, hand-verified positions for the mate-direction regression

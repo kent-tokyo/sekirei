@@ -2,6 +2,7 @@
 """Check public release metadata without compiling or running the engine."""
 
 from pathlib import Path
+import re
 import sys
 import tomllib
 
@@ -49,6 +50,19 @@ def main() -> int:
     mismatched = sorted(name for name in MANIFESTS if lock_versions.get(name) != expected)
     if mismatched:
         errors.append(f"Cargo.lock versions disagree for: {mismatched}")
+
+    if expected:
+        changelog = (ROOT / "CHANGELOG.md").read_text()
+        heading = rf"^## \[{re.escape(expected)}\](?:\s|$)"
+        if not re.search(heading, changelog, re.MULTILINE):
+            errors.append(f"CHANGELOG.md is missing a release heading for {expected}")
+        public_docs = {
+            "README.md": (ROOT / "README.md").read_text(),
+            "README_ja.md": (ROOT / "README_ja.md").read_text(),
+        }
+        for filename, contents in public_docs.items():
+            if f"`{expected}`" not in contents:
+                errors.append(f"{filename} is missing the current release version {expected}")
 
     required_files = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "NNUE-LICENSE.md")
     for filename in required_files:

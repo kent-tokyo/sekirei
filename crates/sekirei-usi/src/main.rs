@@ -663,6 +663,7 @@ fn parse_go(
     SearchConfig {
         max_depth: depth.unwrap_or(50),
         time_limit,
+        node_limit: None,
         soft_limit,
         multi_pv,
     }

@@ -890,6 +890,12 @@ pub struct Trainer {
     pub total_weight: f64,    // sum of weights (for avg_weight log)
     pub dropped_missing: u64, // positions skipped (not in scored map)
     pub lr: f32,
+    /// Optional hard wall-clock limit for each cache-miss teacher search.
+    /// The caller binds this value into the cache identity and resume recipe,
+    /// so bounded and full-depth labels cannot be mixed silently.
+    pub teacher_time_limit: Option<std::time::Duration>,
+    /// Optional deterministic node limit for each cache-miss teacher search.
+    pub teacher_node_limit: Option<u64>,
     // Global (whole-network) gradient-norm clip threshold -- `None` (the
     // default) means no clipping, byte-identical to pre-clipping behavior.
     // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
@@ -1405,6 +1411,8 @@ impl Trainer {
             total_weight: 0.0,
             dropped_missing: 0,
             lr: 0.001,
+            teacher_time_limit: None,
+            teacher_node_limit: None,
             grad_clip_norm: None,
             grad_clip_count: 0,
             ft_clip_norm: None,
@@ -1601,7 +1609,8 @@ impl Trainer {
             } else {
                 let config = SearchConfig {
                     max_depth: label_depth,
-                    time_limit: None,
+                    time_limit: self.teacher_time_limit,
+                    node_limit: self.teacher_node_limit,
                     soft_limit: None,
                     multi_pv: 1,
                 };
@@ -1655,7 +1664,8 @@ impl Trainer {
             } else {
                 let config = SearchConfig {
                     max_depth: label_depth,
-                    time_limit: None,
+                    time_limit: self.teacher_time_limit,
+                    node_limit: self.teacher_node_limit,
                     soft_limit: None,
                     multi_pv: 1,
                 };
@@ -1730,7 +1740,8 @@ impl Trainer {
             self.cache_misses += 1;
             let config = SearchConfig {
                 max_depth: label_depth,
-                time_limit: None,
+                time_limit: self.teacher_time_limit,
+                node_limit: self.teacher_node_limit,
                 soft_limit: None,
                 multi_pv: 1,
             };

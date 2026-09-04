@@ -32,7 +32,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use sekirei_core::board::Board;
-use sekirei_core::nnue::save_weights;
+use sekirei_core::nnue::{load_weights, save_weights};
 
 use csa::parse_csa;
 use exporter::export_game;
@@ -44,26 +44,48 @@ static SIDECARE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ---- CLI argument parsing ----
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TeacherEval {
+    Material,
+    Nnue,
+}
+
+impl TeacherEval {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "material" => Ok(Self::Material),
+            "nnue" => Ok(Self::Nnue),
+            _ => Err(format!(
+                "unknown --teacher-eval {value:?}; expected material or nnue"
+            )),
+        }
+    }
+}
+
 struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
     output: PathBuf,
     epochs: usize,
-    sample: usize,                // sample every N plies per game
-    best_every: usize,            // save best-loss checkpoint every N games (0 = disabled)
-    min_rate: f32,                // minimum rating for both players (0 = no filter)
-    quiet: bool,                  // skip check / capture positions
-    min_ply: usize,               // skip early-game plies
-    label_depth: u32,             // search depth for teacher label
-    export: Option<PathBuf>,      // --export: write observations JSONL for quietset
-    depths: Vec<u32>,             // --depths: comma-separated depths for export (default: 4,6,8)
-    build_book: Option<PathBuf>,  // --build-book: write a statistical opening book JSONL
-    book_max_ply: usize,          // --book-max-ply (default: 30)
-    book_min_count: u64,          // --book-min-count (default: 20)
+    sample: usize,                    // sample every N plies per game
+    best_every: usize,                // save best-loss checkpoint every N games (0 = disabled)
+    min_rate: f32,                    // minimum rating for both players (0 = no filter)
+    quiet: bool,                      // skip check / capture positions
+    min_ply: usize,                   // skip early-game plies
+    label_depth: u32,                 // search depth for teacher label
+    label_time_ms: Option<u64>,       // optional hard limit per teacher search
+    label_nodes: Option<u64>,         // optional deterministic node limit per search
+    teacher_eval: TeacherEval,        // --teacher-eval <material|nnue>
+    teacher_weights: Option<PathBuf>, // --teacher-weights <checkpoint.bin>
+    export: Option<PathBuf>,          // --export: write observations JSONL for quietset
+    depths: Vec<u32>, // --depths: comma-separated depths for export (default: 4,6,8)
+    build_book: Option<PathBuf>, // --build-book: write a statistical opening book JSONL
+    book_max_ply: usize, // --book-max-ply (default: 30)
+    book_min_count: u64, // --book-min-count (default: 20)
     scored_path: Option<PathBuf>, // --scored: quietset scored JSONL
-    min_stability: f32,           // --min-stability (default: 0.85)
-    stability_weighted: bool,     // --stability-weighted
-    label_threshold_cp: i32,      // --label-threshold-cp (default: 120)
+    min_stability: f32, // --min-stability (default: 0.85)
+    stability_weighted: bool, // --stability-weighted
+    label_threshold_cp: i32, // --label-threshold-cp (default: 120)
     // positions mode extras
     phase_weights: HashMap<String, f32>, // --phase-weights opening=0.5,middlegame=1.0,...
     side_balance: bool,                  // --side-balance
@@ -257,6 +279,10 @@ fn parse_args() -> Result<Args, String> {
     let mut quiet = false;
     let mut min_ply = 0usize;
     let mut label_depth = 1u32;
+    let mut label_time_ms: Option<u64> = None;
+    let mut label_nodes: Option<u64> = None;
+    let mut teacher_eval = TeacherEval::Material;
+    let mut teacher_weights: Option<PathBuf> = None;
     let mut export: Option<PathBuf> = None;
     let mut depths: Vec<u32> = vec![4, 6, 8];
     let mut build_book: Option<PathBuf> = None;
@@ -375,6 +401,35 @@ fn parse_args() -> Result<Args, String> {
                 if let Some(s) = argv.get(i) {
                     label_depth = s.parse().unwrap_or(1);
                 }
+            }
+            "--label-time-ms" => {
+                i += 1;
+                label_time_ms = Some(
+                    argv.get(i)
+                        .ok_or_else(|| "--label-time-ms requires a positive integer".to_string())?
+                        .parse()
+                        .map_err(|_| "--label-time-ms requires a positive integer".to_string())?,
+                );
+            }
+            "--label-nodes" => {
+                i += 1;
+                label_nodes = Some(
+                    argv.get(i)
+                        .ok_or_else(|| "--label-nodes requires a positive integer".to_string())?
+                        .parse()
+                        .map_err(|_| "--label-nodes requires a positive integer".to_string())?,
+                );
+            }
+            "--teacher-eval" => {
+                i += 1;
+                let value = argv
+                    .get(i)
+                    .ok_or_else(|| "--teacher-eval requires material or nnue".to_string())?;
+                teacher_eval = TeacherEval::parse(value)?;
+            }
+            "--teacher-weights" => {
+                i += 1;
+                teacher_weights = argv.get(i).map(PathBuf::from);
             }
             "--export" => {
                 i += 1;
@@ -735,6 +790,23 @@ fn parse_args() -> Result<Args, String> {
             "--cache-only requires --reuse-teacher-cache --teacher-cache <path>".to_string(),
         );
     }
+    if label_time_ms == Some(0) {
+        return Err("--label-time-ms must be greater than zero".to_string());
+    }
+    if label_nodes == Some(0) {
+        return Err("--label-nodes must be greater than zero".to_string());
+    }
+    match (teacher_eval, teacher_weights.as_ref()) {
+        (TeacherEval::Material, Some(_)) => {
+            return Err("--teacher-weights requires --teacher-eval nnue".to_string());
+        }
+        (TeacherEval::Nnue, None) => {
+            return Err(
+                "--teacher-eval nnue requires --teacher-weights <checkpoint.bin>".to_string(),
+            );
+        }
+        _ => {}
+    }
     let lr_schedule_epochs =
         trainer::resolve_schedule_epochs(epochs as u32, lr_schedule_epochs, warmup_epochs)?;
 
@@ -749,6 +821,10 @@ fn parse_args() -> Result<Args, String> {
         quiet,
         min_ply,
         label_depth,
+        label_time_ms,
+        label_nodes,
+        teacher_eval,
+        teacher_weights,
         export,
         build_book,
         book_max_ply,
@@ -868,18 +944,53 @@ fn checkpoint_hash(bytes: &[u8]) -> u64 {
     h
 }
 
+/// Activates the evaluator used at teacher-search leaves and returns its
+/// stable cache/resume identity. Material remains the default and preserves
+/// all previous behavior. A fixed NNUE teacher is loaded once for the process;
+/// its weight-byte hash prevents cache or resume reuse with another teacher.
+fn configure_teacher(args: &Args) -> Result<String, String> {
+    let mut identity = match args.teacher_eval {
+        TeacherEval::Material => "material".to_string(),
+        TeacherEval::Nnue => {
+            let path = args
+                .teacher_weights
+                .as_ref()
+                .ok_or_else(|| "NNUE teacher has no weight path".to_string())?;
+            let bytes = fs::read(path)
+                .map_err(|error| format!("cannot read NNUE teacher weights {path:?}: {error}"))?;
+            load_weights(path)
+                .map_err(|error| format!("cannot load NNUE teacher weights {path:?}: {error}"))?;
+            format!("nnue:{:016x}", checkpoint_hash(&bytes))
+        }
+    };
+    if let Some(limit_ms) = args.label_time_ms {
+        identity.push_str(&format!(":time{limit_ms}ms"));
+    }
+    if let Some(limit) = args.label_nodes {
+        identity.push_str(&format!(":nodes{limit}"));
+    }
+    Ok(identity)
+}
+
 /// Stable recipe identity for complete resume. Output paths and the total
 /// target epoch are intentionally excluded: extending a run must be allowed,
 /// while changing data or any optimization/label setting must be rejected.
-fn resume_config_fingerprint(args: &Args, dataset: u64, split: u64) -> String {
+fn resume_config_fingerprint(
+    args: &Args,
+    dataset: u64,
+    split: u64,
+    teacher_identity: &str,
+) -> String {
     let mut phase_weights: Vec<_> = args.phase_weights.iter().collect();
     phase_weights.sort_by(|a, b| a.0.cmp(b.0));
     let recipe = format!(
-        "dataset={dataset};split={split};sample={};quiet={};min_ply={};label_depth={};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
+        "dataset={dataset};split={split};teacher={teacher_identity};sample={};quiet={};min_ply={};label_depth={};label_time_ms={:?};label_nodes={:?};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
         args.sample,
         args.quiet,
         args.min_ply,
         args.label_depth,
+        args.label_time_ms,
+        args.label_nodes,
         args.min_rate,
         args.min_stability,
         args.stability_weighted,
@@ -1346,6 +1457,7 @@ fn copy_atomic(source: &Path, destination: &Path) -> io::Result<u64> {
 fn save_checkpoint_meta(
     path: &Path,
     args: &Args,
+    teacher_identity: &str,
     epoch: usize,
     train_count: u64,
     valid_count: u64,
@@ -1408,6 +1520,11 @@ fn save_checkpoint_meta(
         "sample": args.sample,
         "scored": args.scored_path,
         "label_depth": args.label_depth,
+        "label_time_ms": args.label_time_ms,
+        "label_nodes": args.label_nodes,
+        "teacher_eval": format!("{:?}", args.teacher_eval).to_lowercase(),
+        "teacher_identity": teacher_identity,
+        "teacher_weights": args.teacher_weights,
         "wdl_lambda": args.wdl_lambda,
         "wdl_target_scale": args.wdl_target_scale,
         "phase_weights": args.phase_weights,
@@ -1644,6 +1761,16 @@ fn print_usage() {
     eprintln!("  --quiet             Skip positions in check or where next move is a capture");
     eprintln!("  --min-ply <n>       Skip the first N plies per game (default: 0)");
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
+    eprintln!(
+        "  --label-time-ms <n>  Hard limit per teacher search; part of cache identity (default: unlimited)"
+    );
+    eprintln!(
+        "  --label-nodes <n>    Deterministic node limit per teacher search; part of cache identity (default: unlimited)"
+    );
+    eprintln!(
+        "  --teacher-eval <mode>  Teacher leaf evaluator: material or nnue (default: material)"
+    );
+    eprintln!("  --teacher-weights <file>  Fixed NNUE weights (required with --teacher-eval nnue)");
     eprintln!("  --export <path>     Export observations JSONL for quietset (skips training)");
     eprintln!("  --depths <list>     Comma-separated depths for export (default: 4,6,8)");
     eprintln!(
@@ -1839,6 +1966,15 @@ fn main() {
         }
     };
 
+    let teacher_identity = match configure_teacher(&args) {
+        Ok(identity) => identity,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+    };
+    eprintln!("Teacher evaluator: {teacher_identity}");
+
     let git_commit = git_commit_hash();
 
     // ---- positions mode (shogiesa JSONL) ----
@@ -1925,7 +2061,7 @@ fn main() {
         // Load teacher cache if requested
         let mut combined_cache: HashMap<String, i32> = if args.reuse_teacher_cache {
             match &args.teacher_cache_path {
-                Some(p) => teacher_cache::load(p, args.label_depth),
+                Some(p) => teacher_cache::load(p, args.label_depth, &teacher_identity),
                 None => {
                     eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                     std::process::exit(1);
@@ -1960,11 +2096,14 @@ fn main() {
             }
         }
 
-        let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h);
+        let resume_fingerprint =
+            resume_config_fingerprint(&args, ds_hash, split_h, &teacher_identity);
         let mut resume_epoch_completed = 0u64;
         let mut resume_cursor = 0usize;
         let mut resume_teacher_cache = HashMap::new();
         let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+        trainer.teacher_time_limit = args.label_time_ms.map(Duration::from_millis);
+        trainer.teacher_node_limit = args.label_nodes;
         if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
             eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
             std::process::exit(1);
@@ -2180,7 +2319,12 @@ fn main() {
                 }
                 eprintln!("  teacher cache: {n} new entries computed");
                 if let Some(cache_path) = &args.teacher_cache_path {
-                    match teacher_cache::write(cache_path, &combined_cache, args.label_depth) {
+                    match teacher_cache::write(
+                        cache_path,
+                        &combined_cache,
+                        args.label_depth,
+                        &teacher_identity,
+                    ) {
                         Ok(_) => eprintln!("  teacher cache written → {:?}", cache_path),
                         Err(e) => eprintln!("  teacher cache write failed: {e}"),
                     }
@@ -2312,6 +2456,7 @@ fn main() {
             if let Err(e) = save_checkpoint_meta(
                 &meta_path,
                 &args,
+                &teacher_identity,
                 epoch,
                 trainer.total_count,
                 valid_count,
@@ -2484,11 +2629,13 @@ fn main() {
         args.split_seed
     );
 
-    let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h);
+    let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h, &teacher_identity);
     let mut resume_epoch_completed = 0u64;
     let mut resume_cursor = 0usize;
     let mut resume_teacher_cache = HashMap::new();
     let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+    trainer.teacher_time_limit = args.label_time_ms.map(Duration::from_millis);
+    trainer.teacher_node_limit = args.label_nodes;
     if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
         eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
         std::process::exit(1);
@@ -2589,7 +2736,7 @@ fn main() {
         trainer.weights = trainer::TrainWeights::from_nnue_weights(&nn);
         let mut cache: HashMap<String, i32> = if args.reuse_teacher_cache {
             match &args.teacher_cache_path {
-                Some(p) => teacher_cache::load(p, args.label_depth),
+                Some(p) => teacher_cache::load(p, args.label_depth, &teacher_identity),
                 None => {
                     eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                     std::process::exit(1);
@@ -2632,6 +2779,22 @@ fn main() {
     let mut prev_snapshot: Option<Vec<f32>> = None;
     let mut best_valid_loss = f64::MAX;
     let mut best_valid_checkpoint: Option<PathBuf> = None;
+    let checkpoint_dir = args
+        .checkpoint_dir
+        .clone()
+        .unwrap_or_else(|| args.output.parent().unwrap_or(Path::new(".")).to_path_buf());
+    if let Err(error) = fs::create_dir_all(&checkpoint_dir) {
+        eprintln!(
+            "error: cannot create checkpoint directory {:?}: {error}",
+            checkpoint_dir
+        );
+        std::process::exit(1);
+    }
+    let output_stem = args
+        .output
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or("weights");
     // Shared across epochs and across train/valid: a position's teacher
     // score never changes between epochs (the searcher's eval function is
     // fixed for the process lifetime), so caching it turns epochs 2+ into
@@ -2644,7 +2807,7 @@ fn main() {
     // already had this via teacher_cache::load/write).
     let mut teacher_cache: HashMap<String, i32> = if args.reuse_teacher_cache {
         match &args.teacher_cache_path {
-            Some(p) => teacher_cache::load(p, args.label_depth),
+            Some(p) => teacher_cache::load(p, args.label_depth, &teacher_identity),
             None => {
                 eprintln!("error: --reuse-teacher-cache requires --teacher-cache <path>");
                 std::process::exit(1);
@@ -2830,7 +2993,12 @@ fn main() {
         if epoch == 1
             && let Some(cache_path) = &args.teacher_cache_path
         {
-            match teacher_cache::write(cache_path, &teacher_cache, args.label_depth) {
+            match teacher_cache::write(
+                cache_path,
+                &teacher_cache,
+                args.label_depth,
+                &teacher_identity,
+            ) {
                 Ok(_) => eprintln!(
                     "  teacher cache written → {:?} ({} entries)",
                     cache_path,
@@ -2887,7 +3055,7 @@ fn main() {
 
         // Save checkpoint after each epoch
         let serialize_phase_start = Instant::now();
-        let checkpoint = args.output.with_extension(format!("epoch{epoch}.bin"));
+        let checkpoint = checkpoint_dir.join(format!("{output_stem}.epoch{epoch}.bin"));
         let w = trainer.weights.to_nnue_weights();
         let mut ckpt_hash = 0u64;
         match save_weights(&w, &checkpoint) {
@@ -2951,6 +3119,7 @@ fn main() {
         if let Err(e) = save_checkpoint_meta(
             &meta_path,
             &args,
+            &teacher_identity,
             epoch,
             trainer.total_count,
             vcount,

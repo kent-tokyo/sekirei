@@ -40,6 +40,7 @@ pub fn export_game<W: Write>(
             let config = SearchConfig {
                 max_depth: depth,
                 time_limit: None,
+                node_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
             };

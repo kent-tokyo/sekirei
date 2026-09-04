@@ -323,6 +323,7 @@ mod tests {
             SearchConfig {
                 max_depth: 4,
                 time_limit: None,
+                node_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
             },
@@ -343,6 +344,7 @@ mod tests {
         let cfg = || SearchConfig {
             max_depth: 4,
             time_limit: None,
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
@@ -366,6 +368,7 @@ mod tests {
         let cfg = || SearchConfig {
             max_depth: 4,
             time_limit: None,
+            node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
@@ -403,6 +406,7 @@ mod tests {
             SearchConfig {
                 max_depth: depth,
                 time_limit: None,
+                node_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
             },
@@ -413,6 +417,7 @@ mod tests {
             SearchConfig {
                 max_depth: depth,
                 time_limit: None,
+                node_limit: None,
                 soft_limit: None,
                 multi_pv: 1,
             },
