@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- Updated the documented shogiesa pipeline baseline from 0.9.0 to 0.9.2;
+  shogiesa remains an external data-generation tool rather than a Cargo
+  dependency of Sekirei.
+
+## [0.3.26] – 2026-09-04
+
+- Added bounded candidate-versus-teacher NNUE analysis diagnostics and
+  reproducible self-distillation tooling.
+- Added top-level quiescence-search TT probing, TT-move ordering, guarded
+  depth-zero bound storage, and abort/deeper-entry regression coverage.
+- Updated the documented shogiesa pipeline baseline to 0.9.2.
 - Added an explicit fixed-NNUE teacher mode for training, with teacher-hash
   isolation across caches, complete-resume fingerprints, and checkpoint
   metadata, plus a six-position CI fixture.

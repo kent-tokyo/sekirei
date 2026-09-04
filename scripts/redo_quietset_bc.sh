@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Redo quietset B/C experiment with full game coverage at depths 2,4.
 #
-# Verified against: shogiesa 0.9.0 (github.com/kent-tokyo/shogiesa,
+# Verified against: shogiesa 0.9.2 (github.com/kent-tokyo/shogiesa,
 # schema_version 11), quietset-cli 0.16.0. Both tools now support --version
 # (check that first if this script breaks); if this script breaks on
 # `label`/`score` output shape, check for a schema change against those

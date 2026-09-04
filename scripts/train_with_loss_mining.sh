@@ -10,7 +10,7 @@
 # trials) -- see tasks/lessons.md "Strength gates -- startpos-only matches
 # collapse". Requires shogiesa >= the from-match sfen fix (commit ff90198).
 #
-# Verified against: shogiesa 0.9.0 (github.com/kent-tokyo/shogiesa,
+# Verified against: shogiesa 0.9.2 (github.com/kent-tokyo/shogiesa,
 # schema_version 11), quietset-cli 0.16.0 -- same convention as
 # scripts/train_with_shogiesa_quietset.sh.
 #
