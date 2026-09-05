@@ -158,7 +158,7 @@ fn search_modes_can_be_switched_in_one_usi_session() {
     recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
     send(&mut stdin, "setoption name UseBook value false");
 
-    for mode in ["Speculative", "LazySMP", "Dfpn"] {
+    for mode in ["Speculative", "LazySMP", "Dfpn", "SharedMcts"] {
         send(
             &mut stdin,
             &format!("setoption name SearchMode value {mode}"),
