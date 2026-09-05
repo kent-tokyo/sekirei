@@ -113,6 +113,31 @@ fn lazy_smp_quit_joins_inflight_search() {
 }
 
 #[test]
+fn shared_mcts_quit_joins_inflight_search() {
+    let (mut child, _rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    send(&mut stdin, "setoption name SearchMode value SharedMcts");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(150));
+    send(&mut stdin, "quit");
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().expect("failed to poll engine") {
+            assert!(status.success(), "engine exited unsuccessfully: {status}");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "quit did not join the SharedMcts search"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
 fn dfpn_mode_returns_a_mating_bestmove() {
     let (mut child, rx, mut stdin) = spawn_engine();
 
