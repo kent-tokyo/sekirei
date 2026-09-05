@@ -10,6 +10,7 @@ use crate::board::Board;
 use crate::eval::evaluate;
 use crate::movegen::{generate_legal_moves, is_in_check};
 use crate::mv::Move;
+use crate::nnue::NnueWeights;
 
 /// Supplies a non-negative prior for a root move.
 pub trait MctsPolicy {
@@ -40,6 +41,34 @@ pub struct MaterialValue;
 impl MctsValue for MaterialValue {
     fn value(&self, board: &Board) -> f32 {
         (evaluate(board) as f32 / 2_000.0).tanh()
+    }
+}
+
+/// Fixed, process-isolated NNUE value provider for the MCTS pilot.
+pub struct NnueValue {
+    weights: NnueWeights,
+    /// Centipawn scale mapped to the MCTS value range with `tanh`.
+    pub scale: f32,
+}
+
+impl NnueValue {
+    /// Create a provider from an explicitly loaded checkpoint.
+    pub fn new(weights: NnueWeights) -> Self {
+        Self {
+            weights,
+            scale: 2_000.0,
+        }
+    }
+
+    /// Create a deterministic provider using the built-in diagnostic weights.
+    pub fn default_lcg() -> Self {
+        Self::new(NnueWeights::default_lcg())
+    }
+}
+
+impl MctsValue for NnueValue {
+    fn value(&self, board: &Board) -> f32 {
+        (board.evaluate_with_weights(&self.weights) as f32 / self.scale.max(1.0)).tanh()
     }
 }
 
@@ -240,5 +269,15 @@ mod tests {
         );
         assert_eq!(info.best_move, None);
         assert_eq!(info.simulations, 0);
+    }
+
+    #[test]
+    fn nnue_value_isolated_provider_is_deterministic() {
+        let board = Board::startpos();
+        let value = NnueValue::default_lcg();
+        let first = value.value(&board);
+        let second = value.value(&board);
+        assert_eq!(first, second);
+        assert!((-1.0..=1.0).contains(&first));
     }
 }
