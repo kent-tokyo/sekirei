@@ -248,7 +248,11 @@ mod tests {
         );
         assert_eq!(result.outcome, DfpnOutcome::Proven);
         assert!(!result.aborted);
-        assert!(result.best_move.is_some());
+        let best_move = result.best_move.expect("proven mate must provide a move");
+        let mut after = board.clone();
+        after.do_move(best_move);
+        assert!(generate_legal_moves(&mut after).is_empty());
+        assert!(is_in_check(&after, after.side_to_move));
         assert_eq!(result.cache_hits, 0);
     }
 
