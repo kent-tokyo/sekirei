@@ -344,6 +344,24 @@ mod tests {
                 },
             ),
             (
+                "k8/2K6/9/9/4R4/9/9/9/P8 b - 1",
+                DfpnOutcome::Proven,
+                DfpnConfig {
+                    max_depth: 1,
+                    node_limit: 1_000,
+                    ..DfpnConfig::default()
+                },
+            ),
+            (
+                "k8/2K6/9/9/4R4/9/9/p8/9 b - 1",
+                DfpnOutcome::Proven,
+                DfpnConfig {
+                    max_depth: 1,
+                    node_limit: 1_000,
+                    ..DfpnConfig::default()
+                },
+            ),
+            (
                 "9/9/9/9/9/9/9/9/9 b - 1",
                 DfpnOutcome::Disproven,
                 DfpnConfig::default(),
