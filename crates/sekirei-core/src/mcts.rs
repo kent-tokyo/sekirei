@@ -129,12 +129,248 @@ pub struct MctsInfo {
     pub value_cache_hits: u32,
 }
 
+/// Configuration for the opt-in full-tree MCTS pilot.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeMctsConfig {
+    /// Number of simulations to run.
+    pub simulations: u32,
+    /// Maximum number of plies sampled below the root.
+    pub max_depth: u16,
+}
+
+impl Default for TreeMctsConfig {
+    fn default() -> Self {
+        Self {
+            simulations: 128,
+            max_depth: 4,
+        }
+    }
+}
+
+/// Result of the opt-in full-tree MCTS pilot.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeMctsInfo {
+    /// Most visited root move, with deterministic tie-breaking.
+    pub best_move: Option<Move>,
+    /// Root value in centipawns from the root side's perspective.
+    pub score: i32,
+    /// Number of completed simulations.
+    pub simulations: u32,
+    /// Number of visited tree nodes.
+    pub nodes: u32,
+    /// Number of legal root children.
+    pub root_children: usize,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct RootChild {
     mv: Move,
     prior: f32,
     visits: u32,
     value_sum: f32,
+}
+
+struct TreeNode {
+    visits: u32,
+    value_sum: f32,
+    children: Vec<TreeChild>,
+}
+
+struct TreeChild {
+    mv: Move,
+    prior: f32,
+    node: TreeNode,
+}
+
+impl TreeNode {
+    fn new() -> Self {
+        Self {
+            visits: 0,
+            value_sum: 0.0,
+            children: Vec::new(),
+        }
+    }
+}
+
+/// Full-tree MCTS pilot. This is deliberately separate from the production
+/// alpha-beta path and does not yet merge transpositions between branches.
+#[derive(Clone, Copy, Debug)]
+pub struct TreeMcts {
+    /// Exploration coefficient used by UCB selection.
+    pub exploration: f32,
+}
+
+impl Default for TreeMcts {
+    fn default() -> Self {
+        Self {
+            exploration: std::f32::consts::SQRT_2,
+        }
+    }
+}
+
+impl TreeMcts {
+    /// Run a bounded full-tree MCTS search with injected policy and value.
+    pub fn search<P: MctsPolicy, V: MctsValue>(
+        &self,
+        board: &Board,
+        config: TreeMctsConfig,
+        policy: &P,
+        value: &V,
+    ) -> TreeMctsInfo {
+        let mut root_probe = board.clone();
+        let root_moves = generate_legal_moves(&mut root_probe);
+        if root_moves.is_empty() {
+            return TreeMctsInfo {
+                best_move: None,
+                score: if is_in_check(&root_probe, root_probe.side_to_move) {
+                    -1_000
+                } else {
+                    0
+                },
+                simulations: 0,
+                nodes: 1,
+                root_children: 0,
+            };
+        }
+
+        let mut root = TreeNode::new();
+        expand_node(board, &mut root, policy, root_moves);
+        let mut nodes = 1;
+        let mut completed = 0;
+        for _ in 0..config.simulations {
+            let mut current = board.clone();
+            let _ = tree_simulate(
+                &mut current,
+                &mut root,
+                config.max_depth,
+                self.exploration,
+                policy,
+                value,
+                &mut nodes,
+            );
+            completed += 1;
+        }
+
+        let best = root.children.iter().max_by(|left, right| {
+            left.node
+                .visits
+                .cmp(&right.node.visits)
+                .then_with(|| move_key(right.mv).cmp(&move_key(left.mv)))
+        });
+        let root_value = best
+            .filter(|child| child.node.visits > 0)
+            .map(|child| -child.node.value_sum / child.node.visits as f32)
+            .unwrap_or(0.0);
+        TreeMctsInfo {
+            best_move: best.map(|child| child.mv),
+            score: (root_value.clamp(-1.0, 1.0) * 1_000.0) as i32,
+            simulations: completed,
+            nodes,
+            root_children: root.children.len(),
+        }
+    }
+}
+
+fn expand_node<P: MctsPolicy>(board: &Board, node: &mut TreeNode, policy: &P, moves: Vec<Move>) {
+    node.children = moves
+        .into_iter()
+        .map(|mv| TreeChild {
+            mv,
+            prior: sanitized_prior(policy.prior(board, mv)),
+            node: TreeNode::new(),
+        })
+        .collect();
+    if node.children.iter().all(|child| child.prior == 0.0) {
+        for child in &mut node.children {
+            child.prior = 1.0;
+        }
+    }
+    node.children.sort_by(|left, right| {
+        right
+            .prior
+            .total_cmp(&left.prior)
+            .then_with(|| move_key(left.mv).cmp(&move_key(right.mv)))
+    });
+}
+
+fn tree_simulate<P: MctsPolicy, V: MctsValue>(
+    board: &mut Board,
+    node: &mut TreeNode,
+    depth_left: u16,
+    exploration: f32,
+    policy: &P,
+    value: &V,
+    nodes: &mut u32,
+) -> f32 {
+    let mut probe = board.clone();
+    let moves = generate_legal_moves(&mut probe);
+    if moves.is_empty() {
+        let result = if is_in_check(&probe, probe.side_to_move) {
+            -1.0
+        } else {
+            0.0
+        };
+        node.visits += 1;
+        node.value_sum += result;
+        return result;
+    }
+    if depth_left == 0 {
+        let result = value.value(board).clamp(-1.0, 1.0);
+        node.visits += 1;
+        node.value_sum += result;
+        return result;
+    }
+    if node.children.is_empty() {
+        expand_node(board, node, policy, moves);
+        *nodes = nodes.saturating_add(node.children.len() as u32);
+    }
+
+    let total_visits = node.visits;
+    let selected = node
+        .children
+        .iter()
+        .enumerate()
+        .max_by(|(left_index, left), (right_index, right)| {
+            ucb_score(
+                RootChild {
+                    mv: left.mv,
+                    prior: left.prior,
+                    visits: left.node.visits,
+                    value_sum: -left.node.value_sum,
+                },
+                total_visits,
+                exploration,
+            )
+            .total_cmp(&ucb_score(
+                RootChild {
+                    mv: right.mv,
+                    prior: right.prior,
+                    visits: right.node.visits,
+                    value_sum: -right.node.value_sum,
+                },
+                total_visits,
+                exploration,
+            ))
+            .then_with(|| right_index.cmp(left_index))
+        })
+        .map(|(index, _)| index)
+        .expect("expanded tree node has a child");
+    let child = &mut node.children[selected];
+    let token = board.do_move(child.mv);
+    let child_value = tree_simulate(
+        board,
+        &mut child.node,
+        depth_left - 1,
+        exploration,
+        policy,
+        value,
+        nodes,
+    );
+    board.undo_move(token);
+    let result = -child_value;
+    node.visits += 1;
+    node.value_sum += result;
+    result
 }
 
 impl RootMcts {
@@ -505,6 +741,39 @@ mod tests {
             parallel.expanded_root_children,
             single.expanded_root_children
         );
+    }
+
+    #[test]
+    fn tree_pilot_is_deterministic_and_visits_below_the_root() {
+        let board = Board::startpos();
+        let config = TreeMctsConfig {
+            simulations: 16,
+            max_depth: 2,
+        };
+        let first = TreeMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        let second = TreeMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.score, second.score);
+        assert_eq!(first.simulations, 16);
+        assert_eq!(first.root_children, 30);
+        assert!(first.nodes > first.root_children as u32);
+    }
+
+    #[test]
+    fn tree_pilot_handles_terminal_positions_without_simulating() {
+        let board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b - 1").unwrap();
+        let info = TreeMcts::default().search(
+            &board,
+            TreeMctsConfig {
+                simulations: 16,
+                max_depth: 4,
+            },
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert_eq!(info.best_move, None);
+        assert_eq!(info.simulations, 0);
+        assert_eq!(info.nodes, 1);
     }
 
     #[test]
