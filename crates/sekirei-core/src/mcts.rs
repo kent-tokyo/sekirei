@@ -258,7 +258,9 @@ fn value_for_child<V: MctsValue>(board: &Board, value: &V) -> f32 {
             0.0
         };
     }
-    value.value(board).clamp(-1.0, 1.0)
+    // The provider reports from the child position's side-to-move view;
+    // root selection needs the value from the parent's perspective.
+    -value.value(board).clamp(-1.0, 1.0)
 }
 
 fn move_key(mv: Move) -> (u8, u8, bool, u8) {
@@ -361,6 +363,28 @@ mod tests {
         );
         assert_eq!(info.best_move, Some(expected));
         assert_eq!(info.expanded_root_children, 1);
+    }
+
+    #[test]
+    fn child_value_is_converted_to_the_root_perspective() {
+        struct ConstantValue;
+
+        impl MctsValue for ConstantValue {
+            fn value(&self, _board: &Board) -> f32 {
+                1.0
+            }
+        }
+
+        let info = RootMcts::default().search(
+            &Board::startpos(),
+            MctsConfig {
+                simulations: 1,
+                ..MctsConfig::default()
+            },
+            &UniformPolicy,
+            &ConstantValue,
+        );
+        assert_eq!(info.score, -1_000);
     }
 
     #[test]
