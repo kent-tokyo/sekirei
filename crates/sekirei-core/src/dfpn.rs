@@ -364,6 +364,14 @@ mod tests {
             let result = DfpnSolver.solve(&board, config);
             assert_eq!(result.outcome, expected, "unexpected result for {sfen}");
             assert!(!result.aborted, "unexpected abort for {sfen}");
+            if expected == DfpnOutcome::Proven {
+                let best_move = result.best_move.expect("proven corpus entry needs a move");
+                let mut legal_board = board.clone();
+                assert!(
+                    generate_legal_moves(&mut legal_board).contains(&best_move),
+                    "proven move is not legal for {sfen}"
+                );
+            }
         }
     }
 }
