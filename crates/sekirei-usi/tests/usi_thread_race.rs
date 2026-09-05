@@ -76,6 +76,11 @@ fn lazy_smp_stop_flushes_bestmove_before_answering_next_command() {
 }
 
 #[test]
+fn dfpn_stop_flushes_bestmove_before_answering_next_command() {
+    stop_flushes_bestmove_before_answering_next_command(Some("Dfpn"));
+}
+
+#[test]
 fn lazy_smp_quit_joins_inflight_search() {
     let (mut child, rx, mut stdin) = spawn_engine();
 
