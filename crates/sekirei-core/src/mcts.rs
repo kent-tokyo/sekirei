@@ -136,6 +136,8 @@ pub struct TreeMctsConfig {
     pub simulations: u32,
     /// Maximum number of plies sampled below the root.
     pub max_depth: u16,
+    /// Cache deterministic leaf values by position and remaining depth.
+    pub value_cache: bool,
 }
 
 impl Default for TreeMctsConfig {
@@ -143,6 +145,7 @@ impl Default for TreeMctsConfig {
         Self {
             simulations: 128,
             max_depth: 4,
+            value_cache: false,
         }
     }
 }
@@ -160,6 +163,8 @@ pub struct TreeMctsInfo {
     pub nodes: u32,
     /// Number of legal root children.
     pub root_children: usize,
+    /// Number of leaf-value lookups served by the local cache.
+    pub value_cache_hits: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -180,6 +185,16 @@ struct TreeChild {
     mv: Move,
     prior: f32,
     node: TreeNode,
+}
+
+struct TreeSimulationContext<'a, P, V> {
+    exploration: f32,
+    policy: &'a P,
+    value: &'a V,
+    nodes: &'a mut u32,
+    cache_enabled: bool,
+    value_cache: &'a mut HashMap<(u64, u16), f32>,
+    value_cache_hits: &'a mut u32,
 }
 
 impl TreeNode {
@@ -230,6 +245,7 @@ impl TreeMcts {
                 simulations: 0,
                 nodes: 1,
                 root_children: 0,
+                value_cache_hits: 0,
             };
         }
 
@@ -237,17 +253,20 @@ impl TreeMcts {
         expand_node(board, &mut root, policy, root_moves);
         let mut nodes = 1;
         let mut completed = 0;
+        let mut value_cache = HashMap::new();
+        let mut value_cache_hits = 0;
         for _ in 0..config.simulations {
             let mut current = board.clone();
-            let _ = tree_simulate(
-                &mut current,
-                &mut root,
-                config.max_depth,
-                self.exploration,
+            let mut context = TreeSimulationContext {
+                exploration: self.exploration,
                 policy,
                 value,
-                &mut nodes,
-            );
+                nodes: &mut nodes,
+                cache_enabled: config.value_cache,
+                value_cache: &mut value_cache,
+                value_cache_hits: &mut value_cache_hits,
+            };
+            let _ = tree_simulate(&mut current, &mut root, config.max_depth, &mut context);
             completed += 1;
         }
 
@@ -267,6 +286,7 @@ impl TreeMcts {
             simulations: completed,
             nodes,
             root_children: root.children.len(),
+            value_cache_hits,
         }
     }
 }
@@ -297,10 +317,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
     board: &mut Board,
     node: &mut TreeNode,
     depth_left: u16,
-    exploration: f32,
-    policy: &P,
-    value: &V,
-    nodes: &mut u32,
+    context: &mut TreeSimulationContext<'_, P, V>,
 ) -> f32 {
     let mut probe = board.clone();
     let moves = generate_legal_moves(&mut probe);
@@ -315,14 +332,26 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         return result;
     }
     if depth_left == 0 {
-        let result = value.value(board).clamp(-1.0, 1.0);
+        let key = (board.hash(), depth_left);
+        let result = if context.cache_enabled {
+            if let Some(&cached) = context.value_cache.get(&key) {
+                *context.value_cache_hits += 1;
+                cached
+            } else {
+                let computed = context.value.value(board).clamp(-1.0, 1.0);
+                context.value_cache.insert(key, computed);
+                computed
+            }
+        } else {
+            context.value.value(board).clamp(-1.0, 1.0)
+        };
         node.visits += 1;
         node.value_sum += result;
         return result;
     }
     if node.children.is_empty() {
-        expand_node(board, node, policy, moves);
-        *nodes = nodes.saturating_add(node.children.len() as u32);
+        expand_node(board, node, context.policy, moves);
+        *context.nodes = context.nodes.saturating_add(node.children.len() as u32);
     }
 
     let total_visits = node.visits;
@@ -339,7 +368,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
                     value_sum: -left.node.value_sum,
                 },
                 total_visits,
-                exploration,
+                context.exploration,
             )
             .total_cmp(&ucb_score(
                 RootChild {
@@ -349,7 +378,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
                     value_sum: -right.node.value_sum,
                 },
                 total_visits,
-                exploration,
+                context.exploration,
             ))
             .then_with(|| right_index.cmp(left_index))
         })
@@ -357,15 +386,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         .expect("expanded tree node has a child");
     let child = &mut node.children[selected];
     let token = board.do_move(child.mv);
-    let child_value = tree_simulate(
-        board,
-        &mut child.node,
-        depth_left - 1,
-        exploration,
-        policy,
-        value,
-        nodes,
-    );
+    let child_value = tree_simulate(board, &mut child.node, depth_left - 1, context);
     board.undo_move(token);
     let result = -child_value;
     node.visits += 1;
@@ -749,6 +770,7 @@ mod tests {
         let config = TreeMctsConfig {
             simulations: 16,
             max_depth: 2,
+            ..TreeMctsConfig::default()
         };
         let first = TreeMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
         let second = TreeMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
@@ -767,6 +789,7 @@ mod tests {
             TreeMctsConfig {
                 simulations: 16,
                 max_depth: 4,
+                ..TreeMctsConfig::default()
             },
             &UniformPolicy,
             &MaterialValue,
@@ -774,6 +797,23 @@ mod tests {
         assert_eq!(info.best_move, None);
         assert_eq!(info.simulations, 0);
         assert_eq!(info.nodes, 1);
+    }
+
+    #[test]
+    fn tree_value_cache_reuses_identical_leaf_evaluations() {
+        let board = Board::startpos();
+        let info = TreeMcts::default().search(
+            &board,
+            TreeMctsConfig {
+                simulations: 32,
+                max_depth: 0,
+                value_cache: true,
+            },
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert!(info.value_cache_hits > 0);
+        assert!(info.value_cache_hits < info.simulations);
     }
 
     #[test]
