@@ -1066,4 +1066,36 @@ mod legality_probe_tests {
             position.do_move(selected);
         }
     }
+
+    #[test]
+    fn pin_and_evasion_corpus_matches_full_update_reference() {
+        const CORPUS: [&str; 3] = [
+            // Initial position: pins and evasions absent, but establishes the baseline.
+            "lnsgkgsnl/1r5b1/p1ppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            // A rook line toward the king exercises pinned-piece filtering and king safety.
+            "4k4/9/9/9/4R4/9/9/9/4K4 b - 1",
+            // A checking position exercises the evasion-only legal move path.
+            "4k4/9/9/9/4R4/9/9/4r4/4K4 w - 1",
+        ];
+
+        for (index, sfen) in CORPUS.iter().enumerate() {
+            let mut actual = Board::from_sfen(sfen).expect("corpus SFEN must parse");
+            let actual_moves = generate_legal_moves(&mut actual);
+            let mut reference = Board::from_sfen(sfen).expect("corpus SFEN must parse");
+            let reference_moves = legal_moves_with_full_nnue_updates(&mut reference);
+            assert_eq!(
+                actual_moves, reference_moves,
+                "legal moves differ at corpus {index}"
+            );
+
+            let mut actual_captures = Board::from_sfen(sfen).expect("corpus SFEN must parse");
+            let actual_captures = generate_legal_captures(&mut actual_captures);
+            let mut reference_captures = Board::from_sfen(sfen).expect("corpus SFEN must parse");
+            let reference_captures = legal_captures_with_full_nnue_updates(&mut reference_captures);
+            assert_eq!(
+                actual_captures, reference_captures,
+                "legal captures differ at corpus {index}"
+            );
+        }
+    }
 }
