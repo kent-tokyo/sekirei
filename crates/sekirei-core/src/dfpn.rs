@@ -37,6 +37,8 @@ pub struct DfpnConfig {
     pub proof_threshold: u64,
     /// Disproof threshold for selective expansion; `INF` disables it.
     pub disproof_threshold: u64,
+    /// Re-run with unlimited thresholds if selective expansion stops early.
+    pub re_search_on_threshold: bool,
 }
 
 impl Default for DfpnConfig {
@@ -46,6 +48,7 @@ impl Default for DfpnConfig {
             node_limit: 100_000,
             proof_threshold: INF,
             disproof_threshold: INF,
+            re_search_on_threshold: false,
         }
     }
 }
@@ -84,6 +87,7 @@ struct SearchState {
     aborted: bool,
     cache: HashMap<(u64, u16), Numbers>,
     cache_hits: u64,
+    thresholded: bool,
 }
 
 impl DfpnSolver {
@@ -97,8 +101,28 @@ impl DfpnSolver {
             aborted: false,
             cache: HashMap::new(),
             cache_hits: 0,
+            thresholded: false,
         };
-        let numbers = solve_node(board, config.max_depth, &mut state);
+        let mut numbers = solve_node(board, config.max_depth, &mut state);
+        if config.re_search_on_threshold && state.thresholded && !state.aborted {
+            let mut retry_config = config;
+            retry_config.proof_threshold = INF;
+            retry_config.disproof_threshold = INF;
+            retry_config.re_search_on_threshold = false;
+            let mut retry_state = SearchState {
+                attacker,
+                config: retry_config,
+                nodes: 0,
+                aborted: false,
+                cache: HashMap::new(),
+                cache_hits: 0,
+                thresholded: false,
+            };
+            numbers = solve_node(board, retry_config.max_depth, &mut retry_state);
+            state.nodes = state.nodes.saturating_add(retry_state.nodes);
+            state.aborted = retry_state.aborted;
+            state.cache_hits = state.cache_hits.saturating_add(retry_state.cache_hits);
+        }
         let outcome = if numbers.proof == 0 {
             DfpnOutcome::Proven
         } else if numbers.disproof == 0 {
@@ -213,6 +237,7 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
         if threshold_reached(aggregate.proof, state.config.proof_threshold)
             || threshold_reached(aggregate.disproof, state.config.disproof_threshold)
         {
+            state.thresholded = true;
             complete = false;
             break;
         }
@@ -297,11 +322,31 @@ mod tests {
                 node_limit: 1_000,
                 proof_threshold: 1,
                 disproof_threshold: INF,
+                ..DfpnConfig::default()
             },
         );
         assert_eq!(result.outcome, DfpnOutcome::Unknown);
         assert!(!result.aborted);
         assert_eq!(result.cache_hits, 0);
+    }
+
+    #[test]
+    fn threshold_research_can_recover_a_proven_mate() {
+        let board = Board::from_sfen(MATE_IN_1).unwrap();
+        let result = DfpnSolver.solve(
+            &board,
+            DfpnConfig {
+                max_depth: 1,
+                node_limit: 1_000,
+                disproof_threshold: 1,
+                re_search_on_threshold: true,
+                ..DfpnConfig::default()
+            },
+        );
+        assert_eq!(result.outcome, DfpnOutcome::Proven);
+        assert!(!result.aborted);
+        assert!(result.best_move.is_some());
+        assert!(result.nodes > 1);
     }
 
     #[test]
@@ -322,6 +367,7 @@ mod tests {
                 node_limit: 1_000,
                 proof_threshold: INF,
                 disproof_threshold: INF,
+                ..DfpnConfig::default()
             },
         );
         assert_eq!(default_result, explicit_result);
