@@ -646,14 +646,18 @@ mod tests {
         };
         let board = Board::startpos();
         let smp = LazySmpSearcher::new(Tt::new(16), 2);
-        let first = smp.search(&board, cfg);
-        smp.clear_tt();
-        smp.reset_abort_flag();
-        let second = smp.search(&board, cfg);
-
-        assert_eq!(first.result.best_move, second.result.best_move);
-        assert_eq!(first.result.score, second.result.score);
-        assert_eq!(first.result.depth, second.result.depth);
+        let mut reference = None;
+        for _ in 0..4 {
+            smp.clear_tt();
+            smp.reset_abort_flag();
+            let result = smp.search(&board, cfg).result;
+            let key = (result.best_move, result.score, result.depth);
+            if let Some(reference) = reference {
+                assert_eq!(key, reference);
+            } else {
+                reference = Some(key);
+            }
+        }
     }
 
     /// TT sharing may change work distribution, but must not change the
