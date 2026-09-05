@@ -316,6 +316,268 @@ impl TreeMcts {
     }
 }
 
+/// Configuration for the arena-backed transposition pilot.
+#[derive(Clone, Copy, Debug)]
+pub struct SharedTreeMctsConfig {
+    /// Number of simulations to run.
+    pub simulations: u32,
+    /// Maximum number of plies sampled below the root.
+    pub max_depth: u16,
+}
+
+impl Default for SharedTreeMctsConfig {
+    fn default() -> Self {
+        Self {
+            simulations: 128,
+            max_depth: 4,
+        }
+    }
+}
+
+/// Result of the arena-backed transposition pilot.
+#[derive(Clone, Copy, Debug)]
+pub struct SharedTreeMctsInfo {
+    /// Most visited root move.
+    pub best_move: Option<Move>,
+    /// Root value in centipawns.
+    pub score: i32,
+    /// Number of completed simulations.
+    pub simulations: u32,
+    /// Number of allocated arena nodes.
+    pub nodes: u32,
+    /// Number of legal root children.
+    pub root_children: usize,
+    /// Number of child links that reused an existing position/depth node.
+    pub transposition_hits: u32,
+}
+
+struct SharedTreeNode {
+    visits: u32,
+    value_sum: f32,
+    children: Vec<SharedTreeChild>,
+}
+
+struct SharedTreeChild {
+    mv: Move,
+    prior: f32,
+    node: usize,
+}
+
+struct SharedSearchContext<'a, P, V> {
+    policy: &'a P,
+    value: &'a V,
+    arena: &'a mut Vec<SharedTreeNode>,
+    index: &'a mut HashMap<(u64, u16), usize>,
+    transposition_hits: &'a mut u32,
+}
+
+/// Arena-backed full-tree MCTS pilot with safe node sharing.
+///
+/// A node is shared only when both the position hash and remaining depth
+/// match. The arena indices avoid reference-counting and runtime borrow
+/// cycles, while all mutation remains local to one search call.
+#[derive(Clone, Copy, Debug)]
+pub struct SharedTreeMcts {
+    /// Exploration coefficient used by UCB selection.
+    pub exploration: f32,
+}
+
+impl Default for SharedTreeMcts {
+    fn default() -> Self {
+        Self {
+            exploration: std::f32::consts::SQRT_2,
+        }
+    }
+}
+
+impl SharedTreeMcts {
+    /// Run an arena-backed search with transposition sharing.
+    pub fn search<P: MctsPolicy, V: MctsValue>(
+        &self,
+        board: &Board,
+        config: SharedTreeMctsConfig,
+        policy: &P,
+        value: &V,
+    ) -> SharedTreeMctsInfo {
+        let mut probe = board.clone();
+        let root_moves = generate_legal_moves(&mut probe);
+        if root_moves.is_empty() {
+            return SharedTreeMctsInfo {
+                best_move: None,
+                score: if is_in_check(&probe, probe.side_to_move) {
+                    -1_000
+                } else {
+                    0
+                },
+                simulations: 0,
+                nodes: 1,
+                root_children: 0,
+                transposition_hits: 0,
+            };
+        }
+
+        let mut arena = vec![SharedTreeNode {
+            visits: 0,
+            value_sum: 0.0,
+            children: Vec::new(),
+        }];
+        let mut index = HashMap::new();
+        let mut transposition_hits = 0;
+        let mut completed = 0;
+        {
+            let mut context = SharedSearchContext {
+                policy,
+                value,
+                arena: &mut arena,
+                index: &mut index,
+                transposition_hits: &mut transposition_hits,
+            };
+            shared_expand(board, 0, config.max_depth, root_moves, &mut context);
+            for _ in 0..config.simulations {
+                let mut current = board.clone();
+                shared_simulate(
+                    &mut current,
+                    0,
+                    config.max_depth,
+                    self.exploration,
+                    &mut context,
+                );
+                completed += 1;
+            }
+        }
+
+        let root = &arena[0];
+        let best = root.children.iter().max_by(|left, right| {
+            arena[left.node]
+                .visits
+                .cmp(&arena[right.node].visits)
+                .then_with(|| move_key(right.mv).cmp(&move_key(left.mv)))
+        });
+        let root_value = best
+            .filter(|child| arena[child.node].visits > 0)
+            .map(|child| -arena[child.node].value_sum / arena[child.node].visits as f32)
+            .unwrap_or(0.0);
+        SharedTreeMctsInfo {
+            best_move: best.map(|child| child.mv),
+            score: (root_value.clamp(-1.0, 1.0) * 1_000.0) as i32,
+            simulations: completed,
+            nodes: arena.len() as u32,
+            root_children: root.children.len(),
+            transposition_hits,
+        }
+    }
+}
+
+fn shared_expand<P: MctsPolicy, V: MctsValue>(
+    board: &Board,
+    node_index: usize,
+    depth_left: u16,
+    moves: Vec<Move>,
+    context: &mut SharedSearchContext<'_, P, V>,
+) {
+    let mut children = Vec::with_capacity(moves.len());
+    for mv in moves {
+        let mut next = board.clone();
+        let _token = next.do_move(mv);
+        let key = (next.hash(), depth_left.saturating_sub(1));
+        let child_index = if let Some(&existing) = context.index.get(&key) {
+            *context.transposition_hits += 1;
+            existing
+        } else {
+            let created = context.arena.len();
+            context.arena.push(SharedTreeNode {
+                visits: 0,
+                value_sum: 0.0,
+                children: Vec::new(),
+            });
+            context.index.insert(key, created);
+            created
+        };
+        children.push(SharedTreeChild {
+            mv,
+            prior: sanitized_prior(context.policy.prior(board, mv)),
+            node: child_index,
+        });
+    }
+    if children.iter().all(|child| child.prior == 0.0) {
+        for child in &mut children {
+            child.prior = 1.0;
+        }
+    }
+    children.sort_by(|left, right| {
+        right
+            .prior
+            .total_cmp(&left.prior)
+            .then_with(|| move_key(left.mv).cmp(&move_key(right.mv)))
+    });
+    context.arena[node_index].children = children;
+}
+
+fn shared_simulate<P: MctsPolicy, V: MctsValue>(
+    board: &mut Board,
+    node_index: usize,
+    depth_left: u16,
+    exploration: f32,
+    context: &mut SharedSearchContext<'_, P, V>,
+) -> f32 {
+    let mut probe = board.clone();
+    let moves = generate_legal_moves(&mut probe);
+    if moves.is_empty() {
+        let result = if is_in_check(&probe, probe.side_to_move) {
+            -1.0
+        } else {
+            0.0
+        };
+        context.arena[node_index].visits += 1;
+        context.arena[node_index].value_sum += result;
+        return result;
+    }
+    if depth_left == 0 {
+        let result = context.value.value(board).clamp(-1.0, 1.0);
+        context.arena[node_index].visits += 1;
+        context.arena[node_index].value_sum += result;
+        return result;
+    }
+    if context.arena[node_index].children.is_empty() {
+        shared_expand(board, node_index, depth_left, moves, context);
+    }
+    let total_visits = context.arena[node_index].visits;
+    let selected = context.arena[node_index]
+        .children
+        .iter()
+        .enumerate()
+        .max_by(|(left_index, left), (right_index, right)| {
+            shared_ucb(left, context.arena, total_visits, exploration)
+                .total_cmp(&shared_ucb(right, context.arena, total_visits, exploration))
+                .then_with(|| right_index.cmp(left_index))
+        })
+        .map(|(_, child)| (child.mv, child.node))
+        .expect("expanded tree node has a child");
+    let token = board.do_move(selected.0);
+    let child_value = shared_simulate(board, selected.1, depth_left - 1, exploration, context);
+    board.undo_move(token);
+    let result = -child_value;
+    context.arena[node_index].visits += 1;
+    context.arena[node_index].value_sum += result;
+    result
+}
+
+fn shared_ucb(
+    child: &SharedTreeChild,
+    arena: &[SharedTreeNode],
+    total_visits: u32,
+    exploration: f32,
+) -> f32 {
+    let node = &arena[child.node];
+    if node.visits == 0 {
+        return f32::INFINITY;
+    }
+    -node.value_sum / node.visits as f32
+        + exploration
+            * child.prior
+            * ((total_visits.max(1) as f32).ln() / node.visits as f32).sqrt()
+}
+
 fn expand_node<P: MctsPolicy>(board: &Board, node: &mut TreeNode, policy: &P, moves: Vec<Move>) {
     node.children = moves
         .into_iter()
@@ -860,6 +1122,31 @@ mod tests {
         assert_eq!(info.simulations, 0);
         assert_eq!(info.nodes, 1);
         assert_eq!(info.value_cache_hits, 0);
+    }
+
+    #[test]
+    fn shared_tree_pilot_is_deterministic_and_reports_arena_nodes() {
+        let config = SharedTreeMctsConfig {
+            simulations: 16,
+            max_depth: 2,
+        };
+        let first = SharedTreeMcts::default().search(
+            &Board::startpos(),
+            config,
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        let second = SharedTreeMcts::default().search(
+            &Board::startpos(),
+            config,
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.score, second.score);
+        assert_eq!(first.simulations, 16);
+        assert_eq!(first.nodes, second.nodes);
+        assert_eq!(first.root_children, 30);
     }
 
     #[test]
