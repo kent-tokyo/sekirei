@@ -63,6 +63,22 @@ jobs:
             --transcript scripts/fixtures/usi_smoke_shared_mcts_v0.3.28.txt \
             --output /tmp/release-manifest-with-mcts.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts.json
+      - name: SharedMcts binary transcript smoke
+        run: |
+          cargo build --release -p sekirei
+          printf '%s\n' \
+            'usi' \
+            'setoption name UseBook value false' \
+            'setoption name SearchMode value SharedMcts' \
+            'position startpos' \
+            'go nodes 4 depth 2' \
+            'quit' | target/release/sekirei > /tmp/usi-shared-mcts-v0.3.28.txt
+          grep -q '^info string shared_mcts ' /tmp/usi-shared-mcts-v0.3.28.txt
+          python3 scripts/record_mcts_transcript.py \
+            --release-manifest release-manifest-v0.3.28.json \
+            --transcript /tmp/usi-shared-mcts-v0.3.28.txt \
+            --output /tmp/release-manifest-with-live-mcts.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-live-mcts.json
       - name: resume CLI fixture
         run: bash scripts/test_resume_cli_fixture.sh
       - name: teacher evaluator fixture
