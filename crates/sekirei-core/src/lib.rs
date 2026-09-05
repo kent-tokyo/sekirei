@@ -628,4 +628,31 @@ mod tests {
         assert_eq!(smp.result.score, sequential.score);
         assert_eq!(smp.result.depth, sequential.depth);
     }
+
+    /// Repeating the same shared-TT control after clearing the table must not
+    /// change the selected result, even though worker scheduling may vary.
+    #[test]
+    fn lazy_smp_aa_control_preserves_selected_result() {
+        use lazy_smp::LazySmpSearcher;
+        use search::SearchConfig;
+        use tt::Tt;
+
+        let cfg = SearchConfig {
+            max_depth: 2,
+            time_limit: None,
+            node_limit: Some(5_000),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let board = Board::startpos();
+        let smp = LazySmpSearcher::new(Tt::new(16), 2);
+        let first = smp.search(&board, cfg);
+        smp.clear_tt();
+        smp.reset_abort_flag();
+        let second = smp.search(&board, cfg);
+
+        assert_eq!(first.result.best_move, second.result.best_move);
+        assert_eq!(first.result.score, second.result.score);
+        assert_eq!(first.result.depth, second.result.depth);
+    }
 }
