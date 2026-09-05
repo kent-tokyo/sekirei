@@ -170,6 +170,12 @@ impl RootMcts {
                 child.prior = 1.0;
             }
         }
+        children.sort_by(|left, right| {
+            right
+                .prior
+                .total_cmp(&left.prior)
+                .then_with(|| move_key(left.mv).cmp(&move_key(right.mv)))
+        });
 
         let mut completed = 0;
         for _ in 0..config.simulations {
@@ -255,6 +261,15 @@ fn value_for_child<V: MctsValue>(board: &Board, value: &V) -> f32 {
     value.value(board).clamp(-1.0, 1.0)
 }
 
+fn move_key(mv: Move) -> (u8, u8, bool, u8) {
+    (
+        mv.from.map_or(81, |sq| sq.index()),
+        mv.to.index(),
+        mv.promote,
+        mv.piece_kind.index() as u8,
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -317,6 +332,35 @@ mod tests {
         assert_eq!(first.score, second.score);
         assert_eq!(first.expanded_root_children, 9);
         assert!(first.expanded_root_children < first.root_children);
+    }
+
+    #[test]
+    fn progressive_widening_starts_with_the_highest_prior_move() {
+        struct DestinationPolicy;
+
+        impl MctsPolicy for DestinationPolicy {
+            fn prior(&self, _board: &Board, mv: Move) -> f32 {
+                mv.to.index() as f32 + 1.0
+            }
+        }
+
+        let board = Board::startpos();
+        let mut legal = board.clone();
+        let expected = generate_legal_moves(&mut legal)
+            .into_iter()
+            .max_by_key(|mv| mv.to.index())
+            .unwrap();
+        let info = RootMcts::default().search(
+            &board,
+            MctsConfig {
+                simulations: 1,
+                root_widening: Some(4),
+            },
+            &DestinationPolicy,
+            &MaterialValue,
+        );
+        assert_eq!(info.best_move, Some(expected));
+        assert_eq!(info.expanded_root_children, 1);
     }
 
     #[test]
