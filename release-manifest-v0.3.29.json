@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.29",
+  "commit": "1a333786253c1afabf98d9f7003a797a1f402567",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.29",
+    "sekirei-core": "0.3.29",
+    "sekirei-bench": "0.3.29",
+    "sekirei-csa": "0.3.29",
+    "sekirei-match-runner": "0.3.29",
+    "sekirei-train": "0.3.29"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); GitHub publish workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "8c3584f440b140d660e7332c59e041b6687bf5e1ace421bea5832cfcb50e540c"
+  },
+  "publish": {
+    "workflow_run": "33997380423",
+    "workflow_runs": ["33997380423"],
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Local move-generation, Perft, fixed-depth timing, and CPU-profile diagnostics are documented in ROADMAP.md; no Elo inference is made."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result or strength claim is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is from the locally verified release build of the tagged source; registry artifacts were verified separately through the crates.io sparse index.",
+    "All six crates were published by workflow run 33997380423 through Trusted Publishing / OIDC.",
+    "No external-engine match or playing-strength claim is part of this release manifest."
+  ]
+}
