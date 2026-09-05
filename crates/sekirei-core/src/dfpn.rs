@@ -10,6 +10,7 @@ use crate::board::Board;
 use crate::color::Color;
 use crate::movegen::{generate_legal_moves, is_in_check};
 use crate::mv::Move;
+use std::collections::HashMap;
 
 const INF: u64 = u64::MAX / 4;
 
@@ -53,6 +54,8 @@ pub struct DfpnResult {
     pub aborted: bool,
     /// A first move on a proven principal mate line, if available.
     pub best_move: Option<Move>,
+    /// Number of completed subtree results reused from the df-pn cache.
+    pub cache_hits: u64,
 }
 
 /// Bounded proof-number mate solver.
@@ -71,6 +74,8 @@ struct SearchState {
     config: DfpnConfig,
     nodes: u64,
     aborted: bool,
+    cache: HashMap<(u64, u16), Numbers>,
+    cache_hits: u64,
 }
 
 impl DfpnSolver {
@@ -82,6 +87,8 @@ impl DfpnSolver {
             config,
             nodes: 0,
             aborted: false,
+            cache: HashMap::new(),
+            cache_hits: 0,
         };
         let numbers = solve_node(board, config.max_depth, &mut state);
         let outcome = if numbers.proof == 0 {
@@ -96,6 +103,7 @@ impl DfpnSolver {
             nodes: state.nodes,
             aborted: state.aborted,
             best_move: numbers.first_move,
+            cache_hits: state.cache_hits,
         }
     }
 }
@@ -109,6 +117,11 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             first_move: None,
         };
     }
+    let cache_key = (board.hash(), depth_left);
+    if let Some(&numbers) = state.cache.get(&cache_key) {
+        state.cache_hits += 1;
+        return numbers;
+    }
     state.nodes += 1;
 
     let mut probe = board.clone();
@@ -116,7 +129,7 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
     if moves.is_empty() {
         let attacker_won =
             board.side_to_move != state.attacker && is_in_check(board, board.side_to_move);
-        return if attacker_won {
+        let numbers = if attacker_won {
             Numbers {
                 proof: 0,
                 disproof: INF,
@@ -129,13 +142,17 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
                 first_move: None,
             }
         };
+        state.cache.insert(cache_key, numbers);
+        return numbers;
     }
     if depth_left == 0 {
-        return Numbers {
+        let numbers = Numbers {
             proof: 1,
             disproof: 1,
             first_move: None,
         };
+        state.cache.insert(cache_key, numbers);
+        return numbers;
     }
 
     let is_or = board.side_to_move == state.attacker;
@@ -174,6 +191,9 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             break;
         }
     }
+    if !state.aborted {
+        state.cache.insert(cache_key, aggregate);
+    }
     aggregate
 }
 
@@ -200,6 +220,7 @@ mod tests {
         assert_eq!(result.outcome, DfpnOutcome::Proven);
         assert!(!result.aborted);
         assert!(result.best_move.is_some());
+        assert_eq!(result.cache_hits, 0);
     }
 
     #[test]
@@ -208,6 +229,7 @@ mod tests {
         let result = DfpnSolver.solve(&board, DfpnConfig::default());
         assert_eq!(result.outcome, DfpnOutcome::Disproven);
         assert_eq!(result.nodes, 1);
+        assert_eq!(result.cache_hits, 0);
     }
 
     #[test]
@@ -223,5 +245,6 @@ mod tests {
         assert_eq!(result.outcome, DfpnOutcome::Unknown);
         assert!(result.aborted);
         assert_eq!(result.nodes, 1);
+        assert_eq!(result.cache_hits, 0);
     }
 }
