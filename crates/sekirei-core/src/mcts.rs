@@ -369,6 +369,7 @@ struct SharedSearchContext<'a, P, V> {
     arena: &'a mut Vec<SharedTreeNode>,
     index: &'a mut HashMap<(u64, u16), usize>,
     transposition_hits: &'a mut u32,
+    abort: &'a AtomicBool,
 }
 
 /// Arena-backed full-tree MCTS pilot with safe node sharing.
@@ -398,6 +399,19 @@ impl SharedTreeMcts {
         config: SharedTreeMctsConfig,
         policy: &P,
         value: &V,
+    ) -> SharedTreeMctsInfo {
+        let abort = AtomicBool::new(false);
+        self.search_with_abort(board, config, policy, value, &abort)
+    }
+
+    /// Run an arena-backed search while cooperatively observing `abort`.
+    pub fn search_with_abort<P: MctsPolicy, V: MctsValue>(
+        &self,
+        board: &Board,
+        config: SharedTreeMctsConfig,
+        policy: &P,
+        value: &V,
+        abort: &AtomicBool,
     ) -> SharedTreeMctsInfo {
         let mut probe = board.clone();
         let root_moves = generate_legal_moves(&mut probe);
@@ -431,17 +445,25 @@ impl SharedTreeMcts {
                 arena: &mut arena,
                 index: &mut index,
                 transposition_hits: &mut transposition_hits,
+                abort,
             };
             shared_expand(board, 0, config.max_depth, root_moves, &mut context);
             for _ in 0..config.simulations {
+                if abort.load(Ordering::Relaxed) {
+                    break;
+                }
                 let mut current = board.clone();
-                shared_simulate(
+                if shared_simulate(
                     &mut current,
                     0,
                     config.max_depth,
                     self.exploration,
                     &mut context,
-                );
+                )
+                .is_none()
+                {
+                    break;
+                }
                 completed += 1;
             }
         }
@@ -519,7 +541,10 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
     depth_left: u16,
     exploration: f32,
     context: &mut SharedSearchContext<'_, P, V>,
-) -> f32 {
+) -> Option<f32> {
+    if context.abort.load(Ordering::Relaxed) {
+        return None;
+    }
     let mut probe = board.clone();
     let moves = generate_legal_moves(&mut probe);
     if moves.is_empty() {
@@ -530,13 +555,13 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
         };
         context.arena[node_index].visits += 1;
         context.arena[node_index].value_sum += result;
-        return result;
+        return Some(result);
     }
     if depth_left == 0 {
         let result = context.value.value(board).clamp(-1.0, 1.0);
         context.arena[node_index].visits += 1;
         context.arena[node_index].value_sum += result;
-        return result;
+        return Some(result);
     }
     if context.arena[node_index].children.is_empty() {
         shared_expand(board, node_index, depth_left, moves, context);
@@ -556,10 +581,10 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
     let token = board.do_move(selected.0);
     let child_value = shared_simulate(board, selected.1, depth_left - 1, exploration, context);
     board.undo_move(token);
-    let result = -child_value;
+    let result = -child_value?;
     context.arena[node_index].visits += 1;
     context.arena[node_index].value_sum += result;
-    result
+    Some(result)
 }
 
 fn shared_ucb(
@@ -1147,6 +1172,23 @@ mod tests {
         assert_eq!(first.simulations, 16);
         assert_eq!(first.nodes, second.nodes);
         assert_eq!(first.root_children, 30);
+    }
+
+    #[test]
+    fn shared_tree_pilot_honors_pre_set_abort() {
+        let abort = AtomicBool::new(true);
+        let info = SharedTreeMcts::default().search_with_abort(
+            &Board::startpos(),
+            SharedTreeMctsConfig {
+                simulations: 16,
+                ..SharedTreeMctsConfig::default()
+            },
+            &UniformPolicy,
+            &MaterialValue,
+            &abort,
+        );
+        assert_eq!(info.simulations, 0);
+        assert_eq!(info.nodes, 31);
     }
 
     #[test]
