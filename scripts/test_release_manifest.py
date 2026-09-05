@@ -5,6 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from validate_release_manifest import validate
+from record_mcts_manifest import record
 
 FIXTURE = Path(__file__).parent / "fixtures" / "release_manifest_diagnostic_v1.json"
 
@@ -40,5 +41,15 @@ class ReleaseManifestTests(unittest.TestCase):
         doc = json.loads(FIXTURE.read_text())
         doc["mcts_diagnostic"]["strength_claim"] = True
         self.assertIn("mcts_diagnostic.strength_claim", validate(doc))
+
+    def test_records_mcts_diagnostic_without_mutating_source(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.json"
+            record(source, output, "SharedMcts", 4, 31, 0)
+            self.assertNotIn("mcts_diagnostic", json.loads(source.read_text()))
+            self.assertEqual(validate(json.loads(output.read_text())), [])
 
 if __name__ == "__main__": unittest.main()

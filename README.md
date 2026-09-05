@@ -303,6 +303,16 @@ The current release record is kept in
 transcript is [`scripts/fixtures/usi_smoke_v0.3.28.txt`](scripts/fixtures/usi_smoke_v0.3.28.txt).
 These are release-audit evidence, not strength claims.
 
+For an opt-in MCTS candidate diagnostic, create a validated manifest copy without modifying the
+release record:
+
+```bash
+python3 scripts/record_mcts_manifest.py \
+  --release-manifest release-manifest-v0.3.28.json \
+  --output candidate-manifest.json --mode SharedMcts \
+  --simulations 4 --arena-nodes 31 --transposition-hits 0
+```
+
 Before a release, check the public metadata without compiling or running the engine:
 
 ```bash
