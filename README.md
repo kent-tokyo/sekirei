@@ -50,6 +50,9 @@ sekirei /path/to/weights.bin
   move ordering, and pruning heuristics.
 - Lock-free transposition table, optional speculative parallel search, and an
   opt-in Lazy SMP search backend.
+- An opt-in deterministic root MCTS pilot with injectable policy/value providers.
+- An opt-in bounded df-pn mate-search API with node/depth limits and safe
+  `Unknown` results when the configured boundary is reached.
 - NNUE-style efficiently updatable evaluation with file-based checkpoints.
 - CSA v2.2 / Floodgate client for automated games.
 - USI-vs-USI match runner for self-play, regression testing, and relative Elo estimation.
@@ -86,6 +89,10 @@ optional speculative search, and an opt-in Lazy SMP backend. `SpecTopN=0` disabl
 search and is useful when a repeatable run is required. A verification search used by singular extensions is deliberately
 excluded from unrestricted TT writes, so a partial verification result cannot overwrite the
 parent node's reusable entry.
+
+The core also contains experimental root-level MCTS and bounded df-pn APIs.
+They are opt-in research components, are not wired into the default USI mode,
+and do not establish a playing-strength result.
 
 ## Build and test
 
