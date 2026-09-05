@@ -317,4 +317,49 @@ mod tests {
         );
         assert_eq!(default_result, explicit_result);
     }
+
+    #[test]
+    fn deterministic_mate_corpus_preserves_expected_boundaries() {
+        let corpus = [
+            (
+                MATE_IN_1,
+                DfpnOutcome::Proven,
+                DfpnConfig {
+                    max_depth: 1,
+                    node_limit: 1_000,
+                    ..DfpnConfig::default()
+                },
+            ),
+            (
+                "K8/2k6/9/9/4r4/9/9/9/9 w - 1",
+                DfpnOutcome::Proven,
+                DfpnConfig {
+                    max_depth: 1,
+                    node_limit: 1_000,
+                    ..DfpnConfig::default()
+                },
+            ),
+            (
+                "9/9/9/9/9/9/9/9/9 b - 1",
+                DfpnOutcome::Disproven,
+                DfpnConfig::default(),
+            ),
+            (
+                crate::sfen::STARTPOS_SFEN,
+                DfpnOutcome::Unknown,
+                DfpnConfig {
+                    max_depth: 1,
+                    node_limit: 1_000,
+                    ..DfpnConfig::default()
+                },
+            ),
+        ];
+
+        for (sfen, expected, config) in corpus {
+            let board = Board::from_sfen(sfen).unwrap();
+            let result = DfpnSolver.solve(&board, config);
+            assert_eq!(result.outcome, expected, "unexpected result for {sfen}");
+            assert!(!result.aborted, "unexpected abort for {sfen}");
+        }
+    }
 }
