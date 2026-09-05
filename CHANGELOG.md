@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## [0.3.28] – 2026-09-05
+
+- Added single-check evasion prefiltering while retaining make/unmake legality
+  confirmation for correctness.
+- Added fixed pin/evasion and branched legality differential corpora, including
+  the 10,000,000 random Perft/mated validation gate.
+- Reused thread-local move buffers in alpha-beta and quiescence search without
+  shared mutable state.
+- Recorded fixed-condition local performance diagnostics; mixed results remain
+  diagnostic only and do not imply a strength or Elo claim.
+- Updated release metadata and the public attribution/reproducibility records.
+
 ## [0.3.27] – 2026-09-04
 
 - Added an opt-in USI `SearchMode=LazySMP` backend. Workers keep private board

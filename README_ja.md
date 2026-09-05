@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.27`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.28`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -264,8 +264,8 @@ https://github.com/kent-tokyo/sekirei
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
 現在のrelease manifestは
-[`release-manifest-v0.3.27.json`](release-manifest-v0.3.27.json)に保存しています。現行のLazy SMP
-USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt)です。
+[`release-manifest-v0.3.28.json`](release-manifest-v0.3.28.json)に保存しています。現行のLazy SMP
+USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.28.txt`](scripts/fixtures/usi_smoke_v0.3.28.txt)です。
 いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 
 リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。

@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.27`). It speaks the
+`0.3.28`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -287,8 +287,8 @@ permission. NNUE weight files are separate artifacts and are licensed under CC B
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
 The current release record is kept in
-[`release-manifest-v0.3.27.json`](release-manifest-v0.3.27.json). The current Lazy SMP USI smoke
-transcript is [`scripts/fixtures/usi_smoke_v0.3.27.txt`](scripts/fixtures/usi_smoke_v0.3.27.txt).
+[`release-manifest-v0.3.28.json`](release-manifest-v0.3.28.json). The current Lazy SMP USI smoke
+transcript is [`scripts/fixtures/usi_smoke_v0.3.28.txt`](scripts/fixtures/usi_smoke_v0.3.28.txt).
 These are release-audit evidence, not strength claims.
 
 Before a release, check the public metadata without compiling or running the engine:

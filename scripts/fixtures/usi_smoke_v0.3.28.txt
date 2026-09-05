@@ -1,0 +1,33 @@
+# Captured from the v0.3.28 release candidate.
+# SearchMode=LazySMP, Threads=1, UseBook=false; no NNUE weight file.
+# Timing/nps are host-dependent and are not release acceptance thresholds.
+$ sekirei --version
+Sekirei 0.3.28
+$ sekirei
+> usi
+< id name Sekirei
+< id author Kentaro Tanabe
+< option name Hash type spin default 64 min 1 max 2048
+< option name Threads type spin default 0 min 0 max 512
+< option name SearchMode type combo default Speculative var Speculative var LazySMP
+< option name SpecTopN type spin default 3 min 0 max 512
+< option name MoveOverhead type spin default 50 min 0 max 5000
+< option name Ponder type check default false
+< option name MultiPV type spin default 1 min 1 max 256
+< option name EvalFile type string default
+< option name UseBook type check default true
+< option name BookMaxPly type spin default 30 min 0 max 200
+< option name BookMinConfidence type string default 0.20
+< option name BookFile type string default data/opening_book.jsonl
+< usiok
+> setoption name UseBook value false
+> setoption name Threads value 1
+> setoption name SearchMode value LazySMP
+> isready
+< readyok
+> position startpos
+> go depth 1
+< info string lazy_smp w0:d1:n60:s0
+< info depth 1 score cp 0 nodes 60 nps 15000 time 4 hashfull 0 pv 9g9f
+< bestmove 9g9f
+> quit
