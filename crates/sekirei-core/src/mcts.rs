@@ -12,6 +12,7 @@ use crate::movegen::{generate_legal_moves, is_in_check};
 use crate::mv::Move;
 use crate::nnue::NnueWeights;
 use rayon::prelude::*;
+use std::collections::HashMap;
 
 /// Supplies a non-negative prior for a root move.
 pub trait MctsPolicy {
@@ -97,6 +98,8 @@ pub struct MctsConfig {
     /// every legal root move; a finite value starts with one move and adds a
     /// move after each period of root visits.
     pub root_widening: Option<u32>,
+    /// Cache deterministic child values by position hash.
+    pub value_cache: bool,
 }
 
 impl Default for MctsConfig {
@@ -104,6 +107,7 @@ impl Default for MctsConfig {
         Self {
             simulations: 128,
             root_widening: None,
+            value_cache: false,
         }
     }
 }
@@ -121,6 +125,8 @@ pub struct MctsInfo {
     pub root_children: usize,
     /// Number of root children eligible for selection after widening.
     pub expanded_root_children: usize,
+    /// Number of child-value lookups served by the local cache.
+    pub value_cache_hits: u32,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -154,6 +160,7 @@ impl RootMcts {
                 simulations: 0,
                 root_children: 0,
                 expanded_root_children: 0,
+                value_cache_hits: 0,
             };
         }
 
@@ -179,6 +186,8 @@ impl RootMcts {
         });
 
         let mut completed = 0;
+        let mut value_cache = HashMap::new();
+        let mut value_cache_hits = 0;
         for _ in 0..config.simulations {
             let total_visits = children.iter().map(|child| child.visits).sum::<u32>();
             let expanded_len = config
@@ -200,7 +209,18 @@ impl RootMcts {
             let child = &mut children[selected];
             let mut next = board.clone();
             next.do_move(child.mv);
-            let child_value = value_for_child(&next, value);
+            let child_value = if config.value_cache {
+                if let Some(&cached) = value_cache.get(&next.hash()) {
+                    value_cache_hits += 1;
+                    cached
+                } else {
+                    let computed = value_for_child(&next, value);
+                    value_cache.insert(next.hash(), computed);
+                    computed
+                }
+            } else {
+                value_for_child(&next, value)
+            };
             child.visits += 1;
             child.value_sum += child_value;
             completed += 1;
@@ -235,6 +255,7 @@ impl RootMcts {
                 })
                 .unwrap_or(children.len())
                 .min(children.len()),
+            value_cache_hits,
         }
     }
 
@@ -360,6 +381,7 @@ mod tests {
         let config = MctsConfig {
             simulations: 32,
             root_widening: Some(4),
+            ..MctsConfig::default()
         };
         let first = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
         let second = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
@@ -390,6 +412,7 @@ mod tests {
             MctsConfig {
                 simulations: 1,
                 root_widening: Some(4),
+                ..MctsConfig::default()
             },
             &DestinationPolicy,
             &MaterialValue,
@@ -438,6 +461,7 @@ mod tests {
         let config = MctsConfig {
             simulations: 16,
             root_widening: Some(4),
+            ..MctsConfig::default()
         };
         let first = RootMcts::default().search(&board, config, &InvalidPolicy, &MaterialValue);
         let second = RootMcts::default().search(&board, config, &InvalidPolicy, &MaterialValue);
@@ -447,11 +471,29 @@ mod tests {
     }
 
     #[test]
+    fn deterministic_value_cache_reuses_root_child_evaluations() {
+        let board = Board::startpos();
+        let info = RootMcts::default().search(
+            &board,
+            MctsConfig {
+                simulations: 16,
+                root_widening: Some(4),
+                value_cache: true,
+            },
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert!(info.value_cache_hits > 0);
+        assert!(info.value_cache_hits < info.simulations);
+    }
+
+    #[test]
     fn root_parallelism_matches_single_worker_for_deterministic_inputs() {
         let board = Board::startpos();
         let config = MctsConfig {
             simulations: 32,
             root_widening: Some(4),
+            ..MctsConfig::default()
         };
         let single = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
         let parallel =
