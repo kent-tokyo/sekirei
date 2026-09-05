@@ -9,7 +9,7 @@ $ sekirei
 < id author Kentaro Tanabe
 < option name Hash type spin default 64 min 1 max 2048
 < option name Threads type spin default 0 min 0 max 512
-< option name SearchMode type combo default Speculative var Speculative var LazySMP
+< option name SearchMode type combo default Speculative var Speculative var LazySMP var Dfpn
 < option name SpecTopN type spin default 3 min 0 max 512
 < option name MoveOverhead type spin default 50 min 0 max 5000
 < option name Ponder type check default false
