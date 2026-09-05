@@ -138,6 +138,31 @@ fn shared_mcts_quit_joins_inflight_search() {
 }
 
 #[test]
+fn shared_mcts_emits_diagnostic_transcript() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "setoption name SearchMode value SharedMcts");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go nodes 4 depth 2");
+    recv_line_matching(
+        &rx,
+        |l| {
+            l.starts_with("info string shared_mcts ")
+                && l.contains("simulations ")
+                && l.contains("arena_nodes ")
+                && l.contains("transposition_hits ")
+        },
+        Duration::from_secs(5),
+    );
+    recv_line_matching(&rx, |l| l.starts_with("bestmove "), Duration::from_secs(5));
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for diagnostic test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn dfpn_mode_returns_a_mating_bestmove() {
     let (mut child, rx, mut stdin) = spawn_engine();
 

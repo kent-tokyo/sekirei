@@ -56,6 +56,7 @@ struct SearchResult {
     hashfull: u32,
     pv_list: Vec<(sekirei_core::mv::Move, i32)>,
     worker_stats: Vec<LazySmpWorkerInfo>,
+    shared_mcts_stats: Option<(u32, u32, u32)>,
 }
 
 enum SearchBackend {
@@ -155,6 +156,7 @@ impl SearchBackend {
                     hashfull: result.hashfull,
                     pv_list: Vec::new(),
                     worker_stats: info.worker_results,
+                    shared_mcts_stats: None,
                 }
             }
             Self::Dfpn(s) => {
@@ -195,6 +197,7 @@ impl SearchBackend {
                     hashfull: 0,
                     pv_list: Vec::new(),
                     worker_stats: Vec::new(),
+                    shared_mcts_stats: None,
                 }
             }
             Self::SharedMcts(s) => {
@@ -232,6 +235,11 @@ impl SearchBackend {
                     hashfull: 0,
                     pv_list: Vec::new(),
                     worker_stats: Vec::new(),
+                    shared_mcts_stats: Some((
+                        info.simulations,
+                        info.nodes,
+                        info.transposition_hits,
+                    )),
                 }
             }
         }
@@ -248,6 +256,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         hashfull: info.hashfull,
         pv_list: info.pv_list,
         worker_stats: Vec::new(),
+        shared_mcts_stats: None,
     }
 }
 
@@ -667,6 +676,13 @@ fn main() {
                             .join(",");
                         println!("info string lazy_smp {summary}");
                     }
+                    if let Some((simulations, arena_nodes, transposition_hits)) =
+                        info.shared_mcts_stats
+                    {
+                        println!(
+                            "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
+                        );
+                    }
                     if info.pv_list.len() > 1 {
                         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
                             println!(
@@ -758,6 +774,13 @@ fn main() {
                         }
                         let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
                         let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
+                        if let Some((simulations, arena_nodes, transposition_hits)) =
+                            info.shared_mcts_stats
+                        {
+                            println!(
+                                "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
+                            );
+                        }
                         if let Some(m) = info.best_move {
                             println!(
                                 "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
