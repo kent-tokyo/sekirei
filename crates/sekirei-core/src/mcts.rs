@@ -1192,6 +1192,37 @@ mod tests {
     }
 
     #[test]
+    fn shared_tree_fixture_reuses_identical_position_links() {
+        let board = Board::startpos();
+        let mut legal = board.clone();
+        let mv = generate_legal_moves(&mut legal).into_iter().next().unwrap();
+        let mut arena = vec![SharedTreeNode {
+            visits: 0,
+            value_sum: 0.0,
+            children: Vec::new(),
+        }];
+        let mut index = HashMap::new();
+        let mut transposition_hits = 0;
+        let abort = AtomicBool::new(false);
+        let mut context = SharedSearchContext {
+            policy: &UniformPolicy,
+            value: &MaterialValue,
+            arena: &mut arena,
+            index: &mut index,
+            transposition_hits: &mut transposition_hits,
+            abort: &abort,
+        };
+        shared_expand(&board, 0, 2, vec![mv, mv], &mut context);
+        assert_eq!(context.arena.len(), 2);
+        assert_eq!(context.arena[0].children.len(), 2);
+        assert_eq!(
+            context.arena[0].children[0].node,
+            context.arena[0].children[1].node
+        );
+        assert_eq!(*context.transposition_hits, 1);
+    }
+
+    #[test]
     fn nnue_value_isolated_provider_is_deterministic() {
         let board = Board::startpos();
         let value = NnueValue::default_lcg();
