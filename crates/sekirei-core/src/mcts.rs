@@ -1223,6 +1223,13 @@ mod tests {
     }
 
     #[test]
+    fn natural_move_order_fixture_reaches_the_same_position_hash() {
+        let first = crate::sfen::parse_position_cmd("startpos moves 7g7f 3c3d 2g2f 8c8d").unwrap();
+        let second = crate::sfen::parse_position_cmd("startpos moves 2g2f 8c8d 7g7f 3c3d").unwrap();
+        assert_eq!(first.hash(), second.hash());
+    }
+
+    #[test]
     fn nnue_value_isolated_provider_is_deterministic() {
         let board = Board::startpos();
         let value = NnueValue::default_lcg();
