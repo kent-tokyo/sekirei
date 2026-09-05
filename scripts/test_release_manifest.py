@@ -19,7 +19,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(validate(json.loads(FIXTURE.read_text())), [])
 
     def test_current_release_manifest_is_valid(self):
-        manifest = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        manifest = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         self.assertEqual(validate(json.loads(manifest.read_text())), [])
 
     def test_rejects_schema_and_diagnostic_classification(self):
@@ -50,7 +50,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_records_mcts_diagnostic_without_mutating_source(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record(source, output, "SharedMcts", 4, 31, 0)
@@ -72,8 +72,8 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_verifies_transcript_and_manifest_counts(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
-        transcript = Path(__file__).parent / "fixtures" / "usi_smoke_shared_mcts_v0.3.28.txt"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
+        transcript = Path(__file__).parent / "fixtures" / "usi_smoke_shared_mcts_v0.3.29.txt"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record(source, output, "SharedMcts", 4, 31, 0)
@@ -82,7 +82,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_rejects_mismatched_transcript_and_manifest_counts(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             transcript = Path(directory) / "transcript.txt"
@@ -121,7 +121,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_summarizes_mcts_comparison_without_strength_claim(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record(source, output, "SharedMcts", 4, 31, 0)
@@ -132,7 +132,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_aggregates_comparison_summaries_by_budget(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first.json"
             second = Path(directory) / "second.json"
@@ -185,7 +185,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_classifies_comparison_agreement(self):
         import tempfile
 
-        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             output.write_text(

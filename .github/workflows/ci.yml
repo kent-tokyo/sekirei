@@ -59,8 +59,8 @@ jobs:
       - name: SharedMcts transcript manifest fixture
         run: |
           python3 scripts/record_mcts_transcript.py \
-            --release-manifest release-manifest-v0.3.28.json \
-            --transcript scripts/fixtures/usi_smoke_shared_mcts_v0.3.28.txt \
+            --release-manifest release-manifest-v0.3.29.json \
+            --transcript scripts/fixtures/usi_smoke_shared_mcts_v0.3.29.txt \
             --output /tmp/release-manifest-with-mcts.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts.json
       - name: SharedMcts binary transcript smoke
@@ -72,16 +72,16 @@ jobs:
             'setoption name SearchMode value SharedMcts' \
             'position startpos' \
             'go nodes 4 depth 2' \
-            'quit' | target/release/sekirei > /tmp/usi-shared-mcts-v0.3.28.txt
-          grep -q '^info string shared_mcts ' /tmp/usi-shared-mcts-v0.3.28.txt
+            'quit' | target/release/sekirei > /tmp/usi-shared-mcts-v0.3.29.txt
+          grep -q '^info string shared_mcts ' /tmp/usi-shared-mcts-v0.3.29.txt
           python3 scripts/record_mcts_transcript.py \
-            --release-manifest release-manifest-v0.3.28.json \
-            --transcript /tmp/usi-shared-mcts-v0.3.28.txt \
+            --release-manifest release-manifest-v0.3.29.json \
+            --transcript /tmp/usi-shared-mcts-v0.3.29.txt \
             --output /tmp/release-manifest-with-live-mcts.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-live-mcts.json
           python3 scripts/verify_mcts_diagnostic.py \
             --manifest /tmp/release-manifest-with-live-mcts.json \
-            --transcript /tmp/usi-shared-mcts-v0.3.28.txt
+            --transcript /tmp/usi-shared-mcts-v0.3.29.txt
       - name: Fixed-budget MCTS diagnostic
         run: |
           cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic > /tmp/mcts-fixed-budget-1.txt
@@ -89,7 +89,7 @@ jobs:
           diff -u /tmp/mcts-fixed-budget-1.txt /tmp/mcts-fixed-budget-2.txt
           test "$(grep -c '^repeat=' /tmp/mcts-fixed-budget-1.txt)" -eq 18
           python3 scripts/record_mcts_comparison.py \
-            --release-manifest release-manifest-v0.3.28.json \
+            --release-manifest release-manifest-v0.3.29.json \
             --transcript /tmp/mcts-fixed-budget-1.txt \
             --output /tmp/release-manifest-with-mcts-comparison.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts-comparison.json
@@ -102,7 +102,7 @@ jobs:
           diff -u /tmp/mcts-fixed-budget-small-1.txt /tmp/mcts-fixed-budget-small-2.txt
           test "$(grep -c '^repeat=' /tmp/mcts-fixed-budget-small-1.txt)" -eq 18
           python3 scripts/record_mcts_comparison.py \
-            --release-manifest release-manifest-v0.3.28.json \
+            --release-manifest release-manifest-v0.3.29.json \
             --transcript /tmp/mcts-fixed-budget-small-1.txt \
             --output /tmp/release-manifest-with-mcts-comparison-small.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts-comparison-small.json
@@ -118,9 +118,9 @@ jobs:
       - name: Upload SharedMcts diagnostic artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: shared-mcts-diagnostic-v0.3.28
+          name: shared-mcts-diagnostic-v0.3.29
           path: |
-            /tmp/usi-shared-mcts-v0.3.28.txt
+            /tmp/usi-shared-mcts-v0.3.29.txt
             /tmp/release-manifest-with-live-mcts.json
             /tmp/mcts-fixed-budget-1.txt
             /tmp/release-manifest-with-mcts-comparison.json
@@ -138,7 +138,7 @@ jobs:
         run: |
           python3 scripts/validate_resume_manifest.py scripts/fixtures/resume_manifest_v1.json
           python3 scripts/attach_resume_manifest.py \
-            --release-manifest release-manifest-v0.3.28.json \
+            --release-manifest release-manifest-v0.3.29.json \
             --resume-manifest scripts/fixtures/resume_manifest_v1.json \
             --output /tmp/release-manifest-with-resume.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-resume.json
@@ -150,7 +150,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: shared-mcts-diagnostic-v0.3.28
+          name: shared-mcts-diagnostic-v0.3.29
           path: /tmp/shared-mcts-diagnostic
       - name: Verify downloaded SharedMcts diagnostic artifact
         run: |
@@ -158,7 +158,7 @@ jobs:
             /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json
           python3 scripts/verify_mcts_diagnostic.py \
             --manifest /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json \
-            --transcript /tmp/shared-mcts-diagnostic/usi-shared-mcts-v0.3.28.txt
+            --transcript /tmp/shared-mcts-diagnostic/usi-shared-mcts-v0.3.29.txt
           test "$(grep -c '^repeat=' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 18
           test "$(grep -c 'mode=TreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
           test "$(grep -c 'mode=SharedTreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
