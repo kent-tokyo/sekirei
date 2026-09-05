@@ -903,6 +903,35 @@ impl Drop for MoveBuffer {
 }
 
 #[cfg(test)]
+mod move_buffer_tests {
+    use super::*;
+
+    #[test]
+    fn reusable_buffers_match_owned_move_lists() {
+        let mut owned_board = Board::startpos();
+        let expected = generate_legal_moves(&mut owned_board);
+        let mut buffered_board = Board::startpos();
+        let buffered = MoveBuffer::legal(&mut buffered_board);
+
+        assert_eq!(buffered.as_slice(), expected.as_slice());
+        assert_eq!(buffered.len(), expected.len());
+        assert_eq!(buffered_board.hash(), Board::startpos().hash());
+
+        let mut owned_captures_board =
+            Board::from_sfen("lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 1")
+                .unwrap();
+        let expected_captures = generate_legal_captures(&mut owned_captures_board);
+        let mut buffered_captures_board =
+            Board::from_sfen("lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 1")
+                .unwrap();
+        let buffered_captures = MoveBuffer::captures(&mut buffered_captures_board);
+
+        assert_eq!(buffered_captures.as_slice(), expected_captures.as_slice());
+        assert_eq!(buffered_captures.len(), expected_captures.len());
+    }
+}
+
+#[cfg(test)]
 mod king_capture_tests {
     use super::*;
 
