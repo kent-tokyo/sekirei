@@ -294,4 +294,27 @@ mod tests {
         assert!(!result.aborted);
         assert_eq!(result.cache_hits, 0);
     }
+
+    #[test]
+    fn disabled_thresholds_match_explicit_unlimited_configuration() {
+        let board = Board::from_sfen(MATE_IN_1).unwrap();
+        let default_result = DfpnSolver.solve(
+            &board,
+            DfpnConfig {
+                max_depth: 2,
+                node_limit: 1_000,
+                ..DfpnConfig::default()
+            },
+        );
+        let explicit_result = DfpnSolver.solve(
+            &board,
+            DfpnConfig {
+                max_depth: 2,
+                node_limit: 1_000,
+                proof_threshold: INF,
+                disproof_threshold: INF,
+            },
+        );
+        assert_eq!(default_result, explicit_result);
+    }
 }
