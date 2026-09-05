@@ -1293,4 +1293,31 @@ mod legality_probe_tests {
             }
         }
     }
+
+    #[test]
+    fn extended_seeded_legality_corpus_matches_full_update_reference() {
+        // This is intentionally a bounded, deterministic preflight for the
+        // future randomized Perft gate: enough branches to revisit checks and
+        // pins without turning a unit test into a long measurement.
+        const SEEDS: [usize; 8] = [3, 11, 29, 47, 71, 101, 149, 197];
+        for seed in SEEDS.iter().copied() {
+            let mut position = Board::startpos();
+            for ply in 0..256usize {
+                let mut actual = position.clone();
+                let actual_moves = generate_legal_moves(&mut actual);
+                let mut reference = position.clone();
+                let reference_moves = legal_moves_with_full_nnue_updates(&mut reference);
+                assert_eq!(
+                    actual_moves, reference_moves,
+                    "legal moves differ at seed {seed}, ply {ply}"
+                );
+
+                if actual_moves.is_empty() {
+                    break;
+                }
+                let move_index = (seed + ply * 37 + (ply / 7) * 11) % actual_moves.len();
+                position.do_move(actual_moves[move_index]);
+            }
+        }
+    }
 }
