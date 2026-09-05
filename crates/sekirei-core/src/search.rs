@@ -31,7 +31,7 @@ use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate};
-use crate::movegen::{generate_legal_captures, generate_legal_moves, is_in_check};
+use crate::movegen::{MoveBuffer, generate_legal_captures, generate_legal_moves, is_in_check};
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::speculative::{SpecGroup, SpecState};
@@ -781,15 +781,15 @@ fn alpha_beta(
         }
     }
 
-    let moves = generate_legal_moves(board);
-    if moves.is_empty() {
+    let mut move_buffer = MoveBuffer::legal(board);
+    if move_buffer.is_empty() {
         return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
     }
 
     let killers = state.killers.get(ply as usize);
-    let ordered = order_moves(
+    order_moves_in_place(
         board,
-        moves,
+        move_buffer.as_mut_vec(),
         tt_mv,
         killers,
         countermove,
@@ -798,11 +798,10 @@ fn alpha_beta(
     );
 
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
-    let ordered: Vec<Move> = if let Some(skip) = skip_move {
-        ordered.into_iter().filter(|&m| m != skip).collect()
-    } else {
-        ordered
-    };
+    if let Some(skip) = skip_move {
+        move_buffer.as_mut_vec().retain(|&m| m != skip);
+    }
+    let ordered = move_buffer.as_slice();
     if ordered.is_empty() {
         return alpha;
     } // all moves excluded (shouldn't happen in practice)
@@ -1274,13 +1273,13 @@ fn quiescence(
         }
     }
 
-    let moves = if in_check {
-        generate_legal_moves(board) // must escape check; all legal moves required
+    let mut move_buffer = if in_check {
+        MoveBuffer::legal(board) // must escape check; all legal moves required
     } else {
-        generate_legal_captures(board)
+        MoveBuffer::captures(board)
     };
 
-    if moves.is_empty() {
+    if move_buffer.is_empty() {
         let score = if in_check {
             -MATE_SCORE + ply as i32 // checkmate
         } else {
@@ -1307,8 +1306,7 @@ fn quiescence(
     // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
     // per node (qsearch is the hottest path); the coarse capture ordering is
     // plenty for quiescence and keeps each node fast enough to respect the clock.
-    let mut ordered = moves;
-    ordered.sort_by_cached_key(|&m| {
+    move_buffer.as_mut_vec().sort_by_cached_key(|&m| {
         (
             if Some(m) == tt_mv { 0 } else { 1 },
             -qsearch_order_key(board, m),
@@ -1316,7 +1314,7 @@ fn quiescence(
     });
 
     let mut best_move = None;
-    for m in ordered {
+    for &m in move_buffer.as_slice() {
         let tok = board.do_move(m);
         let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
         board.undo_move(tok);
@@ -1350,9 +1348,11 @@ fn quiescence(
     if !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
-        let mut qchecks = generate_legal_moves(board);
-        qchecks.sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
-        for m in qchecks {
+        let mut qchecks = MoveBuffer::legal(board);
+        qchecks
+            .as_mut_vec()
+            .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
+        for &m in qchecks.as_slice() {
             // Skip captures — already handled above
             if m.from.is_some() && board.piece_at(m.to).is_some() {
                 continue;
@@ -1368,7 +1368,9 @@ fn quiescence(
             // Promoting moves are exempt (promotion value offsets the risk).
             if !m.promote {
                 let mover_val = PIECE_VALUE[m.piece_kind.index()];
-                let unsafe_check = generate_legal_captures(board)
+                let captures = MoveBuffer::captures(board);
+                let unsafe_check = captures
+                    .as_slice()
                     .iter()
                     .filter(|r| r.to == m.to)
                     .any(|r| PIECE_VALUE[r.piece_kind.index()] < mover_val);
@@ -1932,6 +1934,19 @@ fn order_moves(
     history: &HistoryTable,
     stm: Color,
 ) -> Vec<Move> {
+    order_moves_in_place(board, &mut moves, tt_mv, killers, countermove, history, stm);
+    moves
+}
+
+fn order_moves_in_place(
+    board: &mut Board,
+    moves: &mut [Move],
+    tt_mv: Option<Move>,
+    killers: [Option<Move>; 2],
+    countermove: Option<Move>,
+    history: &HistoryTable,
+    stm: Color,
+) {
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
     moves.sort_by_cached_key(|&m| {
@@ -1964,7 +1979,6 @@ fn order_moves(
         // 6. Remaining quiet moves by history score
         -(-8_000 + history.get(stm, m.piece_kind, m.to))
     });
-    moves
 }
 
 #[cfg(test)]

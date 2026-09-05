@@ -6,6 +6,7 @@ use crate::color::Color;
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::square::{Direction, Square};
+use std::cell::RefCell;
 
 // ---- Attack detection ----
 
@@ -771,11 +772,19 @@ fn is_uchifuzume(board: &mut Board, opponent: Color) -> bool {
 
 /// Generate fully legal moves: filters pseudo-legal moves for own-king-in-check and uchifuzume
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
+    let mut legals = Vec::new();
+    generate_legal_moves_into(board, &mut legals);
+    legals
+}
+
+/// Generate fully legal moves into a caller-owned reusable buffer.
+pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
+    legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
     let pseudos = generate_moves(board);
 
-    let mut legals = Vec::with_capacity(pseudos.len());
+    legals.reserve(pseudos.len());
     for m in pseudos {
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
         if board
@@ -794,16 +803,23 @@ pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
         }
         board.undo_move_for_legality(tok);
     }
-    legals
 }
 
 /// Generate legal capture moves only (no drops, no quiet moves).
 /// Used by quiescence search to resolve tactical sequences at the horizon.
 pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
+    let mut legals = Vec::new();
+    generate_legal_captures_into(board, &mut legals);
+    legals
+}
+
+/// Generate legal captures into a caller-owned reusable buffer.
+pub fn generate_legal_captures_into(board: &mut Board, legals: &mut Vec<Move>) {
+    legals.clear();
     let mover = board.side_to_move;
     let pseudos = generate_captures(board);
 
-    let mut legals = Vec::with_capacity(pseudos.len());
+    legals.reserve(pseudos.len());
     for m in pseudos {
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
         if board
@@ -818,7 +834,72 @@ pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
         }
         board.undo_move_for_legality(tok);
     }
-    legals
+}
+
+thread_local! {
+    static MOVE_BUFFER_POOL: RefCell<Vec<Vec<Move>>> = const { RefCell::new(Vec::new()) };
+}
+
+fn take_move_buffer() -> Vec<Move> {
+    MOVE_BUFFER_POOL.with(|pool| {
+        pool.borrow_mut()
+            .pop()
+            .unwrap_or_else(|| Vec::with_capacity(64))
+    })
+}
+
+fn recycle_move_buffer(mut moves: Vec<Move>) {
+    moves.clear();
+    MOVE_BUFFER_POOL.with(|pool| pool.borrow_mut().push(moves));
+}
+
+/// A thread-local reusable move list for hot search paths.
+pub struct MoveBuffer {
+    moves: Option<Vec<Move>>,
+}
+
+impl MoveBuffer {
+    /// Generates legal moves using a reusable per-thread allocation.
+    pub fn legal(board: &mut Board) -> Self {
+        let mut moves = take_move_buffer();
+        generate_legal_moves_into(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
+    /// Generates legal captures using a reusable per-thread allocation.
+    pub fn captures(board: &mut Board) -> Self {
+        let mut moves = take_move_buffer();
+        generate_legal_captures_into(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
+    /// Returns the generated moves as a read-only slice.
+    pub fn as_slice(&self) -> &[Move] {
+        self.moves.as_deref().unwrap_or(&[])
+    }
+
+    /// Returns the generated moves for in-place ordering or filtering.
+    pub fn as_mut_vec(&mut self) -> &mut Vec<Move> {
+        self.moves.as_mut().expect("move buffer is always present")
+    }
+
+    /// Returns whether the generated move list is empty.
+    pub fn is_empty(&self) -> bool {
+        self.as_slice().is_empty()
+    }
+
+    /// Returns the number of generated moves.
+    pub fn len(&self) -> usize {
+        self.as_slice().len()
+    }
+}
+
+impl Drop for MoveBuffer {
+    fn drop(&mut self) {
+        if let Some(moves) = self.moves.take() {
+            recycle_move_buffer(moves);
+        }
+    }
 }
 
 #[cfg(test)]
