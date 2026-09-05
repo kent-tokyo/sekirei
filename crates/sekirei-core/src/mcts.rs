@@ -13,6 +13,7 @@ use crate::mv::Move;
 use crate::nnue::NnueWeights;
 use rayon::prelude::*;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 /// Supplies a non-negative prior for a root move.
 pub trait MctsPolicy {
@@ -195,6 +196,7 @@ struct TreeSimulationContext<'a, P, V> {
     cache_enabled: bool,
     value_cache: &'a mut HashMap<(u64, u16), f32>,
     value_cache_hits: &'a mut u32,
+    abort: &'a AtomicBool,
 }
 
 impl TreeNode {
@@ -232,6 +234,23 @@ impl TreeMcts {
         policy: &P,
         value: &V,
     ) -> TreeMctsInfo {
+        let abort = AtomicBool::new(false);
+        self.search_with_abort(board, config, policy, value, &abort)
+    }
+
+    /// Run a bounded full-tree search that cooperatively observes `abort`.
+    ///
+    /// The flag is checked between simulations and at every recursive node.
+    /// Partial simulations are discarded, so the returned visit totals only
+    /// include completed simulations.
+    pub fn search_with_abort<P: MctsPolicy, V: MctsValue>(
+        &self,
+        board: &Board,
+        config: TreeMctsConfig,
+        policy: &P,
+        value: &V,
+        abort: &AtomicBool,
+    ) -> TreeMctsInfo {
         let mut root_probe = board.clone();
         let root_moves = generate_legal_moves(&mut root_probe);
         if root_moves.is_empty() {
@@ -256,6 +275,9 @@ impl TreeMcts {
         let mut value_cache = HashMap::new();
         let mut value_cache_hits = 0;
         for _ in 0..config.simulations {
+            if abort.load(Ordering::Relaxed) {
+                break;
+            }
             let mut current = board.clone();
             let mut context = TreeSimulationContext {
                 exploration: self.exploration,
@@ -265,8 +287,11 @@ impl TreeMcts {
                 cache_enabled: config.value_cache,
                 value_cache: &mut value_cache,
                 value_cache_hits: &mut value_cache_hits,
+                abort,
             };
-            let _ = tree_simulate(&mut current, &mut root, config.max_depth, &mut context);
+            if tree_simulate(&mut current, &mut root, config.max_depth, &mut context).is_none() {
+                break;
+            }
             completed += 1;
         }
 
@@ -318,7 +343,10 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
     node: &mut TreeNode,
     depth_left: u16,
     context: &mut TreeSimulationContext<'_, P, V>,
-) -> f32 {
+) -> Option<f32> {
+    if context.abort.load(Ordering::Relaxed) {
+        return None;
+    }
     let mut probe = board.clone();
     let moves = generate_legal_moves(&mut probe);
     if moves.is_empty() {
@@ -329,7 +357,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         };
         node.visits += 1;
         node.value_sum += result;
-        return result;
+        return Some(result);
     }
     if depth_left == 0 {
         let key = (board.hash(), depth_left);
@@ -347,7 +375,7 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         };
         node.visits += 1;
         node.value_sum += result;
-        return result;
+        return Some(result);
     }
     if node.children.is_empty() {
         expand_node(board, node, context.policy, moves);
@@ -388,10 +416,10 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
     let token = board.do_move(child.mv);
     let child_value = tree_simulate(board, &mut child.node, depth_left - 1, context);
     board.undo_move(token);
-    let result = -child_value;
+    let result = -child_value?;
     node.visits += 1;
     node.value_sum += result;
-    result
+    Some(result)
 }
 
 impl RootMcts {
@@ -814,6 +842,24 @@ mod tests {
         );
         assert!(info.value_cache_hits > 0);
         assert!(info.value_cache_hits < info.simulations);
+    }
+
+    #[test]
+    fn tree_pilot_honors_pre_set_abort_without_partial_simulation() {
+        let abort = AtomicBool::new(true);
+        let info = TreeMcts::default().search_with_abort(
+            &Board::startpos(),
+            TreeMctsConfig {
+                simulations: 32,
+                ..TreeMctsConfig::default()
+            },
+            &UniformPolicy,
+            &MaterialValue,
+            &abort,
+        );
+        assert_eq!(info.simulations, 0);
+        assert_eq!(info.nodes, 1);
+        assert_eq!(info.value_cache_hits, 0);
     }
 
     #[test]
