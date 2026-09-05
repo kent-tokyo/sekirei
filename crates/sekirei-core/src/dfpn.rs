@@ -12,6 +12,7 @@ use crate::color::Color;
 use crate::movegen::{generate_legal_moves, is_in_check};
 use crate::mv::Move;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 const INF: u64 = u64::MAX / 4;
 
@@ -80,7 +81,7 @@ struct Numbers {
     complete: bool,
 }
 
-struct SearchState {
+struct SearchState<'a> {
     attacker: Color,
     config: DfpnConfig,
     nodes: u64,
@@ -88,11 +89,34 @@ struct SearchState {
     cache: HashMap<(u64, u16), Numbers>,
     cache_hits: u64,
     thresholded: bool,
+    abort_signal: Option<&'a AtomicBool>,
 }
 
 impl DfpnSolver {
     /// Search whether the side to move can force checkmate.
     pub fn solve(&self, board: &Board, config: DfpnConfig) -> DfpnResult {
+        self.solve_internal(board, config, None)
+    }
+
+    /// Search with cooperative cancellation for an owning controller thread.
+    ///
+    /// The solver never spawns a thread and does not retain the signal after
+    /// returning. A set signal produces `Unknown` with `aborted = true`.
+    pub fn solve_with_abort(
+        &self,
+        board: &Board,
+        config: DfpnConfig,
+        abort_signal: &AtomicBool,
+    ) -> DfpnResult {
+        self.solve_internal(board, config, Some(abort_signal))
+    }
+
+    fn solve_internal(
+        &self,
+        board: &Board,
+        config: DfpnConfig,
+        abort_signal: Option<&AtomicBool>,
+    ) -> DfpnResult {
         let attacker = board.side_to_move;
         let mut state = SearchState {
             attacker,
@@ -102,6 +126,7 @@ impl DfpnSolver {
             cache: HashMap::new(),
             cache_hits: 0,
             thresholded: false,
+            abort_signal,
         };
         let mut numbers = solve_node(board, config.max_depth, &mut state);
         if config.re_search_on_threshold && state.thresholded && !state.aborted {
@@ -117,6 +142,7 @@ impl DfpnSolver {
                 cache: HashMap::new(),
                 cache_hits: 0,
                 thresholded: false,
+                abort_signal,
             };
             numbers = solve_node(board, retry_config.max_depth, &mut retry_state);
             state.nodes = state.nodes.saturating_add(retry_state.nodes);
@@ -143,7 +169,19 @@ impl DfpnSolver {
     }
 }
 
-fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Numbers {
+fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState<'_>) -> Numbers {
+    if state
+        .abort_signal
+        .is_some_and(|signal| signal.load(Ordering::Relaxed))
+    {
+        state.aborted = true;
+        return Numbers {
+            proof: 1,
+            disproof: 1,
+            first_move: None,
+            complete: false,
+        };
+    }
     if state.nodes >= state.config.node_limit {
         state.aborted = true;
         return Numbers {
@@ -347,6 +385,17 @@ mod tests {
         assert!(!result.aborted);
         assert!(result.best_move.is_some());
         assert!(result.nodes > 1);
+    }
+
+    #[test]
+    fn cooperative_abort_returns_unknown_without_visiting_a_node() {
+        let board = Board::startpos();
+        let abort = AtomicBool::new(true);
+        let result = DfpnSolver.solve_with_abort(&board, DfpnConfig::default(), &abort);
+        assert_eq!(result.outcome, DfpnOutcome::Unknown);
+        assert!(result.aborted);
+        assert_eq!(result.nodes, 0);
+        assert_eq!(result.best_move, None);
     }
 
     #[test]
