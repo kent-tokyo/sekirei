@@ -92,11 +92,18 @@ impl Default for RootMcts {
 pub struct MctsConfig {
     /// Number of simulations to run.
     pub simulations: u32,
+    /// Optional visit period for root progressive widening. `None` expands
+    /// every legal root move; a finite value starts with one move and adds a
+    /// move after each period of root visits.
+    pub root_widening: Option<u32>,
 }
 
 impl Default for MctsConfig {
     fn default() -> Self {
-        Self { simulations: 128 }
+        Self {
+            simulations: 128,
+            root_widening: None,
+        }
     }
 }
 
@@ -111,6 +118,8 @@ pub struct MctsInfo {
     pub simulations: u32,
     /// Number of legal root children.
     pub root_children: usize,
+    /// Number of root children eligible for selection after widening.
+    pub expanded_root_children: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -143,6 +152,7 @@ impl RootMcts {
                 score: (terminal * 1_000.0) as i32,
                 simulations: 0,
                 root_children: 0,
+                expanded_root_children: 0,
             };
         }
 
@@ -164,7 +174,12 @@ impl RootMcts {
         let mut completed = 0;
         for _ in 0..config.simulations {
             let total_visits = children.iter().map(|child| child.visits).sum::<u32>();
-            let selected = children
+            let expanded_len = config
+                .root_widening
+                .map(|period| 1 + (total_visits / period.max(1)) as usize)
+                .unwrap_or(children.len())
+                .min(children.len());
+            let selected = children[..expanded_len]
                 .iter()
                 .enumerate()
                 .max_by(|(left_index, left), (right_index, right)| {
@@ -205,6 +220,14 @@ impl RootMcts {
             score: (root_value * 1_000.0) as i32,
             simulations: completed,
             root_children: children.len(),
+            expanded_root_children: config
+                .root_widening
+                .map(|period| {
+                    1 + (children.iter().map(|child| child.visits).sum::<u32>() / period.max(1))
+                        as usize
+                })
+                .unwrap_or(children.len())
+                .min(children.len()),
         }
     }
 }
@@ -242,13 +265,19 @@ mod tests {
         let searcher = RootMcts::default();
         let first = searcher.search(
             &board,
-            MctsConfig { simulations: 32 },
+            MctsConfig {
+                simulations: 32,
+                ..MctsConfig::default()
+            },
             &UniformPolicy,
             &MaterialValue,
         );
         let second = searcher.search(
             &board,
-            MctsConfig { simulations: 32 },
+            MctsConfig {
+                simulations: 32,
+                ..MctsConfig::default()
+            },
             &UniformPolicy,
             &MaterialValue,
         );
@@ -256,6 +285,7 @@ mod tests {
         assert_eq!(first.score, second.score);
         assert_eq!(first.simulations, 32);
         assert_eq!(first.root_children, 30);
+        assert_eq!(first.expanded_root_children, 30);
     }
 
     #[test]
@@ -263,12 +293,30 @@ mod tests {
         let board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b - 1").unwrap();
         let info = RootMcts::default().search(
             &board,
-            MctsConfig { simulations: 16 },
+            MctsConfig {
+                simulations: 16,
+                ..MctsConfig::default()
+            },
             &UniformPolicy,
             &MaterialValue,
         );
         assert_eq!(info.best_move, None);
         assert_eq!(info.simulations, 0);
+    }
+
+    #[test]
+    fn root_progressive_widening_is_bounded_and_deterministic() {
+        let board = Board::startpos();
+        let config = MctsConfig {
+            simulations: 32,
+            root_widening: Some(4),
+        };
+        let first = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        let second = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.score, second.score);
+        assert_eq!(first.expanded_root_children, 9);
+        assert!(first.expanded_root_children < first.root_children);
     }
 
     #[test]
