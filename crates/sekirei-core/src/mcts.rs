@@ -11,6 +11,7 @@ use crate::eval::evaluate;
 use crate::movegen::{generate_legal_moves, is_in_check};
 use crate::mv::Move;
 use crate::nnue::NnueWeights;
+use rayon::prelude::*;
 
 /// Supplies a non-negative prior for a root move.
 pub trait MctsPolicy {
@@ -236,6 +237,30 @@ impl RootMcts {
                 .min(children.len()),
         }
     }
+
+    /// Run independent root searches in parallel and select one result using
+    /// deterministic score/move tie-breaking. This is root parallelism only:
+    /// worker visit trees are intentionally not merged yet.
+    pub fn search_parallel<P: MctsPolicy + Sync, V: MctsValue + Sync>(
+        &self,
+        board: &Board,
+        config: MctsConfig,
+        policy: &P,
+        value: &V,
+        workers: usize,
+    ) -> MctsInfo {
+        (0..workers.max(1))
+            .into_par_iter()
+            .map(|_| self.search(board, config, policy, value))
+            .reduce_with(select_parallel_result)
+            .expect("root parallelism always has at least one worker")
+    }
+}
+
+fn select_parallel_result(left: MctsInfo, right: MctsInfo) -> MctsInfo {
+    let left_key = (left.score, left.best_move.map(move_key));
+    let right_key = (right.score, right.best_move.map(move_key));
+    if right_key > left_key { right } else { left }
 }
 
 fn ucb_score(child: RootChild, total_visits: u32, exploration: f32) -> f32 {
@@ -419,6 +444,25 @@ mod tests {
         assert_eq!(first.best_move, second.best_move);
         assert_eq!(first.score, second.score);
         assert_eq!(first.expanded_root_children, second.expanded_root_children);
+    }
+
+    #[test]
+    fn root_parallelism_matches_single_worker_for_deterministic_inputs() {
+        let board = Board::startpos();
+        let config = MctsConfig {
+            simulations: 32,
+            root_widening: Some(4),
+        };
+        let single = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        let parallel =
+            RootMcts::default().search_parallel(&board, config, &UniformPolicy, &MaterialValue, 3);
+        assert_eq!(parallel.best_move, single.best_move);
+        assert_eq!(parallel.score, single.score);
+        assert_eq!(parallel.simulations, single.simulations);
+        assert_eq!(
+            parallel.expanded_root_children,
+            single.expanded_root_children
+        );
     }
 
     #[test]
