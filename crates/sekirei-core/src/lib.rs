@@ -7,6 +7,7 @@ pub mod bitboard;
 pub mod board;
 mod budget;
 pub mod color;
+pub mod dfpn;
 pub mod eval;
 pub mod hand;
 pub mod lazy_smp;
