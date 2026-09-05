@@ -106,11 +106,14 @@ impl DfpnSolver {
         } else {
             DfpnOutcome::Unknown
         };
+        let best_move = (outcome == DfpnOutcome::Proven)
+            .then_some(numbers.first_move)
+            .flatten();
         DfpnResult {
             outcome,
             nodes: state.nodes,
             aborted: state.aborted,
-            best_move: numbers.first_move,
+            best_move,
             cache_hits: state.cache_hits,
         }
     }
@@ -262,6 +265,7 @@ mod tests {
         let result = DfpnSolver.solve(&board, DfpnConfig::default());
         assert_eq!(result.outcome, DfpnOutcome::Disproven);
         assert_eq!(result.nodes, 1);
+        assert_eq!(result.best_move, None);
         assert_eq!(result.cache_hits, 0);
     }
 
@@ -279,6 +283,7 @@ mod tests {
         assert_eq!(result.outcome, DfpnOutcome::Unknown);
         assert!(result.aborted);
         assert_eq!(result.nodes, 1);
+        assert_eq!(result.best_move, None);
         assert_eq!(result.cache_hits, 0);
     }
 
