@@ -655,4 +655,29 @@ mod tests {
         assert_eq!(first.result.score, second.result.score);
         assert_eq!(first.result.depth, second.result.depth);
     }
+
+    /// TT sharing may change work distribution, but must not change the
+    /// selected result versus the isolated-TT diagnostic control.
+    #[test]
+    fn lazy_smp_shared_and_isolated_results_agree() {
+        use lazy_smp::LazySmpSearcher;
+        use search::SearchConfig;
+        use tt::Tt;
+
+        let cfg = SearchConfig {
+            max_depth: 2,
+            time_limit: None,
+            node_limit: Some(5_000),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let board = Board::startpos();
+        let shared = LazySmpSearcher::new(Tt::new(16), 2).search(&board, cfg);
+        let isolated =
+            LazySmpSearcher::new_isolated_with_hash_mb(Tt::new(16), 2, 16).search(&board, cfg);
+
+        assert_eq!(shared.result.best_move, isolated.result.best_move);
+        assert_eq!(shared.result.score, isolated.result.score);
+        assert_eq!(shared.result.depth, isolated.result.depth);
+    }
 }
