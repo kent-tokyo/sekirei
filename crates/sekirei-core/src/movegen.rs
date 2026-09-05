@@ -770,6 +770,155 @@ fn is_uchifuzume(board: &mut Board, opponent: Color) -> bool {
     })
 }
 
+#[inline]
+fn piece_attacks_square(
+    board: &Board,
+    from: Square,
+    piece: crate::piece::Piece,
+    target: Square,
+) -> bool {
+    use PieceKind::*;
+
+    let color = piece.color;
+    let step =
+        |directions: &[Direction]| directions.iter().any(|&dir| from.step(dir) == Some(target));
+    let ray = |directions: &[Direction]| {
+        directions.iter().any(|&dir| {
+            let mut square = from;
+            while let Some(next) = square.step(dir) {
+                if next == target {
+                    return true;
+                }
+                if board.occ().contains(next) {
+                    return false;
+                }
+                square = next;
+            }
+            false
+        })
+    };
+
+    match piece.kind {
+        Fu => step(if color == Color::Black {
+            &[Direction::N]
+        } else {
+            &[Direction::S]
+        }),
+        Kyou => ray(if color == Color::Black {
+            &[Direction::N]
+        } else {
+            &[Direction::S]
+        }),
+        Kei => step(if color == Color::Black {
+            &[Direction::KnightN1, Direction::KnightN2]
+        } else {
+            &[Direction::KnightS1, Direction::KnightS2]
+        }),
+        Gin => step(if color == Color::Black {
+            &[
+                Direction::N,
+                Direction::NE,
+                Direction::NW,
+                Direction::SE,
+                Direction::SW,
+            ]
+        } else {
+            &[
+                Direction::S,
+                Direction::SE,
+                Direction::SW,
+                Direction::NE,
+                Direction::NW,
+            ]
+        }),
+        Kin | Tokin | Narikyo | Narikei | Narigin => step(if color == Color::Black {
+            &[
+                Direction::N,
+                Direction::NE,
+                Direction::NW,
+                Direction::E,
+                Direction::W,
+                Direction::S,
+            ]
+        } else {
+            &[
+                Direction::S,
+                Direction::SE,
+                Direction::SW,
+                Direction::E,
+                Direction::W,
+                Direction::N,
+            ]
+        }),
+        Kaku => ray(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW]),
+        Hisha => ray(&[Direction::N, Direction::S, Direction::E, Direction::W]),
+        Uma => {
+            ray(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW])
+                || step(&[Direction::N, Direction::S, Direction::E, Direction::W])
+        }
+        Ryu => {
+            ray(&[Direction::N, Direction::S, Direction::E, Direction::W])
+                || step(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW])
+        }
+        Ou => step(&[
+            Direction::N,
+            Direction::S,
+            Direction::E,
+            Direction::W,
+            Direction::NE,
+            Direction::NW,
+            Direction::SE,
+            Direction::SW,
+        ]),
+    }
+}
+
+/// Returns the squares on which a non-king move can answer the current check.
+/// An empty mask means that only a king move can evade (double check).
+fn check_evasion_mask(board: &Board, king: Square, defender: Color) -> (usize, Bitboard) {
+    let attacker = defender.flip();
+    let mut attackers = board.occ_for(attacker);
+    let mut checker_count = 0;
+    let mut mask = Bitboard::EMPTY;
+
+    while let Some(from) = attackers.pop_lsb() {
+        let Some(piece) = board.piece_at(from) else {
+            continue;
+        };
+        if !piece_attacks_square(board, from, piece, king) {
+            continue;
+        }
+        checker_count += 1;
+        mask |= Bitboard::from_square(from);
+
+        // A single sliding checker can also be answered by an interposition.
+        for direction in [
+            Direction::N,
+            Direction::S,
+            Direction::E,
+            Direction::W,
+            Direction::NE,
+            Direction::NW,
+            Direction::SE,
+            Direction::SW,
+        ] {
+            let mut square = king;
+            while let Some(next) = square.step(direction) {
+                if next == from {
+                    break;
+                }
+                if board.occ().contains(next) {
+                    break;
+                }
+                mask |= Bitboard::from_square(next);
+                square = next;
+            }
+        }
+    }
+
+    (checker_count, mask)
+}
+
 /// Generate fully legal moves: filters pseudo-legal moves for own-king-in-check and uchifuzume
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = Vec::new();
@@ -783,9 +932,23 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
     let mover = board.side_to_move;
     let opponent = mover.flip();
     let pseudos = generate_moves(board);
+    let evasion = if is_in_check(board, mover) {
+        board
+            .pieces(mover, PieceKind::Ou)
+            .lsb()
+            .map(|king| check_evasion_mask(board, king, mover))
+    } else {
+        None
+    };
 
     legals.reserve(pseudos.len());
     for m in pseudos {
+        if let Some((1, evasion_mask)) = evasion
+            && m.piece_kind != PieceKind::Ou
+            && !evasion_mask.contains(m.to)
+        {
+            continue;
+        }
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
         if board
             .piece_at(m.to)
