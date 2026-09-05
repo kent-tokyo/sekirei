@@ -79,6 +79,14 @@ jobs:
             --transcript /tmp/usi-shared-mcts-v0.3.28.txt \
             --output /tmp/release-manifest-with-live-mcts.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-live-mcts.json
+      - name: Upload SharedMcts diagnostic artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-mcts-diagnostic-v0.3.28
+          path: |
+            /tmp/usi-shared-mcts-v0.3.28.txt
+            /tmp/release-manifest-with-live-mcts.json
+          if-no-files-found: error
       - name: resume CLI fixture
         run: bash scripts/test_resume_cli_fixture.sh
       - name: teacher evaluator fixture
