@@ -36,4 +36,9 @@ class ReleaseManifestTests(unittest.TestCase):
         doc["resume_verification"] = {"schema": "sekirei.resume-manifest.v1", "status": "verified", "artifacts": []}
         self.assertIn("resume_verification.artifacts", validate(doc))
 
+    def test_rejects_mcts_diagnostic_strength_claim(self):
+        doc = json.loads(FIXTURE.read_text())
+        doc["mcts_diagnostic"]["strength_claim"] = True
+        self.assertIn("mcts_diagnostic.strength_claim", validate(doc))
+
 if __name__ == "__main__": unittest.main()

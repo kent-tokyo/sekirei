@@ -10,5 +10,6 @@
   "publish": {"workflow_run":"33630575728","registry":"crates.io","status":"verified","crates":["sekirei","sekirei-core","sekirei-bench","sekirei-csa","sekirei-match-runner","sekirei-train"]},
   "internal_measurement": {"spec_top_n":0,"threads":1,"parallel":1,"strength_claim":false},
   "external_opponents": {"status":"not_run","configuration":"kept separate"},
-  "evaluator_diagnostic": {"schema":"sekirei.evaluator-diagnostic.v1","classification":"undetermined","confidence":"low","reasons":["No causal evidence attached."],"evidence":{"source":"fixture"}}
+  "evaluator_diagnostic": {"schema":"sekirei.evaluator-diagnostic.v1","classification":"undetermined","confidence":"low","reasons":["No causal evidence attached."],"evidence":{"source":"fixture"}},
+  "mcts_diagnostic": {"schema":"sekirei.mcts-diagnostic.v1","mode":"SharedMcts","simulations":4,"arena_nodes":31,"transposition_hits":0,"strength_claim":false}
 }

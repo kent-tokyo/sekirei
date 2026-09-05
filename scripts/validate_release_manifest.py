@@ -55,6 +55,14 @@ def validate(doc):
         if diagnostic.get("confidence") not in {"low", "medium", "high"}: errors.append("evaluator_diagnostic.confidence")
         if not isinstance(diagnostic.get("reasons"), list) or not all(isinstance(x, str) for x in diagnostic["reasons"]): errors.append("evaluator_diagnostic.reasons")
         if not isinstance(diagnostic.get("evidence"), dict): errors.append("evaluator_diagnostic.evidence")
+    mcts = doc.get("mcts_diagnostic")
+    if mcts is not None:
+        if mcts.get("schema") != "sekirei.mcts-diagnostic.v1": errors.append("mcts_diagnostic.schema")
+        if mcts.get("mode") not in {"TreeMcts", "SharedMcts"}: errors.append("mcts_diagnostic.mode")
+        for key in ("simulations", "arena_nodes", "transposition_hits"):
+            if not isinstance(mcts.get(key), int) or mcts[key] < 0: errors.append(f"mcts_diagnostic.{key}")
+        if not isinstance(mcts.get("strength_claim"), bool) or mcts.get("strength_claim"):
+            errors.append("mcts_diagnostic.strength_claim")
     return errors
 
 def main(argv=None):
