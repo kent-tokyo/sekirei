@@ -1098,4 +1098,36 @@ mod legality_probe_tests {
             );
         }
     }
+
+    #[test]
+    fn branched_legality_corpus_matches_full_update_reference() {
+        // Deterministic branches exercise different pins, checks, promotions,
+        // captures, and hand-drop states without invoking a long measurement.
+        for branch in 0..4usize {
+            let mut position = Board::startpos();
+            for ply in 0..96usize {
+                let mut actual = position.clone();
+                let actual_moves = generate_legal_moves(&mut actual);
+                let mut reference = position.clone();
+                let reference_moves = legal_moves_with_full_nnue_updates(&mut reference);
+                assert_eq!(
+                    actual_moves, reference_moves,
+                    "legal moves differ at branch {branch}, ply {ply}"
+                );
+
+                if actual_moves.is_empty() {
+                    break;
+                }
+                let move_index = (branch * 17 + ply * 13) % actual_moves.len();
+                let token = position.do_move(actual_moves[move_index]);
+                // Keep the state evolution deterministic while also checking
+                // that the generated move can be applied and remains reversible.
+                if ply % 31 == 30 {
+                    position.undo_move(token);
+                    let replay = actual_moves[move_index];
+                    position.do_move(replay);
+                }
+            }
+        }
+    }
 }
