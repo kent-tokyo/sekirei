@@ -56,6 +56,13 @@ jobs:
         run: |
           python3 scripts/test_release_manifest.py
           python3 scripts/validate_release_manifest.py scripts/fixtures/release_manifest_diagnostic_v1.json
+      - name: SharedMcts transcript manifest fixture
+        run: |
+          python3 scripts/record_mcts_transcript.py \
+            --release-manifest release-manifest-v0.3.28.json \
+            --transcript scripts/fixtures/usi_smoke_shared_mcts_v0.3.28.txt \
+            --output /tmp/release-manifest-with-mcts.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts.json
       - name: resume CLI fixture
         run: bash scripts/test_resume_cli_fixture.sh
       - name: teacher evaluator fixture

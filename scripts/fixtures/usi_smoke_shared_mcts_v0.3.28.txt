@@ -1,0 +1,2 @@
+# Minimal SharedMcts diagnostic transcript fixture.
+< info string shared_mcts simulations 4 arena_nodes 31 transposition_hits 0

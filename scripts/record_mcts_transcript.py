@@ -9,7 +9,7 @@ from record_mcts_manifest import record
 
 
 DIAGNOSTIC = re.compile(
-    r"^info string shared_mcts simulations (?P<simulations>\d+) "
+    r"^(?:<\s*)?info string shared_mcts simulations (?P<simulations>\d+) "
     r"arena_nodes (?P<arena_nodes>\d+) "
     r"transposition_hits (?P<transposition_hits>\d+)\s*$",
     re.MULTILINE,
