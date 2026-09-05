@@ -1263,6 +1263,46 @@ mod tests {
     }
 
     #[test]
+    fn fixed_budget_tree_diagnostic_is_reproducible() {
+        let board = Board::startpos();
+        let tree_config = TreeMctsConfig {
+            simulations: 8,
+            max_depth: 2,
+            ..TreeMctsConfig::default()
+        };
+        let shared_config = SharedTreeMctsConfig {
+            simulations: 8,
+            max_depth: 2,
+        };
+        let tree_first =
+            TreeMcts::default().search(&board, tree_config, &UniformPolicy, &MaterialValue);
+        let tree_second =
+            TreeMcts::default().search(&board, tree_config, &UniformPolicy, &MaterialValue);
+        let shared_first =
+            SharedTreeMcts::default().search(&board, shared_config, &UniformPolicy, &MaterialValue);
+        let shared_second =
+            SharedTreeMcts::default().search(&board, shared_config, &UniformPolicy, &MaterialValue);
+        assert_eq!(
+            (tree_first.best_move, tree_first.score, tree_first.nodes),
+            (tree_second.best_move, tree_second.score, tree_second.nodes)
+        );
+        assert_eq!(
+            (
+                shared_first.best_move,
+                shared_first.score,
+                shared_first.nodes
+            ),
+            (
+                shared_second.best_move,
+                shared_second.score,
+                shared_second.nodes
+            )
+        );
+        assert_eq!(tree_first.simulations, 8);
+        assert_eq!(shared_first.simulations, 8);
+    }
+
+    #[test]
     fn nnue_value_isolated_provider_is_deterministic() {
         let board = Board::startpos();
         let value = NnueValue::default_lcg();
