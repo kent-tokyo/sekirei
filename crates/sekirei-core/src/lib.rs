@@ -10,6 +10,7 @@ pub mod color;
 pub mod eval;
 pub mod hand;
 pub mod lazy_smp;
+pub mod mcts;
 pub mod movegen;
 pub mod mv;
 pub mod nnue;
