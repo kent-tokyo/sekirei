@@ -125,6 +125,27 @@ fn dfpn_mode_returns_a_mating_bestmove() {
 }
 
 #[test]
+fn dfpn_mode_accepts_movetime_and_returns_before_timeout() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "setoption name SearchMode value Dfpn");
+    send(&mut stdin, "position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1");
+    send(&mut stdin, "go movetime 1000");
+
+    recv_line_matching(
+        &rx,
+        |l| l.starts_with("bestmove ") && !l.ends_with("resign"),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for dfpn engine");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn dfpn_quit_joins_inflight_search() {
     let (mut child, rx, mut stdin) = spawn_engine();
 

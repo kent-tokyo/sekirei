@@ -7,6 +7,7 @@ use std::io::{self, BufRead, Write};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -139,6 +140,16 @@ impl SearchBackend {
             }
             Self::Dfpn(s) => {
                 let started = Instant::now();
+                let timer = config.time_limit.map(|limit| {
+                    let abort = Arc::clone(&s.abort);
+                    let (cancel_tx, cancel_rx) = mpsc::channel();
+                    let handle = std::thread::spawn(move || {
+                        if cancel_rx.recv_timeout(limit).is_err() {
+                            abort.store(true, Ordering::Relaxed);
+                        }
+                    });
+                    (cancel_tx, handle)
+                });
                 let result = s.solver.solve_with_abort(
                     board,
                     DfpnConfig {
@@ -148,6 +159,10 @@ impl SearchBackend {
                     },
                     &s.abort,
                 );
+                if let Some((cancel_tx, handle)) = timer {
+                    let _ = cancel_tx.send(());
+                    let _ = handle.join();
+                }
                 let score = match result.outcome {
                     DfpnOutcome::Proven => MATE_SCORE - config.max_depth as i32,
                     DfpnOutcome::Disproven | DfpnOutcome::Unknown => 0,
