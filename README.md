@@ -313,6 +313,15 @@ python3 scripts/record_mcts_manifest.py \
   --simulations 4 --arena-nodes 31 --transposition-hits 0
 ```
 
+When the counts are present in a captured USI transcript, they can be extracted without manual
+copying:
+
+```bash
+python3 scripts/record_mcts_transcript.py \
+  --release-manifest release-manifest-v0.3.28.json \
+  --transcript shared-mcts-transcript.txt --output candidate-manifest.json
+```
+
 Before a release, check the public metadata without compiling or running the engine:
 
 ```bash
