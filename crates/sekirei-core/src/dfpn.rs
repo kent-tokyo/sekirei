@@ -4,7 +4,8 @@
 //! keeps proof/disproof numbers at each node, applies OR/AND aggregation for
 //! the mating side and the defender, and reports `Unknown` when a node budget
 //! or depth boundary prevents a proof. This is the correctness-oriented S3
-//! slice; transpositions, thresholds, and USI integration remain later work.
+//! slice; threshold-driven selective expansion is bounded and opt-in, while
+//! full threshold re-search scheduling and USI integration remain later work.
 
 use crate::board::Board;
 use crate::color::Color;
@@ -206,8 +207,8 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             complete = false;
             break;
         }
-        if aggregate.proof >= state.config.proof_threshold
-            || aggregate.disproof >= state.config.disproof_threshold
+        if threshold_reached(aggregate.proof, state.config.proof_threshold)
+            || threshold_reached(aggregate.disproof, state.config.disproof_threshold)
         {
             complete = false;
             break;
@@ -222,6 +223,10 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
 
 fn saturating_add(left: u64, right: u64) -> u64 {
     left.saturating_add(right).min(INF)
+}
+
+fn threshold_reached(value: u64, threshold: u64) -> bool {
+    threshold < INF && value >= threshold
 }
 
 #[cfg(test)]
