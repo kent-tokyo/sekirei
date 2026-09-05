@@ -160,7 +160,7 @@ impl RootMcts {
             .into_iter()
             .map(|mv| RootChild {
                 mv,
-                prior: policy.prior(board, mv).max(0.0),
+                prior: sanitized_prior(policy.prior(board, mv)),
                 visits: 0,
                 value_sum: 0.0,
             })
@@ -270,6 +270,14 @@ fn move_key(mv: Move) -> (u8, u8, bool, u8) {
         mv.promote,
         mv.piece_kind.index() as u8,
     )
+}
+
+fn sanitized_prior(prior: f32) -> f32 {
+    if prior.is_finite() {
+        prior.max(0.0)
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -385,6 +393,32 @@ mod tests {
             &ConstantValue,
         );
         assert_eq!(info.score, -1_000);
+    }
+
+    #[test]
+    fn invalid_policy_priors_are_safe_and_deterministic() {
+        struct InvalidPolicy;
+
+        impl MctsPolicy for InvalidPolicy {
+            fn prior(&self, _board: &Board, mv: Move) -> f32 {
+                match mv.to.index() % 3 {
+                    0 => f32::NAN,
+                    1 => f32::INFINITY,
+                    _ => -1.0,
+                }
+            }
+        }
+
+        let board = Board::startpos();
+        let config = MctsConfig {
+            simulations: 16,
+            root_widening: Some(4),
+        };
+        let first = RootMcts::default().search(&board, config, &InvalidPolicy, &MaterialValue);
+        let second = RootMcts::default().search(&board, config, &InvalidPolicy, &MaterialValue);
+        assert_eq!(first.best_move, second.best_move);
+        assert_eq!(first.score, second.score);
+        assert_eq!(first.expanded_root_children, second.expanded_root_children);
     }
 
     #[test]
