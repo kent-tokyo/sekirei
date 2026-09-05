@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.28`). It speaks the
+`0.3.29`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -243,8 +243,8 @@ to a release-manifest-shaped copy without modifying the original:
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.24.json \
-  --output release-manifest-v0.3.24-diagnostic.json
+  --manifest release-manifest-v0.3.29.json \
+  --output release-manifest-v0.3.29-diagnostic.json
 ```
 
 Validate the operational fixture or a generated copy with
@@ -258,9 +258,34 @@ Resume verification lineage can be recorded with
 `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`.
 The generated artifact uses the `sekirei.resume-manifest.v1` schema and keeps checkpoint/log hashes separate.
 Attach verified resume evidence to a release-manifest copy with
-`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.24.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
+`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.29.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
 The source release manifest is not modified.
 The attached `resume_verification.artifacts` list identifies the checkpoint and execution log separately.
+
+To verify a saved SharedMcts transcript against its diagnostic manifest copy,
+run `python3 scripts/verify_mcts_diagnostic.py --manifest candidate-manifest.json --transcript shared-mcts-transcript.txt`.
+This checks the manifest schema and all three diagnostic counts; it does not make a strength claim.
+CI also downloads the named diagnostic artifact in a separate audit job and repeats both checks.
+
+For a small deterministic comparison of the two MCTS pilots on three legal
+positions (including a natural commuting-move and developed position), run
+`cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic`.
+It defaults to 64 simulations at depth four and reports nodes, score, selected move,
+and sharing hits; repeatability is diagnostic evidence, not a strength claim.
+Pass `--simulations 8 --max-depth 2` for a smaller budget; each budget is
+recorded in its own validated comparison manifest.
+The same bounded log is retained with the SharedMcts CI diagnostic artifact and
+checked again by the artifact-audit job.
+CI also records the per-position comparison in a validated manifest copy;
+the copy remains diagnostic-only and is not a release artifact.
+Summarize such a copy with `python3 scripts/summarize_mcts_comparison.py
+candidate-comparison-manifest.json`; the report contains node reduction and
+agreement classification fields only, with `strength_claim` fixed to `false`.
+CI retains both full- and small-budget summaries with the comparison artifact
+and checks their JSON shape and non-strength classification.
+Aggregate multiple budget manifests with `python3 scripts/aggregate_mcts_summaries.py
+small-manifest.json full-manifest.json --output budget-summary.json`.
+The CI artifact includes this aggregate alongside the individual summaries.
 
 For a controlled interruption at an atomic checkpoint boundary:
 
@@ -299,8 +324,8 @@ permission. NNUE weight files are separate artifacts and are licensed under CC B
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
 The current release record is kept in
-[`release-manifest-v0.3.28.json`](release-manifest-v0.3.28.json). The current Lazy SMP USI smoke
-transcript is [`scripts/fixtures/usi_smoke_v0.3.28.txt`](scripts/fixtures/usi_smoke_v0.3.28.txt).
+[`release-manifest-v0.3.29.json`](release-manifest-v0.3.29.json). The current Lazy SMP USI smoke
+transcript is [`scripts/fixtures/usi_smoke_v0.3.29.txt`](scripts/fixtures/usi_smoke_v0.3.29.txt).
 These are release-audit evidence, not strength claims.
 
 For an opt-in MCTS candidate diagnostic, create a validated manifest copy without modifying the
@@ -308,7 +333,7 @@ release record:
 
 ```bash
 python3 scripts/record_mcts_manifest.py \
-  --release-manifest release-manifest-v0.3.28.json \
+  --release-manifest release-manifest-v0.3.29.json \
   --output candidate-manifest.json --mode SharedMcts \
   --simulations 4 --arena-nodes 31 --transposition-hits 0
 ```
@@ -318,7 +343,7 @@ copying:
 
 ```bash
 python3 scripts/record_mcts_transcript.py \
-  --release-manifest release-manifest-v0.3.28.json \
+  --release-manifest release-manifest-v0.3.29.json \
   --transcript shared-mcts-transcript.txt --output candidate-manifest.json
 ```
 

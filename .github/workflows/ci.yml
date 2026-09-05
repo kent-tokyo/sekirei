@@ -79,6 +79,42 @@ jobs:
             --transcript /tmp/usi-shared-mcts-v0.3.28.txt \
             --output /tmp/release-manifest-with-live-mcts.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-live-mcts.json
+          python3 scripts/verify_mcts_diagnostic.py \
+            --manifest /tmp/release-manifest-with-live-mcts.json \
+            --transcript /tmp/usi-shared-mcts-v0.3.28.txt
+      - name: Fixed-budget MCTS diagnostic
+        run: |
+          cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic > /tmp/mcts-fixed-budget-1.txt
+          cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic > /tmp/mcts-fixed-budget-2.txt
+          diff -u /tmp/mcts-fixed-budget-1.txt /tmp/mcts-fixed-budget-2.txt
+          test "$(grep -c '^repeat=' /tmp/mcts-fixed-budget-1.txt)" -eq 18
+          python3 scripts/record_mcts_comparison.py \
+            --release-manifest release-manifest-v0.3.28.json \
+            --transcript /tmp/mcts-fixed-budget-1.txt \
+            --output /tmp/release-manifest-with-mcts-comparison.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts-comparison.json
+          python3 scripts/summarize_mcts_comparison.py \
+            /tmp/release-manifest-with-mcts-comparison.json \
+            --output /tmp/mcts-comparison-summary.json
+          python3 -m json.tool /tmp/mcts-comparison-summary.json > /dev/null
+          cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic -- --simulations 8 --max-depth 2 > /tmp/mcts-fixed-budget-small-1.txt
+          cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic -- --simulations 8 --max-depth 2 > /tmp/mcts-fixed-budget-small-2.txt
+          diff -u /tmp/mcts-fixed-budget-small-1.txt /tmp/mcts-fixed-budget-small-2.txt
+          test "$(grep -c '^repeat=' /tmp/mcts-fixed-budget-small-1.txt)" -eq 18
+          python3 scripts/record_mcts_comparison.py \
+            --release-manifest release-manifest-v0.3.28.json \
+            --transcript /tmp/mcts-fixed-budget-small-1.txt \
+            --output /tmp/release-manifest-with-mcts-comparison-small.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-mcts-comparison-small.json
+          python3 scripts/summarize_mcts_comparison.py \
+            /tmp/release-manifest-with-mcts-comparison-small.json \
+            --output /tmp/mcts-comparison-summary-small.json
+          python3 -m json.tool /tmp/mcts-comparison-summary-small.json > /dev/null
+          python3 scripts/aggregate_mcts_summaries.py \
+            /tmp/release-manifest-with-mcts-comparison-small.json \
+            /tmp/release-manifest-with-mcts-comparison.json \
+            --output /tmp/mcts-budget-summary.json
+          python3 -m json.tool /tmp/mcts-budget-summary.json > /dev/null
       - name: Upload SharedMcts diagnostic artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -86,6 +122,13 @@ jobs:
           path: |
             /tmp/usi-shared-mcts-v0.3.28.txt
             /tmp/release-manifest-with-live-mcts.json
+            /tmp/mcts-fixed-budget-1.txt
+            /tmp/release-manifest-with-mcts-comparison.json
+            /tmp/mcts-fixed-budget-small-1.txt
+            /tmp/release-manifest-with-mcts-comparison-small.json
+            /tmp/mcts-comparison-summary.json
+            /tmp/mcts-comparison-summary-small.json
+            /tmp/mcts-budget-summary.json
           if-no-files-found: error
       - name: resume CLI fixture
         run: bash scripts/test_resume_cli_fixture.sh
@@ -95,10 +138,41 @@ jobs:
         run: |
           python3 scripts/validate_resume_manifest.py scripts/fixtures/resume_manifest_v1.json
           python3 scripts/attach_resume_manifest.py \
-            --release-manifest release-manifest-v0.3.24.json \
+            --release-manifest release-manifest-v0.3.28.json \
             --resume-manifest scripts/fixtures/resume_manifest_v1.json \
             --output /tmp/release-manifest-with-resume.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-resume.json
+
+  shared-mcts-artifact-audit:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: shared-mcts-diagnostic-v0.3.28
+          path: /tmp/shared-mcts-diagnostic
+      - name: Verify downloaded SharedMcts diagnostic artifact
+        run: |
+          python3 scripts/validate_release_manifest.py \
+            /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json
+          python3 scripts/verify_mcts_diagnostic.py \
+            --manifest /tmp/shared-mcts-diagnostic/release-manifest-with-live-mcts.json \
+            --transcript /tmp/shared-mcts-diagnostic/usi-shared-mcts-v0.3.28.txt
+          test "$(grep -c '^repeat=' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 18
+          test "$(grep -c 'mode=TreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
+          test "$(grep -c 'mode=SharedTreeMcts ' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt)" -eq 9
+          grep -q 'transposition_hits=[1-9][0-9]*' /tmp/shared-mcts-diagnostic/mcts-fixed-budget-1.txt
+          python3 scripts/validate_release_manifest.py \
+            /tmp/shared-mcts-diagnostic/release-manifest-with-mcts-comparison.json
+          python3 scripts/validate_release_manifest.py \
+            /tmp/shared-mcts-diagnostic/release-manifest-with-mcts-comparison-small.json
+          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-comparison-summary.json > /dev/null
+          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-comparison-summary-small.json > /dev/null
+          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-comparison-summary.json
+          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-comparison-summary-small.json
+          python3 -m json.tool /tmp/shared-mcts-diagnostic/mcts-budget-summary.json > /dev/null
+          grep -q '"strength_claim": false' /tmp/shared-mcts-diagnostic/mcts-budget-summary.json
 
   smoke:
     runs-on: ubuntu-latest

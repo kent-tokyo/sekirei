@@ -582,7 +582,11 @@ fn root_search_inner(
         }
     }
 
-    if let Some(m) = best_move {
+    // An abort means not all root moves were searched; do not publish a
+    // partial result as an exact/lower-bound entry for the full root.
+    if !state.budget.should_abort()
+        && let Some(m) = best_move
+    {
         let bound = if alpha >= hi {
             Bound::Lower // fail-high: true score ≥ alpha, exact unknown
         } else {
@@ -1157,6 +1161,9 @@ fn alpha_beta(
     } else {
         Bound::Upper
     };
+    if state.budget.should_abort() {
+        return 0;
+    }
     store_tt(
         state, hash, best_score, depth, bound, best_move, ply, skip_move,
     );

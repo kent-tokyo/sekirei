@@ -7,6 +7,10 @@ sys.path.insert(0, str(Path(__file__).parent))
 from validate_release_manifest import validate
 from record_mcts_manifest import record
 from record_mcts_transcript import parse_transcript
+from verify_mcts_diagnostic import verify
+from record_mcts_comparison import parse_comparison
+from summarize_mcts_comparison import summarize
+from aggregate_mcts_summaries import aggregate
 
 FIXTURE = Path(__file__).parent / "fixtures" / "release_manifest_diagnostic_v1.json"
 
@@ -15,7 +19,7 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertEqual(validate(json.loads(FIXTURE.read_text())), [])
 
     def test_current_release_manifest_is_valid(self):
-        manifest = Path(__file__).parents[1] / "release-manifest-v0.3.24.json"
+        manifest = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
         self.assertEqual(validate(json.loads(manifest.read_text())), [])
 
     def test_rejects_schema_and_diagnostic_classification(self):
@@ -64,5 +68,147 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_rejects_transcript_without_shared_mcts_line(self):
         with self.assertRaises(ValueError):
             parse_transcript("info depth 2 score cp 0\n")
+
+    def test_verifies_transcript_and_manifest_counts(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        transcript = Path(__file__).parent / "fixtures" / "usi_smoke_shared_mcts_v0.3.28.txt"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.json"
+            record(source, output, "SharedMcts", 4, 31, 0)
+            verify(output, transcript)
+
+    def test_rejects_mismatched_transcript_and_manifest_counts(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.json"
+            transcript = Path(directory) / "transcript.txt"
+            record(source, output, "SharedMcts", 4, 31, 0)
+            transcript.write_text(
+                "info string shared_mcts simulations 8 arena_nodes 31 transposition_hits 0\n"
+            )
+            with self.assertRaisesRegex(ValueError, "simulations"):
+                verify(output, transcript)
+
+    def test_parses_deterministic_mcts_comparison(self):
+        text = "\n".join(
+            [
+                "repeat=1 position=startpos mode=TreeMcts simulations=8 max_depth=4 nodes=10 score=0 best_move=Some(A) value_cache_hits=0",
+                "repeat=1 position=startpos mode=SharedTreeMcts simulations=8 max_depth=4 nodes=9 score=0 best_move=Some(A) transposition_hits=2",
+                "repeat=2 position=startpos mode=TreeMcts simulations=8 max_depth=4 nodes=10 score=0 best_move=Some(A) value_cache_hits=0",
+                "repeat=2 position=startpos mode=SharedTreeMcts simulations=8 max_depth=4 nodes=9 score=0 best_move=Some(A) transposition_hits=2",
+            ]
+        )
+        comparison = parse_comparison(text)
+        self.assertEqual(comparison["repeats"], 2)
+        self.assertEqual(comparison["positions"][0]["shared"]["transposition_hits"], 2)
+
+    def test_rejects_non_deterministic_mcts_comparison(self):
+        text = "\n".join(
+            [
+                "repeat=1 position=startpos mode=TreeMcts simulations=8 max_depth=4 nodes=10 score=0 best_move=Some(A) value_cache_hits=0",
+                "repeat=1 position=startpos mode=SharedTreeMcts simulations=8 max_depth=4 nodes=9 score=0 best_move=Some(A) transposition_hits=2",
+                "repeat=2 position=startpos mode=TreeMcts simulations=8 max_depth=4 nodes=11 score=0 best_move=Some(A) value_cache_hits=0",
+                "repeat=2 position=startpos mode=SharedTreeMcts simulations=8 max_depth=4 nodes=9 score=0 best_move=Some(A) transposition_hits=2",
+            ]
+        )
+        with self.assertRaisesRegex(ValueError, "non-deterministic"):
+            parse_comparison(text)
+
+    def test_summarizes_mcts_comparison_without_strength_claim(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.json"
+            record(source, output, "SharedMcts", 4, 31, 0)
+            # The single-mode diagnostic is intentionally not a comparison.
+            with self.assertRaisesRegex(ValueError, "mcts_comparison"):
+                summarize(output)
+
+    def test_aggregates_comparison_summaries_by_budget(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        with tempfile.TemporaryDirectory() as directory:
+            first = Path(directory) / "first.json"
+            second = Path(directory) / "second.json"
+            first.write_text(
+                json.dumps(
+                    {
+                        **json.loads(source.read_text()),
+                        "mcts_comparison": {
+                            "schema": "sekirei.mcts-comparison.v1",
+                            "simulations": 8,
+                            "max_depth": 2,
+                            "repeats": 2,
+                            "strength_claim": False,
+                            "positions": [
+                                {
+                                    "name": "startpos",
+                                    "tree": {"nodes": 10, "score": 0, "best_move": "A", "transposition_hits": 0},
+                                    "shared": {"nodes": 9, "score": 0, "best_move": "A", "transposition_hits": 1},
+                                }
+                            ],
+                        },
+                    }
+                )
+            )
+            second.write_text(
+                json.dumps(
+                    {
+                        **json.loads(source.read_text()),
+                        "mcts_comparison": {
+                            "schema": "sekirei.mcts-comparison.v1",
+                            "simulations": 64,
+                            "max_depth": 4,
+                            "repeats": 2,
+                            "strength_claim": False,
+                            "positions": [
+                                {
+                                    "name": "startpos",
+                                    "tree": {"nodes": 100, "score": 0, "best_move": "A", "transposition_hits": 0},
+                                    "shared": {"nodes": 80, "score": 0, "best_move": "A", "transposition_hits": 20},
+                                }
+                            ],
+                        },
+                    }
+                )
+            )
+            result = aggregate([first, second])
+            self.assertEqual([budget["simulations"] for budget in result["budgets"]], [8, 64])
+            self.assertFalse(result["strength_claim"])
+
+    def test_classifies_comparison_agreement(self):
+        import tempfile
+
+        source = Path(__file__).parents[1] / "release-manifest-v0.3.28.json"
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "candidate.json"
+            output.write_text(
+                json.dumps(
+                    {
+                        **json.loads(source.read_text()),
+                        "mcts_comparison": {
+                            "schema": "sekirei.mcts-comparison.v1",
+                            "simulations": 8,
+                            "max_depth": 2,
+                            "repeats": 2,
+                            "strength_claim": False,
+                            "positions": [
+                                {
+                                    "name": "startpos",
+                                    "tree": {"nodes": 10, "score": 1, "best_move": "A", "transposition_hits": 0},
+                                    "shared": {"nodes": 9, "score": 2, "best_move": "A", "transposition_hits": 1},
+                                }
+                            ],
+                        },
+                    }
+                )
+            )
+            self.assertEqual(summarize(output)["positions"][0]["agreement"], "best_move_only")
 
 if __name__ == "__main__": unittest.main()

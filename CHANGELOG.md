@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.3.29] – 2026-09-06
+
+- Added deterministic fixed-budget SharedMcts diagnostics with explicit
+  transposition-sharing controls and comparison summaries.
+- Added release-manifest and artifact-audit tooling for reproducible diagnostic
+  evidence without making a playing-strength claim.
+- Corrected transposition-table publication on aborted searches so incomplete
+  nodes do not publish full-node bounds.
+- Kept external-engine comparisons and heavyweight strength gates separate from
+  this release.
+
 ## [0.3.28] – 2026-09-05
 
 - Added single-check evasion prefiltering while retaining make/unmake legality

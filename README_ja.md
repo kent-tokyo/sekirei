@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.28`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.29`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -215,8 +215,8 @@ release manifest形式のコピーへ追加できます。
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.24.json \
-  --output release-manifest-v0.3.24-diagnostic.json
+  --manifest release-manifest-v0.3.29.json \
+  --output release-manifest-v0.3.29-diagnostic.json
 ```
 
 実運用fixtureと生成物は `python3 scripts/validate_release_manifest.py
@@ -228,7 +228,18 @@ CSAではゲーム境界、positions modeでは位置chunk境界でもatomicに�
 小規模なCLI統合回帰は `bash scripts/test_resume_cli_fixture.sh` で実行できます。
 resume検証の系譜は `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`
 で記録できます。生成物は `sekirei.resume-manifest.v1` schemaで、checkpointとログのhashを分けて保持します。
-検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.24.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
+検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.29.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
+
+保存したSharedMcts transcriptと診断manifestの整合性を確認するには、`python3 scripts/verify_mcts_diagnostic.py --manifest candidate-manifest.json --transcript shared-mcts-transcript.txt`を使います。schemaと3つの診断カウントを確認しますが、強さの主張は行いません。
+CIでは保存後にartifactを別jobで取得し、同じschema・整合性検証を再実行します。
+
+3つの合法局面（開始局面、自然なcommuting move局面、進行局面）で2つのMCTS pilotを固定予算で比較するには、`cargo run --release -p sekirei-core --example mcts_fixed_budget_diagnostic`を実行します。既定は64 simulations・depth 4です。`--simulations 8 --max-depth 2`で小さい予算も実行でき、各予算を別の検証済み比較manifestへ記録します。再現性の診断であり、強さの主張ではありません。
+この固定予算ログはSharedMctsのCI診断artifactにも保存し、artifact-audit jobで再確認します。
+CIでは局面別比較も検証済みmanifestコピーへ記録します。このコピーは診断専用で、release artifactではありません。
+比較manifestは`python3 scripts/summarize_mcts_comparison.py candidate-comparison-manifest.json`で要約できます。node削減率と一致分類（exact／best_move_only／divergent）だけを出力し、`strength_claim`は常に`false`です。
+CIでは大・小2つの予算の要約JSONを比較artifactに保存し、JSON形式と強さ主張なしの分類を再確認します。
+複数予算のmanifestは`python3 scripts/aggregate_mcts_summaries.py small-manifest.json full-manifest.json --output budget-summary.json`で1つに集約できます。
+CI artifactには個別要約とともに、この集約JSONも保存します。
 接続後の `resume_verification.artifacts` にはcheckpointと実行ログを別artifactとして記録します。
 
 atomicなcheckpoint境界で意図的に停止して再開する例:
@@ -265,8 +276,8 @@ https://github.com/kent-tokyo/sekirei
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
 現在のrelease manifestは
-[`release-manifest-v0.3.28.json`](release-manifest-v0.3.28.json)に保存しています。現行のLazy SMP
-USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.28.txt`](scripts/fixtures/usi_smoke_v0.3.28.txt)です。
+[`release-manifest-v0.3.29.json`](release-manifest-v0.3.29.json)に保存しています。現行のLazy SMP
+USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.29.txt`](scripts/fixtures/usi_smoke_v0.3.29.txt)です。
 いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 
 リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。

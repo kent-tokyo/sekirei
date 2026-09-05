@@ -1,0 +1,12 @@
+# Bounded Dfpn USI smoke fixture; no strength claim.
+$ sekirei --version
+Sekirei 0.3.29
+> usi
+< option name SearchMode type combo default Speculative var Speculative var LazySMP var Dfpn
+< usiok
+> setoption name UseBook value false
+> setoption name SearchMode value Dfpn
+> position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1
+> go depth 1
+< bestmove 5e9e
+> quit

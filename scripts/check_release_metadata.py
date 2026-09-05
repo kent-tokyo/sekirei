@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Check public release metadata without compiling or running the engine."""
 
+import json
 from pathlib import Path
 import re
 import sys
 import tomllib
+
+from validate_release_manifest import validate as validate_release_manifest
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -63,6 +66,19 @@ def main() -> int:
         for filename, contents in public_docs.items():
             if f"`{expected}`" not in contents:
                 errors.append(f"{filename} is missing the current release version {expected}")
+
+        release_manifest = ROOT / f"release-manifest-v{expected}.json"
+        if release_manifest.is_file():
+            try:
+                release_manifest_doc = json.loads(release_manifest.read_text())
+            except (OSError, ValueError) as exc:
+                errors.append(f"current release manifest is unreadable: {exc}")
+            else:
+                manifest_errors = validate_release_manifest(release_manifest_doc)
+                if manifest_errors:
+                    errors.append(
+                        "current release manifest is invalid: " + ", ".join(manifest_errors)
+                    )
 
     required_files = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE", "NNUE-LICENSE.md")
     for filename in required_files:

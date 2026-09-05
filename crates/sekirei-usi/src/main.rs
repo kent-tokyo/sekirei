@@ -217,6 +217,7 @@ impl SearchBackend {
                     SharedTreeMctsConfig {
                         simulations: config.node_limit.unwrap_or(128).min(u32::MAX as u64) as u32,
                         max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                        share_transpositions: true,
                     },
                     &sekirei_core::mcts::UniformPolicy,
                     &MaterialValue,

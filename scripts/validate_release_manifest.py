@@ -63,6 +63,34 @@ def validate(doc):
             if not isinstance(mcts.get(key), int) or mcts[key] < 0: errors.append(f"mcts_diagnostic.{key}")
         if not isinstance(mcts.get("strength_claim"), bool) or mcts.get("strength_claim"):
             errors.append("mcts_diagnostic.strength_claim")
+    comparison = doc.get("mcts_comparison")
+    if comparison is not None:
+        if comparison.get("schema") != "sekirei.mcts-comparison.v1": errors.append("mcts_comparison.schema")
+        for key in ("simulations", "max_depth", "repeats"):
+            if not isinstance(comparison.get(key), int) or comparison[key] < 1: errors.append(f"mcts_comparison.{key}")
+        if not isinstance(comparison.get("strength_claim"), bool) or comparison.get("strength_claim"):
+            errors.append("mcts_comparison.strength_claim")
+        positions = comparison.get("positions")
+        if not isinstance(positions, list) or not positions:
+            errors.append("mcts_comparison.positions")
+        else:
+            for index, position in enumerate(positions):
+                prefix = f"mcts_comparison.positions[{index}]"
+                if not isinstance(position, dict) or not isinstance(position.get("name"), str) or not position["name"]:
+                    errors.append(prefix + ".name")
+                    continue
+                for mode in ("tree", "shared"):
+                    result = position.get(mode)
+                    if not isinstance(result, dict):
+                        errors.append(f"{prefix}.{mode}")
+                        continue
+                    for key in ("nodes", "transposition_hits"):
+                        if not isinstance(result.get(key), int) or result[key] < 0:
+                            errors.append(f"{prefix}.{mode}.{key}")
+                    if not isinstance(result.get("score"), int):
+                        errors.append(f"{prefix}.{mode}.score")
+                    if not isinstance(result.get("best_move"), str) or not result["best_move"]:
+                        errors.append(f"{prefix}.{mode}.best_move")
     return errors
 
 def main(argv=None):

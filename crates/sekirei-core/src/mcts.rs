@@ -323,6 +323,8 @@ pub struct SharedTreeMctsConfig {
     pub simulations: u32,
     /// Maximum number of plies sampled below the root.
     pub max_depth: u16,
+    /// Reuse nodes with the same position and remaining depth.
+    pub share_transpositions: bool,
 }
 
 impl Default for SharedTreeMctsConfig {
@@ -330,6 +332,7 @@ impl Default for SharedTreeMctsConfig {
         Self {
             simulations: 128,
             max_depth: 4,
+            share_transpositions: true,
         }
     }
 }
@@ -369,6 +372,7 @@ struct SharedSearchContext<'a, P, V> {
     arena: &'a mut Vec<SharedTreeNode>,
     index: &'a mut HashMap<(u64, u16), usize>,
     transposition_hits: &'a mut u32,
+    share_transpositions: bool,
     abort: &'a AtomicBool,
 }
 
@@ -445,6 +449,7 @@ impl SharedTreeMcts {
                 arena: &mut arena,
                 index: &mut index,
                 transposition_hits: &mut transposition_hits,
+                share_transpositions: config.share_transpositions,
                 abort,
             };
             shared_expand(board, 0, config.max_depth, root_moves, &mut context);
@@ -502,9 +507,20 @@ fn shared_expand<P: MctsPolicy, V: MctsValue>(
         let mut next = board.clone();
         let _token = next.do_move(mv);
         let key = (next.hash(), depth_left.saturating_sub(1));
-        let child_index = if let Some(&existing) = context.index.get(&key) {
-            *context.transposition_hits += 1;
-            existing
+        let child_index = if context.share_transpositions {
+            if let Some(&existing) = context.index.get(&key) {
+                *context.transposition_hits += 1;
+                existing
+            } else {
+                let created = context.arena.len();
+                context.arena.push(SharedTreeNode {
+                    visits: 0,
+                    value_sum: 0.0,
+                    children: Vec::new(),
+                });
+                context.index.insert(key, created);
+                created
+            }
         } else {
             let created = context.arena.len();
             context.arena.push(SharedTreeNode {
@@ -512,7 +528,6 @@ fn shared_expand<P: MctsPolicy, V: MctsValue>(
                 value_sum: 0.0,
                 children: Vec::new(),
             });
-            context.index.insert(key, created);
             created
         };
         children.push(SharedTreeChild {
@@ -1154,6 +1169,7 @@ mod tests {
         let config = SharedTreeMctsConfig {
             simulations: 16,
             max_depth: 2,
+            share_transpositions: true,
         };
         let first = SharedTreeMcts::default().search(
             &Board::startpos(),
@@ -1210,6 +1226,7 @@ mod tests {
             arena: &mut arena,
             index: &mut index,
             transposition_hits: &mut transposition_hits,
+            share_transpositions: true,
             abort: &abort,
         };
         shared_expand(&board, 0, 2, vec![mv, mv], &mut context);
@@ -1251,6 +1268,7 @@ mod tests {
             arena: &mut arena,
             index: &mut index,
             transposition_hits: &mut transposition_hits,
+            share_transpositions: true,
             abort: &abort,
         };
         shared_expand(&first, 0, 2, vec![mv], &mut context);
@@ -1273,6 +1291,7 @@ mod tests {
         let shared_config = SharedTreeMctsConfig {
             simulations: 8,
             max_depth: 2,
+            share_transpositions: true,
         };
         let tree_first =
             TreeMcts::default().search(&board, tree_config, &UniformPolicy, &MaterialValue);
@@ -1300,6 +1319,73 @@ mod tests {
         );
         assert_eq!(tree_first.simulations, 8);
         assert_eq!(shared_first.simulations, 8);
+    }
+
+    #[test]
+    fn shared_tree_cost_divergence_preserves_search_invariants() {
+        let board = Board::startpos();
+        let tree = TreeMcts::default().search(
+            &board,
+            TreeMctsConfig {
+                simulations: 64,
+                max_depth: 4,
+                ..TreeMctsConfig::default()
+            },
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        let shared = SharedTreeMcts::default().search(
+            &board,
+            SharedTreeMctsConfig {
+                simulations: 64,
+                max_depth: 4,
+                share_transpositions: true,
+            },
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        let mut legal_probe = board.clone();
+        let legal_moves = generate_legal_moves(&mut legal_probe);
+        assert!(shared.best_move.is_some_and(|mv| legal_moves.contains(&mv)));
+        assert!(shared.nodes < tree.nodes);
+        assert!(shared.transposition_hits > 0);
+        assert!((-1_000..=1_000).contains(&shared.score));
+    }
+
+    #[test]
+    fn shared_tree_control_can_disable_transposition_reuse() {
+        for board in [
+            Board::startpos(),
+            crate::sfen::parse_position_cmd("startpos moves 7g7f 3c3d 2g2f 8c8d").unwrap(),
+            crate::sfen::parse_position_cmd(
+                "startpos moves 7g7f 3c3d 2g2f 8c8d 2f2e 8d8e 2e2d 8e8f",
+            )
+            .unwrap(),
+        ] {
+            let shared = SharedTreeMcts::default().search(
+                &board,
+                SharedTreeMctsConfig {
+                    simulations: 64,
+                    max_depth: 4,
+                    share_transpositions: true,
+                },
+                &UniformPolicy,
+                &MaterialValue,
+            );
+            let control = SharedTreeMcts::default().search(
+                &board,
+                SharedTreeMctsConfig {
+                    simulations: 64,
+                    max_depth: 4,
+                    share_transpositions: false,
+                },
+                &UniformPolicy,
+                &MaterialValue,
+            );
+            assert!(shared.transposition_hits > 0);
+            assert_eq!(control.transposition_hits, 0);
+            assert!(shared.nodes < control.nodes);
+        }
     }
 
     #[test]
