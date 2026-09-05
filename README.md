@@ -94,6 +94,11 @@ The core also contains experimental root-level MCTS and bounded df-pn APIs.
 They are opt-in research components, are not wired into the default USI mode,
 and do not establish a playing-strength result.
 
+For a bounded mate probe, the USI option `SearchMode=Dfpn` selects the df-pn
+backend. It is intentionally opt-in, uses the requested `depth` as its ply
+boundary, and should not be treated as the default playing mode or as a
+strength comparison.
+
 ## Build and test
 
 ```bash

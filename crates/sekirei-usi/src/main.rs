@@ -8,11 +8,12 @@ use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use sekirei_core::{
     board::Board,
     color::Color,
+    dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     nnue::load_weights,
     search::{MATE_SCORE, SearchConfig, SpecSearchInfo, SpeculativeSearcher},
@@ -40,6 +41,7 @@ const DEFAULT_SPEC_TOP_N: usize = 3;
 enum SearchMode {
     Speculative,
     LazySmp,
+    Dfpn,
 }
 
 struct SearchResult {
@@ -56,6 +58,12 @@ struct SearchResult {
 enum SearchBackend {
     Speculative(Arc<SpeculativeSearcher>),
     LazySmp(Arc<LazySmpSearcher>),
+    Dfpn(Arc<DfpnBackend>),
+}
+
+struct DfpnBackend {
+    solver: DfpnSolver,
+    abort: Arc<AtomicBool>,
 }
 
 impl SearchBackend {
@@ -70,10 +78,18 @@ impl SearchBackend {
         Self::LazySmp(Arc::new(LazySmpSearcher::new(Tt::new(hash_mb), workers)))
     }
 
+    fn dfpn() -> Self {
+        Self::Dfpn(Arc::new(DfpnBackend {
+            solver: DfpnSolver,
+            abort: Arc::new(AtomicBool::new(false)),
+        }))
+    }
+
     fn abort_flag(&self) -> Arc<AtomicBool> {
         match self {
             Self::Speculative(s) => s.abort_flag(),
             Self::LazySmp(s) => s.abort_flag(),
+            Self::Dfpn(s) => Arc::clone(&s.abort),
         }
     }
 
@@ -81,6 +97,7 @@ impl SearchBackend {
         match self {
             Self::Speculative(s) => s.reset_abort_flag(),
             Self::LazySmp(s) => s.reset_abort_flag(),
+            Self::Dfpn(s) => s.abort.store(false, Ordering::Relaxed),
         }
     }
 
@@ -88,6 +105,7 @@ impl SearchBackend {
         match self {
             Self::Speculative(s) => s.clear_tt(),
             Self::LazySmp(s) => s.clear_tt(),
+            Self::Dfpn(_) => {}
         }
     }
 
@@ -95,6 +113,7 @@ impl SearchBackend {
         match self {
             Self::Speculative(s) => s.probe_tt(hash),
             Self::LazySmp(s) => s.probe_tt(hash),
+            Self::Dfpn(_) => None,
         }
     }
 
@@ -116,6 +135,32 @@ impl SearchBackend {
                     hashfull: result.hashfull,
                     pv_list: Vec::new(),
                     worker_stats: info.worker_results,
+                }
+            }
+            Self::Dfpn(s) => {
+                let started = Instant::now();
+                let result = s.solver.solve_with_abort(
+                    board,
+                    DfpnConfig {
+                        max_depth: config.max_depth.min(u16::MAX as u32) as u16,
+                        node_limit: config.node_limit.unwrap_or(100_000),
+                        ..DfpnConfig::default()
+                    },
+                    &s.abort,
+                );
+                let score = match result.outcome {
+                    DfpnOutcome::Proven => MATE_SCORE - config.max_depth as i32,
+                    DfpnOutcome::Disproven | DfpnOutcome::Unknown => 0,
+                };
+                SearchResult {
+                    best_move: result.best_move,
+                    score,
+                    depth: config.max_depth,
+                    nodes: result.nodes,
+                    elapsed: started.elapsed(),
+                    hashfull: 0,
+                    pv_list: Vec::new(),
+                    worker_stats: Vec::new(),
                 }
             }
         }
@@ -265,7 +310,7 @@ fn main() {
                 println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
                 println!("option name Threads type spin default 0 min 0 max 512");
                 println!(
-                    "option name SearchMode type combo default Speculative var Speculative var LazySMP"
+                    "option name SearchMode type combo default Speculative var Speculative var LazySMP var Dfpn"
                 );
                 println!(
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
@@ -368,6 +413,7 @@ fn main() {
                     let new_mode = match *mode {
                         "LazySMP" => SearchMode::LazySmp,
                         "Speculative" => SearchMode::Speculative,
+                        "Dfpn" => SearchMode::Dfpn,
                         _ => continue,
                     };
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
@@ -704,6 +750,7 @@ fn make_searcher(
     Arc::new(match mode {
         SearchMode::Speculative => SearchBackend::speculative(hash_mb, spec_top_n),
         SearchMode::LazySmp => SearchBackend::lazy_smp(hash_mb, threads),
+        SearchMode::Dfpn => SearchBackend::dfpn(),
     })
 }
 
