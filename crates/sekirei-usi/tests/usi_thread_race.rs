@@ -173,6 +173,32 @@ fn search_modes_can_be_switched_in_one_usi_session() {
 }
 
 #[test]
+fn dfpn_search_mode_survives_ready_and_newgame() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "setoption name SearchMode value Dfpn");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |l| l == "readyok", Duration::from_secs(5));
+    send(&mut stdin, "usinewgame");
+    send(&mut stdin, "position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1");
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(
+        &rx,
+        |l| l.starts_with("bestmove ") && !l.ends_with("resign"),
+        Duration::from_secs(5),
+    );
+
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for dfpn lifecycle test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn dfpn_quit_joins_inflight_search() {
     let (mut child, rx, mut stdin) = spawn_engine();
 
