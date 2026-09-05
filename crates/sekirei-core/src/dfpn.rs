@@ -32,6 +32,10 @@ pub struct DfpnConfig {
     pub max_depth: u16,
     /// Maximum number of visited nodes. Zero means no nodes may be visited.
     pub node_limit: u64,
+    /// Proof threshold for selective expansion; `INF` disables it.
+    pub proof_threshold: u64,
+    /// Disproof threshold for selective expansion; `INF` disables it.
+    pub disproof_threshold: u64,
 }
 
 impl Default for DfpnConfig {
@@ -39,6 +43,8 @@ impl Default for DfpnConfig {
         Self {
             max_depth: 7,
             node_limit: 100_000,
+            proof_threshold: INF,
+            disproof_threshold: INF,
         }
     }
 }
@@ -67,6 +73,7 @@ struct Numbers {
     proof: u64,
     disproof: u64,
     first_move: Option<Move>,
+    complete: bool,
 }
 
 struct SearchState {
@@ -115,6 +122,7 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             proof: 1,
             disproof: 1,
             first_move: None,
+            complete: false,
         };
     }
     let cache_key = (board.hash(), depth_left);
@@ -134,12 +142,14 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
                 proof: 0,
                 disproof: INF,
                 first_move: None,
+                complete: true,
             }
         } else {
             Numbers {
                 proof: INF,
                 disproof: 0,
                 first_move: None,
+                complete: true,
             }
         };
         state.cache.insert(cache_key, numbers);
@@ -150,6 +160,7 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             proof: 1,
             disproof: 1,
             first_move: None,
+            complete: false,
         };
         state.cache.insert(cache_key, numbers);
         return numbers;
@@ -161,15 +172,18 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
             proof: INF,
             disproof: 0,
             first_move: None,
+            complete: true,
         }
     } else {
         Numbers {
             proof: 0,
             disproof: INF,
             first_move: None,
+            complete: true,
         }
     };
 
+    let mut complete = true;
     for mv in moves {
         let mut child = board.clone();
         child.do_move(mv);
@@ -187,11 +201,20 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState) -> Number
                 aggregate.first_move = Some(mv);
             }
         }
+        complete &= numbers.complete;
         if state.aborted {
+            complete = false;
+            break;
+        }
+        if aggregate.proof >= state.config.proof_threshold
+            || aggregate.disproof >= state.config.disproof_threshold
+        {
+            complete = false;
             break;
         }
     }
-    if !state.aborted {
+    aggregate.complete = complete || aggregate.proof == 0 || aggregate.disproof == 0;
+    if aggregate.complete {
         state.cache.insert(cache_key, aggregate);
     }
     aggregate
@@ -215,6 +238,7 @@ mod tests {
             DfpnConfig {
                 max_depth: 1,
                 node_limit: 1_000,
+                ..DfpnConfig::default()
             },
         );
         assert_eq!(result.outcome, DfpnOutcome::Proven);
@@ -240,11 +264,29 @@ mod tests {
             DfpnConfig {
                 max_depth: 3,
                 node_limit: 1,
+                ..DfpnConfig::default()
             },
         );
         assert_eq!(result.outcome, DfpnOutcome::Unknown);
         assert!(result.aborted);
         assert_eq!(result.nodes, 1);
+        assert_eq!(result.cache_hits, 0);
+    }
+
+    #[test]
+    fn threshold_boundary_returns_unknown_without_caching_partial_numbers() {
+        let board = Board::startpos();
+        let result = DfpnSolver.solve(
+            &board,
+            DfpnConfig {
+                max_depth: 3,
+                node_limit: 1_000,
+                proof_threshold: 1,
+                disproof_threshold: INF,
+            },
+        );
+        assert_eq!(result.outcome, DfpnOutcome::Unknown);
+        assert!(!result.aborted);
         assert_eq!(result.cache_hits, 0);
     }
 }
