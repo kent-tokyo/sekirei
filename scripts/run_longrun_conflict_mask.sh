@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Stage 1 of the teacher-conflict-masking long-run + gate pipeline
-# (docs/experiments/teacher_conflict_masking.md's follow-up): 2 arms
+# (the teacher-conflict masking follow-up): 2 arms
 # (Control, Conflict-mask-FT) x 3 seeds x 20 epochs, all fixed to the same
 # recipe as the short-run experiment so the two stay comparable:
 # --wdl-lambda 0.7, data/gateA_csa_subset, --split-seed 42, --shuffle-seed 11,

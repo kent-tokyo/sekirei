@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Fixed-depth A/B comparison driver for the remote (GitHub Actions) gate.
 
-Design: docs/experiments/gate_redesign_low_load.md §5A. Motivation: local
+Design: ROADMAP.md's fixed-depth comparison contract. Motivation: local
 CPU/swap contention repeatedly blocked any engine-vs-engine evaluation this
-session (see docs/experiments/pr4_gate_attempt_index.md) -- this tool moves
+session -- this tool moves
 the CPU-heavy part (building and running two engine binaries at a fixed
 search depth) to a GitHub Actions runner instead, leaving local CPU
 untouched. It does NOT play engine-vs-engine games, does NOT compute Elo,
@@ -38,8 +38,7 @@ stability, or node counts at a fixed depth) without needing real weights.
 binary -- true at `SpecTopN=0`, false at `SpecTopN>0` (SpeculativeSearcher
 runs its own concurrent thread pool independent of the `Threads` option, so
 its background workers write the shared TT with scheduling-dependent
-ordering -- see docs/experiments/fixed_depth_gate_run_index.md's null-A/A
-findings, where the *identical* binary run twice at SpecTopN=3 produced
+ordering -- repeated SpecTopN>0 runs can have scheduling-dependent
 5-6/21 bestmove diffs and node-ratio swings up to 5.79x). A single-shot
 `run`+`compare` at SpecTopN>0 cannot distinguish a candidate's real effect
 from that noise floor.

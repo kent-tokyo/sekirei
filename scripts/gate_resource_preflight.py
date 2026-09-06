@@ -5,8 +5,7 @@ Read-only system inspection ONLY (ps/uptime/sysctl/vm_stat/df/pgrep). This
 script has no code path that launches sekirei-match, any engine binary, or
 any other CPU-heavy work -- it only decides whether it would be safe to, and
 prints its reasoning. It does not delete or modify any file. See
-docs/experiments/gate_redesign_low_load.md Sec.5C for the design this
-implements.
+the current internal measurement policy documented in ROADMAP.md.
 
 Every OS-facing call in this file (the run()/collect_* functions) is a thin
 wrapper that returns raw text or None on failure. All parsing and all
@@ -41,10 +40,8 @@ import sys
 
 # Per-engine-process dedicated speculative-search pool size. Currently
 # hardcoded in crates/sekirei-usi/src/main.rs's make_searcher() (top_n=3,
-# no USI option exposes it) -- see docs/design/pr5_pool_isolation_static_audit.md
-# Finding 1. Exposed here as --spec-top-n (default 3, matching current
-# engine behavior) so this tool doesn't need editing once issue #9
-# (docs/design/spec_top_n_usi_option.md) lands a real SpecTopN USI option.
+# no USI option exposes it). Exposed here as --spec-top-n (default 3,
+# matching current engine behavior) so the preflight remains explicit.
 DEFAULT_SPEC_TOP_N = 3
 ENGINES_PER_SHARD = 2  # base + candidate, one sekirei-match shard
 

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.3.30] – 2026-09-06
+
+- Refreshed the documentation and release metadata after the documentation
+  cleanup; implementation and measurement claims remain unchanged.
+- Preserved the internal-only roadmap boundary and the MIT OR Apache-2.0
+  attribution policy.
+
 ## [0.3.29] – 2026-09-06
 
 - Added deterministic fixed-budget SharedMcts diagnostics with explicit

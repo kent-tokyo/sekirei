@@ -615,8 +615,8 @@ def get_pipeline_review(run_id):
     """Deterministic review of one training pipeline run's epoch-by-epoch
     checkpoint diagnostics -- every number and the verdict are computed
     here, never by the LLM narrative layered on top later (see
-    generate_review_narrative / docs/experiments/global_gradient_clipping.md
-    for why: that investigation shipped a plausible-but-wrong mechanism
+    generate_review_narrative / historical experiment notes
+    for why: a historical investigation shipped a plausible-but-wrong mechanism
     claim mid-session that only a follow-up experiment and a second review
     caught. An unreviewed narrative on a dashboard has no such check, so it
     doesn't get to originate numbers or verdicts here, only describe them).
@@ -1591,7 +1591,7 @@ const TRANSLATIONS = {
     // strength page
     strengthTitle: "強さ評価",
     anchorLabel: "アンカー(基準側の推定絶対レート)",
-    anchorHelp: "自己対局の Elo はこの値に対する相対値でしかありません。tasks/competitive_analysis.md の見積もり(material eval で floodgate 1700〜2000)を参考にデフォルト値を置いています。実測ではないので鵜呑みにしないこと。",
+    anchorHelp: "自己対局の Elo はこの値に対する相対値でしかありません。デフォルト値は過去の未測定なmaterial-eval仮置き値であり、実測ではないので鵜呑みにしないこと。",
     colEstRating: "推定レート",
     trendTitle: "推定レート推移",
     trendCaveat: "⚠ 各点は異なる比較(候補×基準の組み合わせ)です。1つのモデルの継続的な成長を表すグラフではありません。",
@@ -1763,7 +1763,7 @@ const TRANSLATIONS = {
     reviewTipInvalid: "INVALID: an output collapse (valid_output_range=0) is present at the final epoch -- this checkpoint is unusable",
     strengthTitle: "Strength evaluation",
     anchorLabel: "Anchor (assumed absolute rating of the baseline side)",
-    anchorHelp: "Self-play Elo is only ever relative to this value. Default is seeded from tasks/competitive_analysis.md's guess (material eval ≈ floodgate 1700-2000) -- not a measurement, don't over-trust it.",
+    anchorHelp: "Self-play Elo is only ever relative to this value. The default is a historical, unmeasured material-eval placeholder, not a measurement; do not over-trust it.",
     colEstRating: "Est. rating",
     trendTitle: "Est. rating trend",
     trendCaveat: "⚠ Each point is a different comparison (candidate/baseline pair) -- this is not one model's continuous progress.",
@@ -3538,7 +3538,7 @@ function PipelinePage({ t }) {
   );
 }
 
-const DEFAULT_ANCHOR = 1850; // midpoint of tasks/competitive_analysis.md's material-eval guess (1700-2000)
+const DEFAULT_ANCHOR = 1850; // historical unmeasured material-eval placeholder
 
 const TREND_STATUS_TIP_KEY = {
   IMPROVING: "reviewTipImproving", MIXED: "reviewTipMixed", FLAT: "reviewTipFlat",

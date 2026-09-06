@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.29`). It speaks the
+`0.3.30`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -243,8 +243,8 @@ to a release-manifest-shaped copy without modifying the original:
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.29.json \
-  --output release-manifest-v0.3.29-diagnostic.json
+  --manifest release-manifest-v0.3.30.json \
+  --output release-manifest-v0.3.30-diagnostic.json
 ```
 
 Validate the operational fixture or a generated copy with
@@ -258,7 +258,7 @@ Resume verification lineage can be recorded with
 `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`.
 The generated artifact uses the `sekirei.resume-manifest.v1` schema and keeps checkpoint/log hashes separate.
 Attach verified resume evidence to a release-manifest copy with
-`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.29.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
+`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.30.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
 The source release manifest is not modified.
 The attached `resume_verification.artifacts` list identifies the checkpoint and execution log separately.
 
@@ -324,8 +324,8 @@ permission. NNUE weight files are separate artifacts and are licensed under CC B
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
 The current release record is kept in
-[`release-manifest-v0.3.29.json`](release-manifest-v0.3.29.json). The current Lazy SMP USI smoke
-transcript is [`scripts/fixtures/usi_smoke_v0.3.29.txt`](scripts/fixtures/usi_smoke_v0.3.29.txt).
+[`release-manifest-v0.3.30.json`](release-manifest-v0.3.30.json). The current Lazy SMP USI smoke
+transcript is [`scripts/fixtures/usi_smoke_v0.3.30.txt`](scripts/fixtures/usi_smoke_v0.3.30.txt).
 These are release-audit evidence, not strength claims.
 
 For an opt-in MCTS candidate diagnostic, create a validated manifest copy without modifying the
@@ -333,7 +333,7 @@ release record:
 
 ```bash
 python3 scripts/record_mcts_manifest.py \
-  --release-manifest release-manifest-v0.3.29.json \
+  --release-manifest release-manifest-v0.3.30.json \
   --output candidate-manifest.json --mode SharedMcts \
   --simulations 4 --arena-nodes 31 --transposition-hits 0
 ```
@@ -343,7 +343,7 @@ copying:
 
 ```bash
 python3 scripts/record_mcts_transcript.py \
-  --release-manifest release-manifest-v0.3.29.json \
+  --release-manifest release-manifest-v0.3.30.json \
   --transcript shared-mcts-transcript.txt --output candidate-manifest.json
 ```
 

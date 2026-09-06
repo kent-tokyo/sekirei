@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Pre-registered checkpoint selection for the teacher-conflict-masking long
-run (docs/experiments/teacher_conflict_masking.md's follow-up). Written
+run (the teacher-conflict masking follow-up). Written
 BEFORE any 20-epoch data exists, against the exact rule the user specified:
 
   1. Exclude any epoch where ANY of the 3 conflict_ft seeds shows collapse
@@ -91,7 +91,12 @@ def is_collapsed(m: dict) -> bool:
 def select(meta: dict) -> dict:
     conflict = meta["conflict_ft"]
     control = meta["control"]
-    epochs = sorted(set.intersection(*(set(conflict[s]) for s in SEEDS)))
+    # A checkpoint is comparable only when every arm and every seed has the
+    # same epoch.  Looking at conflict_ft alone used to let a missing control
+    # side reach the lookup below and raise KeyError instead of returning a
+    # deterministic selection result.
+    epoch_sets = [set(meta[arm][s]) for arm in ARMS for s in SEEDS]
+    epochs = sorted(set.intersection(*epoch_sets))
     if not epochs:
         return {"status": "NO_DATA"}
 
@@ -200,6 +205,13 @@ def _self_check():
     assert is_collapsed(m(100, 300, dead=32)) is True
     assert is_collapsed(m(100, 300, dead=31)) is False
     assert is_collapsed(m(100, 300, dead=16)) is False
+
+    # Missing control data must remove that epoch from consideration rather
+    # than causing a KeyError during the WDL comparison.
+    del meta["control"][42][2]
+    r5 = select(meta)
+    assert r5["status"] == "STOP_WDL_REGRESSION", r5
+    assert r5["selected_epoch"] == 3, r5
 
     print("self-check ok")
 

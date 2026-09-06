@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Machine verification for the teacher-conflict-masking long-run pipeline
-(docs/experiments/teacher_conflict_masking.md's follow-up). Two modes:
+(the teacher-conflict masking follow-up). Two modes:
 
   single <meta.json> <expect_conflict_mask: ft|none>
       Checks one run's own .meta.json + checkpoint file for: the mask flag
