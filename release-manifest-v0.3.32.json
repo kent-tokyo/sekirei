@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.32",
+  "commit": "5ce3ebe0c6a3c70de692230bf9e58a906e78418a",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.32",
+    "sekirei-core": "0.3.32",
+    "sekirei-bench": "0.3.32",
+    "sekirei-csa": "0.3.32",
+    "sekirei-match-runner": "0.3.32",
+    "sekirei-train": "0.3.32"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); GitHub publish workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "43957dfa2326c78de88dc28a4066df12609c32b67bee9a1c86385939d88c7230"
+  },
+  "publish": {
+    "workflow_run": "34415647330",
+    "workflow_runs": ["34415647330"],
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Rules-only Perft do/undo and inlined move-generation paths were validated locally; no external-engine strength claim is attached."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result or strength claim is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is from the locally verified release build of the tagged source; registry artifacts were verified separately through the crates.io sparse index.",
+    "All six crates were published by workflow run 34415647330 through the configured registry authentication paths.",
+    "No external-engine match or playing-strength claim is part of this release manifest."
+  ]
+}
