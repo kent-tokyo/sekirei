@@ -43,6 +43,21 @@ mod tests {
     }
 
     #[test]
+    fn perft_preserves_incremental_state() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let side = board.side_to_move;
+        let ply = board.ply;
+        let accumulator = board.acc.clone();
+
+        assert_eq!(perft(&mut board, 3), 25_470);
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.side_to_move, side);
+        assert_eq!(board.ply, ply);
+        assert_eq!(board.acc, accumulator);
+    }
+
+    #[test]
     #[ignore = "slow: run with --release"]
     fn perft5_startpos() {
         let mut board = Board::startpos();

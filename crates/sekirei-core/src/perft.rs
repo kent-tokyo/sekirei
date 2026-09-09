@@ -15,9 +15,13 @@ pub fn perft(board: &mut Board, depth: u32) -> u64 {
     }
     let mut count = 0u64;
     for &m in moves.as_slice() {
-        let tok = board.do_move(m);
+        // Perft never evaluates a position, so keep the NNUE accumulator at
+        // the root state while probing the board/rule state. This is the same
+        // reversible path used by legality filtering and avoids paying for
+        // feature deltas that cannot affect a node count.
+        let tok = board.do_move_for_legality(m);
         count += perft(board, depth - 1);
-        board.undo_move(tok);
+        board.undo_move_for_legality(tok);
     }
     count
 }

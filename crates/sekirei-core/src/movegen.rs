@@ -289,6 +289,7 @@ fn push_with_promotion(
 }
 
 /// Generate step moves for all pieces of the given kind and color
+#[inline]
 fn gen_steps(
     board: &Board,
     color: Color,
@@ -311,6 +312,7 @@ fn gen_steps(
 }
 
 /// Generate sliding moves for all pieces of the given kind and color
+#[inline]
 fn gen_sliding(
     board: &Board,
     color: Color,
@@ -339,6 +341,7 @@ fn gen_sliding(
 }
 
 /// Uma (promoted bishop): diagonal sliding + 1-step orthogonal
+#[inline]
 fn gen_uma(board: &Board, color: Color, moves: &mut Vec<Move>) {
     let own = board.occ_for(color);
     let occ = board.occ();
@@ -368,6 +371,7 @@ fn gen_uma(board: &Board, color: Color, moves: &mut Vec<Move>) {
 }
 
 /// Ryu (promoted rook): orthogonal sliding + 1-step diagonal
+#[inline]
 fn gen_ryu(board: &Board, color: Color, moves: &mut Vec<Move>) {
     let own = board.occ_for(color);
     let occ = board.occ();
@@ -397,6 +401,7 @@ fn gen_ryu(board: &Board, color: Color, moves: &mut Vec<Move>) {
 }
 
 /// Generate drop moves, excluding nifu and piece-stuck positions
+#[inline]
 fn gen_drops(board: &Board, color: Color, moves: &mut Vec<Move>) {
     let empty = !board.occ();
     let hand = board.hand(color);
@@ -999,6 +1004,7 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
     legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
+    let opponent_king = board.pieces(opponent, PieceKind::Ou);
     let mut pseudos = take_move_buffer();
     generate_moves_into(board, &mut pseudos);
     let evasion = if is_in_check(board, mover) {
@@ -1026,10 +1032,7 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
             continue;
         }
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
-        if board
-            .piece_at(m.to)
-            .is_some_and(|p| p.kind == PieceKind::Ou)
-        {
+        if opponent_king.contains(m.to) {
             continue;
         }
         let requires_probe = evasion.is_some()
@@ -1123,6 +1126,7 @@ pub struct MoveBuffer {
 
 impl MoveBuffer {
     /// Generates legal moves using a reusable per-thread allocation.
+    #[inline]
     pub fn legal(board: &mut Board) -> Self {
         let mut moves = take_move_buffer();
         generate_legal_moves_into(board, &mut moves);
@@ -1137,6 +1141,7 @@ impl MoveBuffer {
     }
 
     /// Returns the generated moves as a read-only slice.
+    #[inline]
     pub fn as_slice(&self) -> &[Move] {
         self.moves.as_deref().unwrap_or(&[])
     }

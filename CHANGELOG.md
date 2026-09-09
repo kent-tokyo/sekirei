@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## [0.3.32] – 2026-09-10
+
+- Reduced Perft overhead by using the rules-only do/undo path without NNUE
+  accumulator updates; added a state-preservation regression test.
+- Replaced legal-move king-capture checks with an inlined opponent-king
+  bitboard test and inlined the main move-generation helpers.
+- Recorded reproducible local Criterion results: legal move generation reached
+  361.24 ns and Perft(3) reached 315.72 µs on the release benchmark host.
+- Kept performance measurements diagnostic only; no playing-strength or Elo
+  claim is attached to this release.
+
 ## [0.3.31] – 2026-09-10
 
 - Separated Adam and full-resume checkpoint persistence from the training

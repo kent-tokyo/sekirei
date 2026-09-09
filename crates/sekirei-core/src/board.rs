@@ -110,21 +110,25 @@ impl Board {
     // ---- Public read API ----
 
     /// Piece occupying `sq`, if any.
+    #[inline]
     pub fn piece_at(&self, sq: Square) -> Option<Piece> {
         self.mailbox[sq.index() as usize]
     }
 
     /// Bitboard of all pieces of the given color and kind.
+    #[inline]
     pub fn pieces(&self, color: Color, kind: PieceKind) -> Bitboard {
         self.piece_bb[color.index()][kind.index()]
     }
 
     /// Occupancy bitboard for all of `color`'s pieces.
+    #[inline]
     pub fn occ_for(&self, color: Color) -> Bitboard {
         self.occ[color.index()]
     }
 
     /// Occupancy bitboard for all pieces on the board.
+    #[inline]
     pub fn occ(&self) -> Bitboard {
         self.occ[0] | self.occ[1]
     }
