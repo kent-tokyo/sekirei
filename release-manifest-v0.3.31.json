@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.31",
+  "commit": "30c00e8949bb7a43ecb4609ad79178ed822a6940",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.31",
+    "sekirei-core": "0.3.31",
+    "sekirei-bench": "0.3.31",
+    "sekirei-csa": "0.3.31",
+    "sekirei-match-runner": "0.3.31",
+    "sekirei-train": "0.3.31"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); GitHub publish workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "9337fb5f0374c872a649296f5576e9d260762fd45e7a47a3800f22aedcfad89d"
+  },
+  "publish": {
+    "workflow_run": "34411610041",
+    "workflow_runs": ["34411610041"],
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": ["sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train", "sekirei"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "This release records checkpoint refactoring and regression validation; no external-engine strength claim is attached."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "kept separate; no external engine result or strength claim is attached to this release"
+  },
+  "known_limitations": [
+    "The binary hash is from the locally verified release build of the tagged source; registry artifacts were verified separately through the crates.io sparse index.",
+    "All six crates were published by workflow run 34411610041 through the configured registry authentication paths.",
+    "No external-engine match or playing-strength claim is part of this release manifest."
+  ]
+}
