@@ -54,6 +54,7 @@ const BOARD_KINDS: [PieceKind; 13] = [
 ///
 /// Uses NNUE when trained weights have been loaded via `nnue::load_weights()`;
 /// falls back to material counting otherwise.
+#[inline]
 pub fn evaluate(board: &Board) -> i32 {
     if crate::nnue::weights_active() {
         board.acc.evaluate(board.side_to_move)

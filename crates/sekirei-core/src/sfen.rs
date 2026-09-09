@@ -87,13 +87,29 @@ pub fn move_to_usi(m: Move) -> String {
     }
 }
 
-/// Parse a USI move string into a `Move` using the current board state.
-/// Returns an error string if the move is syntactically invalid.
+/// Parse and validate a USI move string using the current board state.
+///
+/// The parser checks coordinates, promotion syntax, ownership, hand
+/// availability, destination occupancy, and full move legality. This keeps
+/// `position` replay from silently applying a malformed or illegal move.
 pub fn move_from_usi(s: &str, board: &crate::board::Board) -> Result<Move, String> {
     let s = s.trim();
 
+    let parse_square = |file: u8, rank: u8, label: &str| {
+        if !(1..=9).contains(&file) {
+            return Err(format!("bad {label} file: {file}"));
+        }
+        if !(1..=9).contains(&rank) {
+            return Err(format!("bad {label} rank: {rank}"));
+        }
+        Ok(Square::from_shogi(file, rank))
+    };
+
     // Drop: e.g. "P*3d"
-    if s.len() >= 4 && s.as_bytes()[1] == b'*' {
+    if s.as_bytes().get(1) == Some(&b'*') {
+        if s.len() != 4 || !s.is_ascii() {
+            return Err(format!("malformed drop move: '{s}'"));
+        }
         let piece_char = s.chars().next().unwrap().to_ascii_uppercase();
         let kind = sfen_char_to_kind(piece_char)
             .ok_or_else(|| format!("unknown drop piece '{piece_char}'"))?;
@@ -103,11 +119,22 @@ pub fn move_from_usi(s: &str, board: &crate::board::Board) -> Result<Move, Strin
         let bytes = s.as_bytes();
         let file = (bytes[2] as char).to_digit(10).ok_or("bad drop file")? as u8;
         let rank = rank_from_char(bytes[3] as char).ok_or("bad drop rank")?;
-        return Ok(Move::drop(Square::from_shogi(file, rank), kind));
+        let to = parse_square(file, rank, "drop")?;
+        if board.piece_at(to).is_some() {
+            return Err(format!("drop destination is occupied: {s}"));
+        }
+        if board.hand(board.side_to_move).get(kind) == 0 {
+            return Err(format!("piece is not in hand: {s}"));
+        }
+        let candidate = Move::drop(to, kind);
+        if !crate::movegen::generate_legal_moves(&mut board.clone()).contains(&candidate) {
+            return Err(format!("illegal move: {s}"));
+        }
+        return Ok(candidate);
     }
 
     // Normal move: e.g. "7g7f" or "8h2b+"
-    if s.len() < 4 {
+    if !(s.len() == 4 || s.len() == 5) || !s.is_ascii() {
         return Err(format!("move string too short: '{s}'"));
     }
     let bytes = s.as_bytes();
@@ -115,16 +142,27 @@ pub fn move_from_usi(s: &str, board: &crate::board::Board) -> Result<Move, Strin
     let from_rank = rank_from_char(bytes[1] as char).ok_or("bad from rank")?;
     let to_file = (bytes[2] as char).to_digit(10).ok_or("bad to file")? as u8;
     let to_rank = rank_from_char(bytes[3] as char).ok_or("bad to rank")?;
-    let promote = s.len() >= 5 && bytes[4] == b'+';
+    let promote = match s.len() {
+        4 => false,
+        5 if bytes[4] == b'+' => true,
+        _ => return Err(format!("malformed promotion suffix: '{s}'")),
+    };
 
-    let from = Square::from_shogi(from_file, from_rank);
-    let to = Square::from_shogi(to_file, to_rank);
+    let from = parse_square(from_file, from_rank, "from")?;
+    let to = parse_square(to_file, to_rank, "to")?;
 
     let piece = board
         .piece_at(from)
         .ok_or_else(|| format!("no piece at {}", sq_to_usi(from)))?;
 
-    Ok(Move::normal(from, to, piece.kind, promote))
+    if piece.color != board.side_to_move {
+        return Err(format!("piece belongs to the other side: {s}"));
+    }
+    let candidate = Move::normal(from, to, piece.kind, promote);
+    if !crate::movegen::generate_legal_moves(&mut board.clone()).contains(&candidate) {
+        return Err(format!("illegal move: {s}"));
+    }
+    Ok(candidate)
 }
 
 // ---- Board ↔ SFEN ----
@@ -213,7 +251,7 @@ pub fn board_to_sfen(board: &crate::board::Board) -> String {
 
 // ---- Position parsing (for USI "position" command) ----
 
-/// Apply a sequence of USI move strings to a board.
+/// Validate and apply a sequence of USI move strings to a board.
 pub fn apply_moves(board: &mut crate::board::Board, moves_str: &str) -> Result<(), String> {
     for tok in moves_str.split_whitespace() {
         let m = move_from_usi(tok, board)?;
@@ -228,22 +266,32 @@ pub fn apply_moves(board: &mut crate::board::Board, moves_str: &str) -> Result<(
 ///   `startpos moves 7g7f 3c3d`
 ///   `sfen lnsgkgsnl/1r5b1/... b - 1 moves 7g7f`
 pub fn parse_position_cmd(body: &str) -> Result<crate::board::Board, String> {
+    let body = body.trim();
     if let Some(rest) = body.strip_prefix("startpos") {
-        let moves = rest
-            .trim_start()
-            .strip_prefix("moves")
-            .map(|s| s.trim())
-            .unwrap_or("");
+        let rest = rest.trim();
+        let moves = if rest.is_empty() {
+            ""
+        } else if let Some(moves) = rest.strip_prefix("moves") {
+            moves.trim()
+        } else {
+            return Err(format!("invalid startpos suffix: '{rest}'"));
+        };
         let mut board = crate::board::Board::startpos();
         apply_moves(&mut board, moves)?;
         Ok(board)
-    } else if let Some(sfen_rest) = body.strip_prefix("sfen ") {
-        // The SFEN occupies the next 4 whitespace-separated tokens; moves follow "moves"
-        let parts: Vec<&str> = sfen_rest.splitn(2, " moves ").collect();
-        let sfen = parts[0].trim();
-        let moves = parts.get(1).copied().unwrap_or("").trim();
-        let mut board = crate::board::Board::from_sfen(sfen)?;
-        apply_moves(&mut board, moves)?;
+    } else if let Some(sfen_rest) = body.strip_prefix("sfen").map(str::trim_start) {
+        let tokens: Vec<&str> = sfen_rest.split_whitespace().collect();
+        let moves_index = tokens.iter().position(|&token| token == "moves");
+        let sfen_end = moves_index.unwrap_or(tokens.len());
+        if !(3..=4).contains(&sfen_end) {
+            return Err("position sfen requires 3 or 4 SFEN fields".into());
+        }
+        let sfen = tokens[..sfen_end].join(" ");
+        let moves = moves_index
+            .map(|index| tokens[index + 1..].join(" "))
+            .unwrap_or_default();
+        let mut board = crate::board::Board::from_sfen(&sfen)?;
+        apply_moves(&mut board, &moves)?;
         Ok(board)
     } else {
         Err(format!("unknown position format: '{body}'"))

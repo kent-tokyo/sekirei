@@ -1281,8 +1281,11 @@ fn main() {
         std::process::exit(1);
     });
 
-    if let Some(dir) = &args.output_dir {
-        fs::create_dir_all(dir).ok();
+    if let Some(dir) = &args.output_dir
+        && let Err(e) = fs::create_dir_all(dir)
+    {
+        eprintln!("output directory creation failed ({}): {e}", dir.display());
+        std::process::exit(1);
     }
 
     let positions: Vec<String> = args
@@ -1322,6 +1325,7 @@ fn main() {
     // times, which makes the resulting Elo/CI look far more confident than
     // the data supports (see tasks/lessons.md).
     let mut game_moves: Vec<Vec<String>> = Vec::new();
+    let mut artifact_write_failures: Vec<String> = Vec::new();
     // Per-game outcomes in veridict's JSONL record shape, persisted alongside
     // --json so `gate` can be re-run against the raw trials (statistically
     // rigorous CI-based verdict) without replaying any games. Engine1 is
@@ -1464,7 +1468,10 @@ fn main() {
             } else {
                 let _ = writeln!(content, "{pos_line} moves {}", moves.join(" "));
             }
-            fs::write(&path, content).ok();
+            if let Err(e) = fs::write(&path, content) {
+                eprintln!("kifu artifact write failed ({}): {e}", path.display());
+                artifact_write_failures.push(path.display().to_string());
+            }
         }
     }
 
@@ -1525,7 +1532,9 @@ fn main() {
   "unique_prefix10": {},
   "unique_prefix20": {},
   "top_prefix20_count": {},
-  "diversity_ratio": {:.4}
+  "diversity_ratio": {:.4},
+  "artifact_files_expected": {},
+  "artifact_write_failures": {:?}
 }}
 "#,
             e1_label,
@@ -1545,7 +1554,9 @@ fn main() {
             diversity.unique_prefix10,
             diversity.unique_prefix20,
             diversity.top_prefix20_count,
-            diversity.diversity_ratio
+            diversity.diversity_ratio,
+            total,
+            artifact_write_failures
         );
         if let Err(e) = fs::write(json_path, &json) {
             eprintln!("JSON write failed: {e}");

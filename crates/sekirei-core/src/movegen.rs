@@ -181,8 +181,7 @@ pub fn is_attacked(board: &Board, sq: Square, by: Color) -> bool {
 
 /// Returns true if `color`'s king is in check
 pub fn is_in_check(board: &Board, color: Color) -> bool {
-    let king_bb = board.pieces(color, PieceKind::Ou);
-    match king_bb.lsb() {
+    match board.king_square(color) {
         Some(king_sq) => is_attacked(board, king_sq, color.flip()),
         None => false, // no king on board (shouldn't happen in a valid position)
     }
@@ -541,26 +540,33 @@ fn gen_ryu_captures(board: &Board, color: Color, moves: &mut Vec<Move>) {
 
 /// Generate all pseudo-legal moves (king-left-in-check not filtered; nifu / stuck already excluded)
 pub fn generate_moves(board: &Board) -> Vec<Move> {
-    let color = board.side_to_move;
     let mut moves = Vec::with_capacity(128);
+    generate_moves_into(board, &mut moves);
+    moves
+}
+
+/// Generate pseudo-legal moves into a caller-owned reusable buffer.
+pub fn generate_moves_into(board: &Board, moves: &mut Vec<Move>) {
+    let color = board.side_to_move;
+    moves.clear();
 
     let pawn_dirs: &[Direction] = match color {
         Color::Black => &[Direction::N],
         Color::White => &[Direction::S],
     };
-    gen_steps(board, color, PieceKind::Fu, pawn_dirs, &mut moves);
+    gen_steps(board, color, PieceKind::Fu, pawn_dirs, moves);
 
     let lance_dirs: &[Direction] = match color {
         Color::Black => &[Direction::N],
         Color::White => &[Direction::S],
     };
-    gen_sliding(board, color, PieceKind::Kyou, lance_dirs, &mut moves);
+    gen_sliding(board, color, PieceKind::Kyou, lance_dirs, moves);
 
     let knight_dirs: &[Direction] = match color {
         Color::Black => &[Direction::KnightN1, Direction::KnightN2],
         Color::White => &[Direction::KnightS1, Direction::KnightS2],
     };
-    gen_steps(board, color, PieceKind::Kei, knight_dirs, &mut moves);
+    gen_steps(board, color, PieceKind::Kei, knight_dirs, moves);
 
     let silver_dirs: &[Direction] = match color {
         Color::Black => &[
@@ -578,7 +584,7 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
             Direction::NW,
         ],
     };
-    gen_steps(board, color, PieceKind::Gin, silver_dirs, &mut moves);
+    gen_steps(board, color, PieceKind::Gin, silver_dirs, moves);
 
     let gold_dirs: &[Direction] = match color {
         Color::Black => &[
@@ -605,7 +611,7 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
         PieceKind::Narikei,
         PieceKind::Narigin,
     ] {
-        gen_steps(board, color, kind, gold_dirs, &mut moves);
+        gen_steps(board, color, kind, gold_dirs, moves);
     }
 
     gen_sliding(
@@ -613,7 +619,7 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
         color,
         PieceKind::Kaku,
         &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
-        &mut moves,
+        moves,
     );
 
     gen_sliding(
@@ -621,11 +627,11 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
         color,
         PieceKind::Hisha,
         &[Direction::N, Direction::S, Direction::E, Direction::W],
-        &mut moves,
+        moves,
     );
 
-    gen_uma(board, color, &mut moves);
-    gen_ryu(board, color, &mut moves);
+    gen_uma(board, color, moves);
+    gen_ryu(board, color, moves);
 
     gen_steps(
         board,
@@ -641,36 +647,34 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
             Direction::SE,
             Direction::SW,
         ],
-        &mut moves,
+        moves,
     );
 
-    gen_drops(board, color, &mut moves);
-
-    moves
+    gen_drops(board, color, moves);
 }
 
-/// Generate pseudo-legal captures without materializing quiet moves or drops.
-fn generate_captures(board: &Board) -> Vec<Move> {
+/// Generate pseudo-legal captures into a caller-owned reusable buffer.
+fn generate_captures_into(board: &Board, moves: &mut Vec<Move>) {
     let color = board.side_to_move;
-    let mut moves = Vec::with_capacity(32);
+    moves.clear();
 
     let pawn_dirs: &[Direction] = match color {
         Color::Black => &[Direction::N],
         Color::White => &[Direction::S],
     };
-    gen_step_captures(board, color, PieceKind::Fu, pawn_dirs, &mut moves);
+    gen_step_captures(board, color, PieceKind::Fu, pawn_dirs, moves);
 
     let lance_dirs: &[Direction] = match color {
         Color::Black => &[Direction::N],
         Color::White => &[Direction::S],
     };
-    gen_sliding_captures(board, color, PieceKind::Kyou, lance_dirs, &mut moves);
+    gen_sliding_captures(board, color, PieceKind::Kyou, lance_dirs, moves);
 
     let knight_dirs: &[Direction] = match color {
         Color::Black => &[Direction::KnightN1, Direction::KnightN2],
         Color::White => &[Direction::KnightS1, Direction::KnightS2],
     };
-    gen_step_captures(board, color, PieceKind::Kei, knight_dirs, &mut moves);
+    gen_step_captures(board, color, PieceKind::Kei, knight_dirs, moves);
 
     let silver_dirs: &[Direction] = match color {
         Color::Black => &[
@@ -688,7 +692,7 @@ fn generate_captures(board: &Board) -> Vec<Move> {
             Direction::NW,
         ],
     };
-    gen_step_captures(board, color, PieceKind::Gin, silver_dirs, &mut moves);
+    gen_step_captures(board, color, PieceKind::Gin, silver_dirs, moves);
 
     let gold_dirs: &[Direction] = match color {
         Color::Black => &[
@@ -715,7 +719,7 @@ fn generate_captures(board: &Board) -> Vec<Move> {
         PieceKind::Narikei,
         PieceKind::Narigin,
     ] {
-        gen_step_captures(board, color, kind, gold_dirs, &mut moves);
+        gen_step_captures(board, color, kind, gold_dirs, moves);
     }
 
     gen_sliding_captures(
@@ -723,17 +727,17 @@ fn generate_captures(board: &Board) -> Vec<Move> {
         color,
         PieceKind::Kaku,
         &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
-        &mut moves,
+        moves,
     );
     gen_sliding_captures(
         board,
         color,
         PieceKind::Hisha,
         &[Direction::N, Direction::S, Direction::E, Direction::W],
-        &mut moves,
+        moves,
     );
-    gen_uma_captures(board, color, &mut moves);
-    gen_ryu_captures(board, color, &mut moves);
+    gen_uma_captures(board, color, moves);
+    gen_ryu_captures(board, color, moves);
     gen_step_captures(
         board,
         color,
@@ -748,10 +752,8 @@ fn generate_captures(board: &Board) -> Vec<Move> {
             Direction::SE,
             Direction::SW,
         ],
-        &mut moves,
+        moves,
     );
-
-    moves
 }
 
 /// Check whether the current position (after a pawn drop) is uchifuzume (drop-pawn checkmate).
@@ -919,9 +921,75 @@ fn check_evasion_mask(board: &Board, king: Square, defender: Color) -> (usize, B
     (checker_count, mask)
 }
 
+/// Returns the friendly pieces that currently shield the king from a slider.
+///
+/// A non-king move by a piece outside this mask cannot expose a discovered
+/// rook, bishop, or lance attack on the mover's king. This lets the legal move
+/// filter avoid a make/unmake probe for the common quiet-position case.
+fn pinned_pieces(board: &Board, king: Square, defender: Color) -> Bitboard {
+    let attacker = defender.flip();
+    let occupied = board.occ();
+    let mut pinned = Bitboard::EMPTY;
+
+    for (direction, diagonal) in [
+        (Direction::N, false),
+        (Direction::S, false),
+        (Direction::E, false),
+        (Direction::W, false),
+        (Direction::NE, true),
+        (Direction::NW, true),
+        (Direction::SE, true),
+        (Direction::SW, true),
+    ] {
+        let mut square = king;
+        let Some(first) = (|| {
+            while let Some(next) = square.step(direction) {
+                square = next;
+                if occupied.contains(square) {
+                    return Some(square);
+                }
+            }
+            None
+        })() else {
+            continue;
+        };
+        if board
+            .piece_at(first)
+            .is_none_or(|piece| piece.color != defender)
+        {
+            continue;
+        }
+
+        let mut beyond = first;
+        while let Some(next) = beyond.step(direction) {
+            beyond = next;
+            if !occupied.contains(beyond) {
+                continue;
+            }
+            let Some(piece) = board.piece_at(beyond) else {
+                break;
+            };
+            let slider = if diagonal {
+                piece.color == attacker && matches!(piece.kind, PieceKind::Kaku | PieceKind::Uma)
+            } else {
+                piece.color == attacker
+                    && (matches!(piece.kind, PieceKind::Hisha | PieceKind::Ryu)
+                        || (matches!(piece.kind, PieceKind::Kyou)
+                            && ((attacker == Color::Black && direction == Direction::S)
+                                || (attacker == Color::White && direction == Direction::N))))
+            };
+            if slider {
+                pinned |= Bitboard::from_square(first);
+            }
+            break;
+        }
+    }
+    pinned
+}
+
 /// Generate fully legal moves: filters pseudo-legal moves for own-king-in-check and uchifuzume
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
-    let mut legals = Vec::new();
+    let mut legals = take_move_buffer();
     generate_legal_moves_into(board, &mut legals);
     legals
 }
@@ -931,18 +999,26 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
     legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
-    let pseudos = generate_moves(board);
+    let mut pseudos = take_move_buffer();
+    generate_moves_into(board, &mut pseudos);
     let evasion = if is_in_check(board, mover) {
         board
-            .pieces(mover, PieceKind::Ou)
-            .lsb()
+            .king_square(mover)
             .map(|king| check_evasion_mask(board, king, mover))
     } else {
         None
     };
+    let pinned = if evasion.is_none() {
+        board
+            .king_square(mover)
+            .map(|king| pinned_pieces(board, king, mover))
+            .unwrap_or(Bitboard::EMPTY)
+    } else {
+        Bitboard::EMPTY
+    };
 
     legals.reserve(pseudos.len());
-    for m in pseudos {
+    for &m in pseudos.iter() {
         if let Some((1, evasion_mask)) = evasion
             && m.piece_kind != PieceKind::Ou
             && !evasion_mask.contains(m.to)
@@ -956,6 +1032,14 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
         {
             continue;
         }
+        let requires_probe = evasion.is_some()
+            || m.piece_kind == PieceKind::Ou
+            || pinned.contains(m.from.unwrap_or(m.to))
+            || (m.is_drop() && m.piece_kind == PieceKind::Fu);
+        if !requires_probe {
+            legals.push(m);
+            continue;
+        }
         let tok = board.do_move_for_legality(m);
         if !is_in_check(board, mover) {
             let uzume =
@@ -966,12 +1050,13 @@ pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
         }
         board.undo_move_for_legality(tok);
     }
+    recycle_move_buffer(pseudos);
 }
 
 /// Generate legal capture moves only (no drops, no quiet moves).
 /// Used by quiescence search to resolve tactical sequences at the horizon.
 pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
-    let mut legals = Vec::new();
+    let mut legals = take_move_buffer();
     generate_legal_captures_into(board, &mut legals);
     legals
 }
@@ -980,15 +1065,29 @@ pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
 pub fn generate_legal_captures_into(board: &mut Board, legals: &mut Vec<Move>) {
     legals.clear();
     let mover = board.side_to_move;
-    let pseudos = generate_captures(board);
+    let mut pseudos = take_move_buffer();
+    generate_captures_into(board, &mut pseudos);
+    let in_check = is_in_check(board, mover);
+    let pinned = if in_check {
+        Bitboard::EMPTY
+    } else {
+        board
+            .king_square(mover)
+            .map(|king| pinned_pieces(board, king, mover))
+            .unwrap_or(Bitboard::EMPTY)
+    };
 
     legals.reserve(pseudos.len());
-    for m in pseudos {
+    for &m in pseudos.iter() {
         // King capture is impossible in legal shogi; skip to avoid panicking do_move
         if board
             .piece_at(m.to)
             .is_some_and(|piece| piece.kind == PieceKind::Ou)
         {
+            continue;
+        }
+        if !in_check && m.piece_kind != PieceKind::Ou && !pinned.contains(m.from.unwrap_or(m.to)) {
+            legals.push(m);
             continue;
         }
         let tok = board.do_move_for_legality(m);
@@ -997,6 +1096,7 @@ pub fn generate_legal_captures_into(board: &mut Board, legals: &mut Vec<Move>) {
         }
         board.undo_move_for_legality(tok);
     }
+    recycle_move_buffer(pseudos);
 }
 
 thread_local! {

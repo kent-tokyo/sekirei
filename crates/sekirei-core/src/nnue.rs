@@ -467,6 +467,7 @@ impl NnueAcc {
     // --- Incremental hand updates ---
 
     /// Call when `color`'s hand gains its `count`-th piece of `kind` (count ≥ 1).
+    #[inline]
     pub fn add_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
         if count == 0 || count > HAND_MAX[kind.index()] {
             return;
@@ -477,6 +478,7 @@ impl NnueAcc {
     }
 
     /// Call when `color`'s hand loses its `count`-th piece of `kind` (count was ≥ 1 before the drop).
+    #[inline]
     pub fn remove_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
         if count == 0 || count > HAND_MAX[kind.index()] {
             return;
@@ -489,6 +491,7 @@ impl NnueAcc {
     // --- Incremental piece updates ---
 
     /// Incrementally update the accumulator for a piece placed at `sq`.
+    #[inline]
     pub fn add_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
         for p in [Color::Black, Color::White] {
             let feat = feature_index(sq, kind, color, p);
@@ -497,6 +500,7 @@ impl NnueAcc {
     }
 
     /// Incrementally update the accumulator for a piece removed from `sq`.
+    #[inline]
     pub fn remove_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
         for p in [Color::Black, Color::White] {
             let feat = feature_index(sq, kind, color, p);
@@ -508,33 +512,28 @@ impl NnueAcc {
 
     /// Evaluate the position; positive = good for `stm`.
     /// FT ClippedReLU → L2 (f32) → ClippedReLU → output → centipawn score.
+    #[inline]
     pub fn evaluate(&self, stm: Color) -> i32 {
         self.evaluate_with(weights(), stm)
     }
 
     /// Evaluate with an explicitly supplied weight set, without touching the
     /// process-global loader state.
+    #[inline]
     pub fn evaluate_with(&self, w: &NnueWeights, stm: Color) -> i32 {
         let us = stm.index();
         let them = 1 - us;
 
-        // Dequantize FT accumulators to f32.
-        // FT weights are stored scaled by 64 (see to_nnue_weights), so accumulator values
-        // are also 64× larger. Divide by 64 here to recover the float equivalent.
+        // Dequantize FT accumulators directly while feeding L2. FT weights are stored
+        // scaled by 64 (see to_nnue_weights), so accumulator values are also 64× larger.
+        // Keeping the values in registers avoids two temporary L1 arrays and a separate
+        // preprocessing pass on the hot inference path.
         const FT_SCALE: f32 = 64.0;
-        let mut relu_us = [0.0f32; L1];
-        let mut relu_them = [0.0f32; L1];
-        for j in 0..L1 {
-            relu_us[j] = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-            relu_them[j] =
-                self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-        }
-
-        // L2 forward (input-first loop for cache-friendly access to l2[j])
+        // L2 forward (input-first loop for cache-friendly access to l2[j]).
         let mut l2_acc = w.l2_bias;
         for j in 0..L1 {
-            let a = relu_us[j];
-            let b = relu_them[j];
+            let a = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            let b = self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
             let row_us = &w.l2[j];
             let row_them = &w.l2[L1 + j];
             for o in 0..L2 {

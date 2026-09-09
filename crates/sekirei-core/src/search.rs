@@ -23,7 +23,7 @@
 //!   - Delta Pruning in Quiescence Search
 
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
@@ -300,6 +300,68 @@ pub struct SearchInfo {
     pub hashfull: u32,
 }
 
+/// Optional counters for explaining move-ordering behavior.
+///
+/// The observer is detached from normal searches, so production callers do not
+/// pay for these atomic increments unless they explicitly opt in.
+pub struct SearchDiagnostics {
+    tt_probes: AtomicU64,
+    tt_hits: AtomicU64,
+    order_tt: AtomicU64,
+    order_killer: AtomicU64,
+    order_countermove: AtomicU64,
+    order_history: AtomicU64,
+}
+
+/// A point-in-time copy of [`SearchDiagnostics`] counters.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct SearchDiagnosticsSnapshot {
+    /// Number of transposition-table probes.
+    pub tt_probes: u64,
+    /// Number of probes that found an entry.
+    pub tt_hits: u64,
+    /// Number of moves selected as the TT move.
+    pub order_tt: u64,
+    /// Number of moves selected by the killer heuristic.
+    pub order_killer: u64,
+    /// Number of moves selected by the countermove heuristic.
+    pub order_countermove: u64,
+    /// Number of moves scored by the history heuristic.
+    pub order_history: u64,
+}
+
+impl SearchDiagnostics {
+    /// Create an empty observer.
+    pub fn new() -> Self {
+        Self {
+            tt_probes: AtomicU64::new(0),
+            tt_hits: AtomicU64::new(0),
+            order_tt: AtomicU64::new(0),
+            order_killer: AtomicU64::new(0),
+            order_countermove: AtomicU64::new(0),
+            order_history: AtomicU64::new(0),
+        }
+    }
+
+    /// Return counters collected so far without resetting the observer.
+    pub fn snapshot(&self) -> SearchDiagnosticsSnapshot {
+        SearchDiagnosticsSnapshot {
+            tt_probes: self.tt_probes.load(Ordering::Relaxed),
+            tt_hits: self.tt_hits.load(Ordering::Relaxed),
+            order_tt: self.order_tt.load(Ordering::Relaxed),
+            order_killer: self.order_killer.load(Ordering::Relaxed),
+            order_countermove: self.order_countermove.load(Ordering::Relaxed),
+            order_history: self.order_history.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl Default for SearchDiagnostics {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // ============================================================
 // Internal search state (shared across threads via Arc)
 // ============================================================
@@ -310,6 +372,7 @@ struct SearchState {
     killers: KillerTable,
     history: HistoryTable,
     countermoves: CountermoveTable,
+    diagnostics: Option<Arc<SearchDiagnostics>>,
 }
 
 // ============================================================
@@ -321,6 +384,7 @@ pub struct Searcher {
     tt: Arc<Tt>,
     /// Exposed for USI "stop" command — set to true to abort an in-progress search
     external_abort: Arc<AtomicBool>,
+    diagnostics: Option<Arc<SearchDiagnostics>>,
 }
 
 impl Searcher {
@@ -332,7 +396,20 @@ impl Searcher {
     /// Create a searcher using a caller-owned abort flag. This lets independent
     /// Lazy SMP workers stop as one group without sharing mutable search state.
     pub fn with_abort_flag(tt: Arc<Tt>, external_abort: Arc<AtomicBool>) -> Self {
-        Searcher { tt, external_abort }
+        Searcher {
+            tt,
+            external_abort,
+            diagnostics: None,
+        }
+    }
+
+    /// Create a searcher that records optional move-ordering diagnostics.
+    pub fn with_diagnostics(tt: Arc<Tt>, diagnostics: Arc<SearchDiagnostics>) -> Self {
+        Self {
+            tt,
+            external_abort: Arc::new(AtomicBool::new(false)),
+            diagnostics: Some(diagnostics),
+        }
     }
 
     /// Returns an `Arc` to the abort flag; store `true` to stop the search early.
@@ -360,6 +437,7 @@ impl Searcher {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            diagnostics: self.diagnostics.clone(),
         });
 
         let mut best_move = None;
@@ -456,6 +534,7 @@ fn root_search(
         None,
         &state.history,
         board.side_to_move,
+        state.diagnostics.as_deref(),
     );
 
     // Mate-in-1: check each root move for immediate checkmate before deep search
@@ -645,7 +724,13 @@ fn alpha_beta(
     let mut tt_se_score = None::<i32>; // TT score for singular extension (lower/exact bound only)
     let mut tt_se_depth = 0u8; // TT entry depth for SE eligibility check
 
+    if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
+    }
     if let Some(entry) = state.tt.probe(hash) {
+        if let Some(diagnostics) = state.diagnostics.as_deref() {
+            diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
+        }
         let adj = score_from_tt(entry.score, ply);
         tt_mv = entry.mv;
         tt_se_depth = entry.depth;
@@ -799,6 +884,7 @@ fn alpha_beta(
         countermove,
         &state.history,
         stm,
+        state.diagnostics.as_deref(),
     );
 
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
@@ -1528,6 +1614,7 @@ impl SpeculativeSearcher {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            diagnostics: None,
         });
 
         // Spec tasks share the *same* Budget as the main search (not an
@@ -1932,6 +2019,7 @@ fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn order_moves(
     board: &mut Board,
     mut moves: Vec<Move>,
@@ -1940,11 +2028,22 @@ fn order_moves(
     countermove: Option<Move>,
     history: &HistoryTable,
     stm: Color,
+    diagnostics: Option<&SearchDiagnostics>,
 ) -> Vec<Move> {
-    order_moves_in_place(board, &mut moves, tt_mv, killers, countermove, history, stm);
+    order_moves_in_place(
+        board,
+        &mut moves,
+        tt_mv,
+        killers,
+        countermove,
+        history,
+        stm,
+        diagnostics,
+    );
     moves
 }
 
+#[allow(clippy::too_many_arguments)]
 fn order_moves_in_place(
     board: &mut Board,
     moves: &mut [Move],
@@ -1953,11 +2052,15 @@ fn order_moves_in_place(
     countermove: Option<Move>,
     history: &HistoryTable,
     stm: Color,
+    diagnostics: Option<&SearchDiagnostics>,
 ) {
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
     moves.sort_by_cached_key(|&m| {
         if tt_mv.is_some_and(|t| t == m) {
+            if let Some(d) = diagnostics {
+                d.order_tt.fetch_add(1, Ordering::Relaxed);
+            }
             return i32::MIN;
         } // 1. TT move first
 
@@ -1974,16 +2077,28 @@ fn order_moves_in_place(
         }
 
         if killers[0].is_some_and(|k| k == m) {
+            if let Some(d) = diagnostics {
+                d.order_killer.fetch_add(1, Ordering::Relaxed);
+            }
             return -9_100;
         } // 3. Killer 0
         if killers[1].is_some_and(|k| k == m) {
+            if let Some(d) = diagnostics {
+                d.order_killer.fetch_add(1, Ordering::Relaxed);
+            }
             return -9_050;
         } // 4. Killer 1
         if countermove.is_some_and(|cm| cm == m) {
+            if let Some(d) = diagnostics {
+                d.order_countermove.fetch_add(1, Ordering::Relaxed);
+            }
             return -9_000;
         } // 5. Countermove
 
         // 6. Remaining quiet moves by history score
+        if let Some(d) = diagnostics {
+            d.order_history.fetch_add(1, Ordering::Relaxed);
+        }
         -(-8_000 + history.get(stm, m.piece_kind, m.to))
     });
 }
@@ -2002,6 +2117,211 @@ mod see_tests {
                 assert_eq!(lmr_base_reduction(depth, move_idx), expected);
             }
         }
+    }
+
+    #[test]
+    fn lmr_protects_early_special_and_tactical_moves() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let quiet = moves[0];
+        let history = HistoryTable::new();
+        let no_killers = [None, None];
+
+        assert_eq!(
+            lmr_reduce(
+                &board,
+                quiet,
+                1,
+                5,
+                &no_killers,
+                None,
+                &history,
+                Color::Black
+            ),
+            0
+        );
+        assert!(
+            lmr_reduce(
+                &board,
+                quiet,
+                2,
+                5,
+                &no_killers,
+                None,
+                &history,
+                Color::Black
+            ) > 0
+        );
+
+        let killers = KillerTable::new();
+        killers.add(0, quiet);
+        assert_eq!(
+            lmr_reduce(
+                &board,
+                quiet,
+                5,
+                8,
+                &killers.get(0),
+                None,
+                &history,
+                Color::Black
+            ),
+            0
+        );
+        assert_eq!(
+            lmr_reduce(
+                &board,
+                quiet,
+                5,
+                8,
+                &no_killers,
+                Some(quiet),
+                &history,
+                Color::Black
+            ),
+            0
+        );
+
+        let promoted = Move::normal(quiet.from.unwrap(), quiet.to, quiet.piece_kind, true);
+        assert_eq!(
+            lmr_reduce(
+                &board,
+                promoted,
+                5,
+                8,
+                &no_killers,
+                None,
+                &history,
+                Color::Black
+            ),
+            0
+        );
+
+        let mut capture_board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        let capture = generate_legal_captures(&mut capture_board)
+            .into_iter()
+            .find(|m| m.to == Square::from_shogi(5, 5))
+            .expect("the tactical fixture must contain a capture");
+        assert_eq!(
+            lmr_reduce(
+                &capture_board,
+                capture,
+                5,
+                8,
+                &no_killers,
+                None,
+                &history,
+                Color::Black,
+            ),
+            0
+        );
+    }
+
+    #[test]
+    fn futility_pruning_reduces_only_late_quiet_work_at_depth_one() {
+        let fresh = |tt| {
+            Arc::new(SearchState {
+                tt,
+                budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+                killers: KillerTable::new(),
+                history: HistoryTable::new(),
+                countermoves: CountermoveTable::new(),
+                diagnostics: None,
+            })
+        };
+        let mut pruned_board = Board::startpos();
+        let pruned_hash = pruned_board.hash();
+        let pruned_state = fresh(Tt::new(1));
+        let _ = alpha_beta(
+            &pruned_state,
+            &mut pruned_board,
+            100_000,
+            100_001,
+            1,
+            0,
+            true,
+            None,
+            None,
+            Some(false),
+        );
+        let pruned_nodes = pruned_state.budget.nodes();
+
+        let mut full_board = Board::startpos();
+        let full_state = fresh(Tt::new(1));
+        let _ = alpha_beta(
+            &full_state,
+            &mut full_board,
+            NEG_INF,
+            POS_INF,
+            1,
+            0,
+            true,
+            None,
+            None,
+            Some(false),
+        );
+        assert!(pruned_nodes < full_state.budget.nodes());
+        assert_eq!(pruned_board.hash(), pruned_hash);
+        assert_eq!(full_board.hash(), Board::startpos().hash());
+    }
+
+    #[test]
+    fn move_ordering_keeps_priority_bands_in_order() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        assert!(moves.len() >= 4);
+        let tt_move = moves[0];
+        let killer_move = moves[1];
+        let countermove = moves[2];
+        let history_move = moves[3];
+
+        let killers = KillerTable::new();
+        killers.add(0, killer_move);
+        let history = HistoryTable::new();
+        history.update(Color::Black, history_move.piece_kind, history_move.to, 20);
+        let mut ordered = vec![history_move, countermove, killer_move, tt_move];
+        order_moves_in_place(
+            &mut board,
+            &mut ordered,
+            Some(tt_move),
+            killers.get(0),
+            Some(countermove),
+            &history,
+            Color::Black,
+            None,
+        );
+
+        assert_eq!(
+            ordered,
+            vec![tt_move, killer_move, countermove, history_move]
+        );
+    }
+
+    #[test]
+    fn diagnostics_observer_records_search_path_without_changing_result() {
+        let diagnostics = Arc::new(SearchDiagnostics::new());
+        let searcher = Searcher::with_diagnostics(Tt::new(1), diagnostics.clone());
+        let mut board = Board::startpos();
+        let result = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(64),
+                ..SearchConfig::default()
+            },
+        );
+        assert!(result.best_move.is_some());
+
+        let snapshot = diagnostics.snapshot();
+        assert!(snapshot.tt_probes > 0);
+        assert!(snapshot.tt_hits <= snapshot.tt_probes);
+        assert!(
+            snapshot.order_tt
+                + snapshot.order_killer
+                + snapshot.order_countermove
+                + snapshot.order_history
+                > 0
+        );
     }
 
     // Black rook on 5g captures a white pawn on 5e defended by a white pawn on 5d.
@@ -2138,6 +2458,7 @@ mod regression_tests {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            diagnostics: None,
         })
     }
 
@@ -2244,6 +2565,7 @@ mod regression_tests {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            diagnostics: None,
         });
         root_search_inner(&aborted_state, &mut board, 7, &moves, NEG_INF, POS_INF);
 
@@ -2305,11 +2627,84 @@ mod regression_tests {
             killers: KillerTable::new(),
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
+            diagnostics: None,
         });
         let _ = quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0, None);
         assert!(
             aborted_tt.probe(hash).is_none(),
             "aborted qsearch must not publish a TT entry"
+        );
+    }
+
+    #[test]
+    fn qsearch_records_a_capture_and_restores_the_position() {
+        let mut board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        let hash = board.hash();
+        let capture = generate_legal_captures(&mut board)
+            .into_iter()
+            .find(|m| m.to == Square::from_shogi(5, 5))
+            .expect("the rook must have a legal pawn capture");
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+
+        assert_eq!(board.hash(), hash, "qsearch must undo every capture");
+        assert_eq!(
+            tt.probe(hash).and_then(|entry| entry.mv),
+            Some(capture),
+            "the qsearch TT entry should retain its best capture"
+        );
+    }
+
+    #[test]
+    fn qsearch_delta_pruning_returns_an_upper_bound_without_mutation() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        let alpha = 100_000;
+
+        let score = quiescence(&state, &mut board, alpha, alpha + 1, 0, 0, None);
+
+        assert_eq!(score, alpha, "delta pruning should return the raised alpha");
+        assert_eq!(
+            board.hash(),
+            hash,
+            "delta pruning must not mutate the board"
+        );
+        let entry = tt
+            .probe(hash)
+            .expect("delta pruning should cache its bound");
+        assert_eq!(entry.bound, Bound::Upper);
+        assert_eq!(score_from_tt(entry.score, 0), alpha);
+    }
+
+    #[test]
+    fn qsearch_quiet_check_fixture_preserves_board_state() {
+        let mut board = Board::from_sfen("4k4/9/9/9/4R4/9/9/9/4K4 b - 1").unwrap();
+        let hash = board.hash();
+        let quiet_check = Move::normal(
+            Square::from_shogi(5, 5),
+            Square::from_shogi(5, 2),
+            PieceKind::Hisha,
+            false,
+        );
+        assert!(
+            generate_legal_moves(&mut board).contains(&quiet_check),
+            "the rook quiet check must be legal"
+        );
+        let token = board.do_move(quiet_check);
+        assert!(is_in_check(&board, board.side_to_move));
+        board.undo_move(token);
+        assert_eq!(board.hash(), hash, "quiet-check probe must undo exactly");
+
+        let state = fresh_state(Tt::new(1));
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+        assert_eq!(
+            board.hash(),
+            hash,
+            "qsearch quiet-check fixture must not mutate"
         );
     }
 

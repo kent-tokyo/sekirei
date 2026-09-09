@@ -25,6 +25,7 @@ mod teacher_cache;
 mod trainer;
 
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -231,14 +232,31 @@ struct Args {
     trace_positions: Vec<u64>,
 }
 
-fn parse_phase_weights(s: &str) -> HashMap<String, f32> {
-    s.split(',')
-        .filter_map(|pair| {
-            let (k, v) = pair.split_once('=')?;
-            let w: f32 = v.parse().ok()?;
-            Some((k.trim().to_string(), w))
-        })
-        .collect()
+fn parse_phase_weights(s: &str) -> Result<HashMap<String, f32>, String> {
+    let mut weights = HashMap::new();
+    for pair in s.split(',') {
+        let (key, value) = pair
+            .split_once('=')
+            .ok_or_else(|| format!("--phase-weights entry {pair:?} must use key=value"))?;
+        let key = key.trim();
+        if key.is_empty() {
+            return Err("--phase-weights keys must not be empty".to_string());
+        }
+        let weight: f32 = value
+            .trim()
+            .parse()
+            .map_err(|error| format!("--phase-weights value {value:?} is invalid: {error}"))?;
+        if !weight.is_finite() {
+            return Err(format!("--phase-weights value {value:?} must be finite"));
+        }
+        if weights.insert(key.to_string(), weight).is_some() {
+            return Err(format!("--phase-weights contains duplicate key {key:?}"));
+        }
+    }
+    if weights.is_empty() {
+        return Err("--phase-weights requires at least one key=value entry".to_string());
+    }
+    Ok(weights)
 }
 
 fn compute_side_weights(samples: &[positions::PositionSample]) -> HashMap<String, f32> {
@@ -265,6 +283,20 @@ fn compute_side_weights(samples: &[positions::PositionSample]) -> HashMap<String
     ]
     .into_iter()
     .collect()
+}
+
+fn next_value<T>(argv: &[String], index: &mut usize, option: &str) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    T::Err: Display,
+{
+    *index += 1;
+    let value = argv
+        .get(*index)
+        .ok_or_else(|| format!("{option} requires a value"))?;
+    value
+        .parse()
+        .map_err(|error| format!("{option} has invalid value {value:?}: {error}"))
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -364,43 +396,25 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--epochs" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    epochs = s.parse().unwrap_or(3);
-                }
+                epochs = next_value(&argv, &mut i, "--epochs")?;
             }
             "--sample" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    sample = s.parse().unwrap_or(4);
-                }
+                sample = next_value(&argv, &mut i, "--sample")?;
             }
             "--best-every" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    best_every = s.parse().unwrap_or(0);
-                }
+                best_every = next_value(&argv, &mut i, "--best-every")?;
             }
             "--min-rate" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    min_rate = s.parse().unwrap_or(1500.0);
-                }
+                min_rate = next_value(&argv, &mut i, "--min-rate")?;
             }
             "--quiet" => {
                 quiet = true;
             }
             "--min-ply" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    min_ply = s.parse().unwrap_or(0);
-                }
+                min_ply = next_value(&argv, &mut i, "--min-ply")?;
             }
             "--label-depth" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    label_depth = s.parse().unwrap_or(1);
-                }
+                label_depth = next_value(&argv, &mut i, "--label-depth")?;
             }
             "--label-time-ms" => {
                 i += 1;
@@ -436,136 +450,100 @@ fn parse_args() -> Result<Args, String> {
                 export = argv.get(i).map(PathBuf::from);
             }
             "--depths" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    depths = s.split(',').filter_map(|d| d.parse().ok()).collect();
-                }
+                let value: String = next_value(&argv, &mut i, "--depths")?;
+                depths = value
+                    .split(',')
+                    .map(|depth| {
+                        let depth: u32 = depth.trim().parse().map_err(|error| {
+                            format!("--depths value {depth:?} is invalid: {error}")
+                        })?;
+                        if depth == 0 {
+                            return Err("--depths values must be greater than zero".to_string());
+                        }
+                        Ok(depth)
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
             }
             "--build-book" => {
                 i += 1;
                 build_book = argv.get(i).map(PathBuf::from);
             }
             "--book-max-ply" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    book_max_ply = s.parse().unwrap_or(book_max_ply);
-                }
+                book_max_ply = next_value(&argv, &mut i, "--book-max-ply")?;
             }
             "--book-min-count" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    book_min_count = s.parse().unwrap_or(book_min_count);
-                }
+                book_min_count = next_value(&argv, &mut i, "--book-min-count")?;
             }
             "--scored" => {
                 i += 1;
                 scored_path = argv.get(i).map(PathBuf::from);
             }
             "--min-stability" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    min_stability = s.parse().unwrap_or(0.85);
-                }
+                min_stability = next_value(&argv, &mut i, "--min-stability")?;
             }
             "--stability-weighted" => {
                 stability_weighted = true;
             }
             "--label-threshold-cp" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    label_threshold_cp = s.parse().unwrap_or(120);
-                }
+                label_threshold_cp = next_value(&argv, &mut i, "--label-threshold-cp")?;
             }
             "--wdl-lambda" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    wdl_lambda = s.parse().ok();
-                }
+                wdl_lambda = Some(next_value(&argv, &mut i, "--wdl-lambda")?);
             }
             "--lr" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    lr = s.parse().unwrap_or(0.001);
-                }
+                lr = next_value(&argv, &mut i, "--lr")?;
             }
             "--lr-schedule" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    lr_schedule = LrSchedule::parse(s).unwrap_or(LrSchedule::StepHalf);
-                }
+                let value: String = next_value(&argv, &mut i, "--lr-schedule")?;
+                lr_schedule = LrSchedule::parse(&value)
+                    .ok_or_else(|| format!("unknown --lr-schedule {value:?}"))?;
             }
             "--min-lr" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    min_lr = s.parse().unwrap_or(0.0);
-                }
+                min_lr = next_value(&argv, &mut i, "--min-lr")?;
             }
             "--warmup-epochs" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    warmup_epochs = s.parse().unwrap_or(0);
-                }
+                warmup_epochs = next_value(&argv, &mut i, "--warmup-epochs")?;
             }
             "--lr-schedule-epochs" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    lr_schedule_epochs = s.parse().ok();
-                }
+                lr_schedule_epochs = Some(next_value(&argv, &mut i, "--lr-schedule-epochs")?);
             }
             "--grad-clip-norm" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    grad_clip_norm = s.parse().ok();
-                }
+                grad_clip_norm = Some(next_value(&argv, &mut i, "--grad-clip-norm")?);
             }
             "--ft-clip-norm" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    ft_clip_norm = s.parse().ok();
-                }
+                ft_clip_norm = Some(next_value(&argv, &mut i, "--ft-clip-norm")?);
             }
             "--l2-clip-norm" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    l2_clip_norm = s.parse().ok();
-                }
+                l2_clip_norm = Some(next_value(&argv, &mut i, "--l2-clip-norm")?);
             }
             "--out-clip-norm" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    out_clip_norm = s.parse().ok();
-                }
+                out_clip_norm = Some(next_value(&argv, &mut i, "--out-clip-norm")?);
             }
             "--l2-bias-init" => {
-                i += 1;
-                if let Some(v) = argv.get(i).and_then(|s| s.parse::<f32>().ok()) {
-                    l2_bias_init = v;
-                }
+                l2_bias_init = next_value(&argv, &mut i, "--l2-bias-init")?;
             }
             "--trace-positions" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    trace_positions = s.split(',').filter_map(|n| n.trim().parse().ok()).collect();
-                }
+                let value: String = next_value(&argv, &mut i, "--trace-positions")?;
+                trace_positions = value
+                    .split(',')
+                    .map(|position| {
+                        position.trim().parse().map_err(|error| {
+                            format!("--trace-positions value {position:?} is invalid: {error}")
+                        })
+                    })
+                    .collect::<Result<Vec<u64>, String>>()?;
             }
             "--shuffle-seed" => {
-                i += 1;
-                shuffle_seed = argv.get(i).and_then(|s| s.parse().ok());
+                shuffle_seed = Some(next_value(&argv, &mut i, "--shuffle-seed")?);
             }
             "--cp-wdl-grad-trace" => {
                 cp_wdl_grad_trace = true;
             }
             "--wdl-target-scale" => {
-                i += 1;
-                if let Some(v) = argv.get(i).and_then(|s| s.parse::<f32>().ok()) {
-                    wdl_target_scale = v;
-                }
+                wdl_target_scale = next_value(&argv, &mut i, "--wdl-target-scale")?;
             }
             "--sample-grad-trace" => {
-                i += 1;
-                if let Some(v) = argv.get(i).and_then(|s| s.parse::<u64>().ok()) {
-                    sample_grad_trace = v;
-                }
+                sample_grad_trace = next_value(&argv, &mut i, "--sample-grad-trace")?;
             }
             "--trace-weights" => {
                 trace_weights = true;
@@ -694,43 +672,26 @@ fn parse_args() -> Result<Args, String> {
                 }
             }
             "--phase-weights" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    phase_weights = parse_phase_weights(s);
-                }
+                let value: String = next_value(&argv, &mut i, "--phase-weights")?;
+                phase_weights = parse_phase_weights(&value)?;
             }
             "--side-balance" => {
                 side_balance = true;
             }
             "--source-cap" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    source_cap = s.parse().unwrap_or(0);
-                }
+                source_cap = next_value(&argv, &mut i, "--source-cap")?;
             }
             "--validation-ratio" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    validation_ratio = s.parse().unwrap_or(0.0);
-                }
+                validation_ratio = next_value(&argv, &mut i, "--validation-ratio")?;
             }
             "--seed" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    seed = s.parse().unwrap_or(42);
-                }
+                seed = next_value(&argv, &mut i, "--seed")?;
             }
             "--init-seed" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    init_seed = s.parse().ok();
-                }
+                init_seed = Some(next_value(&argv, &mut i, "--init-seed")?);
             }
             "--split-seed" => {
-                i += 1;
-                if let Some(s) = argv.get(i) {
-                    split_seed = s.parse().ok();
-                }
+                split_seed = Some(next_value(&argv, &mut i, "--split-seed")?);
             }
             "--checkpoint-dir" => {
                 i += 1;
@@ -745,9 +706,8 @@ fn parse_args() -> Result<Args, String> {
                 resume_checkpoint = argv.get(i).map(PathBuf::from);
             }
             "--resume-checkpoint-every-games" => {
-                i += 1;
                 resume_checkpoint_every_games =
-                    argv.get(i).and_then(|s| s.parse().ok()).unwrap_or(0);
+                    next_value(&argv, &mut i, "--resume-checkpoint-every-games")?;
             }
             "--stop-after-resume-checkpoint" => {
                 stop_after_resume_checkpoint = true;
@@ -766,7 +726,7 @@ fn parse_args() -> Result<Args, String> {
                 print_usage();
                 std::process::exit(0);
             }
-            _ => {}
+            option => return Err(format!("unknown option {option:?}")),
         }
         i += 1;
     }
@@ -796,6 +756,47 @@ fn parse_args() -> Result<Args, String> {
     if label_nodes == Some(0) {
         return Err("--label-nodes must be greater than zero".to_string());
     }
+    if sample == 0 {
+        return Err("--sample must be greater than zero".to_string());
+    }
+    if !min_rate.is_finite() {
+        return Err("--min-rate must be finite".to_string());
+    }
+    if !min_stability.is_finite() || !(0.0..=1.0).contains(&min_stability) {
+        return Err("--min-stability must be finite and between 0 and 1".to_string());
+    }
+    if !validation_ratio.is_finite() || !(0.0..=1.0).contains(&validation_ratio) {
+        return Err("--validation-ratio must be finite and between 0 and 1".to_string());
+    }
+    if !lr.is_finite() || lr <= 0.0 {
+        return Err("--lr must be finite and greater than zero".to_string());
+    }
+    if !min_lr.is_finite() || min_lr < 0.0 {
+        return Err("--min-lr must be finite and non-negative".to_string());
+    }
+    if !l2_bias_init.is_finite() {
+        return Err("--l2-bias-init must be finite".to_string());
+    }
+    if !wdl_target_scale.is_finite() || wdl_target_scale <= 0.0 {
+        return Err("--wdl-target-scale must be finite and greater than zero".to_string());
+    }
+    if let Some(lambda) = wdl_lambda
+        && (!lambda.is_finite() || !(0.0..=1.0).contains(&lambda))
+    {
+        return Err("--wdl-lambda must be finite and between 0 and 1".to_string());
+    }
+    for (name, value) in [
+        ("--grad-clip-norm", grad_clip_norm),
+        ("--ft-clip-norm", ft_clip_norm),
+        ("--l2-clip-norm", l2_clip_norm),
+        ("--out-clip-norm", out_clip_norm),
+    ] {
+        if let Some(value) = value
+            && (!value.is_finite() || value <= 0.0)
+        {
+            return Err(format!("{name} must be finite and greater than zero"));
+        }
+    }
     match (teacher_eval, teacher_weights.as_ref()) {
         (TeacherEval::Material, Some(_)) => {
             return Err("--teacher-weights requires --teacher-eval nnue".to_string());
@@ -807,8 +808,10 @@ fn parse_args() -> Result<Args, String> {
         }
         _ => {}
     }
+    let epochs_u32 = u32::try_from(epochs)
+        .map_err(|_| "--epochs exceeds the supported u32 range".to_string())?;
     let lr_schedule_epochs =
-        trainer::resolve_schedule_epochs(epochs as u32, lr_schedule_epochs, warmup_epochs)?;
+        trainer::resolve_schedule_epochs(epochs_u32, lr_schedule_epochs, warmup_epochs)?;
 
     Ok(Args {
         games_dir,
@@ -2127,7 +2130,16 @@ fn main() {
                 std::process::exit(1);
             }
             resume_epoch_completed = state.epoch_completed;
-            resume_cursor = state.next_game_index as usize;
+            resume_cursor = match usize::try_from(state.next_game_index) {
+                Ok(index) => index,
+                Err(_) => {
+                    eprintln!(
+                        "error: resume checkpoint next_data_index {} does not fit this platform",
+                        state.next_game_index
+                    );
+                    std::process::exit(1);
+                }
+            };
             resume_teacher_cache = state.teacher_cache;
             trainer.weights = state.weights;
             eprintln!(
@@ -2188,7 +2200,16 @@ fn main() {
         let mut best_valid_loss = f64::MAX;
         let mut best_valid_checkpoint: Option<PathBuf> = None;
 
-        let first_epoch = resume_epoch_completed.saturating_add(1) as usize;
+        let first_epoch = match usize::try_from(resume_epoch_completed.saturating_add(1)) {
+            Ok(epoch) => epoch,
+            Err(_) => {
+                eprintln!(
+                    "error: resume checkpoint epoch {} does not fit this platform",
+                    resume_epoch_completed
+                );
+                std::process::exit(1);
+            }
+        };
         if first_epoch > args.epochs && resume_epoch_completed > 0 {
             eprintln!(
                 "error: resume checkpoint already completed {} epochs; --epochs is {}",
@@ -2659,7 +2680,16 @@ fn main() {
             std::process::exit(1);
         }
         resume_epoch_completed = state.epoch_completed;
-        resume_cursor = state.next_game_index as usize;
+        resume_cursor = match usize::try_from(state.next_game_index) {
+            Ok(index) => index,
+            Err(_) => {
+                eprintln!(
+                    "error: resume checkpoint next_data_index {} does not fit this platform",
+                    state.next_game_index
+                );
+                std::process::exit(1);
+            }
+        };
         resume_teacher_cache = state.teacher_cache;
         trainer.weights = state.weights;
         eprintln!(
@@ -2818,7 +2848,16 @@ fn main() {
     };
     teacher_cache.extend(resume_teacher_cache);
 
-    let first_epoch = resume_epoch_completed.saturating_add(1) as usize;
+    let first_epoch = match usize::try_from(resume_epoch_completed.saturating_add(1)) {
+        Ok(epoch) => epoch,
+        Err(_) => {
+            eprintln!(
+                "error: resume checkpoint epoch {} does not fit this platform",
+                resume_epoch_completed
+            );
+            std::process::exit(1);
+        }
+    };
     if first_epoch > args.epochs && resume_epoch_completed > 0 {
         eprintln!(
             "error: resume checkpoint already completed {} epochs; --epochs is {}",

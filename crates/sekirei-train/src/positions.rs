@@ -65,7 +65,8 @@ pub fn load_positions(path: &Path) -> Vec<PositionSample> {
         let ply = val
             .pointer("/source/ply")
             .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+            .map(|value| u32::try_from(value).unwrap_or(u32::MAX))
+            .unwrap_or(0);
         let source = val
             .pointer("/source/path")
             .and_then(|v| v.as_str())
@@ -275,6 +276,19 @@ mod tests {
         assert_eq!(samples.len(), 1);
         assert_eq!(samples[0].phase, "middlegame");
         assert_eq!(samples[0].side_to_move, "");
+    }
+
+    #[test]
+    fn oversized_source_ply_saturates_instead_of_wrapping() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{STARTPOS_SFEN}","source":{{"ply":4294967296}}}}"#
+        )
+        .unwrap();
+        let samples = load_positions(f.path());
+        assert_eq!(samples.len(), 1);
+        assert_eq!(samples[0].ply, u32::MAX);
     }
 
     #[test]

@@ -63,6 +63,15 @@ def validate(doc):
             if not isinstance(mcts.get(key), int) or mcts[key] < 0: errors.append(f"mcts_diagnostic.{key}")
         if not isinstance(mcts.get("strength_claim"), bool) or mcts.get("strength_claim"):
             errors.append("mcts_diagnostic.strength_claim")
+    search = doc.get("search_diagnostic")
+    if search is not None:
+        if search.get("schema") != "sekirei.search-diagnostic.v1": errors.append("search_diagnostic.schema")
+        if not isinstance(search.get("budget"), str) or not search["budget"]: errors.append("search_diagnostic.budget")
+        for key in ("depth", "nodes", "tt_probes", "tt_hits", "order_tt", "order_killer", "order_countermove", "order_history"):
+            if not isinstance(search.get(key), int) or search[key] < 0:
+                errors.append(f"search_diagnostic.{key}")
+        if not isinstance(search.get("strength_claim"), bool) or search.get("strength_claim"):
+            errors.append("search_diagnostic.strength_claim")
     comparison = doc.get("mcts_comparison")
     if comparison is not None:
         if comparison.get("schema") != "sekirei.mcts-comparison.v1": errors.append("mcts_comparison.schema")

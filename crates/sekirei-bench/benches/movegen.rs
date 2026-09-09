@@ -1,4 +1,4 @@
-use criterion::{Criterion, black_box, criterion_group, criterion_main};
+use criterion::{Criterion, criterion_group, criterion_main};
 use sekirei_core::{
     board::Board,
     eval::evaluate,
@@ -8,6 +8,7 @@ use sekirei_core::{
     search::{SearchConfig, Searcher},
     tt::Tt,
 };
+use std::hint::black_box;
 
 fn bench_movegen(c: &mut Criterion) {
     c.bench_function("legal_moves_startpos", |b| {
@@ -79,6 +80,27 @@ fn bench_nnue_evaluate(c: &mut Criterion) {
     });
 }
 
+fn bench_nnue_evaluate_corpus(c: &mut Criterion) {
+    let boards = [
+        Board::startpos(),
+        Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 w - 1").unwrap(),
+        Board::from_sfen("4k4/9/9/9/9/9/4+P4/9/4K4 w - 2").unwrap(),
+        Board::from_sfen("4k4/9/9/4R4/9/9/9/9/4K4 w - 1").unwrap(),
+    ];
+    let weights = NnueWeights::default_lcg();
+    c.bench_function("nnue_evaluate_corpus", |b| {
+        b.iter(|| {
+            let mut total = 0i32;
+            for board in &boards {
+                total += board
+                    .acc
+                    .evaluate_with(black_box(&weights), black_box(board.side_to_move));
+            }
+            black_box(total)
+        });
+    });
+}
+
 fn bench_do_undo(c: &mut Criterion) {
     let mut board = Board::startpos();
     let mv = generate_legal_moves(&mut board)[0];
@@ -99,6 +121,7 @@ criterion_group!(
     bench_search_depth4,
     bench_evaluate,
     bench_nnue_evaluate,
+    bench_nnue_evaluate_corpus,
     bench_do_undo
 );
 criterion_main!(benches);

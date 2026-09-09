@@ -473,19 +473,30 @@ fn main() {
                     );
                 } else if parts.get(1) == Some(&"Threads") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
-                        threads = n as u32;
-                        // ponytail: build_global silently fails if already init'd; that's fine
-                        let _ = rayon::ThreadPoolBuilder::new()
-                            .num_threads(n)
-                            .build_global();
-                        if search_mode == SearchMode::LazySmp {
-                            abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                            searcher = make_searcher(
-                                hash_mb,
-                                spec_top_n,
-                                threads_for_lazy_smp(threads),
-                                search_mode,
+                        if n == 0 || n > u32::MAX as usize {
+                            println!(
+                                "info string invalid Threads value {}; expected 1..={}",
+                                n,
+                                u32::MAX
                             );
+                        } else {
+                            threads = n as u32;
+                            // ponytail: build_global silently fails if already init'd; that's fine
+                            let _ = rayon::ThreadPoolBuilder::new()
+                                .num_threads(n)
+                                .build_global();
+                            if search_mode == SearchMode::LazySmp {
+                                abort_and_join_inflight_search(
+                                    &mut search_abort,
+                                    &mut search_handle,
+                                );
+                                searcher = make_searcher(
+                                    hash_mb,
+                                    spec_top_n,
+                                    threads_for_lazy_smp(threads),
+                                    search_mode,
+                                );
+                            }
                         }
                     }
                 } else if parts.get(1) == Some(&"SearchMode")
@@ -868,6 +879,7 @@ fn parse_go(
     let mut movestogo: Option<u64> = None;
     let mut movetime: Option<u64> = None;
     let mut depth: Option<u32> = None;
+    let mut nodes: Option<u64> = None;
     let mut infinite = false;
 
     let tokens: Vec<&str> = args.split_whitespace().collect();
@@ -906,6 +918,10 @@ fn parse_go(
                 i += 1;
                 depth = tokens.get(i).and_then(|s| s.parse().ok());
             }
+            "nodes" => {
+                i += 1;
+                nodes = tokens.get(i).and_then(|s| s.parse().ok());
+            }
             "infinite" => {
                 infinite = true;
             }
@@ -940,7 +956,7 @@ fn parse_go(
         let effective_time = our_time.saturating_add(increment);
         let moves_left = movestogo.unwrap_or(30).max(1);
         let from_main = effective_time / moves_left;
-        let from_byo = byo_ms * 13 / 20;
+        let from_byo = byo_ms.saturating_mul(13) / 20;
         // Panic mode: if under 5 s and byoyomi exists, lean on byoyomi only
         let panic = our_time < 5_000 && byo_ms > 0;
         let base = if panic {
@@ -952,12 +968,12 @@ fn parse_go(
         // Cap hard limit at byoyomi - overhead to avoid time-loss on byoyomi clocks
         let byo_safe = byo_ms.saturating_sub(overhead_ms).max(50);
         let hard_ms = if byo_ms > 0 {
-            (base * 3 / 2).min(byo_safe)
+            (base.saturating_mul(3) / 2).min(byo_safe)
         } else {
-            base * 3 / 2
+            base.saturating_mul(3) / 2
         }
         .max(50);
-        let soft_ms = base * 4 / 5;
+        let soft_ms = base.saturating_mul(4) / 5;
         let hard = Some(Duration::from_millis(hard_ms));
         let soft = if !panic {
             Some(Duration::from_millis(soft_ms))
@@ -972,7 +988,7 @@ fn parse_go(
     SearchConfig {
         max_depth: depth.unwrap_or(50),
         time_limit,
-        node_limit: None,
+        node_limit: nodes,
         soft_limit,
         multi_pv,
     }
@@ -1081,6 +1097,21 @@ mod tests {
     }
 
     #[test]
+    fn nodes_value_reaches_search_config_without_a_time_limit() {
+        let cfg = parse_go("nodes 4096", Color::Black, 0, false, 1);
+        assert_eq!(cfg.node_limit, Some(4096));
+        assert!(cfg.time_limit.is_none());
+        assert!(cfg.soft_limit.is_none());
+    }
+
+    #[test]
+    fn malformed_nodes_value_is_ignored_without_panicking() {
+        let cfg = parse_go("nodes not-a-number depth 1", Color::Black, 0, false, 1);
+        assert_eq!(cfg.node_limit, None);
+        assert_eq!(cfg.max_depth, 1);
+    }
+
+    #[test]
     fn malformed_clock_value_is_ignored_without_panicking() {
         let cfg = parse_go("btime not-a-number depth 1", Color::Black, 0, false, 1);
         assert!(cfg.time_limit.is_none());
@@ -1094,5 +1125,18 @@ mod tests {
         let hard = cfg.time_limit.unwrap().as_millis();
         assert!(hard <= 950, "hard={hard}");
         assert!(cfg.soft_limit.is_none());
+    }
+
+    #[test]
+    fn oversized_clock_values_do_not_overflow_time_budget_arithmetic() {
+        let cfg = parse_go(
+            &format!("btime {} byoyomi {}", u64::MAX, u64::MAX),
+            Color::Black,
+            0,
+            false,
+            1,
+        );
+        let hard = cfg.time_limit.expect("clock input should produce a limit");
+        assert!(hard <= Duration::from_millis(u64::MAX));
     }
 }

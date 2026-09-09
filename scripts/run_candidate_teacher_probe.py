@@ -21,7 +21,7 @@ from typing import Any
 
 INFO = re.compile(
     r"^info depth (?P<depth>\d+) score cp (?P<score>-?\d+) "
-    r"nodes (?P<nodes>\d+) nps (?P<nps>\d+) time (?P<time>\d+) .*? pv (?P<pv>\S+)"
+    r"nodes (?P<nodes>\d+) nps (?P<nps>\d+) time (?P<time>\d+) .*? pv (?P<pv>.+)$"
 )
 BEST = re.compile(r"^bestmove (?P<move>\S+)(?: ponder (?P<ponder>\S+))?")
 
@@ -51,19 +51,25 @@ def load_corpus(path: Path, limit: int) -> list[dict[str, Any]]:
     return rows
 
 
-def run_one(engine: Path, weight: Path, row: dict[str, Any], depth: int, timeout: float) -> dict[str, Any]:
+def render_usi_commands(commands: list[str]) -> str:
+    """Render one shell printf per USI command, preserving line boundaries."""
+    return "; ".join(f"printf '%s\\n' {shlex.quote(command)}" for command in commands)
+
+
+def run_one(engine: Path, weight: Path | None, row: dict[str, Any], depth: int, timeout: float) -> dict[str, Any]:
     commands = [
         "usi",
         "setoption name Threads value 1",
         "setoption name Parallel value 1",
         "setoption name SpecTopN value 0",
-        f"setoption name EvalFile value {weight}",
         "setoption name UseBook value false",
         "isready",
         f"position sfen {row['sfen']}",
         f"go depth {depth}",
     ]
-    rendered = " ".join(f"printf '%s\\n' {shlex.quote(command)}" for command in commands)
+    if weight is not None:
+        commands.insert(4, f"setoption name EvalFile value {weight}")
+    rendered = render_usi_commands(commands)
     shell_command = f"{{ {rendered}; sleep 1; printf '%s\\n' quit; }} | {shlex.quote(str(engine))}"
     started = time.monotonic()
     try:
@@ -84,6 +90,14 @@ def run_one(engine: Path, weight: Path, row: dict[str, Any], depth: int, timeout
             "wall_time_ms": wall_ms,
         }
     match = matches[-1]
+    pv = match["pv"].split()
+    if not pv:
+        return {
+            "sample_id": row["sample_id"],
+            "status": "incomplete",
+            "error_detail": "empty principal variation",
+            "wall_time_ms": wall_ms,
+        }
     return {
         "sample_id": row["sample_id"],
         "sfen": row["sfen"],
@@ -94,7 +108,7 @@ def run_one(engine: Path, weight: Path, row: dict[str, Any], depth: int, timeout
             "nodes": int(match["nodes"]),
             "nps": int(match["nps"]),
             "time_ms": int(match["time"]),
-            "pv": [match["pv"]],
+            "pv": pv,
             "multipv": 1,
             "bestmove": best["move"],
         }],

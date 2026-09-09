@@ -55,6 +55,8 @@ pub struct Board {
     occ: [Bitboard; 2],
     /// Mailbox for O(1) piece lookup by square
     mailbox: [Option<Piece>; Square::NUM],
+    /// Cached king squares, maintained by `put` and `take`.
+    king_square: [Option<Square>; 2],
     hand: [Hand; 2],
     /// Side to move.
     pub side_to_move: Color,
@@ -71,6 +73,7 @@ impl Board {
             piece_bb: [[Bitboard::EMPTY; PieceKind::COUNT]; 2],
             occ: [Bitboard::EMPTY; 2],
             mailbox: [None; Square::NUM],
+            king_square: [None; 2],
             hand: [Hand::new(); 2],
             side_to_move: Color::Black,
             ply: 0,
@@ -84,13 +87,24 @@ impl Board {
         self.piece_bb[piece.color.index()][piece.kind.index()].set(sq);
         self.occ[piece.color.index()].set(sq);
         self.mailbox[sq.index() as usize] = Some(piece);
+        if piece.kind == PieceKind::Ou {
+            self.king_square[piece.color.index()] = Some(sq);
+        }
     }
 
     fn take(&mut self, sq: Square) -> Option<Piece> {
         let piece = self.mailbox[sq.index() as usize].take()?;
         self.piece_bb[piece.color.index()][piece.kind.index()].unset(sq);
         self.occ[piece.color.index()].unset(sq);
+        if piece.kind == PieceKind::Ou {
+            self.king_square[piece.color.index()] = None;
+        }
         Some(piece)
+    }
+
+    #[inline]
+    pub(crate) fn king_square(&self, color: Color) -> Option<Square> {
+        self.king_square[color.index()]
     }
 
     // ---- Public read API ----
@@ -177,8 +191,8 @@ impl Board {
     /// Parse a SFEN position string into a Board.
     pub fn from_sfen(sfen: &str) -> Result<Self, String> {
         let parts: Vec<&str> = sfen.split_whitespace().collect();
-        if parts.len() < 3 {
-            return Err(format!("SFEN needs at least 3 fields, got: '{sfen}'"));
+        if !(3..=4).contains(&parts.len()) {
+            return Err(format!("SFEN needs 3 or 4 fields, got: '{sfen}'"));
         }
 
         let mut board = Self::empty();
@@ -207,12 +221,18 @@ impl Board {
                     };
                     let base = sfen_char_to_base_kind(next)
                         .ok_or_else(|| format!("SFEN: unknown piece '{next}'"))?;
+                    if !base.is_promotable() {
+                        return Err(format!("SFEN: piece '{next}' cannot promote"));
+                    }
                     let kind = base.promoted();
                     board.setup_piece(Square::from_shogi(file, rank), Piece::new(color, kind));
                     file = file
                         .checked_sub(1)
                         .ok_or_else(|| format!("SFEN: too many pieces in rank {rank}"))?;
                 } else if let Some(n) = c.to_digit(10) {
+                    if n == 0 {
+                        return Err(format!("SFEN: zero-length rank field at rank {rank}"));
+                    }
                     file = file
                         .checked_sub(n as u8)
                         .ok_or_else(|| format!("SFEN: digit overflow in rank {rank}"))?;
@@ -230,6 +250,9 @@ impl Board {
                         .ok_or_else(|| format!("SFEN: too many pieces in rank {rank}"))?;
                 }
             }
+            if file != 0 {
+                return Err(format!("SFEN: rank {rank} has {} unfilled squares", file));
+            }
         }
 
         // --- Side to move ---
@@ -244,7 +267,13 @@ impl Board {
             let mut count: u8 = 0;
             for c in parts[2].chars() {
                 if let Some(n) = c.to_digit(10) {
-                    count = count * 10 + n as u8;
+                    if n == 0 && count == 0 {
+                        return Err("SFEN: invalid hand count".into());
+                    }
+                    count = count
+                        .checked_mul(10)
+                        .and_then(|value| value.checked_add(n as u8))
+                        .ok_or_else(|| "SFEN: hand count is too large".to_owned())?;
                 } else {
                     let color = if c.is_uppercase() {
                         Color::Black
@@ -263,13 +292,20 @@ impl Board {
                     count = 0;
                 }
             }
+            if count != 0 {
+                return Err("SFEN: hand count must be followed by a piece".into());
+            }
         }
 
         // --- Ply (optional 4th field) ---
-        if let Some(ply_str) = parts.get(3)
-            && let Ok(ply) = ply_str.parse::<u32>()
-        {
-            board.ply = ply.saturating_sub(1); // USI counts from 1
+        if let Some(ply_str) = parts.get(3) {
+            let ply = ply_str
+                .parse::<u32>()
+                .map_err(|_| format!("SFEN: invalid move number '{ply_str}'"))?;
+            if ply == 0 {
+                return Err("SFEN: move number must be at least 1".into());
+            }
+            board.ply = ply - 1; // USI counts from 1
         }
 
         // Recompute derived state (hash + NNUE accumulator) from scratch
@@ -388,6 +424,7 @@ impl Board {
 
     /// Apply `m` and return a token needed to undo it.
     /// Updates Zobrist hash and NNUE accumulator incrementally.
+    #[inline]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
         self.do_move_impl::<true>(m)
     }
@@ -404,6 +441,7 @@ impl Board {
         LegalityMoveToken(self.do_move_impl::<false>(m))
     }
 
+    #[inline]
     fn do_move_impl<const UPDATE_NNUE: bool>(&mut self, m: Move) -> MoveToken {
         let color = self.side_to_move;
         let prev_hash = self.hash;
@@ -494,6 +532,7 @@ impl Board {
 
     /// Restore position to before `do_move` using inverse NNUE deltas.
     /// No accumulator stack needed — the deltas are symmetric.
+    #[inline]
     pub fn undo_move(&mut self, token: MoveToken) {
         self.undo_move_impl::<true>(token);
     }
@@ -503,6 +542,7 @@ impl Board {
         self.undo_move_impl::<false>(token.0);
     }
 
+    #[inline]
     fn undo_move_impl<const UPDATE_NNUE: bool>(&mut self, token: MoveToken) {
         self.hash = token.prev_hash;
         self.side_to_move = self.side_to_move.flip();

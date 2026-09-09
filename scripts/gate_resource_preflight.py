@@ -147,7 +147,11 @@ def parse_swap_used_fraction(swapusage_output):
     if not m:
         return None
     total, used = float(m.group(1)), float(m.group(2))
-    if total <= 0:
+    # macOS reports total/used/free as 0.00M when swap is disabled or has
+    # never been allocated. That is a known zero-use state, not UNKNOWN.
+    if total == 0 and used == 0:
+        return 0.0
+    if total < 0 or used < 0 or total == 0:
         return None
     return used / total
 

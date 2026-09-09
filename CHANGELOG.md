@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## [0.3.31] – 2026-09-10
+
+- Separated Adam and full-resume checkpoint persistence from the training
+  implementation into a dedicated module without changing checkpoint schemas
+  or the training API.
+- Retained atomic checkpoint writes and schema, shape, and finite-value
+  validation while reducing the trainer implementation by about 250 lines.
+- Verified the training crate with 154 tests, Clippy with warnings denied, and
+  formatting/whitespace checks.
+
 ## [0.3.30] – 2026-09-06
 
 - Refreshed the documentation and release metadata after the documentation

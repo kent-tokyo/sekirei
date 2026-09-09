@@ -53,6 +53,54 @@ pub struct TtEntry {
     pub mv: Option<Move>,
 }
 
+/// Optional write-topology counters for a bounded, read-only TT diagnostic.
+///
+/// The normal table has no observer attached, so the search hot path retains
+/// its existing behavior. When attached, these counters distinguish exact-key
+/// equal-depth rewrites from shallower-write rejections and slot collisions;
+/// they are evidence about write topology, not a correctness or strength
+/// verdict.
+#[derive(Default)]
+pub struct TtWriteStats {
+    attempted: AtomicU64,
+    committed: AtomicU64,
+    same_hash: AtomicU64,
+    equal_depth_overwrites: AtomicU64,
+    shallower_rejections: AtomicU64,
+    collision_overwrites: AtomicU64,
+}
+
+/// A stable snapshot of [`TtWriteStats`] suitable for a diagnostic record.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TtWriteSnapshot {
+    /// Number of attempted stores.
+    pub attempted: u64,
+    /// Number of stores that replaced the slot contents.
+    pub committed: u64,
+    /// Number of attempts whose exact hash matched the slot contents.
+    pub same_hash: u64,
+    /// Number of exact-key rewrites at the same search depth.
+    pub equal_depth_overwrites: u64,
+    /// Number of exact-key writes rejected for being shallower.
+    pub shallower_rejections: u64,
+    /// Number of writes that replaced a different hash in the same slot.
+    pub collision_overwrites: u64,
+}
+
+impl TtWriteStats {
+    /// Capture one relaxed, internally consistent-enough diagnostic snapshot.
+    pub fn snapshot(&self) -> TtWriteSnapshot {
+        TtWriteSnapshot {
+            attempted: self.attempted.load(Ordering::Relaxed),
+            committed: self.committed.load(Ordering::Relaxed),
+            same_hash: self.same_hash.load(Ordering::Relaxed),
+            equal_depth_overwrites: self.equal_depth_overwrites.load(Ordering::Relaxed),
+            shallower_rejections: self.shallower_rejections.load(Ordering::Relaxed),
+            collision_overwrites: self.collision_overwrites.load(Ordering::Relaxed),
+        }
+    }
+}
+
 // ---- Packing / unpacking ----
 
 const FROM_DROP: u64 = 81;
@@ -132,12 +180,18 @@ struct TtSlot {
 pub struct Tt {
     table: Box<[TtSlot]>,
     mask: usize, // len - 1, for fast power-of-2 indexing
+    write_stats: Option<Arc<TtWriteStats>>,
 }
 
 impl Tt {
     /// Create a TT with capacity rounded down to the nearest power of two.
     /// `size_mb` is in mebibytes; each slot is 16 bytes.
     pub fn new(size_mb: usize) -> Arc<Self> {
+        Self::new_with_stats(size_mb, None)
+    }
+
+    /// Create a table with an optional write-topology observer.
+    pub fn new_with_stats(size_mb: usize, stats: Option<Arc<TtWriteStats>>) -> Arc<Self> {
         let bytes = size_mb.max(1) * 1024 * 1024;
         let count = floor_pow2((bytes / 16).max(1));
         let table: Box<[TtSlot]> = (0..count)
@@ -150,6 +204,7 @@ impl Tt {
         Arc::new(Tt {
             table,
             mask: count - 1,
+            write_stats: stats,
         })
     }
 
@@ -173,18 +228,41 @@ impl Tt {
 
     /// Store an entry (depth-preferred: keep deeper results).
     pub fn store(&self, hash: u64, entry: TtEntry) {
+        if let Some(stats) = &self.write_stats {
+            stats.attempted.fetch_add(1, Ordering::Relaxed);
+        }
         let slot = self.slot(hash);
         let existing_data = slot.data.load(Ordering::Relaxed);
         let existing_key = slot.key.load(Ordering::Relaxed);
-        if existing_key ^ existing_data == hash {
+        let occupied = existing_data != 0;
+        let same_hash = existing_key ^ existing_data == hash;
+        if let Some(stats) = &self.write_stats {
+            if same_hash {
+                stats.same_hash.fetch_add(1, Ordering::Relaxed);
+            } else if occupied {
+                stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        if same_hash {
             let existing_depth = ((existing_data >> 25) & 0x7F) as u8;
             if entry.depth < existing_depth {
+                if let Some(stats) = &self.write_stats {
+                    stats.shallower_rejections.fetch_add(1, Ordering::Relaxed);
+                }
                 return;
+            }
+            if entry.depth == existing_depth
+                && let Some(stats) = &self.write_stats
+            {
+                stats.equal_depth_overwrites.fetch_add(1, Ordering::Relaxed);
             }
         }
         let data = pack(&entry);
         slot.data.store(data, Ordering::Relaxed);
         slot.key.store(hash ^ data, Ordering::Relaxed);
+        if let Some(stats) = &self.write_stats {
+            stats.committed.fetch_add(1, Ordering::Relaxed);
+        }
     }
 
     /// Number of slots in the table.

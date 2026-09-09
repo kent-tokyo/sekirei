@@ -117,7 +117,13 @@ class ParseSwapFractionTests(unittest.TestCase):
 
     def test_zero_total_does_not_divide_by_zero(self):
         self.assertIsNone(
-            parse_swap_used_fraction("vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M\n")
+            parse_swap_used_fraction("vm.swapusage: total = 0.00M  used = 1.00M  free = 0.00M\n")
+        )
+
+    def test_zero_total_and_zero_used_is_known_no_swap(self):
+        self.assertEqual(
+            parse_swap_used_fraction("vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M\n"),
+            0.0,
         )
 
 

@@ -119,6 +119,16 @@ mod tests {
         assert_eq!(sfen1, sfen2, "SFEN strings differ after round-trip");
     }
 
+    /// Multi-digit SFEN hand counts must round-trip (e.g. ten pawns).
+    #[test]
+    fn sfen_multi_digit_hand_count_roundtrip() {
+        use sfen::board_to_sfen;
+
+        let sfen = "4kgsn1/1K7/n2+P+r4/8l/9/5p3/5g2+p/3G5/9 b R2BG3SNL5Pn2l10p 121";
+        let board = Board::from_sfen(sfen).expect("multi-digit hand count must parse");
+        assert_eq!(board_to_sfen(&board), sfen);
+    }
+
     /// USI move round-trip: move_to_usi → move_from_usi must recover the original move.
     #[test]
     fn usi_move_roundtrip() {
@@ -154,6 +164,120 @@ mod tests {
         let cmd = format!("startpos moves {}", move_to_usi(m));
         let parsed = parse_position_cmd(&cmd).expect("parse position cmd");
         assert_eq!(parsed.hash(), expected_hash, "position cmd hash mismatch");
+    }
+
+    #[test]
+    fn sfen_rejects_malformed_rank_hand_and_move_number() {
+        assert!(Board::from_sfen("8/k/9/9/9/9/9/9/9 b - 1").is_err());
+        assert!(Board::from_sfen("9/9/9/9/9/9/9/9/9 b 2 1").is_err());
+        assert!(Board::from_sfen("9/9/9/9/9/9/9/9/9 b P 0").is_err());
+        assert!(Board::from_sfen("9/9/9/9/9/9/9/9/9 b - nope").is_err());
+    }
+
+    #[test]
+    fn position_cmd_accepts_whitespace_and_rejects_unknown_suffixes() {
+        use sfen::parse_position_cmd;
+
+        assert!(parse_position_cmd("  startpos   ").is_ok());
+        assert!(parse_position_cmd("startpos moves 7g7f 3c3d").is_ok());
+        assert!(parse_position_cmd("startpos nonsense").is_err());
+        assert!(parse_position_cmd("sfen 9/9/9/9/9/9/9/9/9 b - 1 moves").is_ok());
+        assert!(parse_position_cmd("sfen 9/9/9/9/9/9/9/9/9 b - 1 bad").is_err());
+    }
+
+    #[test]
+    fn usi_move_parser_rejects_malformed_and_illegal_moves() {
+        use sfen::move_from_usi;
+
+        let board = Board::startpos();
+        for text in ["0g0f", "7g7f++", "7g7x", "7g7f trailing", "7c7d"] {
+            assert!(
+                move_from_usi(text, &board).is_err(),
+                "malformed or illegal move accepted: {text}"
+            );
+        }
+        assert!(move_from_usi("P*7f", &board).is_err());
+    }
+
+    #[test]
+    fn usi_move_parser_rejects_invalid_drop_and_side() {
+        use sfen::move_from_usi;
+
+        let board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b - 1").unwrap();
+        assert!(move_from_usi("R*5e", &board).is_err());
+        assert!(move_from_usi("P*5e+", &board).is_err());
+        assert!(move_from_usi("5a5b", &board).is_err());
+    }
+
+    #[test]
+    fn usi_move_parser_rejects_promotion_of_non_promotable_piece() {
+        use sfen::move_from_usi;
+
+        let board = Board::from_sfen("4k4/9/9/9/9/9/9/4K4/4G4 b - 1").unwrap();
+        assert!(move_from_usi("5i5h+", &board).is_err());
+    }
+
+    #[test]
+    fn usi_roundtrip_accepts_every_generated_legal_move() {
+        use movegen::generate_legal_moves;
+        use sfen::{move_from_usi, move_to_usi};
+
+        let mut board = Board::startpos();
+        for usi in ["7g7f", "3c3d", "2g2f", "8c8d", "2f2e", "8d8e"] {
+            let m = move_from_usi(usi, &board).expect("fixture move must be legal");
+            board.do_move(m);
+        }
+
+        let moves = generate_legal_moves(&mut board);
+        assert!(!moves.is_empty());
+        for original in moves {
+            let encoded = move_to_usi(original);
+            let parsed = move_from_usi(&encoded, &board)
+                .unwrap_or_else(|e| panic!("round-trip parse failed for {encoded}: {e}"));
+            assert_eq!(parsed, original, "USI round-trip changed {encoded}");
+        }
+    }
+
+    #[test]
+    fn sfen_position_fixture_replays_to_the_same_hash() {
+        use sfen::{board_to_sfen, parse_position_cmd};
+
+        let moves = ["7g7f", "3c3d", "2g2f", "8c8d", "2f2e", "8d8e"];
+        let mut expected = Board::startpos();
+        for text in moves {
+            let parsed = sfen::move_from_usi(text, &expected).expect("fixture move is legal");
+            expected.do_move(parsed);
+        }
+
+        let base_sfen = board_to_sfen(&Board::startpos());
+        let cmd = format!("sfen {base_sfen} moves {}", moves.join(" "));
+        let replayed = parse_position_cmd(&cmd).expect("SFEN fixture must replay");
+        assert_eq!(replayed.hash(), expected.hash());
+        assert_eq!(board_to_sfen(&replayed), board_to_sfen(&expected));
+    }
+
+    #[test]
+    fn usi_fixture_accepts_legal_drop_and_promotion() {
+        use sfen::{move_from_usi, move_to_usi, parse_position_cmd};
+
+        let drop_sfen = "4k4/9/9/9/9/9/9/9/4K4 b R 1";
+        let drop = Board::from_sfen(drop_sfen).expect("drop fixture must parse");
+        let drop_move = move_from_usi("R*5e", &drop).expect("drop must be legal");
+        assert_eq!(move_to_usi(drop_move), "R*5e");
+        let replayed = parse_position_cmd("sfen 4k4/9/9/9/9/9/9/9/4K4 b R 1 moves R*5e")
+            .expect("drop position must replay");
+        assert_eq!(
+            replayed
+                .piece_at(square::Square::from_shogi(5, 5))
+                .unwrap()
+                .kind,
+            piece::PieceKind::Hisha
+        );
+
+        let promotion_sfen = "4k4/9/9/4P4/9/9/9/9/4K4 b - 1";
+        let promotion = Board::from_sfen(promotion_sfen).expect("promotion fixture must parse");
+        let promotion_move = move_from_usi("5d5c+", &promotion).expect("promotion must be legal");
+        assert_eq!(move_to_usi(promotion_move), "5d5c+");
     }
 
     // ---- NNUE accumulator tests ----
@@ -214,6 +338,46 @@ mod tests {
 
             board.undo_move(tok1);
             assert_eq!(board.acc, fresh_acc(&board), "undo depth 1 mismatch");
+        }
+    }
+
+    #[test]
+    fn nnue_incremental_score_matches_fresh_refresh() {
+        use movegen::generate_legal_moves;
+        use sfen::move_from_usi;
+
+        let weights = nnue::NnueWeights::default_lcg();
+        let mut board = Board::startpos();
+        for ply in 0..6 {
+            let score = board.evaluate_with_weights(&weights);
+            let mut refreshed = board.clone();
+            refreshed.refresh_acc();
+            assert_eq!(
+                score,
+                refreshed.evaluate_with_weights(&weights),
+                "NNUE score mismatch at ply {ply}"
+            );
+
+            let moves = generate_legal_moves(&mut board);
+            board.do_move(moves[ply % moves.len()]);
+        }
+
+        for (sfen, usi) in [
+            ("4k4/9/9/9/9/9/9/9/4K4 b R 1", "R*5e"),
+            ("4k4/9/9/4P4/9/9/9/9/4K4 b - 1", "5d5c+"),
+            ("4k4/9/9/4p4/4R4/9/9/9/4K4 b - 1", "5e5d"),
+        ] {
+            let mut special = Board::from_sfen(sfen).expect("NNUE fixture must parse");
+            let mv = move_from_usi(usi, &special).expect("NNUE fixture move must be legal");
+            special.do_move(mv);
+            let incremental_score = special.evaluate_with_weights(&weights);
+            let mut refreshed = special.clone();
+            refreshed.refresh_acc();
+            assert_eq!(
+                incremental_score,
+                refreshed.evaluate_with_weights(&weights),
+                "NNUE special-move score mismatch after {usi}"
+            );
         }
     }
 
@@ -359,6 +523,41 @@ mod tests {
 
         assert_eq!(r1.score, r2.score, "scores differ");
         assert_eq!(r1.best_move, r2.best_move, "best moves differ");
+    }
+
+    #[test]
+    fn multipv_fixture_returns_distinct_legal_moves_in_score_order() {
+        use movegen::generate_legal_moves;
+        use search::{SearchConfig, SpeculativeSearcher};
+        use tt::Tt;
+
+        let mut board = Board::startpos();
+        let before = board.hash();
+        let legal = generate_legal_moves(&mut board);
+        let info = SpeculativeSearcher::new(Tt::new(4), 2).search(
+            &mut board,
+            SearchConfig {
+                max_depth: 3,
+                time_limit: None,
+                node_limit: Some(20_000),
+                soft_limit: None,
+                multi_pv: 3,
+            },
+        );
+
+        assert!(!info.pv_list.is_empty());
+        assert!(info.pv_list.len() <= 3);
+        for window in info.pv_list.windows(2) {
+            assert!(window[0].1 >= window[1].1, "MultiPV scores are not ordered");
+        }
+        for (mv, _) in &info.pv_list {
+            assert!(
+                legal.contains(mv),
+                "MultiPV returned an illegal move: {mv:?}"
+            );
+        }
+        assert_eq!(info.best_move, Some(info.pv_list[0].0));
+        assert_eq!(board.hash(), before, "MultiPV mutated the board");
     }
 
     /// TT warm-up must reduce node count on a second search
@@ -683,5 +882,96 @@ mod tests {
         assert_eq!(shared.result.best_move, isolated.result.best_move);
         assert_eq!(shared.result.score, isolated.result.score);
         assert_eq!(shared.result.depth, isolated.result.depth);
+    }
+
+    /// Issue #32 diagnostic: the optional observer records write topology
+    /// without changing the selected search result or the normal TT API.
+    #[test]
+    fn tt_write_topology_observer_distinguishes_equal_depth_and_rejected_writes() {
+        use std::sync::Arc;
+        use tt::{Bound, Tt, TtEntry, TtWriteStats};
+
+        let stats = Arc::new(TtWriteStats::default());
+        let tt = Tt::new_with_stats(1, Some(stats.clone()));
+        let hash = 0x1234_5678_9abc_def0;
+        let entry = TtEntry {
+            score: 10,
+            depth: 4,
+            bound: Bound::Exact,
+            mv: None,
+        };
+        tt.store(hash, entry);
+        tt.store(hash, entry);
+        tt.store(hash, TtEntry { depth: 3, ..entry });
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.attempted, 3);
+        assert_eq!(snapshot.committed, 2);
+        assert_eq!(snapshot.same_hash, 2);
+        assert_eq!(snapshot.equal_depth_overwrites, 1);
+        assert_eq!(snapshot.shallower_rejections, 1);
+        assert_eq!(snapshot.collision_overwrites, 0);
+    }
+
+    /// Issue #32 replay harness: both the deterministic control and the
+    /// speculative path must expose internally consistent write accounting.
+    /// This deliberately does not assert that scheduling-dependent counters
+    /// match or that either search is stronger.
+    #[test]
+    fn tt_write_topology_observer_covers_control_and_speculative_replay() {
+        use search::{SearchConfig, SpeculativeSearcher};
+        use std::sync::Arc;
+        use tt::{Tt, TtWriteStats};
+
+        let config = SearchConfig {
+            max_depth: 2,
+            time_limit: None,
+            node_limit: Some(3_000),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+
+        for top_n in [0, 2] {
+            let stats = Arc::new(TtWriteStats::default());
+            let tt = Tt::new_with_stats(4, Some(stats.clone()));
+            let searcher = SpeculativeSearcher::new(tt, top_n);
+            let mut board = Board::startpos();
+            let _ = searcher.search(&mut board, config);
+            let snapshot = stats.snapshot();
+
+            assert!(snapshot.attempted > 0, "top_n={top_n} produced no writes");
+            assert!(snapshot.committed <= snapshot.attempted);
+            assert!(snapshot.same_hash <= snapshot.attempted);
+            assert!(snapshot.equal_depth_overwrites <= snapshot.same_hash);
+            assert!(snapshot.shallower_rejections <= snapshot.same_hash);
+        }
+    }
+
+    #[test]
+    fn tt_write_topology_observer_classifies_slot_collision() {
+        use std::sync::Arc;
+        use tt::{Bound, Tt, TtEntry, TtWriteStats};
+
+        let stats = Arc::new(TtWriteStats::default());
+        let tt = Tt::new_with_stats(1, Some(stats.clone()));
+        let first_hash = 1;
+        let colliding_hash = first_hash + (1 << 16);
+        let entry = TtEntry {
+            score: 0,
+            depth: 1,
+            bound: Bound::Exact,
+            mv: None,
+        };
+
+        tt.store(first_hash, entry);
+        tt.store(colliding_hash, entry);
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.attempted, 2);
+        assert_eq!(snapshot.committed, 2);
+        assert_eq!(snapshot.same_hash, 0);
+        assert_eq!(snapshot.equal_depth_overwrites, 0);
+        assert_eq!(snapshot.shallower_rejections, 0);
+        assert_eq!(snapshot.collision_overwrites, 1);
     }
 }

@@ -44,6 +44,46 @@ def percentile(values: list[int], fraction: float) -> int:
     return ordered[min(len(ordered) - 1, int(fraction * (len(ordered) - 1)))]
 
 
+def score_variance(values: list[int]) -> float:
+    if not values:
+        return 0.0
+    mean = statistics.mean(values)
+    return statistics.mean((value - mean) ** 2 for value in values)
+
+
+def probe(binary: Path, weights: Path, sfens: list[str], skip_invalid: bool) -> tuple[list[str], list[int], list[dict[str, str]]]:
+    """Probe in batches, splitting failed batches to isolate bad SFEN rows."""
+    valid_sfens: list[str] = []
+    scores: list[int] = []
+    invalid: list[dict[str, str]] = []
+
+    def visit(batch: list[str]) -> None:
+        if not batch:
+            return
+        args = [str(binary), str(weights), "--json"]
+        for sfen in batch:
+            args.extend(("--sfen", sfen))
+        result = subprocess.run(args, capture_output=True, text=True)
+        if result.returncode == 0:
+            rows = json.loads(result.stdout)["probes"]
+            valid_sfens.extend(sfen for sfen, _ in zip(batch, rows))
+            scores.extend(int(row["score_cp"]) for row in rows)
+            return
+        if len(batch) > 1:
+            midpoint = len(batch) // 2
+            visit(batch[:midpoint])
+            visit(batch[midpoint:])
+            return
+        error = result.stderr.strip() or "probe failed"
+        invalid.append({"sfen": batch[0], "error": error})
+        if not skip_invalid:
+            raise subprocess.CalledProcessError(result.returncode, args, result.stdout, result.stderr)
+
+    for start in range(0, len(sfens), 32):
+        visit(sfens[start:start + 32])
+    return valid_sfens, scores, invalid
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, required=True)
@@ -52,19 +92,23 @@ def main() -> None:
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--outlier-percentile", type=float, default=0.95)
+    parser.add_argument("--output", type=Path, help="write the JSON report to this path")
+    parser.add_argument("--skip-invalid", action="store_true", help="exclude invalid SFENs and record them")
     args = parser.parse_args()
     sfens = [line.strip() for line in args.corpus.read_text().splitlines()
              if line.strip() and not line.startswith("#")][:args.limit]
-    probe_args = [str(args.binary), "--json"]
-    for sfen in sfens:
-        probe_args.extend(("--sfen", sfen))
-    candidate = subprocess.run([*probe_args[:1], str(args.candidate), *probe_args[1:]],
-                               check=True, capture_output=True, text=True)
-    baseline = subprocess.run([*probe_args[:1], str(args.baseline), *probe_args[1:]],
-                              check=True, capture_output=True, text=True)
-    candidate_scores = [row["score_cp"] for row in json.loads(candidate.stdout)["probes"]]
-    baseline_scores = [row["score_cp"] for row in json.loads(baseline.stdout)["probes"]]
+    candidate_sfens, candidate_scores, candidate_invalid = probe(
+        args.binary, args.candidate, sfens, args.skip_invalid
+    )
+    baseline_sfens, baseline_scores, baseline_invalid = probe(
+        args.binary, args.baseline, candidate_sfens, args.skip_invalid
+    )
+    if candidate_sfens != baseline_sfens:
+        raise SystemExit("candidate and baseline valid SFEN sets differ")
+    sfens = baseline_sfens
     deltas = [x - y for x, y in zip(candidate_scores, baseline_scores)]
+    candidate_variance = score_variance(candidate_scores)
+    baseline_variance = score_variance(baseline_scores)
     threshold = percentile([abs(int(x)) for x in deltas], args.outlier_percentile)
     rows = []
     for sfen, delta in zip(sfens, deltas):
@@ -90,13 +134,27 @@ def main() -> None:
         }
     report = {
         "positions": len(rows),
+        "input_positions": len(sfens) + len(candidate_invalid),
+        "invalid_positions": candidate_invalid + baseline_invalid,
+        "comparison_valid": bool(rows) and candidate_variance > 0.0 and baseline_variance > 0.0,
+        "comparison_invalid_reason": (
+            "constant candidate or baseline output; score deltas are diagnostic only"
+            if candidate_variance == 0.0 or baseline_variance == 0.0
+            else None
+        ),
+        "candidate_score_variance_cp2": candidate_variance,
+        "baseline_score_variance_cp2": baseline_variance,
         "outlier_percentile": args.outlier_percentile,
         "outlier_threshold_abs_delta_cp": threshold,
         "groups": groups,
         "outliers": sorted((row for row in rows if row["outlier"]),
                            key=lambda row: row["abs_delta_cp"], reverse=True),
     }
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+    rendered = json.dumps(report, ensure_ascii=False, indent=2) + "\n"
+    if args.output:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
 
 
 if __name__ == "__main__":

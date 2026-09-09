@@ -70,7 +70,7 @@ pub fn load(path: &Path, expected_depth: u32, expected_teacher: &str) -> HashMap
             continue;
         };
         match recorded_depth {
-            Some(d) if d as u32 == expected_depth => {}
+            Some(d) if u32::try_from(d).ok() == Some(expected_depth) => {}
             Some(_) => {
                 depth_mismatch += 1;
                 continue;
@@ -270,6 +270,17 @@ mod tests {
             !loaded.contains_key(SFEN_A),
             "depth-1 entry must not be usable as a depth-4 cache hit"
         );
+    }
+
+    #[test]
+    fn overflowing_depth_is_not_truncated_into_a_cache_hit() {
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{SFEN_A}","label_depth":4294967300,"score_cp":999}}"#
+        )
+        .unwrap();
+        assert!(load(f.path(), 4, "material").is_empty());
     }
 
     #[test]

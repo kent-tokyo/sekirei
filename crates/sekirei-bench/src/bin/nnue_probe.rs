@@ -14,6 +14,9 @@ const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
 const ROOK_ON_BOARD: &str = "9/9/9/9/4R3/9/9/9/4k4 b - 1";
 const KING_CENTER: &str = "9/9/9/9/4K4/9/9/9/4k4 b - 1";
 const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
+const DROP_RESULT: &str = "9/9/9/9/4R3/9/9/9/4k4 w - 1";
+const PROMOTION_RESULT: &str = "4k4/9/9/9/9/9/4+P4/9/4K4 w - 2";
+const CAPTURE_RESULT: &str = "4k4/9/9/4R4/9/9/9/4K4 w - 1";
 const MIN_STRICT_RANGE_CP: i64 = 8;
 
 type Probe = (String, String);
@@ -75,6 +78,9 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
             ("rook_on_board".to_string(), ROOK_ON_BOARD.to_string()),
             ("king_center".to_string(), KING_CENTER.to_string()),
             ("king_corner".to_string(), KING_CORNER.to_string()),
+            ("drop_result".to_string(), DROP_RESULT.to_string()),
+            ("promotion_result".to_string(), PROMOTION_RESULT.to_string()),
+            ("capture_result".to_string(), CAPTURE_RESULT.to_string()),
         ]);
     }
     Ok(Some(ParsedProbeArgs {
@@ -276,12 +282,15 @@ mod tests {
     fn defaults_are_named_and_complete() {
         let args = vec!["weights.bin".to_string()];
         let parsed = parse_probe_args(&args).unwrap().unwrap();
-        assert_eq!(parsed.probes.len(), 5);
+        assert_eq!(parsed.probes.len(), 8);
         assert_eq!(parsed.probes[0].0, "startpos");
         assert_eq!(parsed.probes[1].0, "rook_in_hand");
         assert_eq!(parsed.probes[2].0, "rook_on_board");
         assert_eq!(parsed.probes[3].0, "king_center");
         assert_eq!(parsed.probes[4].0, "king_corner");
+        assert_eq!(parsed.probes[5].0, "drop_result");
+        assert_eq!(parsed.probes[6].0, "promotion_result");
+        assert_eq!(parsed.probes[7].0, "capture_result");
         assert!(!parsed.json);
         assert!(!parsed.strict);
     }

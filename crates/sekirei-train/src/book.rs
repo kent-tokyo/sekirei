@@ -42,6 +42,9 @@ pub fn build_book(
             if ply >= max_ply {
                 break;
             }
+            let Ok(step) = u32::try_from(ply) else {
+                break;
+            };
             let mover = if ply % 2 == 0 {
                 Color::Black
             } else {
@@ -60,7 +63,7 @@ pub fn build_book(
 
             observations.push(Observation {
                 sequence_id: format!("game{game_idx:06}"),
-                step: ply as u32,
+                step,
                 state: board_to_sfen(&board),
                 action: move_to_usi(mv),
                 outcome,
