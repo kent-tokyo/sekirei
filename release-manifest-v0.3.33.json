@@ -1,0 +1,52 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.33",
+  "commit": "d60325423202f28a40931affe6c07bc7be7dde16",
+  "branch_at_release": "lineprior-0.9.0-migration",
+  "packages": {
+    "sekirei": "0.3.33",
+    "sekirei-core": "0.3.33",
+    "sekirei-bench": "0.3.33",
+    "sekirei-csa": "0.3.33",
+    "sekirei-match-runner": "0.3.33",
+    "sekirei-train": "0.3.33"
+  },
+  "dependencies": {
+    "lineprior": "0.11.1"
+  },
+  "toolchain": "rustc 1.97.0; GitHub publish workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "8499d73e35158039c70ea8e027b050d547882b1a26ccaf7b09441e1c357f257d"
+  },
+  "publish": {
+    "workflow_run": "34465462561",
+    "workflow_runs": ["34465462561"],
+    "registry": "crates.io",
+    "status": "verified",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Rules, USI/CSA regression, and bounded external SFNN manifest validation passed; no external-engine strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "Kept separate from release validation; no external engine result or strength claim."
+  },
+  "known_limitations": [
+    "External SFNN support is limited to bounded header inspection and provenance/compatibility manifest validation; inference is not implemented.",
+    "No new heavy strength measurement is included in this release."
+  ]
+}
