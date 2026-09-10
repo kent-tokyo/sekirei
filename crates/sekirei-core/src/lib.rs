@@ -9,6 +9,7 @@ mod budget;
 pub mod color;
 pub mod dfpn;
 pub mod eval;
+pub mod external_eval;
 pub mod hand;
 pub mod lazy_smp;
 pub mod mcts;

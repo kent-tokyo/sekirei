@@ -8,9 +8,12 @@
 //!   5. #WIN / #LOSE / #DRAW / #CHUDAN → game over
 //!   6. END → back to step 2 (if --loop)
 
-use std::io::{self, BufRead, BufReader, Write};
+use std::fs::{self, File};
+use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use sekirei_core::{
     board::Board,
@@ -19,7 +22,7 @@ use sekirei_core::{
     tt::Tt,
 };
 
-use crate::moves::{csa_to_move, move_to_csa};
+use crate::moves::{board_from_csa_position, csa_to_move, move_to_csa};
 
 // ---- Public config ----
 
@@ -34,6 +37,7 @@ pub struct Config {
     pub resign_score: i32, // centipawns (negative threshold)
     pub keep_alive: bool,  // reconnect after each game
     pub max_depth: u32,
+    pub record_dir: PathBuf,
 }
 
 impl Default for Config {
@@ -48,6 +52,7 @@ impl Default for Config {
             resign_score: -2000,
             keep_alive: false,
             max_depth: 50,
+            record_dir: PathBuf::from("data/floodgate"),
         }
     }
 }
@@ -111,7 +116,11 @@ impl CsaClient {
     // ---- Private ----
 
     fn send(&mut self, msg: &str) -> io::Result<()> {
-        eprintln!("[csa] >> {msg}");
+        if msg.starts_with("LOGIN ") {
+            eprintln!("[csa] >> LOGIN <redacted>");
+        } else {
+            eprintln!("[csa] >> {msg}");
+        }
         writeln!(self.writer, "{msg}")?;
         self.writer.flush()
     }
@@ -169,6 +178,8 @@ impl CsaClient {
         let mut increment_ms: Option<u64> = None;
         let mut byoyomi_from_header: Option<u64> = None;
         let mut is_fischer = false;
+        let mut in_position = false;
+        let mut position_lines = Vec::new();
 
         loop {
             let line = self.recv()?;
@@ -201,13 +212,31 @@ impl CsaClient {
                 break;
             } else if line.starts_with('#') {
                 return Ok(GameResult::Aborted);
+            } else if line == "BEGIN Position" {
+                in_position = true;
+            } else if line == "END Position" {
+                in_position = false;
+            } else if in_position {
+                position_lines.push(line);
             }
-            // Skip P1..P9, PI, +/- declarations, position blocks
         }
 
         eprintln!("[csa] game started, we are {:?}", our_color);
 
-        let mut board = Board::startpos();
+        let mut record = GameRecord::open(
+            &self.config.record_dir,
+            &game_summary_id,
+            &self.config.user,
+            our_color,
+        );
+
+        let mut board = match board_from_csa_position(&position_lines) {
+            Ok(board) => board,
+            Err(error) => {
+                eprintln!("[csa] invalid server position ({error}); refusing game");
+                return Ok(GameResult::Aborted);
+            }
+        };
         board.refresh_acc();
 
         // Use server-provided time values; fall back to game_id heuristics if missing
@@ -252,7 +281,15 @@ impl CsaClient {
                             time_left_ms / 1000
                         );
                     }
+                    if let Some(record) = record.as_mut()
+                        && let Some(csa_move) = result.csa_move.as_deref()
+                    {
+                        record.append(csa_move);
+                    }
                 } else {
+                    if let Some(record) = record.as_mut() {
+                        record.append("%TORYO");
+                    }
                     // %TORYO sent — wait for server's #LOSE so the buffer is clean
                     resigned = true;
                 }
@@ -261,10 +298,27 @@ impl CsaClient {
                 loop {
                     let line = self.recv()?;
                     if line.starts_with('#') {
+                        // CSA servers commonly send #RESIGN as an intermediate
+                        // marker and the actual result (#WIN/#LOSE/#DRAW) next.
+                        // Do not return here or the next %%GAME request consumes
+                        // the previous game's result.
+                        if line == "#RESIGN" {
+                            if let Some(record) = record.as_mut() {
+                                record.append(&line);
+                            }
+                            continue;
+                        }
+                        if let Some(record) = record.as_mut() {
+                            record.append(&line);
+                            record.finish();
+                        }
                         return Ok(parse_game_end(&line));
                     }
                     if !resigned && (line.starts_with('+') || line.starts_with('-')) {
                         // Opponent's move
+                        if let Some(record) = record.as_mut() {
+                            record.append(line.split(',').next().unwrap_or(&line));
+                        }
                         if let Some(m) = csa_to_move(&mut board, &line) {
                             board.do_move(m);
                         } else {
@@ -315,20 +369,38 @@ impl CsaClient {
             },
         );
 
-        if info.score < self.config.resign_score {
+        let ordinary_loss = info.score < self.config.resign_score
+            && info.score > -sekirei_core::search::MATE_SCORE + 1000;
+        if ordinary_loss {
             eprintln!("[csa] resigning (score={})", info.score);
             self.send("%TORYO")?;
-            return Ok(ThinkResult { move_made: None });
+            return Ok(ThinkResult {
+                move_made: None,
+                csa_move: None,
+            });
+        }
+
+        if info.score <= -sekirei_core::search::MATE_SCORE + 1000 {
+            eprintln!(
+                "[csa] mate-like score={} with bestmove={:?}; refusing automatic resign",
+                info.score, info.best_move
+            );
         }
 
         if let Some(m) = info.best_move {
             let csa_move = move_to_csa(m, our_color);
             board.do_move(m);
             self.send(&csa_move)?;
-            Ok(ThinkResult { move_made: Some(m) })
+            Ok(ThinkResult {
+                move_made: Some(m),
+                csa_move: Some(csa_move),
+            })
         } else {
             self.send("%TORYO")?;
-            Ok(ThinkResult { move_made: None })
+            Ok(ThinkResult {
+                move_made: None,
+                csa_move: None,
+            })
         }
     }
 
@@ -368,6 +440,83 @@ impl CsaClient {
 
 struct ThinkResult {
     move_made: Option<sekirei_core::mv::Move>,
+    csa_move: Option<String>,
+}
+
+struct GameRecord {
+    writer: BufWriter<File>,
+}
+
+impl GameRecord {
+    fn open(directory: &Path, game_id: &str, user: &str, color: Color) -> Option<Self> {
+        if let Err(error) = fs::create_dir_all(directory) {
+            eprintln!("[csa] record directory unavailable: {error}");
+            return None;
+        }
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis())
+            .unwrap_or(0);
+        let name = format!("{}_{}.csa", sanitize_filename(game_id), stamp);
+        let path = directory.join(name);
+        let file = match File::create(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                eprintln!("[csa] record file unavailable: {error}");
+                return None;
+            }
+        };
+        let mut record = Self {
+            writer: BufWriter::new(file),
+        };
+        record.append("V2.2");
+        let name_tag = if color == Color::Black { "N+" } else { "N-" };
+        record.append(&format!("{name_tag}{user}"));
+        if !game_id.is_empty() {
+            record.append(&format!("$EVENT:{game_id}"));
+        }
+        record.append("PI");
+        eprintln!("[csa] recording game to {}", path.display());
+        Some(record)
+    }
+
+    fn append(&mut self, line: &str) {
+        if let Err(error) = writeln!(self.writer, "{line}") {
+            eprintln!("[csa] record write failed: {error}");
+        } else if let Err(error) = self.writer.flush() {
+            eprintln!("[csa] record flush failed: {error}");
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Err(error) = self.writer.flush() {
+            eprintln!("[csa] record final flush failed: {error}");
+        }
+    }
+}
+
+impl Drop for GameRecord {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+fn sanitize_filename(value: &str) -> String {
+    let sanitized: String = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    if sanitized.is_empty() {
+        "floodgate-game".into()
+    } else {
+        sanitized
+    }
 }
 
 fn parse_game_end(line: &str) -> GameResult {

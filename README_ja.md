@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.32`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.33`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -43,6 +43,7 @@ sekirei /path/to/weights.bin
 - ロックフリー置換表、任意で有効化できる投機的並列探索、opt-inのLazy SMP探索。
 - 実験的なroot-level MCTS pilotと、深さ・ノード上限付きのopt-in bounded df-pn API。
 - ファイルから読み込むNNUEスタイルの差分評価。
+- 外部YaneuraOu系SFNNのヘッダー検査と来歴・互換性manifest検証。外部重みの推論対応そのものはまだ別課題です。
 - CSA v2.2 / Floodgateクライアント。
 - 自己対局、回帰テスト、相対Elo推定用のUSI対USIマッチランナー。
 - CSA棋譜または抽出済み局面からのNNUE学習パイプライン。
@@ -107,6 +108,18 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 オプティマイザ状態を持たず、訓練用にはAdam sidecarと完全resume sidecarを別に保存します。
 JSON出力には判定閾値 `strict_min_range_cp` と判定結果 `strict_pass` も含まれます。
 
+外部SFNN成果物は2段階で扱います。Rustの`sekirei_core::external_eval::read_sfnn_header`と
+`scripts/inspect_external_sfnn.py`は安全上限付きのヘッダー検査だけを行います。出典、ライセンス、
+再配布条件、adapter状態は次で検証できます。
+
+```bash
+python3 scripts/validate_external_eval_manifest.py \
+  scripts/fixtures/external_eval_manifest_v1.json
+```
+
+manifestが有効でも、外部ファイルの推論互換性は保証しません。特徴量対応、パラメータ配置、
+数値一致は別途adapter検証が必要です。
+
 マテリアル評価で起動:
 
 ```bash
@@ -150,11 +163,22 @@ tableを専有し、ロックフリー置換表と停止flagだけを共有し�
 
 ```bash
 cargo run --release -p sekirei-csa -- \
-  --user <name> --trip <secret> --game floodgate-300-10F --loop
+  --user <name> --trip <secret> --game floodgate-300-10F \
+  --record-dir data/floodgate --loop
 ```
 
 `FLOODGATE_ACCOUNT` と `FLOODGATE_TRIP` も利用できます。認証情報、棋譜、重み、訓練データを
-コミットしないでください。
+コミットしないでください。対局終了後の棋譜と途中切断時の部分棋譜は、既定で
+`data/floodgate/`にCSA形式で保存します。`--record-dir`で保存先を変更できます。各着手後に
+flushするため、保存に失敗しても対局自体は中断しません。
+
+クライアントは`startpos`を仮定せず、サーバーが送るCSA局面を読み込みます。標準的な`PI`省略表記と
+持ち駒宣言に対応し、受信した指し手の色と内部手番も検証します。サーバーが中間通知として
+`#RESIGN`を送る場合も、後続の`#WIN`・`#LOSE`・`#DRAW`まで待って最終結果を記録します。
+これにより、プロトコル・盤面同期の失敗と評価値による敗勢を区別できます。
+
+boundedまたは中断された補助探索が詰み相当のスコアを返しても、それだけでは自動投了しません。
+合法手が残っていれば合法手へフォールバックするため、時間制限や未確定探索が誤投了として記録されることを防ぎます。
 
 ## 棋力テスト
 
@@ -276,8 +300,8 @@ https://github.com/kent-tokyo/sekirei
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
 現在のrelease manifestは
-[`release-manifest-v0.3.32.json`](release-manifest-v0.3.32.json)に保存しています。現行のLazy SMP
-USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.32.txt`](scripts/fixtures/usi_smoke_v0.3.32.txt)です。
+[`release-manifest-v0.3.33.json`](release-manifest-v0.3.33.json)に保存しています。現行のLazy SMP
+USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.33.txt`](scripts/fixtures/usi_smoke_v0.3.33.txt)です。
 いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 
 リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。

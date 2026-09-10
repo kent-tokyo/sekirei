@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## [0.3.33] – 2026-09-10
+
+- Fixed a DFPN time-limit path that could return `bestmove resign` when the
+  bounded search was merely `Unknown`; the USI layer now falls back to a legal
+  move whenever an auxiliary search is interrupted and moves remain.
+- Hardened CSA/Floodgate state handling: consume the server-provided position
+  (including `PI` and hand declarations), validate move color against the
+  internal side to move, and wait for the final `#WIN`/`#LOSE`/`#DRAW` result
+  after an intermediate `#RESIGN` marker.
+- Corrected CSA record color headers and avoided treating a non-check terminal
+  position as checkmate at the search root.
+- Added regression coverage for CSA position parsing, hand declarations,
+  wrong-side moves, DFPN time-limited moves, and the existing USI race suite.
+- Verified the workspace with Clippy warnings denied, formatting checks, and
+  the full workspace test suite. Existing Floodgate records are historical
+  evidence and were not rewritten.
+
+- Added bounded external SFNN header inspection and a provenance/compatibility
+  manifest validator. Header acceptance does not claim inference compatibility;
+  feature mapping and numerical inference remain a separate adapter gate.
+
 ## [0.3.32] – 2026-09-10
 
 - Reduced Perft overhead by using the rules-only do/undo path without NNUE

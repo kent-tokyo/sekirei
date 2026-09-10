@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.32`). It speaks the
+`0.3.33`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -54,6 +54,8 @@ sekirei /path/to/weights.bin
 - An opt-in bounded df-pn mate-search API with node/depth limits and safe
   `Unknown` results when the configured boundary is reached.
 - NNUE-style efficiently updatable evaluation with file-based checkpoints.
+- Bounded inspection of external YaneuraOu-style SFNN headers with provenance
+  and compatibility-manifest validation; this does not yet enable external-weight inference.
 - CSA v2.2 / Floodgate client for automated games.
 - USI-vs-USI match runner for self-play, regression testing, and relative Elo estimation.
 - NNUE training pipeline from CSA games or extracted positions.
@@ -133,6 +135,14 @@ candidate selection can record the exact health rule used.
 Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFile`. The inference
 `.bin` remains optimizer-free; training emits separate Adam and full-resume sidecars.
 
+External SFNN artifacts are intentionally handled in two stages. The Rust
+`sekirei_core::external_eval::read_sfnn_header` API and
+`scripts/inspect_external_sfnn.py` perform bounded header inspection only.
+Validate source, license, redistribution, and adapter status with
+`python3 scripts/validate_external_eval_manifest.py scripts/fixtures/external_eval_manifest_v1.json`.
+A valid manifest does not make an external file inference-compatible; feature mapping,
+parameter layout, and numerical agreement require a separate adapter review.
+
 Run the USI engine without weights (material evaluation fallback):
 
 ```bash
@@ -177,11 +187,25 @@ mode remains opt-in; the default is `SearchMode=Speculative`.
 
 ```bash
 cargo run --release -p sekirei-csa -- \
-  --user <name> --trip <secret> --game floodgate-300-10F --loop
+  --user <name> --trip <secret> --game floodgate-300-10F \
+  --record-dir data/floodgate --loop
 ```
 
 `FLOODGATE_ACCOUNT` and `FLOODGATE_TRIP` may be used instead of command-line credentials.
-Do not commit credentials, game records, weights, or generated training data.
+Completed games and partial games are saved locally as CSA files under `data/floodgate/` by
+default. Use `--record-dir` to choose another directory. Records are flushed after every move;
+save failures are reported but do not abort the live game. Do not commit credentials, game
+records, weights, or generated training data.
+
+The client consumes the server-provided CSA position instead of assuming `startpos`. It supports
+the standard `PI` shorthand and hand declarations, validates the color of every received move,
+and preserves the final `#WIN`/`#LOSE`/`#DRAW` result when a server sends an intermediate
+`#RESIGN` marker. These checks are important for distinguishing a protocol/board-sync failure
+from an engine evaluation result.
+
+The client does not automatically resign on a mate-like score produced by a bounded or interrupted
+auxiliary search. It continues with a legal fallback move when one exists; this prevents a time
+limit or an inconclusive diagnostic search from being recorded as a false resignation.
 
 ## Match testing
 
@@ -324,8 +348,8 @@ permission. NNUE weight files are separate artifacts and are licensed under CC B
 described in [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
 The current release record is kept in
-[`release-manifest-v0.3.32.json`](release-manifest-v0.3.32.json). The current Lazy SMP USI smoke
-transcript is [`scripts/fixtures/usi_smoke_v0.3.32.txt`](scripts/fixtures/usi_smoke_v0.3.32.txt).
+[`release-manifest-v0.3.33.json`](release-manifest-v0.3.33.json). The current Lazy SMP USI smoke
+transcript is [`scripts/fixtures/usi_smoke_v0.3.33.txt`](scripts/fixtures/usi_smoke_v0.3.33.txt).
 These are release-audit evidence, not strength claims.
 
 For an opt-in MCTS candidate diagnostic, create a validated manifest copy without modifying the

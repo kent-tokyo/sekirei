@@ -76,6 +76,34 @@ fn lazy_smp_stop_flushes_bestmove_before_answering_next_command() {
 }
 
 #[test]
+fn ponder_stop_then_new_position_has_one_fresh_bestmove() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |l| l == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go ponder btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "stop");
+    recv_line_matching(&rx, |l| l.starts_with("bestmove "), Duration::from_secs(5));
+
+    // The second position must not inherit the ponder search's root, abort
+    // state, or a stale exact TT answer. The invariant checker also verifies
+    // that the emitted move is legal for this new position.
+    send(&mut stdin, "position startpos moves 7g7f");
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(&rx, |l| l.starts_with("bestmove "), Duration::from_secs(5));
+
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for ponder reset test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn dfpn_stop_flushes_bestmove_before_answering_next_command() {
     stop_flushes_bestmove_before_answering_next_command(Some("Dfpn"));
 }

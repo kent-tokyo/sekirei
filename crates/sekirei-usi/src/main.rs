@@ -17,6 +17,7 @@ use sekirei_core::{
     dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
+    movegen::generate_legal_moves,
     nnue::load_weights,
     search::{MATE_SCORE, SearchConfig, SpecSearchInfo, SpeculativeSearcher},
     sfen::{board_to_sfen, move_to_usi, parse_position_cmd},
@@ -145,7 +146,7 @@ impl SearchBackend {
                 let info = s.search(board, config);
                 let result = info.result;
                 SearchResult {
-                    best_move: result.best_move,
+                    best_move: result.best_move.or_else(|| fallback_legal_move(board)),
                     score: result.score,
                     depth: result.depth,
                     nodes: info.total_nodes,
@@ -189,7 +190,7 @@ impl SearchBackend {
                     DfpnOutcome::Disproven | DfpnOutcome::Unknown => 0,
                 };
                 SearchResult {
-                    best_move: result.best_move,
+                    best_move: result.best_move.or_else(|| fallback_legal_move(board)),
                     score,
                     depth: config.max_depth,
                     nodes: result.nodes,
@@ -228,7 +229,7 @@ impl SearchBackend {
                     let _ = handle.join();
                 }
                 SearchResult {
-                    best_move: info.best_move,
+                    best_move: info.best_move.or_else(|| fallback_legal_move(board)),
                     score: info.score,
                     depth: config.max_depth,
                     nodes: info.nodes as u64,
@@ -259,6 +260,14 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         worker_stats: Vec::new(),
         shared_mcts_stats: None,
     }
+}
+
+/// A bounded/aborted auxiliary search must still return a legal move whenever
+/// the position has one. Returning `resign` for an `Unknown` DFPN/MCTS result
+/// turns a time limit into a false game loss.
+fn fallback_legal_move(board: &Board) -> Option<sekirei_core::mv::Move> {
+    let mut probe = board.clone();
+    generate_legal_moves(&mut probe).into_iter().next()
 }
 
 /// Render an engine score using the USI score grammar.

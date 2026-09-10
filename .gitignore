@@ -4,6 +4,7 @@ memo.txt
 data/
 target/
 .env
+data/floodgate/
 .DS_Store
 results/
 sprint_gate_runs/

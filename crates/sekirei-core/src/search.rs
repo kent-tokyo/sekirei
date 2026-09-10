@@ -513,7 +513,12 @@ fn root_search(
             .collect()
     };
     if moves.is_empty() {
-        return (None, -MATE_SCORE);
+        let score = if is_in_check(board, board.side_to_move) {
+            -MATE_SCORE
+        } else {
+            0
+        };
+        return (None, score);
     }
 
     // Single legal move: skip deep search but return an honest eval score.

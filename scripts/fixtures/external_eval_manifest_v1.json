@@ -1,0 +1,29 @@
+{
+  "schema": "external_eval_manifest_v1",
+  "artifact": {
+    "path": "fixtures/example-sfnn.nn.bin",
+    "bytes": 4096,
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "format": {
+    "family": "yaneuraou_sfnn",
+    "version": "declared-by-source",
+    "architecture": "SFNN1536",
+    "layer_stacks": 9,
+    "endianness": "little"
+  },
+  "progress": {
+    "path": "fixtures/example-sfnn.progress.bin",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "provenance": {
+    "source_url": "https://github.com/yaneurao/YaneuraOu",
+    "source_commit": "source-commit-required",
+    "license": "source-license-required",
+    "redistribution": "unknown"
+  },
+  "compatibility": {
+    "adapter": "sfnn-v1-pending",
+    "status": "declared"
+  }
+}
