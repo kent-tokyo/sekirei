@@ -430,7 +430,7 @@ impl Board {
     /// Updates Zobrist hash and NNUE accumulator incrementally.
     #[inline]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
-        self.do_move_impl::<true>(m)
+        self.do_move_impl::<true, true, true>(m)
     }
 
     /// Apply a move only for a short-lived rules/legality probe.
@@ -442,15 +442,25 @@ impl Board {
     /// type private to the crate prevents accidentally pairing this path with
     /// the normal NNUE-restoring undo operation.
     pub(crate) fn do_move_for_legality(&mut self, m: Move) -> LegalityMoveToken {
-        LegalityMoveToken(self.do_move_impl::<false>(m))
+        LegalityMoveToken(self.do_move_impl::<false, true, true>(m))
+    }
+
+    /// Apply a move for Perft without updating hash or NNUE state.
+    pub(crate) fn do_move_for_perft(&mut self, m: Move) -> LegalityMoveToken {
+        LegalityMoveToken(self.do_move_impl::<false, false, false>(m))
     }
 
     #[inline]
-    fn do_move_impl<const UPDATE_NNUE: bool>(&mut self, m: Move) -> MoveToken {
+    fn do_move_impl<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
+        &mut self,
+        m: Move,
+    ) -> MoveToken {
         let color = self.side_to_move;
         let prev_hash = self.hash;
 
-        self.hash ^= zobrist::side_key();
+        if UPDATE_HASH {
+            self.hash ^= zobrist::side_key();
+        }
 
         let token = match m.from {
             None => {
@@ -458,11 +468,15 @@ impl Board {
                 let piece = Piece::new(color, m.piece_kind);
                 let old_count = self.hand[color.index()].get(m.piece_kind);
 
-                self.hash ^= zobrist::hand_delta(color, m.piece_kind, old_count);
+                if UPDATE_HASH {
+                    self.hash ^= zobrist::hand_delta(color, m.piece_kind, old_count);
+                }
                 self.hand[color.index()].remove(m.piece_kind);
 
                 self.put(m.to, piece);
-                self.hash ^= zobrist::piece_key(m.to, color, m.piece_kind);
+                if UPDATE_HASH {
+                    self.hash ^= zobrist::piece_key(m.to, color, m.piece_kind);
+                }
 
                 // NNUE: threshold feature for old_count turns off (drop: N → N-1)
                 if UPDATE_NNUE {
@@ -484,7 +498,9 @@ impl Board {
                 let mut moved = self.take(from).expect("no piece at from");
                 debug_assert_eq!(moved.color, color);
                 debug_assert_eq!(moved.kind, m.piece_kind);
-                self.hash ^= zobrist::piece_key(from, color, moved.kind);
+                if UPDATE_HASH {
+                    self.hash ^= zobrist::piece_key(from, color, moved.kind);
+                }
 
                 // NNUE: remove piece from its old square
                 if UPDATE_NNUE {
@@ -493,10 +509,14 @@ impl Board {
 
                 let captured = self.take(m.to);
                 if let Some(cap) = captured {
-                    self.hash ^= zobrist::piece_key(m.to, cap.color, cap.kind);
+                    if UPDATE_HASH {
+                        self.hash ^= zobrist::piece_key(m.to, cap.color, cap.kind);
+                    }
                     let base = cap.kind.unpromoted();
                     let new_count = self.hand[color.index()].get(base) + 1;
-                    self.hash ^= zobrist::hand_delta(color, base, new_count);
+                    if UPDATE_HASH {
+                        self.hash ^= zobrist::hand_delta(color, base, new_count);
+                    }
                     self.hand[color.index()].add_captured(cap.kind);
 
                     // NNUE: captured piece leaves the board; threshold feature for new_count turns on
@@ -511,7 +531,9 @@ impl Board {
                     moved.kind = moved.kind.promoted();
                 }
                 self.put(m.to, moved);
-                self.hash ^= zobrist::piece_key(m.to, color, moved.kind);
+                if UPDATE_HASH {
+                    self.hash ^= zobrist::piece_key(m.to, color, moved.kind);
+                }
 
                 // NNUE: piece arrives at its new square (possibly promoted)
                 if UPDATE_NNUE {
@@ -530,7 +552,9 @@ impl Board {
         };
 
         self.side_to_move = color.flip();
-        self.ply += 1;
+        if UPDATE_PLY {
+            self.ply += 1;
+        }
         token
     }
 
@@ -538,19 +562,30 @@ impl Board {
     /// No accumulator stack needed — the deltas are symmetric.
     #[inline]
     pub fn undo_move(&mut self, token: MoveToken) {
-        self.undo_move_impl::<true>(token);
+        self.undo_move_impl::<true, true, true>(token);
     }
 
     /// Restore a temporary position created by [`Self::do_move_for_legality`].
     pub(crate) fn undo_move_for_legality(&mut self, token: LegalityMoveToken) {
-        self.undo_move_impl::<false>(token.0);
+        self.undo_move_impl::<false, true, true>(token.0);
+    }
+
+    pub(crate) fn undo_move_for_perft(&mut self, token: LegalityMoveToken) {
+        self.undo_move_impl::<false, false, false>(token.0);
     }
 
     #[inline]
-    fn undo_move_impl<const UPDATE_NNUE: bool>(&mut self, token: MoveToken) {
-        self.hash = token.prev_hash;
+    fn undo_move_impl<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
+        &mut self,
+        token: MoveToken,
+    ) {
+        if UPDATE_HASH {
+            self.hash = token.prev_hash;
+        }
         self.side_to_move = self.side_to_move.flip();
-        self.ply -= 1;
+        if UPDATE_PLY {
+            self.ply -= 1;
+        }
         let color = self.side_to_move;
 
         match token.from {

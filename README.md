@@ -117,6 +117,28 @@ from 22.544 ms to 7.659 ms for depth-4 search. The longer search sample used 20 
 These are local mechanism diagnostics on heterogeneous Apple CPU cores, not portable performance,
 playing-strength, or Elo claims.
 
+For a low-cost cross-library diagnostic against the pinned `rsshogi` commit and
+`shogi_core` primitive, run:
+
+```bash
+cargo run --release -p sekirei-bench --bin cross_library
+```
+
+The report compares legal move generation and Perft(3) with `rsshogi` on the
+same fixture. `shogi_core` has no legality checker or move generator, so its
+state-update row is not a move-generation or Perft comparison. Results and
+scope limitations are recorded in
+`scripts/benchmark_reports/cross_library_v0.3.33.md`.
+
+The v0.3.33 optimization snapshot recorded in that report (10,000 iterations x
+seven samples) is locally faster than pinned `rsshogi` on start-position
+Perft(2) (6.455 us vs 8.008 us), Perft(3) (192.399 us vs 250.672 us), and
+midgame-with-hands Perft(2) (31.900 us vs 51.440 us). `rsshogi` is still faster
+for one-shot legal move generation and the full-state roundtrip diagnostic, so
+this is a bounded Perft result rather than a general speed claim.
+Against clean revision `4c568b1`, the same candidate reduced the Criterion
+depth-4 search median from 3.348 ms to 2.265 ms (about 1.48x faster).
+
 Probe an NNUE checkpoint without enabling process-global engine weights:
 
 ```bash

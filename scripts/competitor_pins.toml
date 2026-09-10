@@ -1,5 +1,6 @@
-# Phase 0.5 low-cost comparison pins.  These are inputs to a future adapter;
-# no throughput, Elo, or interoperability claim follows from this file alone.
+# Phase 0.5 comparison pins. These are inputs to the checked-in adapter and
+# local benchmark; no portable throughput, Elo, or interoperability claim
+# follows from this file alone.
 
 [shogi_core]
 source = "crates.io"
@@ -10,7 +11,7 @@ build_profile = "release"
 
 [rsshogi]
 source = "git"
-version = "1.0.2"
+version = "1.2.3"
 commit = "a1dbc020e0711574ba0bec6a7b123c411ccdd625"
 repository = "https://github.com/nyoki-mtl/rsshogi"
 build_profile = "release"
@@ -18,4 +19,4 @@ build_profile = "release"
 [comparison]
 toolchain = "recorded by phase0_measurement_contract.py"
 cpu = "recorded by phase0_measurement_contract.py"
-heavy_measurement = "not_run"
+heavy_measurement = "cross_library_v4_10000x7_completed_2026-09-10"

@@ -12,126 +12,65 @@ use std::cell::RefCell;
 
 /// Returns true if `sq` is attacked by any piece belonging to `by`
 pub fn is_attacked(board: &Board, sq: Square, by: Color) -> bool {
-    let occ = board.occ();
-    let pawn = board.pieces(by, PieceKind::Fu);
-    let lance = board.pieces(by, PieceKind::Kyou);
-    let knight = board.pieces(by, PieceKind::Kei);
-    let silver = board.pieces(by, PieceKind::Gin);
-    let gold = board.pieces(by, PieceKind::Kin)
+    is_attacked_with_occupancy(board, sq, by, board.occ(), Bitboard::EMPTY)
+}
+
+/// Attack query with caller-supplied occupancy and an optional captured
+/// attacker mask. This lets king-move legality be checked without mutating and
+/// restoring the complete board state for every destination.
+#[inline]
+fn is_attacked_with_occupancy(
+    board: &Board,
+    sq: Square,
+    by: Color,
+    occupied: Bitboard,
+    removed_attackers: Bitboard,
+) -> bool {
+    let square_index = sq.index() as usize;
+    let reverse_color = by.flip().index();
+    let keep = !removed_attackers;
+    let pawn = board.pieces(by, PieceKind::Fu) & keep;
+    let lance = board.pieces(by, PieceKind::Kyou) & keep;
+    let knight = board.pieces(by, PieceKind::Kei) & keep;
+    let silver = board.pieces(by, PieceKind::Gin) & keep;
+    let gold = (board.pieces(by, PieceKind::Kin)
         | board.pieces(by, PieceKind::Tokin)
         | board.pieces(by, PieceKind::Narikyo)
         | board.pieces(by, PieceKind::Narikei)
-        | board.pieces(by, PieceKind::Narigin);
-    let bishop = board.pieces(by, PieceKind::Kaku) | board.pieces(by, PieceKind::Uma);
-    let rook = board.pieces(by, PieceKind::Hisha) | board.pieces(by, PieceKind::Ryu);
-    let horse = board.pieces(by, PieceKind::Uma);
-    let dragon = board.pieces(by, PieceKind::Ryu);
-    let king = board.pieces(by, PieceKind::Ou);
+        | board.pieces(by, PieceKind::Narigin))
+        & keep;
+    let bishop = (board.pieces(by, PieceKind::Kaku) | board.pieces(by, PieceKind::Uma)) & keep;
+    let rook = (board.pieces(by, PieceKind::Hisha) | board.pieces(by, PieceKind::Ryu)) & keep;
+    let horse = board.pieces(by, PieceKind::Uma) & keep;
+    let dragon = board.pieces(by, PieceKind::Ryu) & keep;
+    let king = board.pieces(by, PieceKind::Ou) & keep;
 
-    // Sliding attack: walk from sq in `dir` until hitting a piece; check the
-    // first blocker against a pre-unioned attacker set.
+    let step_attackers = (PAWN_ATTACKS[reverse_color][square_index] & pawn)
+        | (KNIGHT_ATTACKS[reverse_color][square_index] & knight)
+        | (SILVER_ATTACKS[reverse_color][square_index] & silver)
+        | (GOLD_ATTACKS[reverse_color][square_index] & gold)
+        | (ORTHOGONAL_STEP_ATTACKS[square_index] & horse)
+        | (DIAGONAL_STEP_ATTACKS[square_index] & dragon)
+        | (KING_ATTACKS[square_index] & king);
+    if !step_attackers.is_empty() {
+        return true;
+    }
+
     let slide_hits = |dir: Direction, attackers: Bitboard| -> bool {
-        let mut cur = sq;
-        while let Some(next) = cur.step(dir) {
-            if occ.contains(next) {
-                return attackers.contains(next);
-            }
-            cur = next;
-        }
-        false
+        !(sliding_attacks(sq, occupied, dir) & attackers).is_empty()
     };
 
-    // Step attack: check if the square one step in `dir` belongs to the
-    // precomputed attacker set.
-    let step_hits = |dir: Direction, attackers: Bitboard| -> bool {
-        sq.step(dir).is_some_and(|from| attackers.contains(from))
-    };
-
-    // Pawn: Black pawn attacks from one square south of sq; White pawn from north
-    // Lance: sliding in the pawn direction
-    // Knight: two-square jump (reverse direction from sq)
-    // Silver, Gold: step attacks in the color-appropriate directions (reversed)
+    // Lance: slide from the target in the reverse attack direction.
     match by {
         Color::Black => {
-            if step_hits(Direction::S, pawn) {
-                return true;
-            }
             if slide_hits(Direction::S, lance) {
                 return true;
             }
-            if step_hits(Direction::KnightS1, knight) {
-                return true;
-            }
-            if step_hits(Direction::KnightS2, knight) {
-                return true;
-            }
-            // Black silver attacks N, NE, NW, SE, SW → reverse: S, SW, SE, NW, NE
-            for dir in [
-                Direction::S,
-                Direction::SW,
-                Direction::SE,
-                Direction::NW,
-                Direction::NE,
-            ] {
-                if step_hits(dir, silver) {
-                    return true;
-                }
-            }
         }
         Color::White => {
-            if step_hits(Direction::N, pawn) {
-                return true;
-            }
             if slide_hits(Direction::N, lance) {
                 return true;
             }
-            if step_hits(Direction::KnightN1, knight) {
-                return true;
-            }
-            if step_hits(Direction::KnightN2, knight) {
-                return true;
-            }
-            // White silver attacks S, SE, SW, NE, NW → reverse: N, NW, NE, SW, SE
-            for dir in [
-                Direction::N,
-                Direction::NW,
-                Direction::NE,
-                Direction::SW,
-                Direction::SE,
-            ] {
-                if step_hits(dir, silver) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // Gold and gold-movers (Tokin / Narikyo / Narikei / Narigin)
-    // Black gold attacks N, NE, NW, E, W, S → reverse: S, SW, SE, W, E, N
-    // White gold attacks S, SE, SW, E, W, N → reverse: N, NW, NE, W, E, S
-    let gold_dirs: &[Direction] = match by {
-        Color::Black => &[
-            Direction::S,
-            Direction::SW,
-            Direction::SE,
-            Direction::W,
-            Direction::E,
-            Direction::N,
-        ],
-        Color::White => &[
-            Direction::N,
-            Direction::NW,
-            Direction::NE,
-            Direction::W,
-            Direction::E,
-            Direction::S,
-        ],
-    };
-    for &dir in gold_dirs {
-        if let Some(from) = sq.step(dir)
-            && gold.contains(from)
-        {
-            return true;
         }
     }
 
@@ -147,35 +86,6 @@ pub fn is_attacked(board: &Board, sq: Square, by: Color) -> bool {
             return true;
         }
     }
-    // Uma 1-step orthogonal bonus
-    for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-        if step_hits(dir, horse) {
-            return true;
-        }
-    }
-    // Ryu 1-step diagonal bonus
-    for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-        if step_hits(dir, dragon) {
-            return true;
-        }
-    }
-
-    // King
-    for dir in [
-        Direction::N,
-        Direction::S,
-        Direction::E,
-        Direction::W,
-        Direction::NE,
-        Direction::NW,
-        Direction::SE,
-        Direction::SW,
-    ] {
-        if step_hits(dir, king) {
-            return true;
-        }
-    }
-
     false
 }
 
@@ -248,25 +158,217 @@ mod attack_union_tests {
 
 // ---- Move generation helpers ----
 
-/// Push a move with the correct promote / no-promote options
+const fn build_step_attacks<const N: usize>(deltas: [(i8, i8); N]) -> [Bitboard; Square::NUM] {
+    let mut table = [Bitboard::EMPTY; Square::NUM];
+    let mut square_index = 0usize;
+    while square_index < Square::NUM {
+        let square = Square::from_index(square_index as u8);
+        let file = square.file_0() as i8;
+        let rank = square.rank_0() as i8;
+        let mut mask = 0u128;
+        let mut direction = 0usize;
+        while direction < N {
+            let (file_delta, rank_delta) = deltas[direction];
+            let target_file = file + file_delta;
+            let target_rank = rank + rank_delta;
+            if target_file >= 0 && target_file < 9 && target_rank >= 0 && target_rank < 9 {
+                let target = Square::from_fr(target_file as u8, target_rank as u8);
+                mask |= 1u128 << target.index();
+            }
+            direction += 1;
+        }
+        table[square_index] = Bitboard(mask);
+        square_index += 1;
+    }
+    table
+}
+
+const PAWN_ATTACKS: [[Bitboard; Square::NUM]; 2] =
+    [build_step_attacks([(0, -1)]), build_step_attacks([(0, 1)])];
+const KNIGHT_ATTACKS: [[Bitboard; Square::NUM]; 2] = [
+    build_step_attacks([(-1, -2), (1, -2)]),
+    build_step_attacks([(-1, 2), (1, 2)]),
+];
+const SILVER_ATTACKS: [[Bitboard; Square::NUM]; 2] = [
+    build_step_attacks([(0, -1), (-1, -1), (1, -1), (-1, 1), (1, 1)]),
+    build_step_attacks([(0, 1), (-1, 1), (1, 1), (-1, -1), (1, -1)]),
+];
+const GOLD_ATTACKS: [[Bitboard; Square::NUM]; 2] = [
+    build_step_attacks([(0, -1), (-1, -1), (1, -1), (-1, 0), (1, 0), (0, 1)]),
+    build_step_attacks([(0, 1), (-1, 1), (1, 1), (-1, 0), (1, 0), (0, -1)]),
+];
+const KING_ATTACKS: [Bitboard; Square::NUM] = build_step_attacks([
+    (0, -1),
+    (0, 1),
+    (-1, 0),
+    (1, 0),
+    (-1, -1),
+    (1, -1),
+    (-1, 1),
+    (1, 1),
+]);
+const ORTHOGONAL_STEP_ATTACKS: [Bitboard; Square::NUM] =
+    build_step_attacks([(0, -1), (0, 1), (-1, 0), (1, 0)]);
+const DIAGONAL_STEP_ATTACKS: [Bitboard; Square::NUM] =
+    build_step_attacks([(-1, -1), (1, -1), (-1, 1), (1, 1)]);
+
+const fn build_ray_attacks(file_delta: i8, rank_delta: i8) -> [Bitboard; Square::NUM] {
+    let mut table = [Bitboard::EMPTY; Square::NUM];
+    let mut square_index = 0usize;
+    while square_index < Square::NUM {
+        let square = Square::from_index(square_index as u8);
+        let mut file = square.file_0() as i8 + file_delta;
+        let mut rank = square.rank_0() as i8 + rank_delta;
+        let mut mask = 0u128;
+        while file >= 0 && file < 9 && rank >= 0 && rank < 9 {
+            let target = Square::from_fr(file as u8, rank as u8);
+            mask |= 1u128 << target.index();
+            file += file_delta;
+            rank += rank_delta;
+        }
+        table[square_index] = Bitboard(mask);
+        square_index += 1;
+    }
+    table
+}
+
+const RAY_ATTACKS: [[Bitboard; Square::NUM]; 8] = [
+    build_ray_attacks(0, -1),
+    build_ray_attacks(0, 1),
+    build_ray_attacks(-1, 0),
+    build_ray_attacks(1, 0),
+    build_ray_attacks(-1, -1),
+    build_ray_attacks(1, -1),
+    build_ray_attacks(-1, 1),
+    build_ray_attacks(1, 1),
+];
+
+const fn combine_rays(indices: [usize; 4]) -> [Bitboard; Square::NUM] {
+    let mut table = [Bitboard::EMPTY; Square::NUM];
+    let mut square = 0usize;
+    while square < Square::NUM {
+        table[square] = Bitboard(
+            RAY_ATTACKS[indices[0]][square].0
+                | RAY_ATTACKS[indices[1]][square].0
+                | RAY_ATTACKS[indices[2]][square].0
+                | RAY_ATTACKS[indices[3]][square].0,
+        );
+        square += 1;
+    }
+    table
+}
+
+const ORTHOGONAL_RAYS: [Bitboard; Square::NUM] = combine_rays([0, 1, 2, 3]);
+const DIAGONAL_RAYS: [Bitboard; Square::NUM] = combine_rays([4, 5, 6, 7]);
+
 #[inline]
-fn push_with_promotion(
-    from: Square,
-    to: Square,
-    kind: PieceKind,
-    color: Color,
-    moves: &mut Vec<Move>,
-) {
-    if !kind.is_promotable() {
-        moves.push(Move::normal(from, to, kind, false));
-        return;
+const fn direction_index(direction: Direction) -> usize {
+    match direction {
+        Direction::N => 0,
+        Direction::S => 1,
+        Direction::E => 2,
+        Direction::W => 3,
+        Direction::NE => 4,
+        Direction::NW => 5,
+        Direction::SE => 6,
+        Direction::SW => 7,
+        Direction::KnightN1 | Direction::KnightN2 | Direction::KnightS1 | Direction::KnightS2 => {
+            unreachable!()
+        }
+    }
+}
+
+#[inline]
+fn sliding_attacks(from: Square, occupied: Bitboard, direction: Direction) -> Bitboard {
+    let direction_index = direction_index(direction);
+    let ray = RAY_ATTACKS[direction_index][from.index() as usize];
+    let blockers = ray & occupied;
+    if blockers.is_empty() {
+        return ray;
     }
 
-    let promote_zone = match color {
+    if matches!(
+        direction,
+        Direction::S | Direction::W | Direction::NW | Direction::SW
+    ) {
+        let blocker_index = blockers.0.trailing_zeros();
+        Bitboard(ray.0 & ((1u128 << (blocker_index + 1)) - 1))
+    } else {
+        let blocker_index = 127 - blockers.0.leading_zeros();
+        Bitboard(ray.0 & !((1u128 << blocker_index) - 1))
+    }
+}
+
+#[inline]
+fn first_blocker_on_ray(from: Square, occupied: Bitboard, direction: Direction) -> Option<Square> {
+    (sliding_attacks(from, occupied, direction) & occupied).lsb()
+}
+
+#[derive(Clone, Copy)]
+struct MoveRestrictions {
+    allowed: Bitboard,
+    pinned: Bitboard,
+    king: Option<Square>,
+}
+
+impl MoveRestrictions {
+    const PSEUDO: Self = Self {
+        allowed: Bitboard::FULL,
+        pinned: Bitboard::EMPTY,
+        king: None,
+    };
+
+    #[inline]
+    fn targets<const RESTRICTED: bool>(self, from: Square, mut targets: Bitboard) -> Bitboard {
+        targets &= self.allowed;
+        if !RESTRICTED || self.pinned.is_empty() {
+            return targets;
+        }
+        if !self.pinned.contains(from) {
+            return targets;
+        }
+        let Some(king) = self.king else {
+            return Bitboard::EMPTY;
+        };
+        targets & pin_ray(king, from)
+    }
+}
+
+#[inline]
+fn pin_ray(king: Square, pinned: Square) -> Bitboard {
+    let king_index = king.index() as usize;
+    for ray in &RAY_ATTACKS {
+        let ray = ray[king_index];
+        if ray.contains(pinned) {
+            return ray;
+        }
+    }
+    Bitboard::EMPTY
+}
+
+#[inline]
+fn king_destination_is_safe(board: &Board, mover: Color, m: Move) -> bool {
+    let Some(from) = m.from else {
+        return false;
+    };
+    let mut occupied = board.occ();
+    occupied.unset(from);
+    occupied.set(m.to);
+    !is_attacked_with_occupancy(
+        board,
+        m.to,
+        mover.flip(),
+        occupied,
+        Bitboard::from_square(m.to),
+    )
+}
+
+#[inline]
+fn promotion_masks(kind: PieceKind, color: Color) -> (Bitboard, Bitboard) {
+    let zone = match color {
         Color::Black => Bitboard::PROMOTE_BLACK,
         Color::White => Bitboard::PROMOTE_WHITE,
     };
-    // Squares where the piece would have no legal moves if left unpromoted
     let stuck = match (kind, color) {
         (PieceKind::Fu | PieceKind::Kyou, Color::Black) => Bitboard::STUCK_FU_KYOU_BLACK,
         (PieceKind::Fu | PieceKind::Kyou, Color::White) => Bitboard::STUCK_FU_KYOU_WHITE,
@@ -274,7 +376,105 @@ fn push_with_promotion(
         (PieceKind::Kei, Color::White) => Bitboard::STUCK_KEI_WHITE,
         _ => Bitboard::EMPTY,
     };
+    (zone, stuck)
+}
 
+pub(crate) trait MoveSink {
+    fn clear(&mut self);
+    fn push(&mut self, m: Move);
+
+    #[inline]
+    fn push_plain_targets(&mut self, from: Square, kind: PieceKind, mut targets: Bitboard)
+    where
+        Self: Sized,
+    {
+        while let Some(to) = targets.pop_lsb() {
+            self.push(Move::normal(from, to, kind, false));
+        }
+    }
+
+    #[inline]
+    fn push_promotable_targets(
+        &mut self,
+        from: Square,
+        kind: PieceKind,
+        color: Color,
+        mut targets: Bitboard,
+    ) where
+        Self: Sized,
+    {
+        while let Some(to) = targets.pop_lsb() {
+            push_with_promotion(from, to, kind, color, self);
+        }
+    }
+}
+
+impl MoveSink for Vec<Move> {
+    #[inline]
+    fn clear(&mut self) {
+        Vec::clear(self);
+    }
+
+    #[inline]
+    fn push(&mut self, m: Move) {
+        Vec::push(self, m);
+    }
+}
+
+#[derive(Default)]
+struct MoveCounter {
+    count: u64,
+}
+
+impl MoveSink for MoveCounter {
+    #[inline]
+    fn clear(&mut self) {
+        self.count = 0;
+    }
+
+    #[inline]
+    fn push(&mut self, _m: Move) {
+        self.count += 1;
+    }
+
+    #[inline]
+    fn push_plain_targets(&mut self, _from: Square, _kind: PieceKind, targets: Bitboard) {
+        self.count += u64::from(targets.popcount());
+    }
+
+    #[inline]
+    fn push_promotable_targets(
+        &mut self,
+        from: Square,
+        kind: PieceKind,
+        color: Color,
+        targets: Bitboard,
+    ) {
+        let (zone, stuck) = promotion_masks(kind, color);
+        let optional_promotions = if zone.contains(from) {
+            targets & !stuck
+        } else {
+            targets & zone & !stuck
+        };
+        self.count += u64::from(targets.popcount() + optional_promotions.popcount());
+    }
+}
+
+/// Push a move with the correct promote / no-promote options.
+#[inline]
+fn push_with_promotion(
+    from: Square,
+    to: Square,
+    kind: PieceKind,
+    color: Color,
+    moves: &mut impl MoveSink,
+) {
+    if !kind.is_promotable() {
+        moves.push(Move::normal(from, to, kind, false));
+        return;
+    }
+
+    let (promote_zone, stuck) = promotion_masks(kind, color);
     let in_zone = promote_zone.contains(from) || promote_zone.contains(to);
     let must = stuck.contains(to);
 
@@ -288,257 +488,423 @@ fn push_with_promotion(
     }
 }
 
-/// Generate step moves for all pieces of the given kind and color
 #[inline]
-fn gen_steps(
+fn gen_step_attacks<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
     kind: PieceKind,
-    dirs: &[Direction],
-    moves: &mut Vec<Move>,
+    attacks: &[Bitboard; Square::NUM],
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
 ) {
-    let own = board.occ_for(color);
     let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let own = board.occ_for(color);
     while let Some(from) = pieces.pop_lsb() {
-        for &dir in dirs {
-            if let Some(to) = from.step(dir) {
-                if own.contains(to) {
-                    continue;
-                }
-                push_with_promotion(from, to, kind, color, moves);
-            }
-        }
+        let targets =
+            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & !own);
+        moves.push_promotable_targets(from, kind, color, targets);
+    }
+}
+
+#[inline]
+fn gen_plain_step_attacks<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    attacks: &[Bitboard; Square::NUM],
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let own = board.occ_for(color);
+    while let Some(from) = pieces.pop_lsb() {
+        let targets =
+            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & !own);
+        moves.push_plain_targets(from, kind, targets);
     }
 }
 
 /// Generate sliding moves for all pieces of the given kind and color
 #[inline]
-fn gen_sliding(
+fn gen_sliding<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
     kind: PieceKind,
     dirs: &[Direction],
-    moves: &mut Vec<Move>,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
 ) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
     let own = board.occ_for(color);
     let occ = board.occ();
-    let mut pieces = board.pieces(color, kind);
     while let Some(from) = pieces.pop_lsb() {
         for &dir in dirs {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if own.contains(to) {
-                    break;
-                }
-                push_with_promotion(from, to, kind, color, moves);
-                if occ.contains(to) {
-                    break;
-                } // stop after capturing an enemy piece
-                cur = to;
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
+            moves.push_promotable_targets(from, kind, color, targets);
         }
     }
 }
 
 /// Uma (promoted bishop): diagonal sliding + 1-step orthogonal
 #[inline]
-fn gen_uma(board: &Board, color: Color, moves: &mut Vec<Move>) {
+fn gen_uma<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, PieceKind::Uma);
+    if pieces.is_empty() {
+        return;
+    }
     let own = board.occ_for(color);
     let occ = board.occ();
-    let mut pieces = board.pieces(color, PieceKind::Uma);
     while let Some(from) = pieces.pop_lsb() {
         for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if own.contains(to) {
-                    break;
-                }
-                moves.push(Move::normal(from, to, PieceKind::Uma, false));
-                if occ.contains(to) {
-                    break;
-                }
-                cur = to;
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
+            moves.push_plain_targets(from, PieceKind::Uma, targets);
         }
-        for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            if let Some(to) = from.step(dir)
-                && !own.contains(to)
-            {
-                moves.push(Move::normal(from, to, PieceKind::Uma, false));
-            }
-        }
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, ORTHOGONAL_STEP_ATTACKS[from.index() as usize] & !own);
+        moves.push_plain_targets(from, PieceKind::Uma, targets);
     }
 }
 
 /// Ryu (promoted rook): orthogonal sliding + 1-step diagonal
 #[inline]
-fn gen_ryu(board: &Board, color: Color, moves: &mut Vec<Move>) {
+fn gen_ryu<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, PieceKind::Ryu);
+    if pieces.is_empty() {
+        return;
+    }
     let own = board.occ_for(color);
     let occ = board.occ();
-    let mut pieces = board.pieces(color, PieceKind::Ryu);
     while let Some(from) = pieces.pop_lsb() {
         for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if own.contains(to) {
-                    break;
-                }
-                moves.push(Move::normal(from, to, PieceKind::Ryu, false));
-                if occ.contains(to) {
-                    break;
-                }
-                cur = to;
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
+            moves.push_plain_targets(from, PieceKind::Ryu, targets);
         }
-        for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            if let Some(to) = from.step(dir)
-                && !own.contains(to)
-            {
-                moves.push(Move::normal(from, to, PieceKind::Ryu, false));
-            }
-        }
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, DIAGONAL_STEP_ATTACKS[from.index() as usize] & !own);
+        moves.push_plain_targets(from, PieceKind::Ryu, targets);
     }
 }
 
 /// Generate drop moves, excluding nifu and piece-stuck positions
 #[inline]
-fn gen_drops(board: &Board, color: Color, moves: &mut Vec<Move>) {
-    let empty = !board.occ();
-    let hand = board.hand(color);
+fn drop_targets(board: &Board, color: Color, kind: PieceKind, allowed: Bitboard) -> Bitboard {
+    let mut targets = !board.occ() & allowed;
+    let (_, stuck) = promotion_masks(kind, color);
+    targets &= !stuck;
 
+    // Nifu: can't drop a pawn on a file that already contains an own pawn.
+    if kind == PieceKind::Fu {
+        let mut own_fu = board.pieces(color, PieceKind::Fu);
+        while let Some(sq) = own_fu.pop_lsb() {
+            targets &= !Bitboard::file_bb(sq.file_0());
+        }
+    }
+    targets
+}
+
+#[inline]
+fn gen_drops(board: &Board, color: Color, allowed: Bitboard, moves: &mut impl MoveSink) {
+    let hand = *board.hand(color);
     for kind in hand.iter() {
-        let mut targets = empty;
+        let mut targets = drop_targets(board, color, kind, allowed);
 
-        // Exclude squares where the piece would have no legal moves
-        match (kind, color) {
-            (PieceKind::Fu | PieceKind::Kyou, Color::Black) => {
-                targets &= !Bitboard::STUCK_FU_KYOU_BLACK;
-            }
-            (PieceKind::Fu | PieceKind::Kyou, Color::White) => {
-                targets &= !Bitboard::STUCK_FU_KYOU_WHITE;
-            }
-            (PieceKind::Kei, Color::Black) => {
-                targets &= !Bitboard::STUCK_KEI_BLACK;
-            }
-            (PieceKind::Kei, Color::White) => {
-                targets &= !Bitboard::STUCK_KEI_WHITE;
-            }
-            _ => {}
-        }
-
-        // Nifu: can't drop a pawn on a file that already contains an own pawn
-        if kind == PieceKind::Fu {
-            let mut own_fu = board.pieces(color, PieceKind::Fu);
-            while let Some(sq) = own_fu.pop_lsb() {
-                targets &= !Bitboard::file_bb(sq.file_0());
-            }
-        }
-
-        let mut t = targets;
-        while let Some(to) = t.pop_lsb() {
+        while let Some(to) = targets.pop_lsb() {
             moves.push(Move::drop(to, kind));
         }
     }
 }
 
-fn gen_step_captures(
+fn gen_step_captures<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    attacks: &[Bitboard; Square::NUM],
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let enemy = board.occ_for(color.flip());
+    while let Some(from) = pieces.pop_lsb() {
+        let targets =
+            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & enemy);
+        moves.push_promotable_targets(from, kind, color, targets);
+    }
+}
+
+fn gen_plain_step_captures<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    attacks: &[Bitboard; Square::NUM],
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let enemy = board.occ_for(color.flip());
+    while let Some(from) = pieces.pop_lsb() {
+        let targets =
+            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & enemy);
+        moves.push_plain_targets(from, kind, targets);
+    }
+}
+
+fn gen_sliding_captures<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
     kind: PieceKind,
     dirs: &[Direction],
-    moves: &mut Vec<Move>,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
 ) {
-    let enemy = board.occ_for(color.flip());
     let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let enemy = board.occ_for(color.flip());
+    let occ = board.occ();
     while let Some(from) = pieces.pop_lsb() {
         for &dir in dirs {
-            if let Some(to) = from.step(dir)
-                && enemy.contains(to)
-            {
-                push_with_promotion(from, to, kind, color, moves);
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
+            moves.push_promotable_targets(from, kind, color, targets);
         }
     }
 }
 
-fn gen_sliding_captures(
+fn gen_uma_captures<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
-    kind: PieceKind,
-    dirs: &[Direction],
-    moves: &mut Vec<Move>,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
 ) {
-    let enemy = board.occ_for(color.flip());
-    let occ = board.occ();
-    let mut pieces = board.pieces(color, kind);
-    while let Some(from) = pieces.pop_lsb() {
-        for &dir in dirs {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if occ.contains(to) {
-                    if enemy.contains(to) {
-                        push_with_promotion(from, to, kind, color, moves);
-                    }
-                    break;
-                }
-                cur = to;
-            }
-        }
-    }
-}
-
-fn gen_uma_captures(board: &Board, color: Color, moves: &mut Vec<Move>) {
-    let enemy = board.occ_for(color.flip());
-    let occ = board.occ();
     let mut pieces = board.pieces(color, PieceKind::Uma);
+    if pieces.is_empty() {
+        return;
+    }
+    let enemy = board.occ_for(color.flip());
+    let occ = board.occ();
     while let Some(from) = pieces.pop_lsb() {
         for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if occ.contains(to) {
-                    if enemy.contains(to) {
-                        moves.push(Move::normal(from, to, PieceKind::Uma, false));
-                    }
-                    break;
-                }
-                cur = to;
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
+            moves.push_plain_targets(from, PieceKind::Uma, targets);
         }
-        for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            if let Some(to) = from.step(dir)
-                && enemy.contains(to)
-            {
-                moves.push(Move::normal(from, to, PieceKind::Uma, false));
-            }
-        }
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, ORTHOGONAL_STEP_ATTACKS[from.index() as usize] & enemy);
+        moves.push_plain_targets(from, PieceKind::Uma, targets);
     }
 }
 
-fn gen_ryu_captures(board: &Board, color: Color, moves: &mut Vec<Move>) {
+fn gen_ryu_captures<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, PieceKind::Ryu);
+    if pieces.is_empty() {
+        return;
+    }
     let enemy = board.occ_for(color.flip());
     let occ = board.occ();
-    let mut pieces = board.pieces(color, PieceKind::Ryu);
     while let Some(from) = pieces.pop_lsb() {
         for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            let mut cur = from;
-            while let Some(to) = cur.step(dir) {
-                if occ.contains(to) {
-                    if enemy.contains(to) {
-                        moves.push(Move::normal(from, to, PieceKind::Ryu, false));
-                    }
-                    break;
-                }
-                cur = to;
-            }
+            let targets =
+                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
+            moves.push_plain_targets(from, PieceKind::Ryu, targets);
         }
-        for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            if let Some(to) = from.step(dir)
-                && enemy.contains(to)
-            {
-                moves.push(Move::normal(from, to, PieceKind::Ryu, false));
-            }
-        }
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, DIAGONAL_STEP_ATTACKS[from.index() as usize] & enemy);
+        moves.push_plain_targets(from, PieceKind::Ryu, targets);
     }
+}
+
+#[inline]
+fn generate_non_king_moves_into<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    gen_step_attacks::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Fu,
+        &PAWN_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+
+    let lance_dirs: &[Direction] = match color {
+        Color::Black => &[Direction::N],
+        Color::White => &[Direction::S],
+    };
+    gen_sliding::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kyou,
+        lance_dirs,
+        restrictions,
+        moves,
+    );
+    gen_step_attacks::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kei,
+        &KNIGHT_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+    gen_step_attacks::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Gin,
+        &SILVER_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+    for kind in [
+        PieceKind::Kin,
+        PieceKind::Tokin,
+        PieceKind::Narikyo,
+        PieceKind::Narikei,
+        PieceKind::Narigin,
+    ] {
+        gen_plain_step_attacks::<RESTRICTED>(
+            board,
+            color,
+            kind,
+            &GOLD_ATTACKS[color.index()],
+            restrictions,
+            moves,
+        );
+    }
+    gen_sliding::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kaku,
+        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
+        restrictions,
+        moves,
+    );
+    gen_sliding::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Hisha,
+        &[Direction::N, Direction::S, Direction::E, Direction::W],
+        restrictions,
+        moves,
+    );
+    gen_uma::<RESTRICTED>(board, color, restrictions, moves);
+    gen_ryu::<RESTRICTED>(board, color, restrictions, moves);
+}
+
+#[inline]
+fn generate_non_king_captures_into<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    gen_step_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Fu,
+        &PAWN_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+
+    let lance_dirs: &[Direction] = match color {
+        Color::Black => &[Direction::N],
+        Color::White => &[Direction::S],
+    };
+    gen_sliding_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kyou,
+        lance_dirs,
+        restrictions,
+        moves,
+    );
+    gen_step_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kei,
+        &KNIGHT_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+    gen_step_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Gin,
+        &SILVER_ATTACKS[color.index()],
+        restrictions,
+        moves,
+    );
+    for kind in [
+        PieceKind::Kin,
+        PieceKind::Tokin,
+        PieceKind::Narikyo,
+        PieceKind::Narikei,
+        PieceKind::Narigin,
+    ] {
+        gen_plain_step_captures::<RESTRICTED>(
+            board,
+            color,
+            kind,
+            &GOLD_ATTACKS[color.index()],
+            restrictions,
+            moves,
+        );
+    }
+    gen_sliding_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Kaku,
+        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
+        restrictions,
+        moves,
+    );
+    gen_sliding_captures::<RESTRICTED>(
+        board,
+        color,
+        PieceKind::Hisha,
+        &[Direction::N, Direction::S, Direction::E, Direction::W],
+        restrictions,
+        moves,
+    );
+    gen_uma_captures::<RESTRICTED>(board, color, restrictions, moves);
+    gen_ryu_captures::<RESTRICTED>(board, color, restrictions, moves);
 }
 
 // ---- Public move generation ----
@@ -554,211 +920,18 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
 pub fn generate_moves_into(board: &Board, moves: &mut Vec<Move>) {
     let color = board.side_to_move;
     moves.clear();
+    generate_non_king_moves_into::<false>(board, color, MoveRestrictions::PSEUDO, moves);
 
-    let pawn_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_steps(board, color, PieceKind::Fu, pawn_dirs, moves);
-
-    let lance_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_sliding(board, color, PieceKind::Kyou, lance_dirs, moves);
-
-    let knight_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::KnightN1, Direction::KnightN2],
-        Color::White => &[Direction::KnightS1, Direction::KnightS2],
-    };
-    gen_steps(board, color, PieceKind::Kei, knight_dirs, moves);
-
-    let silver_dirs: &[Direction] = match color {
-        Color::Black => &[
-            Direction::N,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ],
-        Color::White => &[
-            Direction::S,
-            Direction::SE,
-            Direction::SW,
-            Direction::NE,
-            Direction::NW,
-        ],
-    };
-    gen_steps(board, color, PieceKind::Gin, silver_dirs, moves);
-
-    let gold_dirs: &[Direction] = match color {
-        Color::Black => &[
-            Direction::N,
-            Direction::NE,
-            Direction::NW,
-            Direction::E,
-            Direction::W,
-            Direction::S,
-        ],
-        Color::White => &[
-            Direction::S,
-            Direction::SE,
-            Direction::SW,
-            Direction::E,
-            Direction::W,
-            Direction::N,
-        ],
-    };
-    for kind in [
-        PieceKind::Kin,
-        PieceKind::Tokin,
-        PieceKind::Narikyo,
-        PieceKind::Narikei,
-        PieceKind::Narigin,
-    ] {
-        gen_steps(board, color, kind, gold_dirs, moves);
-    }
-
-    gen_sliding(
-        board,
-        color,
-        PieceKind::Kaku,
-        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
-        moves,
-    );
-
-    gen_sliding(
-        board,
-        color,
-        PieceKind::Hisha,
-        &[Direction::N, Direction::S, Direction::E, Direction::W],
-        moves,
-    );
-
-    gen_uma(board, color, moves);
-    gen_ryu(board, color, moves);
-
-    gen_steps(
+    gen_plain_step_attacks::<false>(
         board,
         color,
         PieceKind::Ou,
-        &[
-            Direction::N,
-            Direction::S,
-            Direction::E,
-            Direction::W,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ],
+        &KING_ATTACKS,
+        MoveRestrictions::PSEUDO,
         moves,
     );
 
-    gen_drops(board, color, moves);
-}
-
-/// Generate pseudo-legal captures into a caller-owned reusable buffer.
-fn generate_captures_into(board: &Board, moves: &mut Vec<Move>) {
-    let color = board.side_to_move;
-    moves.clear();
-
-    let pawn_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_step_captures(board, color, PieceKind::Fu, pawn_dirs, moves);
-
-    let lance_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_sliding_captures(board, color, PieceKind::Kyou, lance_dirs, moves);
-
-    let knight_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::KnightN1, Direction::KnightN2],
-        Color::White => &[Direction::KnightS1, Direction::KnightS2],
-    };
-    gen_step_captures(board, color, PieceKind::Kei, knight_dirs, moves);
-
-    let silver_dirs: &[Direction] = match color {
-        Color::Black => &[
-            Direction::N,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ],
-        Color::White => &[
-            Direction::S,
-            Direction::SE,
-            Direction::SW,
-            Direction::NE,
-            Direction::NW,
-        ],
-    };
-    gen_step_captures(board, color, PieceKind::Gin, silver_dirs, moves);
-
-    let gold_dirs: &[Direction] = match color {
-        Color::Black => &[
-            Direction::N,
-            Direction::NE,
-            Direction::NW,
-            Direction::E,
-            Direction::W,
-            Direction::S,
-        ],
-        Color::White => &[
-            Direction::S,
-            Direction::SE,
-            Direction::SW,
-            Direction::E,
-            Direction::W,
-            Direction::N,
-        ],
-    };
-    for kind in [
-        PieceKind::Kin,
-        PieceKind::Tokin,
-        PieceKind::Narikyo,
-        PieceKind::Narikei,
-        PieceKind::Narigin,
-    ] {
-        gen_step_captures(board, color, kind, gold_dirs, moves);
-    }
-
-    gen_sliding_captures(
-        board,
-        color,
-        PieceKind::Kaku,
-        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
-        moves,
-    );
-    gen_sliding_captures(
-        board,
-        color,
-        PieceKind::Hisha,
-        &[Direction::N, Direction::S, Direction::E, Direction::W],
-        moves,
-    );
-    gen_uma_captures(board, color, moves);
-    gen_ryu_captures(board, color, moves);
-    gen_step_captures(
-        board,
-        color,
-        PieceKind::Ou,
-        &[
-            Direction::N,
-            Direction::S,
-            Direction::E,
-            Direction::W,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ],
-        moves,
-    );
+    gen_drops(board, color, Bitboard::FULL, moves);
 }
 
 /// Check whether the current position (after a pawn drop) is uchifuzume (drop-pawn checkmate).
@@ -777,222 +950,241 @@ fn is_uchifuzume(board: &mut Board, opponent: Color) -> bool {
     })
 }
 
+/// Count legal drops without materializing every candidate. Only a pawn drop
+/// that gives check needs the comparatively expensive uchifuzume probe.
 #[inline]
-fn piece_attacks_square(
-    board: &Board,
-    from: Square,
-    piece: crate::piece::Piece,
-    target: Square,
-) -> bool {
-    use PieceKind::*;
+fn count_legal_drops(
+    board: &mut Board,
+    mover: Color,
+    opponent: Color,
+    opponent_king: Bitboard,
+    allowed: Bitboard,
+) -> u64 {
+    let hand = *board.hand(mover);
+    let checking_pawn_origins = opponent_king
+        .lsb()
+        .map(|king| PAWN_ATTACKS[opponent.index()][king.index() as usize])
+        .unwrap_or(Bitboard::EMPTY);
+    let mut count = 0u64;
 
-    let color = piece.color;
-    let step =
-        |directions: &[Direction]| directions.iter().any(|&dir| from.step(dir) == Some(target));
-    let ray = |directions: &[Direction]| {
-        directions.iter().any(|&dir| {
-            let mut square = from;
-            while let Some(next) = square.step(dir) {
-                if next == target {
-                    return true;
-                }
-                if board.occ().contains(next) {
-                    return false;
-                }
-                square = next;
-            }
-            false
-        })
-    };
-
-    match piece.kind {
-        Fu => step(if color == Color::Black {
-            &[Direction::N]
-        } else {
-            &[Direction::S]
-        }),
-        Kyou => ray(if color == Color::Black {
-            &[Direction::N]
-        } else {
-            &[Direction::S]
-        }),
-        Kei => step(if color == Color::Black {
-            &[Direction::KnightN1, Direction::KnightN2]
-        } else {
-            &[Direction::KnightS1, Direction::KnightS2]
-        }),
-        Gin => step(if color == Color::Black {
-            &[
-                Direction::N,
-                Direction::NE,
-                Direction::NW,
-                Direction::SE,
-                Direction::SW,
-            ]
-        } else {
-            &[
-                Direction::S,
-                Direction::SE,
-                Direction::SW,
-                Direction::NE,
-                Direction::NW,
-            ]
-        }),
-        Kin | Tokin | Narikyo | Narikei | Narigin => step(if color == Color::Black {
-            &[
-                Direction::N,
-                Direction::NE,
-                Direction::NW,
-                Direction::E,
-                Direction::W,
-                Direction::S,
-            ]
-        } else {
-            &[
-                Direction::S,
-                Direction::SE,
-                Direction::SW,
-                Direction::E,
-                Direction::W,
-                Direction::N,
-            ]
-        }),
-        Kaku => ray(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW]),
-        Hisha => ray(&[Direction::N, Direction::S, Direction::E, Direction::W]),
-        Uma => {
-            ray(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW])
-                || step(&[Direction::N, Direction::S, Direction::E, Direction::W])
-        }
-        Ryu => {
-            ray(&[Direction::N, Direction::S, Direction::E, Direction::W])
-                || step(&[Direction::NE, Direction::NW, Direction::SE, Direction::SW])
-        }
-        Ou => step(&[
-            Direction::N,
-            Direction::S,
-            Direction::E,
-            Direction::W,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ]),
-    }
-}
-
-/// Returns the squares on which a non-king move can answer the current check.
-/// An empty mask means that only a king move can evade (double check).
-fn check_evasion_mask(board: &Board, king: Square, defender: Color) -> (usize, Bitboard) {
-    let attacker = defender.flip();
-    let mut attackers = board.occ_for(attacker);
-    let mut checker_count = 0;
-    let mut mask = Bitboard::EMPTY;
-
-    while let Some(from) = attackers.pop_lsb() {
-        let Some(piece) = board.piece_at(from) else {
-            continue;
-        };
-        if !piece_attacks_square(board, from, piece, king) {
+    for kind in hand.iter() {
+        let targets = drop_targets(board, mover, kind, allowed);
+        count += u64::from(targets.popcount());
+        if kind != PieceKind::Fu {
             continue;
         }
-        checker_count += 1;
-        mask |= Bitboard::from_square(from);
 
-        // A single sliding checker can also be answered by an interposition.
-        for direction in [
-            Direction::N,
-            Direction::S,
-            Direction::E,
-            Direction::W,
-            Direction::NE,
-            Direction::NW,
-            Direction::SE,
-            Direction::SW,
-        ] {
-            let mut square = king;
-            while let Some(next) = square.step(direction) {
-                if next == from {
-                    break;
-                }
-                if board.occ().contains(next) {
-                    break;
-                }
-                mask |= Bitboard::from_square(next);
-                square = next;
+        let mut checking_targets = targets & checking_pawn_origins;
+        while let Some(to) = checking_targets.pop_lsb() {
+            let m = Move::drop(to, PieceKind::Fu);
+            let tok = board.do_move_for_legality(m);
+            if is_uchifuzume(board, opponent) {
+                count -= 1;
             }
+            board.undo_move_for_legality(tok);
         }
     }
-
-    (checker_count, mask)
+    count
 }
 
-/// Returns the friendly pieces that currently shield the king from a slider.
-///
-/// A non-king move by a piece outside this mask cannot expose a discovered
-/// rook, bishop, or lance attack on the mover's king. This lets the legal move
-/// filter avoid a make/unmake probe for the common quiet-position case.
-fn pinned_pieces(board: &Board, king: Square, defender: Color) -> Bitboard {
-    let attacker = defender.flip();
-    let occupied = board.occ();
-    let mut pinned = Bitboard::EMPTY;
+/// Generate legal drops directly into the caller's output. Non-pawn drops and
+/// non-checking pawn drops are legal after the shared rank/nifu/evasion masks;
+/// only the single possible checking pawn square needs an uchifuzume probe.
+#[inline]
+fn generate_legal_drops(
+    board: &mut Board,
+    mover: Color,
+    opponent: Color,
+    opponent_king: Bitboard,
+    allowed: Bitboard,
+    moves: &mut impl MoveSink,
+) {
+    let hand = *board.hand(mover);
+    let checking_pawn_origins = opponent_king
+        .lsb()
+        .map(|king| PAWN_ATTACKS[opponent.index()][king.index() as usize])
+        .unwrap_or(Bitboard::EMPTY);
 
-    for (direction, diagonal) in [
-        (Direction::N, false),
-        (Direction::S, false),
-        (Direction::E, false),
-        (Direction::W, false),
-        (Direction::NE, true),
-        (Direction::NW, true),
-        (Direction::SE, true),
-        (Direction::SW, true),
-    ] {
-        let mut square = king;
-        let Some(first) = (|| {
-            while let Some(next) = square.step(direction) {
-                square = next;
-                if occupied.contains(square) {
-                    return Some(square);
-                }
+    for kind in hand.iter() {
+        let mut targets = drop_targets(board, mover, kind, allowed);
+        if kind != PieceKind::Fu {
+            while let Some(to) = targets.pop_lsb() {
+                moves.push(Move::drop(to, kind));
             }
-            None
-        })() else {
-            continue;
-        };
-        if board
-            .piece_at(first)
-            .is_none_or(|piece| piece.color != defender)
-        {
             continue;
         }
 
-        let mut beyond = first;
-        while let Some(next) = beyond.step(direction) {
-            beyond = next;
-            if !occupied.contains(beyond) {
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::drop(to, kind);
+            if !checking_pawn_origins.contains(to) {
+                moves.push(m);
                 continue;
             }
-            let Some(piece) = board.piece_at(beyond) else {
-                break;
-            };
-            let slider = if diagonal {
-                piece.color == attacker && matches!(piece.kind, PieceKind::Kaku | PieceKind::Uma)
-            } else {
-                piece.color == attacker
-                    && (matches!(piece.kind, PieceKind::Hisha | PieceKind::Ryu)
-                        || (matches!(piece.kind, PieceKind::Kyou)
-                            && ((attacker == Color::Black && direction == Direction::S)
-                                || (attacker == Color::White && direction == Direction::N))))
-            };
-            if slider {
-                pinned |= Bitboard::from_square(first);
+            let tok = board.do_move_for_legality(m);
+            if !is_uchifuzume(board, opponent) {
+                moves.push(m);
             }
-            break;
+            board.undo_move_for_legality(tok);
         }
     }
-    pinned
 }
 
-/// Generate fully legal moves: filters pseudo-legal moves for own-king-in-check and uchifuzume
+#[derive(Clone, Copy)]
+struct KingConstraints {
+    checkers: Bitboard,
+    evasion_mask: Bitboard,
+    pinned: Bitboard,
+}
+
+/// Compute checkers, the exact single-check evasion mask, and pinned pieces in
+/// one pass around the king. The previous implementation walked the same rays
+/// once for check detection and again for pin detection, then scanned every
+/// opposing piece to build an evasion mask.
+fn king_constraints(
+    board: &Board,
+    king: Square,
+    defender: Color,
+    known_not_in_check: bool,
+) -> KingConstraints {
+    let attacker = defender.flip();
+    let occupied = board.occ();
+    let attacker_horses = board.pieces(attacker, PieceKind::Uma);
+    let attacker_dragons = board.pieces(attacker, PieceKind::Ryu);
+    let mut checkers = Bitboard::EMPTY;
+    let mut pinned = Bitboard::EMPTY;
+
+    let king_index = king.index() as usize;
+    if !known_not_in_check {
+        let reverse_color = defender.index();
+        let attacker_golds = board.pieces(attacker, PieceKind::Kin)
+            | board.pieces(attacker, PieceKind::Tokin)
+            | board.pieces(attacker, PieceKind::Narikyo)
+            | board.pieces(attacker, PieceKind::Narikei)
+            | board.pieces(attacker, PieceKind::Narigin);
+        checkers |= PAWN_ATTACKS[reverse_color][king_index] & board.pieces(attacker, PieceKind::Fu);
+        checkers |=
+            KNIGHT_ATTACKS[reverse_color][king_index] & board.pieces(attacker, PieceKind::Kei);
+        checkers |=
+            SILVER_ATTACKS[reverse_color][king_index] & board.pieces(attacker, PieceKind::Gin);
+        checkers |= GOLD_ATTACKS[reverse_color][king_index] & attacker_golds;
+        checkers |= ORTHOGONAL_STEP_ATTACKS[king_index] & attacker_horses;
+        checkers |= DIAGONAL_STEP_ATTACKS[king_index] & attacker_dragons;
+        checkers |= KING_ATTACKS[king_index] & board.pieces(attacker, PieceKind::Ou);
+    }
+
+    let orthogonal_sliders = board.pieces(attacker, PieceKind::Hisha) | attacker_dragons;
+    let diagonal_sliders = board.pieces(attacker, PieceKind::Kaku) | attacker_horses;
+    let attacker_lances = board.pieces(attacker, PieceKind::Kyou);
+    let north_sliders = orthogonal_sliders
+        | if attacker == Color::White {
+            attacker_lances
+        } else {
+            Bitboard::EMPTY
+        };
+    let south_sliders = orthogonal_sliders
+        | if attacker == Color::Black {
+            attacker_lances
+        } else {
+            Bitboard::EMPTY
+        };
+    let aligned_sliders = (ORTHOGONAL_RAYS[king_index] & orthogonal_sliders)
+        | (DIAGONAL_RAYS[king_index] & diagonal_sliders)
+        | (RAY_ATTACKS[0][king_index] & north_sliders)
+        | (RAY_ATTACKS[1][king_index] & south_sliders);
+
+    if !aligned_sliders.is_empty() {
+        for (direction, diagonal, candidates) in [
+            (Direction::N, false, north_sliders),
+            (Direction::S, false, south_sliders),
+            (Direction::E, false, orthogonal_sliders),
+            (Direction::W, false, orthogonal_sliders),
+            (Direction::NE, true, diagonal_sliders),
+            (Direction::NW, true, diagonal_sliders),
+            (Direction::SE, true, diagonal_sliders),
+            (Direction::SW, true, diagonal_sliders),
+        ] {
+            if (RAY_ATTACKS[direction_index(direction)][king_index] & candidates).is_empty() {
+                continue;
+            }
+            let Some(first) = first_blocker_on_ray(king, occupied, direction) else {
+                continue;
+            };
+            let Some(first_piece) = board.piece_at(first) else {
+                continue;
+            };
+            if first_piece.color == attacker {
+                if !known_not_in_check {
+                    let slider = if diagonal {
+                        matches!(first_piece.kind, PieceKind::Kaku | PieceKind::Uma)
+                    } else {
+                        matches!(first_piece.kind, PieceKind::Hisha | PieceKind::Ryu)
+                            || (first_piece.kind == PieceKind::Kyou
+                                && ((attacker == Color::Black && direction == Direction::S)
+                                    || (attacker == Color::White && direction == Direction::N)))
+                    };
+                    if slider {
+                        checkers |= Bitboard::from_square(first);
+                    }
+                }
+                continue;
+            }
+            if first_piece.color != defender {
+                continue;
+            }
+
+            if let Some(beyond) = first_blocker_on_ray(first, occupied, direction) {
+                let Some(piece) = board.piece_at(beyond) else {
+                    continue;
+                };
+                let slider = if diagonal {
+                    piece.color == attacker
+                        && matches!(piece.kind, PieceKind::Kaku | PieceKind::Uma)
+                } else {
+                    piece.color == attacker
+                        && (matches!(piece.kind, PieceKind::Hisha | PieceKind::Ryu)
+                            || (matches!(piece.kind, PieceKind::Kyou)
+                                && ((attacker == Color::Black && direction == Direction::S)
+                                    || (attacker == Color::White && direction == Direction::N))))
+                };
+                if slider {
+                    pinned |= Bitboard::from_square(first);
+                }
+            }
+        }
+    }
+
+    let mut evasion_mask = Bitboard::EMPTY;
+    if checkers.popcount() == 1 {
+        let checker = checkers.lsb().expect("single checker");
+        evasion_mask |= Bitboard::from_square(checker);
+        if aligned_sliders.contains(checker) {
+            for (direction, opposite) in [
+                (0, 1),
+                (1, 0),
+                (2, 3),
+                (3, 2),
+                (4, 7),
+                (5, 6),
+                (6, 5),
+                (7, 4),
+            ] {
+                let king_ray = RAY_ATTACKS[direction][king.index() as usize];
+                if king_ray.contains(checker) {
+                    evasion_mask |= king_ray & RAY_ATTACKS[opposite][checker.index() as usize];
+                    break;
+                }
+            }
+        }
+    }
+
+    KingConstraints {
+        checkers,
+        evasion_mask,
+        pinned,
+    }
+}
+
+/// Generate fully legal moves, including king-safety and uchifuzume checks.
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = take_move_buffer();
     generate_legal_moves_into(board, &mut legals);
@@ -1001,59 +1193,129 @@ pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
 
 /// Generate fully legal moves into a caller-owned reusable buffer.
 pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
+    generate_legal_moves_into_sink(board, legals, false);
+}
+
+/// Generate legal moves directly into a reusable sink without an intermediate
+/// pseudo-move list.
+#[inline]
+fn generate_legal_moves_into_sink(
+    board: &mut Board,
+    legals: &mut impl MoveSink,
+    known_not_in_check: bool,
+) {
     legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
     let opponent_king = board.pieces(opponent, PieceKind::Ou);
-    let mut pseudos = take_move_buffer();
-    generate_moves_into(board, &mut pseudos);
-    let evasion = if is_in_check(board, mover) {
-        board
-            .king_square(mover)
-            .map(|king| check_evasion_mask(board, king, mover))
+    let king = board.king_square(mover);
+    let constraints = king
+        .map(|king| king_constraints(board, king, mover, known_not_in_check))
+        .unwrap_or(KingConstraints {
+            checkers: Bitboard::EMPTY,
+            evasion_mask: Bitboard::EMPTY,
+            pinned: Bitboard::EMPTY,
+        });
+    let checker_count = constraints.checkers.popcount();
+    let allowed = if checker_count == 0 {
+        Bitboard::FULL
     } else {
-        None
-    };
-    let pinned = if evasion.is_none() {
-        board
-            .king_square(mover)
-            .map(|king| pinned_pieces(board, king, mover))
-            .unwrap_or(Bitboard::EMPTY)
-    } else {
-        Bitboard::EMPTY
+        constraints.evasion_mask
+    } & !opponent_king;
+    let restrictions = MoveRestrictions {
+        allowed,
+        pinned: constraints.pinned,
+        king,
     };
 
-    legals.reserve(pseudos.len());
-    for &m in pseudos.iter() {
-        if let Some((1, evasion_mask)) = evasion
-            && m.piece_kind != PieceKind::Ou
-            && !evasion_mask.contains(m.to)
-        {
-            continue;
-        }
-        // King capture is impossible in legal shogi; skip to avoid panicking do_move
-        if opponent_king.contains(m.to) {
-            continue;
-        }
-        let requires_probe = evasion.is_some()
-            || m.piece_kind == PieceKind::Ou
-            || pinned.contains(m.from.unwrap_or(m.to))
-            || (m.is_drop() && m.piece_kind == PieceKind::Fu);
-        if !requires_probe {
-            legals.push(m);
-            continue;
-        }
-        let tok = board.do_move_for_legality(m);
-        if !is_in_check(board, mover) {
-            let uzume =
-                m.is_drop() && m.piece_kind == PieceKind::Fu && is_uchifuzume(board, opponent);
-            if !uzume {
+    // A double check can only be answered by moving the king. Otherwise,
+    // apply check and pin masks while generating so that legal moves do not
+    // need a second full-list filtering pass.
+    if checker_count == 0 && constraints.pinned.is_empty() {
+        generate_non_king_moves_into::<false>(board, mover, restrictions, legals);
+    } else if checker_count < 2 {
+        generate_non_king_moves_into::<true>(board, mover, restrictions, legals);
+    }
+
+    if let Some(king) = king {
+        let mut targets =
+            KING_ATTACKS[king.index() as usize] & !board.occ_for(mover) & !opponent_king;
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, mover, m) {
                 legals.push(m);
             }
         }
-        board.undo_move_for_legality(tok);
     }
-    recycle_move_buffer(pseudos);
+
+    if checker_count >= 2 {
+        return;
+    }
+    generate_legal_drops(board, mover, opponent, opponent_king, allowed, legals);
+}
+
+/// Count legal moves without materializing the output list. King destinations
+/// and the sole possible checking pawn-drop square still receive full legality
+/// checks.
+pub(crate) fn count_legal_moves(board: &mut Board) -> u64 {
+    let mover = board.side_to_move;
+    let opponent = mover.flip();
+    let opponent_king = board.pieces(opponent, PieceKind::Ou);
+    let king = board.king_square(mover);
+    let constraints = king
+        .map(|king| king_constraints(board, king, mover, false))
+        .unwrap_or(KingConstraints {
+            checkers: Bitboard::EMPTY,
+            evasion_mask: Bitboard::EMPTY,
+            pinned: Bitboard::EMPTY,
+        });
+    let checker_count = constraints.checkers.popcount();
+    let allowed = if checker_count == 0 {
+        Bitboard::FULL
+    } else {
+        constraints.evasion_mask
+    } & !opponent_king;
+    let mut counter = MoveCounter::default();
+
+    if checker_count == 0 && constraints.pinned.is_empty() {
+        generate_non_king_moves_into::<false>(
+            board,
+            mover,
+            MoveRestrictions {
+                allowed,
+                pinned: Bitboard::EMPTY,
+                king,
+            },
+            &mut counter,
+        );
+    } else if checker_count < 2 {
+        generate_non_king_moves_into::<true>(
+            board,
+            mover,
+            MoveRestrictions {
+                allowed,
+                pinned: constraints.pinned,
+                king,
+            },
+            &mut counter,
+        );
+    }
+
+    if let Some(king) = king {
+        let mut targets =
+            KING_ATTACKS[king.index() as usize] & !board.occ_for(mover) & !opponent_king;
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, mover, m) {
+                counter.count += 1;
+            }
+        }
+    }
+
+    if checker_count >= 2 || board.hand(mover).is_empty() {
+        return counter.count;
+    }
+    counter.count + count_legal_drops(board, mover, opponent, opponent_king, allowed)
 }
 
 /// Generate legal capture moves only (no drops, no quiet moves).
@@ -1066,47 +1328,73 @@ pub fn generate_legal_captures(board: &mut Board) -> Vec<Move> {
 
 /// Generate legal captures into a caller-owned reusable buffer.
 pub fn generate_legal_captures_into(board: &mut Board, legals: &mut Vec<Move>) {
+    generate_legal_captures_into_sink(board, legals, false);
+}
+
+#[inline]
+fn generate_legal_captures_into_sink(
+    board: &mut Board,
+    legals: &mut impl MoveSink,
+    known_not_in_check: bool,
+) {
     legals.clear();
     let mover = board.side_to_move;
-    let mut pseudos = take_move_buffer();
-    generate_captures_into(board, &mut pseudos);
-    let in_check = is_in_check(board, mover);
-    let pinned = if in_check {
-        Bitboard::EMPTY
+    let king = board.king_square(mover);
+    let constraints = king
+        .map(|king| king_constraints(board, king, mover, known_not_in_check))
+        .unwrap_or(KingConstraints {
+            checkers: Bitboard::EMPTY,
+            evasion_mask: Bitboard::EMPTY,
+            pinned: Bitboard::EMPTY,
+        });
+    let checker_count = constraints.checkers.popcount();
+    let opponent_king = board.pieces(mover.flip(), PieceKind::Ou);
+    let allowed = if checker_count == 0 {
+        Bitboard::FULL
     } else {
-        board
-            .king_square(mover)
-            .map(|king| pinned_pieces(board, king, mover))
-            .unwrap_or(Bitboard::EMPTY)
-    };
-
-    legals.reserve(pseudos.len());
-    for &m in pseudos.iter() {
-        // King capture is impossible in legal shogi; skip to avoid panicking do_move
-        if board
-            .piece_at(m.to)
-            .is_some_and(|piece| piece.kind == PieceKind::Ou)
-        {
-            continue;
-        }
-        if !in_check && m.piece_kind != PieceKind::Ou && !pinned.contains(m.from.unwrap_or(m.to)) {
-            legals.push(m);
-            continue;
-        }
-        let tok = board.do_move_for_legality(m);
-        if !is_in_check(board, mover) {
-            legals.push(m);
-        }
-        board.undo_move_for_legality(tok);
+        constraints.evasion_mask
+    } & !opponent_king;
+    if checker_count == 0 && constraints.pinned.is_empty() {
+        generate_non_king_captures_into::<false>(
+            board,
+            mover,
+            MoveRestrictions {
+                allowed,
+                pinned: Bitboard::EMPTY,
+                king,
+            },
+            legals,
+        );
+    } else if checker_count < 2 {
+        generate_non_king_captures_into::<true>(
+            board,
+            mover,
+            MoveRestrictions {
+                allowed,
+                pinned: constraints.pinned,
+                king,
+            },
+            legals,
+        );
     }
-    recycle_move_buffer(pseudos);
+
+    if let Some(king) = king {
+        let mut targets =
+            KING_ATTACKS[king.index() as usize] & board.occ_for(mover.flip()) & !opponent_king;
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, mover, m) {
+                legals.push(m);
+            }
+        }
+    }
 }
 
 thread_local! {
     static MOVE_BUFFER_POOL: RefCell<Vec<Vec<Move>>> = const { RefCell::new(Vec::new()) };
 }
 
-fn take_move_buffer() -> Vec<Move> {
+pub(crate) fn take_move_buffer() -> Vec<Move> {
     MOVE_BUFFER_POOL.with(|pool| {
         pool.borrow_mut()
             .pop()
@@ -1114,7 +1402,7 @@ fn take_move_buffer() -> Vec<Move> {
     })
 }
 
-fn recycle_move_buffer(mut moves: Vec<Move>) {
+pub(crate) fn recycle_move_buffer(mut moves: Vec<Move>) {
     moves.clear();
     MOVE_BUFFER_POOL.with(|pool| pool.borrow_mut().push(moves));
 }
@@ -1133,10 +1421,29 @@ impl MoveBuffer {
         Self { moves: Some(moves) }
     }
 
+    /// Generate legal moves when the caller has already computed check state.
+    /// A false value lets move generation skip duplicate checker discovery
+    /// while retaining pin and king-destination validation.
+    #[inline]
+    pub(crate) fn legal_with_in_check(board: &mut Board, in_check: bool) -> Self {
+        let mut moves = take_move_buffer();
+        generate_legal_moves_into_sink(board, &mut moves, !in_check);
+        Self { moves: Some(moves) }
+    }
+
     /// Generates legal captures using a reusable per-thread allocation.
     pub fn captures(board: &mut Board) -> Self {
         let mut moves = take_move_buffer();
         generate_legal_captures_into(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
+    /// Generate legal captures when the caller has already computed check
+    /// state, avoiding duplicate checker discovery for quiet nodes.
+    #[inline]
+    pub(crate) fn captures_with_in_check(board: &mut Board, in_check: bool) -> Self {
+        let mut moves = take_move_buffer();
+        generate_legal_captures_into_sink(board, &mut moves, !in_check);
         Self { moves: Some(moves) }
     }
 
@@ -1196,6 +1503,28 @@ mod move_buffer_tests {
 
         assert_eq!(buffered_captures.as_slice(), expected_captures.as_slice());
         assert_eq!(buffered_captures.len(), expected_captures.len());
+    }
+
+    #[test]
+    fn known_check_state_buffers_match_self_contained_generation() {
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/9/9/9/4R4/9/9/4r4/4K4 w - 1",
+        ] {
+            let mut reference = Board::from_sfen(sfen).expect("fixture must parse");
+            let in_check = is_in_check(&reference, reference.side_to_move);
+            let expected = generate_legal_moves(&mut reference);
+
+            let mut hinted = Board::from_sfen(sfen).expect("fixture must parse");
+            let actual = MoveBuffer::legal_with_in_check(&mut hinted, in_check);
+            assert_eq!(actual.as_slice(), expected.as_slice());
+
+            let mut capture_reference = Board::from_sfen(sfen).expect("fixture must parse");
+            let expected_captures = generate_legal_captures(&mut capture_reference);
+            let mut capture_hinted = Board::from_sfen(sfen).expect("fixture must parse");
+            let actual_captures = MoveBuffer::captures_with_in_check(&mut capture_hinted, in_check);
+            assert_eq!(actual_captures.as_slice(), expected_captures.as_slice());
+        }
     }
 }
 

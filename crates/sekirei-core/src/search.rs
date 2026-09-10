@@ -875,7 +875,7 @@ fn alpha_beta(
         }
     }
 
-    let mut move_buffer = MoveBuffer::legal(board);
+    let mut move_buffer = MoveBuffer::legal_with_in_check(board, in_check);
     if move_buffer.is_empty() {
         return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
     }
@@ -1372,9 +1372,9 @@ fn quiescence(
     }
 
     let mut move_buffer = if in_check {
-        MoveBuffer::legal(board) // must escape check; all legal moves required
+        MoveBuffer::legal_with_in_check(board, true) // must escape check; all legal moves required
     } else {
-        MoveBuffer::captures(board)
+        MoveBuffer::captures_with_in_check(board, false)
     };
 
     if move_buffer.is_empty() {
@@ -1446,7 +1446,7 @@ fn quiescence(
     if !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
-        let mut qchecks = MoveBuffer::legal(board);
+        let mut qchecks = MoveBuffer::legal_with_in_check(board, false);
         qchecks
             .as_mut_vec()
             .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });

@@ -9,6 +9,8 @@ repository = "https://github.com/kent-tokyo/sekirei"
 [dependencies]
 sekirei-core = { path = "../sekirei-core", version = "0.3.33" }
 rayon = "1"
+rsshogi = { git = "https://github.com/nyoki-mtl/rsshogi.git", rev = "a1dbc020e0711574ba0bec6a7b123c411ccdd625" }
+shogi_core = "0.1.5"
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
@@ -24,3 +26,7 @@ path = "src/bin/sync_overhead.rs"
 [[bin]]
 name = "nnue_probe"
 path = "src/bin/nnue_probe.rs"
+
+[[bin]]
+name = "cross_library"
+path = "src/bin/cross_library.rs"

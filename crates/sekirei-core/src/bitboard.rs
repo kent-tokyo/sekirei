@@ -23,6 +23,18 @@ const fn file_mask(file_0: u8) -> u128 {
     mask
 }
 
+const fn file_masks() -> [Bitboard; 9] {
+    let mut masks = [Bitboard::EMPTY; 9];
+    let mut file = 0u8;
+    while file < 9 {
+        masks[file as usize] = Bitboard(file_mask(file));
+        file += 1;
+    }
+    masks
+}
+
+const FILE_MASKS: [Bitboard; 9] = file_masks();
+
 const fn ranks_mask(from_rank_0: u8, to_rank_0: u8) -> u128 {
     let mut mask = 0u128;
     let mut r = from_rank_0;
@@ -86,7 +98,7 @@ impl Bitboard {
     /// Return the bitboard for a complete file (file_0 ∈ 0..9)
     #[inline]
     pub const fn file_bb(file_0: u8) -> Self {
-        Bitboard(file_mask(file_0))
+        FILE_MASKS[file_0 as usize]
     }
 
     /// Returns true if `sq` is set.
