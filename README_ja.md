@@ -6,7 +6,7 @@
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.34`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.35`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -99,7 +99,25 @@ v0.3.27のホットパス最適化により、開発用Macのstartpos中央値�
 
 ```bash
 cargo run --release -p sekirei-bench --bin cross_library
+cargo run --release -p sekirei-bench --bin cross_library -- --check
+cargo run --release -p sekirei-bench --bin cross_library -- --components
 ```
+
+v7では6手の手順の合法性とundo後の復元を測定前に検証します。旧v6の6手roundtripは
+各手を早すぎる時点でundoしていたため、その測定値は無効です。合法手生成からも
+形式依存のチェックサム計算を除いたため、旧値とは直接比較できません。
+`--components`は初期化（共通テーブル初期化後）、バッファ、NNUE有無の盤面更新、
+NNUE推論、出力変換を分け、21標本の生データとp50/p95を出力します。
+NNUEは診断用の固定LCG重みであり、学習済みエンジンの探索速度ではありません。
+変更前後の実行ファイル・ソースハッシュの保存方法は
+`scripts/run_component_benchmark.py --help`を参照してください。
+[処理別測定レポート](scripts/benchmark_reports/components_2026-09-12.md)に、測定修正、
+SFEN初期化の改善候補、負荷による結果の制限を記録しています。
+
+最新の保守では、root探索の安全確認段階を分割し、alpha-betaのbetaカットオフ処理を
+共通化し、静かな手の派生ビットボード更新を1回のXORマスクに整理しました。これは
+正確性と可読性のためのリファクタリングであり、測定済みの速度向上とは扱いません。
+今回のリリースでバージョン表記は`0.3.35`になりました。
 
 合法手生成とPerft(3)は`rsshogi`と同じ局面で比較します。`shogi_core`は合法手生成器を
 持たないため、局面更新の行は合法手生成やPerftの比較ではありません。結果と比較範囲は
@@ -108,8 +126,9 @@ cargo run --release -p sekirei-bench --bin cross_library
 レポート記載のv0.3.33最適化スナップショットを10,000反復x7標本で測定した結果、開始局面の
 Perft(2)は6.455 us対8.008 us、Perft(3)は192.399 us対250.672 us、持駒あり中盤局面の
 Perft(2)は31.900 us対51.440 usで、固定した`rsshogi`よりローカルでは高速でした。
-単発の合法手生成と全状態do/undo診断は引き続き`rsshogi`が高速なため、これは限定した
-Perft結果であり、速度全般の首位主張ではありません。
+この過去の測定方式では単発合法手生成は`rsshogi`が高速でした。全状態do/undoには
+初期化やSekirei側だけのNNUE処理も含まれ、盤面更新単体の優劣は判定できません。
+これは限定したPerft結果であり、速度全般の首位主張ではありません。
 同じ候補をcleanなrevision `4c568b1`と比較したCriterion深さ4探索では、中央値が
 3.348 msから2.265 msへ短縮され、約1.48倍高速でした。
 

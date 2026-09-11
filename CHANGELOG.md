@@ -1,6 +1,19 @@
 # Changelog
 
-## Unreleased
+## [0.3.35] – 2026-09-12
+
+- Corrected the cross-library six-ply roundtrip fixture: apply all moves before
+  undoing in reverse. Added legality, canonical-move-set, SFEN, hash and NNUE
+  restoration preflights. Old v6 roundtrip timings are invalid.
+- Separated warm initialization, board/NNUE updates, inference and move-output
+  conversion in component diagnostics with raw samples and frozen-binary
+  capture. v7 move generation no longer includes a raw-encoding checksum.
+- Removed temporary field/rank vectors from SFEN initialization and return a
+  parse error before constructing an out-of-range square on overfull ranks.
+  No new engine-strength or overall speed claim is made.
+- Refactored root-search safety stages, unified alpha-beta beta-cutoff
+  bookkeeping, and reduced quiet-move derived-bitboard updates to one XOR
+  mask. These are correctness/readability changes, not a new speed claim.
 
 ## [0.3.34] – 2026-09-11
 

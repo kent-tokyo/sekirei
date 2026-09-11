@@ -7,7 +7,7 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.34`). It speaks the
+`0.3.35`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -122,7 +122,26 @@ For a low-cost cross-library diagnostic against the pinned `rsshogi` commit and
 
 ```bash
 cargo run --release -p sekirei-bench --bin cross_library
+cargo run --release -p sekirei-bench --bin cross_library -- --check
+cargo run --release -p sekirei-bench --bin cross_library -- --components
 ```
+
+The v7 harness validates every ply and undo of the six-move fixture before
+timing. The old v6 six-move roundtrip timings are invalid (moves were undone
+too early). v7 move generation observes output slices without the old
+representation-dependent encoding checksum, so those timings are not directly
+comparable either. `--components` isolates warm initialization, buffers,
+board updates with/without NNUE, NNUE inference, and output conversion, retaining
+21 raw samples plus p50/p95. NNUE uses deterministic synthetic LCG weights;
+this is not a trained-engine search benchmark. Capture a frozen executable and
+source hashes with `scripts/run_component_benchmark.py --help`.
+The [component measurement report](scripts/benchmark_reports/components_2026-09-12.md)
+records the repaired protocol, the SFEN initialization pilot and its load limitations.
+
+The latest maintenance pass also split root-search safety stages, shared the
+alpha-beta beta-cutoff bookkeeping, and simplified quiet-move derived-bitboard
+updates. These are correctness/readability refactors included in release
+`0.3.35`; they are not presented as a measured speed increase.
 
 The report compares legal move generation and Perft(3) with `rsshogi` on the
 same fixture. `shogi_core` has no legality checker or move generator, so its
@@ -134,8 +153,10 @@ The v0.3.33 optimization snapshot recorded in that report (10,000 iterations x
 seven samples) is locally faster than pinned `rsshogi` on start-position
 Perft(2) (6.455 us vs 8.008 us), Perft(3) (192.399 us vs 250.672 us), and
 midgame-with-hands Perft(2) (31.900 us vs 51.440 us). `rsshogi` is still faster
-for one-shot legal move generation and the full-state roundtrip diagnostic, so
-this is a bounded Perft result rather than a general speed claim.
+for one-shot legal move generation in that historical protocol. The full-state
+roundtrip also includes setup and Sekirei NNUE work absent from the reference;
+it cannot establish a pure board-update ranking. This is a bounded Perft result
+rather than a general speed claim.
 Against clean revision `4c568b1`, the same candidate reduced the Criterion
 depth-4 search median from 3.348 ms to 2.265 ms (about 1.48x faster).
 

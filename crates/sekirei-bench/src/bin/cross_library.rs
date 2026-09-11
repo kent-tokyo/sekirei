@@ -24,6 +24,9 @@ use sekirei_core::{
 };
 use std::{env, hint::black_box, mem::size_of, sync::OnceLock, time::Instant};
 
+#[path = "cross_library/components.rs"]
+mod components;
+
 const DEFAULT_ITERATIONS: u64 = 2_000;
 const SAMPLES: usize = 7;
 const MIDGAME_SFEN: &str =
@@ -57,10 +60,15 @@ const fn mv(from_file: u8, from_rank: u8, to_file: u8, to_rank: u8) -> SekireiMo
 }
 
 fn iterations() -> u64 {
-    env::var("SEKIREI_BENCH_ITERATIONS")
-        .ok()
-        .and_then(|value| value.parse().ok())
-        .unwrap_or(DEFAULT_ITERATIONS)
+    match env::var("SEKIREI_BENCH_ITERATIONS") {
+        Ok(value) => value
+            .parse::<u64>()
+            .ok()
+            .filter(|n| *n > 0)
+            .expect("SEKIREI_BENCH_ITERATIONS must be a positive integer"),
+        Err(env::VarError::NotPresent) => DEFAULT_ITERATIONS,
+        Err(error) => panic!("invalid SEKIREI_BENCH_ITERATIONS: {error}"),
+    }
 }
 
 fn sample_stats(values: &mut [u128]) -> (u128, u128, u128) {
@@ -84,35 +92,26 @@ where
 }
 
 #[inline]
-fn consume_sekirei_moves(moves: &[Move]) {
-    let checksum = moves
-        .iter()
-        .fold(0u32, |hash, mv| hash.rotate_left(5) ^ mv.raw());
-    black_box(checksum);
+fn consume_moves<T>(moves: &[T]) {
+    black_box(moves);
 }
 
+// Keep the call sites readable while sharing the implementation above.
+#[inline]
+fn consume_sekirei_moves(moves: &[Move]) {
+    consume_moves(moves);
+}
 #[inline]
 fn consume_rsshogi_moves(moves: &[Move32]) {
-    let checksum = moves
-        .iter()
-        .fold(0u32, |hash, mv| hash.rotate_left(5) ^ mv.raw());
-    black_box(checksum);
+    consume_moves(moves);
 }
-
 #[inline]
 fn consume_packed_moves(moves: &[sekirei_core::movegen::PackedMove]) {
-    let checksum = moves
-        .iter()
-        .fold(0u32, |hash, mv| hash.rotate_left(5) ^ mv.raw());
-    black_box(checksum);
+    consume_moves(moves);
 }
-
 #[inline]
 fn consume_narrow_moves(moves: &[sekirei_core::movegen::NarrowMove]) {
-    let checksum = moves
-        .iter()
-        .fold(0u32, |hash, mv| hash.rotate_left(5) ^ u32::from(mv.raw()));
-    black_box(checksum);
+    consume_moves(moves);
 }
 
 #[inline]
@@ -173,7 +172,7 @@ fn sekirei_state_update() {
     for item in SEQUENCE {
         board.do_move(Move::normal(item.from, item.to, PieceKind::Fu, false));
     }
-    black_box(board.side_to_move);
+    black_box(&board);
 }
 
 fn sekirei_search_state_update() {
@@ -181,17 +180,12 @@ fn sekirei_search_state_update() {
     for item in SEQUENCE {
         board.do_move_for_search(Move::normal(item.from, item.to, PieceKind::Fu, false));
     }
-    black_box(board.side_to_move);
+    black_box(&board);
 }
 
 fn sekirei_search_state_roundtrip_fixed() {
     let mut board = Board::startpos();
-    for item in SEQUENCE {
-        let token =
-            board.do_move_for_search(Move::normal(item.from, item.to, PieceKind::Fu, false));
-        board.undo_move_for_search(token);
-    }
-    black_box(board.side_to_move);
+    components::sekirei_roundtrip(&mut board, false);
 }
 
 fn rsshogi_sequence() -> &'static [Move32; 6] {
@@ -213,17 +207,12 @@ fn rsshogi_state_update() {
     for mv in *rsshogi_sequence() {
         position.apply_move32(mv);
     }
-    black_box(position.turn());
+    black_box(&position);
 }
 
 fn rsshogi_state_roundtrip_fixed() {
     let mut position = position_from_sfen(rsshogi::board::STARTPOS_SFEN).expect("valid startpos");
-    let sequence = rsshogi_sequence();
-    for mv in sequence.iter().copied() {
-        position.apply_move32(mv);
-        position.undo_move32(mv).expect("move must undo");
-    }
-    black_box(position.turn());
+    components::rsshogi_roundtrip(&mut position);
 }
 
 fn sekirei_state_roundtrip() {
@@ -232,9 +221,10 @@ fn sekirei_state_roundtrip() {
     sekirei_core::movegen::generate_legal_moves_into_fixed(&mut board, &mut root_moves);
     for &m in root_moves.as_slice() {
         let token = board.do_move(m);
+        black_box(&board);
         board.undo_move(token);
     }
-    black_box(board.side_to_move);
+    black_box(&board);
 }
 
 fn rsshogi_state_roundtrip() {
@@ -244,9 +234,10 @@ fn rsshogi_state_roundtrip() {
     generate_legal_all_move32(&position, &mut moves);
     for mv in moves.iter().copied() {
         position.apply_move32(mv);
+        black_box(&position);
         position.undo_move32(mv).expect("move must undo");
     }
-    black_box(position.turn());
+    black_box(&position);
 }
 
 fn report_isolated_piece_cases(iterations: u64) {
@@ -296,8 +287,29 @@ fn report_isolated_piece_cases(iterations: u64) {
 fn main() {
     let iterations = iterations();
     rsshogi_init();
-    println!("schema=sekirei.cross-library-benchmark.v6");
-    println!("iterations={iterations},samples={SAMPLES},build=release");
+    components::preflight();
+    let args: Vec<_> = env::args().skip(1).collect();
+    match args.as_slice() {
+        [flag] if flag == "--check" => {
+            println!("preflight=passed");
+            return;
+        }
+        [flag] if flag == "--components" => {
+            components::run();
+            return;
+        }
+        [] => {}
+        _ => panic!("usage: cross_library [--check|--components]"),
+    }
+    println!("schema=sekirei.cross-library-benchmark.v7");
+    println!(
+        "iterations={iterations},samples={SAMPLES},debug_assertions={}",
+        cfg!(debug_assertions)
+    );
+    println!("sink=black_box_slice;not_comparable_to_v6_checksum_timings");
+    println!(
+        "state_rows=setup_included;full_sekirei_updates_nnue;rsshogi_has_no_nnue;perft_leaf_and_state_work_differ"
+    );
     println!(
         "representation_size_bytes,sekirei_move={},sekirei_packed={},sekirei_narrow={},rsshogi_move32={}",
         size_of::<Move>(),

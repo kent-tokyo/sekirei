@@ -542,50 +542,16 @@ fn root_search(
     );
     let ordered = move_buffer.as_slice();
 
-    // Mate-in-1: check each root move for immediate checkmate before deep search
-    for &m in ordered {
-        let tok = board.do_move(m);
-        let mated = MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
-        board.undo_move(tok);
-        if mated {
-            return (Some(m), MATE_SCORE - 1);
-        }
+    // Mate-in-1 and shallow opponent-safety checks are kept outside the
+    // aspiration loop: they are root filters, not alternate searches.
+    if let Some(m) = root_mate_in_one(board, ordered) {
+        return (Some(m), MATE_SCORE - 1);
     }
 
     // Opponent safety: at shallow depths, filter out root moves that immediately allow
     // opponent mate-in-1. Gated on depth <= 2 to bound the O(N×M²) cost.
     // At depth >= 3 the normal alpha-beta search catches these situations anyway.
-    let safe_moves = if depth <= 2 {
-        let mut safe_moves = Vec::new();
-        let mut has_unsafe = false;
-        for &m in ordered {
-            let tok = board.do_move(m);
-            let mut opp_can_mate = false;
-            'opp: for &opp_m in MoveBuffer::legal(board).as_slice() {
-                let tok2 = board.do_move(opp_m);
-                if MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move) {
-                    opp_can_mate = true;
-                }
-                board.undo_move(tok2);
-                if opp_can_mate {
-                    break 'opp;
-                }
-            }
-            board.undo_move(tok);
-            if opp_can_mate {
-                has_unsafe = true;
-            } else {
-                safe_moves.push(m);
-            }
-        }
-        if has_unsafe && !safe_moves.is_empty() {
-            Some(safe_moves)
-        } else {
-            None
-        }
-    } else {
-        None
-    };
+    let safe_moves = filter_root_mate_blunders(board, ordered, depth);
     let ordered: &[Move] = safe_moves.as_deref().unwrap_or(ordered);
 
     // Aspiration window: start tight around prev_score; widen on fail
@@ -622,6 +588,47 @@ fn root_search(
             return (m, score);
         }
     }
+}
+
+/// Return an immediate mating move without changing the caller's board.
+fn root_mate_in_one(board: &mut Board, ordered: &[Move]) -> Option<Move> {
+    for &m in ordered {
+        let tok = board.do_move(m);
+        let mated = MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
+        board.undo_move(tok);
+        if mated {
+            return Some(m);
+        }
+    }
+    None
+}
+
+/// At shallow root depths, discard moves that allow an immediate opponent mate.
+/// Returning `None` means either no blunder was found or filtering would remove
+/// every move; in both cases the original ordered list remains authoritative.
+fn filter_root_mate_blunders(board: &mut Board, ordered: &[Move], depth: u32) -> Option<Vec<Move>> {
+    if depth > 2 {
+        return None;
+    }
+    let mut safe_moves = Vec::with_capacity(ordered.len());
+    let mut has_unsafe = false;
+    for &m in ordered {
+        let tok = board.do_move(m);
+        let opponent_can_mate = MoveBuffer::legal(board).as_slice().iter().any(|&opp_m| {
+            let tok2 = board.do_move(opp_m);
+            let is_mate =
+                MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
+            board.undo_move(tok2);
+            is_mate
+        });
+        board.undo_move(tok);
+        if opponent_can_mate {
+            has_unsafe = true;
+        } else {
+            safe_moves.push(m);
+        }
+    }
+    (has_unsafe && !safe_moves.is_empty()).then_some(safe_moves)
 }
 
 fn root_search_inner(
@@ -692,6 +699,51 @@ fn root_search_inner(
 // ============================================================
 // Core Alpha-Beta with YBW parallelism
 // ============================================================
+
+/// Apply the common beta-cutoff bookkeeping for both YBW and sequential
+/// sibling passes. Keeping it in one place prevents the heuristic/TT paths
+/// from drifting apart when one cutoff path changes.
+#[allow(clippy::too_many_arguments)]
+fn beta_cutoff(
+    state: &Arc<SearchState>,
+    hash: u64,
+    best_score: i32,
+    best_move: Option<Move>,
+    depth: u32,
+    ply: u32,
+    skip_move: Option<Move>,
+    tried_quiet: &[Move],
+    cutoff_move: Move,
+    stm: Color,
+    board: &Board,
+    prev_mv: Option<Move>,
+) -> i32 {
+    for &qm in tried_quiet {
+        state.history.malus(stm, qm.piece_kind, qm.to, depth);
+    }
+    update_quiet_heuristics(
+        &state.killers,
+        &state.history,
+        &state.countermoves,
+        cutoff_move,
+        stm,
+        ply,
+        depth,
+        board,
+        prev_mv,
+    );
+    store_tt(
+        state,
+        hash,
+        best_score,
+        depth,
+        Bound::Lower,
+        best_move,
+        ply,
+        skip_move,
+    );
+    best_score
+}
 
 #[allow(clippy::too_many_arguments)]
 fn alpha_beta(
@@ -1098,32 +1150,21 @@ fn alpha_beta(
                 best_move = Some(m);
             }
             if s >= beta {
-                for &qm in &tried_quiet {
-                    state.history.malus(stm, qm.piece_kind, qm.to, depth);
-                }
-                update_quiet_heuristics(
-                    &state.killers,
-                    &state.history,
-                    &state.countermoves,
-                    m,
-                    stm,
-                    ply,
-                    depth,
-                    board,
-                    prev_mv,
-                );
                 nw_abort.store(true, Ordering::Relaxed);
-                store_tt(
+                return beta_cutoff(
                     state,
                     hash,
                     best_score,
-                    depth,
-                    Bound::Lower,
                     best_move,
+                    depth,
                     ply,
                     skip_move,
+                    &tried_quiet,
+                    m,
+                    stm,
+                    board,
+                    prev_mv,
                 );
-                return best_score;
             }
             if s > alpha {
                 alpha = s;
@@ -1216,31 +1257,20 @@ fn alpha_beta(
                 best_move = Some(m);
             }
             if s >= beta {
-                for &qm in &tried_quiet {
-                    state.history.malus(stm, qm.piece_kind, qm.to, depth);
-                }
-                update_quiet_heuristics(
-                    &state.killers,
-                    &state.history,
-                    &state.countermoves,
-                    m,
-                    stm,
-                    ply,
-                    depth,
-                    board,
-                    prev_mv,
-                );
-                store_tt(
+                return beta_cutoff(
                     state,
                     hash,
                     best_score,
-                    depth,
-                    Bound::Lower,
                     best_move,
+                    depth,
                     ply,
                     skip_move,
+                    &tried_quiet,
+                    m,
+                    stm,
+                    board,
+                    prev_mv,
                 );
-                return best_score;
             }
             if s > alpha {
                 alpha = s;

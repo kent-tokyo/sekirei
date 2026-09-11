@@ -310,23 +310,32 @@ impl Board {
 
     /// Parse a SFEN position string into a Board.
     pub fn from_sfen(sfen: &str) -> Result<Self, String> {
-        let parts: Vec<&str> = sfen.split_whitespace().collect();
-        if !(3..=4).contains(&parts.len()) {
+        // Borrow fields directly: constructing a position should not allocate
+        // temporary vectors for either its fields or its nine ranks.
+        let mut parts = sfen.split_whitespace();
+        let (Some(board_field), Some(side_field), Some(hand_field)) =
+            (parts.next(), parts.next(), parts.next())
+        else {
+            return Err(format!("SFEN needs 3 or 4 fields, got: '{sfen}'"));
+        };
+        let ply_field = parts.next();
+        if parts.next().is_some() {
             return Err(format!("SFEN needs 3 or 4 fields, got: '{sfen}'"));
         }
 
         let mut board = Self::empty();
 
         // --- Board ---
-        let ranks: Vec<&str> = parts[0].split('/').collect();
-        if ranks.len() != 9 {
-            return Err(format!("SFEN board must have 9 ranks, got {}", ranks.len()));
+        let ranks = board_field.split('/');
+        let rank_count = ranks.clone().count();
+        if rank_count != 9 {
+            return Err(format!("SFEN board must have 9 ranks, got {rank_count}"));
         }
 
-        for (rank_idx, rank_str) in ranks.iter().enumerate() {
+        for (rank_idx, rank_str) in ranks.enumerate() {
             let rank = (rank_idx + 1) as u8; // 1-9
             let mut file = 9u8; // starts at file 9, steps down to 1
-            let mut chars = rank_str.chars().peekable();
+            let mut chars = rank_str.chars();
 
             while let Some(c) = chars.next() {
                 if c == '+' {
@@ -345,10 +354,11 @@ impl Board {
                         return Err(format!("SFEN: piece '{next}' cannot promote"));
                     }
                     let kind = base.promoted();
-                    board.setup_piece(Square::from_shogi(file, rank), Piece::new(color, kind));
-                    file = file
+                    let next_file = file
                         .checked_sub(1)
                         .ok_or_else(|| format!("SFEN: too many pieces in rank {rank}"))?;
+                    board.setup_piece(Square::from_shogi(file, rank), Piece::new(color, kind));
+                    file = next_file;
                 } else if let Some(n) = c.to_digit(10) {
                     if n == 0 {
                         return Err(format!("SFEN: zero-length rank field at rank {rank}"));
@@ -364,10 +374,11 @@ impl Board {
                     };
                     let kind = sfen_char_to_base_kind(c)
                         .ok_or_else(|| format!("SFEN: unknown piece '{c}'"))?;
-                    board.setup_piece(Square::from_shogi(file, rank), Piece::new(color, kind));
-                    file = file
+                    let next_file = file
                         .checked_sub(1)
                         .ok_or_else(|| format!("SFEN: too many pieces in rank {rank}"))?;
+                    board.setup_piece(Square::from_shogi(file, rank), Piece::new(color, kind));
+                    file = next_file;
                 }
             }
             if file != 0 {
@@ -376,16 +387,16 @@ impl Board {
         }
 
         // --- Side to move ---
-        board.side_to_move = match parts[1] {
+        board.side_to_move = match side_field {
             "b" => Color::Black,
             "w" => Color::White,
             s => return Err(format!("SFEN: unknown side '{s}'")),
         };
 
         // --- Hand ---
-        if parts[2] != "-" {
+        if hand_field != "-" {
             let mut count: u8 = 0;
-            for c in parts[2].chars() {
+            for c in hand_field.chars() {
                 if let Some(n) = c.to_digit(10) {
                     if n == 0 && count == 0 {
                         return Err("SFEN: invalid hand count".into());
@@ -418,7 +429,7 @@ impl Board {
         }
 
         // --- Ply (optional 4th field) ---
-        if let Some(ply_str) = parts.get(3) {
+        if let Some(ply_str) = ply_field {
             let ply = ply_str
                 .parse::<u32>()
                 .map_err(|_| format!("SFEN: invalid move number '{ply_str}'"))?;
@@ -752,16 +763,13 @@ impl Board {
             | PieceKind::Narikyo
             | PieceKind::Narikei
             | PieceKind::Narigin => {
-                self.gold_like[color_index].unset(from);
-                self.gold_like[color_index].set(to);
+                self.gold_like[color_index] ^= move_mask;
             }
             PieceKind::Kaku | PieceKind::Uma => {
-                self.bishop_sliders[color_index].unset(from);
-                self.bishop_sliders[color_index].set(to);
+                self.bishop_sliders[color_index] ^= move_mask;
             }
             PieceKind::Hisha | PieceKind::Ryu => {
-                self.rook_sliders[color_index].unset(from);
-                self.rook_sliders[color_index].set(to);
+                self.rook_sliders[color_index] ^= move_mask;
             }
             PieceKind::Ou => {
                 self.king_square[color_index] = Some(to);
@@ -1047,16 +1055,13 @@ impl Board {
             | PieceKind::Narikyo
             | PieceKind::Narikei
             | PieceKind::Narigin => {
-                self.gold_like[color_index].unset(to);
-                self.gold_like[color_index].set(from);
+                self.gold_like[color_index] ^= move_mask;
             }
             PieceKind::Kaku | PieceKind::Uma => {
-                self.bishop_sliders[color_index].unset(to);
-                self.bishop_sliders[color_index].set(from);
+                self.bishop_sliders[color_index] ^= move_mask;
             }
             PieceKind::Hisha | PieceKind::Ryu => {
-                self.rook_sliders[color_index].unset(to);
-                self.rook_sliders[color_index].set(from);
+                self.rook_sliders[color_index] ^= move_mask;
             }
             PieceKind::Ou => {
                 self.king_square[color_index] = Some(from);

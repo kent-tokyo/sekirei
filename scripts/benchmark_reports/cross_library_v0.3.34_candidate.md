@@ -1,5 +1,16 @@
 # Cross-library benchmark: v0.3.34 candidate
 
+> Measurement correction (2026-09-12): the v6
+> `state_roundtrip_search_no_nnue` sequence undid each move immediately instead
+> of applying all six plies first. Those timings/ratios are **invalid**, for
+> both libraries. Other state rows include initialization; the legal-root row
+> also includes buffer creation, move generation and Sekirei NNUE updates.
+> They do not measure isolated board speed. Move-generation rows include a
+> representation-dependent raw-encoding checksum. Do not compare them directly
+> with v7, which observes the output slice without encoding. Perft implementations
+> differ in leaf counting and state maintenance. Use `cross_library --components`
+> for separated measurements with legality/restoration checks and raw samples.
+
 This is a local throughput diagnostic, not a playing-strength or general
 engine-speed claim. The candidate includes uncommitted move-generation and
 state-update optimizations. Results are from the pinned `rsshogi` revision on

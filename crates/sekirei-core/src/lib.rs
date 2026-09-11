@@ -81,6 +81,46 @@ mod tests {
 
     /// Round-trip: Board → SFEN → Board must preserve the hash.
     #[test]
+    fn sfen_rejects_rank_overflow_without_panicking() {
+        for rank_index in 0..9 {
+            for invalid_rank in ["9P", "9+p", "PPPPPPPPPp", "8p+P", "99"] {
+                let mut ranks = ["9"; 9];
+                ranks[rank_index] = invalid_rank;
+                let sfen = format!("{} b - 1", ranks.join("/"));
+                assert!(Board::from_sfen(&sfen).is_err(), "{sfen}");
+            }
+        }
+    }
+
+    #[test]
+    fn sfen_borrowed_fields_preserve_whitespace_and_optional_ply() {
+        let original = Board::startpos();
+        let position = sfen::STARTPOS_SFEN.split_whitespace().next().unwrap();
+        for input in [
+            format!("{position} b -"),
+            format!("\t{position}\n b\u{2003}-\t1\n"),
+        ] {
+            let board = Board::from_sfen(&input).unwrap();
+            assert_eq!(sfen::board_to_sfen(&board), sfen::STARTPOS_SFEN);
+            assert_eq!(board.hash(), original.hash());
+            assert_eq!(board.acc, original.acc);
+        }
+    }
+
+    #[test]
+    fn sfen_rejects_invalid_field_and_rank_counts() {
+        for input in [
+            "",
+            "9/9/9/9/9/9/9/9/9 b",
+            "9/9/9/9/9/9/9/9/9 b - 1 extra",
+            "9/9/9/9/9/9/9/9 b - 1",
+            "9/9/9/9/9/9/9/9/9/9 b - 1",
+        ] {
+            assert!(Board::from_sfen(input).is_err(), "{input}");
+        }
+    }
+
+    #[test]
     fn sfen_roundtrip_hash() {
         use movegen::generate_legal_moves;
         use sfen::board_to_sfen;

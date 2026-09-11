@@ -1,5 +1,12 @@
 # MCTS benchmark: v0.3.34 candidate
 
+> Evidence correction (2026-09-12): historical percentages against Criterion's
+> default stored baseline are not a controlled before/after series: subsequent
+> runs can replace that baseline, including runs of rejected experiments.
+> Treat these as historical observations, not cumulative gains or causal proof
+> for a sorting change. Depth-4 timings also include board/TT setup and parallel
+> scheduling; a frozen, paired baseline is required for a new speed claim.
+
 This report records the internal effect of routing MCTS legal-move expansion
 through the thread-local fixed move buffer. It is not a cross-library result.
 
