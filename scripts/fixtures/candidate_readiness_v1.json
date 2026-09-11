@@ -1,0 +1,18 @@
+{
+  "schema": "sekirei.candidate-readiness.v1",
+  "candidate": "weights.bin",
+  "candidate_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "candidate_hash_matches": true,
+  "calibration_pinned": true,
+  "strict_probe": {
+    "passed": true,
+    "strict_pass": true,
+    "reload_deterministic": true,
+    "l2_distinct_values": 128,
+    "l2_bias_distinct_values": 32,
+    "out_distinct_values": 32
+  },
+  "strength_gate": "pending_resource_preflight",
+  "ready_for_strength_gate": true,
+  "strength_claim": false
+}

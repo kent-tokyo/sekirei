@@ -88,6 +88,29 @@ pub fn load_positions(path: &Path) -> Vec<PositionSample> {
     samples
 }
 
+/// Validate every non-empty JSONL position without silently skipping rows.
+pub fn validate_positions(path: &Path) -> Result<usize, String> {
+    let content =
+        fs::read_to_string(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
+    let mut count = 0;
+    for (i, line) in content.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let value: serde_json::Value = serde_json::from_str(line)
+            .map_err(|error| format!("positions line {}: invalid JSON: {error}", i + 1))?;
+        let sfen = value
+            .get("sfen")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| format!("positions line {}: missing sfen field", i + 1))?;
+        Board::from_sfen(sfen)
+            .map_err(|error| format!("positions line {}: invalid SFEN ({error})", i + 1))?;
+        count += 1;
+    }
+    Ok(count)
+}
+
 /// Apply a per-source sample cap using deterministic hash ordering.
 /// Selects samples via `sfen_hash(source + "\0" + sfen, seed)` — order-independent.
 pub fn apply_source_cap(
@@ -181,6 +204,31 @@ mod tests {
         assert_eq!(samples[0].side_to_move, "black");
         assert_eq!(samples[0].ply, 1);
         assert_eq!(samples[0].source, "game1.csa");
+    }
+
+    #[test]
+    fn nnue_phase3_pilot_fixture_has_no_invalid_sfen() {
+        let fixture = include_str!("../../../scripts/fixtures/nnue_phase3_pilot.jsonl");
+        let mut count = 0;
+        for (line, raw) in fixture.lines().enumerate() {
+            let value: serde_json::Value = serde_json::from_str(raw).unwrap();
+            let sfen = value["sfen"].as_str().unwrap();
+            Board::from_sfen(sfen).unwrap_or_else(|error| {
+                panic!("pilot fixture line {} has invalid SFEN: {error}", line + 1)
+            });
+            count += 1;
+        }
+        assert_eq!(count, 6);
+    }
+
+    #[test]
+    fn strict_position_validation_rejects_invalid_rows() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file, r#"{{"sfen":"9/9/9/9/4K4/9/9/9/4k4 b - 1"}}"#).unwrap();
+        writeln!(file, r#"{{"sfen":"invalid"}}"#).unwrap();
+        let error = validate_positions(file.path()).unwrap_err();
+        assert!(error.contains("line 2"));
+        assert!(error.contains("invalid SFEN"));
     }
 
     #[test]

@@ -48,6 +48,17 @@ def validate(doc):
                     errors.append("resume_verification.artifacts.path")
                 if not HEX64.fullmatch(artifact.get("sha256", "")):
                     errors.append("resume_verification.artifacts.sha256")
+            by_kind = {artifact.get("kind"): artifact for artifact in artifacts}
+            checkpoint_artifact = by_kind.get("resume_checkpoint", {})
+            log_artifact = by_kind.get("execution_log", {})
+            if checkpoint_artifact.get("path") != resume.get("checkpoint_path"):
+                errors.append("resume_verification.artifacts.checkpoint_path_mismatch")
+            if checkpoint_artifact.get("sha256") != resume.get("checkpoint_sha256"):
+                errors.append("resume_verification.artifacts.checkpoint_sha256_mismatch")
+            if log_artifact.get("path") != resume.get("log_path"):
+                errors.append("resume_verification.artifacts.log_path_mismatch")
+            if log_artifact.get("sha256") != resume.get("log_sha256"):
+                errors.append("resume_verification.artifacts.log_sha256_mismatch")
     diagnostic = doc.get("evaluator_diagnostic")
     if diagnostic is not None:
         if diagnostic.get("schema") != "sekirei.evaluator-diagnostic.v1": errors.append("evaluator_diagnostic.schema")
@@ -100,6 +111,34 @@ def validate(doc):
                         errors.append(f"{prefix}.{mode}.score")
                     if not isinstance(result.get("best_move"), str) or not result["best_move"]:
                         errors.append(f"{prefix}.{mode}.best_move")
+    readiness = doc.get("candidate_readiness")
+    if readiness is not None:
+        if readiness.get("schema") != "sekirei.candidate-readiness.v1": errors.append("candidate_readiness.schema")
+        if not isinstance(readiness.get("candidate"), str) or not readiness["candidate"]: errors.append("candidate_readiness.candidate")
+        if not HEX64.fullmatch(readiness.get("candidate_sha256", "")): errors.append("candidate_readiness.candidate_sha256")
+        if not isinstance(readiness.get("candidate_hash_matches"), bool): errors.append("candidate_readiness.candidate_hash_matches")
+        if not isinstance(readiness.get("calibration_pinned"), bool): errors.append("candidate_readiness.calibration_pinned")
+        probe = readiness.get("strict_probe")
+        if not isinstance(probe, dict):
+            errors.append("candidate_readiness.strict_probe")
+        else:
+            if not isinstance(probe.get("passed"), bool): errors.append("candidate_readiness.strict_probe.passed")
+            if probe.get("passed") is True:
+                for key in ("strict_pass", "reload_deterministic"):
+                    if probe.get(key) is not True:
+                        errors.append(f"candidate_readiness.strict_probe.{key}")
+                for key in ("l2_distinct_values", "out_distinct_values"):
+                    if not isinstance(probe.get(key), int) or probe[key] < 2:
+                        errors.append(f"candidate_readiness.strict_probe.{key}")
+        if not isinstance(readiness.get("ready_for_strength_gate"), bool): errors.append("candidate_readiness.ready_for_strength_gate")
+        if readiness.get("strength_claim") is not False: errors.append("candidate_readiness.strength_claim")
+        if readiness.get("ready_for_strength_gate") is True:
+            if readiness.get("candidate_hash_matches") is not True:
+                errors.append("candidate_readiness.ready_requires_candidate_hash")
+            if readiness.get("calibration_pinned") is not True:
+                errors.append("candidate_readiness.ready_requires_calibration")
+            if not isinstance(probe, dict) or probe.get("passed") is not True:
+                errors.append("candidate_readiness.ready_requires_strict_probe")
     return errors
 
 def main(argv=None):

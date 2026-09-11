@@ -718,6 +718,7 @@ version = "0.3.33"
 dependencies = [
  "dotenvy",
  "sekirei-core",
+ "serde_json",
 ]
 
 [[package]]

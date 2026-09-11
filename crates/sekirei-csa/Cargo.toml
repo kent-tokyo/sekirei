@@ -10,6 +10,11 @@ repository = "https://github.com/kent-tokyo/sekirei"
 name = "sekirei-csa"
 path = "src/main.rs"
 
+[[bin]]
+name = "sekirei-analysis-replay"
+path = "src/bin/analysis_replay.rs"
+
 [dependencies]
 sekirei-core = { path = "../sekirei-core", version = "0.3.33" }
 dotenvy = "0.15"
+serde_json = "1"

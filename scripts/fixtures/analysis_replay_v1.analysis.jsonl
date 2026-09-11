@@ -1,0 +1,3 @@
+{"schema":"sekirei.analysis-record.v1","engine":"sekirei","engine_version":"0.3.33","score_perspective":"side_to_move","game_id":"analysis-replay-fixture","user":"sekirei","color":"black"}
+{"type":"search","ply":0,"side_to_move":"black","our_color":"black","sfen":"lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1","bestmove_csa":"+7776FU","score_cp":18,"depth":5,"nodes":1234,"elapsed_ms":10,"hashfull":4}
+{"type":"game_end","result":"win"}

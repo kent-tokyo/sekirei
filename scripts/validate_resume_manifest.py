@@ -13,7 +13,7 @@ def validate(doc):
     if doc.get("schema") != "sekirei.resume-manifest.v1":
         errors.append("schema")
     checkpoint = doc.get("checkpoint", {})
-    if not isinstance(checkpoint.get("path"), str):
+    if not isinstance(checkpoint.get("path"), str) or not checkpoint["path"]:
         errors.append("checkpoint.path")
     if not HEX64.fullmatch(checkpoint.get("sha256", "")):
         errors.append("checkpoint.sha256")
@@ -32,7 +32,7 @@ def validate(doc):
     execution = doc.get("execution", {})
     if not isinstance(execution.get("dataset"), str) or not execution["dataset"]:
         errors.append("execution.dataset")
-    if not isinstance(execution.get("log_path"), str):
+    if not isinstance(execution.get("log_path"), str) or not execution["log_path"]:
         errors.append("execution.log_path")
     if not HEX64.fullmatch(execution.get("log_sha256", "")):
         errors.append("execution.log_sha256")

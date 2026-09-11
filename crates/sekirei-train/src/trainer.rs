@@ -3684,6 +3684,65 @@ mod tests {
     }
 
     #[test]
+    fn one_position_update_keeps_later_layers_trainable() {
+        let mut trainer = Trainer::new(42, 0.5);
+        let board = Board::startpos();
+        let l2_before = trainer.weights.l2.clone();
+        let out_before = trainer.weights.out.clone();
+
+        // A deliberately small fixture: this exercises the complete forward,
+        // backward, and Adam path without starting a dataset or teacher search.
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+
+        assert_ne!(trainer.weights.l2, l2_before, "L2 received no update");
+        assert_ne!(
+            trainer.weights.out, out_before,
+            "output layer received no update"
+        );
+        assert!(variance(&trainer.weights.l2[..L2]) > 0.0);
+        assert!(variance(&trainer.weights.out) > 0.0);
+    }
+
+    #[test]
+    fn small_training_checkpoint_keeps_probe_signal_after_reload() {
+        const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
+        const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
+        let mut trainer = Trainer::new(7, 0.5);
+        let boards = [
+            Board::startpos(),
+            Board::from_sfen(KING_CORNER).unwrap(),
+            Board::from_sfen(ROOK_IN_HAND).unwrap(),
+        ];
+        for step in 0..32 {
+            for (index, board) in boards.iter().enumerate() {
+                trainer.train_position(
+                    board,
+                    -600.0 + index as f32 * 300.0,
+                    1.0,
+                    -600.0 + index as f32 * 300.0,
+                    None,
+                    (step * boards.len() + index) as u64,
+                    GameResult::Unknown,
+                );
+            }
+        }
+
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("small-training.bin");
+        sekirei_core::nnue::save_weights(&trainer.weights.to_nnue_weights(), &path).unwrap();
+        let reloaded = sekirei_core::nnue::read_weights(&path).unwrap();
+        assert!(variance(&reloaded.out) > 0.0);
+        let scores: Vec<i32> = boards
+            .iter()
+            .map(|board| board.evaluate_with_weights(&reloaded))
+            .collect();
+        assert!(
+            scores.windows(2).any(|pair| pair[0] != pair[1]),
+            "reloaded checkpoint lost all probe sensitivity: {scores:?}"
+        );
+    }
+
+    #[test]
     fn seeded_init_is_deterministic() {
         let a = TrainWeights::new_seeded(42, 0.5);
         let b = TrainWeights::new_seeded(42, 0.5);

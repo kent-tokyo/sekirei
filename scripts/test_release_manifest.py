@@ -1,5 +1,6 @@
 import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -12,6 +13,8 @@ from record_mcts_comparison import parse_comparison
 from summarize_mcts_comparison import summarize
 from aggregate_mcts_summaries import aggregate
 from record_search_diagnostic import record as record_search_diagnostic
+from attach_candidate_readiness import attach as attach_candidate_readiness
+from attach_resume_manifest import attach as attach_resume_manifest
 
 FIXTURE = Path(__file__).parent / "fixtures" / "release_manifest_diagnostic_v1.json"
 RELEASE_MANIFEST = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
@@ -44,6 +47,23 @@ class ReleaseManifestTests(unittest.TestCase):
         doc["resume_verification"] = {"schema": "sekirei.resume-manifest.v1", "status": "verified", "artifacts": []}
         self.assertIn("resume_verification.artifacts", validate(doc))
 
+    def test_rejects_resume_artifact_metadata_mismatch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            release = root / "release.json"
+            resume = root / "resume.json"
+            output = root / "combined.json"
+            release.write_text(RELEASE_MANIFEST.read_text(), encoding="utf-8")
+            resume.write_text(json.dumps({
+                "schema": "sekirei.resume-manifest.v1",
+                "checkpoint": {"path": "checkpoint.json", "sha256": "a" * 64, "schema": "sekirei.resume-checkpoint.v1", "epoch_completed": 1, "next_game_index": 0, "config_fingerprint": "fp", "optimizer_step": 2, "teacher_cache_entries": 0},
+                "execution": {"dataset": "d", "log_path": "run.log", "log_sha256": "b" * 64, "resume_loaded": True, "stopped_after_checkpoint": False},
+            }), encoding="utf-8")
+            combined = attach_resume_manifest(release, resume, output)
+            combined["resume_verification"]["artifacts"][0]["sha256"] = "c" * 64
+            errors = validate(combined)
+            self.assertIn("resume_verification.artifacts.checkpoint_sha256_mismatch", errors)
+
     def test_rejects_mcts_diagnostic_strength_claim(self):
         doc = json.loads(FIXTURE.read_text())
         doc["mcts_diagnostic"]["strength_claim"] = True
@@ -69,7 +89,71 @@ class ReleaseManifestTests(unittest.TestCase):
                 order_history=94,
             )
             self.assertNotIn("search_diagnostic", json.loads(source.read_text()))
+
+    def test_attaches_candidate_readiness_without_mutating_source(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / "release.json"
+            readiness = root / "readiness.json"
+            output = root / "combined.json"
+            source.write_text(RELEASE_MANIFEST.read_text(), encoding="utf-8")
+            readiness.write_text(json.dumps({
+                "schema": "sekirei.candidate-readiness.v1",
+                "candidate": "weights.bin",
+                "candidate_sha256": "a" * 64,
+                "candidate_hash_matches": True,
+                "calibration_pinned": True,
+                "strict_probe": {
+                    "passed": True,
+                    "strict_pass": True,
+                    "reload_deterministic": True,
+                    "l2_distinct_values": 128,
+                    "out_distinct_values": 32,
+                },
+                "ready_for_strength_gate": True,
+                "strength_claim": False,
+            }), encoding="utf-8")
+            attach_candidate_readiness(source, readiness, output)
+            self.assertNotIn("candidate_readiness", json.loads(source.read_text()))
             self.assertEqual(validate(json.loads(output.read_text())), [])
+
+    def test_rejects_ready_candidate_without_all_prerequisites(self):
+        doc = json.loads(FIXTURE.read_text())
+        doc["candidate_readiness"] = {
+            "schema": "sekirei.candidate-readiness.v1",
+            "candidate": "weights.bin",
+            "candidate_sha256": "a" * 64,
+            "candidate_hash_matches": False,
+            "calibration_pinned": False,
+            "strict_probe": {
+                "passed": False,
+                "strict_pass": False,
+                "reload_deterministic": True,
+                "l2_distinct_values": 1,
+                "out_distinct_values": 1,
+            },
+            "ready_for_strength_gate": True,
+            "strength_claim": False,
+        }
+        errors = validate(doc)
+        self.assertIn("candidate_readiness.ready_requires_candidate_hash", errors)
+        self.assertIn("candidate_readiness.ready_requires_calibration", errors)
+        self.assertIn("candidate_readiness.ready_requires_strict_probe", errors)
+
+    def test_candidate_readiness_fixture_is_valid(self):
+        fixture = Path(__file__).parent / "fixtures" / "candidate_readiness_v1.json"
+        readiness = json.loads(fixture.read_text(encoding="utf-8"))
+        self.assertEqual(readiness["schema"], "sekirei.candidate-readiness.v1")
+        self.assertTrue(readiness["strict_probe"]["passed"])
+
+    def test_rejects_passed_readiness_without_layer_statistics(self):
+        document = json.loads(FIXTURE.read_text())
+        document["candidate_readiness"] = json.loads(
+            (Path(__file__).parent / "fixtures" / "candidate_readiness_v1.json").read_text()
+        )
+        document["candidate_readiness"]["strict_probe"].pop("out_distinct_values")
+        errors = validate(document)
+        self.assertIn("candidate_readiness.strict_probe.out_distinct_values", errors)
 
     def test_records_mcts_diagnostic_without_mutating_source(self):
         import tempfile

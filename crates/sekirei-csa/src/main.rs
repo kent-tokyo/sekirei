@@ -12,6 +12,7 @@
 //!   --hash <MB>        hash table size (default: 256)
 //!   --weights <file>   NNUE weight file
 //!   --record-dir <dir> local CSA record directory (default: data/floodgate)
+//!   --analysis-dir <dir> optional per-game search JSONL directory
 //!   --resign <cp>      resign threshold centipawns (default: 2000)
 //!   --depth <n>        max search depth (default: 50)
 //!   --loop             reconnect after each game for continuous play
@@ -127,6 +128,10 @@ fn parse_args() -> Result<Config, String> {
                 i += 1;
                 cfg.record_dir = arg(&argv, i)?.into();
             }
+            "--analysis-dir" => {
+                i += 1;
+                cfg.analysis_dir = Some(arg(&argv, i)?.into());
+            }
             "--loop" => {
                 cfg.keep_alive = true;
             }
@@ -178,6 +183,7 @@ fn print_usage() {
     eprintln!("  --hash <MB>        hash table MB (default: 256)");
     eprintln!("  --weights <file>   NNUE weight file");
     eprintln!("  --record-dir <dir> local CSA record directory (default: data/floodgate)");
+    eprintln!("  --analysis-dir <dir> per-game search summary JSONL (disabled by default)");
     eprintln!("  --resign <cp>      resign threshold in centipawns (default: 2000)");
     eprintln!("  --depth <n>        max search depth (default: 50)");
     eprintln!("  --loop             reconnect after each game");

@@ -38,6 +38,8 @@ pub struct Config {
     pub keep_alive: bool,  // reconnect after each game
     pub max_depth: u32,
     pub record_dir: PathBuf,
+    /// Optional directory for one JSONL search summary per game.
+    pub analysis_dir: Option<PathBuf>,
 }
 
 impl Default for Config {
@@ -53,6 +55,7 @@ impl Default for Config {
             keep_alive: false,
             max_depth: 50,
             record_dir: PathBuf::from("data/floodgate"),
+            analysis_dir: None,
         }
     }
 }
@@ -228,6 +231,7 @@ impl CsaClient {
             &game_summary_id,
             &self.config.user,
             our_color,
+            self.config.analysis_dir.as_deref(),
         );
 
         let mut board = match board_from_csa_position(&position_lines) {
@@ -259,12 +263,18 @@ impl CsaClient {
 
             if stm == our_color && !resigned {
                 // Our turn — search and send
+                // Preserve the pre-move position for the sidecar. `think_and_send`
+                // applies the selected move to `board` before returning.
+                let analysis_board = self.config.analysis_dir.as_ref().map(|_| board.clone());
                 let result = self.think_and_send(
                     &mut board,
                     our_color,
                     time_left_ms,
                     increment_or_byoyomi_ms,
                 )?;
+                if let (Some(record), Some(analysis_board)) = (record.as_mut(), analysis_board) {
+                    record.append_analysis(&analysis_board, our_color, &result);
+                }
                 if result.move_made.is_some() {
                     // Read T{sec} from server echo (e.g. "+9796FU,T18") and deduct
                     if let Ok(t_line) = self.recv_time_or_move()
@@ -310,7 +320,9 @@ impl CsaClient {
                         }
                         if let Some(record) = record.as_mut() {
                             record.append(&line);
-                            record.finish();
+                            let result = parse_game_end(&line);
+                            record.finish_with_result(result);
+                            return Ok(result);
                         }
                         return Ok(parse_game_end(&line));
                     }
@@ -377,6 +389,11 @@ impl CsaClient {
             return Ok(ThinkResult {
                 move_made: None,
                 csa_move: None,
+                score: info.score,
+                depth: info.depth,
+                nodes: info.nodes,
+                elapsed_ms: info.elapsed.as_millis(),
+                hashfull: info.hashfull,
             });
         }
 
@@ -394,12 +411,22 @@ impl CsaClient {
             Ok(ThinkResult {
                 move_made: Some(m),
                 csa_move: Some(csa_move),
+                score: info.score,
+                depth: info.depth,
+                nodes: info.nodes,
+                elapsed_ms: info.elapsed.as_millis(),
+                hashfull: info.hashfull,
             })
         } else {
             self.send("%TORYO")?;
             Ok(ThinkResult {
                 move_made: None,
                 csa_move: None,
+                score: info.score,
+                depth: info.depth,
+                nodes: info.nodes,
+                elapsed_ms: info.elapsed.as_millis(),
+                hashfull: info.hashfull,
             })
         }
     }
@@ -441,14 +468,28 @@ impl CsaClient {
 struct ThinkResult {
     move_made: Option<sekirei_core::mv::Move>,
     csa_move: Option<String>,
+    score: i32,
+    depth: u32,
+    nodes: u64,
+    elapsed_ms: u128,
+    hashfull: u32,
 }
 
 struct GameRecord {
     writer: BufWriter<File>,
+    analysis: Option<AnalysisLog>,
+    ply: u32,
+    result_written: bool,
 }
 
 impl GameRecord {
-    fn open(directory: &Path, game_id: &str, user: &str, color: Color) -> Option<Self> {
+    fn open(
+        directory: &Path,
+        game_id: &str,
+        user: &str,
+        color: Color,
+        analysis_dir: Option<&Path>,
+    ) -> Option<Self> {
         if let Err(error) = fs::create_dir_all(directory) {
             eprintln!("[csa] record directory unavailable: {error}");
             return None;
@@ -458,7 +499,7 @@ impl GameRecord {
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
         let name = format!("{}_{}.csa", sanitize_filename(game_id), stamp);
-        let path = directory.join(name);
+        let path = directory.join(&name);
         let file = match File::create(&path) {
             Ok(file) => file,
             Err(error) => {
@@ -468,6 +509,9 @@ impl GameRecord {
         };
         let mut record = Self {
             writer: BufWriter::new(file),
+            analysis: AnalysisLog::open(analysis_dir, &name, game_id, user, color),
+            ply: 0,
+            result_written: false,
         };
         record.append("V2.2");
         let name_tag = if color == Color::Black { "N+" } else { "N-" };
@@ -486,17 +530,178 @@ impl GameRecord {
         } else if let Err(error) = self.writer.flush() {
             eprintln!("[csa] record flush failed: {error}");
         }
+        if line.starts_with('+') || line.starts_with('-') {
+            self.ply = self.ply.saturating_add(1);
+        }
+    }
+
+    fn append_analysis(&mut self, board: &Board, our_color: Color, result: &ThinkResult) {
+        if let Some(analysis) = self.analysis.as_mut() {
+            analysis.append(board, our_color, self.ply, result);
+        }
     }
 
     fn finish(&mut self) {
         if let Err(error) = self.writer.flush() {
             eprintln!("[csa] record final flush failed: {error}");
         }
+        if let Err(error) = self.writer.get_ref().sync_data() {
+            eprintln!("[csa] record final sync failed: {error}");
+        }
+        if let Some(analysis) = self.analysis.as_mut() {
+            analysis.finish();
+        }
     }
+
+    fn finish_with_result(&mut self, result: GameResult) {
+        if let Some(analysis) = self.analysis.as_mut() {
+            analysis.append_result(result);
+        }
+        self.result_written = true;
+        self.finish();
+    }
+}
+
+struct AnalysisLog {
+    writer: BufWriter<File>,
+}
+
+impl AnalysisLog {
+    fn open(
+        directory: Option<&Path>,
+        csa_name: &str,
+        game_id: &str,
+        user: &str,
+        color: Color,
+    ) -> Option<Self> {
+        let directory = directory?;
+        if let Err(error) = fs::create_dir_all(directory) {
+            eprintln!("[csa] analysis directory unavailable: {error}");
+            return None;
+        }
+        let stem = csa_name.strip_suffix(".csa").unwrap_or(csa_name);
+        let path = directory.join(format!("{stem}.analysis.jsonl"));
+        let file = match File::create(&path) {
+            Ok(file) => file,
+            Err(error) => {
+                eprintln!("[csa] analysis log unavailable: {error}");
+                return None;
+            }
+        };
+        let mut log = Self {
+            writer: BufWriter::new(file),
+        };
+        let header = format!(
+            "{{\"schema\":\"sekirei.analysis-record.v1\",\"engine\":\"sekirei\",\"engine_version\":{},\"score_perspective\":\"side_to_move\",\"game_id\":{},\"user\":{},\"color\":{}}}",
+            json_string(env!("CARGO_PKG_VERSION")),
+            json_string(game_id),
+            json_string(user),
+            json_string(if color == Color::Black {
+                "black"
+            } else {
+                "white"
+            })
+        );
+        log.write_line(&header);
+        log.finish();
+        eprintln!("[csa] recording analysis to {}", path.display());
+        Some(log)
+    }
+
+    fn append(&mut self, board: &Board, our_color: Color, ply: u32, result: &ThinkResult) {
+        use sekirei_core::sfen::board_to_sfen;
+        let bestmove = result
+            .csa_move
+            .as_deref()
+            .map(json_string)
+            .unwrap_or_else(|| "null".into());
+        let line = format!(
+            "{{\"type\":\"search\",\"ply\":{},\"side_to_move\":{},\"our_color\":{},\"sfen\":{},\"bestmove_csa\":{},\"score_cp\":{},\"depth\":{},\"nodes\":{},\"elapsed_ms\":{},\"hashfull\":{}}}",
+            ply,
+            json_string(if board.side_to_move == Color::Black {
+                "black"
+            } else {
+                "white"
+            }),
+            json_string(if our_color == Color::Black {
+                "black"
+            } else {
+                "white"
+            }),
+            json_string(&board_to_sfen(board)),
+            bestmove,
+            result.score,
+            result.depth,
+            result.nodes,
+            result.elapsed_ms,
+            result.hashfull
+        );
+        self.write_line(&line);
+    }
+
+    fn write_line(&mut self, line: &str) {
+        if let Err(error) = writeln!(self.writer, "{line}") {
+            eprintln!("[csa] analysis write failed: {error}");
+        } else if let Err(error) = self.writer.flush() {
+            eprintln!("[csa] analysis flush failed: {error}");
+        }
+    }
+
+    fn finish(&mut self) {
+        if let Err(error) = self.writer.flush() {
+            eprintln!("[csa] analysis final flush failed: {error}");
+        }
+        if let Err(error) = self.writer.get_ref().sync_data() {
+            eprintln!("[csa] analysis final sync failed: {error}");
+        }
+    }
+
+    fn append_result(&mut self, result: GameResult) {
+        let result = match result {
+            GameResult::Win => "win",
+            GameResult::Lose => "lose",
+            GameResult::Draw => "draw",
+            GameResult::Aborted => "aborted",
+        };
+        self.write_line(&format!(
+            "{{\"type\":\"game_end\",\"result\":{}}}",
+            json_string(result)
+        ));
+    }
+}
+
+impl Drop for AnalysisLog {
+    fn drop(&mut self) {
+        let _ = self.writer.flush();
+    }
+}
+
+fn json_string(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c.is_control() => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl Drop for GameRecord {
     fn drop(&mut self) {
+        if !self.result_written {
+            if let Some(analysis) = self.analysis.as_mut() {
+                analysis.append_result(GameResult::Aborted);
+            }
+            self.result_written = true;
+        }
         self.finish();
     }
 }
@@ -524,7 +729,7 @@ fn parse_game_end(line: &str) -> GameResult {
         GameResult::Win
     } else if line.contains("LOSE") {
         GameResult::Lose
-    } else if line.contains("DRAW") {
+    } else if line.contains("JISHOGI") || line.contains("DRAW") {
         GameResult::Draw
     } else {
         GameResult::Aborted
@@ -535,4 +740,14 @@ fn parse_game_end(line: &str) -> GameResult {
 fn parse_time_from_echo(line: &str) -> Option<u64> {
     let t_part = line.rsplit(',').next().unwrap_or(line);
     t_part.strip_prefix('T')?.parse().ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GameResult, parse_game_end};
+
+    #[test]
+    fn jishogi_is_recorded_as_draw() {
+        assert!(matches!(parse_game_end("#JISHOGI"), GameResult::Draw));
+    }
 }

@@ -149,10 +149,13 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 The probe reports evaluator scores, score range, mean, variance, and reference
 deltas, plus `constant_output` and `reload_deterministic` flags. Add `--json`
 for machine-readable output; `--strict` exits non-zero for constant or
-near-constant output (range below 8 cp) or non-deterministic reload. It is a
+near-constant output (range below 8 cp), missing material/side-to-move sensitivity, or
+non-deterministic reload. It is a
 diagnostic, not a strength test.
 JSON output also includes `strict_min_range_cp` and `strict_pass` so automated
 candidate selection can record the exact health rule used.
+It also records `l2_distinct_values`, `l2_bias_distinct_values`, and
+`out_distinct_values` to expose collapsed later layers directly.
 
 Checkpoint files are inference-compatible when loaded by `nnue_probe` or `EvalFile`. The inference
 `.bin` remains optimizer-free; training emits separate Adam and full-resume sidecars.
@@ -218,6 +221,45 @@ Completed games and partial games are saved locally as CSA files under `data/flo
 default. Use `--record-dir` to choose another directory. Records are flushed after every move;
 save failures are reported but do not abort the live game. Do not commit credentials, game
 records, weights, or generated training data.
+
+For opt-in post-game analysis, pass `--analysis-dir <dir>`. The client writes a sidecar
+`*.analysis.jsonl` file with one schema-versioned summary for each Sekirei search. Its header records
+the engine version and score perspective; each search record contains pre-move SFEN,
+selected CSA move, score, completed depth, nodes, elapsed time, and hashfull. The default is off;
+completed games receive a final `game_end` result event, and interrupted games are closed with
+`aborted` so the sidecar is not left as an apparently complete trace. Final buffers are flushed
+and synced. The sidecar is diagnostic evidence, not a strength claim.
+Replay analysis also checks that this result matches the CSA result marker.
+The CSA record remains unchanged.
+CSA files created before `--analysis-dir` was enabled do not contain per-move search values and
+cannot be retroactively treated as evaluation traces.
+Validate a generated sidecar with `python3 scripts/validate_analysis_record.py <file>.analysis.jsonl`.
+The validator requires a final `game_end`; an interrupted trace is not accepted as a complete game analysis.
+Align it with the corresponding CSA game and flag score swings with
+`python3 scripts/analyze_analysis_record.py <game>.csa <game>.analysis.jsonl --output swing.json`.
+This is a replay alignment diagnostic, not an engine re-search or strength claim.
+Aggregate reports by game result and rank negative swings with
+`python3 scripts/summarize_analysis_swings.py data/reports/*.json --output swing-summary.json`.
+For a whole Floodgate record directory, use
+`python3 scripts/analyze_floodgate_analysis.py --csa-dir data/floodgate --analysis-dir data/floodgate-analysis --output floodgate-analysis.json`.
+Pre-v1 sidecars are explicitly excluded under `legacy_analysis`; malformed v1 sidecars remain
+excluded under `invalid_analysis`. Mate-like scores (absolute score at least 800,000cp) and final
+game records are separated as `terminal_records`, while `normal_swings` contains only ordinary
+position score reversals.
+Normal reversals are also split into `negative_swings` and `positive_swings` for failure-oriented diagnosis.
+Each candidate also carries a coarse `opening`/`middlegame`/`endgame` phase based on its ply ratio.
+Depth (`shallow`/`medium`/`deep`) and elapsed-time (`fast`/`normal`/`slow`) bands are also included
+to distinguish search-budget instability from evaluator instability.
+These analysis fixtures run in CI as diagnostic contract checks.
+To extract negative candidates with SFEN-derived material balance, game phase, and search conditions,
+run `python3 scripts/classify_swing_positions.py floodgate-analysis.json --output negative-swings.json`.
+Each candidate includes the preceding score and ply, allowing review of the position immediately before the reversal.
+The preceding two CSA moves are also attached as `previous_move_csa` and `two_moves_back_csa`.
+Compare NNUE and material scores for a candidate SFEN with
+`cargo run --release -p sekirei-core --bin compare_eval -- <weights> "<sfen>"`.
+The CI replay fixture also exercises legal CSA application and pre-move SFEN equality.
+For full board-semantic verification, build `sekirei-analysis-replay` and run it with the CSA
+file and sidecar; it rejects illegal CSA moves and SFEN mismatches before reporting alignment.
 
 The client consumes the server-provided CSA position instead of assuming `startpos`. It supports
 the standard `PI` shorthand and hand declarations, validates the color of every received move,
@@ -289,8 +331,8 @@ to a release-manifest-shaped copy without modifying the original:
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.32.json \
-  --output release-manifest-v0.3.32-diagnostic.json
+  --manifest release-manifest-v0.3.33.json \
+  --output release-manifest-v0.3.33-diagnostic.json
 ```
 
 Validate the operational fixture or a generated copy with
@@ -304,7 +346,7 @@ Resume verification lineage can be recorded with
 `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`.
 The generated artifact uses the `sekirei.resume-manifest.v1` schema and keeps checkpoint/log hashes separate.
 Attach verified resume evidence to a release-manifest copy with
-`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.32.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
+`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.33.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`.
 The source release manifest is not modified.
 The attached `resume_verification.artifacts` list identifies the checkpoint and execution log separately.
 
@@ -379,7 +421,7 @@ release record:
 
 ```bash
 python3 scripts/record_mcts_manifest.py \
-  --release-manifest release-manifest-v0.3.32.json \
+  --release-manifest release-manifest-v0.3.33.json \
   --output candidate-manifest.json --mode SharedMcts \
   --simulations 4 --arena-nodes 31 --transposition-hits 0
 ```
@@ -389,7 +431,7 @@ copying:
 
 ```bash
 python3 scripts/record_mcts_transcript.py \
-  --release-manifest release-manifest-v0.3.32.json \
+  --release-manifest release-manifest-v0.3.33.json \
   --transcript shared-mcts-transcript.txt --output candidate-manifest.json
 ```
 

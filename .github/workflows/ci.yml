@@ -41,12 +41,24 @@ jobs:
         run: cargo build --release
       - name: release metadata
         run: python3 scripts/check_release_metadata.py
+      - name: documentation references
+        run: python3 scripts/check_documentation_references.py
+      - name: public contract checks
+        run: bash scripts/test_public_contracts.sh
+      - name: documented training CLI options
+        run: |
+          cargo run --release -p sekirei-train -- --help > /tmp/sekirei-train-help.txt 2>&1
+          grep -q -- '--strict-positions' /tmp/sekirei-train-help.txt
+          grep -q -- '--resume-checkpoint' /tmp/sekirei-train-help.txt
+          grep -q -- '--resume-checkpoint-every-games' /tmp/sekirei-train-help.txt
       - name: public surface
         run: python3 scripts/check_public_surface.py
       - name: competitor capability audit
         run: python3 scripts/validate_rshogi_capability_audit.py
       - name: NNUE diagnostic tests
-        run: python3 scripts/test_nnue_diagnostics.py
+        run: |
+          python3 scripts/test_nnue_diagnostics.py
+          python3 -m unittest scripts/test_check_candidate_readiness.py
       - name: teacher comparison tests
         run: |
           python3 scripts/test_compare_teacher_evals.py
@@ -56,6 +68,26 @@ jobs:
         run: |
           python3 scripts/test_release_manifest.py
           python3 scripts/validate_release_manifest.py scripts/fixtures/release_manifest_diagnostic_v1.json
+          python3 scripts/attach_candidate_readiness.py \
+            --release-manifest release-manifest-v0.3.29.json \
+            --readiness scripts/fixtures/candidate_readiness_v1.json \
+            --output /tmp/release-manifest-with-readiness.json
+          python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-readiness.json
+      - name: analysis record diagnostics
+        run: |
+          python3 -m unittest \
+            scripts/test_analysis_record.py \
+            scripts/test_analyze_analysis_record.py \
+            scripts/test_summarize_analysis_swings.py \
+            scripts/test_analyze_floodgate_analysis.py \
+            scripts/test_classify_swing_positions.py \
+            scripts/test_analyze_eval_gap.py \
+            scripts/test_fit_eval_calibration.py
+          python3 scripts/validate_analysis_record.py \
+            scripts/fixtures/analysis_record_v1.jsonl
+          cargo run --release -p sekirei-csa --bin sekirei-analysis-replay -- \
+            scripts/fixtures/analysis_replay_v1.csa \
+            scripts/fixtures/analysis_replay_v1.analysis.jsonl
       - name: SharedMcts transcript manifest fixture
         run: |
           python3 scripts/record_mcts_transcript.py \
@@ -136,6 +168,7 @@ jobs:
         run: bash scripts/test_teacher_eval_fixture.sh
       - name: resume manifest schema
         run: |
+          python3 -m unittest scripts/test_record_resume_run.py
           python3 scripts/validate_resume_manifest.py scripts/fixtures/resume_manifest_v1.json
           python3 scripts/attach_resume_manifest.py \
             --release-manifest release-manifest-v0.3.29.json \

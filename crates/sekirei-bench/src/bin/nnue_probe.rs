@@ -11,12 +11,12 @@ use sekirei_core::{board::Board, eval::evaluate_with_weights, nnue::read_weights
 
 const STARTPOS: &str = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
-const ROOK_ON_BOARD: &str = "9/9/9/9/4R3/9/9/9/4k4 b - 1";
+const ROOK_ON_BOARD: &str = "9/9/9/9/4R4/9/9/9/4k4 b - 1";
 const KING_CENTER: &str = "9/9/9/9/4K4/9/9/9/4k4 b - 1";
 const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
-const DROP_RESULT: &str = "9/9/9/9/4R3/9/9/9/4k4 w - 1";
+const DROP_RESULT: &str = "9/9/9/9/4R4/9/9/9/4k4 w - 1";
 const PROMOTION_RESULT: &str = "4k4/9/9/9/9/9/4+P4/9/4K4 w - 2";
-const CAPTURE_RESULT: &str = "4k4/9/9/4R4/9/9/9/4K4 w - 1";
+const CAPTURE_RESULT: &str = "4k4/9/9/4R4/9/9/9/9/4K4 w - 1";
 const MIN_STRICT_RANGE_CP: i64 = 8;
 
 type Probe = (String, String);
@@ -33,7 +33,7 @@ fn usage() -> &'static str {
         Without --sfen, probes startpos, material sensitivity, and king placement.\n\
         Reports score range, mean, variance, and deltas from the first probe; this is not a \
         strength test. --json emits one machine-readable JSON object. --strict exits non-zero \
-        for constant/near-constant output or non-deterministic reload."
+        for constant/near-constant output, missing material/side sensitivity, or non-deterministic reload."
 }
 
 fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> {
@@ -109,6 +109,7 @@ fn json_escape(value: &str) -> String {
 
 fn render_json(
     weights_path: &Path,
+    weights: &sekirei_core::nnue::NnueWeights,
     probes: &[Probe],
     scores: &[i32],
     reload_deterministic: bool,
@@ -119,6 +120,7 @@ fn render_json(
     let max = scores.iter().copied().max().unwrap_or(0);
     let range = i64::from(max) - i64::from(min);
     let (mean, variance) = score_moments(scores);
+    let quality_failures = probe_quality_failures(probes, scores);
     let mut output = format!(
         "{{\"weights\":\"{}\",\"probes\":[",
         json_escape(&weights_path.display().to_string())
@@ -138,14 +140,18 @@ fn render_json(
     }
     write!(
         output,
-        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{},\"reload_deterministic\":{},\"strict_min_range_cp\":{},\"strict_pass\":{}",
+        "],\"score_range_cp\":{},\"score_mean_cp\":{},\"score_variance_cp2\":{},\"constant_output\":{},\"reload_deterministic\":{},\"material_sensitive\":{},\"side_to_move_sensitive\":{},\"strict_min_range_cp\":{},\"strict_pass\":{}",
         range,
         mean,
         variance,
         variance == 0.0,
         reload_deterministic,
+        !quality_failures.contains(&"material_insensitive"),
+        !quality_failures.contains(&"side_to_move_insensitive"),
         MIN_STRICT_RANGE_CP,
         strict_failures(scores, reload_deterministic).is_empty()
+            && quality_failures.is_empty()
+            && layer_quality_failures(weights).is_empty()
     )
     .unwrap();
     if let (Some((name, _)), Some(&reference)) = (probes.first(), scores.first()) {
@@ -163,6 +169,13 @@ fn render_json(
         }
         output.push(']');
     }
+    let (l2_distinct, l2_bias_distinct, out_distinct) = layer_distinct_counts(weights);
+    write!(
+        output,
+        ",\"l2_distinct_values\":{},\"l2_bias_distinct_values\":{},\"out_distinct_values\":{}",
+        l2_distinct, l2_bias_distinct, out_distinct
+    )
+    .unwrap();
     output.push('}');
     output
 }
@@ -192,6 +205,66 @@ fn strict_failures(scores: &[i32], reload_deterministic: bool) -> Vec<&'static s
     }
     if !reload_deterministic {
         failures.push("reload_nondeterministic");
+    }
+    failures
+}
+
+fn probe_quality_failures(probes: &[Probe], scores: &[i32]) -> Vec<&'static str> {
+    let score = |name: &str| {
+        probes
+            .iter()
+            .position(|(probe_name, _)| probe_name == name)
+            .and_then(|index| scores.get(index))
+            .copied()
+    };
+    let mut failures = Vec::new();
+    if let (Some(rook), Some(center)) = (score("rook_on_board"), score("king_center"))
+        && rook == center
+    {
+        failures.push("material_insensitive");
+    }
+    if let (Some(black), Some(white)) = (score("rook_on_board"), score("drop_result"))
+        && black == white
+    {
+        failures.push("side_to_move_insensitive");
+    }
+    failures
+}
+
+fn layer_distinct_counts(weights: &sekirei_core::nnue::NnueWeights) -> (usize, usize, usize) {
+    use std::collections::HashSet;
+
+    let l2 = weights
+        .l2
+        .iter()
+        .flatten()
+        .map(|value| value.to_bits())
+        .collect::<HashSet<_>>()
+        .len();
+    let l2_bias = weights
+        .l2_bias
+        .iter()
+        .map(|value| value.to_bits())
+        .collect::<HashSet<_>>()
+        .len();
+    let out = weights
+        .out
+        .iter()
+        .map(|value| value.to_bits())
+        .collect::<HashSet<_>>()
+        .len();
+    (l2, l2_bias, out)
+}
+
+fn layer_quality_failures(weights: &sekirei_core::nnue::NnueWeights) -> Vec<&'static str> {
+    let (l2_distinct, l2_bias_distinct, out_distinct) = layer_distinct_counts(weights);
+    let mut failures = Vec::new();
+    if l2_distinct < 2 {
+        failures.push("l2_constant");
+    }
+    let _ = l2_bias_distinct;
+    if out_distinct < 2 {
+        failures.push("out_constant");
     }
     failures
 }
@@ -236,11 +309,19 @@ fn main() -> Result<(), String> {
     if json {
         println!(
             "{}",
-            render_json(&weights_path, &sfens, &scores, reload_deterministic)
+            render_json(
+                &weights_path,
+                &weights,
+                &sfens,
+                &scores,
+                reload_deterministic
+            )
         );
     }
     if strict {
-        let failures = strict_failures(&scores, reload_deterministic);
+        let mut failures = strict_failures(&scores, reload_deterministic);
+        failures.extend(probe_quality_failures(&sfens, &scores));
+        failures.extend(layer_quality_failures(&weights));
         if !failures.is_empty() {
             return Err(format!("strict NNUE probe failed: {}", failures.join(", ")));
         }
@@ -261,6 +342,8 @@ fn main() -> Result<(), String> {
     println!(
         "strict_pass: {}",
         strict_failures(&scores, reload_deterministic).is_empty()
+            && probe_quality_failures(&sfens, &scores).is_empty()
+            && layer_quality_failures(&weights).is_empty()
     );
     if let Some(&reference) = scores.first() {
         for score in scores.iter().skip(1) {
@@ -293,6 +376,16 @@ mod tests {
         assert_eq!(parsed.probes[7].0, "capture_result");
         assert!(!parsed.json);
         assert!(!parsed.strict);
+    }
+
+    #[test]
+    fn all_default_sfens_are_parseable() {
+        let parsed = parse_probe_args(&["weights.bin".to_string()])
+            .unwrap()
+            .unwrap();
+        for (name, sfen) in parsed.probes {
+            Board::from_sfen(&sfen).unwrap_or_else(|error| panic!("{name}: {error}"));
+        }
     }
 
     #[test]
@@ -347,7 +440,8 @@ mod tests {
             ("first".to_string(), "sfen-1".to_string()),
             ("second".to_string(), "sfen-2".to_string()),
         ];
-        let output = render_json(Path::new("weights.bin"), &probes, &[10, -5], true);
+        let weights = sekirei_core::nnue::NnueWeights::default_lcg();
+        let output = render_json(Path::new("weights.bin"), &weights, &probes, &[10, -5], true);
         assert!(output.starts_with("{\"weights\":\"weights.bin\""));
         assert!(output.contains("\"score_cp\":10"));
         assert!(output.contains("\"score_cp\":-5"));
@@ -370,7 +464,8 @@ mod tests {
     #[test]
     fn equal_scores_are_reported_as_constant_output() {
         let probes = vec![("only".to_string(), "sfen".to_string())];
-        let output = render_json(Path::new("weights.bin"), &probes, &[7], false);
+        let weights = sekirei_core::nnue::NnueWeights::default_lcg();
+        let output = render_json(Path::new("weights.bin"), &weights, &probes, &[7], false);
         assert!(output.contains("\"score_variance_cp2\":0"));
         assert!(output.contains("\"constant_output\":true"));
         assert!(output.contains("\"reload_deterministic\":false"));
@@ -385,5 +480,19 @@ mod tests {
             strict_failures(&[0, 8], false),
             vec!["reload_nondeterministic"]
         );
+    }
+
+    #[test]
+    fn quality_probe_rejects_missing_material_or_side_sensitivity() {
+        let probes = vec![
+            ("rook_on_board".to_string(), "r".to_string()),
+            ("king_center".to_string(), "k".to_string()),
+            ("drop_result".to_string(), "w".to_string()),
+        ];
+        assert_eq!(
+            probe_quality_failures(&probes, &[65, 65, 65]),
+            vec!["material_insensitive", "side_to_move_insensitive"]
+        );
+        assert!(probe_quality_failures(&probes, &[65, 0, -65]).is_empty());
     }
 }

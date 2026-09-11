@@ -205,12 +205,13 @@ struct Args {
     stop_after_resume_checkpoint: bool,                  // --stop-after-resume-checkpoint
     teacher_cache_path: Option<PathBuf>,                 // --teacher-cache
     reuse_teacher_cache: bool,                           // --reuse-teacher-cache
-    cache_only: bool, // --cache-only: never search for a missing teacher label
+    cache_only: bool,       // --cache-only: never search for a missing teacher label
+    strict_positions: bool, // --strict-positions: reject invalid JSONL rows
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
-    lr: f32,          // --lr (base learning rate, default 0.001)
+    lr: f32,                // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
-    min_lr: f32,      // --min-lr (floor applied to every schedule, default 0.0)
-    warmup_epochs: u32, // --warmup-epochs (linear ramp to base_lr, default 0 = off)
+    min_lr: f32,            // --min-lr (floor applied to every schedule, default 0.0)
+    warmup_epochs: u32,     // --warmup-epochs (linear ramp to base_lr, default 0 = off)
     // Schedule horizon the LR curve is shaped for -- may exceed `epochs`,
     // to reproduce the first N epochs of a longer schedule. Defaults to
     // `epochs` (today's original behavior) when --lr-schedule-epochs is
@@ -366,6 +367,7 @@ fn parse_args() -> Result<Args, String> {
     let mut teacher_cache_path: Option<PathBuf> = None;
     let mut reuse_teacher_cache = false;
     let mut cache_only = false;
+    let mut strict_positions = false;
     let mut wdl_lambda: Option<f32> = None;
     let mut lr = 0.001f32;
     let mut lr_schedule = LrSchedule::StepHalf;
@@ -722,6 +724,9 @@ fn parse_args() -> Result<Args, String> {
             "--cache-only" => {
                 cache_only = true;
             }
+            "--strict-positions" => {
+                strict_positions = true;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -852,6 +857,7 @@ fn parse_args() -> Result<Args, String> {
         teacher_cache_path,
         reuse_teacher_cache,
         cache_only,
+        strict_positions,
         wdl_lambda,
         lr,
         lr_schedule,
@@ -1754,6 +1760,7 @@ fn print_usage() {
     eprintln!();
     eprintln!("  --games <dir>       Directory containing .csa game files");
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
+    eprintln!("  --strict-positions  Reject invalid JSONL/SFEN rows instead of skipping them");
     eprintln!("  --output <file>     Output weight file (default: weights.bin)");
     eprintln!("  --epochs <n>        Training epochs (default: 3)");
     eprintln!("  --sample <n>        Sample every N plies per game (default: 4)");
@@ -1983,6 +1990,12 @@ fn main() {
     // ---- positions mode (shogiesa JSONL) ----
     if let Some(pos_path) = &args.positions_path {
         eprintln!("Positions mode: loading {:?}", pos_path);
+        if args.strict_positions {
+            positions::validate_positions(pos_path).unwrap_or_else(|error| {
+                eprintln!("strict positions validation failed: {error}");
+                std::process::exit(1);
+            });
+        }
         let ds_hash = dataset_hash(std::slice::from_ref(pos_path));
         let raw_samples = load_positions(pos_path);
         if raw_samples.is_empty() {

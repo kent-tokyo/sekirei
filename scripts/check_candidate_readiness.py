@@ -16,6 +16,18 @@ SFENS = [
 ]
 
 
+def probe_passes(payload: dict) -> bool:
+    """Require both output and later-layer diversity in a strict probe."""
+    return (
+        bool(payload.get("strict_pass"))
+        and bool(payload.get("reload_deterministic"))
+        and isinstance(payload.get("l2_distinct_values"), int)
+        and payload["l2_distinct_values"] >= 2
+        and isinstance(payload.get("out_distinct_values"), int)
+        and payload["out_distinct_values"] >= 2
+    )
+
+
 def sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:
@@ -42,10 +54,13 @@ def main() -> None:
         if result.returncode == 0:
             payload = json.loads(result.stdout)
             probe = {
-                "passed": bool(payload.get("strict_pass")) and bool(payload.get("reload_deterministic")),
+                "passed": probe_passes(payload),
                 "score_range_cp": payload.get("score_range_cp"),
                 "reload_deterministic": payload.get("reload_deterministic"),
                 "strict_pass": payload.get("strict_pass"),
+                "l2_distinct_values": payload.get("l2_distinct_values"),
+                "l2_bias_distinct_values": payload.get("l2_bias_distinct_values"),
+                "out_distinct_values": payload.get("out_distinct_values"),
             }
         else:
             probe["error"] = result.stderr.strip() or "probe failed"

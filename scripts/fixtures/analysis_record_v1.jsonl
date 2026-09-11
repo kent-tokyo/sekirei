@@ -1,0 +1,4 @@
+{"schema":"sekirei.analysis-record.v1","engine":"sekirei","engine_version":"0.3.33","score_perspective":"side_to_move","game_id":"floodgate-300-10F","user":"sekirei","color":"black"}
+{"type":"search","ply":0,"side_to_move":"black","our_color":"black","sfen":"lnsgkgsnl/1r5b1/p1ppppp1p/6p2/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL b - 1","bestmove_csa":"+7776FU","score_cp":18,"depth":5,"nodes":1234,"elapsed_ms":10,"hashfull":4}
+{"type":"search","ply":2,"side_to_move":"black","our_color":"black","sfen":"lnsgkgsnl/1r5b1/p1ppppp1p/6p2/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL b - 2","bestmove_csa":"+2726FU","score_cp":-31,"depth":5,"nodes":1456,"elapsed_ms":11,"hashfull":5}
+{"type":"game_end","result":"win"}

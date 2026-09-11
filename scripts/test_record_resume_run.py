@@ -68,6 +68,31 @@ class ResumeManifestTests(unittest.TestCase):
     def test_rejects_corrupted_lineage(self):
         self.assertIn("checkpoint.sha256", validate({"schema": "sekirei.resume-manifest.v1", "checkpoint": {"sha256": "bad"}, "execution": {}}))
 
+    def test_rejects_empty_artifact_paths(self):
+        manifest = {
+            "schema": "sekirei.resume-manifest.v1",
+            "checkpoint": {
+                "path": "",
+                "sha256": "0" * 64,
+                "schema": "sekirei.resume-checkpoint.v1",
+                "epoch_completed": 0,
+                "next_game_index": 0,
+                "config_fingerprint": "fp",
+                "optimizer_step": 0,
+                "teacher_cache_entries": 0,
+            },
+            "execution": {
+                "dataset": "dataset",
+                "log_path": "",
+                "log_sha256": "1" * 64,
+                "resume_loaded": False,
+                "stopped_after_checkpoint": False,
+            },
+        }
+        errors = validate(manifest)
+        self.assertIn("checkpoint.path", errors)
+        self.assertIn("execution.log_path", errors)
+
 
 if __name__ == "__main__":
     unittest.main()

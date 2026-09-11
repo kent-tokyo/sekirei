@@ -120,11 +120,13 @@ cargo run --release -p sekirei-bench --bin nnue_probe -- /path/to/weights.bin
 # 自動処理では --json、任意局面では --sfen "<SFEN>" を繰り返し指定
 ```
 
-評価値、スコアレンジ、平均、分散、基準局面との差分を表示します。標準プローブには駒得と王位置の感度検査も含まれます。`--json` で機械可読形式にでき、`--strict` ではスコアレンジが 8 cp 未満の定数・準定数出力、または再読込非決定を異常終了にできます。
+評価値、スコアレンジ、平均、分散、基準局面との差分を表示します。標準プローブには駒得と王位置の感度検査も含まれます。`--json` で機械可読形式にでき、`--strict` ではスコアレンジが 8 cp 未満の定数・準定数出力、駒得または手番への感度不足、または再読込非決定を異常終了にできます。
 出力分散の確認にも使えます。このプローブは診断用であり、棋力テストではありません。
 チェックポイントは `nnue_probe` や `EvalFile` で読み込める推論互換形式です。推論用`.bin`は
 オプティマイザ状態を持たず、訓練用にはAdam sidecarと完全resume sidecarを別に保存します。
 JSON出力には判定閾値 `strict_min_range_cp` と判定結果 `strict_pass` も含まれます。
+さらに `l2_distinct_values`、`l2_bias_distinct_values`、
+`out_distinct_values` で後段層の定数化を直接確認できます。
 
 外部SFNN成果物は2段階で扱います。Rustの`sekirei_core::external_eval::read_sfnn_header`と
 `scripts/inspect_external_sfnn.py`は安全上限付きのヘッダー検査だけを行います。出典、ライセンス、
@@ -189,6 +191,40 @@ cargo run --release -p sekirei-csa -- \
 コミットしないでください。対局終了後の棋譜と途中切断時の部分棋譜は、既定で
 `data/floodgate/`にCSA形式で保存します。`--record-dir`で保存先を変更できます。各着手後に
 flushするため、保存に失敗しても対局自体は中断しません。
+
+事後分析用に `--analysis-dir <dir>` を指定すると、CSA棋譜に対応する
+`*.analysis.jsonl` サイドカーを保存します。ヘッダにはエンジンバージョンと評価値の視点を記録し、各探索について、探索前SFEN、選択したCSA手、
+評価値、完了深さ、ノード数、経過時間、hashfullを `sekirei.analysis-record.v1` として記録します。
+終了局では最後に `game_end` と結果を記録し、通信異常などで途中終了した場合も
+`aborted` を付けて未完了のまま残さないようにします。終了時はバッファをflushし、ファイルを同期します。
+replay分析では、この結果とCSA末尾の結果マーカーも突合します。
+デフォルトは無効で、これは診断記録であり棋力の証明ではありません。CSA本文は変更しません。
+生成したサイドカーは `python3 scripts/validate_analysis_record.py <file>.analysis.jsonl` で検証できます。
+完全なサイドカーには `game_end` が必須で、途中で切れた記録は有効な対局分析として扱いません。
+`--analysis-dir` 有効化前に作成したCSA棋譜には探索評価値が含まれないため、後から評価ログとして扱うことはできません。
+対応するCSA棋譜と突合して評価値の急落候補を出すには、
+`python3 scripts/analyze_analysis_record.py <game>.csa <game>.analysis.jsonl --output swing.json` を実行します。
+これは指し手列のreplay突合による診断であり、再探索や棋力の証明ではありません。
+複数局を結果別に集計し、評価値の急落を順位付けするには
+`python3 scripts/summarize_analysis_swings.py data/reports/*.json --output swing-summary.json` を使います。
+Floodgateの保存ディレクトリ全体を処理するには
+`python3 scripts/analyze_floodgate_analysis.py --csa-dir data/floodgate --analysis-dir data/floodgate-analysis --output floodgate-analysis.json` を使います。
+v1以前のサイドカーは `legacy_analysis` として明示的に除外され、壊れたv1サイドカーも集計されません。
+mate相当スコア（絶対値800,000cp以上）や終局記録は `terminal_records` に分離し、通常局面の
+評価反転件数（`normal_swings`）には含めません。
+通常反転は負方向（`negative_swings`）と正方向（`positive_swings`）にも分けます。
+各候補には手数比による `opening` / `middlegame` / `endgame` のフェーズも付きます。
+さらに探索深さ（`shallow` / `medium` / `deep`）と経過時間（`fast` / `normal` / `slow`）を付け、
+探索不足による揺らぎと評価器由来の揺らぎを切り分けます。
+これらの分析fixtureは診断契約の回帰チェックとしてCIでも実行されます。
+負方向の候補をSFENから駒得差・手数フェーズ・探索条件付きで抽出するには
+`python3 scripts/classify_swing_positions.py floodgate-analysis.json --output negative-swings.json` を使います。
+候補には直前の評価値とplyも含まれるため、崩れ始めた手の直前局面へ遡れます。
+棋譜から直前2手（`previous_move_csa` / `two_moves_back_csa`）も付与します。
+候補SFENのNNUE/material比較は `cargo run --release -p sekirei-core --bin compare_eval -- <weights> "<sfen>"` で実行できます。
+CIでは合法なCSA着手の適用と、着手前SFENの一致もfixtureで確認します。
+盤面状態まで検証するには `sekirei-analysis-replay` をビルドし、CSA棋譜とサイドカーを渡します。
+違法手やSFEN不一致があれば失敗します。
 
 クライアントは`startpos`を仮定せず、サーバーが送るCSA局面を読み込みます。標準的な`PI`省略表記と
 持ち駒宣言に対応し、受信した指し手の色と内部手番も検証します。サーバーが中間通知として
@@ -257,8 +293,8 @@ release manifest形式のコピーへ追加できます。
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.32.json \
-  --output release-manifest-v0.3.32-diagnostic.json
+  --manifest release-manifest-v0.3.33.json \
+  --output release-manifest-v0.3.33-diagnostic.json
 ```
 
 実運用fixtureと生成物は `python3 scripts/validate_release_manifest.py
@@ -270,7 +306,7 @@ CSAではゲーム境界、positions modeでは位置chunk境界でもatomicに�
 小規模なCLI統合回帰は `bash scripts/test_resume_cli_fixture.sh` で実行できます。
 resume検証の系譜は `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`
 で記録できます。生成物は `sekirei.resume-manifest.v1` schemaで、checkpointとログのhashを分けて保持します。
-検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.32.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
+検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.33.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
 
 保存したSharedMcts transcriptと診断manifestの整合性を確認するには、`python3 scripts/verify_mcts_diagnostic.py --manifest candidate-manifest.json --transcript shared-mcts-transcript.txt`を使います。schemaと3つの診断カウントを確認しますが、強さの主張は行いません。
 CIでは保存後にartifactを別jobで取得し、同じschema・整合性検証を再実行します。

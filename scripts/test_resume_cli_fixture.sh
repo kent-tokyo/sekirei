@@ -6,7 +6,7 @@ run_dir=$(mktemp -d "${TMPDIR:-/tmp}/sekirei-resume.XXXXXX")
 trap 'rm -rf "$run_dir"' EXIT
 
 fixture="$root_dir/scripts/fixtures/nnue_phase3_pilot.jsonl"
-common=(--offline -p sekirei-train -- --positions "$fixture" --epochs 2 --sample 1 --label-depth 1 --lr 0.01 --init-seed 7 --split-seed 42)
+common=(--offline -p sekirei-train -- --positions "$fixture" --strict-positions --epochs 2 --sample 1 --label-depth 1 --lr 0.01 --init-seed 7 --split-seed 42)
 
 cargo run "${common[@]}" --output "$run_dir/interrupted.bin" --resume-checkpoint-every-games 2 --stop-after-resume-checkpoint >"$run_dir/interrupted.log" 2>&1
 resume="$run_dir/interrupted.resume.json"

@@ -1281,6 +1281,16 @@ fn main() {
         std::process::exit(1);
     });
 
+    if let (Some(transcript), Some(json)) = (&args.transcript_file, &args.json_file)
+        && transcript == &json.with_extension("jsonl")
+    {
+        eprintln!(
+            "error: --transcript must differ from the per-game records path {}",
+            json.with_extension("jsonl").display()
+        );
+        std::process::exit(1);
+    }
+
     if let Some(dir) = &args.output_dir
         && let Err(e) = fs::create_dir_all(dir)
     {
