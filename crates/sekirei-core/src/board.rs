@@ -53,10 +53,25 @@ pub struct Board {
     piece_bb: [[Bitboard; PieceKind::COUNT]; 2],
     /// `occ[color]` = occupancy bitboard for all pieces of that color
     occ: [Bitboard; 2],
+    /// Cached occupancy for both colors, avoiding a repeated OR in attack and
+    /// move-generation hot paths.
+    occupied: Bitboard,
+    /// Cached unions used by attack and legality queries.
+    gold_like: [Bitboard; 2],
+    bishop_sliders: [Bitboard; 2],
+    rook_sliders: [Bitboard; 2],
     /// Mailbox for O(1) piece lookup by square
     mailbox: [Option<Piece>; Square::NUM],
     /// Cached king squares, maintained by `put` and `take`.
     king_square: [Option<Square>; 2],
+    /// Cached files containing an unpromoted pawn for each side.
+    pawn_files: [Bitboard; 2],
+    /// Cached legality constraints for the current side to move.
+    legality_cache_valid: bool,
+    legality_cache_side: Color,
+    legality_cache_checkers: Bitboard,
+    legality_cache_pinned: Bitboard,
+    legality_cache_evasion: Bitboard,
     hand: [Hand; 2],
     /// Side to move.
     pub side_to_move: Color,
@@ -72,8 +87,18 @@ impl Board {
         Board {
             piece_bb: [[Bitboard::EMPTY; PieceKind::COUNT]; 2],
             occ: [Bitboard::EMPTY; 2],
+            occupied: Bitboard::EMPTY,
+            gold_like: [Bitboard::EMPTY; 2],
+            bishop_sliders: [Bitboard::EMPTY; 2],
+            rook_sliders: [Bitboard::EMPTY; 2],
             mailbox: [None; Square::NUM],
             king_square: [None; 2],
+            pawn_files: [Bitboard::EMPTY; 2],
+            legality_cache_valid: false,
+            legality_cache_side: Color::Black,
+            legality_cache_checkers: Bitboard::EMPTY,
+            legality_cache_pinned: Bitboard::EMPTY,
+            legality_cache_evasion: Bitboard::EMPTY,
             hand: [Hand::new(); 2],
             side_to_move: Color::Black,
             ply: 0,
@@ -83,21 +108,56 @@ impl Board {
     }
 
     // Internal helpers — do NOT touch `hash` or `acc` (managed by do_move / startpos)
+    #[inline(always)]
     fn put(&mut self, sq: Square, piece: Piece) {
-        self.piece_bb[piece.color.index()][piece.kind.index()].set(sq);
-        self.occ[piece.color.index()].set(sq);
+        let color = piece.color.index();
+        self.piece_bb[color][piece.kind.index()].set(sq);
+        self.occ[color].set(sq);
+        self.occupied.set(sq);
+        if piece.kind == PieceKind::Fu {
+            self.pawn_files[color] |= Bitboard::file_bb(sq.file_0());
+        }
+        match piece.kind {
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => self.gold_like[color].set(sq),
+            PieceKind::Kaku | PieceKind::Uma => self.bishop_sliders[color].set(sq),
+            PieceKind::Hisha | PieceKind::Ryu => self.rook_sliders[color].set(sq),
+            _ => {}
+        }
         self.mailbox[sq.index() as usize] = Some(piece);
         if piece.kind == PieceKind::Ou {
-            self.king_square[piece.color.index()] = Some(sq);
+            self.king_square[color] = Some(sq);
         }
     }
 
+    #[inline(always)]
     fn take(&mut self, sq: Square) -> Option<Piece> {
         let piece = self.mailbox[sq.index() as usize].take()?;
-        self.piece_bb[piece.color.index()][piece.kind.index()].unset(sq);
-        self.occ[piece.color.index()].unset(sq);
+        let color = piece.color.index();
+        self.piece_bb[color][piece.kind.index()].unset(sq);
+        self.occ[color].unset(sq);
+        self.occupied.unset(sq);
+        if piece.kind == PieceKind::Fu {
+            let file = Bitboard::file_bb(sq.file_0());
+            if (self.piece_bb[color][PieceKind::Fu.index()] & file).is_empty() {
+                self.pawn_files[color] &= !file;
+            }
+        }
+        match piece.kind {
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => self.gold_like[color].unset(sq),
+            PieceKind::Kaku | PieceKind::Uma => self.bishop_sliders[color].unset(sq),
+            PieceKind::Hisha | PieceKind::Ryu => self.rook_sliders[color].unset(sq),
+            _ => {}
+        }
         if piece.kind == PieceKind::Ou {
-            self.king_square[piece.color.index()] = None;
+            self.king_square[color] = None;
         }
         Some(piece)
     }
@@ -110,46 +170,102 @@ impl Board {
     // ---- Public read API ----
 
     /// Piece occupying `sq`, if any.
-    #[inline]
+    #[inline(always)]
     pub fn piece_at(&self, sq: Square) -> Option<Piece> {
         self.mailbox[sq.index() as usize]
     }
 
     /// Bitboard of all pieces of the given color and kind.
-    #[inline]
+    #[inline(always)]
     pub fn pieces(&self, color: Color, kind: PieceKind) -> Bitboard {
         self.piece_bb[color.index()][kind.index()]
     }
 
     /// Occupancy bitboard for all of `color`'s pieces.
-    #[inline]
+    #[inline(always)]
     pub fn occ_for(&self, color: Color) -> Bitboard {
         self.occ[color.index()]
     }
 
     /// Occupancy bitboard for all pieces on the board.
-    #[inline]
+    #[inline(always)]
     pub fn occ(&self) -> Bitboard {
-        self.occ[0] | self.occ[1]
+        self.occupied
+    }
+
+    #[inline(always)]
+    pub(crate) fn gold_like(&self, color: Color) -> Bitboard {
+        self.gold_like[color.index()]
+    }
+
+    #[inline(always)]
+    pub(crate) fn bishop_sliders(&self, color: Color) -> Bitboard {
+        self.bishop_sliders[color.index()]
+    }
+
+    #[inline(always)]
+    pub(crate) fn rook_sliders(&self, color: Color) -> Bitboard {
+        self.rook_sliders[color.index()]
+    }
+
+    #[inline(always)]
+    pub(crate) fn pawn_files(&self, color: Color) -> Bitboard {
+        self.pawn_files[color.index()]
+    }
+
+    #[inline(always)]
+    pub(crate) fn legality_cache(&self) -> Option<(Bitboard, Bitboard, Bitboard)> {
+        if self.legality_cache_valid && self.legality_cache_side == self.side_to_move {
+            Some((
+                self.legality_cache_checkers,
+                self.legality_cache_pinned,
+                self.legality_cache_evasion,
+            ))
+        } else {
+            None
+        }
+    }
+
+    #[inline]
+    pub(crate) fn set_legality_cache(
+        &mut self,
+        checkers: Bitboard,
+        pinned: Bitboard,
+        evasion: Bitboard,
+    ) {
+        self.legality_cache_valid = true;
+        self.legality_cache_side = self.side_to_move;
+        self.legality_cache_checkers = checkers;
+        self.legality_cache_pinned = pinned;
+        self.legality_cache_evasion = evasion;
+    }
+
+    #[inline]
+    fn invalidate_legality_cache(&mut self) {
+        self.legality_cache_valid = false;
     }
 
     /// `color`'s captured pieces held in hand.
+    #[inline(always)]
     pub fn hand(&self, color: Color) -> &Hand {
         &self.hand[color.index()]
     }
 
     /// Current Zobrist hash of the position
+    #[inline(always)]
     pub fn hash(&self) -> u64 {
         self.hash
     }
 
     /// Add one piece of `kind` to `color`'s hand (used by SFEN parser).
     pub(crate) fn add_hand_piece(&mut self, color: Color, kind: PieceKind) {
+        self.invalidate_legality_cache();
         self.hand[color.index()].restore(kind);
     }
 
     /// Place a piece during position setup (used by SFEN parser).
     pub(crate) fn setup_piece(&mut self, sq: Square, piece: Piece) {
+        self.invalidate_legality_cache();
         self.put(sq, piece);
     }
 
@@ -428,21 +544,36 @@ impl Board {
 
     /// Apply `m` and return a token needed to undo it.
     /// Updates Zobrist hash and NNUE accumulator incrementally.
-    #[inline]
+    #[inline(always)]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
         self.do_move_impl::<true, true, true>(m)
     }
 
-    /// Apply a move only for a short-lived rules/legality probe.
-    ///
-    /// The board, hands, side-to-move, ply, and hash are updated exactly like
-    /// [`Self::do_move`], but the NNUE accumulator is deliberately left at the
-    /// parent position.  Callers must not evaluate the temporary position and
-    /// must restore it with [`Self::undo_move_for_legality`].  Keeping the token
-    /// type private to the crate prevents accidentally pairing this path with
-    /// the normal NNUE-restoring undo operation.
-    pub(crate) fn do_move_for_legality(&mut self, m: Move) -> LegalityMoveToken {
-        LegalityMoveToken(self.do_move_impl::<false, true, true>(m))
+    /// Apply a move for search, omitting NNUE traffic when material evaluation
+    /// is active. NNUE-enabled searches retain the normal incremental updates.
+    #[inline(always)]
+    pub fn do_move_for_search(&mut self, m: Move) -> MoveToken {
+        if crate::nnue::weights_active() {
+            self.do_move_impl::<true, true, true>(m)
+        } else {
+            self.do_move_impl::<false, true, true>(m)
+        }
+    }
+
+    /// Apply a pawn drop for a short-lived uchifuzume probe. Only the board
+    /// occupancy and hand are changed; metadata and side-to-move remain
+    /// untouched because the probe already knows both values.
+    pub(crate) fn do_pawn_drop_for_probe(
+        &mut self,
+        color: Color,
+        to: Square,
+    ) -> PawnDropProbeToken {
+        // The uchifuzume probe calls only direct attack helpers while this
+        // temporary state is installed. Preserve the parent's legality cache
+        // so a generate-then-probe cycle does not force it to be rebuilt.
+        self.hand[color.index()].remove(PieceKind::Fu);
+        self.put(to, Piece::new(color, PieceKind::Fu));
+        PawnDropProbeToken { color, to }
     }
 
     /// Apply a move for Perft without updating hash or NNUE state.
@@ -450,13 +581,38 @@ impl Board {
         LegalityMoveToken(self.do_move_impl::<false, false, false>(m))
     }
 
-    #[inline]
+    #[inline(always)]
     fn do_move_impl<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
         &mut self,
         m: Move,
     ) -> MoveToken {
+        self.invalidate_legality_cache();
         let color = self.side_to_move;
         let prev_hash = self.hash;
+
+        // Quiet non-promoting moves to an empty square are the commonest state
+        // transition in the search tree. Keep captures, drops, and promotions
+        // on the authoritative generic path.
+        if let Some(from) = m.from
+            && !m.promote
+        {
+            if self.mailbox[m.to.index() as usize].is_none() {
+                return self.do_quiet_move::<UPDATE_NNUE, UPDATE_HASH, UPDATE_PLY>(
+                    from,
+                    m.to,
+                    m.piece_kind,
+                    prev_hash,
+                    color,
+                );
+            }
+            return self.do_capture_move::<UPDATE_NNUE, UPDATE_HASH, UPDATE_PLY>(
+                from,
+                m.to,
+                m.piece_kind,
+                prev_hash,
+                color,
+            );
+        }
 
         if UPDATE_HASH {
             self.hash ^= zobrist::side_key();
@@ -558,27 +714,232 @@ impl Board {
         token
     }
 
+    #[inline(always)]
+    fn do_quiet_move<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
+        &mut self,
+        from: Square,
+        to: Square,
+        kind: PieceKind,
+        prev_hash: u64,
+        color: Color,
+    ) -> MoveToken {
+        let color_index = color.index();
+        let moved = Piece::new(color, kind);
+
+        debug_assert_eq!(self.mailbox[from.index() as usize], Some(moved));
+        debug_assert!(self.mailbox[to.index() as usize].is_none());
+
+        let from_mask = Bitboard::from_square(from);
+        let to_mask = Bitboard::from_square(to);
+        let move_mask = from_mask | to_mask;
+        self.piece_bb[color_index][kind.index()] ^= move_mask;
+        self.occ[color_index] ^= move_mask;
+        self.occupied ^= move_mask;
+        self.mailbox[from.index() as usize] = None;
+        self.mailbox[to.index() as usize] = Some(moved);
+
+        match kind {
+            PieceKind::Fu => {
+                let from_file = Bitboard::file_bb(from.file_0());
+                let to_file = Bitboard::file_bb(to.file_0());
+                if (self.piece_bb[color_index][kind.index()] & from_file).is_empty() {
+                    self.pawn_files[color_index] &= !from_file;
+                }
+                self.pawn_files[color_index] |= to_file;
+            }
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => {
+                self.gold_like[color_index].unset(from);
+                self.gold_like[color_index].set(to);
+            }
+            PieceKind::Kaku | PieceKind::Uma => {
+                self.bishop_sliders[color_index].unset(from);
+                self.bishop_sliders[color_index].set(to);
+            }
+            PieceKind::Hisha | PieceKind::Ryu => {
+                self.rook_sliders[color_index].unset(from);
+                self.rook_sliders[color_index].set(to);
+            }
+            PieceKind::Ou => {
+                self.king_square[color_index] = Some(to);
+            }
+            PieceKind::Kyou | PieceKind::Kei | PieceKind::Gin => {}
+        }
+
+        if UPDATE_HASH {
+            self.hash = prev_hash
+                ^ zobrist::side_key()
+                ^ zobrist::piece_key(from, color, kind)
+                ^ zobrist::piece_key(to, color, kind);
+        }
+        if UPDATE_NNUE {
+            self.acc.move_piece(from, to, kind, color);
+        }
+
+        self.side_to_move = color.flip();
+        if UPDATE_PLY {
+            self.ply += 1;
+        }
+        MoveToken {
+            from: Some(from),
+            to,
+            moved,
+            captured: None,
+            promoted: false,
+            prev_hash,
+        }
+    }
+
+    #[inline(always)]
+    fn do_capture_move<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
+        &mut self,
+        from: Square,
+        to: Square,
+        kind: PieceKind,
+        prev_hash: u64,
+        color: Color,
+    ) -> MoveToken {
+        let color_index = color.index();
+        let captured = self.mailbox[to.index() as usize].expect("capture target must exist");
+        let moved = Piece::new(color, kind);
+        let captured_index = captured.color.index();
+        let captured_kind = captured.kind;
+
+        debug_assert_eq!(self.mailbox[from.index() as usize], Some(moved));
+        debug_assert_ne!(captured.color, color);
+
+        self.piece_bb[color_index][kind.index()].unset(from);
+        self.piece_bb[color_index][kind.index()].set(to);
+        self.piece_bb[captured_index][captured_kind.index()].unset(to);
+        self.occ[color_index].unset(from);
+        self.occ[color_index].set(to);
+        self.occ[captured_index].unset(to);
+        self.occupied.unset(from);
+        self.occupied.set(to);
+        self.mailbox[from.index() as usize] = None;
+        self.mailbox[to.index() as usize] = Some(moved);
+
+        match kind {
+            PieceKind::Fu => {
+                let from_file = Bitboard::file_bb(from.file_0());
+                let to_file = Bitboard::file_bb(to.file_0());
+                if (self.piece_bb[color_index][kind.index()] & from_file).is_empty() {
+                    self.pawn_files[color_index] &= !from_file;
+                }
+                self.pawn_files[color_index] |= to_file;
+            }
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => {
+                self.gold_like[color_index].unset(from);
+                self.gold_like[color_index].set(to);
+            }
+            PieceKind::Kaku | PieceKind::Uma => {
+                self.bishop_sliders[color_index].unset(from);
+                self.bishop_sliders[color_index].set(to);
+            }
+            PieceKind::Hisha | PieceKind::Ryu => {
+                self.rook_sliders[color_index].unset(from);
+                self.rook_sliders[color_index].set(to);
+            }
+            PieceKind::Ou => self.king_square[color_index] = Some(to),
+            PieceKind::Kyou | PieceKind::Kei | PieceKind::Gin => {}
+        }
+
+        match captured_kind {
+            PieceKind::Fu => {
+                let file = Bitboard::file_bb(to.file_0());
+                if (self.piece_bb[captured_index][PieceKind::Fu.index()] & file).is_empty() {
+                    self.pawn_files[captured_index] &= !file;
+                }
+            }
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => self.gold_like[captured_index].unset(to),
+            PieceKind::Kaku | PieceKind::Uma => self.bishop_sliders[captured_index].unset(to),
+            PieceKind::Hisha | PieceKind::Ryu => self.rook_sliders[captured_index].unset(to),
+            PieceKind::Ou => self.king_square[captured_index] = None,
+            PieceKind::Kyou | PieceKind::Kei | PieceKind::Gin => {}
+        }
+
+        let base = captured_kind.unpromoted();
+        let new_count = self.hand[color_index].get(base) + 1;
+        self.hand[color_index].add_captured(captured_kind);
+
+        if UPDATE_HASH {
+            self.hash = prev_hash
+                ^ zobrist::side_key()
+                ^ zobrist::piece_key(from, color, kind)
+                ^ zobrist::piece_key(to, captured.color, captured_kind)
+                ^ zobrist::piece_key(to, color, kind)
+                ^ zobrist::hand_delta(color, base, new_count);
+        }
+        if UPDATE_NNUE {
+            self.acc.capture_piece(
+                (from, to, kind, color),
+                (to, captured_kind, captured.color),
+                (base, new_count, color),
+            );
+        }
+
+        self.side_to_move = color.flip();
+        if UPDATE_PLY {
+            self.ply += 1;
+        }
+        MoveToken {
+            from: Some(from),
+            to,
+            moved,
+            captured: Some(captured),
+            promoted: false,
+            prev_hash,
+        }
+    }
+
     /// Restore position to before `do_move` using inverse NNUE deltas.
     /// No accumulator stack needed — the deltas are symmetric.
-    #[inline]
+    #[inline(always)]
     pub fn undo_move(&mut self, token: MoveToken) {
         self.undo_move_impl::<true, true, true>(token);
     }
 
-    /// Restore a temporary position created by [`Self::do_move_for_legality`].
-    pub(crate) fn undo_move_for_legality(&mut self, token: LegalityMoveToken) {
-        self.undo_move_impl::<false, true, true>(token.0);
+    /// Undo a move made by [`Board::do_move_for_search`].
+    #[inline(always)]
+    pub fn undo_move_for_search(&mut self, token: MoveToken) {
+        if crate::nnue::weights_active() {
+            self.undo_move_impl::<true, true, true>(token)
+        } else {
+            self.undo_move_impl::<false, true, true>(token)
+        }
+    }
+
+    /// Restore a temporary pawn-drop probe position.
+    pub(crate) fn undo_pawn_drop_for_probe(&mut self, token: PawnDropProbeToken) {
+        self.take(token.to);
+        self.hand[token.color.index()].restore(PieceKind::Fu);
     }
 
     pub(crate) fn undo_move_for_perft(&mut self, token: LegalityMoveToken) {
         self.undo_move_impl::<false, false, false>(token.0);
     }
 
-    #[inline]
+    #[inline(always)]
     fn undo_move_impl<const UPDATE_NNUE: bool, const UPDATE_HASH: bool, const UPDATE_PLY: bool>(
         &mut self,
         token: MoveToken,
     ) {
+        // `side_to_move` is flipped below before any later cache lookup. A
+        // cache computed for the child therefore cannot match the restored
+        // parent side; if the child was never queried, do_move already
+        // invalidated the parent's cache. Avoid an otherwise unconditional
+        // store on this hot reverse path.
         if UPDATE_HASH {
             self.hash = token.prev_hash;
         }
@@ -587,6 +948,14 @@ impl Board {
             self.ply -= 1;
         }
         let color = self.side_to_move;
+
+        if let Some(from) = token.from
+            && !token.promoted
+            && token.captured.is_none()
+        {
+            self.undo_quiet_move::<UPDATE_NNUE>(from, token.to, token.moved.kind, color);
+            return;
+        }
 
         match token.from {
             None => {
@@ -612,14 +981,14 @@ impl Board {
                 self.take(token.to);
 
                 // NNUE inverse: remove the piece that was at `to`
-                if UPDATE_NNUE {
+                if UPDATE_NNUE && token.captured.is_none() {
                     self.acc.remove_piece(token.to, kind_at_to, color);
                 }
 
                 self.put(from, token.moved); // restore pre-promotion piece
 
                 // NNUE inverse: put back the original piece at `from`
-                if UPDATE_NNUE {
+                if UPDATE_NNUE && token.captured.is_none() {
                     self.acc.add_piece(from, token.moved.kind, color);
                 }
 
@@ -630,12 +999,73 @@ impl Board {
 
                     // NNUE inverse: captured piece reappears on board; threshold feature for before_remove turns off
                     if UPDATE_NNUE {
-                        self.acc.add_piece(token.to, cap.kind, cap.color);
-                        self.acc
-                            .remove_hand(cap.kind.unpromoted(), before_remove, color);
+                        self.acc.undo_capture_piece(
+                            (from, token.to, token.moved.kind, kind_at_to, color),
+                            (token.to, cap.kind, cap.color),
+                            (cap.kind.unpromoted(), before_remove, color),
+                        );
                     }
                 }
             }
+        }
+    }
+
+    #[inline(always)]
+    fn undo_quiet_move<const UPDATE_NNUE: bool>(
+        &mut self,
+        from: Square,
+        to: Square,
+        kind: PieceKind,
+        color: Color,
+    ) {
+        let color_index = color.index();
+        let moved = Piece::new(color, kind);
+
+        debug_assert_eq!(self.mailbox[to.index() as usize], Some(moved));
+        debug_assert!(self.mailbox[from.index() as usize].is_none());
+
+        let from_mask = Bitboard::from_square(from);
+        let to_mask = Bitboard::from_square(to);
+        let move_mask = from_mask | to_mask;
+        self.piece_bb[color_index][kind.index()] ^= move_mask;
+        self.occ[color_index] ^= move_mask;
+        self.occupied ^= move_mask;
+        self.mailbox[to.index() as usize] = None;
+        self.mailbox[from.index() as usize] = Some(moved);
+
+        match kind {
+            PieceKind::Fu => {
+                let from_file = Bitboard::file_bb(from.file_0());
+                let to_file = Bitboard::file_bb(to.file_0());
+                if (self.piece_bb[color_index][kind.index()] & to_file).is_empty() {
+                    self.pawn_files[color_index] &= !to_file;
+                }
+                self.pawn_files[color_index] |= from_file;
+            }
+            PieceKind::Kin
+            | PieceKind::Tokin
+            | PieceKind::Narikyo
+            | PieceKind::Narikei
+            | PieceKind::Narigin => {
+                self.gold_like[color_index].unset(to);
+                self.gold_like[color_index].set(from);
+            }
+            PieceKind::Kaku | PieceKind::Uma => {
+                self.bishop_sliders[color_index].unset(to);
+                self.bishop_sliders[color_index].set(from);
+            }
+            PieceKind::Hisha | PieceKind::Ryu => {
+                self.rook_sliders[color_index].unset(to);
+                self.rook_sliders[color_index].set(from);
+            }
+            PieceKind::Ou => {
+                self.king_square[color_index] = Some(from);
+            }
+            PieceKind::Kyou | PieceKind::Kei | PieceKind::Gin => {}
+        }
+
+        if UPDATE_NNUE {
+            self.acc.move_piece(to, from, kind, color);
         }
     }
 
@@ -645,6 +1075,7 @@ impl Board {
     /// Toggles side_to_move and flips the side-to-move Zobrist key.
     /// Does NOT update ply, acc, or piece bitboards.
     pub fn do_null_move(&mut self) -> NullToken {
+        self.invalidate_legality_cache();
         let prev_hash = self.hash;
         self.hash ^= zobrist::side_key();
         self.side_to_move = self.side_to_move.flip();
@@ -653,6 +1084,7 @@ impl Board {
 
     /// Undo a null move, restoring side_to_move and hash.
     pub fn undo_null_move(&mut self, tok: NullToken) {
+        self.invalidate_legality_cache();
         self.hash = tok.prev_hash;
         self.side_to_move = self.side_to_move.flip();
     }
@@ -660,6 +1092,12 @@ impl Board {
 
 /// Opaque token for the accumulator-skipping legality probe path.
 pub(crate) struct LegalityMoveToken(MoveToken);
+
+/// Opaque token for the metadata-free pawn-drop probe path.
+pub(crate) struct PawnDropProbeToken {
+    color: Color,
+    to: Square,
+}
 
 /// Opaque token returned by `Board::do_null_move`; passed to `Board::undo_null_move`.
 #[derive(Clone, Copy, Debug)]

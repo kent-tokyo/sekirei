@@ -2,10 +2,15 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use sekirei_core::{
     board::Board,
     eval::evaluate,
+    mcts::{
+        MaterialValue, MctsConfig, RootMcts, SharedTreeMcts, SharedTreeMctsConfig, TreeMcts,
+        TreeMctsConfig, UniformPolicy,
+    },
     movegen::{generate_legal_captures, generate_legal_moves},
     nnue::NnueWeights,
     perft::perft,
-    search::{SearchConfig, Searcher},
+    policy::top_n,
+    search::{SearchConfig, Searcher, SpeculativeSearcher},
     tt::Tt,
 };
 use std::hint::black_box;
@@ -66,6 +71,14 @@ fn bench_evaluate(c: &mut Criterion) {
     });
 }
 
+fn bench_policy_top_n(c: &mut Criterion) {
+    let board = Board::startpos();
+    let tt = Tt::new(16);
+    c.bench_function("policy_top_n_startpos_n2", |b| {
+        b.iter(|| black_box(top_n(black_box(&board), black_box(&tt), 2)));
+    });
+}
+
 fn bench_nnue_evaluate(c: &mut Criterion) {
     let board = Board::startpos();
     let weights = NnueWeights::default_lcg();
@@ -113,6 +126,88 @@ fn bench_do_undo(c: &mut Criterion) {
     });
 }
 
+fn bench_tree_mcts(c: &mut Criterion) {
+    let board = Board::startpos();
+    let mcts = TreeMcts::default();
+    let policy = UniformPolicy;
+    let value = MaterialValue;
+    c.bench_function("tree_mcts_256_simulations_depth4", |b| {
+        b.iter(|| {
+            black_box(mcts.search(
+                black_box(&board),
+                TreeMctsConfig {
+                    simulations: 256,
+                    max_depth: 4,
+                    value_cache: false,
+                },
+                &policy,
+                &value,
+            ))
+        });
+    });
+}
+
+fn bench_root_mcts(c: &mut Criterion) {
+    let board = Board::startpos();
+    let mcts = RootMcts::default();
+    let policy = UniformPolicy;
+    let value = MaterialValue;
+    c.bench_function("root_mcts_256_simulations", |b| {
+        b.iter(|| {
+            black_box(mcts.search(
+                black_box(&board),
+                MctsConfig {
+                    simulations: 256,
+                    ..MctsConfig::default()
+                },
+                &policy,
+                &value,
+            ))
+        });
+    });
+}
+
+fn bench_shared_tree_mcts(c: &mut Criterion) {
+    let board = Board::startpos();
+    let mcts = SharedTreeMcts::default();
+    let policy = UniformPolicy;
+    let value = MaterialValue;
+    c.bench_function("shared_tree_mcts_256_simulations_depth4", |b| {
+        b.iter(|| {
+            black_box(mcts.search(
+                black_box(&board),
+                SharedTreeMctsConfig {
+                    simulations: 256,
+                    max_depth: 4,
+                    ..SharedTreeMctsConfig::default()
+                },
+                &policy,
+                &value,
+            ))
+        });
+    });
+}
+
+fn bench_speculative_search(c: &mut Criterion) {
+    let searcher = SpeculativeSearcher::new(Tt::new(16), 2);
+    c.bench_function("speculative_search_depth4_startpos", |b| {
+        b.iter(|| {
+            searcher.reset_abort_flag();
+            let mut board = Board::startpos();
+            black_box(searcher.search(
+                black_box(&mut board),
+                SearchConfig {
+                    max_depth: 4,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+            ))
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_movegen,
@@ -120,8 +215,13 @@ criterion_group!(
     bench_perft3,
     bench_search_depth4,
     bench_evaluate,
+    bench_policy_top_n,
     bench_nnue_evaluate,
     bench_nnue_evaluate_corpus,
-    bench_do_undo
+    bench_do_undo,
+    bench_tree_mcts,
+    bench_root_mcts,
+    bench_shared_tree_mcts,
+    bench_speculative_search
 );
 criterion_main!(benches);

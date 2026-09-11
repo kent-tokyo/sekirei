@@ -12,46 +12,22 @@ use std::cell::RefCell;
 
 /// Returns true if `sq` is attacked by any piece belonging to `by`
 pub fn is_attacked(board: &Board, sq: Square, by: Color) -> bool {
-    is_attacked_with_occupancy(board, sq, by, board.occ(), Bitboard::EMPTY)
+    is_attacked_with_occupancy(board, sq, by, board.occ())
 }
 
-/// Attack query with caller-supplied occupancy and an optional captured
-/// attacker mask. This lets king-move legality be checked without mutating and
-/// restoring the complete board state for every destination.
 #[inline]
-fn is_attacked_with_occupancy(
-    board: &Board,
-    sq: Square,
-    by: Color,
-    occupied: Bitboard,
-    removed_attackers: Bitboard,
-) -> bool {
+fn is_attacked_with_occupancy(board: &Board, sq: Square, by: Color, occupied: Bitboard) -> bool {
     let square_index = sq.index() as usize;
     let reverse_color = by.flip().index();
-    let keep = !removed_attackers;
-    let pawn = board.pieces(by, PieceKind::Fu) & keep;
-    let lance = board.pieces(by, PieceKind::Kyou) & keep;
-    let knight = board.pieces(by, PieceKind::Kei) & keep;
-    let silver = board.pieces(by, PieceKind::Gin) & keep;
-    let gold = (board.pieces(by, PieceKind::Kin)
-        | board.pieces(by, PieceKind::Tokin)
-        | board.pieces(by, PieceKind::Narikyo)
-        | board.pieces(by, PieceKind::Narikei)
-        | board.pieces(by, PieceKind::Narigin))
-        & keep;
-    let bishop = (board.pieces(by, PieceKind::Kaku) | board.pieces(by, PieceKind::Uma)) & keep;
-    let rook = (board.pieces(by, PieceKind::Hisha) | board.pieces(by, PieceKind::Ryu)) & keep;
-    let horse = board.pieces(by, PieceKind::Uma) & keep;
-    let dragon = board.pieces(by, PieceKind::Ryu) & keep;
-    let king = board.pieces(by, PieceKind::Ou) & keep;
 
-    let step_attackers = (PAWN_ATTACKS[reverse_color][square_index] & pawn)
-        | (KNIGHT_ATTACKS[reverse_color][square_index] & knight)
-        | (SILVER_ATTACKS[reverse_color][square_index] & silver)
-        | (GOLD_ATTACKS[reverse_color][square_index] & gold)
-        | (ORTHOGONAL_STEP_ATTACKS[square_index] & horse)
-        | (DIAGONAL_STEP_ATTACKS[square_index] & dragon)
-        | (KING_ATTACKS[square_index] & king);
+    let step_attackers = (PAWN_ATTACKS[reverse_color][square_index]
+        & board.pieces(by, PieceKind::Fu))
+        | (KNIGHT_ATTACKS[reverse_color][square_index] & board.pieces(by, PieceKind::Kei))
+        | (SILVER_ATTACKS[reverse_color][square_index] & board.pieces(by, PieceKind::Gin))
+        | (GOLD_ATTACKS[reverse_color][square_index] & board.gold_like(by))
+        | (ORTHOGONAL_STEP_ATTACKS[square_index] & board.pieces(by, PieceKind::Uma))
+        | (DIAGONAL_STEP_ATTACKS[square_index] & board.pieces(by, PieceKind::Ryu))
+        | (KING_ATTACKS[square_index] & board.pieces(by, PieceKind::Ou));
     if !step_attackers.is_empty() {
         return true;
     }
@@ -61,28 +37,50 @@ fn is_attacked_with_occupancy(
     };
 
     // Lance: slide from the target in the reverse attack direction.
+    let lance = board.pieces(by, PieceKind::Kyou);
     match by {
         Color::Black => {
-            if slide_hits(Direction::S, lance) {
+            if !lance.is_empty()
+                && !(RAY_ATTACKS[1][square_index] & lance).is_empty()
+                && slide_hits(Direction::S, lance)
+            {
                 return true;
             }
         }
         Color::White => {
-            if slide_hits(Direction::N, lance) {
+            if !lance.is_empty()
+                && !(RAY_ATTACKS[0][square_index] & lance).is_empty()
+                && slide_hits(Direction::N, lance)
+            {
                 return true;
             }
         }
     }
 
     // Bishop / Uma: diagonal sliding
-    for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-        if slide_hits(dir, bishop) {
+    let bishop = board.bishop_sliders(by);
+    for (direction_index, dir) in [
+        (4, Direction::NE),
+        (5, Direction::NW),
+        (6, Direction::SE),
+        (7, Direction::SW),
+    ] {
+        if !(RAY_ATTACKS[direction_index][square_index] & bishop).is_empty()
+            && slide_hits(dir, bishop)
+        {
             return true;
         }
     }
     // Rook / Ryu: orthogonal sliding
-    for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-        if slide_hits(dir, rook) {
+    let rook = board.rook_sliders(by);
+    for (direction_index, dir) in [
+        (0, Direction::N),
+        (1, Direction::S),
+        (2, Direction::E),
+        (3, Direction::W),
+    ] {
+        if !(RAY_ATTACKS[direction_index][square_index] & rook).is_empty() && slide_hits(dir, rook)
+        {
             return true;
         }
     }
@@ -95,6 +93,36 @@ pub fn is_in_check(board: &Board, color: Color) -> bool {
         Some(king_sq) => is_attacked(board, king_sq, color.flip()),
         None => false, // no king on board (shouldn't happen in a valid position)
     }
+}
+
+/// Return the pieces of `by` that attack `sq` under the supplied occupancy.
+/// This is used by the pawn-drop mate probe, where a non-king attacker can
+/// answer the adjacent check by capturing the dropped pawn.
+#[inline]
+fn attackers_to_square(board: &Board, sq: Square, by: Color, occupied: Bitboard) -> Bitboard {
+    let square_index = sq.index() as usize;
+    let reverse_color = by.flip().index();
+    let mut attackers = (PAWN_ATTACKS[reverse_color][square_index]
+        & board.pieces(by, PieceKind::Fu))
+        | (KNIGHT_ATTACKS[reverse_color][square_index] & board.pieces(by, PieceKind::Kei))
+        | (SILVER_ATTACKS[reverse_color][square_index] & board.pieces(by, PieceKind::Gin))
+        | (GOLD_ATTACKS[reverse_color][square_index] & board.gold_like(by))
+        | (ORTHOGONAL_STEP_ATTACKS[square_index] & board.pieces(by, PieceKind::Uma))
+        | (DIAGONAL_STEP_ATTACKS[square_index] & board.pieces(by, PieceKind::Ryu))
+        | (KING_ATTACKS[square_index] & board.pieces(by, PieceKind::Ou));
+
+    let lance_direction = match by {
+        Color::Black => Direction::S,
+        Color::White => Direction::N,
+    };
+    attackers |= sliding_attacks(sq, occupied, lance_direction) & board.pieces(by, PieceKind::Kyou);
+    for direction in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
+        attackers |= sliding_attacks(sq, occupied, direction) & board.bishop_sliders(by);
+    }
+    for direction in [Direction::N, Direction::S, Direction::E, Direction::W] {
+        attackers |= sliding_attacks(sq, occupied, direction) & board.rook_sliders(by);
+    }
+    attackers
 }
 
 #[cfg(test)]
@@ -212,6 +240,31 @@ const ORTHOGONAL_STEP_ATTACKS: [Bitboard; Square::NUM] =
 const DIAGONAL_STEP_ATTACKS: [Bitboard; Square::NUM] =
     build_step_attacks([(-1, -1), (1, -1), (-1, 1), (1, 1)]);
 
+const fn build_drop_allowed_masks() -> [[Bitboard; 7]; 2] {
+    [
+        [
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_FU_KYOU_BLACK.0),
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_FU_KYOU_BLACK.0),
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_KEI_BLACK.0),
+            Bitboard::FULL,
+            Bitboard::FULL,
+            Bitboard::FULL,
+            Bitboard::FULL,
+        ],
+        [
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_FU_KYOU_WHITE.0),
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_FU_KYOU_WHITE.0),
+            Bitboard(Bitboard::FULL.0 & !Bitboard::STUCK_KEI_WHITE.0),
+            Bitboard::FULL,
+            Bitboard::FULL,
+            Bitboard::FULL,
+            Bitboard::FULL,
+        ],
+    ]
+}
+
+const DROP_ALLOWED_MASKS: [[Bitboard; 7]; 2] = build_drop_allowed_masks();
+
 const fn build_ray_attacks(file_delta: i8, rank_delta: i8) -> [Bitboard; Square::NUM] {
     let mut table = [Bitboard::EMPTY; Square::NUM];
     let mut square_index = 0usize;
@@ -261,6 +314,65 @@ const fn combine_rays(indices: [usize; 4]) -> [Bitboard; Square::NUM] {
 const ORTHOGONAL_RAYS: [Bitboard; Square::NUM] = combine_rays([0, 1, 2, 3]);
 const DIAGONAL_RAYS: [Bitboard; Square::NUM] = combine_rays([4, 5, 6, 7]);
 
+const fn build_pin_rays() -> [[Bitboard; Square::NUM]; Square::NUM] {
+    let mut table = [[Bitboard::EMPTY; Square::NUM]; Square::NUM];
+    let mut king = 0usize;
+    while king < Square::NUM {
+        let mut pinned = 0usize;
+        while pinned < Square::NUM {
+            let mut direction = 0usize;
+            while direction < RAY_ATTACKS.len() {
+                let ray = RAY_ATTACKS[direction][king];
+                if ray.contains(Square::from_index(pinned as u8)) {
+                    table[king][pinned] = ray;
+                    break;
+                }
+                direction += 1;
+            }
+            pinned += 1;
+        }
+        king += 1;
+    }
+    table
+}
+
+static PIN_RAYS: [[Bitboard; Square::NUM]; Square::NUM] = build_pin_rays();
+
+const fn build_file_attacks() -> [[u16; 512]; 9] {
+    let mut table = [[0u16; 512]; 9];
+    let mut origin = 0usize;
+    while origin < 9 {
+        let mut occupied = 0usize;
+        while occupied < 512 {
+            let mut attacks = 0u16;
+            let mut rank = origin as i32 - 1;
+            while rank >= 0 {
+                let bit = 1u16 << rank;
+                attacks |= bit;
+                if occupied & bit as usize != 0 {
+                    break;
+                }
+                rank -= 1;
+            }
+            rank = origin as i32 + 1;
+            while rank < 9 {
+                let bit = 1u16 << rank;
+                attacks |= bit;
+                if occupied & bit as usize != 0 {
+                    break;
+                }
+                rank += 1;
+            }
+            table[origin][occupied] = attacks;
+            occupied += 1;
+        }
+        origin += 1;
+    }
+    table
+}
+
+static FILE_ATTACKS: [[u16; 512]; 9] = build_file_attacks();
+
 #[inline]
 const fn direction_index(direction: Direction) -> usize {
     match direction {
@@ -278,30 +390,73 @@ const fn direction_index(direction: Direction) -> usize {
     }
 }
 
-#[inline]
-fn sliding_attacks(from: Square, occupied: Bitboard, direction: Direction) -> Bitboard {
-    let direction_index = direction_index(direction);
+#[inline(always)]
+fn sliding_attacks_index(from: Square, occupied: Bitboard, direction_index: usize) -> Bitboard {
     let ray = RAY_ATTACKS[direction_index][from.index() as usize];
-    let blockers = ray & occupied;
-    if blockers.is_empty() {
-        return ray;
+    if matches!(direction_index, 0 | 1) {
+        let file_start = (from.index() as usize / 9) * 9;
+        let rank = from.index() as usize % 9;
+        let file_occupied = ((occupied.0 >> file_start) & 0x1ff) as usize;
+        return Bitboard((FILE_ATTACKS[rank][file_occupied] as u128) << file_start) & ray;
     }
-
-    if matches!(
-        direction,
-        Direction::S | Direction::W | Direction::NW | Direction::SW
-    ) {
-        let blocker_index = blockers.0.trailing_zeros();
-        Bitboard(ray.0 & ((1u128 << (blocker_index + 1)) - 1))
+    let blockers = ray & occupied;
+    if matches!(direction_index, 1 | 3 | 5 | 7) {
+        // The least-significant blocker formula also handles an empty ray:
+        // `0 ^ 0.wrapping_sub(1)` is all ones, so no empty check is needed.
+        Bitboard(ray.0 & (blockers.0 ^ blockers.0.wrapping_sub(1)))
     } else {
+        if blockers.is_empty() {
+            return ray;
+        }
         let blocker_index = 127 - blockers.0.leading_zeros();
         Bitboard(ray.0 & !((1u128 << blocker_index) - 1))
     }
 }
 
+#[inline(always)]
+fn sliding_attacks_const<const DIRECTION: usize>(from: Square, occupied: Bitboard) -> Bitboard {
+    let ray = RAY_ATTACKS[DIRECTION][from.index() as usize];
+    if DIRECTION == 0 || DIRECTION == 1 {
+        let file_start = (from.index() as usize / 9) * 9;
+        let rank = from.index() as usize % 9;
+        let file_occupied = ((occupied.0 >> file_start) & 0x1ff) as usize;
+        return Bitboard((FILE_ATTACKS[rank][file_occupied] as u128) << file_start) & ray;
+    }
+    let blockers = ray & occupied;
+    if DIRECTION == 1 || DIRECTION == 3 || DIRECTION == 5 || DIRECTION == 7 {
+        // The least-significant blocker formula returns the complete ray when
+        // `blockers` is empty, avoiding a branch in the common clear-ray case.
+        Bitboard(ray.0 & (blockers.0 ^ blockers.0.wrapping_sub(1)))
+    } else {
+        if blockers.is_empty() {
+            return ray;
+        }
+        let blocker_index = 127 - blockers.0.leading_zeros();
+        Bitboard(ray.0 & !((1u128 << blocker_index) - 1))
+    }
+}
+
+#[inline(always)]
+fn sliding_attacks(from: Square, occupied: Bitboard, direction: Direction) -> Bitboard {
+    sliding_attacks_index(from, occupied, direction_index(direction))
+}
+
 #[inline]
-fn first_blocker_on_ray(from: Square, occupied: Bitboard, direction: Direction) -> Option<Square> {
-    (sliding_attacks(from, occupied, direction) & occupied).lsb()
+fn first_blocker_on_ray_index(
+    from: Square,
+    occupied: Bitboard,
+    direction_index: usize,
+) -> Option<Square> {
+    let blockers = RAY_ATTACKS[direction_index][from.index() as usize] & occupied;
+    if blockers.is_empty() {
+        return None;
+    }
+    let index = if matches!(direction_index, 1 | 3 | 5 | 7) {
+        blockers.0.trailing_zeros()
+    } else {
+        127 - blockers.0.leading_zeros()
+    };
+    Some(Square::from_index(index as u8))
 }
 
 #[derive(Clone, Copy)]
@@ -309,6 +464,14 @@ struct MoveRestrictions {
     allowed: Bitboard,
     pinned: Bitboard,
     king: Option<Square>,
+    unrestricted: bool,
+}
+
+#[derive(Clone, Copy)]
+struct MoveGenContext {
+    own: Bitboard,
+    enemy: Bitboard,
+    occ: Bitboard,
 }
 
 impl MoveRestrictions {
@@ -316,10 +479,14 @@ impl MoveRestrictions {
         allowed: Bitboard::FULL,
         pinned: Bitboard::EMPTY,
         king: None,
+        unrestricted: true,
     };
 
-    #[inline]
+    #[inline(always)]
     fn targets<const RESTRICTED: bool>(self, from: Square, mut targets: Bitboard) -> Bitboard {
+        if self.unrestricted {
+            return targets;
+        }
         targets &= self.allowed;
         if !RESTRICTED || self.pinned.is_empty() {
             return targets;
@@ -336,14 +503,7 @@ impl MoveRestrictions {
 
 #[inline]
 fn pin_ray(king: Square, pinned: Square) -> Bitboard {
-    let king_index = king.index() as usize;
-    for ray in &RAY_ATTACKS {
-        let ray = ray[king_index];
-        if ray.contains(pinned) {
-            return ray;
-        }
-    }
-    Bitboard::EMPTY
+    PIN_RAYS[king.index() as usize][pinned.index() as usize]
 }
 
 #[inline]
@@ -351,16 +511,26 @@ fn king_destination_is_safe(board: &Board, mover: Color, m: Move) -> bool {
     let Some(from) = m.from else {
         return false;
     };
+
+    // If the opponent has no non-king pieces, only the opposing king can
+    // attack the destination. Avoid the general attack query's step/sliding
+    // piece-family checks in king-only endgames and drop-heavy diagnostics.
+    let opponent = mover.flip();
+    if board
+        .occ_for(opponent)
+        .and_not(board.pieces(opponent, PieceKind::Ou))
+        .is_empty()
+    {
+        return board
+            .king_square(opponent)
+            .map(|king| !KING_ATTACKS[king.index() as usize].contains(m.to))
+            .unwrap_or(true);
+    }
+
     let mut occupied = board.occ();
     occupied.unset(from);
     occupied.set(m.to);
-    !is_attacked_with_occupancy(
-        board,
-        m.to,
-        mover.flip(),
-        occupied,
-        Bitboard::from_square(m.to),
-    )
+    !is_attacked_with_occupancy(board, m.to, mover.flip(), occupied)
 }
 
 #[inline]
@@ -383,28 +553,65 @@ pub(crate) trait MoveSink {
     fn clear(&mut self);
     fn push(&mut self, m: Move);
 
-    #[inline]
+    #[inline(always)]
+    fn push_normal(&mut self, from: Square, to: Square, kind: PieceKind, promote: bool)
+    where
+        Self: Sized,
+    {
+        self.push(Move::normal(from, to, kind, promote));
+    }
+
+    #[inline(always)]
+    fn push_drop(&mut self, to: Square, kind: PieceKind)
+    where
+        Self: Sized,
+    {
+        self.push(Move::drop(to, kind));
+    }
+
+    #[inline(always)]
+    fn push_drop_targets(&mut self, kind: PieceKind, mut targets: Bitboard)
+    where
+        Self: Sized,
+    {
+        while let Some(to) = targets.pop_lsb() {
+            self.push_drop(to, kind);
+        }
+    }
+
+    #[inline(always)]
     fn push_plain_targets(&mut self, from: Square, kind: PieceKind, mut targets: Bitboard)
     where
         Self: Sized,
     {
         while let Some(to) = targets.pop_lsb() {
-            self.push(Move::normal(from, to, kind, false));
+            self.push_normal(from, to, kind, false);
         }
     }
 
-    #[inline]
-    fn push_promotable_targets(
+    #[inline(always)]
+    fn push_promotable_targets_with_masks(
         &mut self,
         from: Square,
         kind: PieceKind,
-        color: Color,
-        mut targets: Bitboard,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
     ) where
         Self: Sized,
     {
+        let from_in_zone = zone.contains(from);
         while let Some(to) = targets.pop_lsb() {
-            push_with_promotion(from, to, kind, color, self);
+            let in_zone = from_in_zone || zone.contains(to);
+            let must_promote = stuck.contains(to);
+            if in_zone {
+                self.push_normal(from, to, kind, true);
+                if !must_promote {
+                    self.push_normal(from, to, kind, false);
+                }
+            } else {
+                self.push_normal(from, to, kind, false);
+            }
         }
     }
 }
@@ -415,9 +622,47 @@ impl MoveSink for Vec<Move> {
         Vec::clear(self);
     }
 
-    #[inline]
+    #[inline(always)]
     fn push(&mut self, m: Move) {
         Vec::push(self, m);
+    }
+
+    #[inline(always)]
+    fn push_plain_targets(&mut self, from: Square, kind: PieceKind, mut targets: Bitboard) {
+        while let Some(to) = targets.pop_lsb() {
+            self.push_normal(from, to, kind, false);
+        }
+    }
+
+    #[inline]
+    fn push_drop_targets(&mut self, kind: PieceKind, mut targets: Bitboard) {
+        while let Some(to) = targets.pop_lsb() {
+            self.push_drop(to, kind);
+        }
+    }
+
+    #[inline(always)]
+    fn push_promotable_targets_with_masks(
+        &mut self,
+        from: Square,
+        kind: PieceKind,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
+    ) {
+        let from_in_zone = zone.contains(from);
+        while let Some(to) = targets.pop_lsb() {
+            let in_zone = from_in_zone || zone.contains(to);
+            let must_promote = stuck.contains(to);
+            if in_zone {
+                self.push_normal(from, to, kind, true);
+                if !must_promote {
+                    self.push_normal(from, to, kind, false);
+                }
+            } else {
+                self.push_normal(from, to, kind, false);
+            }
+        }
     }
 }
 
@@ -442,50 +687,47 @@ impl MoveSink for MoveCounter {
         self.count += u64::from(targets.popcount());
     }
 
-    #[inline]
-    fn push_promotable_targets(
+    #[inline(always)]
+    fn push_promotable_targets_with_masks(
         &mut self,
-        from: Square,
-        kind: PieceKind,
-        color: Color,
-        targets: Bitboard,
+        _from: Square,
+        _kind: PieceKind,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
     ) {
-        let (zone, stuck) = promotion_masks(kind, color);
-        let optional_promotions = if zone.contains(from) {
-            targets & !stuck
+        let optional_promotions = if zone.contains(_from) {
+            targets.and_not(stuck)
         } else {
-            targets & zone & !stuck
+            (*targets & zone).and_not(stuck)
         };
         self.count += u64::from(targets.popcount() + optional_promotions.popcount());
     }
 }
 
-/// Push a move with the correct promote / no-promote options.
 #[inline]
-fn push_with_promotion(
+fn push_promotable_targets_fast(
     from: Square,
-    to: Square,
     kind: PieceKind,
-    color: Color,
+    zone: Bitboard,
+    stuck: Bitboard,
+    targets: &mut Bitboard,
     moves: &mut impl MoveSink,
 ) {
-    if !kind.is_promotable() {
-        moves.push(Move::normal(from, to, kind, false));
+    if targets.is_empty() {
+        return;
+    }
+    // In the overwhelmingly common quiet case, neither the origin nor any
+    // destination enters the promotion zone. Avoid checking both masks and
+    // the forced-promotion mask once per destination. Keeping this as a
+    // separate fast path also preserves the original bit-scan order.
+    if !zone.contains(from) && (*targets & zone).is_empty() {
+        moves.push_plain_targets(from, kind, *targets);
+        *targets = Bitboard::EMPTY;
         return;
     }
 
-    let (promote_zone, stuck) = promotion_masks(kind, color);
-    let in_zone = promote_zone.contains(from) || promote_zone.contains(to);
-    let must = stuck.contains(to);
-
-    if in_zone {
-        moves.push(Move::normal(from, to, kind, true));
-        if !must {
-            moves.push(Move::normal(from, to, kind, false));
-        }
-    } else {
-        moves.push(Move::normal(from, to, kind, false));
-    }
+    moves.push_promotable_targets_with_masks(from, kind, zone, stuck, targets);
 }
 
 #[inline]
@@ -494,6 +736,7 @@ fn gen_step_attacks<const RESTRICTED: bool>(
     color: Color,
     kind: PieceKind,
     attacks: &[Bitboard; Square::NUM],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -501,11 +744,11 @@ fn gen_step_attacks<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let own = board.occ_for(color);
+    let (zone, stuck) = promotion_masks(kind, color);
     while let Some(from) = pieces.pop_lsb() {
-        let targets =
-            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & !own);
-        moves.push_promotable_targets(from, kind, color, targets);
+        let mut targets = restrictions
+            .targets::<RESTRICTED>(from, attacks[from.index() as usize].and_not(context.own));
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
     }
 }
 
@@ -515,6 +758,7 @@ fn gen_plain_step_attacks<const RESTRICTED: bool>(
     color: Color,
     kind: PieceKind,
     attacks: &[Bitboard; Square::NUM],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -522,21 +766,19 @@ fn gen_plain_step_attacks<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let own = board.occ_for(color);
     while let Some(from) = pieces.pop_lsb() {
-        let targets =
-            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & !own);
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, attacks[from.index() as usize].and_not(context.own));
         moves.push_plain_targets(from, kind, targets);
     }
 }
 
-/// Generate sliding moves for all pieces of the given kind and color
 #[inline]
-fn gen_sliding<const RESTRICTED: bool>(
+fn gen_sliding_one<const RESTRICTED: bool, const DIRECTION: usize>(
     board: &Board,
     color: Color,
     kind: PieceKind,
-    dirs: &[Direction],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -544,14 +786,100 @@ fn gen_sliding<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let own = board.occ_for(color);
-    let occ = board.occ();
+    let (zone, stuck) = promotion_masks(kind, color);
     while let Some(from) = pieces.pop_lsb() {
-        for &dir in dirs {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
-            moves.push_promotable_targets(from, kind, color, targets);
-        }
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<DIRECTION>(from, context.occ).and_not(context.own),
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+    }
+}
+
+#[inline]
+fn gen_sliding_four<
+    const RESTRICTED: bool,
+    const D0: usize,
+    const D1: usize,
+    const D2: usize,
+    const D3: usize,
+>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let (zone, stuck) = promotion_masks(kind, color);
+    while let Some(from) = pieces.pop_lsb() {
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D0>(from, context.occ).and_not(context.own),
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D1>(from, context.occ).and_not(context.own),
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D2>(from, context.occ).and_not(context.own),
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D3>(from, context.occ).and_not(context.own),
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+    }
+}
+
+#[inline]
+fn gen_sliding_four_plain<
+    const RESTRICTED: bool,
+    const D0: usize,
+    const D1: usize,
+    const D2: usize,
+    const D3: usize,
+>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    while let Some(from) = pieces.pop_lsb() {
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D0>(from, context.occ).and_not(context.own),
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D1>(from, context.occ).and_not(context.own),
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D2>(from, context.occ).and_not(context.own),
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D3>(from, context.occ).and_not(context.own),
+        );
+        moves.push_plain_targets(from, kind, targets);
     }
 }
 
@@ -560,23 +888,27 @@ fn gen_sliding<const RESTRICTED: bool>(
 fn gen_uma<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
-    let mut pieces = board.pieces(color, PieceKind::Uma);
-    if pieces.is_empty() {
+    if board.pieces(color, PieceKind::Uma).is_empty() {
         return;
     }
-    let own = board.occ_for(color);
-    let occ = board.occ();
+    gen_sliding_four_plain::<RESTRICTED, 4, 5, 6, 7>(
+        board,
+        color,
+        PieceKind::Uma,
+        context,
+        restrictions,
+        moves,
+    );
+    let mut pieces = board.pieces(color, PieceKind::Uma);
     while let Some(from) = pieces.pop_lsb() {
-        for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
-            moves.push_plain_targets(from, PieceKind::Uma, targets);
-        }
-        let targets = restrictions
-            .targets::<RESTRICTED>(from, ORTHOGONAL_STEP_ATTACKS[from.index() as usize] & !own);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            ORTHOGONAL_STEP_ATTACKS[from.index() as usize].and_not(context.own),
+        );
         moves.push_plain_targets(from, PieceKind::Uma, targets);
     }
 }
@@ -586,54 +918,73 @@ fn gen_uma<const RESTRICTED: bool>(
 fn gen_ryu<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
-    let mut pieces = board.pieces(color, PieceKind::Ryu);
-    if pieces.is_empty() {
+    if board.pieces(color, PieceKind::Ryu).is_empty() {
         return;
     }
-    let own = board.occ_for(color);
-    let occ = board.occ();
+    gen_sliding_four_plain::<RESTRICTED, 0, 1, 2, 3>(
+        board,
+        color,
+        PieceKind::Ryu,
+        context,
+        restrictions,
+        moves,
+    );
+    let mut pieces = board.pieces(color, PieceKind::Ryu);
     while let Some(from) = pieces.pop_lsb() {
-        for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & !own);
-            moves.push_plain_targets(from, PieceKind::Ryu, targets);
-        }
-        let targets = restrictions
-            .targets::<RESTRICTED>(from, DIAGONAL_STEP_ATTACKS[from.index() as usize] & !own);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            DIAGONAL_STEP_ATTACKS[from.index() as usize].and_not(context.own),
+        );
         moves.push_plain_targets(from, PieceKind::Ryu, targets);
     }
 }
 
 /// Generate drop moves, excluding nifu and piece-stuck positions
-#[inline]
-fn drop_targets(board: &Board, color: Color, kind: PieceKind, allowed: Bitboard) -> Bitboard {
-    let mut targets = !board.occ() & allowed;
-    let (_, stuck) = promotion_masks(kind, color);
-    targets &= !stuck;
-
-    // Nifu: can't drop a pawn on a file that already contains an own pawn.
+#[inline(always)]
+fn drop_targets(board: &Board, color: Color, kind: PieceKind, base_targets: Bitboard) -> Bitboard {
+    let mut targets = base_targets & DROP_ALLOWED_MASKS[color.index()][kind.index()];
     if kind == PieceKind::Fu {
-        let mut own_fu = board.pieces(color, PieceKind::Fu);
-        while let Some(sq) = own_fu.pop_lsb() {
-            targets &= !Bitboard::file_bb(sq.file_0());
-        }
+        // Nifu: can't drop a pawn on a file that already contains an own pawn.
+        targets = targets.and_not(board.pawn_files(color));
     }
     targets
 }
 
+#[inline(always)]
+fn gen_drop_kind(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    base_targets: Bitboard,
+    present: u8,
+    moves: &mut impl MoveSink,
+) {
+    if (present & (1 << kind.index())) == 0 {
+        return;
+    }
+    let targets = drop_targets(board, color, kind, base_targets);
+    moves.push_drop_targets(kind, targets);
+}
+
 #[inline]
 fn gen_drops(board: &Board, color: Color, allowed: Bitboard, moves: &mut impl MoveSink) {
-    let hand = *board.hand(color);
-    for kind in hand.iter() {
-        let mut targets = drop_targets(board, color, kind, allowed);
-
-        while let Some(to) = targets.pop_lsb() {
-            moves.push(Move::drop(to, kind));
-        }
-    }
+    let present = board.hand(color).present_mask();
+    let occupied = board.occ();
+    let base_targets = allowed.and_not(occupied);
+    // Keep the hand order stable while exposing each piece kind as a constant
+    // to the optimizer. This removes the iterator/trailing-zero loop from the
+    // hot drop path and folds the kind-specific stuck-square match.
+    gen_drop_kind(board, color, PieceKind::Fu, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Kyou, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Kei, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Gin, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Kin, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Kaku, base_targets, present, moves);
+    gen_drop_kind(board, color, PieceKind::Hisha, base_targets, present, moves);
 }
 
 fn gen_step_captures<const RESTRICTED: bool>(
@@ -641,6 +992,7 @@ fn gen_step_captures<const RESTRICTED: bool>(
     color: Color,
     kind: PieceKind,
     attacks: &[Bitboard; Square::NUM],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -648,11 +1000,11 @@ fn gen_step_captures<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let enemy = board.occ_for(color.flip());
+    let (zone, stuck) = promotion_masks(kind, color);
     while let Some(from) = pieces.pop_lsb() {
-        let targets =
-            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & enemy);
-        moves.push_promotable_targets(from, kind, color, targets);
+        let mut targets = restrictions
+            .targets::<RESTRICTED>(from, attacks[from.index() as usize] & context.enemy);
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
     }
 }
 
@@ -661,6 +1013,7 @@ fn gen_plain_step_captures<const RESTRICTED: bool>(
     color: Color,
     kind: PieceKind,
     attacks: &[Bitboard; Square::NUM],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -668,19 +1021,19 @@ fn gen_plain_step_captures<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let enemy = board.occ_for(color.flip());
     while let Some(from) = pieces.pop_lsb() {
-        let targets =
-            restrictions.targets::<RESTRICTED>(from, attacks[from.index() as usize] & enemy);
+        let targets = restrictions
+            .targets::<RESTRICTED>(from, attacks[from.index() as usize] & context.enemy);
         moves.push_plain_targets(from, kind, targets);
     }
 }
 
-fn gen_sliding_captures<const RESTRICTED: bool>(
+#[inline]
+fn gen_sliding_one_captures<const RESTRICTED: bool, const DIRECTION: usize>(
     board: &Board,
     color: Color,
     kind: PieceKind,
-    dirs: &[Direction],
+    context: MoveGenContext,
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
@@ -688,98 +1041,221 @@ fn gen_sliding_captures<const RESTRICTED: bool>(
     if pieces.is_empty() {
         return;
     }
-    let enemy = board.occ_for(color.flip());
-    let occ = board.occ();
+    let (zone, stuck) = promotion_masks(kind, color);
     while let Some(from) = pieces.pop_lsb() {
-        for &dir in dirs {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
-            moves.push_promotable_targets(from, kind, color, targets);
-        }
-    }
-}
-
-fn gen_uma_captures<const RESTRICTED: bool>(
-    board: &Board,
-    color: Color,
-    restrictions: MoveRestrictions,
-    moves: &mut impl MoveSink,
-) {
-    let mut pieces = board.pieces(color, PieceKind::Uma);
-    if pieces.is_empty() {
-        return;
-    }
-    let enemy = board.occ_for(color.flip());
-    let occ = board.occ();
-    while let Some(from) = pieces.pop_lsb() {
-        for dir in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
-            moves.push_plain_targets(from, PieceKind::Uma, targets);
-        }
-        let targets = restrictions
-            .targets::<RESTRICTED>(from, ORTHOGONAL_STEP_ATTACKS[from.index() as usize] & enemy);
-        moves.push_plain_targets(from, PieceKind::Uma, targets);
-    }
-}
-
-fn gen_ryu_captures<const RESTRICTED: bool>(
-    board: &Board,
-    color: Color,
-    restrictions: MoveRestrictions,
-    moves: &mut impl MoveSink,
-) {
-    let mut pieces = board.pieces(color, PieceKind::Ryu);
-    if pieces.is_empty() {
-        return;
-    }
-    let enemy = board.occ_for(color.flip());
-    let occ = board.occ();
-    while let Some(from) = pieces.pop_lsb() {
-        for dir in [Direction::N, Direction::S, Direction::E, Direction::W] {
-            let targets =
-                restrictions.targets::<RESTRICTED>(from, sliding_attacks(from, occ, dir) & enemy);
-            moves.push_plain_targets(from, PieceKind::Ryu, targets);
-        }
-        let targets = restrictions
-            .targets::<RESTRICTED>(from, DIAGONAL_STEP_ATTACKS[from.index() as usize] & enemy);
-        moves.push_plain_targets(from, PieceKind::Ryu, targets);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<DIRECTION>(from, context.occ) & context.enemy,
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
     }
 }
 
 #[inline]
+fn gen_sliding_four_captures<
+    const RESTRICTED: bool,
+    const D0: usize,
+    const D1: usize,
+    const D2: usize,
+    const D3: usize,
+>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, kind);
+    if pieces.is_empty() {
+        return;
+    }
+    let (zone, stuck) = promotion_masks(kind, color);
+    while let Some(from) = pieces.pop_lsb() {
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D0>(from, context.occ) & context.enemy,
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D1>(from, context.occ) & context.enemy,
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D2>(from, context.occ) & context.enemy,
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D3>(from, context.occ) & context.enemy,
+        );
+        push_promotable_targets_fast(from, kind, zone, stuck, &mut targets, moves);
+    }
+}
+
+#[inline]
+fn gen_sliding_four_plain_captures<
+    const RESTRICTED: bool,
+    const D0: usize,
+    const D1: usize,
+    const D2: usize,
+    const D3: usize,
+>(
+    board: &Board,
+    color: Color,
+    kind: PieceKind,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    if board.pieces(color, kind).is_empty() {
+        return;
+    }
+    let mut pieces = board.pieces(color, kind);
+    while let Some(from) = pieces.pop_lsb() {
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D0>(from, context.occ) & context.enemy,
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D1>(from, context.occ) & context.enemy,
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D2>(from, context.occ) & context.enemy,
+        );
+        moves.push_plain_targets(from, kind, targets);
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            sliding_attacks_const::<D3>(from, context.occ) & context.enemy,
+        );
+        moves.push_plain_targets(from, kind, targets);
+    }
+}
+
+#[inline]
+fn gen_uma_captures<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    if board.pieces(color, PieceKind::Uma).is_empty() {
+        return;
+    }
+    gen_sliding_four_plain_captures::<RESTRICTED, 4, 5, 6, 7>(
+        board,
+        color,
+        PieceKind::Uma,
+        context,
+        restrictions,
+        moves,
+    );
+    let mut pieces = board.pieces(color, PieceKind::Uma);
+    while let Some(from) = pieces.pop_lsb() {
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            ORTHOGONAL_STEP_ATTACKS[from.index() as usize] & context.enemy,
+        );
+        moves.push_plain_targets(from, PieceKind::Uma, targets);
+    }
+}
+
+#[inline]
+fn gen_ryu_captures<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    if board.pieces(color, PieceKind::Ryu).is_empty() {
+        return;
+    }
+    gen_sliding_four_plain_captures::<RESTRICTED, 0, 1, 2, 3>(
+        board,
+        color,
+        PieceKind::Ryu,
+        context,
+        restrictions,
+        moves,
+    );
+    let mut pieces = board.pieces(color, PieceKind::Ryu);
+    while let Some(from) = pieces.pop_lsb() {
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            DIAGONAL_STEP_ATTACKS[from.index() as usize] & context.enemy,
+        );
+        moves.push_plain_targets(from, PieceKind::Ryu, targets);
+    }
+}
+
+#[inline(always)]
 fn generate_non_king_moves_into<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
     restrictions: MoveRestrictions,
+    excluded_targets: Bitboard,
     moves: &mut impl MoveSink,
 ) {
+    if board
+        .occ_for(color)
+        .and_not(board.pieces(color, PieceKind::Ou))
+        .is_empty()
+    {
+        return;
+    }
+    // In the unrestricted legal path the opposing king is the only target
+    // that must be excluded from otherwise pseudo-legal moves. Treating it as
+    // occupied by `own` removes that target before the per-move restriction
+    // helper runs, while leaving the actual ray occupancy unchanged.
+    let own = board.occ_for(color) | excluded_targets;
+    let enemy = board.occ_for(color.flip());
+    let context = MoveGenContext {
+        own,
+        enemy,
+        occ: own | enemy,
+    };
     gen_step_attacks::<RESTRICTED>(
         board,
         color,
         PieceKind::Fu,
         &PAWN_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
 
-    let lance_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_sliding::<RESTRICTED>(
-        board,
-        color,
-        PieceKind::Kyou,
-        lance_dirs,
-        restrictions,
-        moves,
-    );
+    match color {
+        Color::Black => gen_sliding_one::<RESTRICTED, 0>(
+            board,
+            color,
+            PieceKind::Kyou,
+            context,
+            restrictions,
+            moves,
+        ),
+        Color::White => gen_sliding_one::<RESTRICTED, 1>(
+            board,
+            color,
+            PieceKind::Kyou,
+            context,
+            restrictions,
+            moves,
+        ),
+    }
     gen_step_attacks::<RESTRICTED>(
         board,
         color,
         PieceKind::Kei,
         &KNIGHT_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
@@ -788,43 +1264,73 @@ fn generate_non_king_moves_into<const RESTRICTED: bool>(
         color,
         PieceKind::Gin,
         &SILVER_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
-    for kind in [
+    gen_plain_step_attacks::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Kin,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_attacks::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Tokin,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_attacks::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narikyo,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_attacks::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narikei,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_attacks::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narigin,
-    ] {
-        gen_plain_step_attacks::<RESTRICTED>(
-            board,
-            color,
-            kind,
-            &GOLD_ATTACKS[color.index()],
-            restrictions,
-            moves,
-        );
-    }
-    gen_sliding::<RESTRICTED>(
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_sliding_four::<RESTRICTED, 4, 5, 6, 7>(
         board,
         color,
         PieceKind::Kaku,
-        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
+        context,
         restrictions,
         moves,
     );
-    gen_sliding::<RESTRICTED>(
+    gen_sliding_four::<RESTRICTED, 0, 1, 2, 3>(
         board,
         color,
         PieceKind::Hisha,
-        &[Direction::N, Direction::S, Direction::E, Direction::W],
+        context,
         restrictions,
         moves,
     );
-    gen_uma::<RESTRICTED>(board, color, restrictions, moves);
-    gen_ryu::<RESTRICTED>(board, color, restrictions, moves);
+    gen_uma::<RESTRICTED>(board, color, context, restrictions, moves);
+    gen_ryu::<RESTRICTED>(board, color, context, restrictions, moves);
 }
 
 #[inline]
@@ -834,32 +1340,54 @@ fn generate_non_king_captures_into<const RESTRICTED: bool>(
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
+    if board
+        .occ_for(color)
+        .and_not(board.pieces(color, PieceKind::Ou))
+        .is_empty()
+    {
+        return;
+    }
+    let enemy = board.occ_for(color.flip());
+    let own = board.occ_for(color);
+    let context = MoveGenContext {
+        own,
+        enemy,
+        occ: own | enemy,
+    };
     gen_step_captures::<RESTRICTED>(
         board,
         color,
         PieceKind::Fu,
         &PAWN_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
 
-    let lance_dirs: &[Direction] = match color {
-        Color::Black => &[Direction::N],
-        Color::White => &[Direction::S],
-    };
-    gen_sliding_captures::<RESTRICTED>(
-        board,
-        color,
-        PieceKind::Kyou,
-        lance_dirs,
-        restrictions,
-        moves,
-    );
+    match color {
+        Color::Black => gen_sliding_one_captures::<RESTRICTED, 0>(
+            board,
+            color,
+            PieceKind::Kyou,
+            context,
+            restrictions,
+            moves,
+        ),
+        Color::White => gen_sliding_one_captures::<RESTRICTED, 1>(
+            board,
+            color,
+            PieceKind::Kyou,
+            context,
+            restrictions,
+            moves,
+        ),
+    }
     gen_step_captures::<RESTRICTED>(
         board,
         color,
         PieceKind::Kei,
         &KNIGHT_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
@@ -868,43 +1396,73 @@ fn generate_non_king_captures_into<const RESTRICTED: bool>(
         color,
         PieceKind::Gin,
         &SILVER_ATTACKS[color.index()],
+        context,
         restrictions,
         moves,
     );
-    for kind in [
+    gen_plain_step_captures::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Kin,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_captures::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Tokin,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_captures::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narikyo,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_captures::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narikei,
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_plain_step_captures::<RESTRICTED>(
+        board,
+        color,
         PieceKind::Narigin,
-    ] {
-        gen_plain_step_captures::<RESTRICTED>(
-            board,
-            color,
-            kind,
-            &GOLD_ATTACKS[color.index()],
-            restrictions,
-            moves,
-        );
-    }
-    gen_sliding_captures::<RESTRICTED>(
+        &GOLD_ATTACKS[color.index()],
+        context,
+        restrictions,
+        moves,
+    );
+    gen_sliding_four_captures::<RESTRICTED, 4, 5, 6, 7>(
         board,
         color,
         PieceKind::Kaku,
-        &[Direction::NE, Direction::NW, Direction::SE, Direction::SW],
+        context,
         restrictions,
         moves,
     );
-    gen_sliding_captures::<RESTRICTED>(
+    gen_sliding_four_captures::<RESTRICTED, 0, 1, 2, 3>(
         board,
         color,
         PieceKind::Hisha,
-        &[Direction::N, Direction::S, Direction::E, Direction::W],
+        context,
         restrictions,
         moves,
     );
-    gen_uma_captures::<RESTRICTED>(board, color, restrictions, moves);
-    gen_ryu_captures::<RESTRICTED>(board, color, restrictions, moves);
+    gen_uma_captures::<RESTRICTED>(board, color, context, restrictions, moves);
+    gen_ryu_captures::<RESTRICTED>(board, color, context, restrictions, moves);
 }
 
 // ---- Public move generation ----
@@ -918,36 +1476,119 @@ pub fn generate_moves(board: &Board) -> Vec<Move> {
 
 /// Generate pseudo-legal moves into a caller-owned reusable buffer.
 pub fn generate_moves_into(board: &Board, moves: &mut Vec<Move>) {
+    generate_moves_into_sink(board, moves);
+}
+
+/// Generate pseudo-legal moves into a reusable fixed-capacity list.
+#[inline(always)]
+pub(crate) fn generate_moves_into_fixed(board: &Board, moves: &mut FixedMoveList) {
+    generate_moves_into_sink(board, moves);
+}
+
+#[inline(always)]
+fn generate_moves_into_sink(board: &Board, moves: &mut impl MoveSink) {
     let color = board.side_to_move;
+    let own = board.occ_for(color);
+    let enemy = board.occ_for(color.flip());
+    let context = MoveGenContext {
+        own,
+        enemy,
+        occ: own | enemy,
+    };
     moves.clear();
-    generate_non_king_moves_into::<false>(board, color, MoveRestrictions::PSEUDO, moves);
+    generate_non_king_moves_into::<false>(
+        board,
+        color,
+        MoveRestrictions::PSEUDO,
+        Bitboard::EMPTY,
+        moves,
+    );
 
     gen_plain_step_attacks::<false>(
         board,
         color,
         PieceKind::Ou,
         &KING_ATTACKS,
+        context,
         MoveRestrictions::PSEUDO,
         moves,
     );
 
+    if board.hand(color).is_empty() {
+        return;
+    }
     gen_drops(board, color, Bitboard::FULL, moves);
 }
 
-/// Check whether the current position (after a pawn drop) is uchifuzume (drop-pawn checkmate).
-/// Called with `board` already reflecting the pawn drop and `opponent` = the side that was just checked.
-fn is_uchifuzume(board: &mut Board, opponent: Color) -> bool {
-    if !is_in_check(board, opponent) {
-        return false;
+/// Check whether the current position is uchifuzume (drop-pawn checkmate).
+/// The caller must have just dropped a pawn on `pawn`, and must have already
+/// established that it checks `opponent`; this avoids repeating that attack
+/// query in the only exceptional drop path.
+fn is_uchifuzume(board: &mut Board, opponent: Color, pawn: Square) -> bool {
+    debug_assert!(is_in_check(board, opponent));
+
+    // A pawn gives an adjacent check, so no interposition can answer it. If
+    // the king has an escape square, the position is immediately known to be
+    // non-mate; avoid generating every opposing drop just to discover that.
+    if let Some(king) = board.king_square(opponent) {
+        let mut targets = KING_ATTACKS[king.index() as usize]
+            .and_not(board.occ_for(opponent))
+            .and_not(board.pieces(opponent.flip(), PieceKind::Ou));
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, opponent, m) {
+                return false;
+            }
+        }
     }
-    // Opponent is in check; see if any pseudo-legal response gets them out
-    let pseudos = generate_moves(board);
-    !pseudos.into_iter().any(|m| {
-        let tok = board.do_move_for_legality(m);
-        let escapes = !is_in_check(board, opponent);
-        board.undo_move_for_legality(tok);
-        escapes
-    })
+
+    // With no king escape, the only response to an adjacent pawn check is to
+    // capture that pawn. A non-king attacker that is not pinned can do so;
+    // pieces pinned along the pawn's file remain valid capturers because they
+    // continue to block the pin line after moving onto the pawn.
+    let non_king = board
+        .occ_for(opponent)
+        .and_not(board.pieces(opponent, PieceKind::Ou));
+    if non_king.is_empty() {
+        return true;
+    }
+    let constraints = king_constraints(
+        board,
+        board.king_square(opponent).expect("king checked"),
+        opponent,
+        None,
+    );
+    let attackers = attackers_to_square(board, pawn, opponent, board.occ()) & non_king;
+    let file = Bitboard::file_bb(pawn.file_0());
+    // A pinned piece may capture on the pin file.  Rephrase
+    // `attackers & (!pinned | file)` using valid-bitboard subtraction so the
+    // hot probe does not materialize and mask a full-width complement.
+    attackers
+        .and_not(constraints.pinned.and_not(file))
+        .is_empty()
+}
+
+/// Check king escapes for a pawn-drop check using virtual occupancy only.
+/// The dropped pawn attacks the king's current square, not any other escape
+/// square, so it does not need to be inserted into the attacker's bitboards.
+#[inline]
+fn pawn_drop_has_king_escape(board: &Board, opponent: Color, pawn: Square) -> bool {
+    let Some(king) = board.king_square(opponent) else {
+        return false;
+    };
+    let mut targets = KING_ATTACKS[king.index() as usize]
+        .and_not(board.occ_for(opponent))
+        .and_not(board.pieces(opponent.flip(), PieceKind::Ou));
+    while let Some(to) = targets.pop_lsb() {
+        let mut occupied = board.occ();
+        occupied.unset(king);
+        occupied.set(pawn);
+        occupied.set(to);
+        if !is_attacked_with_occupancy(board, to, opponent.flip(), occupied) {
+            return true;
+        }
+    }
+    false
 }
 
 /// Count legal drops without materializing every candidate. Only a pawn drop
@@ -961,6 +1602,8 @@ fn count_legal_drops(
     allowed: Bitboard,
 ) -> u64 {
     let hand = *board.hand(mover);
+    let occupied = board.occ();
+    let base_targets = allowed.and_not(occupied);
     let checking_pawn_origins = opponent_king
         .lsb()
         .map(|king| PAWN_ATTACKS[opponent.index()][king.index() as usize])
@@ -968,7 +1611,7 @@ fn count_legal_drops(
     let mut count = 0u64;
 
     for kind in hand.iter() {
-        let targets = drop_targets(board, mover, kind, allowed);
+        let targets = drop_targets(board, mover, kind, base_targets);
         count += u64::from(targets.popcount());
         if kind != PieceKind::Fu {
             continue;
@@ -976,12 +1619,14 @@ fn count_legal_drops(
 
         let mut checking_targets = targets & checking_pawn_origins;
         while let Some(to) = checking_targets.pop_lsb() {
-            let m = Move::drop(to, PieceKind::Fu);
-            let tok = board.do_move_for_legality(m);
-            if is_uchifuzume(board, opponent) {
+            if pawn_drop_has_king_escape(board, opponent, to) {
+                continue;
+            }
+            let tok = board.do_pawn_drop_for_probe(mover, to);
+            if is_uchifuzume(board, opponent, to) {
                 count -= 1;
             }
-            board.undo_move_for_legality(tok);
+            board.undo_pawn_drop_for_probe(tok);
         }
     }
     count
@@ -1000,33 +1645,37 @@ fn generate_legal_drops(
     moves: &mut impl MoveSink,
 ) {
     let hand = *board.hand(mover);
+    let present = hand.present_mask();
+    let occupied = board.occ();
+    let base_targets = allowed.and_not(occupied);
     let checking_pawn_origins = opponent_king
         .lsb()
         .map(|king| PAWN_ATTACKS[opponent.index()][king.index() as usize])
         .unwrap_or(Bitboard::EMPTY);
 
-    for kind in hand.iter() {
-        let mut targets = drop_targets(board, mover, kind, allowed);
-        if kind != PieceKind::Fu {
-            while let Some(to) = targets.pop_lsb() {
-                moves.push(Move::drop(to, kind));
+    if (present & 1) != 0 {
+        let mut targets = drop_targets(board, mover, PieceKind::Fu, base_targets);
+        // There is at most one pawn-drop square that gives check. Probe that
+        // square, then remove it from the bulk set only when it is mate. A
+        // single bulk write preserves bit-scan order without splitting the
+        // ordinary destinations around the exceptional square.
+        if let Some(checking_to) = (targets & checking_pawn_origins).lsb()
+            && !pawn_drop_has_king_escape(board, opponent, checking_to)
+        {
+            let tok = board.do_pawn_drop_for_probe(mover, checking_to);
+            if is_uchifuzume(board, opponent, checking_to) {
+                targets.unset(checking_to);
             }
-            continue;
+            board.undo_pawn_drop_for_probe(tok);
         }
-
-        while let Some(to) = targets.pop_lsb() {
-            let m = Move::drop(to, kind);
-            if !checking_pawn_origins.contains(to) {
-                moves.push(m);
-                continue;
-            }
-            let tok = board.do_move_for_legality(m);
-            if !is_uchifuzume(board, opponent) {
-                moves.push(m);
-            }
-            board.undo_move_for_legality(tok);
-        }
+        moves.push_drop_targets(PieceKind::Fu, targets);
     }
+    gen_drop_kind(board, mover, PieceKind::Kyou, base_targets, present, moves);
+    gen_drop_kind(board, mover, PieceKind::Kei, base_targets, present, moves);
+    gen_drop_kind(board, mover, PieceKind::Gin, base_targets, present, moves);
+    gen_drop_kind(board, mover, PieceKind::Kin, base_targets, present, moves);
+    gen_drop_kind(board, mover, PieceKind::Kaku, base_targets, present, moves);
+    gen_drop_kind(board, mover, PieceKind::Hisha, base_targets, present, moves);
 }
 
 #[derive(Clone, Copy)]
@@ -1034,6 +1683,20 @@ struct KingConstraints {
     checkers: Bitboard,
     evasion_mask: Bitboard,
     pinned: Bitboard,
+}
+
+/// Return the checker count capped at two. Legal move generation only needs
+/// to distinguish no check, single check, and double check; a full popcount is
+/// unnecessary on the cached ordinary-position path.
+#[inline(always)]
+fn checker_count(checkers: Bitboard) -> u32 {
+    if checkers.is_empty() {
+        0
+    } else if (checkers.0 & (checkers.0 - 1)) == 0 {
+        1
+    } else {
+        2
+    }
 }
 
 /// Compute checkers, the exact single-check evasion mask, and pinned pieces in
@@ -1044,23 +1707,19 @@ fn king_constraints(
     board: &Board,
     king: Square,
     defender: Color,
-    known_not_in_check: bool,
+    known_checkers: Option<Bitboard>,
 ) -> KingConstraints {
     let attacker = defender.flip();
     let occupied = board.occ();
     let attacker_horses = board.pieces(attacker, PieceKind::Uma);
     let attacker_dragons = board.pieces(attacker, PieceKind::Ryu);
-    let mut checkers = Bitboard::EMPTY;
+    let mut checkers = known_checkers.unwrap_or(Bitboard::EMPTY);
     let mut pinned = Bitboard::EMPTY;
 
     let king_index = king.index() as usize;
-    if !known_not_in_check {
+    if known_checkers.is_none() {
         let reverse_color = defender.index();
-        let attacker_golds = board.pieces(attacker, PieceKind::Kin)
-            | board.pieces(attacker, PieceKind::Tokin)
-            | board.pieces(attacker, PieceKind::Narikyo)
-            | board.pieces(attacker, PieceKind::Narikei)
-            | board.pieces(attacker, PieceKind::Narigin);
+        let attacker_golds = board.gold_like(attacker);
         checkers |= PAWN_ATTACKS[reverse_color][king_index] & board.pieces(attacker, PieceKind::Fu);
         checkers |=
             KNIGHT_ATTACKS[reverse_color][king_index] & board.pieces(attacker, PieceKind::Kei);
@@ -1072,8 +1731,8 @@ fn king_constraints(
         checkers |= KING_ATTACKS[king_index] & board.pieces(attacker, PieceKind::Ou);
     }
 
-    let orthogonal_sliders = board.pieces(attacker, PieceKind::Hisha) | attacker_dragons;
-    let diagonal_sliders = board.pieces(attacker, PieceKind::Kaku) | attacker_horses;
+    let orthogonal_sliders = board.rook_sliders(attacker);
+    let diagonal_sliders = board.bishop_sliders(attacker);
     let attacker_lances = board.pieces(attacker, PieceKind::Kyou);
     let north_sliders = orthogonal_sliders
         | if attacker == Color::White {
@@ -1106,14 +1765,15 @@ fn king_constraints(
             if (RAY_ATTACKS[direction_index(direction)][king_index] & candidates).is_empty() {
                 continue;
             }
-            let Some(first) = first_blocker_on_ray(king, occupied, direction) else {
+            let direction_index = direction_index(direction);
+            let Some(first) = first_blocker_on_ray_index(king, occupied, direction_index) else {
                 continue;
             };
             let Some(first_piece) = board.piece_at(first) else {
                 continue;
             };
             if first_piece.color == attacker {
-                if !known_not_in_check {
+                if known_checkers.is_none() {
                     let slider = if diagonal {
                         matches!(first_piece.kind, PieceKind::Kaku | PieceKind::Uma)
                     } else {
@@ -1132,7 +1792,7 @@ fn king_constraints(
                 continue;
             }
 
-            if let Some(beyond) = first_blocker_on_ray(first, occupied, direction) {
+            if let Some(beyond) = first_blocker_on_ray_index(first, occupied, direction_index) {
                 let Some(piece) = board.piece_at(beyond) else {
                     continue;
                 };
@@ -1154,7 +1814,7 @@ fn king_constraints(
     }
 
     let mut evasion_mask = Bitboard::EMPTY;
-    if checkers.popcount() == 1 {
+    if checker_count(checkers) == 1 {
         let checker = checkers.lsb().expect("single checker");
         evasion_mask |= Bitboard::from_square(checker);
         if aligned_sliders.contains(checker) {
@@ -1184,6 +1844,36 @@ fn king_constraints(
     }
 }
 
+#[inline]
+fn current_king_constraints(
+    board: &mut Board,
+    known_checkers: Option<Bitboard>,
+) -> KingConstraints {
+    if known_checkers.is_none()
+        && let Some((checkers, pinned, evasion_mask)) = board.legality_cache()
+    {
+        return KingConstraints {
+            checkers,
+            evasion_mask,
+            pinned,
+        };
+    }
+
+    let mover = board.side_to_move;
+    let computed = board
+        .king_square(mover)
+        .map(|king| king_constraints(board, king, mover, known_checkers))
+        .unwrap_or(KingConstraints {
+            checkers: Bitboard::EMPTY,
+            evasion_mask: Bitboard::EMPTY,
+            pinned: Bitboard::EMPTY,
+        });
+    if known_checkers.is_none() {
+        board.set_legality_cache(computed.checkers, computed.pinned, computed.evasion_mask);
+    }
+    computed
+}
+
 /// Generate fully legal moves, including king-safety and uchifuzume checks.
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = take_move_buffer();
@@ -1192,63 +1882,719 @@ pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
 }
 
 /// Generate fully legal moves into a caller-owned reusable buffer.
+#[inline(always)]
 pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
-    generate_legal_moves_into_sink(board, legals, false);
+    // The dynamic Vec sink pays one length/capacity update per generated move.
+    // Once several drop families are present, generate into the batch-writing
+    // fixed sink and copy the completed slice in one operation. Keep the
+    // direct path for ordinary positions, where the temporary fixed list and
+    // copy would cost more than they save.
+    if board.hand(board.side_to_move).present_mask().count_ones() >= 2 {
+        with_fixed_move_buffer(|fixed| {
+            generate_legal_moves_into_sink(board, fixed, None);
+            legals.clear();
+            legals.extend_from_slice(fixed.as_slice());
+        });
+        return;
+    }
+    generate_legal_moves_into_sink(board, legals, None);
+}
+
+/// Compact move representation used by allocation-free diagnostic and search
+/// paths. The encoding uses 19 bits: 7 for the destination, 7 for the source
+/// (`81` means a drop), one for promotion, and four for the piece kind.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct PackedMove(u32);
+
+impl PackedMove {
+    #[inline(always)]
+    const fn normal(from: Square, to: Square, kind: PieceKind, promote: bool) -> Self {
+        Self(
+            to.index() as u32
+                | ((from.index() as u32) << 7)
+                | ((promote as u32) << 14)
+                | ((kind.index() as u32) << 15),
+        )
+    }
+
+    #[inline(always)]
+    const fn drop(to: Square, kind: PieceKind) -> Self {
+        Self(to.index() as u32 | (81 << 7) | ((kind.index() as u32) << 15))
+    }
+
+    /// Return the compact integer encoding.
+    #[must_use]
+    #[inline(always)]
+    pub const fn raw(self) -> u32 {
+        self.0
+    }
+
+    /// Expand this compact move into the public move representation.
+    #[must_use]
+    pub fn to_move(self) -> Option<Move> {
+        let from = ((self.0 >> 7) & 0x7f) as u8;
+        let kind = PieceKind::from_u8(((self.0 >> 15) & 0xf) as u8)?;
+        Some(Move {
+            from: if from == 81 {
+                None
+            } else {
+                Some(Square::from_index(from))
+            },
+            to: Square::from_index((self.0 & 0x7f) as u8),
+            piece_kind: kind,
+            promote: ((self.0 >> 14) & 1) != 0,
+        })
+    }
+}
+
+/// Reusable compact output buffer for legal move generation.
+pub struct PackedMoveList {
+    moves: Box<[PackedMove; 600]>,
+    len: usize,
+}
+
+impl Default for PackedMoveList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PackedMoveList {
+    /// Create an empty compact move list.
+    #[must_use]
+    pub fn new() -> Self {
+        let placeholder = PackedMove::drop(Square::from_index(0), PieceKind::Fu);
+        Self {
+            moves: Box::new([placeholder; 600]),
+            len: 0,
+        }
+    }
+
+    /// Return the active compact moves.
+    #[must_use]
+    pub fn as_slice(&self) -> &[PackedMove] {
+        &self.moves[..self.len]
+    }
+
+    /// Return the active compact moves for in-place ordering.
+    #[must_use]
+    pub fn as_mut_slice(&mut self) -> &mut [PackedMove] {
+        &mut self.moves[..self.len]
+    }
+
+    /// Return the number of active compact moves.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return whether the list is empty.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl MoveSink for PackedMoveList {
+    #[inline]
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, m: Move) {
+        let packed = match m.from {
+            Some(from) => PackedMove::normal(from, m.to, m.piece_kind, m.promote),
+            None => PackedMove::drop(m.to, m.piece_kind),
+        };
+        self.moves[self.len] = packed;
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_normal(&mut self, from: Square, to: Square, kind: PieceKind, promote: bool) {
+        self.moves[self.len] = PackedMove::normal(from, to, kind, promote);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_drop(&mut self, to: Square, kind: PieceKind) {
+        self.moves[self.len] = PackedMove::drop(to, kind);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_plain_targets(&mut self, from: Square, kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "packed move list capacity exceeded"
+        );
+        let slots = &mut self.moves[start..end];
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing packed moves");
+            };
+            *slot = PackedMove::normal(from, to, kind, false);
+        }
+        self.len = end;
+    }
+
+    #[inline(always)]
+    fn push_drop_targets(&mut self, kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "packed move list capacity exceeded"
+        );
+        let slots = &mut self.moves[start..end];
+        let encoded_kind = (81 << 7) | ((kind.index() as u32) << 15);
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing packed drops");
+            };
+            *slot = PackedMove(encoded_kind | u32::from(to.index()));
+        }
+        self.len = end;
+    }
+
+    #[inline(always)]
+    fn push_promotable_targets_with_masks(
+        &mut self,
+        from: Square,
+        kind: PieceKind,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
+    ) {
+        let from_in_zone = zone.contains(from);
+        let optional = if from_in_zone {
+            (*targets).and_not(stuck)
+        } else {
+            (*targets & zone).and_not(stuck)
+        };
+        let count = targets.popcount() as usize + optional.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "packed move list capacity exceeded"
+        );
+        let mut slots = self.moves[start..end].iter_mut();
+        while let Some(to) = targets.pop_lsb() {
+            if from_in_zone || zone.contains(to) {
+                *slots.next().expect("promotion slot count must match") =
+                    PackedMove::normal(from, to, kind, true);
+                if !stuck.contains(to) {
+                    *slots.next().expect("promotion slot count must match") =
+                        PackedMove::normal(from, to, kind, false);
+                }
+            } else {
+                *slots.next().expect("promotion slot count must match") =
+                    PackedMove::normal(from, to, kind, false);
+            }
+        }
+        debug_assert!(slots.next().is_none());
+        self.len = end;
+    }
+}
+
+/// Generate legal moves directly into a compact reusable buffer.
+#[inline(always)]
+pub fn generate_legal_moves_into_packed(board: &mut Board, legals: &mut PackedMoveList) {
+    generate_legal_moves_into_sink(board, legals, None);
+}
+
+/// Compact 16-bit move representation for internal search paths.
+///
+/// Normal moves store the source and destination squares plus promotion. The
+/// moving piece kind is recovered from the board at the source square. Drop
+/// moves store the hand-piece kind in the source field, so every legal move
+/// fits in two bytes without changing the public [`Move`] representation.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub struct NarrowMove(u16);
+
+impl NarrowMove {
+    const DROP_BIT: u16 = 1 << 15;
+    const PROMOTE_BIT: u16 = 1 << 14;
+    const INDEX_MASK: u16 = 0x7f;
+    const DROP_FROM_BASE: u8 = 81;
+
+    #[inline(always)]
+    const fn normal(from: Square, to: Square, promote: bool) -> Self {
+        Self(to.index() as u16 | ((from.index() as u16) << 7) | ((promote as u16) << 14))
+    }
+
+    #[inline(always)]
+    const fn drop(to: Square, kind: PieceKind) -> Self {
+        Self(
+            to.index() as u16
+                | (((Self::DROP_FROM_BASE + kind.index() as u8) as u16) << 7)
+                | Self::DROP_BIT,
+        )
+    }
+
+    /// Return the compact integer encoding.
+    #[must_use]
+    #[inline(always)]
+    pub const fn raw(self) -> u16 {
+        self.0
+    }
+
+    /// Decode this move using the source board to recover a normal move's kind.
+    #[must_use]
+    pub fn to_move(self, board: &Board) -> Option<Move> {
+        let to = Square::from_index((self.0 & Self::INDEX_MASK) as u8);
+        let from = ((self.0 >> 7) & Self::INDEX_MASK) as u8;
+        if self.0 & Self::DROP_BIT != 0 {
+            let kind = PieceKind::from_u8(from.checked_sub(Self::DROP_FROM_BASE)?)?;
+            return Some(Move::drop(to, kind));
+        }
+        let from = Square::from_index(from);
+        let kind = board.piece_at(from)?.kind;
+        Some(Move::normal(
+            from,
+            to,
+            kind,
+            self.0 & Self::PROMOTE_BIT != 0,
+        ))
+    }
+}
+
+/// Reusable 16-bit output buffer for legal move generation.
+pub struct NarrowMoveList {
+    moves: Box<[NarrowMove; 600]>,
+    len: usize,
+}
+
+impl Default for NarrowMoveList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NarrowMoveList {
+    /// Create an empty narrow move list.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            moves: Box::new([NarrowMove::default(); 600]),
+            len: 0,
+        }
+    }
+
+    /// Return the active compact moves.
+    #[must_use]
+    pub fn as_slice(&self) -> &[NarrowMove] {
+        &self.moves[..self.len]
+    }
+
+    /// Return the active compact moves for ordering.
+    #[must_use]
+    pub fn as_mut_slice(&mut self) -> &mut [NarrowMove] {
+        &mut self.moves[..self.len]
+    }
+
+    /// Return the number of active compact moves.
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return whether the list is empty.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl MoveSink for NarrowMoveList {
+    #[inline]
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, m: Move) {
+        debug_assert!(
+            self.len < self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        self.moves[self.len] = match m.from {
+            Some(from) => NarrowMove::normal(from, m.to, m.promote),
+            None => NarrowMove::drop(m.to, m.piece_kind),
+        };
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_normal(&mut self, from: Square, to: Square, _kind: PieceKind, promote: bool) {
+        debug_assert!(
+            self.len < self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        self.moves[self.len] = NarrowMove::normal(from, to, promote);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_drop(&mut self, to: Square, kind: PieceKind) {
+        debug_assert!(
+            self.len < self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        self.moves[self.len] = NarrowMove::drop(to, kind);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_plain_targets(&mut self, from: Square, _kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        let slots = &mut self.moves[start..end];
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing narrow moves");
+            };
+            *slot = NarrowMove::normal(from, to, false);
+        }
+        self.len = end;
+    }
+
+    #[inline(always)]
+    fn push_drop_targets(&mut self, kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        let slots = &mut self.moves[start..end];
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing narrow drops");
+            };
+            *slot = NarrowMove::drop(to, kind);
+        }
+        self.len = end;
+    }
+
+    #[inline(always)]
+    fn push_promotable_targets_with_masks(
+        &mut self,
+        from: Square,
+        _kind: PieceKind,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
+    ) {
+        let from_in_zone = zone.contains(from);
+        let optional = if from_in_zone {
+            (*targets).and_not(stuck)
+        } else {
+            (*targets & zone).and_not(stuck)
+        };
+        let count = targets.popcount() as usize + optional.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(
+            end <= self.moves.len(),
+            "narrow move list capacity exceeded"
+        );
+        let mut slots = self.moves[start..end].iter_mut();
+        while let Some(to) = targets.pop_lsb() {
+            if from_in_zone || zone.contains(to) {
+                *slots.next().expect("promotion slot count must match") =
+                    NarrowMove::normal(from, to, true);
+                if !stuck.contains(to) {
+                    *slots.next().expect("promotion slot count must match") =
+                        NarrowMove::normal(from, to, false);
+                }
+            } else {
+                *slots.next().expect("promotion slot count must match") =
+                    NarrowMove::normal(from, to, false);
+            }
+        }
+        debug_assert!(slots.next().is_none());
+        self.len = end;
+    }
+}
+
+/// Generate legal moves directly into a reusable 16-bit compact buffer.
+#[inline(always)]
+pub fn generate_legal_moves_into_narrow(board: &mut Board, legals: &mut NarrowMoveList) {
+    generate_legal_moves_into_sink(board, legals, None);
+}
+
+/// Fixed-capacity legal move list for allocation-free hot paths.
+///
+/// The capacity is above the maximum legal move count in a standard shogi
+/// position.  It is backed by an initialized array so callers can use it
+/// without `unsafe` or per-generation heap growth.
+pub struct FixedMoveList {
+    moves: Box<[Move; 600]>,
+    len: usize,
+}
+
+impl Default for FixedMoveList {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FixedMoveList {
+    /// Create an empty fixed-capacity move list.
+    #[must_use]
+    pub fn new() -> Self {
+        let placeholder = Move::drop(Square::from_index(0), PieceKind::Fu);
+        Self {
+            moves: Box::new([placeholder; 600]),
+            len: 0,
+        }
+    }
+
+    /// Return the active moves.
+    #[must_use]
+    #[inline(always)]
+    pub fn as_slice(&self) -> &[Move] {
+        &self.moves[..self.len]
+    }
+
+    /// Return the active moves for in-place ordering.
+    #[must_use]
+    #[inline(always)]
+    pub fn as_mut_slice(&mut self) -> &mut [Move] {
+        &mut self.moves[..self.len]
+    }
+
+    /// Remove moves that do not satisfy `predicate`, preserving order.
+    pub fn retain<F>(&mut self, mut predicate: F)
+    where
+        F: FnMut(&Move) -> bool,
+    {
+        let mut write = 0;
+        for read in 0..self.len {
+            let mv = self.moves[read];
+            if predicate(&mv) {
+                self.moves[write] = mv;
+                write += 1;
+            }
+        }
+        self.len = write;
+    }
+
+    /// Sort the active moves by a key computed once per move.
+    pub fn sort_by_cached_key<K, F>(&mut self, key: F)
+    where
+        K: Ord,
+        F: FnMut(&Move) -> K,
+    {
+        self.as_mut_slice().sort_by_cached_key(key);
+    }
+
+    /// Return the number of active moves.
+    #[must_use]
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Return whether the list is empty.
+    #[must_use]
+    #[inline(always)]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+impl MoveSink for FixedMoveList {
+    #[inline]
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+
+    #[inline(always)]
+    fn push_normal(&mut self, from: Square, to: Square, kind: PieceKind, promote: bool) {
+        self.moves[self.len] = Move::normal(from, to, kind, promote);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_drop(&mut self, to: Square, kind: PieceKind) {
+        self.moves[self.len] = Move::drop(to, kind);
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push(&mut self, m: Move) {
+        // The indexed write retains Rust's bounds check. Batch writers such
+        // as drops validate their full count once, so repeating the same
+        // assertion for every generated move only adds hot-path work.
+        self.moves[self.len] = m;
+        self.len += 1;
+    }
+
+    #[inline(always)]
+    fn push_plain_targets(&mut self, from: Square, kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(end <= 600, "fixed move list capacity exceeded");
+        let slots = &mut self.moves[start..end];
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing moves");
+            };
+            *slot = Move::normal(from, to, kind, false);
+        }
+        self.len = end;
+    }
+
+    #[inline(always)]
+    fn push_drop_targets(&mut self, kind: PieceKind, mut targets: Bitboard) {
+        let count = targets.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(end <= self.moves.len(), "fixed move list capacity exceeded");
+        let slots = &mut self.moves[start..end];
+        for slot in slots.iter_mut() {
+            let Some(to) = targets.pop_lsb() else {
+                unreachable!("target count changed while writing drops");
+            };
+            *slot = Move::drop(to, kind);
+        }
+        self.len = end;
+    }
+
+    #[inline]
+    fn push_promotable_targets_with_masks(
+        &mut self,
+        from: Square,
+        kind: PieceKind,
+        zone: Bitboard,
+        stuck: Bitboard,
+        targets: &mut Bitboard,
+    ) {
+        let from_in_zone = zone.contains(from);
+        let optional = if from_in_zone {
+            (*targets).and_not(stuck)
+        } else {
+            (*targets & zone).and_not(stuck)
+        };
+        let count = targets.popcount() as usize + optional.popcount() as usize;
+        let start = self.len;
+        let end = start + count;
+        debug_assert!(end <= self.moves.len(), "fixed move list capacity exceeded");
+        let mut slots = self.moves[start..end].iter_mut();
+        while let Some(to) = targets.pop_lsb() {
+            if from_in_zone || zone.contains(to) {
+                *slots.next().expect("promotion slot count must match") =
+                    Move::normal(from, to, kind, true);
+                if !stuck.contains(to) {
+                    *slots.next().expect("promotion slot count must match") =
+                        Move::normal(from, to, kind, false);
+                }
+            } else {
+                *slots.next().expect("promotion slot count must match") =
+                    Move::normal(from, to, kind, false);
+            }
+        }
+        debug_assert!(slots.next().is_none());
+        self.len = end;
+    }
+}
+
+/// Generate legal moves into a reusable fixed-capacity list.
+#[inline(always)]
+pub fn generate_legal_moves_into_fixed(board: &mut Board, legals: &mut FixedMoveList) {
+    generate_legal_moves_into_sink(board, legals, None);
 }
 
 /// Generate legal moves directly into a reusable sink without an intermediate
 /// pseudo-move list.
-#[inline]
+#[inline(always)]
 fn generate_legal_moves_into_sink(
     board: &mut Board,
     legals: &mut impl MoveSink,
-    known_not_in_check: bool,
+    known_checkers: Option<Bitboard>,
 ) {
     legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
     let opponent_king = board.pieces(opponent, PieceKind::Ou);
     let king = board.king_square(mover);
-    let constraints = king
-        .map(|king| king_constraints(board, king, mover, known_not_in_check))
-        .unwrap_or(KingConstraints {
-            checkers: Bitboard::EMPTY,
-            evasion_mask: Bitboard::EMPTY,
-            pinned: Bitboard::EMPTY,
-        });
-    let checker_count = constraints.checkers.popcount();
-    let allowed = if checker_count == 0 {
+
+    let constraints = current_king_constraints(board, known_checkers);
+    let checker_count = checker_count(constraints.checkers);
+    let allowed = (if checker_count == 0 {
         Bitboard::FULL
     } else {
         constraints.evasion_mask
-    } & !opponent_king;
+    })
+    .and_not(opponent_king);
     let restrictions = MoveRestrictions {
         allowed,
         pinned: constraints.pinned,
         king,
+        unrestricted: false,
     };
 
     // A double check can only be answered by moving the king. Otherwise,
     // apply check and pin masks while generating so that legal moves do not
     // need a second full-list filtering pass.
     if checker_count == 0 && constraints.pinned.is_empty() {
-        generate_non_king_moves_into::<false>(board, mover, restrictions, legals);
+        generate_non_king_moves_into::<false>(
+            board,
+            mover,
+            MoveRestrictions::PSEUDO,
+            opponent_king,
+            legals,
+        );
     } else if checker_count < 2 {
-        generate_non_king_moves_into::<true>(board, mover, restrictions, legals);
+        if constraints.pinned.is_empty() {
+            // A single check still needs `allowed`, but without pinned pieces
+            // it does not need the per-target pin-ray test.
+            generate_non_king_moves_into::<false>(
+                board,
+                mover,
+                restrictions,
+                Bitboard::EMPTY,
+                legals,
+            );
+        } else {
+            generate_non_king_moves_into::<true>(
+                board,
+                mover,
+                restrictions,
+                Bitboard::EMPTY,
+                legals,
+            );
+        }
     }
 
     if let Some(king) = king {
-        let mut targets =
-            KING_ATTACKS[king.index() as usize] & !board.occ_for(mover) & !opponent_king;
+        let mut targets = KING_ATTACKS[king.index() as usize]
+            .and_not(board.occ_for(mover))
+            .and_not(opponent_king);
         while let Some(to) = targets.pop_lsb() {
-            let m = Move::normal(king, to, PieceKind::Ou, false);
-            if king_destination_is_safe(board, mover, m) {
-                legals.push(m);
+            if king_destination_is_safe(board, mover, Move::normal(king, to, PieceKind::Ou, false))
+            {
+                legals.push_normal(king, to, PieceKind::Ou, false);
             }
         }
     }
 
-    if checker_count >= 2 {
+    if checker_count >= 2 || board.hand(mover).is_empty() {
         return;
     }
     generate_legal_drops(board, mover, opponent, opponent_king, allowed, legals);
@@ -1262,19 +2608,14 @@ pub(crate) fn count_legal_moves(board: &mut Board) -> u64 {
     let opponent = mover.flip();
     let opponent_king = board.pieces(opponent, PieceKind::Ou);
     let king = board.king_square(mover);
-    let constraints = king
-        .map(|king| king_constraints(board, king, mover, false))
-        .unwrap_or(KingConstraints {
-            checkers: Bitboard::EMPTY,
-            evasion_mask: Bitboard::EMPTY,
-            pinned: Bitboard::EMPTY,
-        });
-    let checker_count = constraints.checkers.popcount();
-    let allowed = if checker_count == 0 {
+    let constraints = current_king_constraints(board, None);
+    let checker_count = checker_count(constraints.checkers);
+    let allowed = (if checker_count == 0 {
         Bitboard::FULL
     } else {
         constraints.evasion_mask
-    } & !opponent_king;
+    })
+    .and_not(opponent_king);
     let mut counter = MoveCounter::default();
 
     if checker_count == 0 && constraints.pinned.is_empty() {
@@ -1285,28 +2626,44 @@ pub(crate) fn count_legal_moves(board: &mut Board) -> u64 {
                 allowed,
                 pinned: Bitboard::EMPTY,
                 king,
+                unrestricted: false,
             },
+            Bitboard::EMPTY,
             &mut counter,
         );
     } else if checker_count < 2 {
-        generate_non_king_moves_into::<true>(
-            board,
-            mover,
-            MoveRestrictions {
-                allowed,
-                pinned: constraints.pinned,
-                king,
-            },
-            &mut counter,
-        );
+        let restrictions = MoveRestrictions {
+            allowed,
+            pinned: constraints.pinned,
+            king,
+            unrestricted: false,
+        };
+        if constraints.pinned.is_empty() {
+            generate_non_king_moves_into::<false>(
+                board,
+                mover,
+                restrictions,
+                Bitboard::EMPTY,
+                &mut counter,
+            );
+        } else {
+            generate_non_king_moves_into::<true>(
+                board,
+                mover,
+                restrictions,
+                Bitboard::EMPTY,
+                &mut counter,
+            );
+        }
     }
 
     if let Some(king) = king {
-        let mut targets =
-            KING_ATTACKS[king.index() as usize] & !board.occ_for(mover) & !opponent_king;
+        let mut targets = KING_ATTACKS[king.index() as usize]
+            .and_not(board.occ_for(mover))
+            .and_not(opponent_king);
         while let Some(to) = targets.pop_lsb() {
-            let m = Move::normal(king, to, PieceKind::Ou, false);
-            if king_destination_is_safe(board, mover, m) {
+            if king_destination_is_safe(board, mover, Move::normal(king, to, PieceKind::Ou, false))
+            {
                 counter.count += 1;
             }
         }
@@ -1340,20 +2697,16 @@ fn generate_legal_captures_into_sink(
     legals.clear();
     let mover = board.side_to_move;
     let king = board.king_square(mover);
-    let constraints = king
-        .map(|king| king_constraints(board, king, mover, known_not_in_check))
-        .unwrap_or(KingConstraints {
-            checkers: Bitboard::EMPTY,
-            evasion_mask: Bitboard::EMPTY,
-            pinned: Bitboard::EMPTY,
-        });
-    let checker_count = constraints.checkers.popcount();
+    let constraints =
+        current_king_constraints(board, known_not_in_check.then_some(Bitboard::EMPTY));
+    let checker_count = checker_count(constraints.checkers);
     let opponent_king = board.pieces(mover.flip(), PieceKind::Ou);
-    let allowed = if checker_count == 0 {
+    let allowed = (if checker_count == 0 {
         Bitboard::FULL
     } else {
         constraints.evasion_mask
-    } & !opponent_king;
+    })
+    .and_not(opponent_king);
     if checker_count == 0 && constraints.pinned.is_empty() {
         generate_non_king_captures_into::<false>(
             board,
@@ -1362,25 +2715,27 @@ fn generate_legal_captures_into_sink(
                 allowed,
                 pinned: Bitboard::EMPTY,
                 king,
+                unrestricted: false,
             },
             legals,
         );
     } else if checker_count < 2 {
-        generate_non_king_captures_into::<true>(
-            board,
-            mover,
-            MoveRestrictions {
-                allowed,
-                pinned: constraints.pinned,
-                king,
-            },
-            legals,
-        );
+        let restrictions = MoveRestrictions {
+            allowed,
+            pinned: constraints.pinned,
+            king,
+            unrestricted: false,
+        };
+        if constraints.pinned.is_empty() {
+            generate_non_king_captures_into::<false>(board, mover, restrictions, legals);
+        } else {
+            generate_non_king_captures_into::<true>(board, mover, restrictions, legals);
+        }
     }
 
     if let Some(king) = king {
-        let mut targets =
-            KING_ATTACKS[king.index() as usize] & board.occ_for(mover.flip()) & !opponent_king;
+        let mut targets = (KING_ATTACKS[king.index() as usize] & board.occ_for(mover.flip()))
+            .and_not(opponent_king);
         while let Some(to) = targets.pop_lsb() {
             let m = Move::normal(king, to, PieceKind::Ou, false);
             if king_destination_is_safe(board, mover, m) {
@@ -1392,32 +2747,59 @@ fn generate_legal_captures_into_sink(
 
 thread_local! {
     static MOVE_BUFFER_POOL: RefCell<Vec<Vec<Move>>> = const { RefCell::new(Vec::new()) };
+    static FIXED_MOVE_BUFFER_POOL: RefCell<Vec<FixedMoveList>> = const { RefCell::new(Vec::new()) };
 }
 
 pub(crate) fn take_move_buffer() -> Vec<Move> {
     MOVE_BUFFER_POOL.with(|pool| {
-        pool.borrow_mut()
+        let mut moves = pool
+            .borrow_mut()
             .pop()
-            .unwrap_or_else(|| Vec::with_capacity(64))
+            .unwrap_or_else(|| Vec::with_capacity(128));
+        if moves.capacity() < 128 {
+            moves.reserve(128 - moves.capacity());
+        }
+        moves
     })
 }
 
-pub(crate) fn recycle_move_buffer(mut moves: Vec<Move>) {
+pub(crate) fn take_fixed_move_buffer() -> FixedMoveList {
+    FIXED_MOVE_BUFFER_POOL.with(|pool| pool.borrow_mut().pop().unwrap_or_default())
+}
+
+pub(crate) fn recycle_fixed_move_buffer(mut moves: FixedMoveList) {
     moves.clear();
-    MOVE_BUFFER_POOL.with(|pool| pool.borrow_mut().push(moves));
+    FIXED_MOVE_BUFFER_POOL.with(|pool| pool.borrow_mut().push(moves));
+}
+
+/// Borrow a pooled fixed move list for an operation that does not need to
+/// retain ownership of it. This avoids a pool pop/push pair on the public
+/// `Vec<Move>` generation path while keeping the buffer reusable.
+#[inline(always)]
+fn with_fixed_move_buffer<R>(f: impl FnOnce(&mut FixedMoveList) -> R) -> R {
+    FIXED_MOVE_BUFFER_POOL.with(|pool| {
+        let mut pool = pool.borrow_mut();
+        if pool.is_empty() {
+            pool.push(FixedMoveList::default());
+        }
+        let moves = pool
+            .last_mut()
+            .expect("fixed move pool was just initialized");
+        f(moves)
+    })
 }
 
 /// A thread-local reusable move list for hot search paths.
 pub struct MoveBuffer {
-    moves: Option<Vec<Move>>,
+    moves: Option<FixedMoveList>,
 }
 
 impl MoveBuffer {
     /// Generates legal moves using a reusable per-thread allocation.
     #[inline]
     pub fn legal(board: &mut Board) -> Self {
-        let mut moves = take_move_buffer();
-        generate_legal_moves_into(board, &mut moves);
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_moves_into_fixed(board, &mut moves);
         Self { moves: Some(moves) }
     }
 
@@ -1426,15 +2808,15 @@ impl MoveBuffer {
     /// while retaining pin and king-destination validation.
     #[inline]
     pub(crate) fn legal_with_in_check(board: &mut Board, in_check: bool) -> Self {
-        let mut moves = take_move_buffer();
-        generate_legal_moves_into_sink(board, &mut moves, !in_check);
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_moves_into_sink(board, &mut moves, (!in_check).then_some(Bitboard::EMPTY));
         Self { moves: Some(moves) }
     }
 
     /// Generates legal captures using a reusable per-thread allocation.
     pub fn captures(board: &mut Board) -> Self {
-        let mut moves = take_move_buffer();
-        generate_legal_captures_into(board, &mut moves);
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_captures_into_sink(board, &mut moves, false);
         Self { moves: Some(moves) }
     }
 
@@ -1442,28 +2824,34 @@ impl MoveBuffer {
     /// state, avoiding duplicate checker discovery for quiet nodes.
     #[inline]
     pub(crate) fn captures_with_in_check(board: &mut Board, in_check: bool) -> Self {
-        let mut moves = take_move_buffer();
+        let mut moves = take_fixed_move_buffer();
         generate_legal_captures_into_sink(board, &mut moves, !in_check);
         Self { moves: Some(moves) }
     }
 
     /// Returns the generated moves as a read-only slice.
-    #[inline]
+    #[inline(always)]
     pub fn as_slice(&self) -> &[Move] {
-        self.moves.as_deref().unwrap_or(&[])
+        self.moves
+            .as_ref()
+            .map(FixedMoveList::as_slice)
+            .unwrap_or(&[])
     }
 
     /// Returns the generated moves for in-place ordering or filtering.
-    pub fn as_mut_vec(&mut self) -> &mut Vec<Move> {
+    #[inline(always)]
+    pub fn as_mut_list(&mut self) -> &mut FixedMoveList {
         self.moves.as_mut().expect("move buffer is always present")
     }
 
     /// Returns whether the generated move list is empty.
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         self.as_slice().is_empty()
     }
 
     /// Returns the number of generated moves.
+    #[inline(always)]
     pub fn len(&self) -> usize {
         self.as_slice().len()
     }
@@ -1472,7 +2860,7 @@ impl MoveBuffer {
 impl Drop for MoveBuffer {
     fn drop(&mut self) {
         if let Some(moves) = self.moves.take() {
-            recycle_move_buffer(moves);
+            recycle_fixed_move_buffer(moves);
         }
     }
 }
@@ -1480,6 +2868,20 @@ impl Drop for MoveBuffer {
 #[cfg(test)]
 mod move_buffer_tests {
     use super::*;
+
+    #[test]
+    fn adaptive_vec_generation_matches_fixed_sink_with_multiple_hands() {
+        let sfen = "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22";
+        let mut adaptive_board = Board::from_sfen(sfen).expect("fixture must parse");
+        let expected = generate_legal_moves(&mut adaptive_board);
+
+        let mut fixed_board = Board::from_sfen(sfen).expect("fixture must parse");
+        let mut fixed = FixedMoveList::new();
+        generate_legal_moves_into_fixed(&mut fixed_board, &mut fixed);
+
+        assert_eq!(expected.as_slice(), fixed.as_slice());
+        assert_eq!(adaptive_board.hash(), fixed_board.hash());
+    }
 
     #[test]
     fn reusable_buffers_match_owned_move_lists() {
@@ -1503,6 +2905,46 @@ mod move_buffer_tests {
 
         assert_eq!(buffered_captures.as_slice(), expected_captures.as_slice());
         assert_eq!(buffered_captures.len(), expected_captures.len());
+    }
+
+    #[test]
+    fn packed_buffer_round_trips_legal_moves() {
+        let mut ordinary_board = Board::startpos();
+        let expected = generate_legal_moves(&mut ordinary_board);
+        let mut packed_board = Board::startpos();
+        let mut packed = PackedMoveList::new();
+        generate_legal_moves_into_packed(&mut packed_board, &mut packed);
+
+        let expanded: Vec<Move> = packed
+            .as_slice()
+            .iter()
+            .map(|mv| mv.to_move().expect("generated move must decode"))
+            .collect();
+        assert_eq!(expanded, expected);
+    }
+
+    #[test]
+    fn narrow_buffer_round_trips_startpos_and_drop_positions() {
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/9/9/9/9/9/9/9/4K4 b RBGSNLrbgsnlp 1",
+        ] {
+            let mut expected_board = Board::from_sfen(sfen).expect("fixture must parse");
+            let expected = generate_legal_moves(&mut expected_board);
+            let mut narrow_board = Board::from_sfen(sfen).expect("fixture must parse");
+            let mut narrow = NarrowMoveList::new();
+            generate_legal_moves_into_narrow(&mut narrow_board, &mut narrow);
+
+            let expanded: Vec<Move> = narrow
+                .as_slice()
+                .iter()
+                .map(|mv| {
+                    mv.to_move(&narrow_board)
+                        .expect("generated move must decode")
+                })
+                .collect();
+            assert_eq!(expanded, expected, "narrow move round trip for {sfen}");
+        }
     }
 
     #[test]
@@ -1570,6 +3012,19 @@ mod king_capture_tests {
 mod legality_probe_tests {
     use super::*;
 
+    fn is_uchifuzume_reference(board: &mut Board, opponent: Color) -> bool {
+        if !is_in_check(board, opponent) {
+            return false;
+        }
+        let pseudos = generate_moves(board);
+        !pseudos.into_iter().any(|m| {
+            let tok = board.do_move_for_perft(m);
+            let escapes = !is_in_check(board, opponent);
+            board.undo_move_for_perft(tok);
+            escapes
+        })
+    }
+
     fn legal_moves_with_full_nnue_updates(board: &mut Board) -> Vec<Move> {
         let mover = board.side_to_move;
         let opponent = mover.flip();
@@ -1583,8 +3038,9 @@ mod legality_probe_tests {
             }
             let token = board.do_move(m);
             if !is_in_check(board, mover) {
-                let uchifuzume =
-                    m.is_drop() && m.piece_kind == PieceKind::Fu && is_uchifuzume(board, opponent);
+                let uchifuzume = m.is_drop()
+                    && m.piece_kind == PieceKind::Fu
+                    && is_uchifuzume_reference(board, opponent);
                 if !uchifuzume {
                     legals.push(m);
                 }
@@ -1592,6 +3048,31 @@ mod legality_probe_tests {
             board.undo_move(token);
         }
         legals
+    }
+
+    #[test]
+    fn pawn_drop_mate_fast_probe_matches_full_move_probe() {
+        let cases = [
+            (
+                "l+N4knl/6g2/4+P2p1/p2s1Pp1p/1pp1l2P1/P1sK2P1P/1P3S1r1/5G3/LN7 w R2BGSN4Pgp 106",
+                false,
+            ),
+            (
+                "l+N4knl/6g2/4+P2p1/p1s2Pp1p/1pp1l2P1/P1sK2P1P/1P3S1r1/5G3/LN7 w R2BGSN3Pg2p 1",
+                true,
+            ),
+        ];
+        let to = Square::from_shogi(6, 5);
+        for (sfen, expected) in cases {
+            let mut board = Board::from_sfen(sfen).expect("pawn-drop fixture must parse");
+            let opponent = board.side_to_move.flip();
+            let token = board.do_move(Move::drop(to, PieceKind::Fu));
+            let actual = is_uchifuzume(&mut board, opponent, to);
+            let reference = is_uchifuzume_reference(&mut board, opponent);
+            assert_eq!(actual, reference, "fast probe differs for {sfen}");
+            assert_eq!(actual, !expected, "unexpected pawn-drop result for {sfen}");
+            board.undo_move(token);
+        }
     }
 
     fn legal_captures_with_full_nnue_updates(board: &mut Board) -> Vec<Move> {

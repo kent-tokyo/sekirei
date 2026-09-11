@@ -18,7 +18,7 @@ pub struct Move {
 
 impl Move {
     /// Construct a normal board move from `from` to `to`.
-    #[inline]
+    #[inline(always)]
     pub fn normal(from: Square, to: Square, kind: PieceKind, promote: bool) -> Self {
         Move {
             from: Some(from),
@@ -29,7 +29,7 @@ impl Move {
     }
 
     /// Construct a drop of `kind` from hand onto `to`.
-    #[inline]
+    #[inline(always)]
     pub fn drop(to: Square, kind: PieceKind) -> Self {
         Move {
             from: None,
@@ -43,6 +43,17 @@ impl Move {
     #[inline]
     pub fn is_drop(self) -> bool {
         self.from.is_none()
+    }
+
+    /// Return the compact 32-bit encoding used by the high-throughput move
+    /// buffers and benchmark adapters.
+    #[must_use]
+    #[inline(always)]
+    pub fn raw(self) -> u32 {
+        let from = self.from.map_or(81, |square| u32::from(square.index()));
+        from | (u32::from(self.to.index()) << 7)
+            | (u32::from(self.promote) << 14)
+            | ((self.piece_kind.index() as u32) << 15)
     }
 }
 

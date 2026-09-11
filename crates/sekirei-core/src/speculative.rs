@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 
 use crate::board::Board;
 use crate::budget::Budget;
-use crate::movegen::generate_legal_moves;
+use crate::movegen::MoveBuffer;
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::policy;
@@ -100,7 +100,7 @@ impl SpecGroup {
                         return;
                     }
 
-                    let tok = b.do_move(m);
+                    let tok = b.do_move_for_search(m);
                     let score = spec_alpha_beta(
                         &state_c,
                         &abort_c,
@@ -110,7 +110,7 @@ impl SpecGroup {
                         depth.saturating_sub(1),
                         1,
                     );
-                    b.undo_move(tok);
+                    b.undo_move_for_search(tok);
 
                     // Deliberately does NOT store to the shared TT here (issue #14):
                     // every candidate task in this group undoes its own move and would
@@ -224,7 +224,7 @@ fn spec_alpha_beta(
         }
     }
 
-    let moves = generate_legal_moves(board);
+    let moves = MoveBuffer::legal(board);
     if moves.is_empty() {
         return -(crate::search::MATE_SCORE - ply as i32);
     }
@@ -232,15 +232,15 @@ fn spec_alpha_beta(
     let mut best = -1_000_000i32;
     let mut best_move = None;
 
-    for m in moves {
+    for &m in moves.as_slice() {
         // Re-check abort before each recursive call
         if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {
             return 0; // do NOT write to TT with this incomplete best
         }
 
-        let tok = board.do_move(m);
+        let tok = board.do_move_for_search(m);
         let s = -spec_alpha_beta(state, task_abort, board, -beta, -alpha, depth - 1, ply + 1);
-        board.undo_move(tok);
+        board.undo_move_for_search(tok);
 
         // If the recursive call aborted, s == 0 is meaningless — bail out
         if task_abort.load(Ordering::Relaxed) || state.budget.should_abort() {

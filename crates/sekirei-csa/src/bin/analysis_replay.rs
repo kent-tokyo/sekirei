@@ -148,14 +148,18 @@ fn verify(csa_path: &str, analysis_path: &str) -> Result<(), String> {
 mod tests {
     use super::verify;
     use std::fs;
+    use std::sync::atomic::{AtomicU64, Ordering};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn fixture_dir() -> std::path::PathBuf {
+        static NEXT_FIXTURE_ID: AtomicU64 = AtomicU64::new(0);
         let stamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .expect("system clock")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!("sekirei-analysis-replay-{stamp}"));
+        let fixture_id = NEXT_FIXTURE_ID.fetch_add(1, Ordering::Relaxed);
+        let path =
+            std::env::temp_dir().join(format!("sekirei-analysis-replay-{stamp}-{fixture_id}"));
         fs::create_dir_all(&path).expect("create fixture directory");
         path
     }

@@ -9,7 +9,9 @@
 
 use crate::board::Board;
 use crate::color::Color;
-use crate::movegen::{generate_legal_moves, is_in_check};
+#[cfg(test)]
+use crate::movegen::generate_legal_moves;
+use crate::movegen::{MoveBuffer, is_in_check};
 use crate::mv::Move;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -199,7 +201,7 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState<'_>) -> Nu
     state.nodes += 1;
 
     let mut probe = board.clone();
-    let moves = generate_legal_moves(&mut probe);
+    let moves = MoveBuffer::legal(&mut probe);
     if moves.is_empty() {
         let attacker_won =
             board.side_to_move != state.attacker && is_in_check(board, board.side_to_move);
@@ -250,9 +252,9 @@ fn solve_node(board: &Board, depth_left: u16, state: &mut SearchState<'_>) -> Nu
     };
 
     let mut complete = true;
-    for mv in moves {
+    for &mv in moves.as_slice() {
         let mut child = board.clone();
-        child.do_move(mv);
+        child.do_move_for_search(mv);
         let numbers = solve_node(&child, depth_left - 1, state);
         if is_or {
             if numbers.proof < aggregate.proof {
@@ -316,7 +318,7 @@ mod tests {
         assert!(!result.aborted);
         let best_move = result.best_move.expect("proven mate must provide a move");
         let mut after = board.clone();
-        after.do_move(best_move);
+        after.do_move_for_search(best_move);
         assert!(generate_legal_moves(&mut after).is_empty());
         assert!(is_in_check(&after, after.side_to_move));
         assert_eq!(result.cache_hits, 0);

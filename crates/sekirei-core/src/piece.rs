@@ -41,7 +41,7 @@ impl PieceKind {
     pub const COUNT: usize = 14;
 
     /// True for pieces that can promote (Fu / Kyou / Kei / Gin / Kaku / Hisha)
-    #[inline]
+    #[inline(always)]
     pub const fn is_promotable(self) -> bool {
         matches!(
             self,
@@ -55,7 +55,7 @@ impl PieceKind {
     }
 
     /// Return the promoted form; no-op for pieces that cannot promote
-    #[inline]
+    #[inline(always)]
     pub const fn promoted(self) -> Self {
         match self {
             PieceKind::Fu => PieceKind::Tokin,
@@ -69,7 +69,7 @@ impl PieceKind {
     }
 
     /// Return the base (unpromoted) form; used when a captured piece enters hand
-    #[inline]
+    #[inline(always)]
     pub const fn unpromoted(self) -> Self {
         match self {
             PieceKind::Tokin => PieceKind::Fu,
@@ -112,7 +112,7 @@ impl PieceKind {
     }
 
     /// Numeric encoding matching the `#[repr(u8)]` discriminant (0..=13); inverse of `from_u8`.
-    #[inline]
+    #[inline(always)]
     pub const fn index(self) -> usize {
         self as usize
     }

@@ -193,7 +193,7 @@ static SAVE_COUNTER: AtomicU64 = AtomicU64::new(0);
 /// EvalFile` are processed) calls this and must not permanently pin `WEIGHTS` to
 /// the LCG garbage — `OnceLock::set` only ever succeeds once, so if `weights()`
 /// itself initialised `WEIGHTS`, a later `load_weights()` would silently no-op.
-#[inline]
+#[inline(always)]
 pub fn weights() -> &'static NnueWeights {
     WEIGHTS
         .get()
@@ -201,7 +201,7 @@ pub fn weights() -> &'static NnueWeights {
 }
 
 /// True once `load_weights()` has succeeded.
-#[inline]
+#[inline(always)]
 pub fn weights_active() -> bool {
     NNUE_ACTIVE.load(Ordering::Relaxed)
 }
@@ -467,44 +467,136 @@ impl NnueAcc {
     // --- Incremental hand updates ---
 
     /// Call when `color`'s hand gains its `count`-th piece of `kind` (count ≥ 1).
-    #[inline]
+    #[inline(always)]
     pub fn add_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
         if count == 0 || count > HAND_MAX[kind.index()] {
             return;
         }
+        let weights = weights();
         for p in [Color::Black, Color::White] {
-            self.add_col(p.index(), hand_feature_index(kind, count, color, p));
+            self.add_col_with(
+                weights,
+                p.index(),
+                hand_feature_index(kind, count, color, p),
+            );
         }
     }
 
     /// Call when `color`'s hand loses its `count`-th piece of `kind` (count was ≥ 1 before the drop).
-    #[inline]
+    #[inline(always)]
     pub fn remove_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
         if count == 0 || count > HAND_MAX[kind.index()] {
             return;
         }
+        let weights = weights();
         for p in [Color::Black, Color::White] {
-            self.sub_col(p.index(), hand_feature_index(kind, count, color, p));
+            self.sub_col_with(
+                weights,
+                p.index(),
+                hand_feature_index(kind, count, color, p),
+            );
         }
     }
 
     // --- Incremental piece updates ---
 
     /// Incrementally update the accumulator for a piece placed at `sq`.
-    #[inline]
+    #[inline(always)]
     pub fn add_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        let weights = weights();
         for p in [Color::Black, Color::White] {
             let feat = feature_index(sq, kind, color, p);
-            self.add_col(p.index(), feat);
+            self.add_col_with(weights, p.index(), feat);
         }
     }
 
     /// Incrementally update the accumulator for a piece removed from `sq`.
-    #[inline]
+    #[inline(always)]
     pub fn remove_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        let weights = weights();
         for p in [Color::Black, Color::White] {
             let feat = feature_index(sq, kind, color, p);
-            self.sub_col(p.index(), feat);
+            self.sub_col_with(weights, p.index(), feat);
+        }
+    }
+
+    /// Move a piece between two squares while visiting each accumulator row
+    /// once. The subtraction remains immediately before the addition for each
+    /// element, matching the saturating arithmetic order of separate updates.
+    #[inline(always)]
+    pub fn move_piece(&mut self, from: Square, to: Square, kind: PieceKind, color: Color) {
+        let weights = weights();
+        for p in [Color::Black, Color::White] {
+            let old = &weights.ft[feature_index(from, kind, color, p)];
+            let new = &weights.ft[feature_index(to, kind, color, p)];
+            let accumulator = &mut self.values[p.index()];
+            for i in 0..L1 {
+                accumulator[i] = accumulator[i].saturating_sub(old[i]).saturating_add(new[i]);
+            }
+        }
+    }
+
+    /// Apply a board move, remove the captured piece, and add the captured
+    /// piece to hand in one accumulator traversal. The operation order within
+    /// each element matches the separate updates used by the generic path.
+    #[inline(always)]
+    pub fn capture_piece(
+        &mut self,
+        moved: (Square, Square, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        let (from, to, moved_kind, mover) = moved;
+        let (captured_square, captured_kind, captured_color) = captured;
+        let (hand_kind, hand_count, hand_color) = hand;
+        let weights = weights();
+        for p in [Color::Black, Color::White] {
+            let old_moved = &weights.ft[feature_index(from, moved_kind, mover, p)];
+            let new_moved = &weights.ft[feature_index(to, moved_kind, mover, p)];
+            let captured_weights =
+                &weights.ft[feature_index(captured_square, captured_kind, captured_color, p)];
+            let hand_weights =
+                &weights.ft[hand_feature_index(hand_kind, hand_count, hand_color, p)];
+            let accumulator = &mut self.values[p.index()];
+            for i in 0..L1 {
+                accumulator[i] = accumulator[i]
+                    .saturating_sub(old_moved[i])
+                    .saturating_add(new_moved[i])
+                    .saturating_sub(captured_weights[i])
+                    .saturating_add(hand_weights[i]);
+            }
+        }
+    }
+
+    /// Reverse a capture in one accumulator traversal. The order mirrors the
+    /// generic undo path: remove the moved piece at `to`, restore it at `from`,
+    /// restore the captured piece, then remove the hand threshold feature.
+    #[inline(always)]
+    pub fn undo_capture_piece(
+        &mut self,
+        moved: (Square, Square, PieceKind, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        let (from, to, original_kind, current_kind, mover) = moved;
+        let (captured_square, captured_kind, captured_color) = captured;
+        let (hand_kind, hand_count, hand_color) = hand;
+        let weights = weights();
+        for p in [Color::Black, Color::White] {
+            let current = &weights.ft[feature_index(to, current_kind, mover, p)];
+            let original = &weights.ft[feature_index(from, original_kind, mover, p)];
+            let captured_weights =
+                &weights.ft[feature_index(captured_square, captured_kind, captured_color, p)];
+            let hand_weights =
+                &weights.ft[hand_feature_index(hand_kind, hand_count, hand_color, p)];
+            let accumulator = &mut self.values[p.index()];
+            for i in 0..L1 {
+                accumulator[i] = accumulator[i]
+                    .saturating_sub(current[i])
+                    .saturating_add(original[i])
+                    .saturating_add(captured_weights[i])
+                    .saturating_sub(hand_weights[i]);
+            }
         }
     }
 
@@ -553,12 +645,6 @@ impl NnueAcc {
 
     // --- Private column helpers (SIMD-vectorised by LLVM) ---
 
-    /// acc[persp] += weights().ft[feat]  — LLVM emits VPADDW (AVX2)
-    #[inline]
-    fn add_col(&mut self, persp: usize, feat: usize) {
-        self.add_col_with(weights(), persp, feat);
-    }
-
     #[inline]
     fn add_col_with(&mut self, weights: &NnueWeights, persp: usize, feat: usize) {
         let w = &weights.ft[feat];
@@ -568,10 +654,9 @@ impl NnueAcc {
         }
     }
 
-    /// acc[persp] -= weights().ft[feat]  — LLVM emits VPSUBW (AVX2)
     #[inline]
-    fn sub_col(&mut self, persp: usize, feat: usize) {
-        let w = &weights().ft[feat];
+    fn sub_col_with(&mut self, weights: &NnueWeights, persp: usize, feat: usize) {
+        let w = &weights.ft[feat];
         let a = &mut self.values[persp];
         for i in 0..L1 {
             a[i] = a[i].saturating_sub(w[i]);

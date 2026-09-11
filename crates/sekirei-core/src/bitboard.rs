@@ -90,7 +90,7 @@ impl Bitboard {
     pub const STUCK_KEI_WHITE: Self = Bitboard(ranks_mask(7, 8)); // ranks 8-9
 
     /// Bitboard containing just `sq`.
-    #[inline]
+    #[inline(always)]
     pub const fn from_square(sq: Square) -> Self {
         Bitboard(1u128 << sq.index())
     }
@@ -102,92 +102,127 @@ impl Bitboard {
     }
 
     /// Returns true if `sq` is set.
-    #[inline]
-    pub fn contains(self, sq: Square) -> bool {
-        (self.0 >> sq.index()) & 1 == 1
+    #[inline(always)]
+    pub const fn contains(self, sq: Square) -> bool {
+        let index = sq.index();
+        if index < 64 {
+            (self.0 as u64 & (1u64 << index)) != 0
+        } else {
+            ((self.0 >> 64) as u64 & (1u64 << (index - 64))) != 0
+        }
     }
 
     /// Sets `sq`.
-    #[inline]
+    #[inline(always)]
     pub fn set(&mut self, sq: Square) {
         self.0 |= 1u128 << sq.index();
     }
 
     /// Clears `sq`.
-    #[inline]
+    #[inline(always)]
     pub fn unset(&mut self, sq: Square) {
         self.0 &= !(1u128 << sq.index());
     }
 
     /// Returns true if no squares are set.
-    #[inline]
+    #[inline(always)]
     pub fn is_empty(self) -> bool {
         self.0 == 0
     }
 
+    /// Return the bits in `self` that are not set in `rhs`.
+    ///
+    /// Unlike `!rhs`, this operation preserves the fact that the left-hand
+    /// operand already contains only valid board squares and therefore avoids
+    /// masking the unused high bits on the hot path.
+    #[inline(always)]
+    pub const fn and_not(self, rhs: Self) -> Self {
+        Bitboard(self.0 & !rhs.0)
+    }
+
     /// Number of set squares.
-    #[inline]
+    #[inline(always)]
     pub fn popcount(self) -> u32 {
-        self.0.count_ones()
+        (self.0 as u64).count_ones() + ((self.0 >> 64) as u64).count_ones()
     }
 
     /// Returns the least-significant set square, if any, without removing it.
-    #[inline]
+    #[inline(always)]
     pub fn lsb(self) -> Option<Square> {
-        if self.is_empty() {
-            None
+        let low = self.0 as u64;
+        if low != 0 {
+            Some(Square::from_index(low.trailing_zeros() as u8))
         } else {
-            Some(Square::from_index(self.0.trailing_zeros() as u8))
+            let high = (self.0 >> 64) as u64;
+            if high == 0 {
+                None
+            } else {
+                Some(Square::from_index(64 + high.trailing_zeros() as u8))
+            }
         }
     }
 
     /// Pop the least-significant bit and return its square (iterator pattern)
-    #[inline]
+    #[inline(always)]
     pub fn pop_lsb(&mut self) -> Option<Square> {
-        if self.is_empty() {
-            return None;
-        }
-        let tz = self.0.trailing_zeros() as u8;
-        self.0 &= self.0 - 1;
-        Some(Square::from_index(tz))
+        let value = self.0;
+        let low = value as u64;
+        let index = if low != 0 {
+            low.trailing_zeros() as u8
+        } else {
+            let high = (value >> 64) as u64;
+            if high == 0 {
+                return None;
+            }
+            64 + high.trailing_zeros() as u8
+        };
+        self.0 = value & value.wrapping_sub(1);
+        Some(Square::from_index(index))
     }
 }
 
 impl BitOr for Bitboard {
     type Output = Self;
+    #[inline]
     fn bitor(self, rhs: Self) -> Self {
         Bitboard(self.0 | rhs.0)
     }
 }
 impl BitAnd for Bitboard {
     type Output = Self;
+    #[inline]
     fn bitand(self, rhs: Self) -> Self {
         Bitboard(self.0 & rhs.0)
     }
 }
 impl BitXor for Bitboard {
     type Output = Self;
+    #[inline]
     fn bitxor(self, rhs: Self) -> Self {
         Bitboard(self.0 ^ rhs.0)
     }
 }
 impl Not for Bitboard {
     type Output = Self;
+    #[inline]
     fn not(self) -> Self {
         Bitboard(!self.0 & Bitboard::FULL.0)
     }
 }
 impl BitOrAssign for Bitboard {
+    #[inline]
     fn bitor_assign(&mut self, rhs: Self) {
         self.0 |= rhs.0;
     }
 }
 impl BitAndAssign for Bitboard {
+    #[inline]
     fn bitand_assign(&mut self, rhs: Self) {
         self.0 &= rhs.0;
     }
 }
 impl BitXorAssign for Bitboard {
+    #[inline]
     fn bitxor_assign(&mut self, rhs: Self) {
         self.0 ^= rhs.0;
     }

@@ -8,7 +8,7 @@
 
 use crate::board::Board;
 use crate::eval::evaluate;
-use crate::movegen::{generate_legal_moves, is_in_check};
+use crate::movegen::{MoveBuffer, count_legal_moves, is_in_check};
 use crate::mv::Move;
 use crate::nnue::NnueWeights;
 use rayon::prelude::*;
@@ -168,12 +168,14 @@ pub struct TreeMctsInfo {
     pub value_cache_hits: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone)]
 struct RootChild {
     mv: Move,
     prior: f32,
     visits: u32,
     value_sum: f32,
+    position: Board,
+    terminal_value: Option<f32>,
 }
 
 struct TreeNode {
@@ -252,7 +254,7 @@ impl TreeMcts {
         abort: &AtomicBool,
     ) -> TreeMctsInfo {
         let mut root_probe = board.clone();
-        let root_moves = generate_legal_moves(&mut root_probe);
+        let root_moves = MoveBuffer::legal(&mut root_probe);
         if root_moves.is_empty() {
             return TreeMctsInfo {
                 best_move: None,
@@ -269,7 +271,7 @@ impl TreeMcts {
         }
 
         let mut root = TreeNode::new();
-        expand_node(board, &mut root, policy, root_moves);
+        expand_node(board, &mut root, policy, root_moves.as_slice());
         let mut nodes = 1;
         let mut completed = 0;
         let mut value_cache = HashMap::new();
@@ -278,7 +280,6 @@ impl TreeMcts {
             if abort.load(Ordering::Relaxed) {
                 break;
             }
-            let mut current = board.clone();
             let mut context = TreeSimulationContext {
                 exploration: self.exploration,
                 policy,
@@ -289,6 +290,7 @@ impl TreeMcts {
                 value_cache_hits: &mut value_cache_hits,
                 abort,
             };
+            let mut current = board.clone();
             if tree_simulate(&mut current, &mut root, config.max_depth, &mut context).is_none() {
                 break;
             }
@@ -418,7 +420,7 @@ impl SharedTreeMcts {
         abort: &AtomicBool,
     ) -> SharedTreeMctsInfo {
         let mut probe = board.clone();
-        let root_moves = generate_legal_moves(&mut probe);
+        let root_moves = MoveBuffer::legal(&mut probe);
         if root_moves.is_empty() {
             return SharedTreeMctsInfo {
                 best_move: None,
@@ -452,7 +454,13 @@ impl SharedTreeMcts {
                 share_transpositions: config.share_transpositions,
                 abort,
             };
-            shared_expand(board, 0, config.max_depth, root_moves, &mut context);
+            shared_expand(
+                board,
+                0,
+                config.max_depth,
+                root_moves.as_slice(),
+                &mut context,
+            );
             for _ in 0..config.simulations {
                 if abort.load(Ordering::Relaxed) {
                     break;
@@ -499,13 +507,13 @@ fn shared_expand<P: MctsPolicy, V: MctsValue>(
     board: &Board,
     node_index: usize,
     depth_left: u16,
-    moves: Vec<Move>,
+    moves: &[Move],
     context: &mut SharedSearchContext<'_, P, V>,
 ) {
     let mut children = Vec::with_capacity(moves.len());
-    for mv in moves {
+    for &mv in moves {
         let mut next = board.clone();
-        let _token = next.do_move(mv);
+        let _token = next.do_move_for_search(mv);
         let key = (next.hash(), depth_left.saturating_sub(1));
         let child_index = if context.share_transpositions {
             if let Some(&existing) = context.index.get(&key) {
@@ -560,42 +568,62 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
     if context.abort.load(Ordering::Relaxed) {
         return None;
     }
-    let mut probe = board.clone();
-    let moves = generate_legal_moves(&mut probe);
-    if moves.is_empty() {
-        let result = if is_in_check(&probe, probe.side_to_move) {
-            -1.0
-        } else {
-            0.0
-        };
-        context.arena[node_index].visits += 1;
-        context.arena[node_index].value_sum += result;
-        return Some(result);
-    }
-    if depth_left == 0 {
+    if context.arena[node_index].children.is_empty() {
+        if depth_left == 0 {
+            if count_legal_moves(board) == 0 {
+                let result = if is_in_check(board, board.side_to_move) {
+                    -1.0
+                } else {
+                    0.0
+                };
+                context.arena[node_index].visits += 1;
+                context.arena[node_index].value_sum += result;
+                return Some(result);
+            }
+            let result = context.value.value(board).clamp(-1.0, 1.0);
+            context.arena[node_index].visits += 1;
+            context.arena[node_index].value_sum += result;
+            return Some(result);
+        }
+        let moves = MoveBuffer::legal(board);
+        if moves.is_empty() {
+            let result = if is_in_check(board, board.side_to_move) {
+                -1.0
+            } else {
+                0.0
+            };
+            context.arena[node_index].visits += 1;
+            context.arena[node_index].value_sum += result;
+            return Some(result);
+        }
+        shared_expand(board, node_index, depth_left, moves.as_slice(), context);
+    } else if depth_left == 0 {
         let result = context.value.value(board).clamp(-1.0, 1.0);
         context.arena[node_index].visits += 1;
         context.arena[node_index].value_sum += result;
         return Some(result);
     }
-    if context.arena[node_index].children.is_empty() {
-        shared_expand(board, node_index, depth_left, moves, context);
-    }
     let total_visits = context.arena[node_index].visits;
-    let selected = context.arena[node_index]
-        .children
-        .iter()
-        .enumerate()
-        .max_by(|(left_index, left), (right_index, right)| {
-            shared_ucb(left, context.arena, total_visits, exploration)
-                .total_cmp(&shared_ucb(right, context.arena, total_visits, exploration))
-                .then_with(|| right_index.cmp(left_index))
-        })
-        .map(|(_, child)| (child.mv, child.node))
-        .expect("expanded tree node has a child");
-    let token = board.do_move(selected.0);
-    let child_value = shared_simulate(board, selected.1, depth_left - 1, exploration, context);
-    board.undo_move(token);
+    let exploration_scale = exploration_scale(total_visits);
+    let children = &context.arena[node_index].children;
+    let mut selected_index = 0;
+    let mut best_score = f32::NEG_INFINITY;
+    for (index, child) in children.iter().enumerate() {
+        let score = shared_ucb(child, context.arena, exploration_scale, exploration);
+        // Prefer the later child on equal scores, matching the previous
+        // max_by tie-break while evaluating each candidate only once.
+        if index == 0 || score >= best_score {
+            selected_index = index;
+            best_score = score;
+        }
+    }
+    let (selected_move, selected_node) = {
+        let selected = &children[selected_index];
+        (selected.mv, selected.node)
+    };
+    let token = board.do_move_for_search(selected_move);
+    let child_value = shared_simulate(board, selected_node, depth_left - 1, exploration, context);
+    board.undo_move_for_search(token);
     let result = -child_value?;
     context.arena[node_index].visits += 1;
     context.arena[node_index].value_sum += result;
@@ -605,7 +633,7 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
 fn shared_ucb(
     child: &SharedTreeChild,
     arena: &[SharedTreeNode],
-    total_visits: u32,
+    exploration_scale: f32,
     exploration: f32,
 ) -> f32 {
     let node = &arena[child.node];
@@ -613,14 +641,13 @@ fn shared_ucb(
         return f32::INFINITY;
     }
     -node.value_sum / node.visits as f32
-        + exploration
-            * child.prior
-            * ((total_visits.max(1) as f32).ln() / node.visits as f32).sqrt()
+        + exploration * child.prior * exploration_scale / (node.visits as f32).sqrt()
 }
 
-fn expand_node<P: MctsPolicy>(board: &Board, node: &mut TreeNode, policy: &P, moves: Vec<Move>) {
+fn expand_node<P: MctsPolicy>(board: &Board, node: &mut TreeNode, policy: &P, moves: &[Move]) {
     node.children = moves
-        .into_iter()
+        .iter()
+        .copied()
         .map(|mv| TreeChild {
             mv,
             prior: sanitized_prior(policy.prior(board, mv)),
@@ -649,19 +676,49 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
     if context.abort.load(Ordering::Relaxed) {
         return None;
     }
-    let mut probe = board.clone();
-    let moves = generate_legal_moves(&mut probe);
-    if moves.is_empty() {
-        let result = if is_in_check(&probe, probe.side_to_move) {
-            -1.0
-        } else {
-            0.0
-        };
-        node.visits += 1;
-        node.value_sum += result;
-        return Some(result);
-    }
-    if depth_left == 0 {
+    if node.children.is_empty() {
+        if depth_left == 0 {
+            if count_legal_moves(board) == 0 {
+                let result = if is_in_check(board, board.side_to_move) {
+                    -1.0
+                } else {
+                    0.0
+                };
+                node.visits += 1;
+                node.value_sum += result;
+                return Some(result);
+            }
+            let key = (board.hash(), depth_left);
+            let result = if context.cache_enabled {
+                if let Some(&cached) = context.value_cache.get(&key) {
+                    *context.value_cache_hits += 1;
+                    cached
+                } else {
+                    let computed = context.value.value(board).clamp(-1.0, 1.0);
+                    context.value_cache.insert(key, computed);
+                    computed
+                }
+            } else {
+                context.value.value(board).clamp(-1.0, 1.0)
+            };
+            node.visits += 1;
+            node.value_sum += result;
+            return Some(result);
+        }
+        let moves = MoveBuffer::legal(board);
+        if moves.is_empty() {
+            let result = if is_in_check(board, board.side_to_move) {
+                -1.0
+            } else {
+                0.0
+            };
+            node.visits += 1;
+            node.value_sum += result;
+            return Some(result);
+        }
+        expand_node(board, node, context.policy, moves.as_slice());
+        *context.nodes = context.nodes.saturating_add(node.children.len() as u32);
+    } else if depth_left == 0 {
         let key = (board.hash(), depth_left);
         let result = if context.cache_enabled {
             if let Some(&cached) = context.value_cache.get(&key) {
@@ -679,45 +736,30 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         node.value_sum += result;
         return Some(result);
     }
-    if node.children.is_empty() {
-        expand_node(board, node, context.policy, moves);
-        *context.nodes = context.nodes.saturating_add(node.children.len() as u32);
-    }
 
     let total_visits = node.visits;
-    let selected = node
-        .children
-        .iter()
-        .enumerate()
-        .max_by(|(left_index, left), (right_index, right)| {
-            ucb_score(
-                RootChild {
-                    mv: left.mv,
-                    prior: left.prior,
-                    visits: left.node.visits,
-                    value_sum: -left.node.value_sum,
-                },
-                total_visits,
-                context.exploration,
-            )
-            .total_cmp(&ucb_score(
-                RootChild {
-                    mv: right.mv,
-                    prior: right.prior,
-                    visits: right.node.visits,
-                    value_sum: -right.node.value_sum,
-                },
-                total_visits,
-                context.exploration,
-            ))
-            .then_with(|| right_index.cmp(left_index))
-        })
-        .map(|(index, _)| index)
-        .expect("expanded tree node has a child");
+    let exploration_scale = exploration_scale(total_visits);
+    let mut selected = 0;
+    let mut best_score = f32::NEG_INFINITY;
+    for (index, child) in node.children.iter().enumerate() {
+        let score = ucb_score_cached(
+            child.node.visits,
+            -child.node.value_sum,
+            child.prior,
+            exploration_scale,
+            context.exploration,
+        );
+        // The old max_by tie-break preferred the later child. `>=` preserves
+        // that deterministic rule while evaluating each score only once.
+        if index == 0 || score >= best_score {
+            selected = index;
+            best_score = score;
+        }
+    }
     let child = &mut node.children[selected];
-    let token = board.do_move(child.mv);
+    let token = board.do_move_for_search(child.mv);
     let child_value = tree_simulate(board, &mut child.node, depth_left - 1, context);
-    board.undo_move(token);
+    board.undo_move_for_search(token);
     let result = -child_value?;
     node.visits += 1;
     node.value_sum += result;
@@ -734,7 +776,7 @@ impl RootMcts {
         value: &V,
     ) -> MctsInfo {
         let mut root = board.clone();
-        let moves = generate_legal_moves(&mut root);
+        let moves = MoveBuffer::legal(&mut root);
         if moves.is_empty() {
             let terminal = if is_in_check(&root, root.side_to_move) {
                 -1.0
@@ -752,12 +794,30 @@ impl RootMcts {
         }
 
         let mut children: Vec<RootChild> = moves
-            .into_iter()
-            .map(|mv| RootChild {
-                mv,
-                prior: sanitized_prior(policy.prior(board, mv)),
-                visits: 0,
-                value_sum: 0.0,
+            .as_slice()
+            .iter()
+            .copied()
+            .map(|mv| {
+                let mut position = board.clone();
+                position.do_move_for_search(mv);
+                let terminal_value = {
+                    let mut probe = position.clone();
+                    (count_legal_moves(&mut probe) == 0).then(|| {
+                        if is_in_check(&probe, probe.side_to_move) {
+                            1.0
+                        } else {
+                            0.0
+                        }
+                    })
+                };
+                RootChild {
+                    mv,
+                    prior: sanitized_prior(policy.prior(board, mv)),
+                    visits: 0,
+                    value_sum: 0.0,
+                    position,
+                    terminal_value,
+                }
             })
             .collect();
         if children.iter().all(|child| child.prior == 0.0) {
@@ -776,37 +836,51 @@ impl RootMcts {
         let mut value_cache = HashMap::new();
         let mut value_cache_hits = 0;
         for _ in 0..config.simulations {
-            let total_visits = children.iter().map(|child| child.visits).sum::<u32>();
+            // Every completed iteration increments exactly one root child, so
+            // the root visit total is already available without rescanning the
+            // whole child list.
+            let total_visits = completed;
+            let exploration_scale = exploration_scale(total_visits);
             let expanded_len = config
                 .root_widening
                 .map(|period| 1 + (total_visits / period.max(1)) as usize)
                 .unwrap_or(children.len())
                 .min(children.len());
-            let selected = children[..expanded_len]
-                .iter()
-                .enumerate()
-                .max_by(|(left_index, left), (right_index, right)| {
-                    ucb_score(**left, total_visits, self.exploration)
-                        .total_cmp(&ucb_score(**right, total_visits, self.exploration))
-                        .then_with(|| right_index.cmp(left_index))
-                })
-                .map(|(index, _)| index)
-                .expect("root has at least one child");
+            let mut selected = 0;
+            let mut best_score = f32::NEG_INFINITY;
+            for (index, child) in children[..expanded_len].iter().enumerate() {
+                let score = ucb_score_cached(
+                    child.visits,
+                    child.value_sum,
+                    child.prior,
+                    exploration_scale,
+                    self.exploration,
+                );
+                // Prefer the later child on equal scores, matching max_by's
+                // existing deterministic tie-break.
+                if index == 0 || score >= best_score {
+                    selected = index;
+                    best_score = score;
+                }
+            }
 
             let child = &mut children[selected];
-            let mut next = board.clone();
-            next.do_move(child.mv);
+            let next = &child.position;
             let child_value = if config.value_cache {
                 if let Some(&cached) = value_cache.get(&next.hash()) {
                     value_cache_hits += 1;
                     cached
                 } else {
-                    let computed = value_for_child(&next, value);
+                    let computed = child
+                        .terminal_value
+                        .unwrap_or_else(|| -value.value(next).clamp(-1.0, 1.0));
                     value_cache.insert(next.hash(), computed);
                     computed
                 }
             } else {
-                value_for_child(&next, value)
+                child
+                    .terminal_value
+                    .unwrap_or_else(|| -value.value(next).clamp(-1.0, 1.0))
             };
             child.visits += 1;
             child.value_sum += child_value;
@@ -871,29 +945,23 @@ fn select_parallel_result(left: MctsInfo, right: MctsInfo) -> MctsInfo {
     if right_key > left_key { right } else { left }
 }
 
-fn ucb_score(child: RootChild, total_visits: u32, exploration: f32) -> f32 {
-    if child.visits == 0 {
+#[inline(always)]
+fn ucb_score_cached(
+    visits: u32,
+    value_sum: f32,
+    prior: f32,
+    exploration_scale: f32,
+    exploration: f32,
+) -> f32 {
+    if visits == 0 {
         return f32::INFINITY;
     }
-    child.value_sum / child.visits as f32
-        + exploration
-            * child.prior
-            * ((total_visits.max(1) as f32).ln() / child.visits as f32).sqrt()
+    value_sum / visits as f32 + exploration * prior * exploration_scale / (visits as f32).sqrt()
 }
 
-fn value_for_child<V: MctsValue>(board: &Board, value: &V) -> f32 {
-    let mut probe = board.clone();
-    let moves = generate_legal_moves(&mut probe);
-    if moves.is_empty() {
-        return if is_in_check(&probe, probe.side_to_move) {
-            1.0
-        } else {
-            0.0
-        };
-    }
-    // The provider reports from the child position's side-to-move view;
-    // root selection needs the value from the parent's perspective.
-    -value.value(board).clamp(-1.0, 1.0)
+#[inline(always)]
+fn exploration_scale(total_visits: u32) -> f32 {
+    (total_visits.max(1) as f32).ln().sqrt()
 }
 
 fn move_key(mv: Move) -> (u8, u8, bool, u8) {
@@ -916,6 +984,7 @@ fn sanitized_prior(prior: f32) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::movegen::generate_legal_moves;
 
     #[test]
     fn root_pilot_is_deterministic_and_accounts_for_simulations() {
@@ -1229,7 +1298,7 @@ mod tests {
             share_transpositions: true,
             abort: &abort,
         };
-        shared_expand(&board, 0, 2, vec![mv, mv], &mut context);
+        shared_expand(&board, 0, 2, &[mv, mv], &mut context);
         assert_eq!(context.arena.len(), 2);
         assert_eq!(context.arena[0].children.len(), 2);
         assert_eq!(
@@ -1271,8 +1340,8 @@ mod tests {
             share_transpositions: true,
             abort: &abort,
         };
-        shared_expand(&first, 0, 2, vec![mv], &mut context);
-        shared_expand(&second, 1, 2, vec![mv], &mut context);
+        shared_expand(&first, 0, 2, &[mv], &mut context);
+        shared_expand(&second, 1, 2, &[mv], &mut context);
         assert_eq!(
             context.arena[0].children[0].node,
             context.arena[1].children[0].node

@@ -17,14 +17,14 @@ impl Square {
     pub const NUM: usize = 81;
 
     /// Construct from a raw 0..81 index.
-    #[inline]
+    #[inline(always)]
     pub const fn from_index(i: u8) -> Self {
         debug_assert!(i < 81);
         Square(i)
     }
 
     /// Construct from zero-based file and rank indices
-    #[inline]
+    #[inline(always)]
     pub const fn from_fr(file_0: u8, rank_0: u8) -> Self {
         Square(file_0 * 9 + rank_0)
     }
@@ -36,19 +36,19 @@ impl Square {
     }
 
     /// Raw 0..81 index of this square.
-    #[inline]
+    #[inline(always)]
     pub const fn index(self) -> u8 {
         self.0
     }
 
     /// Zero-based file index (0..9).
-    #[inline]
+    #[inline(always)]
     pub const fn file_0(self) -> u8 {
         self.0 / 9
     }
 
     /// Zero-based rank index (0..9).
-    #[inline]
+    #[inline(always)]
     pub const fn rank_0(self) -> u8 {
         self.0 % 9
     }

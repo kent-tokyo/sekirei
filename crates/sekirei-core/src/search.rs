@@ -31,7 +31,9 @@ use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate};
-use crate::movegen::{MoveBuffer, generate_legal_captures, generate_legal_moves, is_in_check};
+#[cfg(test)]
+use crate::movegen::generate_legal_moves;
+use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check};
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::speculative::{SpecGroup, SpecState};
@@ -475,7 +477,7 @@ impl Searcher {
         // legal move whenever the position has one. This keeps a slow or
         // heavily contended environment from producing an invalid bestmove.
         if best_move.is_none() {
-            best_move = generate_legal_moves(board).into_iter().next();
+            best_move = MoveBuffer::legal(board).as_slice().first().copied();
             if best_move.is_some() {
                 best_score = evaluate(board);
             }
@@ -503,15 +505,11 @@ fn root_search(
     prev_score: i32,
     excluded: &[Move],
 ) -> (Option<Move>, i32) {
-    let all_moves = generate_legal_moves(board);
-    let moves: Vec<Move> = if excluded.is_empty() {
-        all_moves
-    } else {
-        all_moves
-            .into_iter()
-            .filter(|m| !excluded.contains(m))
-            .collect()
-    };
+    let mut move_buffer = MoveBuffer::legal(board);
+    let moves = move_buffer.as_mut_list();
+    if !excluded.is_empty() {
+        moves.retain(|m| !excluded.contains(m));
+    }
     if moves.is_empty() {
         let score = if is_in_check(board, board.side_to_move) {
             -MATE_SCORE
@@ -523,17 +521,18 @@ fn root_search(
 
     // Single legal move: skip deep search but return an honest eval score.
     if moves.len() == 1 {
-        let tok = board.do_move(moves[0]);
+        let only_move = moves.as_slice()[0];
+        let tok = board.do_move(only_move);
         let score = -evaluate(board);
         board.undo_move(tok);
-        return (Some(moves[0]), score);
+        return (Some(only_move), score);
     }
 
     let tt_mv = state.tt.probe(board.hash()).and_then(|e| e.mv);
     let killers = state.killers.get(0);
-    let ordered = order_moves(
+    order_moves_in_place(
         board,
-        moves,
+        moves.as_mut_slice(),
         tt_mv,
         killers,
         None,
@@ -541,12 +540,12 @@ fn root_search(
         board.side_to_move,
         state.diagnostics.as_deref(),
     );
+    let ordered = move_buffer.as_slice();
 
     // Mate-in-1: check each root move for immediate checkmate before deep search
-    for &m in &ordered {
+    for &m in ordered {
         let tok = board.do_move(m);
-        let mated =
-            generate_legal_moves(board).is_empty() && is_in_check(board, board.side_to_move);
+        let mated = MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
         board.undo_move(tok);
         if mated {
             return (Some(m), MATE_SCORE - 1);
@@ -556,16 +555,15 @@ fn root_search(
     // Opponent safety: at shallow depths, filter out root moves that immediately allow
     // opponent mate-in-1. Gated on depth <= 2 to bound the O(N×M²) cost.
     // At depth >= 3 the normal alpha-beta search catches these situations anyway.
-    let ordered: Vec<Move> = if depth <= 2 {
+    let safe_moves = if depth <= 2 {
         let mut safe_moves = Vec::new();
         let mut has_unsafe = false;
-        for &m in &ordered {
+        for &m in ordered {
             let tok = board.do_move(m);
             let mut opp_can_mate = false;
-            'opp: for opp_m in generate_legal_moves(board) {
+            'opp: for &opp_m in MoveBuffer::legal(board).as_slice() {
                 let tok2 = board.do_move(opp_m);
-                if generate_legal_moves(board).is_empty() && is_in_check(board, board.side_to_move)
-                {
+                if MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move) {
                     opp_can_mate = true;
                 }
                 board.undo_move(tok2);
@@ -581,13 +579,14 @@ fn root_search(
             }
         }
         if has_unsafe && !safe_moves.is_empty() {
-            safe_moves
+            Some(safe_moves)
         } else {
-            ordered
+            None
         }
     } else {
-        ordered
+        None
     };
+    let ordered: &[Move] = safe_moves.as_deref().unwrap_or(ordered);
 
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
@@ -598,7 +597,7 @@ fn root_search(
     };
 
     loop {
-        let (m, score) = root_search_inner(state, board, depth, &ordered, lo, hi);
+        let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi);
 
         if state.budget.should_abort() {
             return (m, score);
@@ -799,17 +798,22 @@ fn alpha_beta(
     // not inside a singular search
     {
         let pc_beta = beta + PC_MARGIN;
-        let mut caps: Vec<Move> = generate_legal_captures(board)
-            .into_iter()
-            .filter(|&m| see_score(board, m) >= PC_MARGIN)
-            .collect();
-        caps.sort_by_cached_key(|&m| -see_score(board, m));
+        let mut caps = MoveBuffer::captures(board);
+        caps.as_mut_list()
+            .retain(|m| see_score(board, *m) >= PC_MARGIN);
+        let cap_list = caps.as_mut_list().as_mut_slice();
+        let mut cap_key = |m: &Move| -see_score(board, *m);
+        if cap_list.len() <= 64 {
+            sort_by_cached_i32_key_small(cap_list, &mut cap_key);
+        } else {
+            cap_list.sort_by_cached_key(cap_key);
+        }
         let pc_depth = (depth - 4).min(3); // cap at 3 to keep the probe cheap
-        for cap in caps {
+        for &cap in caps.as_slice() {
             if state.budget.should_abort() {
                 break;
             }
-            let tok = board.do_move(cap);
+            let tok = board.do_move_for_search(cap);
             let child_in_check = is_in_check(board, board.side_to_move);
             let pc_score = -alpha_beta(
                 state,
@@ -823,7 +827,7 @@ fn alpha_beta(
                 None,
                 Some(child_in_check),
             );
-            board.undo_move(tok);
+            board.undo_move_for_search(tok);
             if pc_score >= pc_beta {
                 return pc_score;
             }
@@ -883,7 +887,7 @@ fn alpha_beta(
     let killers = state.killers.get(ply as usize);
     order_moves_in_place(
         board,
-        move_buffer.as_mut_vec(),
+        move_buffer.as_mut_list().as_mut_slice(),
         tt_mv,
         killers,
         countermove,
@@ -894,7 +898,7 @@ fn alpha_beta(
 
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
     if let Some(skip) = skip_move {
-        move_buffer.as_mut_vec().retain(|&m| m != skip);
+        move_buffer.as_mut_list().retain(|m| *m != skip);
     }
     let ordered = move_buffer.as_slice();
     if ordered.is_empty() {
@@ -935,7 +939,7 @@ fn alpha_beta(
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
-    let tok = board.do_move(first_move);
+    let tok = board.do_move_for_search(first_move);
     let child_in_check = is_in_check(board, board.side_to_move);
     let ext0 = check_ext(child_in_check, ply + 1);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
@@ -957,7 +961,7 @@ fn alpha_beta(
         None,
         Some(child_in_check),
     );
-    board.undo_move(tok);
+    board.undo_move_for_search(tok);
 
     if state.budget.should_abort() {
         return 0;
@@ -1036,7 +1040,7 @@ fn alpha_beta(
                 let idx = i + 1;
                 let mut b = board.clone();
                 let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm);
-                let tok = b.do_move(m);
+                let tok = b.do_move_for_search(m);
                 let child_in_check = is_in_check(&b, b.side_to_move);
                 let ext = check_ext(child_in_check, ply + 1);
                 let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
@@ -1053,7 +1057,7 @@ fn alpha_beta(
                     None,
                     Some(child_in_check),
                 );
-                b.undo_move(tok);
+                b.undo_move_for_search(tok);
                 Some((m, s, idx))
             })
             .collect();
@@ -1068,7 +1072,7 @@ fn alpha_beta(
 
             let s = if nw_score > alpha {
                 // Fail-high: re-search at full depth with full window
-                let tok = board.do_move(m);
+                let tok = board.do_move_for_search(m);
                 let child_in_check = is_in_check(board, board.side_to_move);
                 let ext = check_ext(child_in_check, ply + 1);
                 let full = -alpha_beta(
@@ -1083,7 +1087,7 @@ fn alpha_beta(
                     None,
                     Some(child_in_check),
                 );
-                board.undo_move(tok);
+                board.undo_move_for_search(tok);
                 full
             } else {
                 nw_score
@@ -1170,7 +1174,7 @@ fn alpha_beta(
             }
 
             let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm);
-            let tok = board.do_move(m);
+            let tok = board.do_move_for_search(m);
             let child_in_check = is_in_check(board, board.side_to_move);
             let ext = check_ext(child_in_check, ply + 1);
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
@@ -1205,7 +1209,7 @@ fn alpha_beta(
                     Some(child_in_check),
                 );
             }
-            board.undo_move(tok);
+            board.undo_move_for_search(tok);
 
             if s > best_score {
                 best_score = s;
@@ -1404,7 +1408,7 @@ fn quiescence(
     // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
     // per node (qsearch is the hottest path); the coarse capture ordering is
     // plenty for quiescence and keeps each node fast enough to respect the clock.
-    move_buffer.as_mut_vec().sort_by_cached_key(|&m| {
+    move_buffer.as_mut_list().sort_by_cached_key(|&m| {
         (
             if Some(m) == tt_mv { 0 } else { 1 },
             -qsearch_order_key(board, m),
@@ -1413,9 +1417,9 @@ fn quiescence(
 
     let mut best_move = None;
     for &m in move_buffer.as_slice() {
-        let tok = board.do_move(m);
+        let tok = board.do_move_for_search(m);
         let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
-        board.undo_move(tok);
+        board.undo_move_for_search(tok);
 
         if state.budget.should_abort() {
             return 0;
@@ -1448,7 +1452,7 @@ fn quiescence(
         let mut qcheck_count = 0;
         let mut qchecks = MoveBuffer::legal_with_in_check(board, false);
         qchecks
-            .as_mut_vec()
+            .as_mut_list()
             .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
         for &m in qchecks.as_slice() {
             // Skip captures — already handled above
@@ -1456,10 +1460,10 @@ fn quiescence(
                 continue;
             }
             // Test if this move gives check, then apply safety filter — combined in one do/undo
-            let tok = board.do_move(m);
+            let tok = board.do_move_for_search(m);
             let gives_check = is_in_check(board, board.side_to_move);
             if !gives_check {
-                board.undo_move(tok);
+                board.undo_move_for_search(tok);
                 continue;
             }
             // Safety: skip if the checking piece can be immediately recaptured at a loss.
@@ -1473,12 +1477,12 @@ fn quiescence(
                     .filter(|r| r.to == m.to)
                     .any(|r| PIECE_VALUE[r.piece_kind.index()] < mover_val);
                 if unsafe_check {
-                    board.undo_move(tok);
+                    board.undo_move_for_search(tok);
                     continue;
                 }
             }
             let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
-            board.undo_move(tok);
+            board.undo_move_for_search(tok);
 
             if state.budget.should_abort() {
                 return 0;
@@ -1733,7 +1737,7 @@ impl SpeculativeSearcher {
         // result, especially on a contended or slow host. Still return a
         // legal move instead of an empty bestmove response.
         if best_move.is_none() {
-            best_move = generate_legal_moves(board).into_iter().next();
+            best_move = MoveBuffer::legal(board).as_slice().first().copied();
             if best_move.is_some() {
                 best_score = evaluate(board);
             }
@@ -1914,9 +1918,9 @@ fn see_score(board: &mut Board, m: Move) -> i32 {
     }
 
     // Losing-looking: simulate the full exchange to see if it is actually losing.
-    let tok = board.do_move(m);
+    let tok = board.do_move_for_search(m);
     let score = victim_val + promo_gain - see_recapture(board, m.to, 0);
-    board.undo_move(tok);
+    board.undo_move_for_search(tok);
     score
 }
 
@@ -1937,10 +1941,10 @@ fn see_recapture(board: &mut Board, sq: Square, depth: u32) -> i32 {
         Some(p) => PIECE_VALUE[p.kind.index()],
         None => return 0, // sq empty: nothing to recapture
     };
-    let tok = board.do_move(m);
+    let tok = board.do_move_for_search(m);
     // Decline the recapture if it loses material (stand-pat option).
     let score = (victim_val - see_recapture(board, sq, depth + 1)).max(0);
-    board.undo_move(tok);
+    board.undo_move_for_search(tok);
     score
 }
 
@@ -2025,30 +2029,6 @@ fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
 }
 
 #[allow(clippy::too_many_arguments)]
-fn order_moves(
-    board: &mut Board,
-    mut moves: Vec<Move>,
-    tt_mv: Option<Move>,
-    killers: [Option<Move>; 2],
-    countermove: Option<Move>,
-    history: &HistoryTable,
-    stm: Color,
-    diagnostics: Option<&SearchDiagnostics>,
-) -> Vec<Move> {
-    order_moves_in_place(
-        board,
-        &mut moves,
-        tt_mv,
-        killers,
-        countermove,
-        history,
-        stm,
-        diagnostics,
-    );
-    moves
-}
-
-#[allow(clippy::too_many_arguments)]
 fn order_moves_in_place(
     board: &mut Board,
     moves: &mut [Move],
@@ -2061,7 +2041,8 @@ fn order_moves_in_place(
 ) {
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
-    moves.sort_by_cached_key(|&m| {
+    let mut key = |m: &Move| {
+        let m = *m;
         if tt_mv.is_some_and(|t| t == m) {
             if let Some(d) = diagnostics {
                 d.order_tt.fetch_add(1, Ordering::Relaxed);
@@ -2105,7 +2086,39 @@ fn order_moves_in_place(
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
         -(-8_000 + history.get(stm, m.piece_kind, m.to))
-    });
+    };
+    if moves.len() <= 64 {
+        sort_by_cached_i32_key_small(moves, &mut key);
+    } else {
+        moves.sort_by_cached_key(key);
+    }
+}
+
+/// Stable cached-key ordering without a temporary heap allocation for the
+/// move counts normally seen at a search node.
+#[inline]
+fn sort_by_cached_i32_key_small<F>(moves: &mut [Move], key: &mut F)
+where
+    F: FnMut(&Move) -> i32,
+{
+    const CAPACITY: usize = 64;
+    debug_assert!(moves.len() <= CAPACITY);
+    let placeholder = Move::drop(Square::from_index(0), PieceKind::Fu);
+    let mut sorted = [placeholder; CAPACITY];
+    let mut keys = [0i32; CAPACITY];
+
+    for (index, &mv) in moves.iter().enumerate() {
+        let mv_key = key(&mv);
+        let mut position = index;
+        while position > 0 && mv_key < keys[position - 1] {
+            sorted[position] = sorted[position - 1];
+            keys[position] = keys[position - 1];
+            position -= 1;
+        }
+        sorted[position] = mv;
+        keys[position] = mv_key;
+    }
+    moves.copy_from_slice(&sorted[..moves.len()]);
 }
 
 #[cfg(test)]
