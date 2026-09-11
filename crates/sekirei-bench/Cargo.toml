@@ -9,7 +9,7 @@ repository = "https://github.com/kent-tokyo/sekirei"
 [dependencies]
 sekirei-core = { path = "../sekirei-core", version = "0.3.34" }
 rayon = "1"
-rsshogi = { git = "https://github.com/nyoki-mtl/rsshogi.git", rev = "a1dbc020e0711574ba0bec6a7b123c411ccdd625" }
+rsshogi = { version = "1.2.3", git = "https://github.com/nyoki-mtl/rsshogi.git", rev = "a1dbc020e0711574ba0bec6a7b123c411ccdd625" }
 shogi_core = "0.1.5"
 
 [dev-dependencies]
