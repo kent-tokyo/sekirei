@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## [0.3.34] – 2026-09-11
+
+- Added strict SFEN validation for positions-mode training and connected the
+  resume, release-manifest, candidate-readiness, and documentation checks to CI.
+- Refreshed public and internal documentation references for the current
+  release metadata. No new strength or heavy-measurement claim is included.
+
 ## [0.3.33] – 2026-09-10
 
 - Fixed a DFPN time-limit path that could return `bestmove resign` when the

@@ -1,6 +1,6 @@
 [package]
 name = "sekirei-csa"
-version = "0.3.33"
+version = "0.3.34"
 edition = "2024"
 description = "CSA/floodgate client for the Sekirei shogi engine"
 license = "MIT OR Apache-2.0"
@@ -15,6 +15,6 @@ name = "sekirei-analysis-replay"
 path = "src/bin/analysis_replay.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.33" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.34" }
 dotenvy = "0.15"
 serde_json = "1"
