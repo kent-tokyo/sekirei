@@ -293,8 +293,8 @@ release manifest形式のコピーへ追加できます。
 
 ```bash
 python3 scripts/classify_evaluator_failure.py diagnostic.json \
-  --manifest release-manifest-v0.3.33.json \
-  --output release-manifest-v0.3.33-diagnostic.json
+  --manifest release-manifest-v0.3.34.json \
+  --output release-manifest-v0.3.34-diagnostic.json
 ```
 
 実運用fixtureと生成物は `python3 scripts/validate_release_manifest.py
@@ -306,7 +306,7 @@ CSAではゲーム境界、positions modeでは位置chunk境界でもatomicに�
 小規模なCLI統合回帰は `bash scripts/test_resume_cli_fixture.sh` で実行できます。
 resume検証の系譜は `python3 scripts/record_resume_run.py --checkpoint run.resume.json --log run.log --dataset data.jsonl --output resume-manifest.json`
 で記録できます。生成物は `sekirei.resume-manifest.v1` schemaで、checkpointとログのhashを分けて保持します。
-検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.33.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
+検証済みresume証跡をrelease manifestのコピーへ接続するには、`python3 scripts/attach_resume_manifest.py --release-manifest release-manifest-v0.3.34.json --resume-manifest resume-manifest.json --output release-manifest-with-resume.json`を使います。元のrelease manifestは変更しません。
 
 保存したSharedMcts transcriptと診断manifestの整合性を確認するには、`python3 scripts/verify_mcts_diagnostic.py --manifest candidate-manifest.json --transcript shared-mcts-transcript.txt`を使います。schemaと3つの診断カウントを確認しますが、強さの主張は行いません。
 CIでは保存後にartifactを別jobで取得し、同じschema・整合性検証を再実行します。
@@ -354,8 +354,8 @@ https://github.com/kent-tokyo/sekirei
 CC BY 4.0でライセンスします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
 現在のrelease manifestは
-[`release-manifest-v0.3.33.json`](release-manifest-v0.3.33.json)に保存しています。現行のLazy SMP
-USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.33.txt`](scripts/fixtures/usi_smoke_v0.3.33.txt)です。
+[`release-manifest-v0.3.34.json`](release-manifest-v0.3.34.json)に保存しています。現行のLazy SMP
+USI smoke transcriptは[`scripts/fixtures/usi_smoke_v0.3.34.txt`](scripts/fixtures/usi_smoke_v0.3.34.txt)です。
 いずれもリリース監査用の証跡であり、棋力の主張ではありません。
 
 リリース前には、コンパイルやエンジン実行を行わずに公開メタデータを確認できます。
