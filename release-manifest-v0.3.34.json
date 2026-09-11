@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.3.34",
-  "commit": "49ea06c6115b2b894c177b9c2b5da1e72b959dde",
+  "commit": "7c0b5f344aa5eac9386300e8c01d57464f50f7d7",
   "branch_at_release": "lineprior-0.9.0-migration",
   "packages": {
     "sekirei": "0.3.34",
