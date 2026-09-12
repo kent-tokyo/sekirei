@@ -2,7 +2,7 @@
   "schema": "sekirei.speed-corpus-split.v1",
   "version": 1,
   "source_schema": "sekirei.speed-corpus.v1",
-  "source_corpus_sha256": "9dc37b6eae253f0b774983433166013c9497c4f3627c8bf379854a7f782f7590",
+  "source_corpus_sha256": "10bf0bd908e21e1e124be33aa1c97726e2081d3460a4eae9682f04143da3c82c",
   "rule": "first four sorted base groups per category are tuning; remaining four are hold-out",
   "tuning_case_ids": [
     "capture-01",

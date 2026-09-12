@@ -25,6 +25,8 @@
   cannot be hidden behind an unchanged record count.
 - Added a deterministic 64/64 tuning/hold-out split manifest that keeps each
   base position and its side-to-move variant in the same partition.
+- Connected the verified one-move sequences to the 128-position preflight;
+  longer six-ply nested roundtrips remain a separate component check.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

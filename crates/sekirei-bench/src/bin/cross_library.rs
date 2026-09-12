@@ -199,6 +199,48 @@ fn check_sfen(sfen: &str) {
     );
 }
 
+fn check_sequence(sfen: &str, moves: &str) {
+    let mut board = Board::from_sfen(sfen).expect("sequence SFEN must parse");
+    let original_sfen = sekirei_core::sfen::board_to_sfen(&board);
+    let original_hash = board.hash();
+    let original_acc = board.acc.clone();
+    let mut tokens = Vec::new();
+    for usi in moves.split_whitespace() {
+        let mv = sekirei_core::sfen::move_from_usi(usi, &board)
+            .unwrap_or_else(|error| panic!("invalid sequence move {usi:?}: {error}"));
+        tokens.push(board.do_move(mv));
+    }
+    for token in tokens.into_iter().rev() {
+        board.undo_move(token);
+    }
+    assert_eq!(sekirei_core::sfen::board_to_sfen(&board), original_sfen);
+    assert_eq!(board.hash(), original_hash);
+    assert_eq!(board.acc, original_acc);
+
+    let mut reference = position_from_sfen(sfen).expect("rsshogi sequence SFEN must parse");
+    reference.init_stack();
+    let reference_sfen = reference.to_sfen(None);
+    let reference_key = reference.key();
+    let mut reference_moves = Vec::new();
+    for usi in moves.split_whitespace() {
+        let mv: Move32 = RsshogiMove::from_usi(usi)
+            .expect("sequence move must have valid USI")
+            .into();
+        assert!(reference.is_legal_move32(mv));
+        reference_moves.push(mv);
+        reference.apply_move32(mv);
+    }
+    for mv in reference_moves.into_iter().rev() {
+        reference.undo_move32(mv).expect("sequence move must undo");
+    }
+    assert_eq!(reference.to_sfen(None), reference_sfen);
+    assert_eq!(reference.key(), reference_key);
+    println!(
+        "sequence_preflight=passed;plies={}",
+        moves.split_whitespace().count()
+    );
+}
+
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
 where
     F: FnMut(),
@@ -379,8 +421,14 @@ fn main() {
             println!("sfen_preflight=passed");
             return;
         }
+        [flag, sfen, moves] if flag == "--check-sequence" => {
+            check_sequence(sfen, moves);
+            return;
+        }
         [] => {}
-        _ => panic!("usage: cross_library [--check|--components|--check-sfen SFEN]"),
+        _ => panic!(
+            "usage: cross_library [--check|--components|--check-sfen SFEN|--check-sequence SFEN MOVES]"
+        ),
     }
     println!("schema=sekirei.cross-library-benchmark.v7");
     println!(

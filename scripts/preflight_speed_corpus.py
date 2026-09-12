@@ -23,6 +23,21 @@ def run_case(binary: Path, sfen: str, runner=subprocess.run) -> str:
     return result.stdout
 
 
+def run_sequence(binary: Path, sfen: str, sequence: list[str], runner=subprocess.run) -> str:
+    result = runner(
+        [str(binary), "--check-sequence", sfen, " ".join(sequence)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(
+            f"sequence preflight failed ({result.returncode}): {sfen} {sequence}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+    return result.stdout
+
+
 def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run) -> int:
     import json
 
@@ -30,6 +45,9 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
     count = validate(corpus)
     for case in document["cases"]:
         output = run_case(binary, case["sfen"], runner)
+        sequence_output = run_sequence(binary, case["sfen"], case["sequence"], runner)
+        if not any(line.startswith("sequence_preflight=passed;") for line in sequence_output.splitlines()):
+            raise RuntimeError(f"sequence preflight omitted success marker: {case['id']}")
         details = next(
             (line.removeprefix("sfen_details=") for line in output.splitlines()
              if line.startswith("sfen_details=")),

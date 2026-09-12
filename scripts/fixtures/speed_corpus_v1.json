@@ -80,7 +80,7 @@
         ]
       },
       "sequence": [
-        "7g7f"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
       "derivation": "base"
@@ -158,7 +158,7 @@
         ]
       },
       "sequence": [
-        "7g7f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
       "derivation": "base-opposite-side"
@@ -236,7 +236,7 @@
         ]
       },
       "sequence": [
-        "3g3f"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL b - 1",
       "derivation": "file-mirror"
@@ -314,7 +314,7 @@
         ]
       },
       "sequence": [
-        "3g3f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL w - 1",
       "derivation": "file-mirror-opposite-side"
@@ -392,7 +392,7 @@
         ]
       },
       "sequence": [
-        "2g2f"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 2",
       "derivation": "base"
@@ -470,7 +470,7 @@
         ]
       },
       "sequence": [
-        "2g2f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 2",
       "derivation": "base-opposite-side"
@@ -548,7 +548,7 @@
         ]
       },
       "sequence": [
-        "8g8f"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL b - 2",
       "derivation": "file-mirror"
@@ -626,7 +626,7 @@
         ]
       },
       "sequence": [
-        "8g8f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL w - 2",
       "derivation": "file-mirror-opposite-side"
@@ -704,7 +704,7 @@
         ]
       },
       "sequence": [
-        "8g8f"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 3",
       "derivation": "base"
@@ -782,7 +782,7 @@
         ]
       },
       "sequence": [
-        "8g8f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 3",
       "derivation": "base-opposite-side"
@@ -860,7 +860,7 @@
         ]
       },
       "sequence": [
-        "2g2f"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL b - 3",
       "derivation": "file-mirror"
@@ -938,7 +938,7 @@
         ]
       },
       "sequence": [
-        "2g2f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL w - 3",
       "derivation": "file-mirror-opposite-side"
@@ -1016,7 +1016,7 @@
         ]
       },
       "sequence": [
-        "6g6f"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 4",
       "derivation": "base"
@@ -1094,7 +1094,7 @@
         ]
       },
       "sequence": [
-        "6g6f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 4",
       "derivation": "base-opposite-side"
@@ -1172,7 +1172,7 @@
         ]
       },
       "sequence": [
-        "4g4f"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL b - 4",
       "derivation": "file-mirror"
@@ -1250,7 +1250,7 @@
         ]
       },
       "sequence": [
-        "4g4f"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppppp/9/9/9/PPPPPPPPP/1R5B1/LNSGKGSNL w - 4",
       "derivation": "file-mirror-opposite-side"
@@ -1336,8 +1336,7 @@
         ]
       },
       "sequence": [
-        "7g7f",
-        "3c3d"
+        "1a1b"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w - 22",
       "derivation": "base"
@@ -1407,8 +1406,7 @@
         ]
       },
       "sequence": [
-        "7g7f",
-        "3c3d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL b - 22",
       "derivation": "base-opposite-side"
@@ -1494,8 +1492,7 @@
         ]
       },
       "sequence": [
-        "3g3f",
-        "7c7d"
+        "9a9b"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL w - 22",
       "derivation": "file-mirror"
@@ -1565,8 +1562,7 @@
         ]
       },
       "sequence": [
-        "3g3f",
-        "7c7d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL b - 22",
       "derivation": "file-mirror-opposite-side"
@@ -1652,8 +1648,7 @@
         ]
       },
       "sequence": [
-        "7g7f",
-        "3c3d"
+        "1a1b"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w - 23",
       "derivation": "base"
@@ -1723,8 +1718,7 @@
         ]
       },
       "sequence": [
-        "7g7f",
-        "3c3d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL b - 23",
       "derivation": "base-opposite-side"
@@ -1810,8 +1804,7 @@
         ]
       },
       "sequence": [
-        "3g3f",
-        "7c7d"
+        "9a9b"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL w - 23",
       "derivation": "file-mirror"
@@ -1881,8 +1874,7 @@
         ]
       },
       "sequence": [
-        "3g3f",
-        "7c7d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL b - 23",
       "derivation": "file-mirror-opposite-side"
@@ -1968,8 +1960,7 @@
         ]
       },
       "sequence": [
-        "2g2f",
-        "8c8d"
+        "1a1b"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w - 24",
       "derivation": "base"
@@ -2039,8 +2030,7 @@
         ]
       },
       "sequence": [
-        "2g2f",
-        "8c8d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL b - 24",
       "derivation": "base-opposite-side"
@@ -2126,8 +2116,7 @@
         ]
       },
       "sequence": [
-        "8g8f",
-        "2c2d"
+        "9a9b"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL w - 24",
       "derivation": "file-mirror"
@@ -2197,8 +2186,7 @@
         ]
       },
       "sequence": [
-        "8g8f",
-        "2c2d"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL b - 24",
       "derivation": "file-mirror-opposite-side"
@@ -2284,8 +2272,7 @@
         ]
       },
       "sequence": [
-        "2f2e",
-        "8d8e"
+        "1a1b"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w - 25",
       "derivation": "base"
@@ -2355,8 +2342,7 @@
         ]
       },
       "sequence": [
-        "2f2e",
-        "8d8e"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL b - 25",
       "derivation": "base-opposite-side"
@@ -2442,8 +2428,7 @@
         ]
       },
       "sequence": [
-        "8f8e",
-        "2d2e"
+        "9a9b"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL w - 25",
       "derivation": "file-mirror"
@@ -2513,8 +2498,7 @@
         ]
       },
       "sequence": [
-        "8f8e",
-        "2d2e"
+        "1g1f"
       ],
       "sfen": "lnsg1gsnl/3k5/pp1pppp1p/2p6/9/2P4P1/PP1PPPP1P/1S1GK1G2/LN4S+rL b - 25",
       "derivation": "file-mirror-opposite-side"
@@ -3582,7 +3566,7 @@
         ]
       },
       "sequence": [
-        "P*5e"
+        "5i4h"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 b RBGSNLPrbgsnlp 1",
       "derivation": "base"
@@ -4650,7 +4634,7 @@
         ]
       },
       "sequence": [
-        "P*5e"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 w RBGSNLPrbgsnlp 1",
       "derivation": "base-opposite-side"
@@ -5718,7 +5702,7 @@
         ]
       },
       "sequence": [
-        "P*5e"
+        "5a4b"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 b RBGSNLPrbgsnlp 1",
       "derivation": "rank-mirror"
@@ -6786,7 +6770,7 @@
         ]
       },
       "sequence": [
-        "P*5e"
+        "5i4h"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 w RBGSNLPrbgsnlp 1",
       "derivation": "rank-mirror-opposite-side"
@@ -7588,7 +7572,7 @@
         ]
       },
       "sequence": [
-        "R*5e"
+        "5i4h"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 b RBGSnPrbgsnlp 2",
       "derivation": "base"
@@ -8656,7 +8640,7 @@
         ]
       },
       "sequence": [
-        "R*5e"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 w RBGSnPrbgsnlp 2",
       "derivation": "base-opposite-side"
@@ -9458,7 +9442,7 @@
         ]
       },
       "sequence": [
-        "R*5e"
+        "5a4b"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 b RBGSnPrbgsnlp 2",
       "derivation": "rank-mirror"
@@ -10526,7 +10510,7 @@
         ]
       },
       "sequence": [
-        "R*5e"
+        "5i4h"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 w RBGSnPrbgsnlp 2",
       "derivation": "rank-mirror-opposite-side"
@@ -11594,7 +11578,7 @@
         ]
       },
       "sequence": [
-        "B*5e"
+        "5i4h"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 b RBGSNLPrbgsnl 3",
       "derivation": "base"
@@ -12520,7 +12504,7 @@
         ]
       },
       "sequence": [
-        "B*5e"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 w RBGSNLPrbgsnl 3",
       "derivation": "base-opposite-side"
@@ -13588,7 +13572,7 @@
         ]
       },
       "sequence": [
-        "B*5e"
+        "5a4b"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 b RBGSNLPrbgsnl 3",
       "derivation": "rank-mirror"
@@ -14514,7 +14498,7 @@
         ]
       },
       "sequence": [
-        "B*5e"
+        "5i4h"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 w RBGSNLPrbgsnl 3",
       "derivation": "rank-mirror-opposite-side"
@@ -15316,7 +15300,7 @@
         ]
       },
       "sequence": [
-        "G*5e"
+        "5i4h"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 b RBGSnPrbgsnl 4",
       "derivation": "base"
@@ -16242,7 +16226,7 @@
         ]
       },
       "sequence": [
-        "G*5e"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/9/9/4K4 w RBGSnPrbgsnl 4",
       "derivation": "base-opposite-side"
@@ -17044,7 +17028,7 @@
         ]
       },
       "sequence": [
-        "G*5e"
+        "5a4b"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 b RBGSnPrbgsnl 4",
       "derivation": "rank-mirror"
@@ -17970,7 +17954,7 @@
         ]
       },
       "sequence": [
-        "G*5e"
+        "5i4h"
       ],
       "sfen": "4K4/9/9/9/9/9/9/9/4k4 w RBGSnPrbgsnl 4",
       "derivation": "rank-mirror-opposite-side"
@@ -18038,7 +18022,7 @@
         ]
       },
       "sequence": [
-        "4e4a"
+        "5e1e"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 1",
       "derivation": "base"
@@ -18058,7 +18042,7 @@
         ]
       },
       "sequence": [
-        "4e4a"
+        "9a9b"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 w - 1",
       "derivation": "base-opposite-side"
@@ -18126,7 +18110,7 @@
         ]
       },
       "sequence": [
-        "6e6a"
+        "5e9e"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 b - 1",
       "derivation": "file-mirror"
@@ -18146,7 +18130,7 @@
         ]
       },
       "sequence": [
-        "6e6a"
+        "1a1b"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 w - 1",
       "derivation": "file-mirror-opposite-side"
@@ -18214,7 +18198,7 @@
         ]
       },
       "sequence": [
-        "4e4b"
+        "5e1e"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 2",
       "derivation": "base"
@@ -18234,7 +18218,7 @@
         ]
       },
       "sequence": [
-        "4e4b"
+        "9a9b"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 w - 2",
       "derivation": "base-opposite-side"
@@ -18302,7 +18286,7 @@
         ]
       },
       "sequence": [
-        "6e6b"
+        "5e9e"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 b - 2",
       "derivation": "file-mirror"
@@ -18322,7 +18306,7 @@
         ]
       },
       "sequence": [
-        "6e6b"
+        "1a1b"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 w - 2",
       "derivation": "file-mirror-opposite-side"
@@ -18390,7 +18374,7 @@
         ]
       },
       "sequence": [
-        "4e4c"
+        "5e1e"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 3",
       "derivation": "base"
@@ -18410,7 +18394,7 @@
         ]
       },
       "sequence": [
-        "4e4c"
+        "9a9b"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 w - 3",
       "derivation": "base-opposite-side"
@@ -18478,7 +18462,7 @@
         ]
       },
       "sequence": [
-        "6e6c"
+        "5e9e"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 b - 3",
       "derivation": "file-mirror"
@@ -18498,7 +18482,7 @@
         ]
       },
       "sequence": [
-        "6e6c"
+        "1a1b"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 w - 3",
       "derivation": "file-mirror-opposite-side"
@@ -18566,7 +18550,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5e1e"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 b - 4",
       "derivation": "base"
@@ -18586,7 +18570,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "9a9b"
       ],
       "sfen": "k8/2K6/9/9/4R4/9/9/9/9 w - 4",
       "derivation": "base-opposite-side"
@@ -18654,7 +18638,7 @@
         ]
       },
       "sequence": [
-        "6e6d"
+        "5e9e"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 b - 4",
       "derivation": "file-mirror"
@@ -18674,7 +18658,7 @@
         ]
       },
       "sequence": [
-        "6e6d"
+        "1a1b"
       ],
       "sfen": "8k/6K2/9/9/4R4/9/9/9/9 w - 4",
       "derivation": "file-mirror-opposite-side"
@@ -18722,7 +18706,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K b - 1",
       "derivation": "base"
@@ -18748,7 +18732,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K w - 1",
       "derivation": "base-opposite-side"
@@ -18796,7 +18780,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 b - 1",
       "derivation": "file-mirror"
@@ -18822,7 +18806,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 w - 1",
       "derivation": "file-mirror-opposite-side"
@@ -18870,7 +18854,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K b - 2",
       "derivation": "base"
@@ -18896,7 +18880,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K w - 2",
       "derivation": "base-opposite-side"
@@ -18944,7 +18928,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 b - 2",
       "derivation": "file-mirror"
@@ -18970,7 +18954,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 w - 2",
       "derivation": "file-mirror-opposite-side"
@@ -19018,7 +19002,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K b - 3",
       "derivation": "base"
@@ -19044,7 +19028,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K w - 3",
       "derivation": "base-opposite-side"
@@ -19092,7 +19076,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 b - 3",
       "derivation": "file-mirror"
@@ -19118,7 +19102,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 w - 3",
       "derivation": "file-mirror-opposite-side"
@@ -19166,7 +19150,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K b - 4",
       "derivation": "base"
@@ -19192,7 +19176,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/9/4p4/9/4R4/9/8K w - 4",
       "derivation": "base-opposite-side"
@@ -19240,7 +19224,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 b - 4",
       "derivation": "file-mirror"
@@ -19266,7 +19250,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/9/4p4/9/4R4/9/K8 w - 4",
       "derivation": "file-mirror-opposite-side"
@@ -19348,7 +19332,7 @@
         ]
       },
       "sequence": [
-        "7c7b+"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 1",
       "derivation": "base"
@@ -19436,7 +19420,7 @@
         ]
       },
       "sequence": [
-        "7c7b+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL w - 1",
       "derivation": "base-opposite-side"
@@ -19518,7 +19502,7 @@
         ]
       },
       "sequence": [
-        "3c3b+"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL b - 1",
       "derivation": "file-mirror"
@@ -19606,7 +19590,7 @@
         ]
       },
       "sequence": [
-        "3c3b+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL w - 1",
       "derivation": "file-mirror-opposite-side"
@@ -19688,7 +19672,7 @@
         ]
       },
       "sequence": [
-        "7c7b"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 2",
       "derivation": "base"
@@ -19776,7 +19760,7 @@
         ]
       },
       "sequence": [
-        "7c7b"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL w - 2",
       "derivation": "base-opposite-side"
@@ -19858,7 +19842,7 @@
         ]
       },
       "sequence": [
-        "3c3b"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL b - 2",
       "derivation": "file-mirror"
@@ -19946,7 +19930,7 @@
         ]
       },
       "sequence": [
-        "3c3b"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL w - 2",
       "derivation": "file-mirror-opposite-side"
@@ -20028,7 +20012,7 @@
         ]
       },
       "sequence": [
-        "3c3b+"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 3",
       "derivation": "base"
@@ -20116,7 +20100,7 @@
         ]
       },
       "sequence": [
-        "3c3b+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL w - 3",
       "derivation": "base-opposite-side"
@@ -20198,7 +20182,7 @@
         ]
       },
       "sequence": [
-        "7c7b+"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL b - 3",
       "derivation": "file-mirror"
@@ -20286,7 +20270,7 @@
         ]
       },
       "sequence": [
-        "7c7b+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL w - 3",
       "derivation": "file-mirror-opposite-side"
@@ -20368,7 +20352,7 @@
         ]
       },
       "sequence": [
-        "2b3c+"
+        "1g1f"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 4",
       "derivation": "base"
@@ -20456,7 +20440,7 @@
         ]
       },
       "sequence": [
-        "2b3c+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL w - 4",
       "derivation": "base-opposite-side"
@@ -20538,7 +20522,7 @@
         ]
       },
       "sequence": [
-        "8b7c+"
+        "9g9f"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL b - 4",
       "derivation": "file-mirror"
@@ -20626,7 +20610,7 @@
         ]
       },
       "sequence": [
-        "8b7c+"
+        "1a1b"
       ],
       "sfen": "lnsgkgsnl/1b5r1/ppppppp1p/2P6/9/9/PP1PPPPPP/1R5B1/LNSGKGSNL w - 4",
       "derivation": "file-mirror-opposite-side"
@@ -20654,7 +20638,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 w - 2",
       "derivation": "base"
@@ -20694,7 +20678,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5g4f"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 b - 2",
       "derivation": "base-opposite-side"
@@ -20722,7 +20706,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5i4i"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 w - 2",
       "derivation": "rank-mirror"
@@ -20762,7 +20746,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5a4a"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 b - 2",
       "derivation": "rank-mirror-opposite-side"
@@ -20790,7 +20774,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 w - 3",
       "derivation": "base"
@@ -20830,7 +20814,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5g4f"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 b - 3",
       "derivation": "base-opposite-side"
@@ -20858,7 +20842,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5i4i"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 w - 3",
       "derivation": "rank-mirror"
@@ -20898,7 +20882,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5a4a"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 b - 3",
       "derivation": "rank-mirror-opposite-side"
@@ -20926,7 +20910,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 w - 4",
       "derivation": "base"
@@ -20966,7 +20950,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5g4f"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 b - 4",
       "derivation": "base-opposite-side"
@@ -20994,7 +20978,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5i4i"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 w - 4",
       "derivation": "rank-mirror"
@@ -21034,7 +21018,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5a4a"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 b - 4",
       "derivation": "rank-mirror-opposite-side"
@@ -21062,7 +21046,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5a4a"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 w - 5",
       "derivation": "base"
@@ -21102,7 +21086,7 @@
         ]
       },
       "sequence": [
-        "4e4d"
+        "5g4f"
       ],
       "sfen": "4k4/9/9/9/9/9/4+P4/9/4K4 b - 5",
       "derivation": "base-opposite-side"
@@ -21130,7 +21114,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5i4i"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 w - 5",
       "derivation": "rank-mirror"
@@ -21170,7 +21154,7 @@
         ]
       },
       "sequence": [
-        "4e4f"
+        "5a4a"
       ],
       "sfen": "4K4/9/4+P4/9/9/9/9/9/4k4 b - 5",
       "derivation": "rank-mirror-opposite-side"
@@ -21218,7 +21202,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K b - 1",
       "derivation": "base"
@@ -21244,7 +21228,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K w - 1",
       "derivation": "base-opposite-side"
@@ -21292,7 +21276,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 b - 1",
       "derivation": "file-mirror"
@@ -21318,7 +21302,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 w - 1",
       "derivation": "file-mirror-opposite-side"
@@ -21366,7 +21350,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K b - 2",
       "derivation": "base"
@@ -21392,7 +21376,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K w - 2",
       "derivation": "base-opposite-side"
@@ -21440,7 +21424,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 b - 2",
       "derivation": "file-mirror"
@@ -21466,7 +21450,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 w - 2",
       "derivation": "file-mirror-opposite-side"
@@ -21514,7 +21498,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K b - 3",
       "derivation": "base"
@@ -21540,7 +21524,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K w - 3",
       "derivation": "base-opposite-side"
@@ -21588,7 +21572,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 b - 3",
       "derivation": "file-mirror"
@@ -21614,7 +21598,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 w - 3",
       "derivation": "file-mirror-opposite-side"
@@ -21662,7 +21646,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "1i1h"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K b - 4",
       "derivation": "base"
@@ -21688,7 +21672,7 @@
         ]
       },
       "sequence": [
-        "4g4e"
+        "5e5f"
       ],
       "sfen": "k8/9/9/4p4/4p4/9/4R4/9/8K w - 4",
       "derivation": "base-opposite-side"
@@ -21736,7 +21720,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "9i9h"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 b - 4",
       "derivation": "file-mirror"
@@ -21762,7 +21746,7 @@
         ]
       },
       "sequence": [
-        "6g6e"
+        "1a1b"
       ],
       "sfen": "8k/9/9/4p4/4p4/9/4R4/9/K8 w - 4",
       "derivation": "file-mirror-opposite-side"
@@ -21898,5 +21882,5 @@
     "tactical-04-mirror",
     "tactical-04-mirror-opposite"
   ],
-  "corpus_sha256": "9dc37b6eae253f0b774983433166013c9497c4f3627c8bf379854a7f782f7590"
+  "corpus_sha256": "10bf0bd908e21e1e124be33aa1c97726e2081d3460a4eae9682f04143da3c82c"
 }

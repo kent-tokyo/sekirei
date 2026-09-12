@@ -96,6 +96,7 @@ def expand(path: Path, binary: Path) -> int:
     for case in original:
         expected, moves, divide = details(binary, case["sfen"])
         case["expected"] = expected | {"legal_moves_usi": moves, "perft2_divide": divide}
+        case["sequence"] = [moves[0]]
         fields = case["sfen"].split(" ")
         fields[1] = "w" if fields[1] == "b" else "b"
         opposite = dict(case)
@@ -139,6 +140,7 @@ def expand(path: Path, binary: Path) -> int:
         opposite["derivation"] = f"{case['derivation']}-opposite-side"
         expected, moves, divide = details(binary, opposite["sfen"])
         opposite["expected"] = expected | {"legal_moves_usi": moves, "perft2_divide": divide}
+        opposite["sequence"] = [moves[0]]
         additions.append(opposite)
     document["cases"] = [case for pair in zip(all_bases, additions) for case in pair]
     document["required_case_ids"] = [case["id"] for case in document["cases"]]
