@@ -168,9 +168,10 @@ updates. These are correctness/readability refactors included in release
 `0.3.35`; they are not presented as a measured speed increase.
 
 The SP0 smoke corpus is checked structurally with
-`python3 scripts/validate_speed_corpus.py`. Its 32 positions are a fixture for
-the later Rust legality, state-restoration, and timing preflight; passing this
-validator alone does not establish legal move parity.
+`python3 scripts/validate_speed_corpus.py`. It contains 128 verified smoke
+positions; the separate `python3 scripts/validate_speed_corpus_split.py`
+validator confirms the fixed 64/64 tuning/hold-out partition. These checks do
+not cover full generated game histories.
 
 The report compares legal move generation and Perft(3) with `rsshogi` on the
 same fixture. `shogi_core` has no legality checker or move generator, so its

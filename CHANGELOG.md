@@ -23,6 +23,8 @@
   now checks the complete divide and its sum, not only the aggregate count.
 - Added a canonical SHA-256 over the corpus cases so fixture content changes
   cannot be hidden behind an unchanged record count.
+- Added a deterministic 64/64 tuning/hold-out split manifest that keeps each
+  base position and its side-to-move variant in the same partition.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

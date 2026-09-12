@@ -138,6 +138,9 @@ cases配列にはcanonical JSONのSHA-256も記録し、件数が変わらない
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 
+128局面corpusの64/64 tuning・hold-out分割は`python3
+scripts/validate_speed_corpus_split.py`で検証できます。いずれも生成棋譜全体の履歴検証ではありません。
+
 合法手生成とPerft(3)は`rsshogi`と同じ局面で比較します。`shogi_core`は合法手生成器を
 持たないため、局面更新の行は合法手生成やPerftの比較ではありません。結果と比較範囲は
 `scripts/benchmark_reports/cross_library_v0.3.33.md`に記録しています。
