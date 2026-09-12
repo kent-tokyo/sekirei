@@ -1,4 +1,5 @@
 import json
+import re
 import sys
 import tempfile
 import unittest
@@ -17,9 +18,30 @@ from attach_candidate_readiness import attach as attach_candidate_readiness
 from attach_resume_manifest import attach as attach_resume_manifest
 
 FIXTURE = Path(__file__).parent / "fixtures" / "release_manifest_diagnostic_v1.json"
-RELEASE_MANIFEST = Path(__file__).parents[1] / "release-manifest-v0.3.29.json"
+VERSIONED_MANIFEST = re.compile(r"^release-manifest-v(\d+)\.(\d+)\.(\d+)\.json$")
+
+
+def latest_release_manifest(root: Path) -> Path:
+    candidates = []
+    for path in root.glob("release-manifest-v*.json"):
+        match = VERSIONED_MANIFEST.fullmatch(path.name)
+        if match:
+            candidates.append((tuple(int(value) for value in match.groups()), path))
+    if not candidates:
+        raise AssertionError("at least one release manifest fixture is required")
+    return max(candidates, key=lambda item: item[0])[1]
+
+
+RELEASE_MANIFEST = latest_release_manifest(Path(__file__).parents[1])
 
 class ReleaseManifestTests(unittest.TestCase):
+    def test_latest_release_manifest_uses_numeric_version_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for name in ("release-manifest-v0.3.9.json", "release-manifest-v0.3.34.json"):
+                (root / name).write_text("{}", encoding="utf-8")
+            self.assertEqual(latest_release_manifest(root).name, "release-manifest-v0.3.34.json")
+
     def test_operational_diagnostic_fixture_is_valid(self):
         self.assertEqual(validate(json.loads(FIXTURE.read_text())), [])
 

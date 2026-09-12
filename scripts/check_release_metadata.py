@@ -4,6 +4,7 @@
 import json
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tomllib
 
@@ -21,7 +22,29 @@ MANIFESTS = {
 }
 
 
+def has_matching_tag(expected: str, tags: list[str]) -> bool:
+    return f"v{expected}" in tags
+
+
+def release_manifest_path(expected: str, root: Path = ROOT) -> Path:
+    return root / f"release-manifest-v{expected}.json"
+
+
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--require-tag",
+        action="store_true",
+        help="require HEAD to be pointed to by the matching v<version> tag",
+    )
+    parser.add_argument(
+        "--require-release-manifest",
+        action="store_true",
+        help="require a valid release manifest for the current version",
+    )
+    args = parser.parse_args()
     errors: list[str] = []
     packages = {name: tomllib.loads(path.read_text())["package"] for name, path in MANIFESTS.items()}
     versions = {pkg["version"] for pkg in packages.values()}
@@ -47,6 +70,21 @@ def main() -> int:
         if package["name"] in MANIFESTS
     }
     expected = next(iter(versions), None)
+    if args.require_tag and expected:
+        try:
+            completed = subprocess.run(
+                ["git", "tag", "--points-at", "HEAD"],
+                cwd=ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError as exc:
+            errors.append(f"could not inspect git tags: {exc}")
+        else:
+            tags = completed.stdout.splitlines() if completed.returncode == 0 else []
+            if completed.returncode != 0 or not has_matching_tag(expected, tags):
+                errors.append(f"HEAD is not pointed to by v{expected}")
     missing = sorted(set(MANIFESTS) - set(lock_versions))
     if missing:
         errors.append(f"Cargo.lock is missing workspace packages: {missing}")
@@ -67,8 +105,11 @@ def main() -> int:
             if f"`{expected}`" not in contents:
                 errors.append(f"{filename} is missing the current release version {expected}")
 
-        release_manifest = ROOT / f"release-manifest-v{expected}.json"
-        if release_manifest.is_file():
+        release_manifest = release_manifest_path(expected)
+        if not release_manifest.is_file():
+            if args.require_release_manifest:
+                errors.append(f"current release manifest is missing: {release_manifest.name}")
+        else:
             try:
                 release_manifest_doc = json.loads(release_manifest.read_text())
             except (OSError, ValueError) as exc:
