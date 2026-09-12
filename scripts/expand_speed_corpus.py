@@ -2,6 +2,7 @@
 """Expand the speed smoke corpus with verified opposite-side positions."""
 
 import argparse
+import hashlib
 import json
 import subprocess
 from pathlib import Path
@@ -79,6 +80,11 @@ def details(binary: Path, sfen: str) -> tuple[dict[str, int], list[str], list[st
     return counts, moves.removeprefix("sfen_moves=").split(","), divide.removeprefix("sfen_perft2_divide=").split(",")
 
 
+def cases_hash(cases: list[dict]) -> str:
+    canonical = json.dumps(cases, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def expand(path: Path, binary: Path) -> int:
     document = json.loads(path.read_text(encoding="utf-8"))
     original = [
@@ -136,6 +142,7 @@ def expand(path: Path, binary: Path) -> int:
         additions.append(opposite)
     document["cases"] = [case for pair in zip(all_bases, additions) for case in pair]
     document["required_case_ids"] = [case["id"] for case in document["cases"]]
+    document["corpus_sha256"] = cases_hash(document["cases"])
     path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return len(document["cases"])
 

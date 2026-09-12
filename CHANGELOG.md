@@ -21,6 +21,8 @@
   captures from dirty trees require `--allow-dirty` and preserve their status.
 - Added verified Perft(2) divide data for every SP0 smoke position; validation
   now checks the complete divide and its sum, not only the aggregate count.
+- Added a canonical SHA-256 over the corpus cases so fixture content changes
+  cannot be hidden behind an unchanged record count.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

@@ -132,6 +132,7 @@ validatorの成功だけで履歴再構成まで保証するものでもあり�
 各局面にはソート済みの期待USI合法手集合も保存しており、手数だけ一致して集合が異なる
 ケースもpreflightで拒否します。
 Perft(2)も合計値だけでなく各合法初手ごとのdivideを保存し、その合計との一致まで検証します。
+cases配列にはcanonical JSONのSHA-256も記録し、件数が変わらない内容改変も検出します。
 新しいcaptureは既定でcleanなworktreeだけを受け付けます。明示的な診断目的でdirty状態を
 許可する場合は`--allow-dirty`を指定し、その状態は`provenance.json`に保存されます。
 完了したcomponent capture同士は

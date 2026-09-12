@@ -158,6 +158,7 @@ The corpus also stores the sorted expected USI move set for each position, so
 the preflight rejects an equal-count but different move set.
 It also stores and verifies the Perft(2) divide for every legal root move,
 including the sum against the aggregate count.
+The canonical cases array is covered by a SHA-256 recorded in the fixture.
 New captures require a clean worktree; use `--allow-dirty` only for explicitly
 diagnostic runs, whose dirty status is retained in `provenance.json`.
 

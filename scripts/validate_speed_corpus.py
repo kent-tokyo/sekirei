@@ -2,6 +2,7 @@
 """Validate the checked-in rsshogi speed-corpus contract."""
 
 import json
+import hashlib
 import re
 import sys
 from pathlib import Path
@@ -49,6 +50,9 @@ def validate_document(doc: dict) -> int:
     required_case_ids = doc.get("required_case_ids")
     if not isinstance(required_case_ids, list) or len(required_case_ids) != 128:
         raise ValueError("required_case_ids must contain exactly 128 records")
+    corpus_sha256 = doc.get("corpus_sha256")
+    if not isinstance(corpus_sha256, str) or len(corpus_sha256) != 64:
+        raise ValueError("corpus_sha256 must be a SHA-256 hex digest")
     if not all(isinstance(case_id, str) and case_id for case_id in required_case_ids):
         raise ValueError("required_case_ids must contain non-empty strings")
     if len(set(required_case_ids)) != len(required_case_ids):
@@ -121,6 +125,9 @@ def validate_document(doc: dict) -> int:
         raise ValueError("case IDs differ from required_case_ids")
     if counts != {category: 16 for category in CATEGORIES}:
         raise ValueError(f"category counts differ: {counts}")
+    canonical = json.dumps(cases, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    if hashlib.sha256(canonical.encode("utf-8")).hexdigest() != corpus_sha256:
+        raise ValueError("corpus_sha256 does not match cases")
     return len(cases)
 
 

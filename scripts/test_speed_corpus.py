@@ -62,3 +62,9 @@ class SpeedCorpusTest(unittest.TestCase):
         doc["cases"][0]["expected"]["perft2_divide"][0] = "1a1b:0"
         with self.assertRaises(ValueError):
             validate_document(doc)
+
+    def test_rejects_corpus_hash_drift(self):
+        doc = json.loads(CORPUS.read_text(encoding="utf-8"))
+        doc["cases"][0]["source"] = "changed"
+        with self.assertRaises(ValueError):
+            validate_document(doc)
