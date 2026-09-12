@@ -135,6 +135,7 @@ Perft(2)も合計値だけでなく各合法初手ごとのdivideを保存し、
 cases配列にはcanonical JSONのSHA-256も記録し、件数が変わらない内容改変も検出します。
 新しいcaptureは既定でcleanなworktreeだけを受け付けます。明示的な診断目的でdirty状態を
 許可する場合は`--allow-dirty`を指定し、その状態は`provenance.json`に保存されます。
+`--build`モードでは同じrunnerがofflineのrelease buildを先に実行し、コマンドとprofileも保存します。
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 

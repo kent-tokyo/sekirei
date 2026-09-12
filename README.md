@@ -160,7 +160,9 @@ It also stores and verifies the Perft(2) divide for every legal root move,
 including the sum against the aggregate count.
 The canonical cases array is covered by a SHA-256 recorded in the fixture.
 New captures require a clean worktree; use `--allow-dirty` only for explicitly
-diagnostic runs, whose dirty status is retained in `provenance.json`.
+diagnostic runs, whose dirty status is retained in `provenance.json`. The
+`--build` mode performs the pinned offline release build before capture and
+records its command and profile.
 The corpus preflight also applies and reverses each case's verified one-move
 sequence; the six-ply nested roundtrip remains covered by the component
 diagnostic preflight. It now additionally generates twelve deterministic legal

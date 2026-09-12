@@ -159,6 +159,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument("--binary", type=Path)
+    source.add_argument("--build", action="store_true", help="Build the release benchmark binary before capture")
     source.add_argument("--replay", type=Path, help="Replay a captured directory, retaining its original source hashes")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument(
@@ -167,12 +168,8 @@ def main():
         help="Allow a new capture from a dirty worktree; the status is recorded.",
     )
     args = parser.parse_args()
-    binary = (args.replay / "cross_library" if args.replay else args.binary).resolve(strict=True)
+    binary = (args.replay / "cross_library" if args.replay else args.binary)
     replay_metadata = None
-    if args.replay:
-        replay_metadata = json.loads((args.replay / "provenance.json").read_text())
-        if sha256(binary) != replay_metadata["binary_sha256"]:
-            raise ValueError("snapshot executable hash mismatch")
     root = Path(__file__).resolve().parents[1]
     os.chdir(root)
     dirty_status = command("git", "status", "--porcelain")
@@ -180,6 +177,19 @@ def main():
         raise ValueError(
             "new captures require a clean worktree; use --allow-dirty for a diagnostic capture"
         )
+    build_metadata = None
+    if args.replay:
+        replay_metadata = json.loads((args.replay / "provenance.json").read_text())
+        binary = binary.resolve(strict=True)
+        if sha256(binary) != replay_metadata["binary_sha256"]:
+            raise ValueError("snapshot executable hash mismatch")
+    elif args.build:
+        build_command = ["cargo", "build", "--offline", "-j1", "-p", "sekirei-bench", "--bin", "cross_library"]
+        subprocess.run(build_command, check=True)
+        binary = (root / "target/release/cross_library").resolve(strict=True)
+        build_metadata = {"command": build_command, "profile": "release", "offline": True}
+    else:
+        binary = binary.resolve(strict=True)
     args.output.mkdir(parents=True, exist_ok=False)
     frozen = args.output.resolve() / "cross_library"
     shutil.copy2(binary, frozen)
@@ -196,6 +206,7 @@ def main():
         "cpu": command("sysctl", "-n", "machdep.cpu.brand_string") if platform.system() == "Darwin" else platform.processor(),
         "load_before": os.getloadavg(),
         "build_flags_note": "Build is external: verify matching compiler/profile/flags for every arm; capture does not infer them.",
+        "build": build_metadata,
         "argv": ["./cross_library", "--components"],
         "nnue": "default_lcg (synthetic diagnostic; not trained weights)",
     }
