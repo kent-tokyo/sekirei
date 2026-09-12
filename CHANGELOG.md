@@ -8,6 +8,8 @@
 - Separated warm initialization, board/NNUE updates, inference and move-output
   conversion in component diagnostics with raw samples and frozen-binary
   capture. v7 move generation no longer includes a raw-encoding checksum.
+- Added isolated NNUE accumulator-refresh cases for the startpos, midgame, and
+  drop-only fixtures, expanding the fixed component contract to 57 cases.
 - Removed temporary field/rank vectors from SFEN initialization and return a
   parse error before constructing an out-of-range square on overfull ranks.
   No new engine-strength or overall speed claim is made.

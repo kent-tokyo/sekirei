@@ -308,8 +308,47 @@ impl Board {
         self.hash = h;
     }
 
-    /// Parse a SFEN position string into a Board.
+    /// Recompute only the Zobrist hash, leaving the NNUE accumulator untouched.
+    #[inline]
+    fn recompute_hash_only(&mut self) {
+        use crate::zobrist;
+        use PieceKind::*;
+
+        let mut h = 0u64;
+        for i in 0..Square::NUM {
+            if let Some(p) = self.mailbox[i] {
+                h ^= zobrist::piece_key(Square::from_index(i as u8), p.color, p.kind);
+            }
+        }
+        let hand_kinds = [Fu, Kyou, Kei, Gin, Kin, Kaku, Hisha];
+        for c in 0..2 {
+            let color = if c == 0 { Color::Black } else { Color::White };
+            for &kind in &hand_kinds {
+                for n in 1..=self.hand[c].get(kind) {
+                    h ^= zobrist::hand_delta(color, kind, n);
+                }
+            }
+        }
+        if self.side_to_move == Color::Black {
+            h ^= zobrist::side_key();
+        }
+        self.hash = h;
+    }
+
+    /// Parse a SFEN position string into an NNUE-ready Board.
     pub fn from_sfen(sfen: &str) -> Result<Self, String> {
+        Self::from_sfen_with_accumulator(sfen, true)
+    }
+
+    /// Parse a SFEN position for rules-only workloads such as move generation
+    /// and Perft. The returned accumulator is intentionally not initialized;
+    /// call [`Board::refresh_acc`] before any NNUE evaluation or incremental
+    /// NNUE move update.
+    pub fn from_sfen_rules_only(sfen: &str) -> Result<Self, String> {
+        Self::from_sfen_with_accumulator(sfen, false)
+    }
+
+    fn from_sfen_with_accumulator(sfen: &str, refresh_accumulator: bool) -> Result<Self, String> {
         // Borrow fields directly: constructing a position should not allocate
         // temporary vectors for either its fields or its nine ranks.
         let mut parts = sfen.split_whitespace();
@@ -439,8 +478,13 @@ impl Board {
             board.ply = ply - 1; // USI counts from 1
         }
 
-        // Recompute derived state (hash + NNUE accumulator) from scratch
-        board.recompute_derived();
+        // Always rebuild the hash; NNUE refresh is optional for rules-only
+        // callers and is deliberately kept behind an explicit API boundary.
+        if refresh_accumulator {
+            board.recompute_derived();
+        } else {
+            board.recompute_hash_only();
+        }
 
         Ok(board)
     }

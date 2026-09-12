@@ -17,12 +17,18 @@ use sekirei_core::{
         generate_legal_moves_into_fixed, generate_legal_moves_into_narrow,
         generate_legal_moves_into_packed, generate_moves_into,
     },
-    mv::Move,
+    mv::{Move, MoveToken},
     perft::perft,
     piece::PieceKind,
     square::Square,
 };
-use std::{env, hint::black_box, mem::size_of, sync::OnceLock, time::Instant};
+use std::{
+    env,
+    hint::black_box,
+    mem::{align_of, size_of},
+    sync::OnceLock,
+    time::Instant,
+};
 
 #[path = "cross_library/components.rs"]
 mod components;
@@ -121,6 +127,50 @@ fn consume_decoded_packed_moves(moves: &[sekirei_core::movegen::PackedMove]) {
         hash.rotate_left(5) ^ decoded.raw()
     });
     black_box(checksum);
+}
+
+fn check_sfen(sfen: &str) {
+    let mut board = Board::from_sfen(sfen)
+        .unwrap_or_else(|error| panic!("Sekirei rejected corpus SFEN {sfen:?}: {error}"));
+    let mut reference = position_from_sfen(sfen)
+        .unwrap_or_else(|_| panic!("rsshogi rejected corpus SFEN {sfen:?}"));
+    reference.init_stack();
+
+    let mut sekirei_moves = Vec::new();
+    generate_legal_moves_into(&mut board, &mut sekirei_moves);
+    let mut rsshogi_moves = Move32List::new();
+    generate_legal_all_move32(&reference, &mut rsshogi_moves);
+    let mut sekirei_usi: Vec<_> = sekirei_moves
+        .iter()
+        .copied()
+        .map(sekirei_core::sfen::move_to_usi)
+        .collect();
+    let mut rsshogi_usi: Vec<_> = rsshogi_moves.iter().map(|mv| mv.to_usi()).collect();
+    sekirei_usi.sort_unstable();
+    rsshogi_usi.sort_unstable();
+    assert_eq!(sekirei_usi, rsshogi_usi, "legal move mismatch for {sfen}");
+
+    let original_sfen = sekirei_core::sfen::board_to_sfen(&board);
+    let original_hash = board.hash();
+    for mv in sekirei_moves {
+        let token = board.do_move_for_search(mv);
+        board.undo_move_for_search(token);
+        assert_eq!(sekirei_core::sfen::board_to_sfen(&board), original_sfen);
+        assert_eq!(board.hash(), original_hash);
+    }
+
+    let original_reference_sfen = reference.to_sfen(None);
+    let original_reference_key = reference.key();
+    for mv in rsshogi_moves.iter().copied() {
+        reference.apply_move32(mv);
+        reference.undo_move32(mv).expect("legal move must undo");
+        assert_eq!(reference.to_sfen(None), original_reference_sfen);
+        assert_eq!(reference.key(), original_reference_key);
+    }
+
+    let sekirei_perft = perft(&mut board, 2);
+    let rsshogi_perft = rsshogi_compute_perft(&mut reference, 2);
+    assert_eq!(sekirei_perft, rsshogi_perft, "Perft(2) mismatch for {sfen}");
 }
 
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
@@ -298,8 +348,13 @@ fn main() {
             components::run();
             return;
         }
+        [flag, sfen] if flag == "--check-sfen" => {
+            check_sfen(sfen);
+            println!("sfen_preflight=passed");
+            return;
+        }
         [] => {}
-        _ => panic!("usage: cross_library [--check|--components]"),
+        _ => panic!("usage: cross_library [--check|--components|--check-sfen SFEN]"),
     }
     println!("schema=sekirei.cross-library-benchmark.v7");
     println!(
@@ -311,8 +366,13 @@ fn main() {
         "state_rows=setup_included;full_sekirei_updates_nnue;rsshogi_has_no_nnue;perft_leaf_and_state_work_differ"
     );
     println!(
-        "representation_size_bytes,sekirei_move={},sekirei_packed={},sekirei_narrow={},rsshogi_move32={}",
+        "representation_layout,sekirei_board_size={},sekirei_board_align={},sekirei_move_size={},sekirei_move_align={},sekirei_token_size={},sekirei_token_align={},sekirei_packed_size={},sekirei_narrow_size={},rsshogi_move32_size={}",
+        size_of::<Board>(),
+        align_of::<Board>(),
         size_of::<Move>(),
+        align_of::<Move>(),
+        size_of::<MoveToken>(),
+        align_of::<MoveToken>(),
         size_of::<sekirei_core::movegen::PackedMove>(),
         size_of::<sekirei_core::movegen::NarrowMove>(),
         size_of::<Move32>(),

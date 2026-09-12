@@ -17,6 +17,67 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 
+EXPECTED_CASES = {
+    ("harness_dispatch_floor", "control"),
+    ("init_startpos_warm", "sekirei"),
+    ("init_sfen_warm", "sekirei"),
+    ("init_sfen_rules_only", "sekirei"),
+    ("init_sfen_warm", "rsshogi"),
+    ("buffer_new_drop", "sekirei_fixed"),
+    ("buffer_new_drop", "rsshogi_move32"),
+    ("sequence_roundtrip_no_nnue", "sekirei"),
+    ("sequence_roundtrip_nnue", "sekirei"),
+    ("sequence_roundtrip_no_nnue", "rsshogi"),
+    ("nnue_move_roundtrip", "sekirei"),
+    ("startpos", "sekirei_generate_vec"),
+    ("startpos", "sekirei_do_undo_all_legal"),
+    ("startpos", "sekirei_generate_fixed"),
+    ("startpos", "sekirei_generate_packed"),
+    ("startpos", "sekirei_generate_narrow"),
+    ("startpos", "sekirei_constraint_calc"),
+    ("startpos", "sekirei_king_safety_scan"),
+    ("startpos", "sekirei_rook_ray_scan"),
+    ("startpos", "sekirei_bishop_ray_scan"),
+    ("startpos", "sekirei_pseudo_generate"),
+    ("startpos", "rsshogi_generate_move32"),
+    ("startpos", "sekirei_nnue_forward"),
+    ("startpos", "sekirei_nnue_refresh"),
+    ("midgame", "sekirei_generate_vec"),
+    ("midgame", "sekirei_do_undo_all_legal"),
+    ("midgame", "sekirei_generate_fixed"),
+    ("midgame", "sekirei_generate_packed"),
+    ("midgame", "sekirei_generate_narrow"),
+    ("midgame", "sekirei_constraint_calc"),
+    ("midgame", "sekirei_king_safety_scan"),
+    ("midgame", "sekirei_rook_ray_scan"),
+    ("midgame", "sekirei_bishop_ray_scan"),
+    ("midgame", "sekirei_pseudo_generate"),
+    ("midgame", "rsshogi_generate_move32"),
+    ("midgame", "sekirei_nnue_forward"),
+    ("midgame", "sekirei_nnue_refresh"),
+    ("drop_only", "sekirei_generate_vec"),
+    ("drop_only", "sekirei_do_undo_all_legal"),
+    ("drop_only", "sekirei_generate_fixed"),
+    ("drop_only", "sekirei_generate_packed"),
+    ("drop_only", "sekirei_generate_narrow"),
+    ("drop_only", "sekirei_constraint_calc"),
+    ("drop_only", "sekirei_king_safety_scan"),
+    ("drop_only", "sekirei_rook_ray_scan"),
+    ("drop_only", "sekirei_bishop_ray_scan"),
+    ("drop_only", "sekirei_pseudo_generate"),
+    ("drop_only", "rsshogi_generate_move32"),
+    ("drop_only", "sekirei_nnue_forward"),
+    ("drop_only", "sekirei_nnue_refresh"),
+    ("encode_raw_list", "sekirei"),
+    ("decode_packed_list", "sekirei"),
+    ("encode_raw_list", "rsshogi"),
+    ("move_kind_quiet", "sekirei_do_undo"),
+    ("move_kind_capture", "sekirei_do_undo"),
+    ("move_kind_drop", "sekirei_do_undo"),
+    ("move_kind_promotion", "sekirei_do_undo"),
+}
+MIN_SAMPLE_ELAPSED_NS = 20_000_000
+
 
 def command(*args):
     return subprocess.check_output(args, text=True).strip()
@@ -37,7 +98,8 @@ def validate_samples(text):
         if row and row[0] == "sample":
             _, operation, library, sample, iterations, elapsed, ns, units = row
             index, count, elapsed, ns, units = int(sample), int(iterations), int(elapsed), float(ns), int(units)
-            if count <= 0 or elapsed <= 0 or units <= 0 or not math.isfinite(ns):
+            if (count <= 0 or elapsed < MIN_SAMPLE_ELAPSED_NS or units <= 0
+                    or not math.isfinite(ns)):
                 raise ValueError("invalid sample values")
             if not math.isclose(ns, elapsed / count, rel_tol=0, abs_tol=0.0001):
                 raise ValueError("sample timing mismatch")
@@ -56,6 +118,10 @@ def validate_samples(text):
             summaries[key] = float(p50), float(p95), int(units)
     if not samples or samples.keys() != summaries.keys():
         raise ValueError("missing samples or summaries")
+    if set(summaries) != EXPECTED_CASES:
+        missing = sorted(EXPECTED_CASES - set(summaries))
+        extra = sorted(set(summaries) - EXPECTED_CASES)
+        raise ValueError(f"case set mismatch: missing={missing}, extra={extra}")
     for key, group in samples.items():
         if set(group) != set(range(21)):
             raise ValueError("incomplete sample set")

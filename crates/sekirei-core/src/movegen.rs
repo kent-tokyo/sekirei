@@ -32,59 +32,69 @@ fn is_attacked_with_occupancy(board: &Board, sq: Square, by: Color, occupied: Bi
         return true;
     }
 
-    let slide_hits = |dir: Direction, attackers: Bitboard| -> bool {
-        !(sliding_attacks(sq, occupied, dir) & attackers).is_empty()
-    };
+    // Once the opponent has no sliding piece, the step-piece result is
+    // complete. This is especially common in the endgame and avoids probing
+    // all eight ray tables for every king destination.
+    let lances = board.pieces(by, PieceKind::Kyou);
+    let bishop_sliders = board.bishop_sliders(by);
+    let rook_sliders = board.rook_sliders(by);
+    if lances.is_empty() && bishop_sliders.is_empty() && rook_sliders.is_empty() {
+        return false;
+    }
 
-    // Lance: slide from the target in the reverse attack direction.
-    let lance = board.pieces(by, PieceKind::Kyou);
-    match by {
-        Color::Black => {
-            if !lance.is_empty()
-                && !(RAY_ATTACKS[1][square_index] & lance).is_empty()
-                && slide_hits(Direction::S, lance)
-            {
-                return true;
-            }
-        }
-        Color::White => {
-            if !lance.is_empty()
-                && !(RAY_ATTACKS[0][square_index] & lance).is_empty()
-                && slide_hits(Direction::N, lance)
-            {
-                return true;
-            }
-        }
+    // A king destination only needs the first occupied square on each ray.
+    // Inspecting that square avoids materializing a full sliding-attack mask
+    // for every candidate destination.
+    let lance_direction = match by {
+        Color::Black => 1,
+        Color::White => 0,
+    };
+    if !(RAY_ATTACKS[lance_direction][square_index] & lances).is_empty()
+        && first_slider_attacker(board, sq, by, occupied, lance_direction, true)
+    {
+        return true;
     }
 
     // Bishop / Uma: diagonal sliding
-    let bishop = board.bishop_sliders(by);
-    for (direction_index, dir) in [
-        (4, Direction::NE),
-        (5, Direction::NW),
-        (6, Direction::SE),
-        (7, Direction::SW),
-    ] {
-        if !(RAY_ATTACKS[direction_index][square_index] & bishop).is_empty()
-            && slide_hits(dir, bishop)
+    for (direction_index, _) in RAY_ATTACKS.iter().enumerate().skip(4) {
+        if !(RAY_ATTACKS[direction_index][square_index] & bishop_sliders).is_empty()
+            && first_slider_attacker(board, sq, by, occupied, direction_index, false)
         {
             return true;
         }
     }
     // Rook / Ryu: orthogonal sliding
-    let rook = board.rook_sliders(by);
-    for (direction_index, dir) in [
-        (0, Direction::N),
-        (1, Direction::S),
-        (2, Direction::E),
-        (3, Direction::W),
-    ] {
-        if !(RAY_ATTACKS[direction_index][square_index] & rook).is_empty() && slide_hits(dir, rook)
+    for (direction_index, _) in RAY_ATTACKS.iter().enumerate().take(4) {
+        if !(RAY_ATTACKS[direction_index][square_index] & rook_sliders).is_empty()
+            && first_slider_attacker(board, sq, by, occupied, direction_index, false)
         {
             return true;
         }
     }
     false
+}
+
+#[inline(always)]
+fn first_slider_attacker(
+    board: &Board,
+    sq: Square,
+    by: Color,
+    occupied: Bitboard,
+    direction_index: usize,
+    lance_only: bool,
+) -> bool {
+    let Some(first) = first_blocker_on_ray_index(sq, occupied, direction_index) else {
+        return false;
+    };
+    let blocker = Bitboard::from_square(first);
+    if lance_only {
+        return !(blocker & board.pieces(by, PieceKind::Kyou)).is_empty();
+    }
+    if direction_index >= 4 {
+        !(blocker & board.bishop_sliders(by)).is_empty()
+    } else {
+        !(blocker & board.rook_sliders(by)).is_empty()
+    }
 }
 
 /// Returns true if `color`'s king is in check
@@ -1685,6 +1695,15 @@ struct KingConstraints {
     pinned: Bitboard,
 }
 
+/// Read-only result of the legality-constraint diagnostic probe.
+#[doc(hidden)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LegalityConstraintSnapshot {
+    pub checkers: Bitboard,
+    pub evasion_mask: Bitboard,
+    pub pinned: Bitboard,
+}
+
 /// Return the checker count capped at two. Legal move generation only needs
 /// to distinguish no check, single check, and double check; a full popcount is
 /// unnecessary on the cached ordinary-position path.
@@ -1872,6 +1891,75 @@ fn current_king_constraints(
         board.set_legality_cache(computed.checkers, computed.pinned, computed.evasion_mask);
     }
     computed
+}
+
+/// Compute king constraints without consulting or updating the legality cache.
+///
+/// This exists only to split benchmark stages. It is deliberately not used by
+/// the normal move-generation path, so a diagnostic run cannot change engine
+/// behavior or make the cache look faster than it is.
+#[doc(hidden)]
+#[inline(never)]
+pub fn diagnostic_king_constraints(board: &Board) -> LegalityConstraintSnapshot {
+    let computed = board
+        .king_square(board.side_to_move)
+        .map(|king| king_constraints(board, king, board.side_to_move, None))
+        .unwrap_or(KingConstraints {
+            checkers: Bitboard::EMPTY,
+            evasion_mask: Bitboard::EMPTY,
+            pinned: Bitboard::EMPTY,
+        });
+    LegalityConstraintSnapshot {
+        checkers: computed.checkers,
+        evasion_mask: computed.evasion_mask,
+        pinned: computed.pinned,
+    }
+}
+
+/// Scan king destinations with the same safety predicate used by legal move
+/// generation, without emitting moves or changing board state.
+#[doc(hidden)]
+#[inline(never)]
+pub fn diagnostic_king_safety_scan(board: &Board) -> u32 {
+    let mover = board.side_to_move;
+    let opponent_king = board.pieces(mover.flip(), PieceKind::Ou);
+    let Some(king) = board.king_square(mover) else {
+        return 0;
+    };
+    let mut targets = KING_ATTACKS[king.index() as usize]
+        .and_not(board.occ_for(mover))
+        .and_not(opponent_king);
+    let mut safe = 0;
+    while let Some(to) = targets.pop_lsb() {
+        safe += u32::from(king_destination_is_safe(
+            board,
+            mover,
+            Move::normal(king, to, PieceKind::Ou, false),
+        ));
+    }
+    safe
+}
+
+/// Compute the four sliding rays from one square without emitting moves.
+///
+/// `orthogonal` selects rook-like rays; `false` selects bishop-like rays.
+/// This probe is used to measure ray work independently from legality masks
+/// and output representation.
+#[doc(hidden)]
+#[inline(never)]
+pub fn diagnostic_sliding_rays(board: &Board, from: Square, orthogonal: bool) -> Bitboard {
+    let occupied = board.occ();
+    if orthogonal {
+        sliding_attacks_const::<0>(from, occupied)
+            | sliding_attacks_const::<1>(from, occupied)
+            | sliding_attacks_const::<2>(from, occupied)
+            | sliding_attacks_const::<3>(from, occupied)
+    } else {
+        sliding_attacks_const::<4>(from, occupied)
+            | sliding_attacks_const::<5>(from, occupied)
+            | sliding_attacks_const::<6>(from, occupied)
+            | sliding_attacks_const::<7>(from, occupied)
+    }
 }
 
 /// Generate fully legal moves, including king-safety and uchifuzume checks.
@@ -2966,6 +3054,40 @@ mod move_buffer_tests {
             let mut capture_hinted = Board::from_sfen(sfen).expect("fixture must parse");
             let actual_captures = MoveBuffer::captures_with_in_check(&mut capture_hinted, in_check);
             assert_eq!(actual_captures.as_slice(), expected_captures.as_slice());
+        }
+    }
+
+    #[test]
+    fn legal_move_cache_survives_nested_do_undo() {
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22",
+        ] {
+            let mut board = Board::from_sfen(sfen).expect("fixture must parse");
+            let original = generate_legal_moves(&mut board).as_slice().to_vec();
+            let first = original[0];
+            let first_token = board.do_move_for_search(first);
+
+            let after_first = generate_legal_moves(&mut board).as_slice().to_vec();
+            let second = after_first.first().copied();
+            let second_token = second.map(|mv| board.do_move_for_search(mv));
+            let _after_second = generate_legal_moves(&mut board).as_slice().to_vec();
+
+            if let Some(token) = second_token {
+                board.undo_move_for_search(token);
+            }
+            assert_eq!(
+                generate_legal_moves(&mut board).as_slice(),
+                after_first.as_slice(),
+                "legal cache after nested undo for {sfen}"
+            );
+
+            board.undo_move_for_search(first_token);
+            assert_eq!(
+                generate_legal_moves(&mut board).as_slice(),
+                original.as_slice(),
+                "legal cache after root undo for {sfen}"
+            );
         }
     }
 }

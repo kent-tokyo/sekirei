@@ -1,0 +1,97 @@
+#!/usr/bin/env python3
+"""Validate the checked-in rsshogi speed-corpus contract."""
+
+import json
+import re
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_CORPUS = ROOT / "scripts/fixtures/speed_corpus_v1.json"
+CATEGORIES = ("opening", "midgame", "hands", "check", "capture", "promotion", "endgame", "tactical")
+SFEN = re.compile(r"^[^ ]+ [bw] [^ ]+ [1-9][0-9]*$")
+MOVE = re.compile(r"^(?:[1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])$")
+PIECES = set("pnslgbrkPNSLGBRK")
+HAND = re.compile(r"^(?:-|(?:(?:[1-9][0-9]*)?[PLNSGBRplnsgbr])*)$")
+
+
+def _validate_board(board: str, case_id: str) -> None:
+    ranks = board.split("/")
+    if len(ranks) != 9:
+        raise ValueError(f"{case_id}: board must have 9 ranks")
+    for rank_index, rank in enumerate(ranks, 1):
+        width = 0
+        promoted = False
+        for char in rank:
+            if char.isdigit():
+                if char == "0":
+                    raise ValueError(f"{case_id}: zero in rank {rank_index}")
+                width += int(char)
+            elif char == "+":
+                if promoted:
+                    raise ValueError(f"{case_id}: repeated promotion marker")
+                promoted = True
+            elif char in PIECES:
+                width += 1
+                promoted = False
+            else:
+                raise ValueError(f"{case_id}: invalid board character {char!r}")
+        if promoted or width != 9:
+            raise ValueError(f"{case_id}: rank {rank_index} has width {width}")
+
+
+def validate_document(doc: dict) -> int:
+    if doc.get("schema") != "sekirei.speed-corpus.v1" or doc.get("version") != 1:
+        raise ValueError("unexpected speed corpus schema or version")
+    cases = doc.get("cases")
+    if not isinstance(cases, list) or len(cases) != 32:
+        raise ValueError("cases must contain exactly 32 records")
+    ids: set[str] = set()
+    sfens: set[str] = set()
+    counts = {category: 0 for category in CATEGORIES}
+    for case in cases:
+        if not isinstance(case, dict):
+            raise ValueError("case must be an object")
+        case_id, category, sfen = case.get("id"), case.get("category"), case.get("sfen")
+        if not isinstance(case_id, str) or not case_id or case_id in ids:
+            raise ValueError(f"invalid or duplicate case id: {case_id!r}")
+        if category not in counts:
+            raise ValueError(f"{case_id}: unknown category {category!r}")
+        if not isinstance(sfen, str) or sfen in sfens or not SFEN.fullmatch(sfen):
+            raise ValueError(f"{case_id}: invalid or duplicate SFEN")
+        board, side, hands, _ply = sfen.split()
+        _validate_board(board, case_id)
+        if not HAND.fullmatch(hands):
+            raise ValueError(f"{case_id}: invalid hand field")
+        if not isinstance(case.get("source"), str) or not case["source"]:
+            raise ValueError(f"{case_id}: source is required")
+        sequence = case.get("sequence")
+        if not isinstance(sequence, list) or not sequence or not all(
+            isinstance(move, str) and MOVE.fullmatch(move) for move in sequence
+        ):
+            raise ValueError(f"{case_id}: sequence must be a non-empty string list")
+        ids.add(case_id)
+        sfens.add(sfen)
+        counts[category] += 1
+    if counts != {category: 4 for category in CATEGORIES}:
+        raise ValueError(f"category counts differ: {counts}")
+    return len(cases)
+
+
+def validate(path: Path = DEFAULT_CORPUS) -> int:
+    return validate_document(json.loads(path.read_text(encoding="utf-8")))
+
+
+def main() -> int:
+    path = Path(sys.argv[1]) if len(sys.argv) == 2 else DEFAULT_CORPUS
+    try:
+        count = validate(path)
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        print(f"speed corpus invalid: {error}", file=sys.stderr)
+        return 1
+    print(f"speed corpus OK: cases={count}, categories={len(CATEGORIES)}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

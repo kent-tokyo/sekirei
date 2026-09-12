@@ -79,6 +79,20 @@ mod tests {
         );
     }
 
+    #[test]
+    fn rules_only_sfen_skips_nnue_refresh_but_preserves_hash() {
+        use sfen::STARTPOS_SFEN;
+
+        let ready = Board::from_sfen(STARTPOS_SFEN).expect("parse NNUE-ready SFEN");
+        let mut rules_only =
+            Board::from_sfen_rules_only(STARTPOS_SFEN).expect("parse rules-only SFEN");
+        assert_eq!(rules_only.hash(), ready.hash());
+        assert_ne!(rules_only.acc, ready.acc);
+
+        rules_only.refresh_acc();
+        assert_eq!(rules_only.acc, ready.acc);
+    }
+
     /// Round-trip: Board → SFEN → Board must preserve the hash.
     #[test]
     fn sfen_rejects_rank_overflow_without_panicking() {

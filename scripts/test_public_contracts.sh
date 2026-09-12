@@ -11,4 +11,8 @@ python3 scripts/validate_release_manifest.py \
   scripts/fixtures/release_manifest_diagnostic_v1.json
 python3 scripts/validate_resume_manifest.py \
   scripts/fixtures/resume_manifest_v1.json
+python3 scripts/validate_speed_corpus.py \
+  scripts/fixtures/speed_corpus_v1.json
+python3 -m unittest discover -s scripts -p 'test_speed_corpus.py'
+PYTHONPATH=scripts python3 -m unittest test_aggregate_component_aa
 echo "public contract checks OK"

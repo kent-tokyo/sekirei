@@ -107,17 +107,26 @@ v7では6手の手順の合法性とundo後の復元を測定前に検証しま�
 各手を早すぎる時点でundoしていたため、その測定値は無効です。合法手生成からも
 形式依存のチェックサム計算を除いたため、旧値とは直接比較できません。
 `--components`は初期化（共通テーブル初期化後）、バッファ、NNUE有無の盤面更新、
-NNUE推論、出力変換を分け、21標本の生データとp50/p95を出力します。
+NNUE推論、出力変換を分け、57固定ケースについて21標本の生データとp50/p95を出力します。
 NNUEは診断用の固定LCG重みであり、学習済みエンジンの探索速度ではありません。
 変更前後の実行ファイル・ソースハッシュの保存方法は
 `scripts/run_component_benchmark.py --help`を参照してください。
 [処理別測定レポート](scripts/benchmark_reports/components_2026-09-12.md)に、測定修正、
 SFEN初期化の改善候補、負荷による結果の制限を記録しています。
+ルール処理だけが必要な場合は`Board::from_sfen_rules_only`でNNUE refreshを省略できます。
+返るBoardのhashは有効ですが、NNUE評価やNNUE差分更新の前に`Board::refresh_acc`を呼んでください。
+`sekirei_nnue_refresh`の独立caseにより、accumulator refreshとNNUE forwardのコストを分離して確認できます。
 
 最新の保守では、root探索の安全確認段階を分割し、alpha-betaのbetaカットオフ処理を
 共通化し、静かな手の派生ビットボード更新を1回のXORマスクに整理しました。これは
 正確性と可読性のためのリファクタリングであり、測定済みの速度向上とは扱いません。
 今回のリリースでバージョン表記は`0.3.35`になりました。
+
+SP0のsmoke corpusは`python3 scripts/validate_speed_corpus.py`で構造を検証できます。
+32局面の合法手、状態復元、速度比較は後続のRust preflightで確認します。このvalidator
+の成功だけでは、合法手の一致は保証しません。
+完了したcomponent capture同士は
+`python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 
 合法手生成とPerft(3)は`rsshogi`と同じ局面で比較します。`shogi_core`は合法手生成器を
 持たないため、局面更新の行は合法手生成やPerftの比較ではありません。結果と比較範囲は

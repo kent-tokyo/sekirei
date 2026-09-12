@@ -1,33 +1,47 @@
 import unittest
 
-from run_component_benchmark import validate_samples
+from run_component_benchmark import EXPECTED_CASES, validate_samples
 
 
 def fixture():
-    return "schema=sekirei.component-benchmark.v1\n" + "".join(
-        f"sample,update,sekirei,{sample},100,12340,123.4000,6\n"
-        for sample in range(21)
-    ) + "summary,update,sekirei,123.4000,123.4000,6\n"
+    rows = ["schema=sekirei.component-benchmark.v1\n"]
+    for operation, library in sorted(EXPECTED_CASES):
+        rows.extend(
+            f"sample,{operation},{library},{sample},100,50000000,500000.0000,1\n"
+            for sample in range(21)
+        )
+        rows.append(f"summary,{operation},{library},500000.0000,500000.0000,1\n")
+    return "".join(rows)
 
 
 class ComponentSamplesTest(unittest.TestCase):
     def test_complete_run(self):
-        self.assertEqual(validate_samples(fixture())["update/sekirei"]["p50_ns"], 123.4)
+        result = validate_samples(fixture())
+        self.assertEqual(len(result), len(EXPECTED_CASES))
+        self.assertEqual(result["startpos/sekirei_generate_vec"]["p50_ns"], 500000.0)
 
     def test_rejects_missing_or_duplicate_sample(self):
-        line = "sample,update,sekirei,0,100,12340,123.4000,6\n"
+        line = "sample,startpos,sekirei_generate_vec,0,100,50000000,500000.0000,1\n"
         for text in (fixture().replace(line, ""), fixture() + line):
             with self.assertRaises(ValueError):
                 validate_samples(text)
 
     def test_rejects_invalid_counts_timing_and_percentiles(self):
-        for old, new in ((",100,12340,", ",0,12340,"),
-                         (",100,12340,", ",100,12341,"),
-                         (",123.4000,6", ",NaN,6"),
-                         ("summary,update,sekirei,123.4000,123.4000,6", "summary,update,sekirei,123.4000,123.4000,1"),
-                         ("summary,update,sekirei,123.4000", "summary,update,sekirei,124.4000")):
+        for old, new in ((",100,50000000,", ",0,50000000,"),
+                         (",100,50000000,", ",100,50000001,"),
+                         (",500000.0000,1", ",NaN,1"),
+                         ("summary,startpos,sekirei_generate_vec,500000.0000,500000.0000,1", "summary,startpos,sekirei_generate_vec,500000.0000,500000.0000,2"),
+                         ("summary,startpos,sekirei_generate_vec,500000.0000,500000.0000,1", "summary,startpos,sekirei_generate_vec,500001.0000,500000.0000,1"),
+                         (",100,50000000,", ",100,19999999,")):
             with self.assertRaises(ValueError):
                 validate_samples(fixture().replace(old, new))
+
+    def test_rejects_missing_required_case(self):
+        text = fixture().replace(
+            "summary,encode_raw_list,rsshogi,500000.0000,500000.0000,1\n", ""
+        )
+        with self.assertRaises(ValueError):
+            validate_samples(text)
 
 
 if __name__ == "__main__":
