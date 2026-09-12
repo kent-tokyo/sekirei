@@ -43,6 +43,16 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
             raise RuntimeError(f"legal move count mismatch: {case['id']}")
         if observed.get("perft2") != str(expected["perft2"]):
             raise RuntimeError(f"Perft(2) mismatch: {case['id']}")
+        moves_line = next(
+            (line.removeprefix("sfen_moves=") for line in output.splitlines()
+             if line.startswith("sfen_moves=")),
+            None,
+        )
+        if moves_line is None:
+            raise RuntimeError(f"SFEN preflight omitted legal move set: {case['id']}")
+        observed_moves = moves_line.split(",") if moves_line else []
+        if observed_moves != expected["legal_moves_usi"]:
+            raise RuntimeError(f"legal move set mismatch: {case['id']}")
     return count
 
 

@@ -153,6 +153,8 @@ scripts/preflight_speed_corpus.py --binary PATH` additionally checks the
 recorded legal-move and Perft(2) counts against Sekirei and rsshogi. Compare two
 completed component captures with
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`.
+The corpus also stores the sorted expected USI move set for each position, so
+the preflight rejects an equal-count but different move set.
 
 The latest maintenance pass also split root-search safety stages, shared the
 alpha-beta beta-cutoff bookkeeping, and simplified quiet-move derived-bitboard

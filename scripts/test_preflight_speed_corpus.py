@@ -20,6 +20,7 @@ class SpeedCorpusPreflightTest(unittest.TestCase):
             output = (
                 "sfen_preflight=passed\n"
                 f"sfen_details=legal_moves:{values['legal_moves']};perft2:{values['perft2']}\n"
+                f"sfen_moves={','.join(values['legal_moves_usi'])}\n"
             )
             return subprocess.CompletedProcess(argv, 0, output, "")
 

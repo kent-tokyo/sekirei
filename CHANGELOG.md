@@ -15,6 +15,8 @@
   128-position corpus remains a separate gate.
 - Added an explicit `required_case_ids` contract so a missing or renamed smoke
   case fails validation instead of passing a count-only check.
+- Stored the sorted expected USI move set for every smoke position and compare
+  the complete set during the Rust/rsshogi preflight.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

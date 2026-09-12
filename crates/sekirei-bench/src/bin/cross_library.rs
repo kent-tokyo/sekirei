@@ -176,6 +176,7 @@ fn check_sfen(sfen: &str) {
         sekirei_usi.len(),
         sekirei_perft
     );
+    println!("sfen_moves={}", sekirei_usi.join(","));
 }
 
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)

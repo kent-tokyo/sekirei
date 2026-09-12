@@ -44,3 +44,9 @@ class SpeedCorpusTest(unittest.TestCase):
         del doc["cases"][0]["expected"]["perft2"]
         with self.assertRaises(ValueError):
             validate_document(doc)
+
+    def test_rejects_incomplete_legal_move_set(self):
+        doc = json.loads(CORPUS.read_text(encoding="utf-8"))
+        doc["cases"][0]["expected"]["legal_moves_usi"] = []
+        with self.assertRaises(ValueError):
+            validate_document(doc)

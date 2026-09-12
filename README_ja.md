@@ -129,6 +129,8 @@ scripts/validate_speed_corpus.py`で構造を検証できます。さらに`pyth
 scripts/preflight_speed_corpus.py --binary PATH`を実行すると、記録済みの合法手数とPerft(2)が
 Sekirei/rsshogiで一致することも確認できます。これは最終128局面corpusではなく、validator
 の成功だけで全体の合法手一致を保証するものでもありません。
+各局面にはソート済みの期待USI合法手集合も保存しており、手数だけ一致して集合が異なる
+ケースもpreflightで拒否します。
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 

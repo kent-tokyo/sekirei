@@ -78,6 +78,13 @@ def validate_document(doc: dict) -> int:
             for key in ("legal_moves", "perft2")
         ):
             raise ValueError(f"{case_id}: expected legal_moves/perft2 are required")
+        legal_moves_usi = expected.get("legal_moves_usi")
+        if not isinstance(legal_moves_usi, list) or len(legal_moves_usi) != expected["legal_moves"]:
+            raise ValueError(f"{case_id}: expected legal move set is required")
+        if legal_moves_usi != sorted(set(legal_moves_usi)):
+            raise ValueError(f"{case_id}: expected legal move set must be sorted and unique")
+        if not all(isinstance(move, str) and MOVE.fullmatch(move) for move in legal_moves_usi):
+            raise ValueError(f"{case_id}: expected legal move set contains invalid USI")
         sequence = case.get("sequence")
         if not isinstance(sequence, list) or not sequence or not all(
             isinstance(move, str) and MOVE.fullmatch(move) for move in sequence
