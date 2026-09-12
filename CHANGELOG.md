@@ -33,6 +33,8 @@
   long-history preflight is reproducible and not biased to the first legal move.
 - Added a runner `--build` mode that performs the offline release build and
   records its command/profile before capturing the binary.
+- Corrected that build mode to pass `--release` before selecting the release
+  binary; the interrupted dev-profile capture is not valid evidence.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

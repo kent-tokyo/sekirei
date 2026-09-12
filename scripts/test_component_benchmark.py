@@ -1,6 +1,6 @@
 import unittest
 
-from run_component_benchmark import EXPECTED_CASES, validate_samples
+from run_component_benchmark import BUILD_COMMAND, EXPECTED_CASES, validate_samples
 
 
 def fixture():
@@ -18,6 +18,9 @@ def fixture():
 
 
 class ComponentSamplesTest(unittest.TestCase):
+    def test_build_command_targets_release_binary(self):
+        self.assertIn("--release", BUILD_COMMAND)
+
     def test_complete_run(self):
         result = validate_samples(fixture())
         self.assertEqual(len(result), len(EXPECTED_CASES))

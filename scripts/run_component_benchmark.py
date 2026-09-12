@@ -89,6 +89,9 @@ EXPECTED_CASES = {
 }
 SAMPLE_COUNT = CONTRACT["sample_count"]
 MIN_SAMPLE_ELAPSED_NS = CONTRACT["minimum_sample_ms"] * 1_000_000
+BUILD_COMMAND = (
+    "cargo", "build", "--offline", "--release", "-j1", "-p", "sekirei-bench", "--bin", "cross_library"
+)
 
 
 def command(*args):
@@ -184,7 +187,7 @@ def main():
         if sha256(binary) != replay_metadata["binary_sha256"]:
             raise ValueError("snapshot executable hash mismatch")
     elif args.build:
-        build_command = ["cargo", "build", "--offline", "-j1", "-p", "sekirei-bench", "--bin", "cross_library"]
+        build_command = list(BUILD_COMMAND)
         subprocess.run(build_command, check=True)
         binary = (root / "target/release/cross_library").resolve(strict=True)
         build_metadata = {"command": build_command, "profile": "release", "offline": True}
