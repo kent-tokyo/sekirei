@@ -136,6 +136,8 @@ cases配列にはcanonical JSONのSHA-256も記録し、件数が変わらない
 新しいcaptureは既定でcleanなworktreeだけを受け付けます。明示的な診断目的でdirty状態を
 許可する場合は`--allow-dirty`を指定し、その状態は`provenance.json`に保存されます。
 `--build`モードでは同じrunnerがofflineのrelease buildを先に実行し、コマンドとprofileも保存します。
+修正版経路の単一captureは`component_current_release_2026-09-12.md`に記録していますが、正式10セッション
+ゲートや総合的な速度首位の証拠ではありません。
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 

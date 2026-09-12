@@ -163,6 +163,9 @@ New captures require a clean worktree; use `--allow-dirty` only for explicitly
 diagnostic runs, whose dirty status is retained in `provenance.json`. The
 `--build` mode performs the pinned offline release build before capture and
 records its command and profile.
+The resulting single capture is summarized in
+`scripts/benchmark_reports/component_current_release_2026-09-12.md`; it is
+diagnostic evidence, not the formal ten-session gate.
 The corpus preflight also applies and reverses each case's verified one-move
 sequence; the six-ply nested roundtrip remains covered by the component
 diagnostic preflight. It now additionally generates twelve deterministic legal

@@ -35,6 +35,8 @@
   records its command/profile before capturing the binary.
 - Corrected that build mode to pass `--release` before selecting the release
   binary; the interrupted dev-profile capture is not valid evidence.
+- Recorded one clean release-profile component capture from the corrected build
+  path, with binary hash and selected p50 rows; no formal ranking claim follows.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and
