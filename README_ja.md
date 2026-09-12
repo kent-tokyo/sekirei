@@ -131,6 +131,8 @@ Sekirei/rsshogiで一致することも確認できます。これは最終128�
 の成功だけで全体の合法手一致を保証するものでもありません。
 各局面にはソート済みの期待USI合法手集合も保存しており、手数だけ一致して集合が異なる
 ケースもpreflightで拒否します。
+新しいcaptureは既定でcleanなworktreeだけを受け付けます。明示的な診断目的でdirty状態を
+許可する場合は`--allow-dirty`を指定し、その状態は`provenance.json`に保存されます。
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 

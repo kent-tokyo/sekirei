@@ -155,6 +155,8 @@ completed component captures with
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`.
 The corpus also stores the sorted expected USI move set for each position, so
 the preflight rejects an equal-count but different move set.
+New captures require a clean worktree; use `--allow-dirty` only for explicitly
+diagnostic runs, whose dirty status is retained in `provenance.json`.
 
 The latest maintenance pass also split root-search safety stages, shared the
 alpha-beta beta-cutoff bookkeeping, and simplified quiet-move derived-bitboard

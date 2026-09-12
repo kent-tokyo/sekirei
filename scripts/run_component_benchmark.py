@@ -161,6 +161,11 @@ def main():
     source.add_argument("--binary", type=Path)
     source.add_argument("--replay", type=Path, help="Replay a captured directory, retaining its original source hashes")
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument(
+        "--allow-dirty",
+        action="store_true",
+        help="Allow a new capture from a dirty worktree; the status is recorded.",
+    )
     args = parser.parse_args()
     binary = (args.replay / "cross_library" if args.replay else args.binary).resolve(strict=True)
     replay_metadata = None
@@ -170,6 +175,11 @@ def main():
             raise ValueError("snapshot executable hash mismatch")
     root = Path(__file__).resolve().parents[1]
     os.chdir(root)
+    dirty_status = command("git", "status", "--porcelain")
+    if not args.replay and dirty_status and not args.allow_dirty:
+        raise ValueError(
+            "new captures require a clean worktree; use --allow-dirty for a diagnostic capture"
+        )
     args.output.mkdir(parents=True, exist_ok=False)
     frozen = args.output.resolve() / "cross_library"
     shutil.copy2(binary, frozen)
@@ -178,7 +188,7 @@ def main():
         "schema": "sekirei.component-capture.v1",
         "captured_utc": datetime.now(timezone.utc).isoformat(),
         "head": command("git", "rev-parse", "HEAD"),
-        "dirty_status": command("git", "status", "--porcelain"),
+        "dirty_status": dirty_status,
         "sources_sha256": {p: sha256(root / p) for p in tracked if (root / p).is_file()},
         "binary_sha256": sha256(frozen),
         "rustc": command("rustc", "-Vv"),
