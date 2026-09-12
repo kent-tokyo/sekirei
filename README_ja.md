@@ -141,7 +141,7 @@ cases配列にはcanonical JSONのSHA-256も記録し、件数が変わらない
 128局面corpusの64/64 tuning・hold-out分割は`python3
 scripts/validate_speed_corpus_split.py`で検証できます。いずれも生成棋譜全体の履歴検証ではありません。
 corpus preflightでは各局面の検証済み1手を適用して逆順undoします。6手の入れ子roundtripは
-component診断のpreflightで別途検証します。さらに全128局面から決定的に合法手を6手生成し、
+component診断のpreflightで別途検証します。さらに全128局面から決定的に合法手を12手生成し、
 両エンジンで適用・逆順undoと状態復元を検証します。
 
 合法手生成とPerft(3)は`rsshogi`と同じ局面で比較します。`shogi_core`は合法手生成器を

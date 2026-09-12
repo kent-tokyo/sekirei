@@ -63,7 +63,7 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
         sequence_output = run_sequence(binary, case["sfen"], case["sequence"], runner)
         if not any(line.startswith("sequence_preflight=passed;") for line in sequence_output.splitlines()):
             raise RuntimeError(f"sequence preflight omitted success marker: {case['id']}")
-        generated_output = run_generated_sequence(binary, case["sfen"], 6, runner)
+        generated_output = run_generated_sequence(binary, case["sfen"], 12, runner)
         if not any(line.startswith("generated_sequence_preflight=passed;") for line in generated_output.splitlines()):
             raise RuntimeError(f"generated sequence preflight omitted success marker: {case['id']}")
         details = next(

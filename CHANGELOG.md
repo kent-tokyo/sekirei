@@ -27,7 +27,7 @@
   base position and its side-to-move variant in the same partition.
 - Connected the verified one-move sequences to the 128-position preflight;
   longer six-ply nested roundtrips remain a separate component check.
-- Added a deterministic six-ply generated-sequence roundtrip for every corpus
+- Added a deterministic twelve-ply generated-sequence roundtrip for every corpus
   SFEN, checking both engines and restoring board state, hash, and NNUE data.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
