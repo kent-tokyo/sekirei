@@ -53,6 +53,15 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
         observed_moves = moves_line.split(",") if moves_line else []
         if observed_moves != expected["legal_moves_usi"]:
             raise RuntimeError(f"legal move set mismatch: {case['id']}")
+        divide_line = next(
+            (line.removeprefix("sfen_perft2_divide=") for line in output.splitlines()
+             if line.startswith("sfen_perft2_divide=")),
+            None,
+        )
+        if divide_line is None:
+            raise RuntimeError(f"SFEN preflight omitted Perft(2) divide: {case['id']}")
+        if divide_line.split(",") != expected["perft2_divide"]:
+            raise RuntimeError(f"Perft(2) divide mismatch: {case['id']}")
     return count
 
 

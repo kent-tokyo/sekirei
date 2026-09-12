@@ -85,6 +85,24 @@ def validate_document(doc: dict) -> int:
             raise ValueError(f"{case_id}: expected legal move set must be sorted and unique")
         if not all(isinstance(move, str) and MOVE.fullmatch(move) for move in legal_moves_usi):
             raise ValueError(f"{case_id}: expected legal move set contains invalid USI")
+        divide = expected.get("perft2_divide")
+        if not isinstance(divide, list) or len(divide) != expected["legal_moves"]:
+            raise ValueError(f"{case_id}: expected Perft(2) divide is required")
+        if len({item.split(":", 1)[0] for item in divide}) != len(divide):
+            raise ValueError(f"{case_id}: expected Perft(2) divide moves must be unique")
+        if divide != sorted(divide, key=lambda item: item.split(":", 1)[0]):
+            raise ValueError(f"{case_id}: expected Perft(2) divide must be sorted and unique")
+        if not all(
+            isinstance(item, str)
+            and ":" in item
+            and MOVE.fullmatch(item.split(":", 1)[0])
+            and item.split(":", 1)[1].isdigit()
+            and int(item.split(":", 1)[1]) >= 0
+            for item in divide
+        ):
+            raise ValueError(f"{case_id}: expected Perft(2) divide contains invalid data")
+        if sum(int(item.split(":", 1)[1]) for item in divide) != expected["perft2"]:
+            raise ValueError(f"{case_id}: Perft(2) divide does not sum to expected total")
         sequence = case.get("sequence")
         if not isinstance(sequence, list) or not sequence or not all(
             isinstance(move, str) and MOVE.fullmatch(move) for move in sequence

@@ -155,6 +155,8 @@ completed component captures with
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`.
 The corpus also stores the sorted expected USI move set for each position, so
 the preflight rejects an equal-count but different move set.
+It also stores and verifies the Perft(2) divide for every legal root move,
+including the sum against the aggregate count.
 New captures require a clean worktree; use `--allow-dirty` only for explicitly
 diagnostic runs, whose dirty status is retained in `provenance.json`.
 

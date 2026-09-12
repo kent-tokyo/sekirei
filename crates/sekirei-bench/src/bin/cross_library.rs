@@ -152,7 +152,7 @@ fn check_sfen(sfen: &str) {
 
     let original_sfen = sekirei_core::sfen::board_to_sfen(&board);
     let original_hash = board.hash();
-    for mv in sekirei_moves {
+    for mv in sekirei_moves.iter().copied() {
         let token = board.do_move_for_search(mv);
         board.undo_move_for_search(token);
         assert_eq!(sekirei_core::sfen::board_to_sfen(&board), original_sfen);
@@ -177,6 +177,26 @@ fn check_sfen(sfen: &str) {
         sekirei_perft
     );
     println!("sfen_moves={}", sekirei_usi.join(","));
+    let mut divide = sekirei_moves
+        .iter()
+        .copied()
+        .map(|mv| {
+            let usi = sekirei_core::sfen::move_to_usi(mv);
+            let token = board.do_move_for_search(mv);
+            let count = perft(&mut board, 1);
+            board.undo_move_for_search(token);
+            (usi, count)
+        })
+        .collect::<Vec<_>>();
+    divide.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    println!(
+        "sfen_perft2_divide={}",
+        divide
+            .iter()
+            .map(|(mv, count)| format!("{mv}:{count}"))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
 }
 
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
