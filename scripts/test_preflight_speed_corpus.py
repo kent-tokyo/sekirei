@@ -26,8 +26,8 @@ class SpeedCorpusPreflightTest(unittest.TestCase):
             return subprocess.CompletedProcess(argv, 0, output, "")
 
         count = preflight(Path("/bin/echo"), DEFAULT_CORPUS, fake_runner)
-        self.assertEqual(count, 64)
-        self.assertEqual(len(calls), 64)
+        self.assertEqual(count, 128)
+        self.assertEqual(len(calls), 128)
         self.assertTrue(all(call[1] == "--check-sfen" for call in calls))
 
     def test_reports_a_failed_case(self):

@@ -44,11 +44,11 @@ def validate_document(doc: dict) -> int:
     if doc.get("schema") != "sekirei.speed-corpus.v1" or doc.get("version") != 1:
         raise ValueError("unexpected speed corpus schema or version")
     cases = doc.get("cases")
-    if not isinstance(cases, list) or len(cases) != 64:
-        raise ValueError("cases must contain exactly 64 records")
+    if not isinstance(cases, list) or len(cases) != 128:
+        raise ValueError("cases must contain exactly 128 records")
     required_case_ids = doc.get("required_case_ids")
-    if not isinstance(required_case_ids, list) or len(required_case_ids) != 64:
-        raise ValueError("required_case_ids must contain exactly 64 records")
+    if not isinstance(required_case_ids, list) or len(required_case_ids) != 128:
+        raise ValueError("required_case_ids must contain exactly 128 records")
     if not all(isinstance(case_id, str) and case_id for case_id in required_case_ids):
         raise ValueError("required_case_ids must contain non-empty strings")
     if len(set(required_case_ids)) != len(required_case_ids):
@@ -72,6 +72,11 @@ def validate_document(doc: dict) -> int:
             raise ValueError(f"{case_id}: invalid hand field")
         if not isinstance(case.get("source"), str) or not case["source"]:
             raise ValueError(f"{case_id}: source is required")
+        if case.get("derivation") not in {
+            "base", "file-mirror", "rank-mirror", "base-opposite-side",
+            "file-mirror-opposite-side", "rank-mirror-opposite-side"
+        }:
+            raise ValueError(f"{case_id}: invalid derivation")
         expected = case.get("expected")
         if not isinstance(expected, dict) or any(
             not isinstance(expected.get(key), int) or expected[key] < 1
@@ -114,7 +119,7 @@ def validate_document(doc: dict) -> int:
     actual_case_ids = [case["id"] for case in cases]
     if actual_case_ids != required_case_ids:
         raise ValueError("case IDs differ from required_case_ids")
-    if counts != {category: 8 for category in CATEGORIES}:
+    if counts != {category: 16 for category in CATEGORIES}:
         raise ValueError(f"category counts differ: {counts}")
     return len(cases)
 

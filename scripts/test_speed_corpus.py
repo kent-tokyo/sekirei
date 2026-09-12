@@ -13,7 +13,7 @@ CORPUS = ROOT / "scripts/fixtures/speed_corpus_v1.json"
 
 class SpeedCorpusTest(unittest.TestCase):
     def test_checked_in_corpus_is_valid(self):
-        self.assertEqual(validate(CORPUS), 64)
+        self.assertEqual(validate(CORPUS), 128)
 
     def test_rejects_missing_category(self):
         doc = json.loads(CORPUS.read_text(encoding="utf-8"))

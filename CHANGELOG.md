@@ -10,9 +10,9 @@
   capture. v7 move generation no longer includes a raw-encoding checksum.
 - Added isolated NNUE accumulator-refresh cases for the startpos, midgame, and
   drop-only fixtures, expanding the fixed component contract to 66 cases.
-- Expanded the SP0 speed smoke corpus to 64 verified positions (eight
-  categories, four base positions per category, both sides to move). The final
-  128-position corpus remains a separate gate.
+- Expanded the SP0 speed smoke corpus to 128 verified positions (eight
+  categories, four original and four mirrored positions per category, both
+  sides to move). Generated-history coverage remains a separate gate.
 - Added an explicit `required_case_ids` contract so a missing or renamed smoke
   case fails validation instead of passing a count-only check.
 - Stored the sorted expected USI move set for every smoke position and compare

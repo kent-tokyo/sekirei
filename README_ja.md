@@ -124,11 +124,11 @@ SFEN初期化の改善候補、負荷による結果の制限を記録してい�
 正確性と可読性のためのリファクタリングであり、測定済みの速度向上とは扱いません。
 今回のリリースでバージョン表記は`0.3.35`になりました。
 
-SP0のsmoke corpusは8分類×4基底局面×2手番の64局面です。`python3
+SP0のsmoke corpusは8分類×（元の4局面＋mirrorの4局面）×2手番の128局面です。`python3
 scripts/validate_speed_corpus.py`で構造を検証できます。さらに`python3
 scripts/preflight_speed_corpus.py --binary PATH`を実行すると、記録済みの合法手数とPerft(2)が
-Sekirei/rsshogiで一致することも確認できます。これは最終128局面corpusではなく、validator
-の成功だけで全体の合法手一致を保証するものでもありません。
+Sekirei/rsshogiで一致することも確認できます。これは生成系列の完全な合法手parity証明ではなく、
+validatorの成功だけで履歴再構成まで保証するものでもありません。
 各局面にはソート済みの期待USI合法手集合も保存しており、手数だけ一致して集合が異なる
 ケースもpreflightで拒否します。
 Perft(2)も合計値だけでなく各合法初手ごとのdivideを保存し、その合計との一致まで検証します。

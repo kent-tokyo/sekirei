@@ -145,10 +145,11 @@ NNUE forward cost; their pilot results are recorded in the internal report.
 Library users that only need rules state can use `Board::from_sfen_rules_only` to
 skip the NNUE refresh; the returned board has a valid hash but must be refreshed
 with `Board::refresh_acc` before NNUE evaluation or incremental NNUE updates.
-The SP0 smoke corpus contains 64 positions: eight categories, four base
-positions per category, and both sides to move. It is structurally checked with
-`python3 scripts/validate_speed_corpus.py`; it is not the final 128-position
-corpus or a full legal-move parity proof. `python3
+The SP0 smoke corpus contains 128 positions: eight categories, four original
+and four mirrored positions per category, and both sides to move. It is
+structurally checked with `python3 scripts/validate_speed_corpus.py`; it is
+still a smoke corpus rather than a full legal-move parity proof over generated
+game histories. `python3
 scripts/preflight_speed_corpus.py --binary PATH` additionally checks the
 recorded legal-move and Perft(2) counts against Sekirei and rsshogi. Compare two
 completed component captures with
