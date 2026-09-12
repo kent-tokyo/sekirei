@@ -7,6 +7,10 @@ from pathlib import Path
 
 from validate_speed_corpus import DEFAULT_CORPUS, validate
 
+CONTRACT = __import__("json").loads(
+    (Path(__file__).resolve().parent / "fixtures/speed_contract_v1.json").read_text()
+)
+
 
 def run_case(binary: Path, sfen: str, runner=subprocess.run) -> str:
     result = runner(
@@ -38,9 +42,9 @@ def run_sequence(binary: Path, sfen: str, sequence: list[str], runner=subprocess
     return result.stdout
 
 
-def run_generated_sequence(binary: Path, sfen: str, plies: int, runner=subprocess.run) -> str:
+def run_generated_sequence(binary: Path, sfen: str, plies: int, seed: int, runner=subprocess.run) -> str:
     result = runner(
-        [str(binary), "--check-generated-sequence", sfen, str(plies)],
+        [str(binary), "--check-generated-sequence", sfen, str(plies), str(seed)],
         check=False,
         capture_output=True,
         text=True,
@@ -63,7 +67,10 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
         sequence_output = run_sequence(binary, case["sfen"], case["sequence"], runner)
         if not any(line.startswith("sequence_preflight=passed;") for line in sequence_output.splitlines()):
             raise RuntimeError(f"sequence preflight omitted success marker: {case['id']}")
-        generated_output = run_generated_sequence(binary, case["sfen"], 12, runner)
+        generated_output = run_generated_sequence(
+            binary, case["sfen"], CONTRACT["generated_sequence_plies"],
+            CONTRACT["generated_sequence_seed"], runner
+        )
         if not any(line.startswith("generated_sequence_preflight=passed;") for line in generated_output.splitlines()):
             raise RuntimeError(f"generated sequence preflight omitted success marker: {case['id']}")
         details = next(

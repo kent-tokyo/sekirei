@@ -5,6 +5,8 @@
   "sample_count": 21,
   "target_sample_ms": 50,
   "minimum_sample_ms": 20,
+  "generated_sequence_plies": 12,
+  "generated_sequence_seed": 123456789,
   "units": "per_whole_iteration",
   "expected_case_count": 66,
   "notes": "Fixed diagnostic contract; not a playing-strength gate."

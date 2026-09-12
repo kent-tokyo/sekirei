@@ -241,7 +241,7 @@ fn check_sequence(sfen: &str, moves: &str) {
     );
 }
 
-fn check_generated_sequence(sfen: &str, plies: usize) {
+fn check_generated_sequence(sfen: &str, plies: usize, mut seed: u64) {
     assert!(
         plies >= 6,
         "generated sequence must contain at least six plies"
@@ -259,9 +259,13 @@ fn check_generated_sequence(sfen: &str, plies: usize) {
     for _ in 0..plies {
         let mut legal = Vec::new();
         generate_legal_moves_into(&mut board, &mut legal);
-        let mv = *legal
-            .first()
-            .expect("generated sequence reached terminal position");
+        let move_count = legal.len();
+        assert!(
+            move_count > 0,
+            "generated sequence reached terminal position"
+        );
+        seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let mv = legal[(seed % move_count as u64) as usize];
         let usi = sekirei_core::sfen::move_to_usi(mv);
         let reference_mv: Move32 = RsshogiMove::from_usi(&usi)
             .expect("generated move must have valid USI")
@@ -282,7 +286,7 @@ fn check_generated_sequence(sfen: &str, plies: usize) {
     assert_eq!(board.acc, original_acc);
     assert_eq!(reference.to_sfen(None), reference_sfen);
     assert_eq!(reference.key(), reference_key);
-    println!("generated_sequence_preflight=passed;plies={plies}");
+    println!("generated_sequence_preflight=passed;plies={plies};seed={seed}");
 }
 
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
@@ -469,13 +473,17 @@ fn main() {
             check_sequence(sfen, moves);
             return;
         }
-        [flag, sfen, plies] if flag == "--check-generated-sequence" => {
-            check_generated_sequence(sfen, plies.parse().expect("plies must be an integer"));
+        [flag, sfen, plies, seed] if flag == "--check-generated-sequence" => {
+            check_generated_sequence(
+                sfen,
+                plies.parse().expect("plies must be an integer"),
+                seed.parse().expect("seed must be an integer"),
+            );
             return;
         }
         [] => {}
         _ => panic!(
-            "usage: cross_library [--check|--components|--check-sfen SFEN|--check-sequence SFEN MOVES|--check-generated-sequence SFEN PLIES]"
+            "usage: cross_library [--check|--components|--check-sfen SFEN|--check-sequence SFEN MOVES|--check-generated-sequence SFEN PLIES SEED]"
         ),
     }
     println!("schema=sekirei.cross-library-benchmark.v7");

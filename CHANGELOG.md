@@ -29,6 +29,8 @@
   longer six-ply nested roundtrips remain a separate component check.
 - Added a deterministic twelve-ply generated-sequence roundtrip for every corpus
   SFEN, checking both engines and restoring board state, hash, and NNUE data.
+- Fixed the generated-sequence length and LCG seed in the speed contract so the
+  long-history preflight is reproducible and not biased to the first legal move.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and
