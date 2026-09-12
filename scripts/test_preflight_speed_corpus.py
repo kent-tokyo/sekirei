@@ -19,6 +19,8 @@ class SpeedCorpusPreflightTest(unittest.TestCase):
             values = expected[argv[2]]
             if argv[1] == "--check-sequence":
                 return subprocess.CompletedProcess(argv, 0, "sequence_preflight=passed;plies=1\n", "")
+            if argv[1] == "--check-generated-sequence":
+                return subprocess.CompletedProcess(argv, 0, "generated_sequence_preflight=passed;plies=6\n", "")
             output = (
                 "sfen_preflight=passed\n"
                 f"sfen_details=legal_moves:{values['legal_moves']};perft2:{values['perft2']}\n"
@@ -29,9 +31,10 @@ class SpeedCorpusPreflightTest(unittest.TestCase):
 
         count = preflight(Path("/bin/echo"), DEFAULT_CORPUS, fake_runner)
         self.assertEqual(count, 128)
-        self.assertEqual(len(calls), 256)
+        self.assertEqual(len(calls), 384)
         self.assertEqual(sum(call[1] == "--check-sfen" for call in calls), 128)
         self.assertEqual(sum(call[1] == "--check-sequence" for call in calls), 128)
+        self.assertEqual(sum(call[1] == "--check-generated-sequence" for call in calls), 128)
 
     def test_reports_a_failed_case(self):
         def failed_runner(argv, **kwargs):

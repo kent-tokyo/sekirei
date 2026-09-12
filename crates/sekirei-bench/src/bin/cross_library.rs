@@ -241,6 +241,50 @@ fn check_sequence(sfen: &str, moves: &str) {
     );
 }
 
+fn check_generated_sequence(sfen: &str, plies: usize) {
+    assert!(
+        plies >= 6,
+        "generated sequence must contain at least six plies"
+    );
+    let mut board = Board::from_sfen(sfen).expect("sequence SFEN must parse");
+    let original_sfen = sekirei_core::sfen::board_to_sfen(&board);
+    let original_hash = board.hash();
+    let original_acc = board.acc.clone();
+    let mut reference = position_from_sfen(sfen).expect("rsshogi sequence SFEN must parse");
+    reference.init_stack();
+    let reference_sfen = reference.to_sfen(None);
+    let reference_key = reference.key();
+    let mut tokens = Vec::with_capacity(plies);
+    let mut reference_moves = Vec::with_capacity(plies);
+    for _ in 0..plies {
+        let mut legal = Vec::new();
+        generate_legal_moves_into(&mut board, &mut legal);
+        let mv = *legal
+            .first()
+            .expect("generated sequence reached terminal position");
+        let usi = sekirei_core::sfen::move_to_usi(mv);
+        let reference_mv: Move32 = RsshogiMove::from_usi(&usi)
+            .expect("generated move must have valid USI")
+            .into();
+        assert!(reference.is_legal_move32(reference_mv));
+        tokens.push(board.do_move(mv));
+        reference_moves.push(reference_mv);
+        reference.apply_move32(reference_mv);
+    }
+    for token in tokens.into_iter().rev() {
+        board.undo_move(token);
+    }
+    for mv in reference_moves.into_iter().rev() {
+        reference.undo_move32(mv).expect("generated move must undo");
+    }
+    assert_eq!(sekirei_core::sfen::board_to_sfen(&board), original_sfen);
+    assert_eq!(board.hash(), original_hash);
+    assert_eq!(board.acc, original_acc);
+    assert_eq!(reference.to_sfen(None), reference_sfen);
+    assert_eq!(reference.key(), reference_key);
+    println!("generated_sequence_preflight=passed;plies={plies}");
+}
+
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
 where
     F: FnMut(),
@@ -425,9 +469,13 @@ fn main() {
             check_sequence(sfen, moves);
             return;
         }
+        [flag, sfen, plies] if flag == "--check-generated-sequence" => {
+            check_generated_sequence(sfen, plies.parse().expect("plies must be an integer"));
+            return;
+        }
         [] => {}
         _ => panic!(
-            "usage: cross_library [--check|--components|--check-sfen SFEN|--check-sequence SFEN MOVES]"
+            "usage: cross_library [--check|--components|--check-sfen SFEN|--check-sequence SFEN MOVES|--check-generated-sequence SFEN PLIES]"
         ),
     }
     println!("schema=sekirei.cross-library-benchmark.v7");

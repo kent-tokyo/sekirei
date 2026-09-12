@@ -38,6 +38,21 @@ def run_sequence(binary: Path, sfen: str, sequence: list[str], runner=subprocess
     return result.stdout
 
 
+def run_generated_sequence(binary: Path, sfen: str, plies: int, runner=subprocess.run) -> str:
+    result = runner(
+        [str(binary), "--check-generated-sequence", sfen, str(plies)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode:
+        raise RuntimeError(
+            f"generated sequence preflight failed ({result.returncode}): {sfen}\n"
+            f"stdout={result.stdout}\nstderr={result.stderr}"
+        )
+    return result.stdout
+
+
 def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run) -> int:
     import json
 
@@ -48,6 +63,9 @@ def preflight(binary: Path, corpus: Path = DEFAULT_CORPUS, runner=subprocess.run
         sequence_output = run_sequence(binary, case["sfen"], case["sequence"], runner)
         if not any(line.startswith("sequence_preflight=passed;") for line in sequence_output.splitlines()):
             raise RuntimeError(f"sequence preflight omitted success marker: {case['id']}")
+        generated_output = run_generated_sequence(binary, case["sfen"], 6, runner)
+        if not any(line.startswith("generated_sequence_preflight=passed;") for line in generated_output.splitlines()):
+            raise RuntimeError(f"generated sequence preflight omitted success marker: {case['id']}")
         details = next(
             (line.removeprefix("sfen_details=") for line in output.splitlines()
              if line.startswith("sfen_details=")),

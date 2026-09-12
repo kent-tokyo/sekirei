@@ -163,7 +163,8 @@ New captures require a clean worktree; use `--allow-dirty` only for explicitly
 diagnostic runs, whose dirty status is retained in `provenance.json`.
 The corpus preflight also applies and reverses each case's verified one-move
 sequence; the six-ply nested roundtrip remains covered by the component
-diagnostic preflight.
+diagnostic preflight. It now additionally generates six deterministic legal
+moves from every corpus SFEN and verifies the nested roundtrip in both engines.
 
 The latest maintenance pass also split root-search safety stages, shared the
 alpha-beta beta-cutoff bookkeeping, and simplified quiet-move derived-bitboard
