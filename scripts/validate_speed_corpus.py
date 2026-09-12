@@ -46,6 +46,13 @@ def validate_document(doc: dict) -> int:
     cases = doc.get("cases")
     if not isinstance(cases, list) or len(cases) != 64:
         raise ValueError("cases must contain exactly 64 records")
+    required_case_ids = doc.get("required_case_ids")
+    if not isinstance(required_case_ids, list) or len(required_case_ids) != 64:
+        raise ValueError("required_case_ids must contain exactly 64 records")
+    if not all(isinstance(case_id, str) and case_id for case_id in required_case_ids):
+        raise ValueError("required_case_ids must contain non-empty strings")
+    if len(set(required_case_ids)) != len(required_case_ids):
+        raise ValueError("required_case_ids must be unique")
     ids: set[str] = set()
     sfens: set[str] = set()
     counts = {category: 0 for category in CATEGORIES}
@@ -79,6 +86,9 @@ def validate_document(doc: dict) -> int:
         ids.add(case_id)
         sfens.add(sfen)
         counts[category] += 1
+    actual_case_ids = [case["id"] for case in cases]
+    if actual_case_ids != required_case_ids:
+        raise ValueError("case IDs differ from required_case_ids")
     if counts != {category: 8 for category in CATEGORIES}:
         raise ValueError(f"category counts differ: {counts}")
     return len(cases)

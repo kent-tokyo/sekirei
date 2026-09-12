@@ -17,7 +17,10 @@ def details(binary: Path, sfen: str) -> dict[str, int]:
 
 def expand(path: Path, binary: Path) -> int:
     document = json.loads(path.read_text(encoding="utf-8"))
-    original = document["cases"]
+    original = [
+        case for case in document["cases"]
+        if not case["id"].endswith("-opposite")
+    ]
     additions = []
     for case in original:
         fields = case["sfen"].split(" ")
@@ -33,6 +36,7 @@ def expand(path: Path, binary: Path) -> int:
         "legal-move and cross-library preflight is required before timing"
     )
     document["cases"] = original + additions
+    document["required_case_ids"] = [case["id"] for case in document["cases"]]
     path.write_text(json.dumps(document, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     return len(document["cases"])
 

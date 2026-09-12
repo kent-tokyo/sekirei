@@ -13,6 +13,8 @@
 - Expanded the SP0 speed smoke corpus to 64 verified positions (eight
   categories, four base positions per category, both sides to move). The final
   128-position corpus remains a separate gate.
+- Added an explicit `required_case_ids` contract so a missing or renamed smoke
+  case fails validation instead of passing a count-only check.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

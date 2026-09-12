@@ -27,6 +27,18 @@ class SpeedCorpusTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_document(doc)
 
+    def test_rejects_missing_required_case(self):
+        doc = json.loads(CORPUS.read_text(encoding="utf-8"))
+        doc["required_case_ids"] = doc["required_case_ids"][:-1]
+        with self.assertRaises(ValueError):
+            validate_document(doc)
+
+    def test_rejects_case_id_drift(self):
+        doc = json.loads(CORPUS.read_text(encoding="utf-8"))
+        doc["cases"][0]["id"] = "renamed-case"
+        with self.assertRaises(ValueError):
+            validate_document(doc)
+
     def test_rejects_missing_numeric_expectations(self):
         doc = json.loads(CORPUS.read_text(encoding="utf-8"))
         del doc["cases"][0]["expected"]["perft2"]
