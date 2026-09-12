@@ -4,7 +4,10 @@ from run_component_benchmark import EXPECTED_CASES, validate_samples
 
 
 def fixture():
-    rows = ["schema=sekirei.component-benchmark.v1\n"]
+    rows = [
+        "schema=sekirei.component-benchmark.v1\n",
+        "samples=21;target_sample_ms=50;minimum_sample_ms=20;weights=default_lcg;global_initialization=excluded;debug_assertions=false\n",
+    ]
     for operation, library in sorted(EXPECTED_CASES):
         rows.extend(
             f"sample,{operation},{library},{sample},100,50000000,500000.0000,1\n"

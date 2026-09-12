@@ -9,7 +9,14 @@
   conversion in component diagnostics with raw samples and frozen-binary
   capture. v7 move generation no longer includes a raw-encoding checksum.
 - Added isolated NNUE accumulator-refresh cases for the startpos, midgame, and
-  drop-only fixtures, expanding the fixed component contract to 57 cases.
+  drop-only fixtures, expanding the fixed component contract to 66 cases.
+- Expanded the SP0 speed smoke corpus to 64 verified positions (eight
+  categories, four base positions per category, both sides to move). The final
+  128-position corpus remains a separate gate.
+- Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
+  clone diagnostics with setup work kept outside the timing window.
+- Centralized component timing parameters in the checked-in speed contract and
+  made the capture validator reject mismatched measurement headers.
 - Removed temporary field/rank vectors from SFEN initialization and return a
   parse error before constructing an out-of-range square on overfull ranks.
   No new engine-strength or overall speed claim is made.

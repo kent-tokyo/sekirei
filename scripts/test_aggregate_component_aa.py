@@ -27,6 +27,8 @@ class AggregateComponentAaTests(unittest.TestCase):
             self.assertEqual(result["case_count"], len(EXPECTED_CASES))
             self.assertAlmostEqual(result["pair_rows"][0]["geomean"], 2.0)
             self.assertAlmostEqual(result["overall_geomean"], 1.41421356237)
+            self.assertLess(result["pair_geomean_ci95"]["low"], 1.5)
+            self.assertGreater(result["pair_geomean_ci95"]["high"], 1.5)
 
     def test_rejects_odd_capture_count(self):
         with self.assertRaises(ValueError):

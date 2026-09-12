@@ -17,6 +17,8 @@ import shutil
 import subprocess
 from datetime import datetime, timezone
 
+CONTRACT_PATH = Path(__file__).resolve().parent / "fixtures/speed_contract_v1.json"
+CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 EXPECTED_CASES = {
     ("harness_dispatch_floor", "control"),
     ("init_startpos_warm", "sekirei"),
@@ -42,6 +44,9 @@ EXPECTED_CASES = {
     ("startpos", "rsshogi_generate_move32"),
     ("startpos", "sekirei_nnue_forward"),
     ("startpos", "sekirei_nnue_refresh"),
+    ("startpos", "sekirei_nnue_evaluate_with_weights"),
+    ("startpos", "sekirei_rules_only_evaluate_with_weights"),
+    ("startpos", "sekirei_board_clone"),
     ("midgame", "sekirei_generate_vec"),
     ("midgame", "sekirei_do_undo_all_legal"),
     ("midgame", "sekirei_generate_fixed"),
@@ -55,6 +60,9 @@ EXPECTED_CASES = {
     ("midgame", "rsshogi_generate_move32"),
     ("midgame", "sekirei_nnue_forward"),
     ("midgame", "sekirei_nnue_refresh"),
+    ("midgame", "sekirei_nnue_evaluate_with_weights"),
+    ("midgame", "sekirei_rules_only_evaluate_with_weights"),
+    ("midgame", "sekirei_board_clone"),
     ("drop_only", "sekirei_generate_vec"),
     ("drop_only", "sekirei_do_undo_all_legal"),
     ("drop_only", "sekirei_generate_fixed"),
@@ -68,6 +76,9 @@ EXPECTED_CASES = {
     ("drop_only", "rsshogi_generate_move32"),
     ("drop_only", "sekirei_nnue_forward"),
     ("drop_only", "sekirei_nnue_refresh"),
+    ("drop_only", "sekirei_nnue_evaluate_with_weights"),
+    ("drop_only", "sekirei_rules_only_evaluate_with_weights"),
+    ("drop_only", "sekirei_board_clone"),
     ("encode_raw_list", "sekirei"),
     ("decode_packed_list", "sekirei"),
     ("encode_raw_list", "rsshogi"),
@@ -76,7 +87,8 @@ EXPECTED_CASES = {
     ("move_kind_drop", "sekirei_do_undo"),
     ("move_kind_promotion", "sekirei_do_undo"),
 }
-MIN_SAMPLE_ELAPSED_NS = 20_000_000
+SAMPLE_COUNT = CONTRACT["sample_count"]
+MIN_SAMPLE_ELAPSED_NS = CONTRACT["minimum_sample_ms"] * 1_000_000
 
 
 def command(*args):
@@ -91,6 +103,13 @@ def validate_samples(text):
     """Reject truncated/malformed runs instead of treating partial CSV as success."""
     if "schema=sekirei.component-benchmark.v1\n" not in text:
         raise ValueError("unexpected component schema")
+    header = next((line for line in text.splitlines() if line.startswith("samples=")), None)
+    expected_header = (
+        f"samples={SAMPLE_COUNT};target_sample_ms={CONTRACT['target_sample_ms']};"
+        f"minimum_sample_ms={CONTRACT['minimum_sample_ms']};"
+    )
+    if header is None or not header.startswith(expected_header):
+        raise ValueError("measurement header does not match speed contract")
     samples = {}
     summaries = {}
     contracts = {}
@@ -118,12 +137,14 @@ def validate_samples(text):
             summaries[key] = float(p50), float(p95), int(units)
     if not samples or samples.keys() != summaries.keys():
         raise ValueError("missing samples or summaries")
+    if len(EXPECTED_CASES) != CONTRACT["expected_case_count"]:
+        raise ValueError("speed contract case count is stale")
     if set(summaries) != EXPECTED_CASES:
         missing = sorted(EXPECTED_CASES - set(summaries))
         extra = sorted(set(summaries) - EXPECTED_CASES)
         raise ValueError(f"case set mismatch: missing={missing}, extra={extra}")
     for key, group in samples.items():
-        if set(group) != set(range(21)):
+        if set(group) != set(range(SAMPLE_COUNT)):
             raise ValueError("incomplete sample set")
         if summaries[key][2] != contracts[key][1]:
             raise ValueError("summary workload mismatch")

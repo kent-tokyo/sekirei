@@ -17,6 +17,17 @@ def geometric_mean(values):
     return math.exp(sum(math.log(value) for value in values) / len(values))
 
 
+def geometric_mean_ci95(values):
+    """Return a small-sample t interval for a geometric mean of ratios."""
+    values = list(values)
+    if len(values) < 2 or any(value <= 0 for value in values):
+        raise ValueError("at least two positive ratios are required")
+    logs = [math.log(value) for value in values]
+    mean = statistics.mean(logs)
+    half_width = 2.776 * statistics.stdev(logs) / math.sqrt(len(logs))
+    return math.exp(mean - half_width), math.exp(mean + half_width)
+
+
 def aggregate(paths):
     paths = list(paths)
     if len(paths) < 2 or len(paths) % 2:
@@ -51,6 +62,8 @@ def aggregate(paths):
         }
         for (operation, library), values in sorted(by_case.items())
     }
+    pair_geomeans = [row["geomean"] for row in pair_rows]
+    ci_low, ci_high = geometric_mean_ci95(pair_geomeans)
     return {
         "pair_count": len(pair_rows),
         "case_count": len(keys),
@@ -59,6 +72,7 @@ def aggregate(paths):
         "overall_geomean": geometric_mean(
             ratio for values in by_case.values() for ratio in values
         ),
+        "pair_geomean_ci95": {"low": ci_low, "high": ci_high},
     }
 
 
@@ -76,6 +90,8 @@ def main():
     else:
         print(f"pairs: {result['pair_count']}; cases: {result['case_count']}")
         print(f"overall geomean: {result['overall_geomean']:.4f}x")
+        ci = result["pair_geomean_ci95"]
+        print(f"pair geomean 95% CI: {ci['low']:.4f}..{ci['high']:.4f}x")
         for row in result["pair_rows"]:
             print(
                 f"{row['left']} vs {row['right']}: "

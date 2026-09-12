@@ -44,8 +44,8 @@ def validate_document(doc: dict) -> int:
     if doc.get("schema") != "sekirei.speed-corpus.v1" or doc.get("version") != 1:
         raise ValueError("unexpected speed corpus schema or version")
     cases = doc.get("cases")
-    if not isinstance(cases, list) or len(cases) != 32:
-        raise ValueError("cases must contain exactly 32 records")
+    if not isinstance(cases, list) or len(cases) != 64:
+        raise ValueError("cases must contain exactly 64 records")
     ids: set[str] = set()
     sfens: set[str] = set()
     counts = {category: 0 for category in CATEGORIES}
@@ -65,6 +65,12 @@ def validate_document(doc: dict) -> int:
             raise ValueError(f"{case_id}: invalid hand field")
         if not isinstance(case.get("source"), str) or not case["source"]:
             raise ValueError(f"{case_id}: source is required")
+        expected = case.get("expected")
+        if not isinstance(expected, dict) or any(
+            not isinstance(expected.get(key), int) or expected[key] < 1
+            for key in ("legal_moves", "perft2")
+        ):
+            raise ValueError(f"{case_id}: expected legal_moves/perft2 are required")
         sequence = case.get("sequence")
         if not isinstance(sequence, list) or not sequence or not all(
             isinstance(move, str) and MOVE.fullmatch(move) for move in sequence
@@ -73,7 +79,7 @@ def validate_document(doc: dict) -> int:
         ids.add(case_id)
         sfens.add(sfen)
         counts[category] += 1
-    if counts != {category: 4 for category in CATEGORIES}:
+    if counts != {category: 8 for category in CATEGORIES}:
         raise ValueError(f"category counts differ: {counts}")
     return len(cases)
 

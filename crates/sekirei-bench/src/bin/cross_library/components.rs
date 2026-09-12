@@ -354,6 +354,30 @@ pub(super) fn run() {
             refresh_board.refresh_acc();
             black_box(&refresh_board.acc);
         }));
+        let explicit_board = Board::from_sfen(sfen).unwrap();
+        let explicit_weights = nnue::NnueWeights::default_lcg();
+        cases.push(Case::new(
+            name,
+            "sekirei_nnue_evaluate_with_weights",
+            1,
+            move || {
+                black_box(explicit_board.evaluate_with_weights(black_box(&explicit_weights)));
+            },
+        ));
+        let rules_only_board = Board::from_sfen_rules_only(sfen).unwrap();
+        let rules_only_weights = nnue::NnueWeights::default_lcg();
+        cases.push(Case::new(
+            name,
+            "sekirei_rules_only_evaluate_with_weights",
+            1,
+            move || {
+                black_box(rules_only_board.evaluate_with_weights(black_box(&rules_only_weights)));
+            },
+        ));
+        let clone_board = Board::from_sfen(sfen).unwrap();
+        cases.push(Case::new(name, "sekirei_board_clone", 1, move || {
+            black_box(clone_board.clone());
+        }));
     }
     let (mut quiet_board, quiet_move) =
         first_matching_move(rsshogi::board::STARTPOS_SFEN, |mv, board| {

@@ -227,3 +227,89 @@ impl BitXorAssign for Bitboard {
         self.0 ^= rhs.0;
     }
 }
+
+#[cfg(test)]
+mod split_representation_probe {
+    use super::Bitboard;
+    use crate::square::Square;
+
+    /// SP5 prototype only: the low 64 squares and the remaining 17 squares.
+    /// It is deliberately kept out of the production representation until a
+    /// full end-to-end benchmark justifies the additional conversion surface.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    struct SplitBitboard {
+        low: u64,
+        high: u64,
+    }
+
+    impl SplitBitboard {
+        fn from_bitboard(value: Bitboard) -> Self {
+            Self {
+                low: value.0 as u64,
+                high: (value.0 >> 64) as u64,
+            }
+        }
+
+        fn to_bitboard(self) -> Bitboard {
+            Bitboard(self.low as u128 | ((self.high as u128) << 64))
+        }
+
+        fn pop_lsb(&mut self) -> Option<Square> {
+            let index = if self.low != 0 {
+                self.low.trailing_zeros() as u8
+            } else if self.high != 0 {
+                64 + self.high.trailing_zeros() as u8
+            } else {
+                return None;
+            };
+            if index < 64 {
+                self.low &= self.low - 1;
+            } else {
+                self.high &= self.high - 1;
+            }
+            Some(Square::from_index(index))
+        }
+    }
+
+    #[test]
+    fn split_mapping_round_trips_every_square() {
+        for index in 0..81 {
+            let original = Bitboard::from_square(Square::from_index(index));
+            assert_eq!(
+                SplitBitboard::from_bitboard(original).to_bitboard(),
+                original
+            );
+        }
+        assert_eq!(
+            SplitBitboard::from_bitboard(Bitboard::FULL).to_bitboard(),
+            Bitboard::FULL
+        );
+    }
+
+    #[test]
+    fn split_pop_lsb_matches_u128_order() {
+        let original = Bitboard::FULL;
+        let mut split = SplitBitboard::from_bitboard(original);
+        let mut packed = original;
+        while let Some(expected) = packed.pop_lsb() {
+            assert_eq!(split.pop_lsb(), Some(expected));
+        }
+        assert_eq!(split.pop_lsb(), None);
+    }
+
+    #[test]
+    fn split_bitwise_mapping_matches_u128() {
+        let left = Bitboard(0x1f1f_0000_aaaa_5555_1234_5678_9abc_def0);
+        let right = Bitboard(0x00ff_00ff_ffff_0000_f0f0_0f0f_3333_cccc);
+        let l = SplitBitboard::from_bitboard(left);
+        let r = SplitBitboard::from_bitboard(right);
+        assert_eq!(
+            (l.low & r.low) as u128 | ((l.high & r.high) as u128) << 64,
+            (left & right).0
+        );
+        assert_eq!(
+            (l.low ^ r.low) as u128 | ((l.high ^ r.high) as u128) << 64,
+            (left ^ right).0
+        );
+    }
+}

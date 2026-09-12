@@ -107,10 +107,12 @@ v7では6手の手順の合法性とundo後の復元を測定前に検証しま�
 各手を早すぎる時点でundoしていたため、その測定値は無効です。合法手生成からも
 形式依存のチェックサム計算を除いたため、旧値とは直接比較できません。
 `--components`は初期化（共通テーブル初期化後）、バッファ、NNUE有無の盤面更新、
-NNUE推論、出力変換を分け、57固定ケースについて21標本の生データとp50/p95を出力します。
+NNUE推論、出力変換を分け、66固定ケースについて21標本の生データとp50/p95を出力します。
 NNUEは診断用の固定LCG重みであり、学習済みエンジンの探索速度ではありません。
 変更前後の実行ファイル・ソースハッシュの保存方法は
 `scripts/run_component_benchmark.py --help`を参照してください。
+固定した計測窓・標本数・下限は
+`scripts/fixtures/speed_contract_v1.json`に記録し、ヘッダが一致しないcaptureはvalidatorで拒否します。
 [処理別測定レポート](scripts/benchmark_reports/components_2026-09-12.md)に、測定修正、
 SFEN初期化の改善候補、負荷による結果の制限を記録しています。
 ルール処理だけが必要な場合は`Board::from_sfen_rules_only`でNNUE refreshを省略できます。
@@ -122,9 +124,11 @@ SFEN初期化の改善候補、負荷による結果の制限を記録してい�
 正確性と可読性のためのリファクタリングであり、測定済みの速度向上とは扱いません。
 今回のリリースでバージョン表記は`0.3.35`になりました。
 
-SP0のsmoke corpusは`python3 scripts/validate_speed_corpus.py`で構造を検証できます。
-32局面の合法手、状態復元、速度比較は後続のRust preflightで確認します。このvalidator
-の成功だけでは、合法手の一致は保証しません。
+SP0のsmoke corpusは8分類×4基底局面×2手番の64局面です。`python3
+scripts/validate_speed_corpus.py`で構造を検証できます。さらに`python3
+scripts/preflight_speed_corpus.py --binary PATH`を実行すると、記録済みの合法手数とPerft(2)が
+Sekirei/rsshogiで一致することも確認できます。これは最終128局面corpusではなく、validator
+の成功だけで全体の合法手一致を保証するものでもありません。
 完了したcomponent capture同士は
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`で比較できます。
 

@@ -133,6 +133,23 @@ at `/tmp/sekirei-component-capture-sp6-refresh` and validated as a 57-case
 pilot. These values explain the initialization/evaluation split; they are not
 an end-to-end search result and do not establish a cross-library speed lead.
 
+The same 66-case capture also isolates explicit-weight evaluation and cloning.
+`sekirei_nnue_evaluate_with_weights` p50 was 2744.37 ns, 2734.62 ns, and
+2135.26 ns for startpos, midgame, and drop-only. The rules-only board followed
+by explicit evaluation was 2753.42 ns, 2740.50 ns, and 2140.06 ns. A direct
+`Board::clone` was 17.27 ns, 17.37 ns, and 17.23 ns. Weight construction and
+SFEN parsing were outside the timing window. The full capture was validated
+from `/tmp/sekirei-component-capture-sp4-state-boundary-v2`.
+
+## SP5: release assembly check
+
+The release AArch64 assembly was inspected after the split prototype tests.
+The relevant bit operations lower to native `rbit`/`clz` sequences for least
+significant-bit extraction, while population-count paths use NEON `cnt` where
+vectorized. No evidence currently justifies replacing the production u128
+mapping; the `[u64; 2]` prototype remains a measured-later alternative rather
+than an adopted representation.
+
 ## Measurement-window revision
 
 The component runner now targets 50 ms per sample, rejects samples below 20 ms,
@@ -178,3 +195,17 @@ The release workspace correctness run also completed successfully across the
 core, USI race, CSA, match-runner, training, and benchmark targets. The core
 library reported 139 passed and 2 ignored, and the training target reported
 158 passed; the ignored core checks were run separately in release mode.
+
+## SP7: 66-case A/A rerun
+
+The expanded 66-case contract was captured ten times in one monitored session
+under `/tmp/sekirei-component-sp7-aa-66ms/`. Every capture passed the preflight
+and sample validator. The five adjacent pair geomeans were 0.9976x, 1.0068x,
+1.0064x, 0.9056x, and 1.0110x; the aggregate geomean was 0.9846x and case
+medians ranged from 0.9765x to 1.0522x. The fourth pair shows a broad
+one-direction drift rather than a stable binary effect, so this is recorded as
+an inconclusive noise-floor run, not as a candidate performance result.
+Using the five pair geomeans, the small-sample log-ratio t-approximation 95%
+interval is 0.9288x..1.0438x and is reported by the aggregator alongside the point estimate. Because
+the fourth pair is affected by directional drift, the interval is diagnostic
+and is not a release gate.

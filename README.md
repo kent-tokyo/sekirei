@@ -132,9 +132,12 @@ too early). v7 move generation observes output slices without the old
 representation-dependent encoding checksum, so those timings are not directly
 comparable either. `--components` isolates warm initialization, buffers,
 board updates with/without NNUE, NNUE inference, and output conversion, retaining
-57 fixed cases with 21 raw samples plus p50/p95. NNUE uses deterministic synthetic LCG weights;
+66 fixed cases with 21 raw samples plus p50/p95. NNUE uses deterministic synthetic LCG weights;
 this is not a trained-engine search benchmark. Capture a frozen executable and
 source hashes with `scripts/run_component_benchmark.py --help`.
+The fixed timing parameters are recorded in
+`scripts/fixtures/speed_contract_v1.json`; captures with mismatched headers are
+rejected by the validator.
 The [component measurement report](scripts/benchmark_reports/components_2026-09-12.md)
 records the repaired protocol, the SFEN initialization pilot and its load limitations.
 The isolated `sekirei_nnue_refresh` cases separate accumulator-refresh cost from
@@ -142,9 +145,13 @@ NNUE forward cost; their pilot results are recorded in the internal report.
 Library users that only need rules state can use `Board::from_sfen_rules_only` to
 skip the NNUE refresh; the returned board has a valid hash but must be refreshed
 with `Board::refresh_acc` before NNUE evaluation or incremental NNUE updates.
-The SP0 smoke corpus is structurally checked with
-`python3 scripts/validate_speed_corpus.py`; it is not yet a legal-move or
-cross-library parity proof. Compare two completed component captures with
+The SP0 smoke corpus contains 64 positions: eight categories, four base
+positions per category, and both sides to move. It is structurally checked with
+`python3 scripts/validate_speed_corpus.py`; it is not the final 128-position
+corpus or a full legal-move parity proof. `python3
+scripts/preflight_speed_corpus.py --binary PATH` additionally checks the
+recorded legal-move and Perft(2) counts against Sekirei and rsshogi. Compare two
+completed component captures with
 `python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`.
 
 The latest maintenance pass also split root-search safety stages, shared the

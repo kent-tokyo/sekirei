@@ -13,7 +13,7 @@ CORPUS = ROOT / "scripts/fixtures/speed_corpus_v1.json"
 
 class SpeedCorpusTest(unittest.TestCase):
     def test_checked_in_corpus_is_valid(self):
-        self.assertEqual(validate(CORPUS), 32)
+        self.assertEqual(validate(CORPUS), 64)
 
     def test_rejects_missing_category(self):
         doc = json.loads(CORPUS.read_text(encoding="utf-8"))
@@ -24,5 +24,11 @@ class SpeedCorpusTest(unittest.TestCase):
     def test_rejects_duplicate_sfen(self):
         doc = json.loads(CORPUS.read_text(encoding="utf-8"))
         doc["cases"][1]["sfen"] = doc["cases"][0]["sfen"]
+        with self.assertRaises(ValueError):
+            validate_document(doc)
+
+    def test_rejects_missing_numeric_expectations(self):
+        doc = json.loads(CORPUS.read_text(encoding="utf-8"))
+        del doc["cases"][0]["expected"]["perft2"]
         with self.assertRaises(ValueError):
             validate_document(doc)

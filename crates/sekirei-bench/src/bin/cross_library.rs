@@ -171,6 +171,11 @@ fn check_sfen(sfen: &str) {
     let sekirei_perft = perft(&mut board, 2);
     let rsshogi_perft = rsshogi_compute_perft(&mut reference, 2);
     assert_eq!(sekirei_perft, rsshogi_perft, "Perft(2) mismatch for {sfen}");
+    println!(
+        "sfen_details=legal_moves:{};perft2:{}",
+        sekirei_usi.len(),
+        sekirei_perft
+    );
 }
 
 fn report_case<F>(operation: &str, library: &str, scope: &str, iterations: u64, mut function: F)
