@@ -413,3 +413,5 @@ python3 scripts/check_release_metadata.py
 
 全crateのmanifest、`Cargo.lock`、CHANGELOG、英日README、ライセンス・帰属表示ファイルが
 現行バージョンと一致することを検査します。
+同一binaryのA/Aを10 capture（5ペア）実施し、全体geomean 0.9989倍、95%区間0.9943〜1.0036倍でした。
+結果は`scripts/benchmark_reports/component_aa_current_2026-09-12.md`に記録しています。これは候補比較ではなくノイズ床です。

@@ -166,6 +166,8 @@ records its command and profile.
 The resulting single capture is summarized in
 `scripts/benchmark_reports/component_current_release_2026-09-12.md`; it is
 diagnostic evidence, not the formal ten-session gate.
+The current ten-capture same-binary A/A noise-floor result is recorded in
+`scripts/benchmark_reports/component_aa_current_2026-09-12.md`.
 The corpus preflight also applies and reverses each case's verified one-move
 sequence; the six-ply nested roundtrip remains covered by the component
 diagnostic preflight. It now additionally generates twelve deterministic legal

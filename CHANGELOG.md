@@ -37,6 +37,8 @@
   binary; the interrupted dev-profile capture is not valid evidence.
 - Recorded one clean release-profile component capture from the corrected build
   path, with binary hash and selected p50 rows; no formal ranking claim follows.
+- Recorded ten same-binary A/A captures: overall geomean 0.9989x with a
+  0.9943–1.0036x pair-geomean 95% interval inside the 0.98–1.02 noise floor.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and
