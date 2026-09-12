@@ -6,7 +6,7 @@ use sekirei_core::{
         MaterialValue, MctsConfig, RootMcts, SharedTreeMcts, SharedTreeMctsConfig, TreeMcts,
         TreeMctsConfig, UniformPolicy,
     },
-    movegen::{generate_legal_captures, generate_legal_moves},
+    movegen::{generate_legal_captures, generate_legal_moves, generate_legal_moves_into},
     nnue::NnueWeights,
     perft::perft,
     policy::top_n,
@@ -21,6 +21,26 @@ fn bench_movegen(c: &mut Criterion) {
         b.iter(|| {
             let mut b = board.clone();
             generate_legal_moves(black_box(&mut b))
+        });
+    });
+}
+
+fn bench_movegen_vec_capacity(c: &mut Criterion) {
+    let board = Board::startpos();
+    c.bench_function("legal_moves_startpos_cold_vec", |b| {
+        b.iter(|| {
+            let mut board = board.clone();
+            let mut moves = Vec::new();
+            generate_legal_moves_into(black_box(&mut board), &mut moves);
+            black_box(moves)
+        });
+    });
+    let mut board = board;
+    let mut moves = Vec::with_capacity(128);
+    c.bench_function("legal_moves_startpos_warm_vec", |b| {
+        b.iter(|| {
+            generate_legal_moves_into(black_box(&mut board), &mut moves);
+            black_box(moves.len())
         });
     });
 }
@@ -211,6 +231,7 @@ fn bench_speculative_search(c: &mut Criterion) {
 criterion_group!(
     benches,
     bench_movegen,
+    bench_movegen_vec_capacity,
     bench_capture_movegen,
     bench_perft3,
     bench_search_depth4,

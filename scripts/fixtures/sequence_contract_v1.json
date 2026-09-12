@@ -1,0 +1,136 @@
+{
+  "schema": "sekirei.sequence-contract.v1",
+  "version": 1,
+  "seed": 0,
+  "split_policy": "one tuning and one hold-out series per category",
+  "series": [
+    {
+      "id": "quiet-b",
+      "category": "quiet",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "sequence": ["7g7f", "3c3d", "2g2f", "8c8d", "2f2e", "8d8e"]
+    },
+    {
+      "id": "quiet-w",
+      "category": "quiet",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
+      "sequence": ["1a1b", "7g7f", "9c9d", "2g2f", "8c8d", "2f2e"]
+    },
+    {
+      "id": "capture-b",
+      "category": "capture",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/9/9/9/4p4/9/9/4R4/4k4 b - 1",
+      "sequence": ["5h5e"]
+    },
+    {
+      "id": "capture-w",
+      "category": "capture",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4K4/9/9/9/4P4/9/9/4r4/4k4 w - 1",
+      "sequence": ["5h5e"]
+    },
+    {
+      "id": "promotion-b",
+      "category": "promotion",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/7P1/9/9/9/9/9/9/4k4 b - 1",
+      "sequence": ["2b2a+"]
+    },
+    {
+      "id": "promotion-w",
+      "category": "promotion",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4K4/9/9/9/9/9/9/7p1/4k4 w - 1",
+      "sequence": ["2h2i+"]
+    },
+    {
+      "id": "capture-promotion-b",
+      "category": "capture-promotion",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "k3p4/9/4R4/9/9/9/9/9/k8 b - 1",
+      "sequence": ["5c5a+"]
+    },
+    {
+      "id": "capture-promotion-w",
+      "category": "capture-promotion",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4K4/9/9/9/9/9/4r4/9/k3P4 w - 1",
+      "sequence": ["5g5i+"]
+    },
+    {
+      "id": "drop-b",
+      "category": "drop",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/9/9/9/9/9/9/9/4k4 b P 1",
+      "sequence": ["P*5e"]
+    },
+    {
+      "id": "drop-w",
+      "category": "drop",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4K4/9/9/9/9/9/9/9/4k4 w p 1",
+      "sequence": ["P*5e"]
+    },
+    {
+      "id": "king-b",
+      "category": "king move",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/9/9/9/9/9/9/9/4k4 b - 1",
+      "sequence": ["5a4a"]
+    },
+    {
+      "id": "king-w",
+      "category": "king move",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4K4/9/9/9/9/9/9/9/4k4 w - 1",
+      "sequence": ["5i4i"]
+    },
+    {
+      "id": "check-evasion-b",
+      "category": "check evasion",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/9/9/9/9/9/9/9/4r4 b - 1",
+      "sequence": ["5a4a"]
+    },
+    {
+      "id": "check-evasion-w",
+      "category": "check evasion",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4R4/9/9/9/9/9/9/9/4k4 w - 1",
+      "sequence": ["5i4i"]
+    },
+    {
+      "id": "mixed-b",
+      "category": "mixed",
+      "side": "b",
+      "split": "tuning",
+      "sfen": "4K4/9/9/9/4p4/9/9/4R4/4k4 b - 1",
+      "sequence": ["5h5e", "5i4i", "5e4e", "4i3i", "4e4d", "3i3h"]
+    },
+    {
+      "id": "mixed-w",
+      "category": "mixed",
+      "side": "w",
+      "split": "hold-out",
+      "sfen": "4k4/9/9/9/4P4/9/9/4r4/4K4 w - 1",
+      "sequence": ["5h5e", "5i4i", "5e4e", "4i3i", "4e4d", "3i3h"]
+    }
+  ]
+}

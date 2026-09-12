@@ -763,6 +763,35 @@ fn gen_step_attacks<const RESTRICTED: bool>(
 }
 
 #[inline]
+fn gen_pawn_attacks<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, PieceKind::Fu);
+    if pieces.is_empty() {
+        return;
+    }
+    let zone = match color {
+        Color::Black => Bitboard::PROMOTE_BLACK,
+        Color::White => Bitboard::PROMOTE_WHITE,
+    };
+    let stuck = match color {
+        Color::Black => Bitboard::STUCK_FU_KYOU_BLACK,
+        Color::White => Bitboard::STUCK_FU_KYOU_WHITE,
+    };
+    while let Some(from) = pieces.pop_lsb() {
+        let mut targets = restrictions.targets::<RESTRICTED>(
+            from,
+            PAWN_ATTACKS[color.index()][from.index() as usize].and_not(context.own),
+        );
+        push_promotable_targets_fast(from, PieceKind::Fu, zone, stuck, &mut targets, moves);
+    }
+}
+
+#[inline]
 fn gen_plain_step_attacks<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
@@ -1232,15 +1261,7 @@ fn generate_non_king_moves_into<const RESTRICTED: bool>(
         enemy,
         occ: own | enemy,
     };
-    gen_step_attacks::<RESTRICTED>(
-        board,
-        color,
-        PieceKind::Fu,
-        &PAWN_ATTACKS[color.index()],
-        context,
-        restrictions,
-        moves,
-    );
+    gen_pawn_attacks::<RESTRICTED>(board, color, context, restrictions, moves);
 
     match color {
         Color::Black => gen_sliding_one::<RESTRICTED, 0>(
@@ -1962,6 +1983,107 @@ pub fn diagnostic_sliding_rays(board: &Board, from: Square, orthogonal: bool) ->
     }
 }
 
+/// Count pseudo-legal moves emitted by one on-board piece family.
+///
+/// This is a diagnostics-only split of the normal generator. It deliberately
+/// does not consult legality constraints or emit a buffer, so callers can
+/// measure piece iteration and target calculation independently from king
+/// safety and output conversion.
+#[doc(hidden)]
+#[inline(never)]
+pub fn diagnostic_piece_generation(board: &Board, kind: PieceKind) -> u32 {
+    let color = board.side_to_move;
+    let context = MoveGenContext {
+        own: board.occ_for(color),
+        enemy: board.occ_for(color.flip()),
+        occ: board.occ(),
+    };
+    let restrictions = MoveRestrictions::PSEUDO;
+    let mut moves = MoveCounter::default();
+    match kind {
+        PieceKind::Fu => gen_step_attacks::<false>(
+            board,
+            color,
+            kind,
+            &PAWN_ATTACKS[color.index()],
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Kyou => match color {
+            Color::Black => {
+                gen_sliding_one::<false, 0>(board, color, kind, context, restrictions, &mut moves)
+            }
+            Color::White => {
+                gen_sliding_one::<false, 1>(board, color, kind, context, restrictions, &mut moves)
+            }
+        },
+        PieceKind::Kei => gen_step_attacks::<false>(
+            board,
+            color,
+            kind,
+            &KNIGHT_ATTACKS[color.index()],
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Gin => gen_step_attacks::<false>(
+            board,
+            color,
+            kind,
+            &SILVER_ATTACKS[color.index()],
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Kin
+        | PieceKind::Tokin
+        | PieceKind::Narikyo
+        | PieceKind::Narikei
+        | PieceKind::Narigin => gen_plain_step_attacks::<false>(
+            board,
+            color,
+            kind,
+            &GOLD_ATTACKS[color.index()],
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Kaku => gen_sliding_four::<false, 4, 5, 6, 7>(
+            board,
+            color,
+            kind,
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Hisha => gen_sliding_four::<false, 0, 1, 2, 3>(
+            board,
+            color,
+            kind,
+            context,
+            restrictions,
+            &mut moves,
+        ),
+        PieceKind::Ou => {}
+        PieceKind::Uma => gen_uma::<false>(board, color, context, restrictions, &mut moves),
+        PieceKind::Ryu => gen_ryu::<false>(board, color, context, restrictions, &mut moves),
+    }
+    moves.count as u32
+}
+
+/// Generate legal moves into the same fixed sink as the hot search path while
+/// supplying the caller's already-known check state. Diagnostics only.
+#[doc(hidden)]
+#[inline(never)]
+pub fn diagnostic_legal_with_check_hint_into(
+    board: &mut Board,
+    in_check: bool,
+    moves: &mut FixedMoveList,
+) {
+    generate_legal_moves_into_sink(board, moves, (!in_check).then_some(Bitboard::EMPTY));
+}
+
 /// Generate fully legal moves, including king-safety and uchifuzume checks.
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = take_move_buffer();
@@ -1972,12 +2094,18 @@ pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
 /// Generate fully legal moves into a caller-owned reusable buffer.
 #[inline(always)]
 pub fn generate_legal_moves_into(board: &mut Board, legals: &mut Vec<Move>) {
+    // A fresh public Vec otherwise grows through several allocator rounds on
+    // ordinary positions. Reusable callers already retain their capacity, so
+    // keep this branch limited to the genuinely cold path.
+    if legals.capacity() == 0 {
+        legals.reserve(128);
+    }
     // The dynamic Vec sink pays one length/capacity update per generated move.
     // Once several drop families are present, generate into the batch-writing
     // fixed sink and copy the completed slice in one operation. Keep the
     // direct path for ordinary positions, where the temporary fixed list and
     // copy would cost more than they save.
-    if board.hand(board.side_to_move).present_mask().count_ones() >= 2 {
+    if board.hand(board.side_to_move).present_mask().count_ones() >= 1 {
         with_fixed_move_buffer(|fixed| {
             generate_legal_moves_into_sink(board, fixed, None);
             legals.clear();
@@ -3049,6 +3177,11 @@ mod move_buffer_tests {
             let actual = MoveBuffer::legal_with_in_check(&mut hinted, in_check);
             assert_eq!(actual.as_slice(), expected.as_slice());
 
+            let mut hinted_into = Board::from_sfen(sfen).expect("fixture must parse");
+            let mut hinted_moves = FixedMoveList::new();
+            diagnostic_legal_with_check_hint_into(&mut hinted_into, in_check, &mut hinted_moves);
+            assert_eq!(hinted_moves.as_slice(), expected.as_slice());
+
             let mut capture_reference = Board::from_sfen(sfen).expect("fixture must parse");
             let expected_captures = generate_legal_captures(&mut capture_reference);
             let mut capture_hinted = Board::from_sfen(sfen).expect("fixture must parse");
@@ -3089,6 +3222,47 @@ mod move_buffer_tests {
                 "legal cache after root undo for {sfen}"
             );
         }
+    }
+
+    #[test]
+    fn legal_vec_cold_path_reserves_reusable_capacity() {
+        let mut board = Board::startpos();
+        let mut moves = Vec::new();
+        generate_legal_moves_into(&mut board, &mut moves);
+        assert!(moves.capacity() >= 128);
+        assert!(!moves.is_empty());
+    }
+
+    #[test]
+    fn pawn_file_cache_skips_same_file_quiet_and_handles_fallback() {
+        let mut board = Board::startpos();
+        let original = board.pawn_files(board.side_to_move);
+
+        let same_file = Move::normal(
+            Square::from_shogi(7, 7),
+            Square::from_shogi(7, 6),
+            PieceKind::Fu,
+            false,
+        );
+        let token = board.do_move_for_search(same_file);
+        assert_eq!(board.pawn_files(Color::Black), original);
+        board.undo_move_for_search(token);
+        assert_eq!(board.pawn_files(Color::Black), original);
+
+        // The public transition accepts a low-level non-standard move too;
+        // retain the old cross-file update for callers that rely on it.
+        let cross_file = Move::normal(
+            Square::from_shogi(7, 7),
+            Square::from_shogi(6, 8),
+            PieceKind::Fu,
+            false,
+        );
+        let expected = original.and_not(Bitboard::file_bb(Square::from_shogi(7, 7).file_0()))
+            | Bitboard::file_bb(Square::from_shogi(6, 8).file_0());
+        let token = board.do_move_for_search(cross_file);
+        assert_eq!(board.pawn_files(Color::Black), expected);
+        board.undo_move_for_search(token);
+        assert_eq!(board.pawn_files(Color::Black), original);
     }
 }
 

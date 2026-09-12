@@ -42,7 +42,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::color::Color;
-use crate::piece::PieceKind;
+use crate::piece::{Piece, PieceKind};
 use crate::square::Square;
 
 // ---- Dimensions ----
@@ -464,6 +464,45 @@ impl NnueAcc {
         }
     }
 
+    /// Full recompute directly from the board mailbox.
+    ///
+    /// This crate-private path avoids materialising a temporary tuple
+    /// snapshot when a `Board` already owns typed `Piece` values. The public
+    /// tuple-based method above remains available for diagnostics and callers
+    /// that already have a detached snapshot.
+    pub(crate) fn refresh_from_board_with(
+        &mut self,
+        weights: &NnueWeights,
+        mailbox: &[Option<Piece>; 81],
+        hand: &[[u8; 7]; 2],
+    ) {
+        self.values = [weights.ft_bias; 2];
+        for (i, cell) in mailbox.iter().enumerate() {
+            if let Some(piece) = cell {
+                let sq = Square::from_index(i as u8);
+                for p in [Color::Black, Color::White] {
+                    let feat = feature_index(sq, piece.kind, piece.color, p);
+                    self.add_col_with(weights, p.index(), feat);
+                }
+            }
+        }
+        for ci in 0..2usize {
+            let color = if ci == 0 { Color::Black } else { Color::White };
+            for ki in 0..7usize {
+                let kind = PieceKind::from_u8(ki as u8).unwrap();
+                for n in 1..=hand[ci][ki] {
+                    for p in [Color::Black, Color::White] {
+                        self.add_col_with(
+                            weights,
+                            p.index(),
+                            hand_feature_index(kind, n, color, p),
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     // --- Incremental hand updates ---
 
     /// Call when `color`'s hand gains its `count`-th piece of `kind` (count ≥ 1).
@@ -645,7 +684,7 @@ impl NnueAcc {
 
     // --- Private column helpers (SIMD-vectorised by LLVM) ---
 
-    #[inline]
+    #[inline(always)]
     fn add_col_with(&mut self, weights: &NnueWeights, persp: usize, feat: usize) {
         let w = &weights.ft[feat];
         let a = &mut self.values[persp];
@@ -654,7 +693,7 @@ impl NnueAcc {
         }
     }
 
-    #[inline]
+    #[inline(always)]
     fn sub_col_with(&mut self, weights: &NnueWeights, persp: usize, feat: usize) {
         let w = &weights.ft[feat];
         let a = &mut self.values[persp];
@@ -720,6 +759,34 @@ mod tests {
         incremental.remove_hand(PieceKind::Fu, 1, Color::White);
         incremental.remove_piece(sq, piece.0, piece.1);
         assert_eq!(incremental, NnueAcc::new());
+    }
+
+    #[test]
+    fn board_mailbox_refresh_matches_snapshot_refresh() {
+        let weights = NnueWeights::default_lcg();
+        let mut board_mailbox = [None; 81];
+        board_mailbox[Square::from_shogi(5, 5).index() as usize] =
+            Some(Piece::new(Color::Black, PieceKind::Hisha));
+        board_mailbox[Square::from_shogi(3, 4).index() as usize] =
+            Some(Piece::new(Color::White, PieceKind::Uma));
+        let hand = [[2, 0, 1, 0, 0, 1, 0], [0, 1, 0, 2, 0, 0, 1]];
+
+        let snapshot = board_mailbox.map(|piece| piece.map(|p| (p.kind, p.color)));
+        let mut from_snapshot = NnueAcc::new_with(&weights);
+        from_snapshot.refresh_with(&weights, &snapshot, &hand);
+
+        let mut from_board = NnueAcc::new_with(&weights);
+        from_board.refresh_from_board_with(&weights, &board_mailbox, &hand);
+
+        assert_eq!(from_board, from_snapshot);
+        assert_eq!(
+            from_board.evaluate_with(&weights, Color::Black),
+            from_snapshot.evaluate_with(&weights, Color::Black)
+        );
+        assert_eq!(
+            from_board.evaluate_with(&weights, Color::White),
+            from_snapshot.evaluate_with(&weights, Color::White)
+        );
     }
 
     #[test]

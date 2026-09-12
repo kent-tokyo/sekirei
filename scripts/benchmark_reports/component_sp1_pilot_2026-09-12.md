@@ -45,6 +45,73 @@ iteration and promotion emission rather than replacing the bitboard layout.
 The 32-case correctness smoke corpus passed Sekirei/rsshogi legal-USI-set,
 Perft(2), and per-move do/undo checks before this pilot.
 
+## Current release component recheck
+
+The current release binary was rechecked after the SP3 candidate reverts, using
+the same `cross_library` executable, fixed rsshogi commit, and release timing
+window. These are p50 diagnostic values from
+`/private/tmp/sekirei-cross-library-current-20260912.txt`; they are not a
+formal ten-session gate.
+
+| Operation | Sekirei ns | rsshogi ns | rsshogi/Sekirei |
+|---|---:|---:|---:|
+| Startpos legal generation (Vec) | 100 | 101 | 1.01x |
+| Startpos Perft(3) | 74010 | 127385 | 1.72x |
+| Full state update | 686 | 1039 | 1.51x |
+| Startpos state roundtrip | 2035 | 2044 | 1.00x |
+| Midgame, no hands legal generation (Vec) | 94 | 87 | 0.93x |
+| Midgame, no hands pseudo generation | 65 | — | — |
+| Midgame, no hands Fixed output | 97 | 86 | 0.89x |
+| Midgame, no hands Packed output | 90 | 86 | 0.96x |
+| Midgame, no hands Narrow output | 91 | 86 | 0.95x |
+
+The losing middle-game rows remain after changing the output sink, so the next
+candidate should be selected from the legality/constraint and piece-emission
+path rather than another output-only representation. The output rows are not
+directly interchangeable with the Vec API gate. The raw capture used 2,000
+iterations and seven samples per case, with setup excluded where the operation
+contract says so; the full component A/A and confidence gate remain pending.
+
+## Piece-generation breakdown
+
+To choose the next production candidate, a diagnostics-only API measured each
+on-board piece family in the same midgame-without-hands position. The API uses
+the existing pseudo-generation kernels and a counting sink; it does not change
+the normal legal-generation path. Values below are release p50 nanoseconds per
+iteration from `/private/tmp/sekirei-piece-generation-breakdown-20260912.txt`.
+
+| Piece family | Pieces | p50 ns |
+|---|---:|---:|
+| Fu | 8 | 38 |
+| Kyou | 2 | 21 |
+| Ryu | 7 | 26 |
+| Gin | 5 | 12 |
+| Kei | 1 | 10 |
+| Kin | 7 | 10 |
+
+Promoted families with no pieces still cost 4–8 ns for the empty-path call,
+so combining the five gold-like dispatches is not justified without a full
+order-preserving comparison. The next production pilot is therefore limited
+to the pawn promotion/emit path, followed by the lance and dragon sliding
+paths if the pawn candidate is neutral or positive. These numbers are an
+internal ranking signal, not additive costs and not a cross-library result.
+
+## SP2 pawn generation candidate
+
+The normal legal-generation path now uses a pawn-specialized kernel that keeps
+the existing `MoveSink`, target order, and promotion ordering while selecting
+the pawn promotion/stuck masks directly from the side to move. The candidate
+passed the release movegen regression (17 tests) and the 128-case preflight
+(legal sets, Perft(2), do/undo, and nested roundtrip).
+
+Using the same release benchmark boundary, 2,000 iterations, and seven samples,
+the fixed-corpus geometric mean improved from 1.2051x to 1.2172x on tuning and
+from 1.2132x to 1.2353x on hold-out. Sekirei was faster on 51/64 tuning cases
+and 53/64 hold-out cases; rsshogi was faster on 9/64 and 10/64 respectively.
+This is a retained SP2 candidate, not a formal gate result: the improvement is
+below the required 1.05x end-to-end threshold and still lacks the independent
+session/A-A evidence required by SP7.
+
 ## First candidate change
 
 The attack predicate now exits after step-attacker checks when the opponent

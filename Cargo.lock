@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "lineprior",
  "rayon",
@@ -696,25 +696,26 @@ dependencies = [
 
 [[package]]
 name = "sekirei-bench"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "criterion",
  "rayon",
  "rsshogi",
  "sekirei-core",
+ "serde_json",
  "shogi_core",
 ]
 
 [[package]]
 name = "sekirei-core"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "rayon",
 ]
 
 [[package]]
 name = "sekirei-csa"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "dotenvy",
  "sekirei-core",
@@ -723,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-match-runner"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "sekirei-core",
  "veridict",
@@ -731,7 +732,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-train"
-version = "0.3.35"
+version = "0.3.36"
 dependencies = [
  "lineprior",
  "sekirei-core",

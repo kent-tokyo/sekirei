@@ -5,6 +5,7 @@ use crate::bitboard::Bitboard;
 use crate::color::Color;
 use crate::hand::Hand;
 use crate::mv::{Move, MoveToken};
+use crate::nnue;
 use crate::nnue::{NnueAcc, NnueWeights};
 use crate::piece::{Piece, PieceKind};
 use crate::square::Square;
@@ -275,24 +276,20 @@ impl Board {
         use crate::zobrist;
         use PieceKind::*;
 
-        // NNUE: full refresh (board + hand)
-        let snapshot: [Option<(PieceKind, Color)>; 81] = {
-            let mut s = [None; 81];
-            for i in 0..81 {
-                s[i] = self.mailbox[i].map(|p| (p.kind, p.color));
-            }
-            s
-        };
-        let hand_counts = hand_counts_array(&self.hand);
-        self.acc.refresh(&snapshot, &hand_counts);
-
-        // Zobrist: recompute from scratch to avoid any hand-count bugs
+        // NNUE: full refresh (board + hand). Read the typed mailbox directly;
+        // no detached tuple snapshot is needed on this internal path.
         let mut h = 0u64;
-        for i in 0..Square::NUM {
+        for i in 0..81 {
             if let Some(p) = self.mailbox[i] {
                 h ^= zobrist::piece_key(Square::from_index(i as u8), p.color, p.kind);
             }
         }
+        let hand_counts = hand_counts_array(&self.hand);
+        self.acc
+            .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
+
+        // Zobrist: recompute hand contributions from scratch to avoid any
+        // hand-count bugs. The mailbox contribution was collected above.
         let hand_kinds = [Fu, Kyou, Kei, Gin, Kin, Kaku, Hisha];
         for c in 0..2 {
             let color = if c == 0 { Color::Black } else { Color::White };
@@ -365,13 +362,12 @@ impl Board {
         let mut board = Self::empty();
 
         // --- Board ---
-        let ranks = board_field.split('/');
-        let rank_count = ranks.clone().count();
-        if rank_count != 9 {
-            return Err(format!("SFEN board must have 9 ranks, got {rank_count}"));
-        }
-
-        for (rank_idx, rank_str) in ranks.enumerate() {
+        let mut rank_count = 0usize;
+        for (rank_idx, rank_str) in board_field.split('/').enumerate() {
+            rank_count += 1;
+            if rank_count > 9 {
+                return Err(format!("SFEN board must have 9 ranks, got {rank_count}"));
+            }
             let rank = (rank_idx + 1) as u8; // 1-9
             let mut file = 9u8; // starts at file 9, steps down to 1
             let mut chars = rank_str.chars();
@@ -423,6 +419,9 @@ impl Board {
             if file != 0 {
                 return Err(format!("SFEN: rank {rank} has {} unfilled squares", file));
             }
+        }
+        if rank_count != 9 {
+            return Err(format!("SFEN board must have 9 ranks, got {rank_count}"));
         }
 
         // --- Side to move ---
@@ -491,15 +490,9 @@ impl Board {
 
     /// Rebuild the NNUE accumulator from scratch (call after loading a position).
     pub fn refresh_acc(&mut self) {
-        let snapshot: [Option<(PieceKind, Color)>; 81] = {
-            let mut s = [None; 81];
-            for i in 0..81 {
-                s[i] = self.mailbox[i].map(|p| (p.kind, p.color));
-            }
-            s
-        };
         let hand_counts = hand_counts_array(&self.hand);
-        self.acc.refresh(&snapshot, &hand_counts);
+        self.acc
+            .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
     }
 
     /// Evaluate this position with an explicitly supplied NNUE checkpoint.
@@ -683,7 +676,6 @@ impl Board {
                     self.hash ^= zobrist::hand_delta(color, m.piece_kind, old_count);
                 }
                 self.hand[color.index()].remove(m.piece_kind);
-
                 self.put(m.to, piece);
                 if UPDATE_HASH {
                     self.hash ^= zobrist::piece_key(m.to, color, m.piece_kind);
@@ -795,12 +787,18 @@ impl Board {
 
         match kind {
             PieceKind::Fu => {
-                let from_file = Bitboard::file_bb(from.file_0());
-                let to_file = Bitboard::file_bb(to.file_0());
-                if (self.piece_bb[color_index][kind.index()] & from_file).is_empty() {
-                    self.pawn_files[color_index] &= !from_file;
+                // A legal quiet pawn move stays on the same file, so the
+                // cached nifu mask is unchanged. Keep the fallback for
+                // callers that use this low-level transition with a
+                // non-standard diagonal pawn move.
+                if from.file_0() != to.file_0() {
+                    let from_file = Bitboard::file_bb(from.file_0());
+                    let to_file = Bitboard::file_bb(to.file_0());
+                    if (self.piece_bb[color_index][kind.index()] & from_file).is_empty() {
+                        self.pawn_files[color_index] &= !from_file;
+                    }
+                    self.pawn_files[color_index] |= to_file;
                 }
-                self.pawn_files[color_index] |= to_file;
             }
             PieceKind::Kin
             | PieceKind::Tokin
@@ -1087,12 +1085,14 @@ impl Board {
 
         match kind {
             PieceKind::Fu => {
-                let from_file = Bitboard::file_bb(from.file_0());
-                let to_file = Bitboard::file_bb(to.file_0());
-                if (self.piece_bb[color_index][kind.index()] & to_file).is_empty() {
-                    self.pawn_files[color_index] &= !to_file;
+                if from.file_0() != to.file_0() {
+                    let from_file = Bitboard::file_bb(from.file_0());
+                    let to_file = Bitboard::file_bb(to.file_0());
+                    if (self.piece_bb[color_index][kind.index()] & to_file).is_empty() {
+                        self.pawn_files[color_index] &= !to_file;
+                    }
+                    self.pawn_files[color_index] |= from_file;
                 }
-                self.pawn_files[color_index] |= from_file;
             }
             PieceKind::Kin
             | PieceKind::Tokin

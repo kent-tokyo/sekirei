@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.3.36] – 2026-09-12
+
+- Updated workspace versions, `Cargo.lock`, release metadata, and public
+  documentation for the 0.3.36 distribution.
+- Added an explicit v0.3.36 release badge to both README files.
+
 ## [0.3.35] – 2026-09-12
 
 - Corrected the cross-library six-ply roundtrip fixture: apply all moves before
@@ -307,60 +313,6 @@
   training or strength measurements.
 - Search now returns a legal fallback move when a hard deadline arrives before
   the first iterative-deepening result completes.
-
-- NNUE weight loading now rejects files with trailing bytes instead of
-  silently accepting a malformed or incompatible artifact.
-- NNUE weight loading now rejects `NaN` and infinite floating-point values
-  before they can enter evaluation.
-- NNUE weight saving now writes through a same-directory temporary file and
-  atomic rename, preventing interrupted saves from leaving truncated artifacts.
-- NNUE weight saves now call `sync_all()` before the atomic rename so a
-  completed save is flushed before it becomes visible at the final path.
-- NNUE weight saving now rejects non-finite floating-point values before
-  creating a checkpoint file.
-- Teacher-cache writes now flush the completed temporary file before the
-  atomic rename and clean up the temporary file on write or rename failure.
-- Teacher-cache entries are now written in sorted SFEN order for deterministic
-  artifacts and reproducible cache hashes.
-- Teacher-cache loading now ignores score values outside the representable
-  `i32` range instead of allowing a lossy integer cast.
-- Teacher labeling accepts an optional per-search hard time limit whose value
-  is bound into cache identity, resume fingerprints, and checkpoint metadata.
-- Checkpoint metadata sidecars now use the same flushed temporary-file and
-  atomic-rename path as weight checkpoints.
-- Diagnostic trace sidecars now use atomic writes as well, preventing partial
-  JSON/JSONL artifacts after an interrupted training run.
-- Checkpoint metadata serialization errors are now returned cleanly instead of
-  panicking the trainer.
-- Opening-book and dataset-export outputs now use flushed atomic writes,
-  preventing interrupted runs from leaving partial artifacts.
-- Book and dataset-export write errors are now propagated instead of being
-  silently ignored.
-- Diagnostic percentile calculations now ignore non-finite samples instead
-  of panicking during sorting.
-- Diagnostic mean/std and accumulated cosine metrics now return neutral zero
-  values for non-finite inputs instead of propagating `NaN`/`Inf`.
-- Pearson and vector-cosine diagnostics now apply the same finite-value guard.
-- Diagnostic weight-difference and weight-norm calculations now return zero
-  for non-finite results instead of poisoning checkpoint metadata.
-- Diagnostic vector and layer norm calculations now apply the same finite
-  result guard.
-- `mean_std` now validates its computed mean and standard deviation before
-  exposing them to checkpoint metadata.
-- Diagnostic vector comparisons now return zero for length-mismatched inputs
-  instead of silently truncating to the shorter vector.
-- Added a deterministic NNUE weight save/load roundtrip guard covering every
-  layer and bias array.
-- Atomic NNUE, teacher-cache, and training-sidecar writes now use per-process
-  unique temporary names, avoiding collisions between concurrent saves.
-- L2 diagnostic norm helpers now reject malformed matrix shapes without
-  panicking or indexing beyond the provided data.
-- CP/WDL gradient trace construction now rejects mismatched accumulator
-  shapes and non-finite means without panicking.
-- Added lightweight material-evaluation probes for start-position neutrality,
-  hand-piece value, and side-to-move sign handling.
-- Extended the material probes to cover on-board piece value and side-to-move
-  sign handling.
 
 ## [0.3.6] – 2026-08-30
 

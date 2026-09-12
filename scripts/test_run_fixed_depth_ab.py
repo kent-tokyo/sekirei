@@ -83,6 +83,17 @@ echo "usiok"
 exit 0
 """
 
+ARGV_WEIGHTS_SCRIPT = """#!/bin/sh
+if [ "$1" != "fixed.bin" ]; then
+    exit 42
+fi
+echo "option name Threads type spin default 1 min 1 max 512"
+echo "option name SpecTopN type spin default 3 min 0 max 512"
+echo "usiok"
+echo "readyok"
+exit 0
+"""
+
 
 def _write_fake_binary(tmpdir, contents):
     path = Path(tmpdir) / "fake-engine.sh"
@@ -107,6 +118,15 @@ class ProbeUsiCapabilitiesTests(unittest.TestCase):
             caps = probe_usi_capabilities(binary, threads=1, spec_top_n=0, timeout_s=5)
             self.assertIn("Threads", caps["advertised_options"])
             self.assertNotIn("SpecTopN", caps["advertised_options"])
+
+    def test_fixed_weights_path_is_passed_as_engine_argument(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            binary = _write_fake_binary(tmp, ARGV_WEIGHTS_SCRIPT)
+            caps = probe_usi_capabilities(
+                binary, threads=1, spec_top_n=0, timeout_s=5, weights="fixed.bin"
+            )
+            self.assertEqual(caps["returncode"], 0)
+            self.assertTrue(caps["saw_readyok"])
 
 
 class RequireUsiCapabilitiesTests(unittest.TestCase):

@@ -1,12 +1,13 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.3.36-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.36)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.35`）。USI、CSA/floodgate クライアント、
+Sekirei は Rust で実装した実験的な将棋エンジンです（現在のリリース: `0.3.36`）。USI、CSA/floodgate クライアント、
 USI 対 USI の棋力テスト、NNUE スタイル評価に対応しています。棋力と評価品質は開発中で、
 ここでは絶対レーティングや他エンジンを上回るという主張はしていません。
 
@@ -72,13 +73,9 @@ crates/sekirei-bench/        ベンチマーク
 scripts/                     訓練・棋力テスト用スクリプト
 ```
 
-コアには alpha-beta/negamax、PVS/YBW 並列探索、反復深化、静止探索、ロックフリー置換表、
-手順序付け・枝刈りの各種ヒューリスティック、任意の投機的探索、opt-inのLazy SMP探索を実装しています。
-`SpecTopN=0` で投機的探索を無効にできます。特異延長の検証探索は無制限の置換表書き込みから
-除外しており、部分的な検証結果が親ノードの再利用可能なエントリを上書きしないようにしています。
-root-level MCTSとbounded df-pnは研究用のopt-in APIで、標準USIモードには接続されておらず、棋力の証明ではありません。
-限定的な詰み探索を試す場合は、USIオプション`SearchMode=Dfpn`を指定できます。`depth`を
-深さ上限として使う実験用モードであり、通常の対局モードや棋力比較には使用しません。
+コアには alpha-beta/negamax、PVS/YBW、反復深化、静止探索、手順付け、枝刈り、ロックフリー置換表、
+投機的探索、Lazy SMPを実装しています。root-level MCTSとbounded df-pnはopt-inの研究用機能です。
+再現性を優先する診断では`SpecTopN=0`を使ってください。
 
 ## ビルドとテスト
 
@@ -105,23 +102,15 @@ cargo run --release -p sekirei-bench --bin cross_library -- --components
 
 v7では6手の手順の合法性とundo後の復元を測定前に検証します。旧v6の6手roundtripは
 各手を早すぎる時点でundoしていたため、その測定値は無効です。合法手生成からも
-形式依存のチェックサム計算を除いたため、旧値とは直接比較できません。
-`--components`は初期化（共通テーブル初期化後）、バッファ、NNUE有無の盤面更新、
-NNUE推論、出力変換を分け、66固定ケースについて21標本の生データとp50/p95を出力します。
-NNUEは診断用の固定LCG重みであり、学習済みエンジンの探索速度ではありません。
-変更前後の実行ファイル・ソースハッシュの保存方法は
-`scripts/run_component_benchmark.py --help`を参照してください。
-固定した計測窓・標本数・下限は
-`scripts/fixtures/speed_contract_v1.json`に記録し、ヘッダが一致しないcaptureはvalidatorで拒否します。
-[処理別測定レポート](scripts/benchmark_reports/components_2026-09-12.md)に、測定修正、
-SFEN初期化の改善候補、負荷による結果の制限を記録しています。
+`--components`は初期化、盤面/NNUE更新、推論、出力変換を分離します。128局面corpus、
+計測契約、A/Aノイズフロア、詳細レポートは`scripts/`で検証できます。結果は診断であり、
+一般的な速度順位・棋力・Eloの証明ではありません。
 ルール処理だけが必要な場合は`Board::from_sfen_rules_only`でNNUE refreshを省略できます。
 返るBoardのhashは有効ですが、NNUE評価やNNUE差分更新の前に`Board::refresh_acc`を呼んでください。
 `sekirei_nnue_refresh`の独立caseにより、accumulator refreshとNNUE forwardのコストを分離して確認できます。
 
-最新の保守では、root探索の安全確認段階を分割し、alpha-betaのbetaカットオフ処理を
-共通化し、静かな手の派生ビットボード更新を1回のXORマスクに整理しました。これは
-正確性と可読性のためのリファクタリングであり、測定済みの速度向上とは扱いません。
+最新の保守ではroot探索の安全確認、betaカットオフ処理、静かな手の更新を整理しました。
+正確性・可読性のための変更で、新しい速度主張ではありません。
 今回のリリースでバージョン表記は`0.3.35`になりました。
 
 SP0のsmoke corpusは8分類×（元の4局面＋mirrorの4局面）×2手番の128局面です。`python3

@@ -1,13 +1,14 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/badge/release-v0.3.36-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.36)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
 Sekirei is an experimental **shogi (Japanese chess) engine written in Rust** (current release:
-`0.3.35`). It speaks the
+`0.3.36`). It speaks the
 Universal Shogi Interface (USI) protocol used by shogi GUIs, supports CSA/Floodgate games, and
 includes NNUE-style evaluation, parallel alpha-beta search, and tools for self-play strength
 testing.
@@ -85,21 +86,10 @@ crates/sekirei-bench/        benchmarks
 scripts/                     training and strength-test helpers
 ```
 
-The core currently includes alpha-beta/negamax, PVS/YBW parallel search, iterative deepening,
-quiescence search, a lock-free transposition table, common move-ordering and pruning heuristics,
-optional speculative search, and an opt-in Lazy SMP backend. `SpecTopN=0` disables speculative
-search and is useful when a repeatable run is required. A verification search used by singular extensions is deliberately
-excluded from unrestricted TT writes, so a partial verification result cannot overwrite the
-parent node's reusable entry.
-
-The core also contains experimental root-level MCTS and bounded df-pn APIs.
-They are opt-in research components, are not wired into the default USI mode,
-and do not establish a playing-strength result.
-
-For a bounded mate probe, the USI option `SearchMode=Dfpn` selects the df-pn
-backend. It is intentionally opt-in, uses the requested `depth` as its ply
-boundary, and should not be treated as the default playing mode or as a
-strength comparison.
+The core includes alpha-beta/negamax, PVS/YBW, iterative deepening, quiescence
+search, move ordering, pruning, a lock-free transposition table, speculative
+search, and Lazy SMP. Experimental root MCTS and bounded df-pn are opt-in and
+are not strength claims. Use `SpecTopN=0` for repeatable diagnostics.
 
 ## Build and test
 
@@ -126,83 +116,21 @@ cargo run --release -p sekirei-bench --bin cross_library -- --check
 cargo run --release -p sekirei-bench --bin cross_library -- --components
 ```
 
-The v7 harness validates every ply and undo of the six-move fixture before
-timing. The old v6 six-move roundtrip timings are invalid (moves were undone
-too early). v7 move generation observes output slices without the old
-representation-dependent encoding checksum, so those timings are not directly
-comparable either. `--components` isolates warm initialization, buffers,
-board updates with/without NNUE, NNUE inference, and output conversion, retaining
-66 fixed cases with 21 raw samples plus p50/p95. NNUE uses deterministic synthetic LCG weights;
-this is not a trained-engine search benchmark. Capture a frozen executable and
-source hashes with `scripts/run_component_benchmark.py --help`.
-The fixed timing parameters are recorded in
-`scripts/fixtures/speed_contract_v1.json`; captures with mismatched headers are
-rejected by the validator.
-The [component measurement report](scripts/benchmark_reports/components_2026-09-12.md)
-records the repaired protocol, the SFEN initialization pilot and its load limitations.
-The isolated `sekirei_nnue_refresh` cases separate accumulator-refresh cost from
-NNUE forward cost; their pilot results are recorded in the internal report.
-Library users that only need rules state can use `Board::from_sfen_rules_only` to
-skip the NNUE refresh; the returned board has a valid hash but must be refreshed
-with `Board::refresh_acc` before NNUE evaluation or incremental NNUE updates.
-The SP0 smoke corpus contains 128 positions: eight categories, four original
-and four mirrored positions per category, and both sides to move. It is
-structurally checked with `python3 scripts/validate_speed_corpus.py`; it is
-still a smoke corpus rather than a full legal-move parity proof over generated
-game histories. `python3
-scripts/preflight_speed_corpus.py --binary PATH` additionally checks the
-recorded legal-move and Perft(2) counts against Sekirei and rsshogi. Compare two
-completed component captures with
-`python3 scripts/compare_component_benchmarks.py --baseline DIR --candidate DIR`.
-The corpus also stores the sorted expected USI move set for each position, so
-the preflight rejects an equal-count but different move set.
-It also stores and verifies the Perft(2) divide for every legal root move,
-including the sum against the aggregate count.
-The canonical cases array is covered by a SHA-256 recorded in the fixture.
-New captures require a clean worktree; use `--allow-dirty` only for explicitly
-diagnostic runs, whose dirty status is retained in `provenance.json`. The
-`--build` mode performs the pinned offline release build before capture and
-records its command and profile.
-The resulting single capture is summarized in
-`scripts/benchmark_reports/component_current_release_2026-09-12.md`; it is
-diagnostic evidence, not the formal ten-session gate.
-The current ten-capture same-binary A/A noise-floor result is recorded in
-`scripts/benchmark_reports/component_aa_current_2026-09-12.md`.
-The corresponding three-case, ten-session rsshogi comparison is recorded in
-`scripts/benchmark_reports/cross_library_component_10session_2026-09-12.md`.
-The corpus preflight also applies and reverses each case's verified one-move
-sequence; the six-ply nested roundtrip remains covered by the component
-diagnostic preflight. It now additionally generates twelve deterministic legal
-moves from every corpus SFEN using the seed in `speed_contract_v1.json` and
-verifies the nested roundtrip in both engines.
+The v7 harness validates legal moves, undo, SFEN/hash restoration, and fixed
+measurement boundaries before timing. `--components` separates initialization,
+board/NNUE updates, inference, and output conversion. The 128-position smoke
+corpus, timing contract, A/A noise floor, and reports are validated by the
+scripts under `scripts/`; these remain diagnostics rather than a general speed
+ranking.
 
 The latest maintenance pass also split root-search safety stages, shared the
 alpha-beta beta-cutoff bookkeeping, and simplified quiet-move derived-bitboard
 updates. These are correctness/readability refactors included in release
 `0.3.35`; they are not presented as a measured speed increase.
 
-The SP0 smoke corpus is checked structurally with
-`python3 scripts/validate_speed_corpus.py`. It contains 128 verified smoke
-positions; the separate `python3 scripts/validate_speed_corpus_split.py`
-validator confirms the fixed 64/64 tuning/hold-out partition. These checks do
-not cover full generated game histories.
-
-The report compares legal move generation and Perft(3) with `rsshogi` on the
-same fixture. `shogi_core` has no legality checker or move generator, so its
-state-update row is not a move-generation or Perft comparison. Results and
-scope limitations are recorded in
-`scripts/benchmark_reports/cross_library_v0.3.33.md`.
-
-The v0.3.33 optimization snapshot recorded in that report (10,000 iterations x
-seven samples) is locally faster than pinned `rsshogi` on start-position
-Perft(2) (6.455 us vs 8.008 us), Perft(3) (192.399 us vs 250.672 us), and
-midgame-with-hands Perft(2) (31.900 us vs 51.440 us). `rsshogi` is still faster
-for one-shot legal move generation in that historical protocol. The full-state
-roundtrip also includes setup and Sekirei NNUE work absent from the reference;
-it cannot establish a pure board-update ranking. This is a bounded Perft result
-rather than a general speed claim.
-Against clean revision `4c568b1`, the same candidate reduced the Criterion
-depth-4 search median from 3.348 ms to 2.265 ms (about 1.48x faster).
+Historical speed snapshots and comparison limitations are kept in the
+benchmark reports rather than this overview. They do not establish a general
+speed ranking or playing-strength result.
 
 Probe an NNUE checkpoint without enabling process-global engine weights:
 

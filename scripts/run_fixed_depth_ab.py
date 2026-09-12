@@ -18,21 +18,23 @@ calling workflow builds base, runs it, builds candidate (overwriting the
 same target/release/sekirei path), runs it, then compares the two already-
 saved JSON result files:
 
-  run_fixed_depth_ab.py run --binary <path> --corpus <corpus.json> \
+    run_fixed_depth_ab.py run --binary <path> --corpus <corpus.json> \
       --depth 8 --threads 1 --spec-top-n 3 --output <out.json> \
       --label base
+
+  Add `--weights <weights.bin>` to `run` or `repeat` to pass a fixed
+  checkpoint as the engine's argv[1] and record it in the result manifest.
 
   run_fixed_depth_ab.py compare --base <base.json> --candidate <candidate.json> \
       --output-dir <dir>   # writes results.tsv and summary.md there
 
-No NNUE weights are supplied (data/ is gitignored, not available on a CI
-runner) -- both binaries fall back to sekirei_core::nnue's deterministic
-LCG-default evaluation (see crates/sekirei-core/src/nnue.rs, "generated
-deterministically via LCG", not time/entropy-seeded). This is NOT a real
-playing-strength signal; it's a fixed, reproducible, and IDENTICAL-across-
-binaries evaluation function, sufficient for the structural comparison this
-tool actually makes (does the code change alter search correctness, bestmove
-stability, or node counts at a fixed depth) without needing real weights.
+Without `--weights`, both binaries fall back to
+`sekirei_core::nnue`'s deterministic LCG-default evaluation. With
+`--weights`, the same fixed checkpoint is passed as argv[1] to both binaries
+and its path is recorded in each result manifest. Neither mode is a real
+playing-strength signal; both are fixed, reproducible structural comparisons
+of search correctness, bestmove stability, node counts, and (where captured)
+timing at a fixed depth.
 
 `run`/`compare` assume a fixed-depth search is DETERMINISTIC for a given
 binary -- true at `SpecTopN=0`, false at `SpecTopN>0` (SpeculativeSearcher
@@ -130,9 +132,9 @@ class _EngineIO:
     depend on the child ever seeing EOF to flush its output.
     """
 
-    def __init__(self, binary):
+    def __init__(self, binary, arguments=()):
         self.proc = subprocess.Popen(
-            [str(binary)],
+            [str(binary), *(str(argument) for argument in arguments)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -290,7 +292,7 @@ def _status(r):
     return "ok"
 
 
-def run_one_position(binary, entry, depth, threads, spec_top_n, timeout_s):
+def run_one_position(binary, entry, depth, threads, spec_top_n, timeout_s, weights=None):
     """Drive a fresh engine process through the USI protocol
     interactively for one corpus entry, waiting for each handshake
     step (usiok/readyok/bestmove) before sending the next command.
@@ -336,7 +338,7 @@ def run_one_position(binary, entry, depth, threads, spec_top_n, timeout_s):
     }
     allow_resign = entry.get("allow_resign", False)
     deadline = time.monotonic() + timeout_s
-    io = _EngineIO(binary)
+    io = _EngineIO(binary, [weights] if weights else [])
     quit_sent = False
 
     try:
@@ -407,7 +409,7 @@ def run_one_position(binary, entry, depth, threads, spec_top_n, timeout_s):
 REQUIRED_USI_OPTIONS = ("Threads", "SpecTopN")
 
 
-def probe_usi_capabilities(binary, threads, spec_top_n, timeout_s):
+def probe_usi_capabilities(binary, threads, spec_top_n, timeout_s, weights=None):
     """Send usi/setoption/isready once (not per-position) and report which
     options the binary actually advertised, plus whether it completed the
     usiok/readyok handshake.
@@ -431,7 +433,7 @@ def probe_usi_capabilities(binary, threads, spec_top_n, timeout_s):
         "quit",
     ]
     proc = subprocess.run(
-        [str(binary)],
+        [str(binary), *(str(argument) for argument in ([weights] if weights else []))],
         input="\n".join(cmds) + "\n",
         capture_output=True,
         text=True,
@@ -459,8 +461,8 @@ def probe_usi_capabilities(binary, threads, spec_top_n, timeout_s):
     }
 
 
-def require_usi_capabilities(binary, label, threads, spec_top_n, timeout_s):
-    caps = probe_usi_capabilities(binary, threads, spec_top_n, timeout_s)
+def require_usi_capabilities(binary, label, threads, spec_top_n, timeout_s, weights=None):
+    caps = probe_usi_capabilities(binary, threads, spec_top_n, timeout_s, weights)
     missing = [o for o in REQUIRED_USI_OPTIONS if o not in caps["advertised_options"]]
     if missing:
         print(
@@ -487,14 +489,14 @@ def cmd_run(args):
         sys.exit(1)
 
     usi_capabilities = require_usi_capabilities(
-        binary, args.label, args.threads, args.spec_top_n, args.timeout
+        binary, args.label, args.threads, args.spec_top_n, args.timeout, args.weights
     )
 
     results = []
     for entry in corpus:
         start = time.monotonic()
         r = run_one_position(
-            binary, entry, args.depth, args.threads, args.spec_top_n, args.timeout
+            binary, entry, args.depth, args.threads, args.spec_top_n, args.timeout, args.weights
         )
         r["wall_time_s"] = round(time.monotonic() - start, 3)
         results.append(r)
@@ -509,6 +511,7 @@ def cmd_run(args):
         "depth": args.depth,
         "threads": args.threads,
         "spec_top_n": args.spec_top_n,
+        "weights": args.weights,
         "corpus": str(args.corpus),
         "usi_capabilities": usi_capabilities,
         "results": results,
@@ -538,7 +541,7 @@ def cmd_repeat(args):
         sys.exit(1)
 
     usi_capabilities = require_usi_capabilities(
-        binary, args.label, args.threads, args.spec_top_n, args.timeout
+        binary, args.label, args.threads, args.spec_top_n, args.timeout, args.weights
     )
 
     positions = {}
@@ -546,7 +549,7 @@ def cmd_repeat(args):
         runs = []
         for rep in range(args.repeats):
             r = run_one_position(
-                binary, entry, args.depth, args.threads, args.spec_top_n, args.timeout
+                binary, entry, args.depth, args.threads, args.spec_top_n, args.timeout, args.weights
             )
             runs.append(r)
             print(
@@ -564,6 +567,7 @@ def cmd_repeat(args):
         "depth": args.depth,
         "threads": args.threads,
         "spec_top_n": args.spec_top_n,
+        "weights": args.weights,
         "repeats": args.repeats,
         "corpus": str(args.corpus),
         "usi_capabilities": usi_capabilities,
@@ -646,10 +650,13 @@ def cmd_analyze_repeatability(args):
 
     summary = {
         "label": data["label"],
+        "binary": data["binary"],
         "depth": data["depth"],
         "threads": data["threads"],
         "spec_top_n": data["spec_top_n"],
         "repeats": data["repeats"],
+        "corpus": data["corpus"],
+        "weights": data.get("weights"),
         "positions_total": len(per_position),
         "positions_with_bestmove_variance": len(variable_positions),
         "bestmove_variable_position_ids": variable_positions,
@@ -848,8 +855,8 @@ def cmd_compare(args):
         "",
         "Full per-position data in results.tsv. This is a fixed-depth structural",
         "comparison (correctness + node-count effects at equal search depth), not",
-        "a playing-strength/Elo measurement -- no real NNUE weights are used (see",
-        "this script's own module docstring).",
+        "a playing-strength/Elo measurement; see the weights field and this",
+        "script's module docstring for the evaluation mode.",
     ]
     if base.get("spec_top_n", 0) > 0 or candidate.get("spec_top_n", 0) > 0:
         summary_lines += [
@@ -885,6 +892,7 @@ def main():
     run_p.add_argument("--spec-top-n", type=int, required=True)
     run_p.add_argument("--output", required=True)
     run_p.add_argument("--label", required=True, help="e.g. 'base' or 'candidate', recorded in the output JSON")
+    run_p.add_argument("--weights", help="optional fixed NNUE checkpoint passed as engine argv[1]")
     run_p.add_argument("--timeout", type=int, default=DEFAULT_PER_POSITION_TIMEOUT_S)
     run_p.set_defaults(func=cmd_run)
 
@@ -903,6 +911,7 @@ def main():
     rep_p.add_argument("--repeats", type=int, required=True)
     rep_p.add_argument("--output", required=True)
     rep_p.add_argument("--label", required=True)
+    rep_p.add_argument("--weights", help="optional fixed NNUE checkpoint passed as engine argv[1]")
     rep_p.add_argument("--timeout", type=int, default=DEFAULT_PER_POSITION_TIMEOUT_S)
     rep_p.set_defaults(func=cmd_repeat)
 
