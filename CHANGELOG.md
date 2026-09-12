@@ -39,6 +39,9 @@
   path, with binary hash and selected p50 rows; no formal ranking claim follows.
 - Recorded ten same-binary A/A captures: overall geomean 0.9989x with a
   0.9943–1.0036x pair-geomean 95% interval inside the 0.98–1.02 noise floor.
+- Added a separate ten-session comparison for three common legal-generation
+  cases: combined rsshogi/Sekirei ratio 1.1596x (95% CI 1.1364–1.1833x).
+  The scope excludes full-state updates, NNUE, search, and strength.
 - Added explicit-weight evaluation, rules-only-to-NNUE evaluation, and Board
   clone diagnostics with setup work kept outside the timing window.
 - Centralized component timing parameters in the checked-in speed contract and

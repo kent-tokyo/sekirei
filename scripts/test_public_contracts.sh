@@ -18,4 +18,5 @@ python3 scripts/validate_speed_corpus_split.py \
   scripts/fixtures/speed_corpus_split_v1.json
 python3 -m unittest discover -s scripts -p 'test_speed_corpus.py'
 PYTHONPATH=scripts python3 -m unittest test_aggregate_component_aa
+PYTHONPATH=scripts python3 -m unittest test_aggregate_cross_library_components
 echo "public contract checks OK"
