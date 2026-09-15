@@ -13,3 +13,4 @@ path = "src/main.rs"
 [dependencies]
 sekirei-core = { path = "../sekirei-core", version = "0.3.36" }
 veridict = "0.19.0"
+serde_json = "1"

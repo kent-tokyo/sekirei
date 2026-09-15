@@ -56,7 +56,14 @@ def render_usi_commands(commands: list[str]) -> str:
     return "; ".join(f"printf '%s\\n' {shlex.quote(command)}" for command in commands)
 
 
-def run_one(engine: Path, weight: Path | None, row: dict[str, Any], depth: int, timeout: float) -> dict[str, Any]:
+def run_one(
+    engine: Path,
+    weight: Path | None,
+    row: dict[str, Any],
+    depth: int,
+    timeout: float,
+    nnue_output: str = "absolute",
+) -> dict[str, Any]:
     commands = [
         "usi",
         "setoption name Threads value 1",
@@ -69,6 +76,7 @@ def run_one(engine: Path, weight: Path | None, row: dict[str, Any], depth: int, 
     ]
     if weight is not None:
         commands.insert(4, f"setoption name EvalFile value {weight}")
+        commands.insert(5, f"setoption name NnueOutput value {nnue_output}")
     rendered = render_usi_commands(commands)
     shell_command = f"{{ {rendered}; sleep 1; printf '%s\\n' quit; }} | {shlex.quote(str(engine))}"
     started = time.monotonic()
@@ -127,6 +135,7 @@ def main() -> int:
     parser.add_argument("--limit", type=int, default=16)
     parser.add_argument("--depth", type=int, default=2)
     parser.add_argument("--timeout", type=float, default=20.0)
+    parser.add_argument("--nnue-output", choices=("absolute", "residual-material"), default="absolute")
     parser.add_argument("--candidate-output", type=Path, required=True)
     parser.add_argument("--teacher-output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -137,7 +146,10 @@ def main() -> int:
     args.candidate_output.parent.mkdir(parents=True, exist_ok=True)
     args.teacher_output.parent.mkdir(parents=True, exist_ok=True)
     for weight, output in ((args.candidate, args.candidate_output), (args.teacher, args.teacher_output)):
-        records = [run_one(args.engine, weight, row, args.depth, args.timeout) for row in corpus]
+        records = [
+            run_one(args.engine, weight, row, args.depth, args.timeout, args.nnue_output)
+            for row in corpus
+        ]
         output.write_text("\n".join(json.dumps(record, ensure_ascii=False) for record in records) + "\n", encoding="utf-8")
     manifest = {
         "schema_version": 1,
@@ -148,6 +160,7 @@ def main() -> int:
         "threads": 1,
         "parallel": 1,
         "spec_top_n": 0,
+        "nnue_output": args.nnue_output,
         "candidate_sha256": sha256(args.candidate),
         "teacher_sha256": sha256(args.teacher),
         "strength_status": "UNMEASURED",

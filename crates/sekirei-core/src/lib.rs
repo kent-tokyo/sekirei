@@ -80,6 +80,66 @@ mod tests {
     }
 
     #[test]
+    fn position_history_detects_fourfold_draw_and_one_sided_perpetual_check() {
+        use color::Color;
+        use sfen::{PositionHistory, RepetitionOutcome};
+
+        let mut draw = PositionHistory::initial(10);
+        for (hash, mover) in [
+            (11, Color::Black),
+            (12, Color::White),
+            (13, Color::Black),
+            (10, Color::White),
+        ]
+        .into_iter()
+        .cycle()
+        .take(12)
+        {
+            draw.push_after_move(hash, mover, false);
+        }
+        assert_eq!(
+            draw.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+
+        let mut perpetual = PositionHistory::initial(20);
+        for (hash, mover, checking) in [
+            (21, Color::Black, true),
+            (22, Color::White, false),
+            (23, Color::Black, true),
+            (20, Color::White, false),
+        ]
+        .into_iter()
+        .cycle()
+        .take(12)
+        {
+            perpetual.push_after_move(hash, mover, checking);
+        }
+        assert_eq!(
+            perpetual.outcome_at_current_position(),
+            Some(RepetitionOutcome::PerpetualCheck(Color::Black))
+        );
+    }
+
+    #[test]
+    fn position_command_preserves_a_fourfold_repetition_history() {
+        use sfen::{RepetitionOutcome, parse_position_cmd_with_history};
+
+        let cycle = "5i5h 5a5b 5h5i 5b5a";
+        let command = format!("sfen 4k4/9/9/9/9/9/9/9/4K4 b - 1 moves {cycle} {cycle} {cycle}");
+        let (board, history) = parse_position_cmd_with_history(&command)
+            .expect("kings-only cycle must be a legal USI position");
+        assert_eq!(
+            history.entries().first().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        assert_eq!(
+            history.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+    }
+
+    #[test]
     fn rules_only_sfen_skips_nnue_refresh_but_preserves_hash() {
         use sfen::STARTPOS_SFEN;
 
@@ -469,6 +529,24 @@ mod tests {
         );
         assert_eq!(board.hash(), before);
         assert_eq!(board.acc, fresh_acc(&board));
+    }
+
+    /// Explicit evaluations with different checkpoints must not share or
+    /// mutate the board's process-global accumulator state.
+    #[test]
+    fn explicit_evaluator_switch_does_not_mix_accumulators() {
+        let board = Board::startpos();
+        let before_hash = board.hash();
+        let before_acc = board.acc.clone();
+        let first_weights = nnue::NnueWeights::default_lcg();
+        let mut second_weights = nnue::NnueWeights::default_lcg();
+        second_weights.out_bias += 64.0;
+
+        let first_score = eval::evaluate_with_weights(&board, &first_weights);
+        let second_score = eval::evaluate_with_weights(&board, &second_weights);
+        assert_eq!(second_score, first_score + 1);
+        assert_eq!(board.hash(), before_hash);
+        assert_eq!(board.acc, before_acc);
     }
 
     /// Capture: the captured piece must disappear from both perspectives.

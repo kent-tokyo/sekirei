@@ -15,11 +15,11 @@ import subprocess
 from pathlib import Path
 
 
-def probe(binary: Path, weights: Path, sfens: list[str]) -> list[int]:
+def probe(binary: Path, weights: Path, sfens: list[str], nnue_output: str) -> list[int]:
     # A calibration comparison is invalid if either checkpoint is constant or
     # changes after reload.  Enforce the same health gate used by direct probes
     # before interpreting any candidate-vs-baseline statistic.
-    argv = [str(binary), str(weights), "--strict", "--json"]
+    argv = [str(binary), str(weights), "--nnue-output", nnue_output, "--strict", "--json"]
     for sfen in sfens:
         argv.extend(("--sfen", sfen))
     result = subprocess.run(argv, check=True, capture_output=True, text=True)
@@ -57,6 +57,7 @@ def main() -> None:
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, required=True)
     parser.add_argument("--candidate", action="append", nargs=2, metavar=("LABEL", "WEIGHTS"), required=True)
+    parser.add_argument("--nnue-output", choices=("absolute", "residual-material"), default="absolute")
     parser.add_argument("--limit", type=int, default=100)
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
@@ -68,11 +69,18 @@ def main() -> None:
     if not sfens:
         parser.error("corpus contains no SFEN records")
 
-    baseline = probe(args.binary, args.baseline, sfens)
+    baseline = probe(args.binary, args.baseline, sfens, args.nnue_output)
     rows = [summary("baseline", baseline, baseline)]
     for label, path in args.candidate:
-        rows.append(summary(label, probe(args.binary, Path(path), sfens), baseline))
-    report = {"positions": len(sfens), "baseline": str(args.baseline), "candidates": rows}
+        rows.append(summary(label, probe(args.binary, Path(path), sfens, args.nnue_output), baseline))
+    report = {
+        "diagnostic_only": True,
+        "strength_claim": "not_permitted",
+        "positions": len(sfens),
+        "baseline": str(args.baseline),
+        "nnue_output": args.nnue_output,
+        "candidates": rows,
+    }
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:

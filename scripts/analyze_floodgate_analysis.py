@@ -45,22 +45,32 @@ def analyze_directory(csa_dir, analysis_dir, threshold=200):
                 first = json.loads(sidecar.read_text(encoding="utf-8").splitlines()[0])
             except (OSError, IndexError, json.JSONDecodeError):
                 first = {}
-            if first.get("schema") != "sekirei.analysis-record.v1":
+            if first.get("schema") not in {"sekirei.analysis-record.v1", "sekirei.analysis-record.v2"}:
                 item["reason"] = "legacy_or_unknown_schema"
                 legacy.append(item)
             else:
                 invalid.append(item)
             continue
+        if report.get("alignment_errors"):
+            invalid.append({
+                "csa": str(csa),
+                "analysis": str(sidecar),
+                "error": "semantic alignment failed",
+                "reason": "alignment_error",
+                "alignment_errors": report["alignment_errors"],
+            })
+            continue
         games.append(report)
     by_result = {}
     for report in games:
         result = report.get("result") or "unknown"
-        group = by_result.setdefault(result, {"games": 0, "normal_swings": 0, "negative_swings": 0, "positive_swings": 0, "terminal_records": 0, "normal_swing_phases": {phase: 0 for phase in ("opening", "middlegame", "endgame", "unknown")}, "normal_swing_depth_bands": {band: 0 for band in ("shallow", "medium", "deep", "unknown")}, "normal_swing_elapsed_bands": {band: 0 for band in ("fast", "normal", "slow", "unknown")}, "bestmove_mismatches": 0, "alignment_errors": 0})
+        group = by_result.setdefault(result, {"games": 0, "normal_swings": 0, "negative_swings": 0, "positive_swings": 0, "sign_reversals": 0, "terminal_records": 0, "normal_swing_phases": {phase: 0 for phase in ("opening", "middlegame", "endgame", "unknown")}, "normal_swing_depth_bands": {band: 0 for band in ("shallow", "medium", "deep", "unknown")}, "normal_swing_elapsed_bands": {band: 0 for band in ("fast", "normal", "slow", "unknown")}, "bestmove_mismatches": 0, "alignment_errors": 0})
         group["games"] += 1
         group["normal_swings"] += report.get("normal_swings", report.get("swings", 0))
         group["terminal_records"] += report.get("terminal_records", 0)
         group["negative_swings"] += report.get("negative_swings", 0)
         group["positive_swings"] += report.get("positive_swings", 0)
+        group["sign_reversals"] += report.get("sign_reversals", 0)
         for record in report.get("records", []):
             if record.get("swing") and not record.get("terminal"):
                 phase = record.get("phase", "unknown")
@@ -80,6 +90,8 @@ def analyze_directory(csa_dir, analysis_dir, threshold=200):
         "missing_analysis": missing,
         "invalid_analysis": invalid,
         "legacy_analysis": legacy,
+        # Keep the historical key while exposing the policy in an explicit name.
+        "legacy_excluded": legacy,
         "by_result": by_result,
         "reports": games,
     }

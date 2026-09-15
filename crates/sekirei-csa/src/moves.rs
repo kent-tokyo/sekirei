@@ -8,6 +8,16 @@ use sekirei_core::{
     square::Square,
 };
 
+/// True only for a complete CSA move token, not the initial `+` / `-` side
+/// marker that can appear in a CSA position block.
+pub fn is_csa_move_token(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    bytes.len() == 7
+        && matches!(bytes[0], b'+' | b'-')
+        && bytes[1..5].iter().all(u8::is_ascii_digit)
+        && csa_piece(&token[5..7]).is_some()
+}
+
 // ---- Coordinate helpers ----
 
 /// CSA (file, rank) → Square.  Returns None for out-of-range values.
@@ -69,7 +79,7 @@ fn piece_to_csa(k: PieceKind) -> &'static str {
 ///   - from: `00` = drop
 ///   - piece: CSA name of the piece **after** the move (promoted if promotion occurred)
 pub fn csa_to_move(board: &mut Board, token: &str) -> Option<Move> {
-    if token.len() < 7 {
+    if !is_csa_move_token(token) {
         return None;
     }
     let bytes = token.as_bytes();

@@ -21,7 +21,7 @@
 mod elo;
 mod engine;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::fs;
 use std::io::Write as IoWrite;
@@ -31,7 +31,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use engine::UsiEngine;
 use sekirei_core::{
     board::Board,
+    color::Color,
     movegen::generate_legal_moves,
+    piece::PieceKind,
     sfen::{board_to_sfen, move_from_usi, move_to_usi, parse_position_cmd},
 };
 
@@ -45,6 +47,7 @@ struct Args {
     games: usize,
     byoyomi_ms: u64,
     output_dir: Option<PathBuf>,
+    csa_output_dir: Option<PathBuf>,
     max_moves: usize,
     positions_file: Option<PathBuf>,
     json_file: Option<PathBuf>,
@@ -63,6 +66,7 @@ fn parse_args() -> Result<Args, String> {
     let mut games = 100usize;
     let mut byoyomi = 10_000u64;
     let mut output = None;
+    let mut csa_output = None;
     let mut max_mv = 512usize;
     let mut positions_file = None;
     let mut json_file = None;
@@ -112,6 +116,10 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 output = Some(PathBuf::from(get(&argv, i)?));
             }
+            "--csa-output" => {
+                i += 1;
+                csa_output = Some(PathBuf::from(get(&argv, i)?));
+            }
             "--max-moves" => {
                 i += 1;
                 max_mv = get(&argv, i)?
@@ -159,6 +167,7 @@ fn parse_args() -> Result<Args, String> {
         games,
         byoyomi_ms: byoyomi,
         output_dir: output,
+        csa_output_dir: csa_output,
         max_moves: max_mv,
         positions_file,
         json_file,
@@ -185,6 +194,7 @@ fn print_usage() {
     eprintln!("  --games <n>          number of games (default: 100)");
     eprintln!("  --byoyomi <ms>       byoyomi per move in ms (default: 10000)");
     eprintln!("  --output <dir>       write USI game records to this directory");
+    eprintln!("  --csa-output <dir>   write replay-validated CSA games for training");
     eprintln!("  --max-moves <n>      max moves before declaring draw (default: 512)");
     eprintln!("  --positions <file>   file with one SFEN per line for random openings");
     eprintln!(
@@ -209,7 +219,7 @@ enum Outcome {
     Draw,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EndReason {
     Resign,
     Win,
@@ -218,6 +228,108 @@ enum EndReason {
     MaxMoves,
     EngineError,
     TimeForfeit,
+}
+
+/// Converts a clean game into CSA. Arbitrary SFEN starts are retained in a
+/// Sekirei comment so the training reader can reconstruct the exact board.
+/// Engine/protocol faults and capped games are deliberately rejected: assigning
+/// them a WDL label would poison self-play data.
+fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<String, String> {
+    let result = match reason {
+        EndReason::Resign => "%TORYO",
+        EndReason::Repetition => "%SENNICHITE",
+        EndReason::Win => {
+            return Err("USI win declaration has no move to encode as CSA %KACHI".to_string());
+        }
+        EndReason::MaxMoves => {
+            return Err(
+                "max-moves draw is not a CSA game result suitable for training".to_string(),
+            );
+        }
+        EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit => {
+            return Err(format!("{reason:?} is not suitable for self-play training"));
+        }
+    };
+
+    let mut board = if start_pos == "startpos" {
+        Board::startpos()
+    } else {
+        Board::from_sfen(start_pos).map_err(|e| format!("invalid initial SFEN: {e}"))?
+    };
+    let mut text = if start_pos == "startpos" {
+        String::from("V2.2\nPI\n+\n")
+    } else {
+        format!("V2.2\n'sekirei_initial_sfen: {start_pos}\n")
+    };
+    for move_text in moves {
+        let mv = move_from_usi(move_text, &board)
+            .map_err(|error| format!("cannot replay USI move {move_text:?}: {error}"))?;
+        let sign = if board.side_to_move == Color::Black {
+            '+'
+        } else {
+            '-'
+        };
+        let (from_file, from_rank) = mv
+            .from
+            .map(|square| (square.file(), square.rank()))
+            .unwrap_or((0, 0));
+        let piece_after = if mv.promote {
+            mv.piece_kind.promoted()
+        } else {
+            mv.piece_kind
+        };
+        let piece = csa_piece_name(piece_after);
+        let _ = writeln!(
+            text,
+            "{sign}{from_file}{from_rank}{}{}{}",
+            mv.to.file(),
+            mv.to.rank(),
+            piece
+        );
+        board.do_move(mv);
+    }
+    text.push_str(result);
+    text.push('\n');
+    Ok(text)
+}
+
+/// Records the exact scheduled opening for each CSA artifact.  A corpus can
+/// therefore be split by source opening rather than accidentally treating two
+/// color-reversed games from one SFEN as independent examples.
+fn selfplay_start_positions_manifest(
+    game_list: &[(bool, String)],
+    positions_file: Option<&Path>,
+) -> serde_json::Value {
+    let scheduled: Vec<&str> = game_list
+        .iter()
+        .map(|(_, position)| position.as_str())
+        .collect();
+    let unique: BTreeSet<&str> = scheduled.iter().copied().collect();
+    serde_json::json!({
+        "mode": if unique.len() == 1 && unique.contains("startpos") { "startpos" } else { "sfen" },
+        "positions_file": positions_file.map(|path| path.display().to_string()),
+        "unique_count": unique.len(),
+        "scheduled": scheduled,
+    })
+}
+
+const fn csa_piece_name(kind: PieceKind) -> &'static str {
+    match kind {
+        PieceKind::Fu => "FU",
+        PieceKind::Kyou => "KY",
+        PieceKind::Kei => "KE",
+        PieceKind::Gin => "GI",
+        PieceKind::Kin => "KI",
+        PieceKind::Kaku => "KA",
+        PieceKind::Hisha => "HI",
+        PieceKind::Ou => "OU",
+        PieceKind::Tokin => "TO",
+        PieceKind::Narikyo => "NY",
+        PieceKind::Narikei => "NK",
+        PieceKind::Narigin => "NG",
+        PieceKind::Uma => "UM",
+        PieceKind::Ryu => "RY",
+    }
 }
 
 /// A `go()` failure is a time forfeit when the engine simply didn't answer
@@ -238,7 +350,7 @@ fn end_reason_for_go_error(e: &std::io::Error) -> EndReason {
 /// exit -- used both for the initial launch and to replace a retired engine
 /// process mid-run (see the `IllegalMove`/`EngineError` handling in `main`).
 fn launch_and_init(path: &str, args: &[String], options: &[String]) -> UsiEngine {
-    let mut e = UsiEngine::launch(path, args).unwrap_or_else(|e| {
+    let mut e = UsiEngine::launch(path, args, options).unwrap_or_else(|e| {
         eprintln!("failed to launch engine {path}: {e}");
         std::process::exit(1);
     });
@@ -707,6 +819,24 @@ fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
     ))
 }
 
+/// Result summaries written by current match-runner versions explicitly list
+/// games with an engine/protocol fault.  A missing field is deliberately
+/// treated as unknown for old artifacts, but a present non-empty array makes
+/// the run unusable for a strength decision regardless of its Elo estimate.
+fn invalid_games_message(json: &str) -> Option<String> {
+    let needle = "\"invalid_games\":";
+    let start = json.find(needle)? + needle.len();
+    let rest = json[start..].trim_start();
+    let array = rest.strip_prefix('[')?;
+    let end = array.find(']')?;
+    let entries = array[..end].trim();
+    (!entries.is_empty()).then(|| {
+        format!(
+            "INCONCLUSIVE: run contains engine/protocol faults ({entries}); strength statistics are invalid"
+        )
+    })
+}
+
 /// Runs veridict's CI-based Elo gate over persisted per-game records. Pass
 /// only if the *pessimistic* (lower) CI bound already clears `pass_elo`;
 /// fail only if the *optimistic* (upper) bound is already at/below
@@ -930,6 +1060,11 @@ fn run_gate(argv: &[String]) {
         "report: elo_diff={elo:+.1}  los={:.1}%  games={games}",
         los * 100.0
     );
+
+    if let Some(msg) = invalid_games_message(&content) {
+        println!("{msg}");
+        std::process::exit(2);
+    }
 
     if let Some(msg) =
         low_diversity_message(json_f64(&content, "diversity_ratio"), min_diversity_ratio)
@@ -1297,6 +1432,15 @@ fn main() {
         eprintln!("output directory creation failed ({}): {e}", dir.display());
         std::process::exit(1);
     }
+    if let Some(dir) = &args.csa_output_dir
+        && let Err(e) = fs::create_dir_all(dir)
+    {
+        eprintln!(
+            "CSA output directory creation failed ({}): {e}",
+            dir.display()
+        );
+        std::process::exit(1);
+    }
 
     let positions: Vec<String> = args
         .positions_file
@@ -1310,6 +1454,8 @@ fn main() {
 
     let e1_label = engine_display_label(&e1.name, &args.args1);
     let e2_label = engine_display_label(&e2.name, &args.args2);
+    let e1_nnue_ack = e1.nnue_output_acknowledgement().map(str::to_owned);
+    let e2_nnue_ack = e2.nnue_output_acknowledgement().map(str::to_owned);
     println!("Engine1: {e1_label}");
     println!("Engine2: {e2_label}");
     if !positions.is_empty() {
@@ -1336,6 +1482,13 @@ fn main() {
     // the data supports (see tasks/lessons.md).
     let mut game_moves: Vec<Vec<String>> = Vec::new();
     let mut artifact_write_failures: Vec<String> = Vec::new();
+    // Illegal moves, engine disconnects, and time forfeits are game records
+    // worth preserving for diagnosis, but never statistical observations for
+    // a strength gate.  Keep an explicit machine-readable list so a completed
+    // runner process cannot make a contaminated JSON/JSONL pair look valid.
+    let mut invalid_games: Vec<String> = Vec::new();
+    let mut csa_written: Vec<String> = Vec::new();
+    let mut csa_skipped: Vec<String> = Vec::new();
     // Per-game outcomes in veridict's JSONL record shape, persisted alongside
     // --json so `gate` can be re-run against the raw trials (statistically
     // rigorous CI-based verdict) without replaying any games. Engine1 is
@@ -1364,6 +1517,13 @@ fn main() {
             &mut transcript,
         );
         game_moves.push(moves.clone());
+
+        if matches!(
+            reason,
+            EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit
+        ) {
+            invalid_games.push(format!("game{game_num:04}: {reason:?}"));
+        }
 
         // The game's result already recorded a genuine outcome (an illegal
         // move or a timeout is a definite event, not a channel-trust
@@ -1467,6 +1627,12 @@ fn main() {
             let mut content = String::new();
             let _ = writeln!(content, "# Engine1: {} ({})", e1_label, e1_color);
             let _ = writeln!(content, "# Engine2: {} ({})", e2_label, e2_color);
+            if let Some(acknowledgement) = &e1_nnue_ack {
+                let _ = writeln!(content, "# Engine1 NNUE: {acknowledgement}");
+            }
+            if let Some(acknowledgement) = &e2_nnue_ack {
+                let _ = writeln!(content, "# Engine2 NNUE: {acknowledgement}");
+            }
             let _ = writeln!(content, "# Result: {result_str}{reason_tag}");
             let pos_line = if start_pos == "startpos" {
                 "position startpos".to_string()
@@ -1483,6 +1649,28 @@ fn main() {
                 artifact_write_failures.push(path.display().to_string());
             }
         }
+        if let Some(dir) = &args.csa_output_dir {
+            match game_to_csa(start_pos, &moves, reason) {
+                Ok(content) => {
+                    let path = dir.join(format!("game{game_num:04}.csa"));
+                    if let Err(error) = fs::write(&path, content) {
+                        eprintln!(
+                            "CSA self-play artifact write failed ({}): {error}",
+                            path.display()
+                        );
+                        artifact_write_failures.push(path.display().to_string());
+                    } else {
+                        csa_written.push(path.file_name().unwrap().to_string_lossy().into_owned());
+                    }
+                }
+                Err(error) => {
+                    eprintln!(
+                        "CSA self-play artifact skipped for game {game_num} ({reason:?}): {error}"
+                    );
+                    csa_skipped.push(format!("game{game_num:04}: {reason:?}: {error}"));
+                }
+            }
+        }
     }
 
     // Summary
@@ -1496,6 +1684,40 @@ fn main() {
     let elo = elo::elo_diff(e1_wins, draws, e2_wins);
     let ci = elo::elo_ci(e1_wins, draws, e2_wins);
     let los = elo::los(e1_wins, draws, e2_wins);
+
+    if let Some(dir) = &args.csa_output_dir {
+        let manifest = serde_json::json!({
+            "schema": "sekirei.selfplay-csa-manifest.v1",
+            "status": "complete",
+            "strength_claim": false,
+            "start_positions": selfplay_start_positions_manifest(
+                &game_list,
+                args.positions_file.as_deref(),
+            ),
+            "games_scheduled": game_list.len(),
+            "games_completed": total,
+            "csa_games_written": csa_written,
+            "csa_games_skipped": csa_skipped,
+            "engine1": {"command": args.engine1_path, "args": args.args1, "options": args.engine_options1},
+            "engine2": {"command": args.engine2_path, "args": args.args2, "options": args.engine_options2},
+            "byoyomi_ms": args.byoyomi_ms,
+            "max_moves": args.max_moves,
+        });
+        let path = dir.join("manifest.json");
+        match serde_json::to_vec_pretty(&manifest)
+            .map_err(std::io::Error::other)
+            .and_then(|bytes| fs::write(&path, bytes))
+        {
+            Ok(()) => eprintln!("Self-play CSA manifest saved to {}", path.display()),
+            Err(error) => {
+                eprintln!(
+                    "CSA self-play manifest write failed ({}): {error}",
+                    path.display()
+                );
+                artifact_write_failures.push(path.display().to_string());
+            }
+        }
+    }
 
     println!();
     println!("=== Results after {total} games ===");
@@ -1544,7 +1766,8 @@ fn main() {
   "top_prefix20_count": {},
   "diversity_ratio": {:.4},
   "artifact_files_expected": {},
-  "artifact_write_failures": {:?}
+  "artifact_write_failures": {:?},
+  "invalid_games": {:?}
 }}
 "#,
             e1_label,
@@ -1566,7 +1789,8 @@ fn main() {
             diversity.top_prefix20_count,
             diversity.diversity_ratio,
             total,
-            artifact_write_failures
+            artifact_write_failures,
+            invalid_games
         );
         if let Err(e) = fs::write(json_path, &json) {
             eprintln!("JSON write failed: {e}");
@@ -1586,6 +1810,57 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn selfplay_csa_replays_startpos_resignation_without_inventing_result() {
+        let moves = vec!["7g7f".to_string(), "3c3d".to_string()];
+        let csa = game_to_csa("startpos", &moves, EndReason::Resign).unwrap();
+        assert!(csa.starts_with("V2.2\nPI\n+\n+7776FU\n-3334FU\n"));
+        assert!(csa.ends_with("%TORYO\n"));
+    }
+
+    #[test]
+    fn selfplay_csa_rejects_non_game_results() {
+        assert!(game_to_csa("startpos", &[], EndReason::MaxMoves).is_err());
+        assert!(game_to_csa("startpos", &[], EndReason::TimeForfeit).is_err());
+        assert!(game_to_csa("startpos", &[], EndReason::Win).is_err());
+    }
+
+    #[test]
+    fn selfplay_manifest_preserves_each_scheduled_sfen_and_source() {
+        let game_list = vec![
+            (true, "sfenA".to_string()),
+            (false, "sfenA".to_string()),
+            (true, "sfenB".to_string()),
+        ];
+        let manifest = selfplay_start_positions_manifest(
+            &game_list,
+            Some(Path::new("data/gate/openings.sfen")),
+        );
+        assert_eq!(manifest["mode"], "sfen");
+        assert_eq!(manifest["positions_file"], "data/gate/openings.sfen");
+        assert_eq!(manifest["unique_count"], 2);
+        assert_eq!(
+            manifest["scheduled"],
+            serde_json::json!(["sfenA", "sfenA", "sfenB"])
+        );
+    }
+
+    #[test]
+    fn selfplay_manifest_marks_single_startpos_run() {
+        let game_list = vec![(true, "startpos".to_string())];
+        let manifest = selfplay_start_positions_manifest(&game_list, None);
+        assert_eq!(manifest["mode"], "startpos");
+        assert!(manifest["positions_file"].is_null());
+        assert_eq!(manifest["unique_count"], 1);
+    }
+
+    #[test]
+    fn csa_piece_names_cover_promotions() {
+        assert_eq!(csa_piece_name(PieceKind::Tokin), "TO");
+        assert_eq!(csa_piece_name(PieceKind::Uma), "UM");
+        assert_eq!(csa_piece_name(PieceKind::Ryu), "RY");
+    }
 
     fn rec(id: &str, result: &str) -> (usize, veridict::input::Record) {
         (
@@ -1733,6 +2008,16 @@ mod tests {
     fn low_diversity_message_silent_when_field_missing() {
         // Legacy result files predating this check must not start failing.
         assert_eq!(low_diversity_message(None, 0.3), None);
+    }
+
+    #[test]
+    fn invalid_games_force_an_inconclusive_gate() {
+        assert_eq!(invalid_games_message("{}"), None);
+        assert_eq!(invalid_games_message(r#"{"invalid_games": []}"#), None);
+        let msg = invalid_games_message(r#"{"invalid_games": ["game0094: EngineError"]}"#)
+            .expect("engine fault must invalidate a gate");
+        assert!(msg.contains("INCONCLUSIVE"));
+        assert!(msg.contains("game0094"));
     }
 
     #[test]

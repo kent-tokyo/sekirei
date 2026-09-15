@@ -1,0 +1,66 @@
+{
+  "schema": "sekirei.floodgate-root-review.v2",
+  "diagnostic_only": true,
+  "strength_claim": "not_permitted",
+  "contract": {
+    "nodes": 20000,
+    "max_depth": 2,
+    "threads": 1,
+    "spec_top_n": 0,
+    "played_move_is_label": false
+  },
+  "binary": {
+    "path": "engine",
+    "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "history_binary": {
+    "path": "history",
+    "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "rows": [
+    {
+      "game_id": "fixture-game",
+      "result": "win",
+      "ply": 2,
+      "played_move_usi": "7g7f",
+      "played_move_is_label": false,
+      "source": {
+        "csa": "fixture.csa",
+        "analysis": "fixture.analysis.jsonl",
+        "csa_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "analysis_sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+      },
+      "history_replay": {"status": "verified"},
+      "cold": {
+        "bestmove": "7g7f",
+        "depth": 1,
+        "score_cp": 0,
+        "nodes": 20000,
+        "completion": "search_completed"
+      },
+      "warm": {
+        "bestmove": "7g7f",
+        "depth": 1,
+        "score_cp": 0,
+        "nodes": 20000,
+        "completion": "search_completed"
+      },
+      "actual_root": {
+        "bestmove": "7g7f",
+        "root_move_usi": "7g7f",
+        "depth": 1,
+        "score_cp": 0,
+        "nodes": 20000,
+        "completion": "search_completed"
+      },
+      "comparison": {
+        "requested_node_budget": 20000,
+        "same_requested_budget": true,
+        "bestmove_matches_played": true,
+        "warm_bestmove_changed": false,
+        "warm_score_delta_cp": 0,
+        "actual_score_delta_cp": 0
+      }
+    }
+  ]
+}

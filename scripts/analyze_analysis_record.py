@@ -12,8 +12,8 @@ MATE_SCORE_CP = 800_000
 
 def load(path):
     docs = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
-    if not docs or docs[0].get("schema") != "sekirei.analysis-record.v1":
-        raise ValueError("analysis sidecar has no v1 header")
+    if not docs or docs[0].get("schema") not in {"sekirei.analysis-record.v1", "sekirei.analysis-record.v2", "sekirei.analysis-record.v3"}:
+        raise ValueError("analysis sidecar has no supported header")
     if docs[0].get("engine") != "sekirei" or not docs[0].get("engine_version"):
         raise ValueError("analysis sidecar has incomplete engine identity")
     if docs[0].get("score_perspective") != "side_to_move":
@@ -75,6 +75,77 @@ def elapsed_band(elapsed_ms):
     return "slow"
 
 
+def sfen_features(sfen):
+    """Extract structural SFEN features without pretending to prove tactics."""
+    if not isinstance(sfen, str):
+        return {"status": "unknown", "reason": "missing_sfen"}
+    fields = sfen.split()
+    if len(fields) != 4 or fields[1] not in {"b", "w"}:
+        return {"status": "invalid", "reason": "invalid_sfen_shape"}
+    ranks = fields[0].split("/")
+    if len(ranks) != 9:
+        return {"status": "invalid", "reason": "invalid_board_rank_count"}
+    pieces = []
+    promoted = 0
+    kings = {}
+    for rank, row in enumerate(ranks):
+        file_index = 9
+        index = 0
+        while index < len(row):
+            token = row[index]
+            if token.isdigit() and token != "0":
+                file_index -= int(token)
+                index += 1
+                continue
+            if token == "+":
+                if index + 1 >= len(row) or not row[index + 1].isalpha():
+                    return {"status": "invalid", "reason": "invalid_promotion_marker"}
+                promoted += 1
+                token = row[index + 1]
+                index += 2
+            elif token.isalpha():
+                index += 1
+            else:
+                return {"status": "invalid", "reason": "invalid_board_token"}
+            if not token.isalpha() or file_index < 1:
+                return {"status": "invalid", "reason": "invalid_board_width"}
+            colour = "black" if token.isupper() else "white"
+            pieces.append(token.upper())
+            if token.upper() == "K":
+                kings[colour] = {"file": file_index, "rank": rank + 1}
+            file_index -= 1
+        if file_index != 0:
+            return {"status": "invalid", "reason": "invalid_board_width"}
+    hand_units = 0
+    hand = fields[2]
+    if hand != "-":
+        index = 0
+        while index < len(hand):
+            count = 0
+            while index < len(hand) and hand[index].isdigit():
+                count = count * 10 + int(hand[index])
+                index += 1
+            if index >= len(hand) or not hand[index].isalpha():
+                return {"status": "invalid", "reason": "invalid_hand"}
+            hand_units += count or 1
+            index += 1
+    king_distance = None
+    if len(kings) == 2:
+        king_distance = abs(kings["black"]["file"] - kings["white"]["file"]) + abs(
+            kings["black"]["rank"] - kings["white"]["rank"]
+        )
+    return {
+        "status": "verified",
+        "side_to_move": "black" if fields[1] == "b" else "white",
+        "board_piece_count": len(pieces),
+        "promoted_piece_count": promoted,
+        "hand_units": hand_units,
+        "kings": kings,
+        "king_distance": king_distance,
+        "check_status": "unknown",
+    }
+
+
 def analyze(csa_path, analysis_path, threshold=200):
     header, records = load(analysis_path)
     all_docs = [json.loads(line) for line in analysis_path.read_text(encoding="utf-8").splitlines() if line.strip()]
@@ -115,6 +186,15 @@ def analyze(csa_path, analysis_path, threshold=200):
             and not terminal
             else None
         )
+        sign_reversal = (
+            isinstance(score, int)
+            and isinstance(prior_score, int)
+            and score != 0
+            and prior_score != 0
+            and score * prior_score < 0
+            and not previous_terminal
+            and not terminal
+        )
         if isinstance(score, int):
             previous_score = score
             previous_terminal = terminal
@@ -128,15 +208,22 @@ def analyze(csa_path, analysis_path, threshold=200):
             "ply": ply,
             "previous_ply": prior_ply,
             "previous_score_cp": prior_score,
+            # Keep `phase` for v1 consumers; the explicit name prevents it from
+            # being mistaken for a chess/shogi-theoretic phase classification.
             "phase": phase_for_ply(ply, len(moves)),
+            "relative_game_progress": phase_for_ply(ply, len(moves)),
             "depth_band": depth_band(record.get("depth")),
             "elapsed_band": elapsed_band(record.get("elapsed_ms")),
             "sfen": record.get("sfen"),
+            "position_features": sfen_features(record.get("sfen")),
+            "side_to_move": record.get("side_to_move"),
+            "our_color": record.get("our_color"),
             "actual_move_csa": actual,
             "bestmove_csa": selected,
             "bestmove_matches_actual": actual == selected if actual is not None and selected is not None else None,
             "score_cp": score,
             "score_delta_cp": delta,
+            "sign_reversal": sign_reversal,
             "terminal": terminal,
             "terminal_reason": terminal_reason,
             "swing": abs(delta) >= threshold and not terminal if delta is not None else False,
@@ -164,6 +251,7 @@ def analyze(csa_path, analysis_path, threshold=200):
             "normal_swings": sum(x["swing"] for x in aligned),
             "negative_swings": sum(x["swing"] and x["score_delta_cp"] < 0 for x in aligned),
             "positive_swings": sum(x["swing"] and x["score_delta_cp"] > 0 for x in aligned),
+            "sign_reversals": sum(x["sign_reversal"] for x in aligned),
             "terminal_records": sum(x["terminal"] for x in aligned),
         "alignment_errors": errors,
         "records": aligned,

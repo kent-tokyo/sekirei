@@ -36,6 +36,7 @@ use crate::movegen::generate_legal_moves;
 use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check};
 use crate::mv::Move;
 use crate::piece::PieceKind;
+use crate::sfen::{PositionHistory, RepetitionOutcome};
 use crate::speculative::{SpecGroup, SpecState};
 use crate::square::Square;
 use crate::tt::{Bound, Tt, TtEntry};
@@ -300,6 +301,56 @@ pub struct SearchInfo {
     pub elapsed: Duration,
     /// Transposition table occupancy, in permille (0-1000).
     pub hashfull: u32,
+    /// Proof status of the returned root score.
+    pub bound: SearchBound,
+    /// Proof status of the last fully completed iterative-deepening pass.
+    ///
+    /// This remains useful when a later, deeper pass hits a node or time
+    /// budget and therefore makes [`Self::bound`] unknown. Consumers must
+    /// still require `depth > 0` before using the accompanying score.
+    pub completed_bound: SearchBound,
+    /// Whether the search stopped before completing its current budget.
+    pub aborted: bool,
+    /// Observed stop source: `none`, `budget`, or `external_stop`.
+    pub abort_reason: &'static str,
+    /// Legal principal-variation prefix reconstructed from exact TT entries.
+    pub pv: Vec<Move>,
+}
+
+/// Result for one explicitly requested root move in a diagnostic comparison.
+///
+/// This is separate from [`SearchInfo`]: normal search remains a
+/// single-best-move API, while root-candidate evidence is opt-in.
+pub struct RootCandidateInfo {
+    /// The legal root move that was searched.
+    pub root_move: Move,
+    /// Search result restricted to `root_move`.
+    pub info: SearchInfo,
+}
+
+/// Proof status for a completed root score.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SearchBound {
+    /// The root score was obtained with a complete window.
+    Exact,
+    /// The score is known to be at least the reported value.
+    Lower,
+    /// The score is known to be at most the reported value.
+    Upper,
+    /// The search was interrupted or otherwise did not prove a bound.
+    Unknown,
+}
+
+impl SearchBound {
+    /// Return the stable schema spelling used by diagnostic records.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Exact => "exact",
+            Self::Lower => "lower",
+            Self::Upper => "upper",
+            Self::Unknown => "unknown",
+        }
+    }
 }
 
 /// Optional counters for explaining move-ordering behavior.
@@ -375,6 +426,25 @@ struct SearchState {
     history: HistoryTable,
     countermoves: CountermoveTable,
     diagnostics: Option<Arc<SearchDiagnostics>>,
+    pruning: PruningConfig,
+}
+
+/// Search pruning switches used by diagnostic ablations.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PruningConfig {
+    /// Enable null-move pruning and its verification search.
+    pub null_move: bool,
+    /// Enable late-move reductions for quiet, late-ordered moves.
+    pub late_move_reduction: bool,
+}
+
+impl Default for PruningConfig {
+    fn default() -> Self {
+        Self {
+            null_move: true,
+            late_move_reduction: true,
+        }
+    }
 }
 
 // ============================================================
@@ -387,6 +457,7 @@ pub struct Searcher {
     /// Exposed for USI "stop" command — set to true to abort an in-progress search
     external_abort: Arc<AtomicBool>,
     diagnostics: Option<Arc<SearchDiagnostics>>,
+    pruning: PruningConfig,
 }
 
 impl Searcher {
@@ -402,6 +473,18 @@ impl Searcher {
             tt,
             external_abort,
             diagnostics: None,
+            pruning: PruningConfig::default(),
+        }
+    }
+
+    /// Create a searcher with explicit pruning switches for controlled diagnostics.
+    /// The default [`Self::new`] path keeps all production pruning enabled.
+    pub fn with_pruning(tt: Arc<Tt>, pruning: PruningConfig) -> Self {
+        Self {
+            tt,
+            external_abort: Arc::new(AtomicBool::new(false)),
+            diagnostics: None,
+            pruning,
         }
     }
 
@@ -411,6 +494,7 @@ impl Searcher {
             tt,
             external_abort: Arc::new(AtomicBool::new(false)),
             diagnostics: Some(diagnostics),
+            pruning: PruningConfig::default(),
         }
     }
 
@@ -429,6 +513,143 @@ impl Searcher {
     ///
     /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
+        let history = PositionHistory::initial(board.hash());
+        self.search_impl(board, config, None, true, &history)
+    }
+
+    /// Search a position together with its already-played game history.
+    ///
+    /// Repetition outcomes are history dependent and therefore are detected
+    /// before transposition-table probing or storage.  The supplied history
+    /// must end at `board`'s current hash.
+    pub fn search_with_history(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> SearchInfo {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        self.search_impl(board, config, None, true, history)
+    }
+
+    /// Search a bounded position label without the expensive shallow
+    /// root-mate safety filter used for interactive move selection.
+    ///
+    /// The label search still uses the same legal move generator, alpha-beta,
+    /// evaluator, and explicit node/time budget. Omitting the root-only
+    /// filter keeps a finite label budget meaningful on positions with many
+    /// drops; it must not be used to choose a production USI move.
+    pub fn search_for_teacher(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
+        let history = PositionHistory::initial(board.hash());
+        self.search_impl(board, config, None, false, &history)
+    }
+
+    /// Search while fixing the root move to `root_move`.
+    ///
+    /// This is intentionally a diagnostic API: it uses the same iterative
+    /// deepening, evaluator, TT, and node budget as [`Self::search`], but
+    /// restricts the root to one already-legal move.  It enables actual-move
+    /// versus alternative-move comparisons without treating the played move as
+    /// a correctness label or changing normal engine behavior.
+    pub fn search_root_move(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        root_move: Move,
+    ) -> SearchInfo {
+        let history = PositionHistory::initial(board.hash());
+        self.search_root_move_with_history(board, config, root_move, &history)
+    }
+
+    /// Search while fixing the root move and preserving an already-played
+    /// history for repetition adjudication.
+    pub fn search_root_move_with_history(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        root_move: Move,
+        history: &PositionHistory,
+    ) -> SearchInfo {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        if !MoveBuffer::legal(board).as_slice().contains(&root_move) {
+            return SearchInfo {
+                best_move: None,
+                score: 0,
+                depth: 0,
+                nodes: 0,
+                elapsed: Duration::ZERO,
+                hashfull: self.tt.hashfull(),
+                bound: SearchBound::Unknown,
+                completed_bound: SearchBound::Unknown,
+                aborted: false,
+                abort_reason: "none",
+                pv: Vec::new(),
+            };
+        }
+        self.search_impl(board, config, Some(root_move), true, history)
+    }
+
+    /// Search an explicit set of legal root candidates independently.
+    ///
+    /// Illegal candidates are ignored. Each returned result is isolated to
+    /// its root move and the caller's board is restored after every search.
+    /// The supplied order is not treated as an engine ranking or correctness
+    /// label.
+    pub fn search_root_candidates(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        candidates: &[Move],
+    ) -> Vec<RootCandidateInfo> {
+        let history = PositionHistory::initial(board.hash());
+        self.search_root_candidates_with_history(board, config, candidates, &history)
+    }
+
+    /// Search explicit root candidates while preserving the supplied game
+    /// history. Candidate searches remain individually isolated.
+    pub fn search_root_candidates_with_history(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        candidates: &[Move],
+        history: &PositionHistory,
+    ) -> Vec<RootCandidateInfo> {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        let legal = MoveBuffer::legal(board);
+        let mut selected = Vec::new();
+        for candidate in candidates.iter().copied() {
+            if legal.as_slice().contains(&candidate) && !selected.contains(&candidate) {
+                selected.push(candidate);
+            }
+        }
+        selected
+            .iter()
+            .copied()
+            .map(|root_move| {
+                self.reset_abort_flag();
+                let info = self.search_root_move_with_history(board, config, root_move, history);
+                RootCandidateInfo { root_move, info }
+            })
+            .collect()
+    }
+
+    fn search_impl(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        root_move: Option<Move>,
+        root_mate_safety: bool,
+        history: &PositionHistory,
+    ) -> SearchInfo {
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(
@@ -440,15 +661,26 @@ impl Searcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: self.diagnostics.clone(),
+            pruning: self.pruning,
         });
 
         let mut best_move = None;
         let mut best_score = NEG_INF;
         let mut done_depth = 0;
         let mut prev_best: Option<Move> = None;
+        let mut bound = SearchBound::Unknown;
 
         for depth in 1..=config.max_depth {
-            let (m, score) = root_search(&state, board, depth, best_score, &[]);
+            let (m, score, root_bound) = root_search(
+                &state,
+                board,
+                depth,
+                best_score,
+                &[],
+                root_move,
+                root_mate_safety,
+                history,
+            );
 
             if state.budget.should_abort() {
                 break;
@@ -457,6 +689,7 @@ impl Searcher {
             best_move = m.or(best_move);
             best_score = score;
             done_depth = depth;
+            bound = root_bound;
 
             if score.abs() >= MATE_SCORE - 1000 {
                 break;
@@ -477,12 +710,19 @@ impl Searcher {
         // legal move whenever the position has one. This keeps a slow or
         // heavily contended environment from producing an invalid bestmove.
         if best_move.is_none() {
-            best_move = MoveBuffer::legal(board).as_slice().first().copied();
+            let legal = MoveBuffer::legal(board);
+            best_move = root_move
+                .filter(|candidate| legal.as_slice().contains(candidate))
+                .or_else(|| legal.as_slice().first().copied());
             if best_move.is_some() {
                 best_score = evaluate(board);
             }
         }
+        let pv = extract_pv(self, board, best_move, done_depth);
 
+        let aborted = state.budget.should_abort();
+        let completed_bound = bound;
+        let bound = if aborted { SearchBound::Unknown } else { bound };
         SearchInfo {
             best_move,
             score: best_score,
@@ -490,25 +730,78 @@ impl Searcher {
             nodes: state.budget.nodes(),
             elapsed: state.budget.elapsed(),
             hashfull: self.tt.hashfull(),
+            bound,
+            completed_bound,
+            pv,
+            aborted,
+            abort_reason: state.budget.abort_reason(),
         }
     }
+}
+
+/// Reconstruct a conservative PV without treating non-exact TT bounds as a line.
+fn extract_pv(
+    searcher: &Searcher,
+    board: &mut Board,
+    first: Option<Move>,
+    depth: u32,
+) -> Vec<Move> {
+    let mut line = Vec::new();
+    let mut tokens = Vec::new();
+    let mut next = first;
+    let max_len = depth as usize;
+    while line.len() < max_len {
+        let mv = match next {
+            Some(mv) => mv,
+            None => break,
+        };
+        let legal = MoveBuffer::legal(board);
+        if !legal.as_slice().contains(&mv) {
+            break;
+        }
+        tokens.push(board.do_move(mv));
+        line.push(mv);
+        next = searcher
+            .tt
+            .probe(board.hash())
+            .filter(|entry| entry.bound == Bound::Exact)
+            .and_then(|entry| entry.mv);
+    }
+    for token in tokens.into_iter().rev() {
+        board.undo_move(token);
+    }
+    line
 }
 
 // ============================================================
 // Root search with Aspiration Window
 // ============================================================
 
+#[allow(clippy::too_many_arguments)]
 fn root_search(
     state: &Arc<SearchState>,
     board: &mut Board,
     depth: u32,
     prev_score: i32,
     excluded: &[Move],
-) -> (Option<Move>, i32) {
+    root_move: Option<Move>,
+    root_mate_safety: bool,
+    history: &PositionHistory,
+) -> (Option<Move>, i32, SearchBound) {
+    if let Some(outcome) = history.outcome_at_current_position() {
+        return (
+            None,
+            repetition_score(outcome, board.side_to_move, 0),
+            SearchBound::Exact,
+        );
+    }
     let mut move_buffer = MoveBuffer::legal(board);
     let moves = move_buffer.as_mut_list();
     if !excluded.is_empty() {
         moves.retain(|m| !excluded.contains(m));
+    }
+    if let Some(root_move) = root_move {
+        moves.retain(|m| *m == root_move);
     }
     if moves.is_empty() {
         let score = if is_in_check(board, board.side_to_move) {
@@ -516,16 +809,33 @@ fn root_search(
         } else {
             0
         };
-        return (None, score);
+        return (None, score, SearchBound::Exact);
     }
 
-    // Single legal move: skip deep search but return an honest eval score.
-    if moves.len() == 1 {
+    // A forced root move still needs a real child search: the child may be a
+    // history-dependent fourth occurrence, which a static evaluation cannot
+    // adjudicate correctly.
+    if moves.len() == 1 && root_move.is_none() {
         let only_move = moves.as_slice()[0];
+        let mover = board.side_to_move;
         let tok = board.do_move(only_move);
-        let score = -evaluate(board);
+        let child_in_check = is_in_check(board, board.side_to_move);
+        let child_history = history.after_move(board.hash(), mover, child_in_check);
+        let score = -alpha_beta(
+            state,
+            board,
+            NEG_INF,
+            POS_INF,
+            depth.saturating_sub(1),
+            1,
+            true,
+            Some(only_move),
+            None,
+            Some(child_in_check),
+            &child_history,
+        );
         board.undo_move(tok);
-        return (Some(only_move), score);
+        return (Some(only_move), score, SearchBound::Exact);
     }
 
     let tt_mv = state.tt.probe(board.hash()).and_then(|e| e.mv);
@@ -542,16 +852,24 @@ fn root_search(
     );
     let ordered = move_buffer.as_slice();
 
-    // Mate-in-1 and shallow opponent-safety checks are kept outside the
-    // aspiration loop: they are root filters, not alternate searches.
-    if let Some(m) = root_mate_in_one(board, ordered) {
-        return (Some(m), MATE_SCORE - 1);
-    }
-
-    // Opponent safety: at shallow depths, filter out root moves that immediately allow
-    // opponent mate-in-1. Gated on depth <= 2 to bound the O(N×M²) cost.
-    // At depth >= 3 the normal alpha-beta search catches these situations anyway.
-    let safe_moves = filter_root_mate_blunders(board, ordered, depth);
+    let safe_moves = if root_mate_safety {
+        // Root mate filters are production move-selection guards, not search
+        // nodes. They must nevertheless count against the caller's hard
+        // budget so a bounded search cannot spend unbounded time here.
+        if let Some(m) = root_mate_in_one(state, board, ordered) {
+            return (Some(m), MATE_SCORE - 1, SearchBound::Exact);
+        }
+        if state.budget.should_abort() {
+            return (None, 0, SearchBound::Unknown);
+        }
+        let safe_moves = filter_root_mate_blunders(state, board, ordered, depth);
+        if state.budget.should_abort() {
+            return (None, 0, SearchBound::Unknown);
+        }
+        safe_moves
+    } else {
+        None
+    };
     let ordered: &[Move] = safe_moves.as_deref().unwrap_or(ordered);
 
     // Aspiration window: start tight around prev_score; widen on fail
@@ -563,10 +881,10 @@ fn root_search(
     };
 
     loop {
-        let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi);
+        let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi, history);
 
         if state.budget.should_abort() {
-            return (m, score);
+            return (m, score, SearchBound::Unknown);
         }
 
         if score <= lo {
@@ -580,19 +898,22 @@ fn root_search(
                 hi = POS_INF;
             }
         } else {
-            return (m, score);
+            return (m, score, SearchBound::Exact);
         }
 
         // Full window fallback
         if lo <= NEG_INF && hi >= POS_INF {
-            return (m, score);
+            return (m, score, SearchBound::Exact);
         }
     }
 }
 
 /// Return an immediate mating move without changing the caller's board.
-fn root_mate_in_one(board: &mut Board, ordered: &[Move]) -> Option<Move> {
+fn root_mate_in_one(state: &SearchState, board: &mut Board, ordered: &[Move]) -> Option<Move> {
     for &m in ordered {
+        if state.budget.tick() {
+            return None;
+        }
         let tok = board.do_move(m);
         let mated = MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
         board.undo_move(tok);
@@ -606,21 +927,37 @@ fn root_mate_in_one(board: &mut Board, ordered: &[Move]) -> Option<Move> {
 /// At shallow root depths, discard moves that allow an immediate opponent mate.
 /// Returning `None` means either no blunder was found or filtering would remove
 /// every move; in both cases the original ordered list remains authoritative.
-fn filter_root_mate_blunders(board: &mut Board, ordered: &[Move], depth: u32) -> Option<Vec<Move>> {
+fn filter_root_mate_blunders(
+    state: &SearchState,
+    board: &mut Board,
+    ordered: &[Move],
+    depth: u32,
+) -> Option<Vec<Move>> {
     if depth > 2 {
         return None;
     }
     let mut safe_moves = Vec::with_capacity(ordered.len());
     let mut has_unsafe = false;
     for &m in ordered {
+        if state.budget.tick() {
+            return None;
+        }
         let tok = board.do_move(m);
-        let opponent_can_mate = MoveBuffer::legal(board).as_slice().iter().any(|&opp_m| {
+        let mut opponent_can_mate = false;
+        for &opp_m in MoveBuffer::legal(board).as_slice() {
+            if state.budget.tick() {
+                board.undo_move(tok);
+                return None;
+            }
             let tok2 = board.do_move(opp_m);
             let is_mate =
                 MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
             board.undo_move(tok2);
-            is_mate
-        });
+            if is_mate {
+                opponent_can_mate = true;
+                break;
+            }
+        }
         board.undo_move(tok);
         if opponent_can_mate {
             has_unsafe = true;
@@ -638,13 +975,16 @@ fn root_search_inner(
     ordered: &[Move],
     lo: i32,
     hi: i32,
+    history: &PositionHistory,
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
 
     for &m in ordered {
+        let mover = board.side_to_move;
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
+        let child_history = history.after_move(board.hash(), mover, child_in_check);
         let score = -alpha_beta(
             state,
             board,
@@ -656,6 +996,7 @@ fn root_search_inner(
             Some(m),
             None,
             Some(child_in_check),
+            &child_history,
         );
         board.undo_move(tok);
 
@@ -745,6 +1086,20 @@ fn beta_cutoff(
     best_score
 }
 
+/// Convert a history-dependent fourfold repetition into a score from the
+/// current side-to-move's perspective.  This deliberately runs before any TT
+/// access: the same Zobrist position can be a draw, a perpetual-check loss, or
+/// an ordinary position depending on the played history.
+fn repetition_score(outcome: RepetitionOutcome, side_to_move: Color, ply: u32) -> i32 {
+    match outcome {
+        RepetitionOutcome::Draw => 0,
+        RepetitionOutcome::PerpetualCheck(loser) if loser == side_to_move => {
+            -(MATE_SCORE - ply as i32)
+        }
+        RepetitionOutcome::PerpetualCheck(_) => MATE_SCORE - ply as i32,
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn alpha_beta(
     state: &Arc<SearchState>,
@@ -757,7 +1112,11 @@ fn alpha_beta(
     prev_mv: Option<Move>, // the move that led to this position (for countermove heuristic)
     skip_move: Option<Move>, // excluded move for singular extension search (None normally)
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
+    history: &PositionHistory,
 ) -> i32 {
+    if let Some(outcome) = history.outcome_at_current_position() {
+        return repetition_score(outcome, board.side_to_move, ply);
+    }
     if state.budget.tick() {
         return 0;
     }
@@ -770,7 +1129,7 @@ fn alpha_beta(
     }
 
     if depth == 0 {
-        return quiescence(state, board, alpha, beta, ply, 0, known_in_check);
+        return quiescence(state, board, alpha, beta, ply, 0, known_in_check, history);
     }
 
     // TT probe
@@ -867,6 +1226,7 @@ fn alpha_beta(
             }
             let tok = board.do_move_for_search(cap);
             let child_in_check = is_in_check(board, board.side_to_move);
+            let child_history = history.after_move(board.hash(), stm, child_in_check);
             let pc_score = -alpha_beta(
                 state,
                 board,
@@ -878,6 +1238,7 @@ fn alpha_beta(
                 Some(cap),
                 None,
                 Some(child_in_check),
+                &child_history,
             );
             board.undo_move_for_search(tok);
             if pc_score >= pc_beta {
@@ -887,7 +1248,11 @@ fn alpha_beta(
     }
 
     // Null Move Pruning
-    if can_null && depth > NMP_R && beta.abs() < MATE_SCORE - 1000 && !in_check
+    if state.pruning.null_move
+        && can_null
+        && depth > NMP_R
+        && beta.abs() < MATE_SCORE - 1000
+        && !in_check
     // reuse the is_in_check result computed above
     {
         let null_tok = board.do_null_move();
@@ -902,6 +1267,7 @@ fn alpha_beta(
             None,
             None,
             None,
+            history,
         );
         board.undo_null_move(null_tok);
 
@@ -920,6 +1286,7 @@ fn alpha_beta(
                     prev_mv,
                     None,
                     Some(in_check),
+                    history,
                 );
                 if verify >= beta {
                     return null_score;
@@ -979,6 +1346,7 @@ fn alpha_beta(
             prev_mv,
             tt_mv,
             Some(in_check),
+            history,
         );
         u32::from(sval < se_beta) // 1 if TT move is singular, else 0
     } else {
@@ -993,6 +1361,7 @@ fn alpha_beta(
     let first_move = ordered[0];
     let tok = board.do_move_for_search(first_move);
     let child_in_check = is_in_check(board, board.side_to_move);
+    let first_history = history.after_move(board.hash(), stm, child_in_check);
     let ext0 = check_ext(child_in_check, ply + 1);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
     let first_ext = ext0
@@ -1012,6 +1381,7 @@ fn alpha_beta(
         Some(first_move),
         None,
         Some(child_in_check),
+        &first_history,
     );
     board.undo_move_for_search(tok);
 
@@ -1091,9 +1461,14 @@ fn alpha_beta(
                 }
                 let idx = i + 1;
                 let mut b = board.clone();
-                let reduce = lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm);
+                let reduce = if state.pruning.late_move_reduction {
+                    lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm)
+                } else {
+                    0
+                };
                 let tok = b.do_move_for_search(m);
                 let child_in_check = is_in_check(&b, b.side_to_move);
+                let child_history = history.after_move(b.hash(), stm, child_in_check);
                 let ext = check_ext(child_in_check, ply + 1);
                 let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
                 let probe_depth = depth.saturating_sub(1 + reduce) + ext;
@@ -1108,6 +1483,7 @@ fn alpha_beta(
                     Some(m),
                     None,
                     Some(child_in_check),
+                    &child_history,
                 );
                 b.undo_move_for_search(tok);
                 Some((m, s, idx))
@@ -1126,6 +1502,7 @@ fn alpha_beta(
                 // Fail-high: re-search at full depth with full window
                 let tok = board.do_move_for_search(m);
                 let child_in_check = is_in_check(board, board.side_to_move);
+                let child_history = history.after_move(board.hash(), stm, child_in_check);
                 let ext = check_ext(child_in_check, ply + 1);
                 let full = -alpha_beta(
                     state,
@@ -1138,6 +1515,7 @@ fn alpha_beta(
                     Some(m),
                     None,
                     Some(child_in_check),
+                    &child_history,
                 );
                 board.undo_move_for_search(tok);
                 full
@@ -1214,9 +1592,14 @@ fn alpha_beta(
                 }
             }
 
-            let reduce = lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm);
+            let reduce = if state.pruning.late_move_reduction {
+                lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm)
+            } else {
+                0
+            };
             let tok = board.do_move_for_search(m);
             let child_in_check = is_in_check(board, board.side_to_move);
+            let child_history = history.after_move(board.hash(), stm, child_in_check);
             let ext = check_ext(child_in_check, ply + 1);
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
 
@@ -1233,6 +1616,7 @@ fn alpha_beta(
                 Some(m),
                 None,
                 Some(child_in_check),
+                &child_history,
             );
 
             // Re-search at full depth if LMR probe fails high
@@ -1248,6 +1632,7 @@ fn alpha_beta(
                     Some(m),
                     None,
                     Some(child_in_check),
+                    &child_history,
                 );
             }
             board.undo_move_for_search(tok);
@@ -1303,6 +1688,7 @@ fn alpha_beta(
 /// always, all legal replies while in check, and (only at qply 0) a few safe
 /// quiet checks. Bounded by QSEARCH_MAX_PLY so forcing-check lines can't recurse
 /// without end.
+#[allow(clippy::too_many_arguments)]
 fn quiescence(
     state: &Arc<SearchState>,
     board: &mut Board,
@@ -1311,7 +1697,11 @@ fn quiescence(
     ply: u32,
     qply: u32,
     known_in_check: Option<bool>,
+    history: &PositionHistory,
 ) -> i32 {
+    if let Some(outcome) = history.outcome_at_current_position() {
+        return repetition_score(outcome, board.side_to_move, ply);
+    }
     // Enforce the hard time limit here too: a heavy qsearch subtree (quiet checks
     // + recursive SEE) can run for many seconds without returning to alpha_beta,
     // which is the only other place that ticks the budget.
@@ -1447,8 +1837,20 @@ fn quiescence(
 
     let mut best_move = None;
     for &m in move_buffer.as_slice() {
+        let mover = board.side_to_move;
         let tok = board.do_move_for_search(m);
-        let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
+        let child_in_check = is_in_check(board, board.side_to_move);
+        let child_history = history.after_move(board.hash(), mover, child_in_check);
+        let score = -quiescence(
+            state,
+            board,
+            -beta,
+            -alpha,
+            ply + 1,
+            qply + 1,
+            Some(child_in_check),
+            &child_history,
+        );
         board.undo_move_for_search(tok);
 
         if state.budget.should_abort() {
@@ -1511,7 +1913,18 @@ fn quiescence(
                     continue;
                 }
             }
-            let score = -quiescence(state, board, -beta, -alpha, ply + 1, qply + 1, None);
+            let mover = board.side_to_move.flip();
+            let child_history = history.after_move(board.hash(), mover, gives_check);
+            let score = -quiescence(
+                state,
+                board,
+                -beta,
+                -alpha,
+                ply + 1,
+                qply + 1,
+                Some(gives_check),
+                &child_history,
+            );
             board.undo_move_for_search(tok);
 
             if state.budget.should_abort() {
@@ -1643,6 +2056,24 @@ impl SpeculativeSearcher {
     ///
     /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SpecSearchInfo {
+        let history = PositionHistory::initial(board.hash());
+        self.search_with_history(board, config, &history)
+    }
+
+    /// Run speculative search with the externally played history preserved.
+    /// The foreground alpha-beta path uses it for fourfold-repetition
+    /// adjudication; speculative background work remains a cache-only hint and
+    /// never supplies a history-dependent score to the foreground result.
+    pub fn search_with_history(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> SpecSearchInfo {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(
@@ -1654,6 +2085,7 @@ impl SpeculativeSearcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            pruning: PruningConfig::default(),
         });
 
         // Spec tasks share the *same* Budget as the main search (not an
@@ -1702,7 +2134,9 @@ impl SpeculativeSearcher {
             let mut depth_pv: Vec<(Move, i32)> = Vec::new();
             let mut excluded: Vec<Move> = Vec::new();
             for _ in 0..config.multi_pv {
-                let (m, score) = root_search(&state, board, depth, best_score, &excluded);
+                let (m, score, _) = root_search(
+                    &state, board, depth, best_score, &excluded, None, true, history,
+                );
                 if state.budget.should_abort() {
                     break;
                 }
@@ -2275,9 +2709,11 @@ mod see_tests {
                 history: HistoryTable::new(),
                 countermoves: CountermoveTable::new(),
                 diagnostics: None,
+                pruning: PruningConfig::default(),
             })
         };
         let mut pruned_board = Board::startpos();
+        let pruned_history = PositionHistory::initial(pruned_board.hash());
         let pruned_hash = pruned_board.hash();
         let pruned_state = fresh(Tt::new(1));
         let _ = alpha_beta(
@@ -2291,10 +2727,12 @@ mod see_tests {
             None,
             None,
             Some(false),
+            &pruned_history,
         );
         let pruned_nodes = pruned_state.budget.nodes();
 
         let mut full_board = Board::startpos();
+        let full_history = PositionHistory::initial(full_board.hash());
         let full_state = fresh(Tt::new(1));
         let _ = alpha_beta(
             &full_state,
@@ -2307,6 +2745,7 @@ mod see_tests {
             None,
             None,
             Some(false),
+            &full_history,
         );
         assert!(pruned_nodes < full_state.budget.nodes());
         assert_eq!(pruned_board.hash(), pruned_hash);
@@ -2354,7 +2793,9 @@ mod see_tests {
             &mut board,
             SearchConfig {
                 max_depth: 2,
-                node_limit: Some(64),
+                // Root mate-safety now shares the hard node budget; leave
+                // enough room to reach the instrumented alpha-beta path.
+                node_limit: Some(20_000),
                 ..SearchConfig::default()
             },
         );
@@ -2370,6 +2811,162 @@ mod see_tests {
                 + snapshot.order_history
                 > 0
         );
+    }
+
+    #[test]
+    fn root_move_diagnostic_consumes_budget_and_keeps_requested_move() {
+        let mut board = Board::startpos();
+        let root_move = crate::sfen::move_from_usi("7g7f", &board).unwrap();
+        let acc = board.acc.clone();
+        let searcher = Searcher::new(Tt::new(1));
+        let info = searcher.search_root_move(
+            &mut board,
+            SearchConfig {
+                max_depth: 4,
+                node_limit: Some(64),
+                ..SearchConfig::default()
+            },
+            root_move,
+        );
+        assert_eq!(info.best_move, Some(root_move));
+        assert_eq!(info.nodes, 64);
+        assert_eq!(board.acc, acc);
+        assert!(generate_legal_moves(&mut board).contains(&root_move));
+    }
+
+    #[test]
+    fn root_candidate_diagnostic_is_explicit_and_restores_board() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let first = crate::sfen::move_from_usi("7g7f", &board).unwrap();
+        let second = crate::sfen::move_from_usi("2g2f", &board).unwrap();
+        let illegal = Move::normal(
+            Square::from_shogi(7, 7),
+            Square::from_shogi(7, 5),
+            PieceKind::Fu,
+            false,
+        );
+        let searcher = Searcher::new(Tt::new(1));
+        let results = searcher.search_root_candidates(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(32),
+                ..SearchConfig::default()
+            },
+            &[first, first, illegal, second],
+        );
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].root_move, first);
+        assert_eq!(results[1].root_move, second);
+        assert!(
+            results
+                .iter()
+                .all(|result| result.info.best_move == Some(result.root_move))
+        );
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+        assert!(generate_legal_moves(&mut board).contains(&first));
+        assert!(generate_legal_moves(&mut board).contains(&second));
+    }
+
+    #[test]
+    fn root_move_diagnostic_rejects_illegal_move_without_mutation() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let illegal = Move::normal(
+            Square::from_shogi(7, 7),
+            Square::from_shogi(7, 5),
+            PieceKind::Fu,
+            false,
+        );
+        let searcher = Searcher::new(Tt::new(1));
+        let info = searcher.search_root_move(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(32),
+                ..SearchConfig::default()
+            },
+            illegal,
+        );
+        assert_eq!(info.best_move, None);
+        assert_eq!(info.depth, 0);
+        assert_eq!(info.bound, SearchBound::Unknown);
+        assert_eq!(info.nodes, 0);
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+    }
+
+    #[test]
+    fn root_move_diagnostic_restores_capture_position() {
+        let mut board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let capture = generate_legal_moves(&mut board)
+            .into_iter()
+            .find(|candidate| candidate.to == Square::from_shogi(5, 5))
+            .expect("the rook capture must be legal");
+        let searcher = Searcher::new(Tt::new(1));
+        let info = searcher.search_root_move(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(32),
+                ..SearchConfig::default()
+            },
+            capture,
+        );
+        assert_eq!(info.best_move, Some(capture));
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+        assert!(generate_legal_moves(&mut board).contains(&capture));
+    }
+
+    #[test]
+    fn root_move_diagnostic_restores_promotion_position() {
+        let mut board = Board::from_sfen("4k4/9/9/4P4/9/9/9/9/4K4 b - 1").unwrap();
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let promotion = crate::sfen::move_from_usi("5d5c+", &board).unwrap();
+        let searcher = Searcher::new(Tt::new(1));
+        let info = searcher.search_root_move(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(32),
+                ..SearchConfig::default()
+            },
+            promotion,
+        );
+        assert_eq!(info.best_move, Some(promotion));
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+        assert!(generate_legal_moves(&mut board).contains(&promotion));
+    }
+
+    #[test]
+    fn root_move_diagnostic_restores_drop_position() {
+        let mut board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b R 1").unwrap();
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let drop = crate::sfen::move_from_usi("R*5e", &board).unwrap();
+        let searcher = Searcher::new(Tt::new(1));
+        let info = searcher.search_root_move(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(32),
+                ..SearchConfig::default()
+            },
+            drop,
+        );
+        assert_eq!(info.best_move, Some(drop));
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+        assert!(generate_legal_moves(&mut board).contains(&drop));
     }
 
     // Black rook on 5g captures a white pawn on 5e defended by a white pawn on 5d.
@@ -2446,6 +3043,11 @@ mod see_tests {
             },
         );
         assert_eq!(info.nodes, 64);
+        assert!(
+            info.aborted,
+            "node-limited search must expose its interruption"
+        );
+        assert_eq!(info.bound, SearchBound::Unknown);
         let best = info
             .best_move
             .expect("node-limited search must fall back to a legal move");
@@ -2492,6 +3094,102 @@ mod see_tests {
             "speculative fallback must be legal"
         );
     }
+
+    #[test]
+    fn speculative_search_keeps_the_fg5c_check_evasion_bestmove_legal() {
+        // FG5-C screening run 2026-09-14: this is the exact root position
+        // immediately before an engine reported `3a3b`, even though only
+        // `3a4b` and `5a4b` evade check.  Exercise the production
+        // SpecTopN=0 path with a bounded deterministic node budget; a TT
+        // ordering hint must never escape the root's legal-move list.
+        const SFEN: &str =
+            "lns1gks1l/5+N3/p2ppB+P2/1pp2Bp1p/9/2P2+R3/PP1PPPP1P/9/LNSGKGSNL w R2Pg 44";
+        let mut board = Board::from_sfen(SFEN).expect("FG5-C fixture SFEN must parse");
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let searcher = SpeculativeSearcher::new(Tt::new(4), 0);
+        let info = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 16,
+                time_limit: None,
+                node_limit: Some(100_000),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        let best = info.best_move.expect("check evasion must have a bestmove");
+
+        assert_eq!(board.hash(), hash, "search must restore the root board");
+        assert_eq!(board.acc, acc, "search must restore the NNUE accumulator");
+        assert!(
+            generate_legal_moves(&mut board).contains(&best),
+            "FG5-C check-evasion search returned illegal bestmove {best:?}"
+        );
+    }
+
+    #[test]
+    fn regular_search_preserves_a_non_startpos_root_board() {
+        const SFEN: &str =
+            "lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22";
+        let mut board = Board::from_sfen(SFEN).expect("fixture SFEN must parse");
+        let hash = board.hash();
+        let side = board.side_to_move;
+        let ply = board.ply;
+        let accumulator = board.acc.clone();
+        let searcher = Searcher::new(Tt::new(4));
+
+        let _ = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 1,
+                time_limit: None,
+                node_limit: Some(128),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+
+        assert_eq!(
+            board.hash(),
+            hash,
+            "regular search must restore the root hash"
+        );
+        assert_eq!(
+            board.side_to_move, side,
+            "regular search must restore the root side"
+        );
+        assert_eq!(board.ply, ply, "regular search must restore the root ply");
+        assert_eq!(
+            board.acc, accumulator,
+            "regular search must restore the NNUE accumulator"
+        );
+    }
+
+    #[test]
+    fn root_mate_safety_respects_the_hard_node_budget() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let searcher = Searcher::new(Tt::new(4));
+        let info = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 1,
+                time_limit: None,
+                node_limit: Some(1),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+
+        assert!(info.aborted, "a one-node limit must stop root safety work");
+        assert_eq!(info.nodes, 1, "root safety must consume the shared budget");
+        assert_eq!(
+            board.hash(),
+            hash,
+            "an aborted root filter must restore the board"
+        );
+    }
 }
 
 #[cfg(test)]
@@ -2507,6 +3205,7 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            pruning: PruningConfig::default(),
         })
     }
 
@@ -2524,13 +3223,100 @@ mod regression_tests {
         let tt = Tt::new(1);
         let state = fresh_state(tt.clone());
         let hash = board.hash();
+        let history = PositionHistory::initial(hash);
 
-        root_search_inner(&state, &mut board, 1, &moves, NEG_INF, -500_000);
+        root_search_inner(&state, &mut board, 1, &moves, NEG_INF, -500_000, &history);
 
         let entry = tt
             .probe(hash)
             .expect("root_search_inner should have stored a TT entry");
         assert_eq!(entry.bound, Bound::Lower);
+    }
+
+    #[test]
+    fn fourfold_history_is_adjudicated_before_tt_probe_or_store() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let mut history = PositionHistory::initial(hash);
+        // The history container is intentionally independent of move legality;
+        // this unit test isolates the search rule that a history-dependent
+        // result cannot be read from or written to the position-only TT.
+        for _ in 0..3 {
+            history.push_after_move(hash, Color::Black, false);
+        }
+        let tt = Tt::new(1);
+        let seeded = TtEntry {
+            score: 777,
+            depth: 8,
+            bound: Bound::Exact,
+            mv: None,
+        };
+        tt.store(hash, seeded);
+        let state = fresh_state(tt.clone());
+
+        let score = alpha_beta(
+            &state, &mut board, NEG_INF, POS_INF, 4, 0, true, None, None, None, &history,
+        );
+
+        assert_eq!(score, 0);
+        assert_eq!(state.budget.nodes(), 0, "repetition must precede node work");
+        let retained = tt.probe(hash).expect("seeded TT entry must remain");
+        assert_eq!(
+            retained.score, seeded.score,
+            "history result must not replace TT"
+        );
+        assert_eq!(retained.depth, seeded.depth);
+        assert_eq!(retained.bound, seeded.bound);
+    }
+
+    #[test]
+    fn root_child_inherits_history_and_isolates_repetition_from_tt() {
+        let mut board = Board::startpos();
+        let parent_hash = board.hash();
+        let forced_root = MoveBuffer::legal(&mut board).as_slice()[0];
+        let child_hash = {
+            let token = board.do_move(forced_root);
+            let hash = board.hash();
+            board.undo_move(token);
+            hash
+        };
+
+        // The current position is not repeated. Only the child selected by
+        // `forced_root` is its fourth occurrence, so this exercises the
+        // root-to-child history extension rather than root adjudication.
+        let mut history = PositionHistory::initial(child_hash);
+        history.push_after_move(child_hash, Color::White, false);
+        history.push_after_move(child_hash, Color::Black, false);
+        history.push_after_move(parent_hash, Color::White, false);
+
+        let tt = Tt::new(1);
+        let seeded = TtEntry {
+            score: 555,
+            depth: 7,
+            bound: Bound::Exact,
+            mv: None,
+        };
+        tt.store(child_hash, seeded);
+        let state = fresh_state(tt.clone());
+
+        let (best, score, bound) = root_search(
+            &state,
+            &mut board,
+            1,
+            NEG_INF,
+            &[],
+            Some(forced_root),
+            false,
+            &history,
+        );
+
+        assert_eq!(best, Some(forced_root));
+        assert_eq!(score, 0);
+        assert_eq!(bound, SearchBound::Exact);
+        let retained = tt.probe(child_hash).expect("child seed must remain");
+        assert_eq!(retained.score, seeded.score);
+        assert_eq!(retained.depth, seeded.depth);
+        assert_eq!(retained.bound, seeded.bound);
     }
 
     #[test]
@@ -2591,6 +3377,7 @@ mod regression_tests {
         let moves = generate_legal_moves(&mut board);
         let tt = Tt::new(1);
         let hash = board.hash();
+        let history = PositionHistory::initial(hash);
 
         // A genuine, unaborted search populates a real TT entry.
         root_search_inner(
@@ -2600,6 +3387,7 @@ mod regression_tests {
             &moves,
             NEG_INF,
             POS_INF,
+            &history,
         );
         let genuine = tt
             .probe(hash)
@@ -2614,8 +3402,17 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            pruning: PruningConfig::default(),
         });
-        root_search_inner(&aborted_state, &mut board, 7, &moves, NEG_INF, POS_INF);
+        root_search_inner(
+            &aborted_state,
+            &mut board,
+            7,
+            &moves,
+            NEG_INF,
+            POS_INF,
+            &history,
+        );
 
         let after = tt
             .probe(hash)
@@ -2637,7 +3434,8 @@ mod regression_tests {
         let state = fresh_state(tt.clone());
         let mut board = Board::startpos();
         let hash = board.hash();
-        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0, None);
+        let history = PositionHistory::initial(hash);
+        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0, None, &history);
         let entry = tt
             .probe(hash)
             .expect("top-level qsearch should store depth zero");
@@ -2646,7 +3444,16 @@ mod regression_tests {
 
         // An exact depth-zero hit must avoid re-searching the same top-level
         // qsearch, while remaining valid at the original ply.
-        let second = quiescence(&state, &mut board, first - 1, first + 1, 3, 0, None);
+        let second = quiescence(
+            &state,
+            &mut board,
+            first - 1,
+            first + 1,
+            3,
+            0,
+            None,
+            &history,
+        );
         assert_eq!(second, first);
     }
 
@@ -2654,6 +3461,7 @@ mod regression_tests {
     fn qsearch_does_not_store_after_abort_or_overwrite_deeper_entry() {
         let mut board = Board::startpos();
         let hash = board.hash();
+        let history = PositionHistory::initial(hash);
         let tt = Tt::new(1);
         let state = fresh_state(tt.clone());
         tt.store(
@@ -2665,7 +3473,7 @@ mod regression_tests {
                 mv: None,
             },
         );
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
         assert_eq!(tt.probe(hash).expect("deeper entry must remain").depth, 4);
 
         let aborted_tt = Tt::new(1);
@@ -2676,8 +3484,18 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            pruning: PruningConfig::default(),
         });
-        let _ = quiescence(&aborted_state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+        let _ = quiescence(
+            &aborted_state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            0,
+            0,
+            None,
+            &history,
+        );
         assert!(
             aborted_tt.probe(hash).is_none(),
             "aborted qsearch must not publish a TT entry"
@@ -2688,6 +3506,7 @@ mod regression_tests {
     fn qsearch_records_a_capture_and_restores_the_position() {
         let mut board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
         let hash = board.hash();
+        let history = PositionHistory::initial(hash);
         let capture = generate_legal_captures(&mut board)
             .into_iter()
             .find(|m| m.to == Square::from_shogi(5, 5))
@@ -2695,7 +3514,7 @@ mod regression_tests {
         let tt = Tt::new(1);
         let state = fresh_state(tt.clone());
 
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
 
         assert_eq!(board.hash(), hash, "qsearch must undo every capture");
         assert_eq!(
@@ -2712,8 +3531,9 @@ mod regression_tests {
         let tt = Tt::new(1);
         let state = fresh_state(tt.clone());
         let alpha = 100_000;
+        let history = PositionHistory::initial(hash);
 
-        let score = quiescence(&state, &mut board, alpha, alpha + 1, 0, 0, None);
+        let score = quiescence(&state, &mut board, alpha, alpha + 1, 0, 0, None, &history);
 
         assert_eq!(score, alpha, "delta pruning should return the raised alpha");
         assert_eq!(
@@ -2748,7 +3568,8 @@ mod regression_tests {
         assert_eq!(board.hash(), hash, "quiet-check probe must undo exactly");
 
         let state = fresh_state(Tt::new(1));
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None);
+        let history = PositionHistory::initial(hash);
+        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
         assert_eq!(
             board.hash(),
             hash,
@@ -2761,6 +3582,7 @@ mod regression_tests {
         for sfen in [crate::sfen::STARTPOS_SFEN, "4r3k/9/9/9/9/9/9/9/4K4 b - 1"] {
             let mut recomputed_board = Board::from_sfen(sfen).unwrap();
             let recomputed_state = fresh_state(Tt::new(1));
+            let recomputed_history = PositionHistory::initial(recomputed_board.hash());
             let recomputed = alpha_beta(
                 &recomputed_state,
                 &mut recomputed_board,
@@ -2772,11 +3594,13 @@ mod regression_tests {
                 None,
                 None,
                 None,
+                &recomputed_history,
             );
 
             let mut supplied_board = Board::from_sfen(sfen).unwrap();
             let supplied_check = is_in_check(&supplied_board, supplied_board.side_to_move);
             let supplied_state = fresh_state(Tt::new(1));
+            let supplied_history = PositionHistory::initial(supplied_board.hash());
             let supplied = alpha_beta(
                 &supplied_state,
                 &mut supplied_board,
@@ -2788,6 +3612,7 @@ mod regression_tests {
                 None,
                 None,
                 Some(supplied_check),
+                &supplied_history,
             );
             assert_eq!(
                 supplied, recomputed,
@@ -2823,6 +3648,7 @@ mod regression_tests {
     #[test]
     fn shorter_ply_mate_scores_higher_in_alpha_beta() {
         let mut board_a = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        let history_a = PositionHistory::initial(board_a.hash());
         let state_a = fresh_state(Tt::new(1));
         let score_shallow = alpha_beta(
             &state_a,
@@ -2835,9 +3661,11 @@ mod regression_tests {
             None,
             None,
             None,
+            &history_a,
         );
 
         let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
+        let history_b = PositionHistory::initial(board_b.hash());
         let state_b = fresh_state(Tt::new(1));
         let score_deep = alpha_beta(
             &state_b,
@@ -2850,6 +3678,7 @@ mod regression_tests {
             None,
             None,
             None,
+            &history_b,
         );
 
         assert!(

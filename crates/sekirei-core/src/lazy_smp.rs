@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{SearchConfig, SearchInfo, Searcher};
+use crate::sfen::PositionHistory;
 use crate::tt::Tt;
 
 /// Result of an independent-worker Lazy SMP search.
@@ -100,6 +101,23 @@ impl LazySmpSearcher {
 
     /// Search independent copies of `board` concurrently.
     pub fn search(&self, board: &Board, config: SearchConfig) -> LazySmpInfo {
+        let history = PositionHistory::initial(board.hash());
+        self.search_with_history(board, config, &history)
+    }
+
+    /// Search independent copies with the caller's already-played game
+    /// history. Each worker receives an immutable cloneable history and only
+    /// its private descendants extend it.
+    pub fn search_with_history(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> LazySmpInfo {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
         let started = Instant::now();
         let results: Vec<SearchInfo> = (0..self.workers)
             .into_par_iter()
@@ -111,7 +129,7 @@ impl LazySmpSearcher {
                     Tt::new(self.hash_mb)
                 };
                 Searcher::with_abort_flag(worker_tt, self.external_abort.clone())
-                    .search(&mut worker_board, config)
+                    .search_with_history(&mut worker_board, config, history)
             })
             .collect();
 

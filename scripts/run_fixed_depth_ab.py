@@ -85,6 +85,22 @@ def load_corpus(path):
 
 
 def position_usi_command(entry):
+    # A replay-derived corpus may carry the original initial SFEN plus its
+    # legal USI prefix.  Prefer that representation over the materialized
+    # current SFEN so the engine can adjudicate history-dependent repetition.
+    # Do not silently drop malformed history: that would turn a correctness
+    # diagnostic into a different position command.
+    initial_sfen = entry.get("initial_sfen")
+    history = entry.get("history_before_usi")
+    if initial_sfen is not None or history is not None:
+        if not isinstance(initial_sfen, str) or not initial_sfen:
+            raise ValueError("history-aware entry requires non-empty initial_sfen")
+        if not isinstance(history, list) or not all(isinstance(move, str) and move for move in history):
+            raise ValueError("history-aware entry requires non-empty-string history_before_usi list")
+        command = f"position sfen {initial_sfen}"
+        if history:
+            command += " moves " + " ".join(history)
+        return command
     if "sfen" in entry:
         return f"position sfen {entry['sfen']}"
     moves = entry.get("moves", [])

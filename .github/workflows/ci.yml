@@ -75,6 +75,71 @@ jobs:
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-readiness.json
       - name: analysis record diagnostics
         run: |
+          python3 scripts/test_record_floodgate_manifest.py
+          python3 scripts/test_finalize_csa_run_manifest.py
+          python3 scripts/test_validate_csa_run_manifest.py
+          python3 scripts/test_attach_run_manifest_to_analysis.py
+          python3 scripts/test_compare_core_evaluator_diagnostics.py
+          python3 scripts/test_floodgate_supervisor.py
+          python3 scripts/test_floodgate_operation_acceptance.py
+          python3 scripts/test_launchd_template.py
+          python3 scripts/test_validate_floodgate_runtime_status.py
+          python3 scripts/test_build_floodgate_diagnostic_corpus.py
+          python3 scripts/test_validate_floodgate_diagnostic_corpus.py
+          python3 scripts/test_sfen_symmetry.py
+          python3 scripts/verify_floodgate_corpus_symmetry.py \
+            --binary target/release/sekirei-search-diagnostic \
+            --corpus results/floodgate/20260912-review/diagnostic-corpus-with-controls.json \
+            --nodes 64
+          python3 scripts/validate_floodgate_diagnostic_corpus.py \
+            --verify-sources --root . \
+            results/floodgate/20260912-review/diagnostic-corpus-with-controls.json
+          python3 scripts/test_run_floodgate_fixed_nodes.py
+          python3 scripts/test_run_core_floodgate_diagnostic.py
+          python3 scripts/test_validate_floodgate_diagnostic_summary.py
+          python3 scripts/test_validate_floodgate_diagnostic_comparison.py
+          python3 scripts/test_validate_floodgate_root_review.py
+          python3 scripts/test_run_floodgate_root_review.py
+          python3 scripts/validate_floodgate_root_review.py \
+            scripts/fixtures/floodgate_root_review_v1.json
+          python3 scripts/validate_floodgate_root_review.py \
+            scripts/fixtures/floodgate_root_review_v2.json
+          python3 scripts/test_check_release_metadata.py
+          python3 scripts/test_select_completed_diagnostic_rows.py
+          python3 scripts/test_validate_completed_diagnostic_selection.py
+          python3 scripts/test_compare_floodgate_diagnostic_summaries.py
+          python3 scripts/test_compare_floodgate_budget_runs.py
+          python3 scripts/test_validate_floodgate_budget_comparison.py
+          python3 scripts/test_select_floodgate_hypothesis.py
+          python3 scripts/test_validate_floodgate_hypothesis_selection.py
+          python3 scripts/test_validate_floodgate_hypothesis_consistency.py
+          python3 scripts/test_build_floodgate_hypothesis_table.py
+          python3 scripts/test_validate_floodgate_hypothesis_table.py
+          python3 scripts/test_split_floodgate_diagnostic_corpus.py
+          python3 scripts/test_validate_floodgate_diagnostic_split.py
+          python3 scripts/test_attach_diagnostic_artifacts.py
+          python3 scripts/test_validate_floodgate_candidate_decision.py
+          python3 scripts/test_validate_floodgate_candidate_evidence.py
+          python3 scripts/test_assess_floodgate_candidate_holdout_alignment.py
+          python3 scripts/test_prepare_floodgate_candidate_holdout_plan.py
+          python3 scripts/test_validate_floodgate_candidate_holdout_plan.py
+          python3 scripts/validate_floodgate_candidate_decision.py \
+            results/floodgate/20260912-review/fg5e-candidate-decision.json
+          python3 scripts/test_validate_floodgate_offline_acceptance.py
+          python3 scripts/validate_floodgate_offline_acceptance.py \
+            results/floodgate/20260912-review/fg2-offline-acceptance-manifest.json
+          python3 scripts/test_validate_floodgate_supervisor_events.py
+          python3 scripts/test_evaluate_floodgate_diagnostic_gate.py
+          python3 scripts/test_build_independent_diagnostic_corpus.py
+          python3 scripts/test_compare_floodgate_holdout_runs.py
+          python3 scripts/test_validate_floodgate_holdout_comparison.py
+          python3 scripts/validate_floodgate_holdout_comparison.py \
+            results/floodgate/20260912-review/independent-holdout-depth2/comparison-v2.json
+          python3 scripts/test_evaluate_floodgate_holdout_regression.py
+          python3 scripts/test_analyze_floodgate_budget_ladder.py
+          python3 scripts/test_validate_floodgate_budget_ladder.py
+          python3 scripts/test_analyze_floodgate_depth_ladder.py
+          python3 scripts/test_validate_floodgate_depth_ladder.py
           python3 -m unittest \
             scripts/test_analysis_record.py \
             scripts/test_analyze_analysis_record.py \
@@ -85,9 +150,17 @@ jobs:
             scripts/test_fit_eval_calibration.py
           python3 scripts/validate_analysis_record.py \
             scripts/fixtures/analysis_record_v1.jsonl
+          python3 scripts/validate_analysis_record.py \
+            scripts/fixtures/analysis_replay_v2.analysis.jsonl
           cargo run --release -p sekirei-csa --bin sekirei-analysis-replay -- \
             scripts/fixtures/analysis_replay_v1.csa \
             scripts/fixtures/analysis_replay_v1.analysis.jsonl
+          cargo run --release -p sekirei-csa --bin sekirei-analysis-replay -- \
+            scripts/fixtures/analysis_replay_v2.csa \
+            scripts/fixtures/analysis_replay_v2.analysis.jsonl
+          cargo build -p sekirei-csa
+          python3 scripts/test_csa_nnue_startup.py target/debug/sekirei-csa
+          python3 scripts/test_floodgate_actual_client_operation.py
       - name: SharedMcts transcript manifest fixture
         run: |
           python3 scripts/record_mcts_transcript.py \

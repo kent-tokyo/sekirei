@@ -17,6 +17,7 @@ pub struct UsiEngine {
     stdin: BufWriter<ChildStdin>,
     rx: Receiver<String>,
     pub name: String,
+    nnue_output_acknowledgement: Option<String>,
 }
 
 /// Per-move grace beyond byoyomi before the engine is declared hung.
@@ -28,13 +29,26 @@ const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
 
 impl UsiEngine {
     /// Launch engine at `path` with optional extra `args` (e.g. NNUE weight file).
-    pub fn launch(path: &str, args: &[String]) -> io::Result<Self> {
-        let mut child = Command::new(path)
+    pub fn launch(path: &str, args: &[String], options: &[String]) -> io::Result<Self> {
+        let mut command = Command::new(path);
+        command
             .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
-            .spawn()?;
+            .stderr(Stdio::inherit());
+
+        // The USI `Threads` option is sent only after startup, but Rayon can
+        // initialise its global pool while the engine constructs its initial
+        // speculative searcher.  In that case `build_global()` in the USI
+        // handler correctly refuses to replace the already-live pool, leaving
+        // a supposedly single-threaded match to use every CPU core.  Set the
+        // corresponding Rayon environment variable before exec so the first
+        // initialisation observes the match's fixed thread budget.
+        if let Some(threads) = rayon_threads_option(options) {
+            command.env("RAYON_NUM_THREADS", threads);
+        }
+
+        let mut child = command.spawn()?;
 
         let stdin = BufWriter::new(child.stdin.take().unwrap());
         let stdout = BufReader::new(child.stdout.take().unwrap());
@@ -59,6 +73,7 @@ impl UsiEngine {
             stdin,
             rx,
             name: path.to_string(),
+            nnue_output_acknowledgement: None,
         })
     }
 
@@ -81,16 +96,6 @@ impl UsiEngine {
     /// Read the next output line, waiting at most `timeout`.
     fn recv_line(&mut self, timeout: Duration) -> io::Result<String> {
         map_recv_result(self.rx.recv_timeout(timeout))
-    }
-
-    /// Read lines until one contains `token`, discarding others.
-    fn wait_for(&mut self, token: &str, timeout: Duration) -> io::Result<String> {
-        loop {
-            let line = self.recv_line(timeout)?;
-            if line.contains(token) {
-                return Ok(line);
-            }
-        }
     }
 
     /// Perform the USI handshake: usi → usiok → setoption* → isready → readyok.
@@ -122,13 +127,47 @@ impl UsiEngine {
             self.send(&cmd)?;
         }
         self.send("isready")?;
-        self.wait_for("readyok", HANDSHAKE_TIMEOUT)?;
+        // `setoption` is asynchronous in USI. For ordinary options a
+        // `readyok` barrier is sufficient, but a strength gate must also
+        // prove that the requested NNUE interpretation reached the engine.
+        // Sekirei emits this acknowledgement from the NnueOutput handler.
+        // Failing closed prevents a residual checkpoint from silently being
+        // searched as an absolute evaluator.
+        let expected_nnue_ack = options.iter().find_map(|option| {
+            option
+                .strip_prefix("NnueOutput=")
+                .map(|mode| format!("info string NNUE output mode: {mode}"))
+        });
+        let mut acknowledged = expected_nnue_ack.is_none();
+        loop {
+            let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
+            if expected_nnue_ack.as_deref() == Some(line.as_str()) {
+                acknowledged = true;
+                self.nnue_output_acknowledgement = expected_nnue_ack.clone();
+            }
+            if line.contains("readyok") {
+                if !acknowledged {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "engine did not acknowledge requested NnueOutput before readyok",
+                    ));
+                }
+                break;
+            }
+        }
         Ok(())
     }
 
     /// OS process id, for transcript logging.
     pub fn pid(&self) -> u32 {
         self._process.id()
+    }
+
+    /// Exact `info string` acknowledgement observed before `readyok` for an
+    /// explicit NnueOutput option. This is persisted in new match records so
+    /// later audits do not infer the effective mode from argv alone.
+    pub fn nnue_output_acknowledgement(&self) -> Option<&str> {
+        self.nnue_output_acknowledgement.as_deref()
     }
 
     /// Best-effort abort of any search still running from the previous move
@@ -247,6 +286,17 @@ fn setoption_commands(options: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// Return a positive `Threads=N` option suitable for the Rayon startup
+/// environment.  Invalid or zero values remain the engine's responsibility
+/// and deliberately do not alter the child environment.
+fn rayon_threads_option(options: &[String]) -> Option<&str> {
+    options.iter().find_map(|option| {
+        let (name, value) = option.split_once('=')?;
+        (name == "Threads" && value.parse::<usize>().ok().filter(|n| *n > 0).is_some())
+            .then_some(value)
+    })
+}
+
 impl Drop for UsiEngine {
     fn drop(&mut self) {
         let _ = self.send("quit");
@@ -281,6 +331,16 @@ mod tests {
     #[test]
     fn setoption_commands_on_empty_input_is_empty() {
         assert!(setoption_commands(&[]).is_empty());
+    }
+
+    #[test]
+    fn rayon_threads_option_accepts_only_positive_threads() {
+        assert_eq!(
+            rayon_threads_option(&["Hash=64".to_string(), "Threads=1".to_string()]),
+            Some("1")
+        );
+        assert_eq!(rayon_threads_option(&["Threads=0".to_string()]), None);
+        assert_eq!(rayon_threads_option(&["Threads=invalid".to_string()]), None);
     }
 
     #[test]

@@ -333,6 +333,42 @@ class BuildChecksTests(unittest.TestCase):
         # dragged down by the other failing checks.
         self.assertEqual(by_label["disk free (GB)"].status, "PASS")
 
+    def test_diagnostic_relaxed_load_accepts_smoke_load_only(self):
+        checks = build_checks(
+            physical_cores=10,
+            logical_cores=10,
+            load1=16.79,
+            swap_fraction=0.0,
+            free_mem_gb=6.5,
+            disk_free_gb_value=34.0,
+            contention_hits=[],
+            claude_session_count_value=0,
+            parallel=1,
+            threads=1,
+            spec_top_n=0,
+            diagnostic_relaxed_load=True,
+        )
+        self.assertTrue(all(c.passed for c in checks))
+        by_label = {c.label: c for c in checks}
+        self.assertIn("limit < 20.0", by_label["load average (1min)"].detail)
+
+    def test_formal_load_limit_remains_strict(self):
+        checks = build_checks(
+            physical_cores=10,
+            logical_cores=10,
+            load1=16.79,
+            swap_fraction=0.0,
+            free_mem_gb=6.5,
+            disk_free_gb_value=34.0,
+            contention_hits=[],
+            claude_session_count_value=0,
+            parallel=1,
+            threads=1,
+            spec_top_n=0,
+        )
+        by_label = {c.label: c for c in checks}
+        self.assertEqual(by_label["load average (1min)"].status, "REFUSE")
+
     def test_unknown_value_shows_unknown_not_pass(self):
         checks = build_checks(
             physical_cores=None,  # e.g. sysctl unavailable

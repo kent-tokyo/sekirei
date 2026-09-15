@@ -3124,6 +3124,36 @@ mod move_buffer_tests {
     }
 
     #[test]
+    fn two_ply_undo_cannot_reuse_a_grandchild_legality_cache() {
+        // Exact FG5-C correctness-soak root where stale same-side cache data
+        // made an illegal silver drop appear to evade check. A grandchild is
+        // also Black-to-move; after two undos its cached constraints must not
+        // be accepted for the restored parent board.
+        const SFEN: &str =
+            "6snl/1k3g3/lN2pp1pp/bnpp1P3/p8/4P2P1/P1P3P1P/BS7/LNG2K2L b 2RGS2Pgs2p 67";
+        let mut expected_board = Board::from_sfen(SFEN).expect("fixture must parse");
+        let expected = generate_legal_moves(&mut expected_board);
+
+        let mut board = Board::from_sfen(SFEN).expect("fixture must parse");
+        let hash = board.hash();
+        let acc = board.acc.clone();
+        let first = MoveBuffer::legal(&mut board).as_slice()[0];
+        let first_token = board.do_move_for_search(first);
+        let reply = MoveBuffer::legal(&mut board).as_slice()[0];
+        let reply_token = board.do_move_for_search(reply);
+        // Populate a Black-to-move cache in the grandchild, then unwind to
+        // the Black-to-move parent. This used to leave the stale mask valid.
+        let _grandchild_moves = MoveBuffer::legal(&mut board);
+        board.undo_move_for_search(reply_token);
+        board.undo_move_for_search(first_token);
+
+        let actual = MoveBuffer::legal(&mut board);
+        assert_eq!(actual.as_slice(), expected.as_slice());
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, acc);
+    }
+
+    #[test]
     fn packed_buffer_round_trips_legal_moves() {
         let mut ordinary_board = Board::startpos();
         let expected = generate_legal_moves(&mut ordinary_board);

@@ -181,6 +181,7 @@ pub struct Tt {
     table: Box<[TtSlot]>,
     mask: usize, // len - 1, for fast power-of-2 indexing
     write_stats: Option<Arc<TtWriteStats>>,
+    domain: u64,
 }
 
 impl Tt {
@@ -192,6 +193,28 @@ impl Tt {
 
     /// Create a table with an optional write-topology observer.
     pub fn new_with_stats(size_mb: usize, stats: Option<Arc<TtWriteStats>>) -> Arc<Self> {
+        Self::new_with_stats_and_domain(size_mb, stats, 0)
+    }
+
+    /// Create a table whose key space is isolated for one evaluator domain.
+    ///
+    /// A caller that can reuse one process-owned TT for both material and NNUE
+    /// searches must choose the corresponding domain. The board hash remains
+    /// unchanged; the domain is mixed only inside the TT key consistency check.
+    pub fn new_for_evaluation(size_mb: usize, nnue: bool) -> Arc<Self> {
+        let domain = if nnue {
+            0x5345_4b49_5257_4e4e
+        } else {
+            0x5345_4b49_5257_4d41
+        };
+        Self::new_with_stats_and_domain(size_mb, None, domain)
+    }
+
+    fn new_with_stats_and_domain(
+        size_mb: usize,
+        stats: Option<Arc<TtWriteStats>>,
+        domain: u64,
+    ) -> Arc<Self> {
         let bytes = size_mb.max(1) * 1024 * 1024;
         let count = floor_pow2((bytes / 16).max(1));
         let table: Box<[TtSlot]> = (0..count)
@@ -205,21 +228,28 @@ impl Tt {
             table,
             mask: count - 1,
             write_stats: stats,
+            domain,
         })
     }
 
     #[inline]
     fn slot(&self, hash: u64) -> &TtSlot {
-        &self.table[hash as usize & self.mask]
+        &self.table[self.key_hash(hash) as usize & self.mask]
+    }
+
+    #[inline]
+    fn key_hash(&self, hash: u64) -> u64 {
+        hash ^ self.domain
     }
 
     /// Probe the table. Returns `Some(entry)` on a hit, `None` on a miss or torn read.
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
         let slot = self.slot(hash);
+        let key_hash = self.key_hash(hash);
         // Load data first, then key. With the XOR trick, a torn write makes key ^ data != hash.
         let data = slot.data.load(Ordering::Relaxed);
         let key = slot.key.load(Ordering::Relaxed);
-        if key ^ data == hash {
+        if key ^ data == key_hash {
             Some(unpack(data))
         } else {
             None
@@ -232,10 +262,11 @@ impl Tt {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
         let slot = self.slot(hash);
+        let key_hash = self.key_hash(hash);
         let existing_data = slot.data.load(Ordering::Relaxed);
         let existing_key = slot.key.load(Ordering::Relaxed);
         let occupied = existing_data != 0;
-        let same_hash = existing_key ^ existing_data == hash;
+        let same_hash = existing_key ^ existing_data == key_hash;
         if let Some(stats) = &self.write_stats {
             if same_hash {
                 stats.same_hash.fetch_add(1, Ordering::Relaxed);
@@ -259,7 +290,7 @@ impl Tt {
         }
         let data = pack(&entry);
         slot.data.store(data, Ordering::Relaxed);
-        slot.key.store(hash ^ data, Ordering::Relaxed);
+        slot.key.store(key_hash ^ data, Ordering::Relaxed);
         if let Some(stats) = &self.write_stats {
             stats.committed.fetch_add(1, Ordering::Relaxed);
         }
@@ -369,6 +400,35 @@ mod tests {
             },
         );
         assert_eq!(tt.probe(hash).unwrap().depth, 1);
+    }
+
+    #[test]
+    fn evaluator_domains_use_distinct_internal_keys() {
+        let material = Tt::new_for_evaluation(1, false);
+        let nnue = Tt::new_for_evaluation(1, true);
+        let hash = 0x1234_5678_9abc_def0;
+        assert_ne!(material.key_hash(hash), nnue.key_hash(hash));
+
+        material.store(
+            hash,
+            TtEntry {
+                score: 100,
+                depth: 4,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        nnue.store(
+            hash,
+            TtEntry {
+                score: -100,
+                depth: 4,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        assert_eq!(material.probe(hash).unwrap().score, 100);
+        assert_eq!(nnue.probe(hash).unwrap().score, -100);
     }
 
     #[test]

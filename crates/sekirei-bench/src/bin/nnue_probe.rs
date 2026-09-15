@@ -7,7 +7,11 @@
 use std::env;
 use std::path::{Path, PathBuf};
 
-use sekirei_core::{board::Board, eval::evaluate_with_weights, nnue::read_weights};
+use sekirei_core::{
+    board::Board,
+    eval::{NnueOutputMode, evaluate_with_weights_mode},
+    nnue::read_weights,
+};
 
 const STARTPOS: &str = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
 const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
@@ -26,10 +30,11 @@ struct ParsedProbeArgs {
     probes: Vec<Probe>,
     json: bool,
     strict: bool,
+    output_mode: NnueOutputMode,
 }
 
 fn usage() -> &'static str {
-    "usage: nnue_probe <weights.bin> [--json] [--strict] [--sfen <SFEN>]...\n\n\
+    "usage: nnue_probe <weights.bin> [--json] [--strict] [--nnue-output <absolute|residual-material>] [--sfen <SFEN>]...\n\n\
         Without --sfen, probes startpos, material sensitivity, and king placement.\n\
         Reports score range, mean, variance, and deltas from the first probe; this is not a \
         strength test. --json emits one machine-readable JSON object. --strict exits non-zero \
@@ -48,6 +53,7 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
     let mut sfens: Vec<(String, String)> = Vec::new();
     let mut json = false;
     let mut strict = false;
+    let mut output_mode = NnueOutputMode::Absolute;
     let mut index = 1;
     while index < args.len() {
         let flag = &args[index];
@@ -58,6 +64,21 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
         }
         if flag == "--strict" {
             strict = true;
+            index += 1;
+            continue;
+        }
+        if flag == "--nnue-output" {
+            index += 1;
+            output_mode = match args.get(index).map(String::as_str) {
+                Some("absolute") => NnueOutputMode::Absolute,
+                Some("residual-material") => NnueOutputMode::ResidualMaterial,
+                _ => {
+                    return Err(format!(
+                        "--nnue-output requires absolute or residual-material\n\n{}",
+                        usage()
+                    ));
+                }
+            };
             index += 1;
             continue;
         }
@@ -88,6 +109,7 @@ fn parse_probe_args(args: &[String]) -> Result<Option<ParsedProbeArgs>, String> 
         probes: sfens,
         json,
         strict,
+        output_mode,
     }))
 }
 
@@ -113,6 +135,7 @@ fn render_json(
     probes: &[Probe],
     scores: &[i32],
     reload_deterministic: bool,
+    output_mode: NnueOutputMode,
 ) -> String {
     use std::fmt::Write;
 
@@ -122,8 +145,9 @@ fn render_json(
     let (mean, variance) = score_moments(scores);
     let quality_failures = probe_quality_failures(probes, scores);
     let mut output = format!(
-        "{{\"weights\":\"{}\",\"probes\":[",
-        json_escape(&weights_path.display().to_string())
+        "{{\"weights\":\"{}\",\"nnue_output\":\"{}\",\"probes\":[",
+        json_escape(&weights_path.display().to_string()),
+        output_mode.as_str(),
     );
     for (index, ((name, sfen), score)) in probes.iter().zip(scores).enumerate() {
         if index > 0 {
@@ -169,11 +193,12 @@ fn render_json(
         }
         output.push(']');
     }
+    let (ft_neurons, l2_neurons, out_neurons) = distinct_neuron_counts(weights);
     let (l2_distinct, l2_bias_distinct, out_distinct) = layer_distinct_counts(weights);
     write!(
         output,
-        ",\"l2_distinct_values\":{},\"l2_bias_distinct_values\":{},\"out_distinct_values\":{}",
-        l2_distinct, l2_bias_distinct, out_distinct
+        ",\"ft_distinct_neurons\":{},\"l2_distinct_neurons\":{},\"out_distinct_neurons\":{},\"l2_distinct_values\":{},\"l2_bias_distinct_values\":{},\"out_distinct_values\":{}",
+        ft_neurons, l2_neurons, out_neurons, l2_distinct, l2_bias_distinct, out_distinct
     )
     .unwrap();
     output.push('}');
@@ -256,9 +281,52 @@ fn layer_distinct_counts(weights: &sekirei_core::nnue::NnueWeights) -> (usize, u
     (l2, l2_bias, out)
 }
 
+/// Count distinct *neurons*, not merely distinct scalar values.  A checkpoint
+/// can contain many different numbers while every output column is still the
+/// same vector; that is the collapse this diagnostic must detect.
+fn distinct_neuron_counts(weights: &sekirei_core::nnue::NnueWeights) -> (usize, usize, usize) {
+    use std::collections::HashSet;
+
+    let ft = (0..sekirei_core::nnue::L1)
+        .map(|neuron| {
+            let mut fingerprint = Vec::with_capacity(weights.ft.len() + 1);
+            fingerprint.push(weights.ft_bias[neuron]);
+            fingerprint.extend(weights.ft.iter().map(|row| row[neuron]));
+            fingerprint
+        })
+        .collect::<HashSet<_>>()
+        .len();
+    let l2 = (0..sekirei_core::nnue::L2)
+        .map(|neuron| {
+            let mut fingerprint = Vec::with_capacity(weights.l2.len() + 1);
+            fingerprint.push(weights.l2_bias[neuron].to_bits());
+            fingerprint.extend(weights.l2.iter().map(|row| row[neuron].to_bits()));
+            fingerprint
+        })
+        .collect::<HashSet<_>>()
+        .len();
+    let out = weights
+        .out
+        .iter()
+        .map(|value| value.to_bits())
+        .collect::<HashSet<_>>()
+        .len();
+    (ft, l2, out)
+}
+
 fn layer_quality_failures(weights: &sekirei_core::nnue::NnueWeights) -> Vec<&'static str> {
+    let (ft_neurons, l2_neurons, out_neurons) = distinct_neuron_counts(weights);
     let (l2_distinct, l2_bias_distinct, out_distinct) = layer_distinct_counts(weights);
     let mut failures = Vec::new();
+    if ft_neurons < 2 {
+        failures.push("ft_neuron_collapse");
+    }
+    if l2_neurons < 2 {
+        failures.push("l2_neuron_collapse");
+    }
+    if out_neurons < 2 {
+        failures.push("out_neuron_collapse");
+    }
     if l2_distinct < 2 {
         failures.push("l2_constant");
     }
@@ -280,6 +348,7 @@ fn main() -> Result<(), String> {
         probes: sfens,
         json,
         strict,
+        output_mode,
     } = parsed;
 
     let weights = read_weights(&weights_path)
@@ -291,7 +360,7 @@ fn main() -> Result<(), String> {
     for (index, (name, sfen)) in sfens.iter().enumerate() {
         let board =
             Board::from_sfen(sfen).map_err(|error| format!("SFEN {}: {error}", index + 1))?;
-        let score = evaluate_with_weights(&board, &weights);
+        let score = evaluate_with_weights_mode(&board, &weights, output_mode);
         scores.push(score);
         if !json {
             println!("{name}: score_cp={score} sfen=\"{sfen}\"");
@@ -302,7 +371,9 @@ fn main() -> Result<(), String> {
         .map_err(|error| format!("failed to reload {}: {error}", weights_path.display()))?;
     let reload_deterministic = sfens.iter().zip(&scores).all(|((_, sfen), &score)| {
         Board::from_sfen(sfen)
-            .map(|board| evaluate_with_weights(&board, &reloaded_weights) == score)
+            .map(|board| {
+                evaluate_with_weights_mode(&board, &reloaded_weights, output_mode) == score
+            })
             .unwrap_or(false)
     });
 
@@ -314,7 +385,8 @@ fn main() -> Result<(), String> {
                 &weights,
                 &sfens,
                 &scores,
-                reload_deterministic
+                reload_deterministic,
+                output_mode,
             )
         );
     }
@@ -376,6 +448,7 @@ mod tests {
         assert_eq!(parsed.probes[7].0, "capture_result");
         assert!(!parsed.json);
         assert!(!parsed.strict);
+        assert_eq!(parsed.output_mode, NnueOutputMode::Absolute);
     }
 
     #[test]
@@ -430,6 +503,18 @@ mod tests {
     }
 
     #[test]
+    fn residual_output_mode_is_parsed_explicitly() {
+        let parsed = parse_probe_args(&[
+            "weights.bin".to_string(),
+            "--nnue-output".to_string(),
+            "residual-material".to_string(),
+        ])
+        .unwrap()
+        .unwrap();
+        assert_eq!(parsed.output_mode, NnueOutputMode::ResidualMaterial);
+    }
+
+    #[test]
     fn json_escape_quotes_backslashes_and_controls() {
         assert_eq!(json_escape("a\"b\\c\n"), "a\\\"b\\\\c\\n");
     }
@@ -441,7 +526,14 @@ mod tests {
             ("second".to_string(), "sfen-2".to_string()),
         ];
         let weights = sekirei_core::nnue::NnueWeights::default_lcg();
-        let output = render_json(Path::new("weights.bin"), &weights, &probes, &[10, -5], true);
+        let output = render_json(
+            Path::new("weights.bin"),
+            &weights,
+            &probes,
+            &[10, -5],
+            true,
+            NnueOutputMode::Absolute,
+        );
         assert!(output.starts_with("{\"weights\":\"weights.bin\""));
         assert!(output.contains("\"score_cp\":10"));
         assert!(output.contains("\"score_cp\":-5"));
@@ -457,6 +549,23 @@ mod tests {
     }
 
     #[test]
+    fn neuron_counts_describe_columns_not_scalar_value_diversity() {
+        let mut weights = sekirei_core::nnue::NnueWeights::default_lcg();
+        for row in &mut weights.ft {
+            row[1] = row[0];
+        }
+        weights.ft_bias[1] = weights.ft_bias[0];
+        for row in &mut weights.l2 {
+            row[1] = row[0];
+        }
+        weights.l2_bias[1] = weights.l2_bias[0];
+        let (ft, l2, out) = distinct_neuron_counts(&weights);
+        assert_eq!(ft, sekirei_core::nnue::L1 - 1);
+        assert_eq!(l2, sekirei_core::nnue::L2 - 1);
+        assert_eq!(out, sekirei_core::nnue::L2);
+    }
+
+    #[test]
     fn empty_score_moments_are_zero() {
         assert_eq!(score_moments(&[]), (0.0, 0.0));
     }
@@ -465,7 +574,14 @@ mod tests {
     fn equal_scores_are_reported_as_constant_output() {
         let probes = vec![("only".to_string(), "sfen".to_string())];
         let weights = sekirei_core::nnue::NnueWeights::default_lcg();
-        let output = render_json(Path::new("weights.bin"), &weights, &probes, &[7], false);
+        let output = render_json(
+            Path::new("weights.bin"),
+            &weights,
+            &probes,
+            &[7],
+            false,
+            NnueOutputMode::Absolute,
+        );
         assert!(output.contains("\"score_variance_cp2\":0"));
         assert!(output.contains("\"constant_output\":true"));
         assert!(output.contains("\"reload_deterministic\":false"));

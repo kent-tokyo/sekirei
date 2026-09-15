@@ -66,6 +66,17 @@ impl Budget {
         self.abort.load(Ordering::Relaxed) || self.external_abort.load(Ordering::Relaxed)
     }
 
+    /// Return the observed stop source without guessing when no stop occurred.
+    pub(crate) fn abort_reason(&self) -> &'static str {
+        if self.external_abort.load(Ordering::Relaxed) {
+            "external_stop"
+        } else if self.abort.load(Ordering::Relaxed) {
+            "budget"
+        } else {
+            "none"
+        }
+    }
+
     /// Force-latch now (OS watchdog thread).
     pub(crate) fn abort_now(&self) {
         self.abort.store(true, Ordering::Relaxed);
@@ -150,6 +161,16 @@ mod tests {
         assert!(!budget.should_abort());
         budget.abort_now();
         assert!(budget.should_abort());
+        assert_eq!(budget.abort_reason(), "budget");
+    }
+
+    #[test]
+    fn external_abort_reason_is_distinct_from_budget_abort() {
+        let external = Arc::new(AtomicBool::new(false));
+        let budget = Budget::new(None, None, external.clone());
+        assert_eq!(budget.abort_reason(), "none");
+        external.store(true, Ordering::Relaxed);
+        assert_eq!(budget.abort_reason(), "external_stop");
     }
 
     #[test]

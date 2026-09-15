@@ -163,8 +163,9 @@ impl Board {
         Some(piece)
     }
 
+    /// Return the current square of `color`'s king, if the board contains it.
     #[inline]
-    pub(crate) fn king_square(&self, color: Color) -> Option<Square> {
+    pub fn king_square(&self, color: Color) -> Option<Square> {
         self.king_square[color.index()]
     }
 
@@ -584,6 +585,9 @@ impl Board {
         }
         h ^= zobrist::side_key(); // Black to move
         b.hash = h;
+        // A full pass locates both kings before placing board features. This
+        // is required by king-relative NNUE and remains equivalent for flat.
+        b.refresh_acc();
 
         b
     }
@@ -594,18 +598,26 @@ impl Board {
     /// Updates Zobrist hash and NNUE accumulator incrementally.
     #[inline(always)]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
-        self.do_move_impl::<true, true, true>(m)
+        let token = self.do_move_impl::<true, true, true>(m);
+        #[cfg(feature = "king_relative_b_small")]
+        self.refresh_acc();
+        token
     }
 
     /// Apply a move for search, omitting NNUE traffic when material evaluation
     /// is active. NNUE-enabled searches retain the normal incremental updates.
     #[inline(always)]
     pub fn do_move_for_search(&mut self, m: Move) -> MoveToken {
-        if crate::nnue::weights_active() {
+        let token = if crate::nnue::weights_active() {
             self.do_move_impl::<true, true, true>(m)
         } else {
             self.do_move_impl::<false, true, true>(m)
+        };
+        #[cfg(feature = "king_relative_b_small")]
+        if crate::nnue::weights_active() {
+            self.refresh_acc();
         }
+        token
     }
 
     /// Apply a pawn drop for a short-lived uchifuzume probe. Only the board
@@ -958,13 +970,17 @@ impl Board {
     #[inline(always)]
     pub fn undo_move(&mut self, token: MoveToken) {
         self.undo_move_impl::<true, true, true>(token);
+        #[cfg(feature = "king_relative_b_small")]
+        self.refresh_acc();
     }
 
     /// Undo a move made by [`Board::do_move_for_search`].
     #[inline(always)]
     pub fn undo_move_for_search(&mut self, token: MoveToken) {
         if crate::nnue::weights_active() {
-            self.undo_move_impl::<true, true, true>(token)
+            self.undo_move_impl::<true, true, true>(token);
+            #[cfg(feature = "king_relative_b_small")]
+            self.refresh_acc();
         } else {
             self.undo_move_impl::<false, true, true>(token)
         }
@@ -985,11 +1001,13 @@ impl Board {
         &mut self,
         token: MoveToken,
     ) {
-        // `side_to_move` is flipped below before any later cache lookup. A
-        // cache computed for the child therefore cannot match the restored
-        // parent side; if the child was never queried, do_move already
-        // invalidated the parent's cache. Avoid an otherwise unconditional
-        // store on this hot reverse path.
+        // A cache created in a grandchild has the same side-to-move as this
+        // restored parent.  Checking only `legality_cache_side` would then
+        // accept that grandchild's check/pin/evasion mask for a different
+        // board, which can leak pseudo-legal moves through a search root.
+        // Invalidate on every undo; the hot-path cost is one boolean store,
+        // while retaining it is not sound across multi-ply recursion.
+        self.invalidate_legality_cache();
         if UPDATE_HASH {
             self.hash = token.prev_hash;
         }

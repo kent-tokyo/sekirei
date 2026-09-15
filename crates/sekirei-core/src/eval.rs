@@ -5,6 +5,51 @@
 use crate::board::Board;
 use crate::nnue::NnueWeights;
 use crate::piece::PieceKind;
+use std::sync::atomic::{AtomicU8, Ordering};
+
+/// Meaning of an NNUE output.  Weight binaries deliberately keep their stable
+/// `SEKIRW01` layout, so a caller must select this explicitly (and record it
+/// in the accompanying run metadata) rather than guessing from the bytes.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NnueOutputMode {
+    /// The network output is the complete static evaluation.
+    Absolute,
+    /// The network output corrects the built-in material evaluation.
+    ResidualMaterial,
+}
+
+impl NnueOutputMode {
+    /// Stable spelling used by USI and training metadata.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Absolute => "absolute",
+            Self::ResidualMaterial => "residual-material",
+        }
+    }
+}
+
+static NNUE_OUTPUT_MODE: AtomicU8 = AtomicU8::new(0);
+
+/// Sets the process-wide interpretation of loaded NNUE weights.  The default
+/// is absolute, preserving every existing weight file and USI invocation.
+pub fn set_nnue_output_mode(mode: NnueOutputMode) {
+    NNUE_OUTPUT_MODE.store(
+        match mode {
+            NnueOutputMode::Absolute => 0,
+            NnueOutputMode::ResidualMaterial => 1,
+        },
+        Ordering::Relaxed,
+    );
+}
+
+#[inline]
+/// Returns the process-wide mode used by [`evaluate`].
+pub fn nnue_output_mode() -> NnueOutputMode {
+    match NNUE_OUTPUT_MODE.load(Ordering::Relaxed) {
+        1 => NnueOutputMode::ResidualMaterial,
+        _ => NnueOutputMode::Absolute,
+    }
+}
 
 /// Approximate piece values in centipawns (standard shogi heuristics)
 pub const PIECE_VALUE: [i32; PieceKind::COUNT] = [
@@ -57,7 +102,12 @@ const BOARD_KINDS: [PieceKind; 13] = [
 #[inline]
 pub fn evaluate(board: &Board) -> i32 {
     if crate::nnue::weights_active() {
-        board.acc.evaluate(board.side_to_move)
+        match nnue_output_mode() {
+            NnueOutputMode::Absolute => board.acc.evaluate(board.side_to_move),
+            NnueOutputMode::ResidualMaterial => {
+                material_score(board) + board.acc.evaluate(board.side_to_move)
+            }
+        }
     } else {
         material_score(board)
     }
@@ -74,7 +124,23 @@ pub fn evaluate_with_weights(board: &Board, weights: &NnueWeights) -> i32 {
     board.evaluate_with_weights(weights)
 }
 
-fn material_score(board: &Board) -> i32 {
+/// Evaluate with an explicit output meaning, without consulting process-wide
+/// state.  Diagnostics and training use this to keep candidate comparisons
+/// reproducible even when an engine has another output mode selected.
+pub fn evaluate_with_weights_mode(
+    board: &Board,
+    weights: &NnueWeights,
+    mode: NnueOutputMode,
+) -> i32 {
+    let nnue = board.evaluate_with_weights(weights);
+    match mode {
+        NnueOutputMode::Absolute => nnue,
+        NnueOutputMode::ResidualMaterial => material_score(board) + nnue,
+    }
+}
+
+/// Returns the material-only score from the side-to-move perspective.
+pub fn material_score(board: &Board) -> i32 {
     let us = board.side_to_move;
     let them = us.flip();
     let mut score = 0i32;
@@ -152,6 +218,70 @@ mod tests {
         assert_eq!(
             material_score(&white),
             -PIECE_VALUE[PieceKind::Hisha.index()]
+        );
+    }
+
+    #[test]
+    fn residual_mode_adds_material_to_explicit_weights() {
+        let board = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 b - 1").unwrap();
+        let weights = NnueWeights::default_lcg();
+        let residual = board.evaluate_with_weights(&weights);
+        assert_eq!(
+            evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial),
+            material_score(&board) + residual,
+        );
+    }
+
+    #[test]
+    fn residual_mode_survives_capture_promotion_drop_and_undo() {
+        use crate::sfen::move_from_usi;
+
+        let weights = NnueWeights::default_lcg();
+        for (sfen, usi) in [
+            ("4k4/9/9/9/9/9/9/9/4K4 b R 1", "R*5e"),
+            ("4k4/9/9/4P4/9/9/9/9/4K4 b - 1", "5d5c+"),
+            ("4k4/9/9/4p4/4R4/9/9/9/4K4 b - 1", "5e5d"),
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let original =
+                evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial);
+            let mv = move_from_usi(usi, &board).unwrap();
+            let undo = board.do_move(mv);
+            let incremental =
+                evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial);
+            let mut refreshed = board.clone();
+            refreshed.refresh_acc();
+            assert_eq!(
+                incremental,
+                evaluate_with_weights_mode(&refreshed, &weights, NnueOutputMode::ResidualMaterial,),
+                "residual score mismatch after {usi}"
+            );
+            board.undo_move(undo);
+            assert_eq!(
+                evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial),
+                original,
+                "residual score mismatch after undo of {usi}"
+            );
+        }
+    }
+
+    #[test]
+    fn zero_residual_weights_exactly_match_material() {
+        let board = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 b - 1").unwrap();
+        let mut weights = NnueWeights::default_lcg();
+        for row in &mut weights.ft {
+            *row = [0; crate::nnue::L1];
+        }
+        weights.ft_bias = [0; crate::nnue::L1];
+        for row in &mut weights.l2 {
+            *row = [0.0; crate::nnue::L2];
+        }
+        weights.l2_bias = [0.0; crate::nnue::L2];
+        weights.out = [0.0; crate::nnue::L2];
+        weights.out_bias = 0.0;
+        assert_eq!(
+            evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial),
+            material_score(&board)
         );
     }
 }

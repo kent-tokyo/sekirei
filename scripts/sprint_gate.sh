@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Chunked/resumable strength gate: splits data/gate/openings_standard.sfen
+# Chunked/resumable strength gate: splits the caller-provided opening corpus
 # into N disjoint shards, runs each shard as an independent short match
 # session (safe to interrupt between sprints and resume later by re-running
 # with the same RUN_ID), then combines all sprints into one gate-able
@@ -84,7 +84,13 @@ PAIRED_BY_ID=${PAIRED_BY_ID:-0}
 MAX_GAMES=${MAX_GAMES:-1600}
 
 OPENINGS=${OPENINGS:-data/gate/openings_standard.sfen}
+BYOYOMI_MS=${BYOYOMI_MS:-1000}
+SEARCH_MODE=${SEARCH_MODE:-Speculative}
 [ -f "$OPENINGS" ] || { echo "error: $OPENINGS not found" >&2; exit 2; }
+case "$BYOYOMI_MS" in
+  ''|*[!0-9]*) echo "error: BYOYOMI_MS must be a positive integer" >&2; exit 2 ;;
+esac
+[ "$BYOYOMI_MS" -gt 0 ] || { echo "error: BYOYOMI_MS must be positive" >&2; exit 2; }
 command -v jq >/dev/null 2>&1 || { echo "error: jq not found" >&2; exit 127; }
 
 PAIRED_ARGS=()
@@ -97,7 +103,7 @@ RUN_DIR="sprint_gate_runs/$RUN_ID"
 mkdir -p "$RUN_DIR/shards"
 
 if [ "$SPRT" = "1" ]; then
-  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA variant=$SPRT_VARIANT paired_by_id=$PAIRED_BY_ID max_games=$MAX_GAMES) ==="
+  echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION, byoyomi=${BYOYOMI_MS}ms, SearchMode=$SEARCH_MODE, SPRT early-stop: H0=$ELO0 H1=$ELO1 alpha=$ALPHA beta=$BETA variant=$SPRT_VARIANT paired_by_id=$PAIRED_BY_ID max_games=$MAX_GAMES) ==="
 else
   echo "=== sprint_gate: $NEW vs $BASE ($N_SPRINTS sprints x games-per-position=$GAMES_PER_POSITION) ==="
 fi
@@ -161,8 +167,9 @@ for ((i = 1; i <= N_SPRINTS; i++)); do
     cargo run --release -q -p sekirei-match-runner -- \
       --engine1 ./target/release/sekirei --args1 "$NEW" \
       --engine2 ./target/release/sekirei --args2 "$BASE" \
-      --engine-option1 "Threads=1" --engine-option2 "Threads=1" \
-      --positions "$SHARD" --games-per-position "$GAMES_PER_POSITION" --byoyomi 1000 \
+      --engine-option1 "Threads=1" --engine-option1 "SpecTopN=0" --engine-option1 "UseBook=false" --engine-option1 "SearchMode=$SEARCH_MODE" \
+      --engine-option2 "Threads=1" --engine-option2 "SpecTopN=0" --engine-option2 "UseBook=false" --engine-option2 "SearchMode=$SEARCH_MODE" \
+      --positions "$SHARD" --games-per-position "$GAMES_PER_POSITION" --byoyomi "$BYOYOMI_MS" \
       --output "$RUN_DIR/kifu_${ii}" \
       --json "$RUN_DIR/sprint_${ii}.json"
   fi

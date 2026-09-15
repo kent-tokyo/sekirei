@@ -7,6 +7,7 @@ os.kill(pid, 0) succeeds).
 
 Run: python3 scripts/test_gate_orchestrator_resume.py
 """
+import json
 import os
 import shutil
 import subprocess
@@ -17,7 +18,13 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(__file__))
 
-from gate_orchestrator import launch_shard, shard_is_alive, verify_weights_loaded
+from gate_orchestrator import (
+    acquire_run_lock,
+    launch_shard,
+    merge_confirmed_shards,
+    shard_is_alive,
+    verify_weights_loaded,
+)
 
 
 class ShardIsAliveTest(unittest.TestCase):
@@ -103,6 +110,49 @@ class VerifyWeightsLoadedTest(unittest.TestCase):
                 f.write("info string weight load failed: invalid checkpoint\n")
             shard = {"shard_id": 0}
             self.assertFalse(verify_weights_loaded(outdir, shard))
+
+
+class MergeConfirmedShardsTest(unittest.TestCase):
+    def test_preserves_engine1_candidate_and_engine2_baseline_labels(self):
+        """The frozen plan maps option1->Engine1->candidate, unchanged."""
+        with tempfile.TemporaryDirectory() as outdir:
+            with open(os.path.join(outdir, "shard_0000.jsonl"), "w") as f:
+                f.write('{"id":"pos0_pair0","result":"candidate_win"}\n')
+                f.write('{"id":"pos0_pair0","result":"baseline_win"}\n')
+            shards = [{"shard_id": 0, "start_pos": 0, "end_pos": 1}]
+            _, combined_jsonl, c_wins, b_wins, draws = merge_confirmed_shards(
+                outdir, shards, 1
+            )
+            self.assertEqual((c_wins, b_wins, draws), (1, 1, 0))
+            with open(combined_jsonl) as f:
+                records = [json.loads(line) for line in f]
+            self.assertEqual(
+                [record["result"] for record in records],
+                ["candidate_win", "baseline_win"],
+            )
+
+
+class ExclusiveRunLockTest(unittest.TestCase):
+    def test_second_process_cannot_own_same_run_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = acquire_run_lock(tmp)
+            try:
+                script = (
+                    "import importlib.util,sys; "
+                    "s=importlib.util.spec_from_file_location('gate', sys.argv[1]); "
+                    "m=importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                    "m.acquire_run_lock(sys.argv[2])"
+                )
+                source = os.path.join(os.path.dirname(__file__), "gate_orchestrator.py")
+                proc = subprocess.run(
+                    [sys.executable, "-c", script, source, tmp],
+                    capture_output=True,
+                    text=True,
+                )
+            finally:
+                lock.close()
+            self.assertNotEqual(proc.returncode, 0)
+            self.assertIn("refusing concurrent run", proc.stderr)
 
 
 if __name__ == "__main__":

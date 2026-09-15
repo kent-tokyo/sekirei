@@ -79,6 +79,12 @@ impl Square {
             Some(Square::from_fr(nf as u8, nr as u8))
         }
     }
+
+    /// Return this square's 3x3 king-zone bucket (0..9).
+    #[inline]
+    pub const fn king_zone(self) -> usize {
+        (self.file_0() / 3) as usize * 3 + (self.rank_0() / 3) as usize
+    }
 }
 
 /// Movement directions

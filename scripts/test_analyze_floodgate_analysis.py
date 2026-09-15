@@ -27,6 +27,7 @@ class FloodgateBatchTest(unittest.TestCase):
             self.assertEqual(result["paired"], 1)
             self.assertEqual(len(result["missing_analysis"]), 1)
             self.assertEqual(result["by_result"]["win"]["games"], 1)
+            self.assertEqual(result["by_result"]["win"]["sign_reversals"], 0)
 
     def test_classifies_legacy_sidecar_as_excluded(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -39,6 +40,7 @@ class FloodgateBatchTest(unittest.TestCase):
             result = MODULE.analyze_directory(csa_dir, analysis_dir)
             self.assertEqual(result["paired"], 0)
             self.assertEqual(len(result["legacy_analysis"]), 1)
+            self.assertEqual(result["legacy_excluded"], result["legacy_analysis"])
 
     def test_explicitly_excludes_legacy_sidecar(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -53,6 +55,7 @@ class FloodgateBatchTest(unittest.TestCase):
             result = MODULE.analyze_directory(csa_dir, analysis_dir)
             self.assertEqual(result["paired"], 0)
             self.assertEqual(len(result["legacy_analysis"]), 1)
+            self.assertEqual(result["legacy_excluded"], result["legacy_analysis"])
             self.assertEqual(result["legacy_analysis"][0]["reason"], "legacy_or_unknown_schema")
 
 

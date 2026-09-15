@@ -24,7 +24,7 @@ mod scored;
 mod teacher_cache;
 mod trainer;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::fs::{self, File};
 use std::io::{self, BufWriter, Write};
@@ -33,9 +33,14 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use sekirei_core::board::Board;
-use sekirei_core::nnue::{load_weights, save_weights};
+use sekirei_core::{
+    eval::{NnueOutputMode, set_nnue_output_mode},
+    nnue::{load_weights, save_weights},
+    sfen::{board_to_sfen, move_from_usi, move_to_usi},
+};
+use serde::Deserialize;
 
-use csa::parse_csa;
+use csa::{CsaGame, parse_csa};
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
@@ -49,6 +54,34 @@ static SIDECARE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 enum TeacherEval {
     Material,
     Nnue,
+}
+
+/// Meaning of the trained NNUE output.  This is distinct from the teacher:
+/// teachers and their cache always store absolute centipawns, while this mode
+/// chooses whether the model learns that full score or its material residual.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum NnueOutput {
+    Absolute,
+    ResidualMaterial,
+}
+
+impl NnueOutput {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "absolute" => Ok(Self::Absolute),
+            "residual-material" => Ok(Self::ResidualMaterial),
+            _ => Err(format!(
+                "unknown --nnue-output {value:?}; expected absolute or residual-material"
+            )),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Absolute => "absolute",
+            Self::ResidualMaterial => "residual-material",
+        }
+    }
 }
 
 impl TeacherEval {
@@ -66,6 +99,11 @@ impl TeacherEval {
 struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
+    ranking_pairs_path: Option<PathBuf>, // --ranking-pairs: strict diagnostic root-ranking JSON
+    ranking_epochs: usize,           // --ranking-epochs (ranking-pairs mode only)
+    ranking_max_pairs: usize,        // --ranking-max-pairs (0 = every input pair)
+    ranking_batch_pairs: usize, // --ranking-batch-pairs (default 1 preserves pair-step semantics)
+    ranking_parent_balanced: bool, // --ranking-parent-balanced (one averaged update per parent)
     output: PathBuf,
     epochs: usize,
     sample: usize,                    // sample every N plies per game
@@ -76,17 +114,24 @@ struct Args {
     label_depth: u32,                 // search depth for teacher label
     label_time_ms: Option<u64>,       // optional hard limit per teacher search
     label_nodes: Option<u64>,         // optional deterministic node limit per search
+    teacher_score_cap: f32,           // symmetric CP cap applied to teacher labels
+    search_target_weight: f32,        // searched-label share; remainder is fixed static NNUE
     teacher_eval: TeacherEval,        // --teacher-eval <material|nnue>
     teacher_weights: Option<PathBuf>, // --teacher-weights <checkpoint.bin>
-    export: Option<PathBuf>,          // --export: write observations JSONL for quietset
-    depths: Vec<u32>, // --depths: comma-separated depths for export (default: 4,6,8)
-    build_book: Option<PathBuf>, // --build-book: write a statistical opening book JSONL
-    book_max_ply: usize, // --book-max-ply (default: 30)
-    book_min_count: u64, // --book-min-count (default: 20)
-    scored_path: Option<PathBuf>, // --scored: quietset scored JSONL
-    min_stability: f32, // --min-stability (default: 0.85)
-    stability_weighted: bool, // --stability-weighted
-    label_threshold_cp: i32, // --label-threshold-cp (default: 120)
+    teacher_nnue_output: NnueOutput,  // --teacher-nnue-output <absolute|residual-material>
+    nnue_output: NnueOutput,          // --nnue-output <absolute|residual-material>
+    // Inference-only checkpoint used as a fresh optimizer starting point.
+    // Unlike --resume-*, its Adam state is deliberately reset to zero.
+    init_weights: Option<PathBuf>, // --init-weights <checkpoint.bin>
+    export: Option<PathBuf>,       // --export: write observations JSONL for quietset
+    depths: Vec<u32>,              // --depths: comma-separated depths for export (default: 4,6,8)
+    build_book: Option<PathBuf>,   // --build-book: write a statistical opening book JSONL
+    book_max_ply: usize,           // --book-max-ply (default: 30)
+    book_min_count: u64,           // --book-min-count (default: 20)
+    scored_path: Option<PathBuf>,  // --scored: quietset scored JSONL
+    min_stability: f32,            // --min-stability (default: 0.85)
+    stability_weighted: bool,      // --stability-weighted
+    label_threshold_cp: i32,       // --label-threshold-cp (default: 120)
     // positions mode extras
     phase_weights: HashMap<String, f32>, // --phase-weights opening=0.5,middlegame=1.0,...
     side_balance: bool,                  // --side-balance
@@ -233,6 +278,160 @@ struct Args {
     trace_positions: Vec<u64>,
 }
 
+/// Strict, diagnostic-only input format for pairwise root-ranking training.
+/// The corresponding `ranking_audit` binary checks the same reconstruction
+/// contract independently; this loader repeats the security/correctness
+/// boundary because a trainer must never trust a prior audit report alone.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RankingPairsFile {
+    schema: String,
+    diagnostic_only: bool,
+    strength_claim: String,
+    source_contract: RankingSourceContract,
+    source_teacher: RankingSourceTeacher,
+    #[serde(default = "default_ranking_pair_selection")]
+    pair_selection: String,
+    pairs: Vec<RankingPairRecord>,
+}
+
+fn default_ranking_pair_selection() -> String {
+    "all".to_owned()
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RankingSourceContract {
+    depth: u32,
+    threads: u32,
+    spec_top_n: u32,
+    root_candidate_mode: String,
+    root_candidate_limit: u32,
+    complete_legal_root_set: bool,
+    per_category_unique_positions: u32,
+    normal_score_abs_max_cp: i32,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RankingSourceTeacher {
+    binary: String,
+    binary_sha256: String,
+    weights: String,
+    weights_sha256: String,
+    nnue_output: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RankingPairRecord {
+    parent_id: String,
+    category: String,
+    initial_sfen: String,
+    history_before_usi: Vec<String>,
+    parent_sfen: String,
+    /// Replay provenance is retained by the Python splitter for group-level
+    /// isolation.  Training does not interpret it, but strict decoding must
+    /// accept the audited artifact rather than forcing provenance to be lost.
+    #[serde(default)]
+    source: Option<serde_json::Value>,
+    higher_move_usi: String,
+    lower_move_usi: String,
+    teacher_score_gap_cp: i32,
+}
+
+fn load_ranking_pairs(
+    path: &Path,
+) -> Result<
+    Vec<(
+        String,
+        Board,
+        sekirei_core::mv::Move,
+        sekirei_core::mv::Move,
+    )>,
+    String,
+> {
+    let text = fs::read_to_string(path)
+        .map_err(|error| format!("cannot read ranking pairs {path:?}: {error}"))?;
+    let input: RankingPairsFile = serde_json::from_str(&text)
+        .map_err(|error| format!("invalid ranking pairs {path:?}: {error}"))?;
+    if input.schema != "sekirei.root-rank-pairs.v1"
+        || !input.diagnostic_only
+        || input.strength_claim != "not_permitted"
+        || input.pairs.is_empty()
+    {
+        return Err(
+            "ranking pairs must use non-empty diagnostic-only sekirei.root-rank-pairs.v1"
+                .to_owned(),
+        );
+    }
+    if !matches!(input.pair_selection.as_str(), "all" | "adjacent") {
+        return Err("ranking pairs have an unsupported pair selection".to_owned());
+    }
+    let source = &input.source_contract;
+    if source.depth == 0
+        || source.threads != 1
+        || source.spec_top_n != 0
+        || source.root_candidate_mode != "legal_move_generation_prefix"
+        || source.root_candidate_limit == 0
+        || source.per_category_unique_positions == 0
+        || source.normal_score_abs_max_cp <= 0
+        || source.complete_legal_root_set
+    {
+        return Err("ranking pairs have an unsupported source contract".to_owned());
+    }
+    let teacher = &input.source_teacher;
+    if teacher.binary.is_empty()
+        || teacher.weights.is_empty()
+        || teacher.binary_sha256.len() != 64
+        || teacher.weights_sha256.len() != 64
+        || !matches!(
+            teacher.nnue_output.as_str(),
+            "absolute" | "residual-material"
+        )
+    {
+        return Err("ranking pairs have an incomplete source teacher identity".to_owned());
+    }
+    input
+        .pairs
+        .into_iter()
+        .enumerate()
+        .map(|(index, pair)| {
+            let label = format!("ranking pair {index} ({})", pair.parent_id);
+            let _source = &pair.source;
+            if pair.category.is_empty()
+                || pair.parent_id.is_empty()
+                || pair.teacher_score_gap_cp <= 0
+                || pair.teacher_score_gap_cp
+                    > input
+                        .source_contract
+                        .normal_score_abs_max_cp
+                        .saturating_mul(2)
+            {
+                return Err(format!("{label}: non-strict or incomplete pair"));
+            }
+            let mut board = Board::from_sfen(&pair.initial_sfen)
+                .map_err(|error| format!("{label}: invalid initial SFEN: {error}"))?;
+            for move_usi in &pair.history_before_usi {
+                let mv = move_from_usi(move_usi, &board)
+                    .map_err(|error| format!("{label}: invalid history {move_usi:?}: {error}"))?;
+                board.do_move(mv);
+            }
+            if board_to_sfen(&board) != pair.parent_sfen {
+                return Err(format!("{label}: history does not reconstruct parent SFEN"));
+            }
+            let high = move_from_usi(&pair.higher_move_usi, &board)
+                .map_err(|error| format!("{label}: invalid preferred move: {error}"))?;
+            let low = move_from_usi(&pair.lower_move_usi, &board)
+                .map_err(|error| format!("{label}: invalid lower move: {error}"))?;
+            if high == low {
+                return Err(format!("{label}: moves must be distinct"));
+            }
+            Ok((pair.parent_id, board, high, low))
+        })
+        .collect()
+}
+
 fn parse_phase_weights(s: &str) -> Result<HashMap<String, f32>, String> {
     let mut weights = HashMap::new();
     for pair in s.split(',') {
@@ -304,6 +503,11 @@ fn parse_args() -> Result<Args, String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut games_dir = None;
     let mut positions_path: Option<PathBuf> = None;
+    let mut ranking_pairs_path: Option<PathBuf> = None;
+    let mut ranking_epochs = 1usize;
+    let mut ranking_max_pairs = 0usize;
+    let mut ranking_batch_pairs = 1usize;
+    let mut ranking_parent_balanced = false;
     let mut output = PathBuf::from("weights.bin");
     let mut epochs = 3usize;
     let mut sample = 4usize;
@@ -314,8 +518,13 @@ fn parse_args() -> Result<Args, String> {
     let mut label_depth = 1u32;
     let mut label_time_ms: Option<u64> = None;
     let mut label_nodes: Option<u64> = None;
+    let mut teacher_score_cap = 600.0f32;
+    let mut search_target_weight = 1.0f32;
     let mut teacher_eval = TeacherEval::Material;
     let mut teacher_weights: Option<PathBuf> = None;
+    let mut teacher_nnue_output = NnueOutput::Absolute;
+    let mut nnue_output = NnueOutput::Absolute;
+    let mut init_weights: Option<PathBuf> = None;
     let mut export: Option<PathBuf> = None;
     let mut depths: Vec<u32> = vec![4, 6, 8];
     let mut build_book: Option<PathBuf> = None;
@@ -391,6 +600,21 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 positions_path = argv.get(i).map(PathBuf::from);
             }
+            "--ranking-pairs" => {
+                ranking_pairs_path = Some(next_value(&argv, &mut i, "--ranking-pairs")?);
+            }
+            "--ranking-epochs" => {
+                ranking_epochs = next_value(&argv, &mut i, "--ranking-epochs")?;
+            }
+            "--ranking-max-pairs" => {
+                ranking_max_pairs = next_value(&argv, &mut i, "--ranking-max-pairs")?;
+            }
+            "--ranking-batch-pairs" => {
+                ranking_batch_pairs = next_value(&argv, &mut i, "--ranking-batch-pairs")?;
+            }
+            "--ranking-parent-balanced" => {
+                ranking_parent_balanced = true;
+            }
             "--output" => {
                 i += 1;
                 if let Some(s) = argv.get(i) {
@@ -436,6 +660,12 @@ fn parse_args() -> Result<Args, String> {
                         .map_err(|_| "--label-nodes requires a positive integer".to_string())?,
                 );
             }
+            "--teacher-score-cap" => {
+                teacher_score_cap = next_value(&argv, &mut i, "--teacher-score-cap")?;
+            }
+            "--search-target-weight" => {
+                search_target_weight = next_value(&argv, &mut i, "--search-target-weight")?;
+            }
             "--teacher-eval" => {
                 i += 1;
                 let value = argv
@@ -446,6 +676,23 @@ fn parse_args() -> Result<Args, String> {
             "--teacher-weights" => {
                 i += 1;
                 teacher_weights = argv.get(i).map(PathBuf::from);
+            }
+            "--teacher-nnue-output" => {
+                i += 1;
+                let value = argv.get(i).ok_or_else(|| {
+                    "--teacher-nnue-output requires absolute or residual-material".to_string()
+                })?;
+                teacher_nnue_output = NnueOutput::parse(value)?;
+            }
+            "--nnue-output" => {
+                i += 1;
+                let value = argv.get(i).ok_or_else(|| {
+                    "--nnue-output requires absolute or residual-material".to_string()
+                })?;
+                nnue_output = NnueOutput::parse(value)?;
+            }
+            "--init-weights" => {
+                init_weights = Some(next_value(&argv, &mut i, "--init-weights")?);
             }
             "--export" => {
                 i += 1;
@@ -736,11 +983,17 @@ fn parse_args() -> Result<Args, String> {
         i += 1;
     }
 
-    if games_dir.is_none() && positions_path.is_none() {
-        return Err("either --games <dir> or --positions <jsonl> is required".to_string());
+    let input_modes = usize::from(games_dir.is_some())
+        + usize::from(positions_path.is_some())
+        + usize::from(ranking_pairs_path.is_some());
+    if input_modes == 0 {
+        return Err(
+            "one of --games <dir>, --positions <jsonl>, or --ranking-pairs <json> is required"
+                .to_string(),
+        );
     }
-    if games_dir.is_some() && positions_path.is_some() {
-        return Err("--games and --positions are mutually exclusive".to_string());
+    if input_modes > 1 {
+        return Err("--games, --positions, and --ranking-pairs are mutually exclusive".to_string());
     }
     if wdl_lambda.is_some() && positions_path.is_some() {
         return Err(
@@ -760,6 +1013,12 @@ fn parse_args() -> Result<Args, String> {
     }
     if label_nodes == Some(0) {
         return Err("--label-nodes must be greater than zero".to_string());
+    }
+    if !teacher_score_cap.is_finite() || teacher_score_cap <= 0.0 {
+        return Err("--teacher-score-cap must be finite and greater than zero".to_string());
+    }
+    if !search_target_weight.is_finite() || !(0.0..=1.0).contains(&search_target_weight) {
+        return Err("--search-target-weight must be finite and between 0 and 1".to_string());
     }
     if sample == 0 {
         return Err("--sample must be greater than zero".to_string());
@@ -813,6 +1072,49 @@ fn parse_args() -> Result<Args, String> {
         }
         _ => {}
     }
+    if teacher_eval == TeacherEval::Material && teacher_nnue_output != NnueOutput::Absolute {
+        return Err("--teacher-nnue-output requires --teacher-eval nnue".to_string());
+    }
+    if search_target_weight < 1.0 && teacher_eval != TeacherEval::Nnue {
+        return Err("--search-target-weight below 1 requires --teacher-eval nnue".to_string());
+    }
+    if nnue_output == NnueOutput::ResidualMaterial && wdl_lambda.is_some() {
+        return Err(
+            "--nnue-output residual-material does not support --wdl-lambda; use an absolute output or a residual-compatible WDL target"
+                .to_string(),
+        );
+    }
+    if init_weights.is_some() && (resume_adam.is_some() || resume_checkpoint.is_some()) {
+        return Err(
+            "--init-weights is mutually exclusive with --resume-adam and --resume-checkpoint"
+                .to_string(),
+        );
+    }
+    if ranking_epochs == 0 {
+        return Err("--ranking-epochs must be greater than zero".to_string());
+    }
+    if ranking_batch_pairs == 0 {
+        return Err("--ranking-batch-pairs must be greater than zero".to_string());
+    }
+    if ranking_pairs_path.is_some() {
+        if init_weights.is_none() {
+            return Err("--ranking-pairs requires --init-weights <checkpoint.bin>".to_string());
+        }
+        if resume_adam.is_some() || resume_checkpoint.is_some() {
+            return Err(
+                "--ranking-pairs does not support --resume-adam or --resume-checkpoint yet"
+                    .to_string(),
+            );
+        }
+        if wdl_lambda.is_some() || search_target_weight != 1.0 {
+            return Err("--ranking-pairs does not mix scalar WDL/static targets".to_string());
+        }
+        if ranking_parent_balanced && ranking_max_pairs != 0 {
+            return Err(
+                "--ranking-parent-balanced cannot combine with --ranking-max-pairs".to_string(),
+            );
+        }
+    }
     let epochs_u32 = u32::try_from(epochs)
         .map_err(|_| "--epochs exceeds the supported u32 range".to_string())?;
     let lr_schedule_epochs =
@@ -821,6 +1123,11 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         games_dir,
         positions_path,
+        ranking_pairs_path,
+        ranking_epochs,
+        ranking_max_pairs,
+        ranking_batch_pairs,
+        ranking_parent_balanced,
         output,
         epochs,
         sample,
@@ -831,8 +1138,13 @@ fn parse_args() -> Result<Args, String> {
         label_depth,
         label_time_ms,
         label_nodes,
+        teacher_score_cap,
+        search_target_weight,
         teacher_eval,
         teacher_weights,
+        teacher_nnue_output,
+        nnue_output,
+        init_weights,
         export,
         build_book,
         book_max_ply,
@@ -967,9 +1279,18 @@ fn configure_teacher(args: &Args) -> Result<String, String> {
                 .ok_or_else(|| "NNUE teacher has no weight path".to_string())?;
             let bytes = fs::read(path)
                 .map_err(|error| format!("cannot read NNUE teacher weights {path:?}: {error}"))?;
+            validate_nnue_output_metadata(path, args.teacher_nnue_output, &bytes)?;
+            set_nnue_output_mode(match args.teacher_nnue_output {
+                NnueOutput::Absolute => NnueOutputMode::Absolute,
+                NnueOutput::ResidualMaterial => NnueOutputMode::ResidualMaterial,
+            });
             load_weights(path)
                 .map_err(|error| format!("cannot load NNUE teacher weights {path:?}: {error}"))?;
-            format!("nnue:{:016x}", checkpoint_hash(&bytes))
+            format!(
+                "nnue:{}:{:016x}",
+                args.teacher_nnue_output.as_str(),
+                checkpoint_hash(&bytes)
+            )
         }
     };
     if let Some(limit_ms) = args.label_time_ms {
@@ -981,6 +1302,80 @@ fn configure_teacher(args: &Args) -> Result<String, String> {
     Ok(identity)
 }
 
+/// Residual teachers are never inferred from their raw binary: their output
+/// sidecar and byte fingerprint must agree before they are allowed to label a
+/// new run.  Legacy absolute teachers without a sidecar remain supported.
+fn validate_nnue_output_metadata(
+    weights: &Path,
+    expected: NnueOutput,
+    bytes: &[u8],
+) -> Result<(), String> {
+    let sidecar = weights.with_extension("meta.json");
+    if !sidecar.exists() {
+        return if expected == NnueOutput::Absolute {
+            Ok(())
+        } else {
+            Err(format!(
+                "residual NNUE weights require output metadata {sidecar:?}"
+            ))
+        };
+    }
+    let text = fs::read_to_string(&sidecar)
+        .map_err(|error| format!("cannot read NNUE teacher metadata {sidecar:?}: {error}"))?;
+    let metadata: serde_json::Value = serde_json::from_str(&text)
+        .map_err(|error| format!("invalid NNUE teacher metadata {sidecar:?}: {error}"))?;
+    if metadata.get("format").and_then(|v| v.as_str()) != Some("sekirei-nnue-output-v1") {
+        return Err(format!(
+            "unsupported NNUE output metadata format in {sidecar:?}"
+        ));
+    }
+    if metadata.get("nnue_output").and_then(|v| v.as_str()) != Some(expected.as_str()) {
+        return Err(format!(
+            "NNUE output mode does not match the requested output mode {}",
+            expected.as_str()
+        ));
+    }
+    let expected_hash = format!("{:016x}", checkpoint_hash(bytes));
+    if metadata.get("checkpoint_hash").and_then(|v| v.as_str()) != Some(expected_hash.as_str()) {
+        return Err(format!(
+            "NNUE output metadata hash does not match {weights:?}"
+        ));
+    }
+    if expected == NnueOutput::ResidualMaterial
+        && metadata.get("baseline").and_then(|v| v.as_str()) != Some("material-v1")
+    {
+        return Err(format!(
+            "residual NNUE metadata lacks material-v1 baseline in {sidecar:?}"
+        ));
+    }
+    Ok(())
+}
+
+/// Loads inference-only weights for a fresh fine-tuning run.  Optimizer
+/// moments are intentionally not part of an NNUE binary, so converting it to
+/// `TrainWeights` yields zeroed Adam state rather than pretending this is a
+/// resumable checkpoint.  The byte identity is included in the resume recipe
+/// so a later `--resume-checkpoint` cannot silently switch its origin.
+fn load_initial_weights(args: &Args) -> Result<Option<(trainer::TrainWeights, String)>, String> {
+    let Some(path) = &args.init_weights else {
+        return Ok(None);
+    };
+    let bytes = fs::read(path)
+        .map_err(|error| format!("cannot read initial NNUE weights {path:?}: {error}"))?;
+    validate_nnue_output_metadata(path, args.nnue_output, &bytes)?;
+    let weights = sekirei_core::nnue::read_weights(path)
+        .map_err(|error| format!("cannot load initial NNUE weights {path:?}: {error}"))?;
+    let identity = format!(
+        "{}:{:016x}",
+        args.nnue_output.as_str(),
+        checkpoint_hash(&bytes)
+    );
+    Ok(Some((
+        trainer::TrainWeights::from_nnue_weights(&weights),
+        identity,
+    )))
+}
+
 /// Stable recipe identity for complete resume. Output paths and the total
 /// target epoch are intentionally excluded: extending a run must be allowed,
 /// while changing data or any optimization/label setting must be rejected.
@@ -989,17 +1384,21 @@ fn resume_config_fingerprint(
     dataset: u64,
     split: u64,
     teacher_identity: &str,
+    initial_weights_identity: Option<&str>,
 ) -> String {
     let mut phase_weights: Vec<_> = args.phase_weights.iter().collect();
     phase_weights.sort_by(|a, b| a.0.cmp(b.0));
     let recipe = format!(
-        "dataset={dataset};split={split};teacher={teacher_identity};sample={};quiet={};min_ply={};label_depth={};label_time_ms={:?};label_nodes={:?};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
+        "dataset={dataset};split={split};teacher={teacher_identity};initial_weights={initial_weights_identity:?};nnue_output={};sample={};quiet={};min_ply={};label_depth={};label_time_ms={:?};label_nodes={:?};teacher_score_cap={};search_target_weight={};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
+        args.nnue_output.as_str(),
         args.sample,
         args.quiet,
         args.min_ply,
         args.label_depth,
         args.label_time_ms,
         args.label_nodes,
+        args.teacher_score_cap,
+        args.search_target_weight,
         args.min_rate,
         args.min_stability,
         args.stability_weighted,
@@ -1433,6 +1832,27 @@ fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
     write_atomic_stream(path, |out| out.write_all(contents))
 }
 
+/// A binary `SEKIRW01` checkpoint intentionally has no semantic tag so old
+/// engines remain able to read it.  Residual candidates therefore carry this
+/// adjacent, atomically-written declaration; consumers must default missing
+/// sidecars to `absolute`, never infer a residual mode from parameter values.
+fn save_output_mode_sidecar(output: &Path, mode: NnueOutput) -> io::Result<()> {
+    let path = output.with_extension("meta.json");
+    let bytes_on_disk = fs::read(output)?;
+    let bytes = serde_json::to_vec_pretty(&serde_json::json!({
+        "format": "sekirei-nnue-output-v1",
+        "nnue_output": mode.as_str(),
+        "baseline": if mode == NnueOutput::ResidualMaterial {
+            Some("material-v1")
+        } else {
+            None
+        },
+        "checkpoint_hash": format!("{:016x}", checkpoint_hash(&bytes_on_disk)),
+    }))
+    .map_err(io::Error::other)?;
+    write_atomic(&path, &bytes)
+}
+
 /// Copy a completed checkpoint into its stable selection path without ever
 /// exposing a partially copied `.best.bin`. The source is already an
 /// atomically-written checkpoint, so only the destination needs a temporary
@@ -1531,7 +1951,11 @@ fn save_checkpoint_meta(
         "label_depth": args.label_depth,
         "label_time_ms": args.label_time_ms,
         "label_nodes": args.label_nodes,
+        "teacher_score_cap": args.teacher_score_cap,
+        "search_target_weight": args.search_target_weight,
         "teacher_eval": format!("{:?}", args.teacher_eval).to_lowercase(),
+        "teacher_nnue_output": args.teacher_nnue_output.as_str(),
+        "nnue_output": args.nnue_output.as_str(),
         "teacher_identity": teacher_identity,
         "teacher_weights": args.teacher_weights,
         "wdl_lambda": args.wdl_lambda,
@@ -1740,17 +2164,39 @@ fn save_checkpoint_meta(
     write_atomic(path, &json)
 }
 
-/// Partitions `0..n_games` into (train_idxs, valid_idxs) by hashing each
-/// GAME index -- every sample from one CSA game lands fully on one side,
-/// since the split key is the game index, not any per-sample value.
-fn split_games_by_index(
-    n_games: usize,
+/// Number of plies retained in a CSA validation grouping key.  Initial SFEN
+/// alone is too coarse for ordinary CSA archives: nearly every game starts
+/// from `startpos`, which would put the entire corpus on one split side.  The
+/// early move prefix keeps identical opening lines together without making a
+/// useful hold-out impossible.
+const VALIDATION_OPENING_PLIES: usize = 12;
+
+/// Stable, opening-aware validation key for a CSA game.  A custom initial
+/// position remains part of the key; the first `VALIDATION_OPENING_PLIES`
+/// legal moves then distinguish standard-start games by their opening line.
+/// This is deliberately a grouping key, not a position label: later
+/// transpositions can still occur and must not be interpreted as independent
+/// external test evidence.
+fn game_validation_key(game: &CsaGame) -> String {
+    let mut key = board_to_sfen(&game.initial_board);
+    for mv in game.moves.iter().take(VALIDATION_OPENING_PLIES) {
+        key.push('\0');
+        key.push_str(&move_to_usi(*mv));
+    }
+    key
+}
+
+/// Partitions CSA games by an opening-aware validation key. All games with an
+/// identical initial position and early move sequence land on the same side,
+/// so the validation set cannot inherit an exact opening line from training.
+fn split_games_by_validation_key(
+    validation_keys: &[String],
     validation_ratio: f32,
     seed: u64,
 ) -> (Vec<usize>, Vec<usize>) {
     let split_threshold = (validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
-    (0..n_games)
-        .partition(|&i| positions::sfen_hash(&i.to_string(), seed) % 1000 >= split_threshold)
+    (0..validation_keys.len())
+        .partition(|&i| positions::sfen_hash(&validation_keys[i], seed) % 1000 >= split_threshold)
 }
 
 fn print_usage() {
@@ -1777,10 +2223,18 @@ fn print_usage() {
     eprintln!(
         "  --label-nodes <n>    Deterministic node limit per teacher search; part of cache identity (default: unlimited)"
     );
+    eprintln!("  --teacher-score-cap <cp>  Symmetric CP cap for teacher labels (default: 600)");
+    eprintln!(
+        "  --search-target-weight <f>  Search-label share in [0,1]; remainder anchors to fixed NNUE (default: 1)"
+    );
     eprintln!(
         "  --teacher-eval <mode>  Teacher leaf evaluator: material or nnue (default: material)"
     );
     eprintln!("  --teacher-weights <file>  Fixed NNUE weights (required with --teacher-eval nnue)");
+    eprintln!("  --teacher-nnue-output <mode>  Fixed NNUE teacher output mode (default: absolute)");
+    eprintln!(
+        "  --nnue-output <mode>  Network output: absolute or residual-material (default: absolute)"
+    );
     eprintln!("  --export <path>     Export observations JSONL for quietset (skips training)");
     eprintln!("  --depths <list>     Comma-separated depths for export (default: 4,6,8)");
     eprintln!(
@@ -1904,6 +2358,9 @@ fn print_usage() {
         "  --eval-only <ckpt.bin>  CSA path only: load a checkpoint, run one validation pass with cp_mse/wdl_loss, print, exit (no training)"
     );
     eprintln!(
+        "  --init-weights <ckpt.bin>  Start a fresh run from inference weights with zeroed Adam state; incompatible with --resume-*"
+    );
+    eprintln!(
         "  --phase-weights <spec>  Phase multipliers: opening=0.5,middlegame=1.0,endgame=1.2"
     );
     eprintln!("  --side-balance          Equalise black/white sample weights");
@@ -1984,8 +2441,130 @@ fn main() {
         }
     };
     eprintln!("Teacher evaluator: {teacher_identity}");
+    let initial_weights = match load_initial_weights(&args) {
+        Ok(weights) => weights,
+        Err(error) => {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+    };
+    if let Some((_, identity)) = &initial_weights {
+        eprintln!("Initial weights: {identity} (fresh Adam state)");
+    }
 
     let git_commit = git_commit_hash();
+
+    // ---- explicit pairwise root-ranking mode ----
+    // This is intentionally isolated from scalar CSA/positions training: the
+    // pair loss has two child boards and must apply one combined Adam step.
+    if let Some(pair_path) = &args.ranking_pairs_path {
+        let mut pairs = match load_ranking_pairs(pair_path) {
+            Ok(pairs) => pairs,
+            Err(error) => {
+                eprintln!("error: {error}");
+                std::process::exit(1);
+            }
+        };
+        let input_pair_count = pairs.len();
+        if args.ranking_max_pairs > 0 {
+            pairs.truncate(args.ranking_max_pairs);
+        }
+        let parent_groups: BTreeMap<String, Vec<_>> = if args.ranking_parent_balanced {
+            let mut groups: BTreeMap<String, Vec<_>> = BTreeMap::new();
+            for (parent_id, board, higher, lower) in &pairs {
+                groups
+                    .entry(parent_id.clone())
+                    .or_default()
+                    .push((board.clone(), *higher, *lower));
+            }
+            groups
+        } else {
+            BTreeMap::new()
+        };
+        let (initial, initial_identity) = initial_weights
+            .as_ref()
+            .expect("--ranking-pairs requires --init-weights during parse");
+        let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+        trainer.weights = initial.clone();
+        trainer.lr = args.lr;
+        eprintln!(
+            "Ranking mode: {}/{} strict diagnostic pairs, {} epoch(s), batch={}, parent_balanced={}, parents={}, lr={:.6}",
+            pairs.len(),
+            input_pair_count,
+            args.ranking_epochs,
+            args.ranking_batch_pairs,
+            args.ranking_parent_balanced,
+            parent_groups.len(),
+            args.lr
+        );
+        let mut final_loss = 0.0f64;
+        for epoch in 1..=args.ranking_epochs {
+            let mut sum = 0.0f64;
+            if args.ranking_parent_balanced {
+                for batch in parent_groups.values() {
+                    sum += trainer.train_ranking_batch(batch) as f64 * batch.len() as f64;
+                }
+            } else {
+                for chunk in pairs.chunks(args.ranking_batch_pairs) {
+                    let batch: Vec<_> = chunk
+                        .iter()
+                        .map(|(_, board, higher, lower)| (board.clone(), *higher, *lower))
+                        .collect();
+                    sum += trainer.train_ranking_batch(&batch) as f64 * batch.len() as f64;
+                }
+            }
+            final_loss = sum / pairs.len() as f64;
+            eprintln!(
+                "  ranking epoch {epoch}/{}: mean_pairwise_loss={final_loss:.6}",
+                args.ranking_epochs
+            );
+        }
+        let weights = trainer.weights.to_nnue_weights();
+        if let Err(error) = save_weights(&weights, &args.output) {
+            eprintln!(
+                "error: cannot save ranking checkpoint {:?}: {error}",
+                args.output
+            );
+            std::process::exit(1);
+        }
+        if let Err(error) = save_output_mode_sidecar(&args.output, args.nnue_output) {
+            eprintln!("error: cannot save output metadata: {error}");
+            std::process::exit(1);
+        }
+        let metadata = serde_json::json!({
+            "schema": "sekirei.ranking-training-run.v1",
+            "diagnostic_only": true,
+            "strength_claim": "not_permitted",
+            "training_mode": "pairwise-root-prefix",
+            "pairs_path": pair_path,
+            "input_pairs": input_pair_count,
+            "pairs": pairs.len(),
+            "ranking_max_pairs": args.ranking_max_pairs,
+            "ranking_batch_pairs": args.ranking_batch_pairs,
+            "ranking_parent_balanced": args.ranking_parent_balanced,
+            "parent_groups": parent_groups.len(),
+            "epochs": args.ranking_epochs,
+            "learning_rate": args.lr,
+            "mean_pairwise_loss_final": final_loss,
+            "initial_weights": initial_identity,
+            "output": args.output,
+            "nnue_output": args.nnue_output.as_str(),
+            "git_commit": git_commit,
+        });
+        let metadata_path = args.output.with_extension("ranking.json");
+        if let Err(error) = write_atomic(
+            &metadata_path,
+            &serde_json::to_vec_pretty(&metadata).expect("ranking metadata serializes"),
+        ) {
+            eprintln!("error: cannot save ranking metadata {metadata_path:?}: {error}");
+            std::process::exit(1);
+        }
+        eprintln!(
+            "ranking checkpoint → {:?}; metadata → {:?} (diagnostic only; no strength claim)",
+            args.output, metadata_path
+        );
+        return;
+    }
 
     // ---- positions mode (shogiesa JSONL) ----
     if let Some(pos_path) = &args.positions_path {
@@ -2112,14 +2691,24 @@ fn main() {
             }
         }
 
-        let resume_fingerprint =
-            resume_config_fingerprint(&args, ds_hash, split_h, &teacher_identity);
+        let resume_fingerprint = resume_config_fingerprint(
+            &args,
+            ds_hash,
+            split_h,
+            &teacher_identity,
+            initial_weights
+                .as_ref()
+                .map(|(_, identity)| identity.as_str()),
+        );
         let mut resume_epoch_completed = 0u64;
         let mut resume_cursor = 0usize;
         let mut resume_teacher_cache = HashMap::new();
         let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+        trainer.set_residual_material_target(args.nnue_output == NnueOutput::ResidualMaterial);
         trainer.teacher_time_limit = args.label_time_ms.map(Duration::from_millis);
         trainer.teacher_node_limit = args.label_nodes;
+        trainer.teacher_score_cap = args.teacher_score_cap;
+        trainer.search_target_weight = args.search_target_weight;
         if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
             eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
             std::process::exit(1);
@@ -2168,6 +2757,9 @@ fn main() {
                 }
             };
             eprintln!("  resumed Adam state from {:?}", path);
+        } else if let Some((weights, _)) = &initial_weights {
+            trainer.weights = weights.clone();
+            eprintln!("  initialized fresh optimizer from --init-weights");
         }
         combined_cache.extend(resume_teacher_cache);
         trainer.grad_clip_norm = args.grad_clip_norm;
@@ -2548,17 +3140,29 @@ fn main() {
         if let Some(best_ckpt) = &best_valid_checkpoint {
             let best_path = args.output.with_extension("best.bin");
             match copy_atomic(best_ckpt, &best_path) {
-                Ok(_) => eprintln!(
-                    "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
-                    best_path, best_ckpt
-                ),
+                Ok(_) => match save_output_mode_sidecar(&best_path, args.nnue_output) {
+                    Ok(()) => eprintln!(
+                        "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
+                        best_path, best_ckpt
+                    ),
+                    Err(error) => eprintln!(
+                        "  best checkpoint metadata save failed; do not select {:?}: {error}",
+                        best_path
+                    ),
+                },
                 Err(e) => eprintln!("  best checkpoint copy failed: {e}"),
             }
         }
 
         let w = trainer.weights.to_nnue_weights();
         match sekirei_core::nnue::save_weights(&w, &args.output) {
-            Ok(_) => eprintln!("Final weights saved → {:?}", args.output),
+            Ok(_) => {
+                if let Err(error) = save_output_mode_sidecar(&args.output, args.nnue_output) {
+                    eprintln!("output metadata save failed: {error}");
+                    std::process::exit(1);
+                }
+                eprintln!("Final weights saved → {:?}", args.output)
+            }
             Err(e) => {
                 eprintln!("Save failed: {e}");
                 std::process::exit(1);
@@ -2643,18 +3247,14 @@ fn main() {
         None => HashMap::new(),
     };
 
-    // Group-aware validation split: partition by GAME index, not per
-    // position -- every sample from one CSA game lands fully on one side,
-    // avoiding the leakage a per-position split would have (positions from
-    // the same game are highly correlated, unlike shogiesa's independently
-    // sourced positions). Index-based rather than the positions path's
-    // content-hash split, so it reshuffles if the CSA file list or
-    // --min-rate changes -- weaker stability across dataset edits, but the
-    // natural group boundary here (`games: Vec<CsaGame>` already has one
-    // entry per game) makes tagging every sample with a game id unnecessary.
+    // Group-aware validation split: partition by initial position plus a
+    // fixed opening prefix, not individual position or CSA file.  Initial
+    // SFEN alone collapses ordinary startpos archives into one group; the
+    // prefix preserves an opening-level hold-out while yielding usable folds.
+    let validation_keys: Vec<String> = games.iter().map(game_validation_key).collect();
     let (train_idxs, valid_idxs) =
-        split_games_by_index(games.len(), args.validation_ratio, args.split_seed);
-    let split_h = split_hash(valid_idxs.iter().map(|i| i.to_string()));
+        split_games_by_validation_key(&validation_keys, args.validation_ratio, args.split_seed);
+    let split_h = split_hash(valid_idxs.iter().map(|i| validation_keys[*i].clone()));
     eprintln!(
         "  train_games={} valid_games={} (validation_ratio={:.2}, split_seed={})",
         train_idxs.len(),
@@ -2663,13 +3263,24 @@ fn main() {
         args.split_seed
     );
 
-    let resume_fingerprint = resume_config_fingerprint(&args, ds_hash, split_h, &teacher_identity);
+    let resume_fingerprint = resume_config_fingerprint(
+        &args,
+        ds_hash,
+        split_h,
+        &teacher_identity,
+        initial_weights
+            .as_ref()
+            .map(|(_, identity)| identity.as_str()),
+    );
     let mut resume_epoch_completed = 0u64;
     let mut resume_cursor = 0usize;
     let mut resume_teacher_cache = HashMap::new();
     let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
+    trainer.set_residual_material_target(args.nnue_output == NnueOutput::ResidualMaterial);
     trainer.teacher_time_limit = args.label_time_ms.map(Duration::from_millis);
     trainer.teacher_node_limit = args.label_nodes;
+    trainer.teacher_score_cap = args.teacher_score_cap;
+    trainer.search_target_weight = args.search_target_weight;
     if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
         eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
         std::process::exit(1);
@@ -2718,6 +3329,9 @@ fn main() {
             }
         };
         eprintln!("  resumed Adam state from {:?}", path);
+    } else if let Some((weights, _)) = &initial_weights {
+        trainer.weights = weights.clone();
+        eprintln!("  initialized fresh optimizer from --init-weights");
     }
     trainer.grad_clip_norm = args.grad_clip_norm;
     trainer.ft_clip_norm = args.ft_clip_norm;
@@ -3246,10 +3860,16 @@ fn main() {
     if let Some(best_ckpt) = &best_valid_checkpoint {
         let best_path = args.output.with_extension("best.bin");
         match copy_atomic(best_ckpt, &best_path) {
-            Ok(_) => eprintln!(
-                "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
-                best_path, best_ckpt
-            ),
+            Ok(_) => match save_output_mode_sidecar(&best_path, args.nnue_output) {
+                Ok(()) => eprintln!(
+                    "  best (valid_loss={best_valid_loss:.4}) → {:?} (from {:?})",
+                    best_path, best_ckpt
+                ),
+                Err(error) => eprintln!(
+                    "  best checkpoint metadata save failed; do not select {:?}: {error}",
+                    best_path
+                ),
+            },
             Err(e) => eprintln!("  best checkpoint copy failed: {e}"),
         }
     }
@@ -3257,7 +3877,13 @@ fn main() {
     // Save final weights
     let w = trainer.weights.to_nnue_weights();
     match save_weights(&w, &args.output) {
-        Ok(_) => eprintln!("Final weights saved → {:?}", args.output),
+        Ok(_) => {
+            if let Err(error) = save_output_mode_sidecar(&args.output, args.nnue_output) {
+                eprintln!("output metadata save failed: {error}");
+                std::process::exit(1);
+            }
+            eprintln!("Final weights saved → {:?}", args.output)
+        }
         Err(e) => {
             eprintln!("Save failed: {e}");
             std::process::exit(1);
@@ -3271,13 +3897,80 @@ mod tests {
     use std::collections::HashSet;
 
     #[test]
-    fn split_games_by_index_partitions_every_index_exactly_once() {
-        // The direct "no leakage" property: every game index appears on
-        // exactly one side, and the two sides cover every index with no
-        // overlap and no gaps -- since the split key is the game index
-        // itself, this also means no single game's samples can ever
-        // straddle train and valid.
-        let (train, valid) = split_games_by_index(500, 0.2, 42);
+    fn ranking_pair_loader_replays_strict_parent_context() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.json");
+        let start = board_to_sfen(&Board::startpos());
+        let document = serde_json::json!({
+            "schema": "sekirei.root-rank-pairs.v1",
+            "diagnostic_only": true,
+            "strength_claim": "not_permitted",
+            "source_contract": {
+                "depth": 3, "threads": 1, "spec_top_n": 0,
+                "root_candidate_mode": "legal_move_generation_prefix",
+                "root_candidate_limit": 32, "complete_legal_root_set": false,
+                "per_category_unique_positions": 1, "normal_score_abs_max_cp": 10000
+            },
+            "source_teacher": {
+                "binary": "teacher", "binary_sha256": "a".repeat(64),
+                "weights": "weights", "weights_sha256": "b".repeat(64),
+                "nnue_output": "absolute"
+            },
+            "pairs": [{
+                "parent_id": "start",
+                "category": "opening_control",
+                "initial_sfen": start,
+                "history_before_usi": [],
+                "parent_sfen": board_to_sfen(&Board::startpos()),
+                "higher_move_usi": "7g7f",
+                "lower_move_usi": "2g2f",
+                "teacher_score_gap_cp": 1
+            }]
+        });
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let pairs = load_ranking_pairs(&path).unwrap();
+        assert_eq!(pairs.len(), 1);
+    }
+
+    #[test]
+    fn ranking_pair_loader_rejects_non_strict_labels() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.json");
+        let start = board_to_sfen(&Board::startpos());
+        let document = serde_json::json!({
+            "schema": "sekirei.root-rank-pairs.v1",
+            "diagnostic_only": true,
+            "strength_claim": "not_permitted",
+            "source_contract": {
+                "depth": 3, "threads": 1, "spec_top_n": 0,
+                "root_candidate_mode": "legal_move_generation_prefix",
+                "root_candidate_limit": 32, "complete_legal_root_set": false,
+                "per_category_unique_positions": 1, "normal_score_abs_max_cp": 10000
+            },
+            "source_teacher": {
+                "binary": "teacher", "binary_sha256": "a".repeat(64),
+                "weights": "weights", "weights_sha256": "b".repeat(64),
+                "nnue_output": "absolute"
+            },
+            "pairs": [{
+                "parent_id": "start",
+                "category": "opening_control",
+                "initial_sfen": start,
+                "history_before_usi": [],
+                "parent_sfen": board_to_sfen(&Board::startpos()),
+                "higher_move_usi": "7g7f",
+                "lower_move_usi": "2g2f",
+                "teacher_score_gap_cp": 0
+            }]
+        });
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(load_ranking_pairs(&path).is_err());
+    }
+
+    #[test]
+    fn split_games_by_validation_key_partitions_every_index_exactly_once() {
+        let openings: Vec<String> = (0..500).map(|i| format!("opening-{i}")).collect();
+        let (train, valid) = split_games_by_validation_key(&openings, 0.2, 42);
         let mut combined: Vec<usize> = train.iter().chain(valid.iter()).copied().collect();
         combined.sort_unstable();
         let expected: Vec<usize> = (0..500).collect();
@@ -3289,24 +3982,44 @@ mod tests {
     }
 
     #[test]
-    fn split_games_by_index_zero_ratio_holds_out_nothing() {
-        let (train, valid) = split_games_by_index(200, 0.0, 42);
-        assert_eq!(train.len(), 200);
+    fn split_games_by_validation_key_zero_ratio_holds_out_nothing() {
+        let openings = vec!["a".to_string(), "b".to_string()];
+        let (train, valid) = split_games_by_validation_key(&openings, 0.0, 42);
+        assert_eq!(train.len(), 2);
         assert!(valid.is_empty());
     }
 
     #[test]
-    fn split_games_by_index_ratio_one_holds_out_everything() {
-        let (train, valid) = split_games_by_index(200, 1.0, 42);
+    fn split_games_by_validation_key_ratio_one_holds_out_everything() {
+        let openings = vec!["a".to_string(), "b".to_string()];
+        let (train, valid) = split_games_by_validation_key(&openings, 1.0, 42);
         assert!(train.is_empty());
-        assert_eq!(valid.len(), 200);
+        assert_eq!(valid.len(), 2);
     }
 
     #[test]
-    fn split_games_by_index_is_deterministic_for_the_same_seed() {
-        let a = split_games_by_index(300, 0.3, 7);
-        let b = split_games_by_index(300, 0.3, 7);
+    fn split_games_by_validation_key_is_deterministic_for_the_same_seed() {
+        let openings: Vec<String> = (0..300).map(|i| format!("sfen-{i}")).collect();
+        let a = split_games_by_validation_key(&openings, 0.3, 7);
+        let b = split_games_by_validation_key(&openings, 0.3, 7);
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn split_games_by_validation_key_keeps_identical_openings_together() {
+        let openings = vec![
+            "opening-a".to_string(),
+            "opening-a".to_string(),
+            "opening-b".to_string(),
+            "opening-b".to_string(),
+        ];
+        let (train, valid) = split_games_by_validation_key(&openings, 0.5, 42);
+        let train_set: HashSet<usize> = train.into_iter().collect();
+        let valid_set: HashSet<usize> = valid.into_iter().collect();
+        for pair in [[0, 1], [2, 3]] {
+            assert_eq!(train_set.contains(&pair[0]), train_set.contains(&pair[1]));
+            assert_eq!(valid_set.contains(&pair[0]), valid_set.contains(&pair[1]));
+        }
     }
 
     #[test]
@@ -3348,6 +4061,64 @@ mod tests {
     }
 
     #[test]
+    fn nnue_output_parses_known_modes_and_rejects_unknown() {
+        assert_eq!(NnueOutput::parse("absolute"), Ok(NnueOutput::Absolute));
+        assert_eq!(
+            NnueOutput::parse("residual-material"),
+            Ok(NnueOutput::ResidualMaterial)
+        );
+        assert!(NnueOutput::parse("guessed").is_err());
+    }
+
+    #[test]
+    fn output_mode_sidecar_declares_residual_baseline() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("candidate.bin");
+        fs::write(&output, b"synthetic checkpoint").unwrap();
+        save_output_mode_sidecar(&output, NnueOutput::ResidualMaterial).unwrap();
+        let text = fs::read_to_string(output.with_extension("meta.json")).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(value["nnue_output"], "residual-material");
+        assert_eq!(value["baseline"], "material-v1");
+        assert!(value["checkpoint_hash"].as_str().is_some());
+    }
+
+    #[test]
+    fn residual_teacher_metadata_requires_matching_sidecar_and_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let weights = dir.path().join("teacher.bin");
+        let bytes = b"fixed teacher checkpoint";
+        fs::write(&weights, bytes).unwrap();
+
+        assert!(
+            validate_nnue_output_metadata(&weights, NnueOutput::ResidualMaterial, bytes).is_err()
+        );
+
+        save_output_mode_sidecar(&weights, NnueOutput::ResidualMaterial).unwrap();
+        validate_nnue_output_metadata(&weights, NnueOutput::ResidualMaterial, bytes).unwrap();
+        assert!(validate_nnue_output_metadata(&weights, NnueOutput::Absolute, bytes).is_err());
+
+        fs::write(&weights, b"different teacher checkpoint").unwrap();
+        assert!(
+            validate_nnue_output_metadata(
+                &weights,
+                NnueOutput::ResidualMaterial,
+                b"different teacher checkpoint"
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn legacy_absolute_teacher_without_sidecar_is_accepted() {
+        let dir = tempfile::tempdir().unwrap();
+        let weights = dir.path().join("legacy.bin");
+        let bytes = b"legacy absolute teacher";
+        fs::write(&weights, bytes).unwrap();
+        validate_nnue_output_metadata(&weights, NnueOutput::Absolute, bytes).unwrap();
+    }
+
+    #[test]
     fn best_checkpoint_copy_is_atomic_and_cleans_up_temp_file() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("weights.epoch1.bin");
@@ -3371,7 +4142,7 @@ mod tests {
     }
 
     #[test]
-    fn split_games_by_index_differs_across_well_separated_seeds() {
+    fn split_games_by_validation_key_differs_across_well_separated_seeds() {
         // NOT `seed=1` vs `seed=2`: `sfen_hash` XORs the seed in as a
         // single final step rather than mixing it through the FNV rounds,
         // so adjacent seeds barely perturb `hash % 1000` -- verified this
@@ -3380,8 +4151,22 @@ mod tests {
         // `positions::sfen_hash`, not something this function can or
         // should work around -- use seeds far enough apart that the XOR
         // actually flips high bits too.
-        let a = split_games_by_index(300, 0.3, 1);
-        let b = split_games_by_index(300, 0.3, 999_983);
+        let openings: Vec<String> = (0..300).map(|i| format!("sfen-{i}")).collect();
+        let a = split_games_by_validation_key(&openings, 0.3, 1);
+        let b = split_games_by_validation_key(&openings, 0.3, 999_983);
         assert_ne!(a, b);
+    }
+
+    #[test]
+    fn standard_start_opening_prefixes_produce_a_nonempty_holdout() {
+        // Regression for the ordinary-CSA failure mode: grouping only by
+        // startpos made all games train or all games validation. Distinct
+        // early lines must instead be eligible for a deterministic fold.
+        let keys: Vec<String> = (0..128)
+            .map(|i| format!("startpos\0opening-move-{i}"))
+            .collect();
+        let (train, valid) = split_games_by_validation_key(&keys, 0.2, 42);
+        assert!(!train.is_empty());
+        assert!(!valid.is_empty());
     }
 }

@@ -40,6 +40,7 @@ try:
         _classify,
         _percentile,
         _position_repeatability,
+        position_usi_command,
         _status,
         probe_usi_capabilities,
         require_usi_capabilities,
@@ -50,13 +51,14 @@ except ModuleNotFoundError:
     # from the repository root, where scripts/ is not on sys.path.
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from run_fixed_depth_ab import (
-    _classify,
-    _percentile,
-    _position_repeatability,
-    _status,
-    probe_usi_capabilities,
-    require_usi_capabilities,
-    run_one_position,
+        _classify,
+        _percentile,
+        _position_repeatability,
+        position_usi_command,
+        _status,
+        probe_usi_capabilities,
+        require_usi_capabilities,
+        run_one_position,
     )
 
 FULL_SUPPORT_SCRIPT = """#!/bin/sh
@@ -275,6 +277,24 @@ class InteractiveDriverTests(unittest.TestCase):
             self.assertFalse(result["timed_out"])
             self.assertFalse(result["panicked"])
             self.assertEqual(_status(result), "ok")
+
+
+class HistoryAwarePositionCommandTests(unittest.TestCase):
+    def test_replay_history_is_preserved_in_position_command(self):
+        entry = {
+            "id": "replayed",
+            "sfen": "ignored-current-sfen",
+            "initial_sfen": "4k4/9/9/9/9/9/9/9/4K4 b - 1",
+            "history_before_usi": ["5i5h", "5a5b"],
+        }
+        self.assertEqual(
+            position_usi_command(entry),
+            "position sfen 4k4/9/9/9/9/9/9/9/4K4 b - 1 moves 5i5h 5a5b",
+        )
+
+    def test_malformed_history_is_rejected_instead_of_dropped(self):
+        with self.assertRaises(ValueError):
+            position_usi_command({"id": "bad", "initial_sfen": "x", "history_before_usi": [""]})
 
 
 class ClassifyResignTests(unittest.TestCase):

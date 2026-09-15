@@ -30,8 +30,10 @@ use std::collections::HashMap;
 use sekirei_core::{
     board::Board,
     color::Color,
+    eval::{evaluate, material_score},
     movegen::{generate_legal_moves, is_in_check},
-    nnue::{INPUT, L1, L2, NnueWeights, feature_index, hand_feature_index},
+    mv::Move,
+    nnue::{INPUT, L1, L2, NnueWeights, feature_index_with_king, hand_feature_index},
     piece::PieceKind,
     search::{SearchConfig, Searcher},
     sfen::board_to_sfen,
@@ -355,6 +357,46 @@ fn he_bound(fan_in: usize) -> f32 {
     (6.0 / fan_in as f32).sqrt()
 }
 
+#[inline]
+fn blend_search_target(search_weight: f32, searched: f32, static_teacher: f32) -> f32 {
+    search_weight * searched + (1.0 - search_weight) * static_teacher
+}
+
+/// Convert a child evaluation (whose positive direction is the child side to
+/// move) into its parent's side-to-move direction after a legal move.
+#[inline]
+fn parent_score_from_child(child_score: f32) -> f32 {
+    -child_score
+}
+
+/// Pairwise logistic ranking objective for a teacher-labelled strict pair.
+///
+/// `higher_parent_score` must be the model score of the child reached by the
+/// teacher-preferred move after [`parent_score_from_child`] normalization;
+/// `lower_parent_score` is the corresponding non-preferred child.  The
+/// returned derivatives are with respect to those two parent-oriented scores.
+/// It is deliberately independent of `Trainer` state so fixtures can verify
+/// its sign and numerical stability before it is connected to Adam updates.
+#[inline]
+fn pairwise_logistic_loss_and_gradient(
+    higher_parent_score: f32,
+    lower_parent_score: f32,
+) -> (f32, f32, f32) {
+    let margin = higher_parent_score - lower_parent_score;
+    let loss = if margin >= 0.0 {
+        (-margin).exp().ln_1p()
+    } else {
+        -margin + margin.exp().ln_1p()
+    };
+    let probability_reversed = if margin >= 0.0 {
+        let exp_neg_margin = (-margin).exp();
+        exp_neg_margin / (1.0 + exp_neg_margin)
+    } else {
+        1.0 / (1.0 + margin.exp())
+    };
+    (loss, -probability_reversed, probability_reversed)
+}
+
 /// Deterministic Fisher-Yates shuffle of `0..n`, for `--shuffle-seed`.
 /// Reuses the same `Lcg` weight-init already uses -- no new PRNG needed.
 pub fn shuffled_order(n: usize, seed: u64) -> Vec<usize> {
@@ -655,6 +697,19 @@ pub struct Trainer {
     pub teacher_time_limit: Option<std::time::Duration>,
     /// Optional deterministic node limit for each cache-miss teacher search.
     pub teacher_node_limit: Option<u64>,
+    /// Symmetric CP cap applied after a teacher search and before it becomes a
+    /// regression target.  This is explicit run configuration rather than an
+    /// implicit trainer constant so cache-backed experiments cannot silently
+    /// compare different target scales.
+    pub teacher_score_cap: f32,
+    /// Weight given to the searched teacher target.  The remaining weight is
+    /// the fixed teacher's static evaluation, which is useful when fine-
+    /// tuning an imported NNUE must retain its root move ordering.
+    pub search_target_weight: f32,
+    /// When enabled, the NNUE predicts the correction to material rather
+    /// than the complete score.  Search labels stay absolute until this
+    /// boundary, which prevents teacher-cache semantics from changing.
+    pub residual_material_target: bool,
     // Global (whole-network) gradient-norm clip threshold -- `None` (the
     // default) means no clipping, byte-identical to pre-clipping behavior.
     // Run-level config, not reset by `reset_epoch_stats`, same as `lr`.
@@ -1172,6 +1227,9 @@ impl Trainer {
             lr: 0.001,
             teacher_time_limit: None,
             teacher_node_limit: None,
+            teacher_score_cap: 600.0,
+            search_target_weight: 1.0,
+            residual_material_target: false,
             grad_clip_norm: None,
             grad_clip_count: 0,
             ft_clip_norm: None,
@@ -1322,6 +1380,40 @@ impl Trainer {
         }
     }
 
+    /// Select the target meaning before training or validation.  This is a
+    /// run-level setting and is included in the caller's resume fingerprint
+    /// and metadata.
+    pub fn set_residual_material_target(&mut self, enabled: bool) {
+        self.residual_material_target = enabled;
+    }
+
+    #[inline]
+    fn capped_teacher_score(&self, score_cp: i32) -> f32 {
+        (score_cp as f32).clamp(-self.teacher_score_cap, self.teacher_score_cap)
+    }
+
+    #[inline]
+    fn target_from_absolute(&self, board: &Board, absolute: f32) -> f32 {
+        if self.residual_material_target {
+            absolute - material_score(board) as f32
+        } else {
+            absolute
+        }
+    }
+
+    /// Blend a bounded search label with the process-global fixed NNUE
+    /// teacher, which `configure_teacher` loads before the trainer starts.
+    /// `search_target_weight == 1.0` is byte-for-byte the legacy target.
+    #[inline]
+    fn target_from_search_teacher(&self, board: &Board, search_absolute: f32) -> f32 {
+        let searched = self.target_from_absolute(board, search_absolute);
+        if self.search_target_weight >= 1.0 {
+            return searched;
+        }
+        let static_target = self.target_from_absolute(board, evaluate(board) as f32);
+        blend_search_target(self.search_target_weight, searched, static_target)
+    }
+
     /// Train on a slice of PositionSamples (from shogiesa positions.jsonl).
     /// `teacher_cache`: sfen → score_cp; cache hits skip search entirely.
     /// `new_entries`: receives (sfen, score_cp) for each search actually run (cache miss).
@@ -1378,7 +1470,8 @@ impl Trainer {
                 new_entries.push((sfen, cp));
                 cp
             };
-            let teacher = (score_cp as f32).clamp(-600.0, 600.0);
+            let absolute_teacher = self.capped_teacher_score(score_cp);
+            let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
             // No WDL signal on the positions path (positions.jsonl carries
             // no game_result) -- eval_teacher == teacher, no wdl_target.
             // game_id/game_result are meaningless sentinels here too (see
@@ -1433,7 +1526,8 @@ impl Trainer {
                 new_entries.push((sfen, cp));
                 cp
             };
-            let teacher = (teacher_cp as f32).clamp(-600.0, 600.0);
+            let absolute_teacher = self.capped_teacher_score(teacher_cp);
+            let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
             let score = self.forward(&sample.board);
             let err2 = ((score - teacher) * (score - teacher)) as f64;
             loss_raw += err2;
@@ -1505,7 +1599,7 @@ impl Trainer {
                 multi_pv: 1,
             };
             let search_start = std::time::Instant::now();
-            let info = self.searcher.search(board, config);
+            let info = self.searcher.search_for_teacher(board, config);
             let search_elapsed = search_start.elapsed();
             self.search_time_ns += search_elapsed.as_nanos() as u64;
             // A search this slow is rare enough that the extra
@@ -1527,7 +1621,7 @@ impl Trainer {
             cache.insert(sfen, cp);
             cp
         };
-        let eval_teacher = (score_cp as f32).clamp(-600.0, 600.0);
+        let eval_teacher = self.capped_teacher_score(score_cp);
         (
             eval_teacher,
             wdl_target_cp(result, board.side_to_move, wdl_target_scale),
@@ -1596,7 +1690,7 @@ impl Trainer {
         wdl_target_scale: f32,
         cache: &mut HashMap<String, i32>,
     ) {
-        let mut board = Board::startpos();
+        let mut board = game.initial_board.clone();
 
         for (ply, &mv) in game.moves.iter().enumerate() {
             if ply < min_ply || ply % sample_every != 0 {
@@ -1642,13 +1736,15 @@ impl Trainer {
             // `position_teacher` convenience wrapper) so the raw components
             // are available to thread into `train_position` for diagnostics
             // -- mirrors `eval_game`'s pattern below.
-            let (eval_teacher, wdl_target) = self.position_teacher_components(
+            let (absolute_eval_teacher, wdl_target) = self.position_teacher_components(
                 &mut board,
                 game.result,
                 label_depth,
                 cache,
                 wdl_target_scale,
             );
+            let eval_teacher = self.target_from_search_teacher(&board, absolute_eval_teacher);
+            let wdl_target = wdl_target.map(|target| self.target_from_absolute(&board, target));
             let teacher = match (wdl_lambda, wdl_target) {
                 (Some(lambda), Some(wdl_target)) => {
                     lambda * eval_teacher + (1.0 - lambda) * wdl_target
@@ -1702,7 +1798,7 @@ impl Trainer {
         wdl_target_scale: f32,
         cache: &mut HashMap<String, i32>,
     ) -> ValidStats {
-        let mut board = Board::startpos();
+        let mut board = game.initial_board.clone();
         let mut stats = ValidStats::default();
 
         for (ply, &mv) in game.moves.iter().enumerate() {
@@ -1721,13 +1817,15 @@ impl Trainer {
                 }
             }
 
-            let (eval_teacher, wdl_target) = self.position_teacher_components(
+            let (absolute_eval_teacher, wdl_target) = self.position_teacher_components(
                 &mut board,
                 game.result,
                 label_depth,
                 cache,
                 wdl_target_scale,
             );
+            let eval_teacher = self.target_from_search_teacher(&board, absolute_eval_teacher);
+            let wdl_target = wdl_target.map(|target| self.target_from_absolute(&board, target));
             let teacher = match (wdl_lambda, wdl_target) {
                 (Some(lambda), Some(wdl_target)) => {
                     lambda * eval_teacher + (1.0 - lambda) * wdl_target
@@ -1795,6 +1893,100 @@ impl Trainer {
             output += relu_l2[o] * w.out[o];
         }
         output / 64.0
+    }
+
+    /// Batch ranking updates average full pairwise gradients over the supplied
+    /// pairs and make one Adam step.  This preserves simultaneous child
+    /// gradients within each pair while avoiding a dense `INPUT × L1` Adam
+    /// scan for every individual pair.
+    pub fn train_ranking_batch(&mut self, pairs: &[(Board, Move, Move)]) -> f32 {
+        assert!(!pairs.is_empty(), "ranking batch must not be empty");
+        let mut gradient = FullGradient::zero();
+        let mut total_loss = 0.0;
+        for (parent, higher, lower) in pairs {
+            assert_ne!(higher, lower, "ranking pair requires distinct moves");
+            let mut high_board = parent.clone();
+            high_board.do_move(*higher);
+            let mut low_board = parent.clone();
+            low_board.do_move(*lower);
+            let high_cache = forward_cache(&self.weights, &high_board);
+            let low_cache = forward_cache(&self.weights, &low_board);
+            let (loss, high_parent_derivative, low_parent_derivative) =
+                pairwise_logistic_loss_and_gradient(
+                    parent_score_from_child(high_cache.score),
+                    parent_score_from_child(low_cache.score),
+                );
+            total_loss += loss;
+            accumulate_full_backward(
+                &self.weights,
+                &high_cache,
+                -high_parent_derivative,
+                &mut gradient,
+            );
+            accumulate_full_backward(
+                &self.weights,
+                &low_cache,
+                -low_parent_derivative,
+                &mut gradient,
+            );
+        }
+        gradient.scale(1.0 / pairs.len() as f32);
+        self.apply_ranking_gradient(&mut gradient);
+        total_loss / pairs.len() as f32
+    }
+
+    fn apply_ranking_gradient(&mut self, gradient: &mut FullGradient) {
+        self.weights.step += 1;
+        let step = self.weights.step;
+        let lr = self.lr;
+        adam_update_slice(
+            &mut self.weights.ft,
+            &mut self.weights.ft_m,
+            &mut self.weights.ft_v,
+            &mut gradient.ft,
+            lr,
+            step,
+        );
+        adam_update_slice(
+            &mut self.weights.ft_bias,
+            &mut self.weights.bias_m,
+            &mut self.weights.bias_v,
+            &mut gradient.ft_bias,
+            lr,
+            step,
+        );
+        adam_update_slice(
+            &mut self.weights.l2,
+            &mut self.weights.l2_m,
+            &mut self.weights.l2_v,
+            &mut gradient.l2,
+            lr,
+            step,
+        );
+        adam_update_slice(
+            &mut self.weights.l2_bias,
+            &mut self.weights.l2bias_m,
+            &mut self.weights.l2bias_v,
+            &mut gradient.l2_bias,
+            lr,
+            step,
+        );
+        adam_update_slice(
+            &mut self.weights.out,
+            &mut self.weights.out_m,
+            &mut self.weights.out_v,
+            &mut gradient.out,
+            lr,
+            step,
+        );
+        adam_update_scalar(
+            &mut self.weights.out_bias,
+            &mut self.weights.obias_m,
+            &mut self.weights.obias_v,
+            gradient.out_bias,
+            lr,
+            step,
+        );
     }
 
     /// One SGD step on a single position. `weight` scales the loss (quietset
@@ -2994,12 +3186,21 @@ fn active_features(board: &Board, perspective: Color) -> Vec<usize> {
     ];
 
     let mut features = Vec::with_capacity(60);
+    let own_king_sq = board
+        .king_square(perspective)
+        .expect("a trainable position must contain both kings");
     // Board features
     for &kind in &ALL_KINDS {
         for color in [Color::Black, Color::White] {
             let mut bb = board.pieces(color, kind);
             while let Some(sq) = bb.pop_lsb() {
-                features.push(feature_index(sq, kind, color, perspective));
+                features.push(feature_index_with_king(
+                    sq,
+                    kind,
+                    color,
+                    perspective,
+                    own_king_sq,
+                ));
             }
         }
     }
@@ -3035,6 +3236,169 @@ struct DiagnosticGrad {
     /// output) for this `err` alone -- the quantity everything else in
     /// this struct backpropagates from.
     d_output: f32,
+}
+
+/// Complete gradient for one scalar NNUE score.  Unlike [`DiagnosticGrad`],
+/// this owns every parameter derivative because a ranking pair must combine
+/// two child gradients before Adam advances once.
+struct FullGradient {
+    ft: Vec<f32>,
+    ft_bias: Vec<f32>,
+    l2: Vec<f32>,
+    l2_bias: Vec<f32>,
+    out: Vec<f32>,
+    out_bias: f32,
+}
+
+impl FullGradient {
+    fn zero() -> Self {
+        Self {
+            ft: vec![0.0; INPUT * L1],
+            ft_bias: vec![0.0; L1],
+            l2: vec![0.0; 2 * L1 * L2],
+            l2_bias: vec![0.0; L2],
+            out: vec![0.0; L2],
+            out_bias: 0.0,
+        }
+    }
+
+    fn scale(&mut self, factor: f32) {
+        for values in [
+            &mut self.ft,
+            &mut self.ft_bias,
+            &mut self.l2,
+            &mut self.l2_bias,
+            &mut self.out,
+        ] {
+            for value in values {
+                *value *= factor;
+            }
+        }
+        self.out_bias *= factor;
+    }
+}
+
+/// Reusable forward cache for a single position.  Pairwise ranking evaluates
+/// two legal child positions with the same pre-update weights, then combines
+/// their derivatives.  Keeping this distinct from `train_position` preserves
+/// its established scalar-regression path byte-for-byte.
+struct ForwardCache {
+    active_us: Vec<usize>,
+    active_them: Vec<usize>,
+    acc_us: Vec<f32>,
+    acc_them: Vec<f32>,
+    relu_us: Vec<f32>,
+    relu_them: Vec<f32>,
+    l2_acc: Vec<f32>,
+    relu_l2: Vec<f32>,
+    score: f32,
+}
+
+fn forward_cache(w: &TrainWeights, board: &Board) -> ForwardCache {
+    let stm = board.side_to_move;
+    let active_us = active_features(board, stm);
+    let active_them = active_features(board, stm.flip());
+    let mut acc_us = w.ft_bias.clone();
+    let mut acc_them = acc_us.clone();
+    for feat in &active_us {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_us[j] += w.ft[base + j];
+        }
+    }
+    for feat in &active_them {
+        let base = feat * L1;
+        for j in 0..L1 {
+            acc_them[j] += w.ft[base + j];
+        }
+    }
+    let relu_us: Vec<f32> = acc_us.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+    let relu_them: Vec<f32> = acc_them.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+    let mut l2_acc = w.l2_bias.clone();
+    for j in 0..L1 {
+        let base_us = j * L2;
+        let base_them = (L1 + j) * L2;
+        for o in 0..L2 {
+            l2_acc[o] += relu_us[j] * w.l2[base_us + o];
+            l2_acc[o] += relu_them[j] * w.l2[base_them + o];
+        }
+    }
+    let relu_l2: Vec<f32> = l2_acc.iter().map(|&x| x.clamp(0.0, 127.0)).collect();
+    let output = w.out_bias
+        + relu_l2
+            .iter()
+            .zip(&w.out)
+            .map(|(&activation, &weight)| activation * weight)
+            .sum::<f32>();
+    ForwardCache {
+        active_us,
+        active_them,
+        acc_us,
+        acc_them,
+        relu_us,
+        relu_them,
+        l2_acc,
+        relu_l2,
+        score: output / 64.0,
+    }
+}
+
+/// Backpropagate a derivative with respect to `ForwardCache::score`.
+///
+/// This is used only by the explicit pairwise-ranking path.  It deliberately
+/// keeps the `score / 64` scaling at the boundary so the caller can express
+/// parent-oriented ranking derivatives in centipawn units.
+fn accumulate_full_backward(
+    w: &TrainWeights,
+    cache: &ForwardCache,
+    d_score: f32,
+    grad: &mut FullGradient,
+) {
+    let d_output = d_score / 64.0;
+    for o in 0..L2 {
+        grad.out[o] += d_output * cache.relu_l2[o];
+    }
+    grad.out_bias += d_output;
+
+    let mut d_l2_acc = [0.0; L2];
+    for o in 0..L2 {
+        if cache.l2_acc[o] > 0.0 && cache.l2_acc[o] < 127.0 {
+            d_l2_acc[o] = d_output * w.out[o];
+        }
+    }
+    let mut d_relu_us = vec![0.0; L1];
+    let mut d_relu_them = vec![0.0; L1];
+    for j in 0..L1 {
+        let base_us = j * L2;
+        let base_them = (L1 + j) * L2;
+        for o in 0..L2 {
+            let g = d_l2_acc[o];
+            grad.l2[base_us + o] += g * cache.relu_us[j];
+            grad.l2[base_them + o] += g * cache.relu_them[j];
+            d_relu_us[j] += g * w.l2[base_us + o];
+            d_relu_them[j] += g * w.l2[base_them + o];
+            grad.l2_bias[o] += d_l2_acc[o];
+        }
+    }
+    for j in 0..L1 {
+        let d_acc_us = if cache.acc_us[j] > 0.0 && cache.acc_us[j] < 127.0 {
+            d_relu_us[j]
+        } else {
+            0.0
+        };
+        let d_acc_them = if cache.acc_them[j] > 0.0 && cache.acc_them[j] < 127.0 {
+            d_relu_them[j]
+        } else {
+            0.0
+        };
+        grad.ft_bias[j] += d_acc_us + d_acc_them;
+        for &feature in &cache.active_us {
+            grad.ft[feature * L1 + j] += d_acc_us;
+        }
+        for &feature in &cache.active_them {
+            grad.ft[feature * L1 + j] += d_acc_them;
+        }
+    }
 }
 
 /// Diagnostic-only: recomputes the backward pass `train_position` already
@@ -3704,6 +4068,40 @@ mod tests {
     }
 
     #[test]
+    fn train_game_replays_a_sekirei_initial_sfen_from_its_recorded_board() {
+        // Self-play CSA may begin from an arbitrary opening SFEN.  Supplying
+        // the corresponding teacher-cache entry makes this a focused replay
+        // regression test rather than a search-speed test: using startpos
+        // here would miss the cache and, more importantly, try to replay an
+        // illegal rook drop from the wrong board.
+        let game = crate::csa::parse_csa(
+            "V2.2\n'sekirei_initial_sfen: 9/9/9/9/4K4/9/9/9/4k4 b R 1\n+0054HI\n%TORYO\n",
+        )
+        .expect("custom-start CSA must parse");
+        let mut trainer = Trainer::new(42, 0.5);
+        let mut cache = HashMap::new();
+        cache.insert(board_to_sfen(&game.initial_board), 0);
+
+        trainer.train_game(
+            0,
+            &game,
+            1,
+            false,
+            0,
+            1,
+            &HashMap::new(),
+            false,
+            None,
+            600.0,
+            &mut cache,
+        );
+
+        assert_eq!(trainer.l2_sample_count, 1);
+        assert_eq!(trainer.cache_hits, 1);
+        assert_eq!(trainer.cache_misses, 0);
+    }
+
+    #[test]
     fn small_training_checkpoint_keeps_probe_signal_after_reload() {
         const KING_CORNER: &str = "K8/9/9/9/9/9/9/9/8k b - 1";
         const ROOK_IN_HAND: &str = "9/9/9/9/4K4/9/9/9/4k4 b R 1";
@@ -3865,6 +4263,234 @@ mod tests {
             (before - after).abs() < 1.0,
             "before={before} after={after}"
         );
+    }
+
+    #[test]
+    fn inference_weights_match_trainer_forward_after_import() {
+        // `--init-weights` starts its fresh optimizer from an inference
+        // checkpoint.  Keep that bridge honest against the actual core
+        // evaluator, not merely a Trainer -> binary -> Trainer round trip.
+        // Include a non-start position with both a capture and a drop so the
+        // feature indexing and both perspectives are exercised.
+        let weights = NnueWeights::default_lcg();
+        let mut trainer = Trainer::new(42, 0.5);
+        trainer.weights = TrainWeights::from_nnue_weights(&weights);
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/9/9/4p4/4P4/9/9/9/4K4 b R 1",
+        ] {
+            let board = Board::from_sfen(sfen).unwrap();
+            let inference = board.evaluate_with_weights(&weights) as f32;
+            let training = trainer.forward(&board);
+            assert!(
+                (training - inference).abs() < 1.0,
+                "imported inference checkpoint diverged for {sfen}: training={training}, inference={inference}"
+            );
+        }
+    }
+
+    #[test]
+    fn teacher_score_cap_is_explicit_and_symmetric() {
+        let mut trainer = Trainer::new(42, 0.5);
+        assert_eq!(trainer.capped_teacher_score(900), 600.0);
+        assert_eq!(trainer.capped_teacher_score(-900), -600.0);
+        trainer.teacher_score_cap = 1_200.0;
+        assert_eq!(trainer.capped_teacher_score(900), 900.0);
+        assert_eq!(trainer.capped_teacher_score(-1_300), -1_200.0);
+    }
+
+    #[test]
+    fn search_target_blend_preserves_endpoints_and_linear_midpoint() {
+        assert_eq!(blend_search_target(1.0, 120.0, -30.0), 120.0);
+        assert_eq!(blend_search_target(0.0, 120.0, -30.0), -30.0);
+        assert_eq!(blend_search_target(0.25, 120.0, -40.0), 0.0);
+    }
+
+    #[test]
+    fn pairwise_ranking_loss_rewards_teacher_preferred_parent_score() {
+        let (correct_loss, correct_high_grad, correct_low_grad) =
+            pairwise_logistic_loss_and_gradient(20.0, -20.0);
+        let (wrong_loss, wrong_high_grad, wrong_low_grad) =
+            pairwise_logistic_loss_and_gradient(-20.0, 20.0);
+        assert!(correct_loss < wrong_loss);
+        assert!(correct_high_grad < 0.0 && correct_low_grad > 0.0);
+        assert!(wrong_high_grad < 0.0 && wrong_low_grad > 0.0);
+        assert!((correct_high_grad + correct_low_grad).abs() < 1e-6);
+    }
+
+    #[test]
+    fn pairwise_ranking_gradient_matches_finite_difference_and_stays_finite() {
+        let high = 3.0;
+        let low = -1.5;
+        let epsilon = 1e-3;
+        let (_, high_gradient, low_gradient) = pairwise_logistic_loss_and_gradient(high, low);
+        let high_numeric = (pairwise_logistic_loss_and_gradient(high + epsilon, low).0
+            - pairwise_logistic_loss_and_gradient(high - epsilon, low).0)
+            / (2.0 * epsilon);
+        let low_numeric = (pairwise_logistic_loss_and_gradient(high, low + epsilon).0
+            - pairwise_logistic_loss_and_gradient(high, low - epsilon).0)
+            / (2.0 * epsilon);
+        assert!((high_gradient - high_numeric).abs() < 1e-3);
+        assert!((low_gradient - low_numeric).abs() < 1e-3);
+        for scores in [(1_000.0, -1_000.0), (-1_000.0, 1_000.0)] {
+            let (loss, high, low) = pairwise_logistic_loss_and_gradient(scores.0, scores.1);
+            assert!(loss.is_finite() && high.is_finite() && low.is_finite());
+        }
+    }
+
+    #[test]
+    fn child_score_normalization_and_move_undo_preserve_parent_state() {
+        assert_eq!(parent_score_from_child(42.5), -42.5);
+        let mut board = Board::startpos();
+        let before = board.hash();
+        let mv = generate_legal_moves(&mut board)[0];
+        let undo = board.do_move(mv);
+        let child_score = 17.0;
+        assert_eq!(parent_score_from_child(child_score), -17.0);
+        board.undo_move(undo);
+        assert_eq!(board.hash(), before);
+    }
+
+    #[test]
+    fn ranking_pair_full_gradient_decreases_the_pairwise_loss() {
+        let parent = Board::startpos();
+        let moves = generate_legal_moves(&mut parent.clone());
+        let higher = moves[0];
+        let lower = moves[1];
+        let weights = TrainWeights::new_seeded(42, 0.5);
+
+        let child_score = |weights: &TrainWeights, mv: Move| {
+            let mut child = parent.clone();
+            child.do_move(mv);
+            forward_cache(weights, &child).score
+        };
+        let high_parent = parent_score_from_child(child_score(&weights, higher));
+        let low_parent = parent_score_from_child(child_score(&weights, lower));
+        let (before, high_derivative, low_derivative) =
+            pairwise_logistic_loss_and_gradient(high_parent, low_parent);
+        let mut high_child = parent.clone();
+        high_child.do_move(higher);
+        let mut low_child = parent.clone();
+        low_child.do_move(lower);
+        let mut gradient = FullGradient::zero();
+        accumulate_full_backward(
+            &weights,
+            &forward_cache(&weights, &high_child),
+            -high_derivative,
+            &mut gradient,
+        );
+        accumulate_full_backward(
+            &weights,
+            &forward_cache(&weights, &low_child),
+            -low_derivative,
+            &mut gradient,
+        );
+
+        let epsilon = 1e-4;
+        let mut stepped = weights.clone();
+        for (parameter, derivative) in stepped.ft.iter_mut().zip(&gradient.ft) {
+            *parameter -= epsilon * derivative;
+        }
+        for (parameter, derivative) in stepped.ft_bias.iter_mut().zip(&gradient.ft_bias) {
+            *parameter -= epsilon * derivative;
+        }
+        for (parameter, derivative) in stepped.l2.iter_mut().zip(&gradient.l2) {
+            *parameter -= epsilon * derivative;
+        }
+        for (parameter, derivative) in stepped.l2_bias.iter_mut().zip(&gradient.l2_bias) {
+            *parameter -= epsilon * derivative;
+        }
+        for (parameter, derivative) in stepped.out.iter_mut().zip(&gradient.out) {
+            *parameter -= epsilon * derivative;
+        }
+        stepped.out_bias -= epsilon * gradient.out_bias;
+        let after = pairwise_logistic_loss_and_gradient(
+            parent_score_from_child(child_score(&stepped, higher)),
+            parent_score_from_child(child_score(&stepped, lower)),
+        )
+        .0;
+        assert!(
+            after < before,
+            "full ranking gradient must be a descent direction"
+        );
+    }
+
+    #[test]
+    fn ranking_backward_accumulates_both_children_in_every_layer() {
+        let parent = Board::startpos();
+        let moves = generate_legal_moves(&mut parent.clone());
+        let weights = TrainWeights::new_seeded(42, 0.5);
+        let mut high_child = parent.clone();
+        high_child.do_move(moves[0]);
+        let mut low_child = parent.clone();
+        low_child.do_move(moves[1]);
+        let high_cache = forward_cache(&weights, &high_child);
+        let low_cache = forward_cache(&weights, &low_child);
+        let (_, high_derivative, low_derivative) = pairwise_logistic_loss_and_gradient(
+            parent_score_from_child(high_cache.score),
+            parent_score_from_child(low_cache.score),
+        );
+
+        let mut high_gradient = FullGradient::zero();
+        accumulate_full_backward(&weights, &high_cache, -high_derivative, &mut high_gradient);
+        let mut low_gradient = FullGradient::zero();
+        accumulate_full_backward(&weights, &low_cache, -low_derivative, &mut low_gradient);
+        let mut combined = FullGradient::zero();
+        accumulate_full_backward(&weights, &high_cache, -high_derivative, &mut combined);
+        accumulate_full_backward(&weights, &low_cache, -low_derivative, &mut combined);
+
+        for (combined_value, (high_value, low_value)) in combined
+            .ft
+            .iter()
+            .zip(high_gradient.ft.iter().zip(&low_gradient.ft))
+        {
+            assert!((*combined_value - (high_value + low_value)).abs() < 1e-6);
+        }
+        for (combined_value, (high_value, low_value)) in combined
+            .ft_bias
+            .iter()
+            .zip(high_gradient.ft_bias.iter().zip(&low_gradient.ft_bias))
+        {
+            assert!((*combined_value - (high_value + low_value)).abs() < 1e-6);
+        }
+        for (combined_value, (high_value, low_value)) in combined
+            .l2
+            .iter()
+            .zip(high_gradient.l2.iter().zip(&low_gradient.l2))
+        {
+            assert!((*combined_value - (high_value + low_value)).abs() < 1e-6);
+        }
+        for (combined_value, (high_value, low_value)) in combined
+            .l2_bias
+            .iter()
+            .zip(high_gradient.l2_bias.iter().zip(&low_gradient.l2_bias))
+        {
+            assert!((*combined_value - (high_value + low_value)).abs() < 1e-6);
+        }
+        for (combined_value, (high_value, low_value)) in combined
+            .out
+            .iter()
+            .zip(high_gradient.out.iter().zip(&low_gradient.out))
+        {
+            assert!((*combined_value - (high_value + low_value)).abs() < 1e-6);
+        }
+        assert!(
+            (combined.out_bias - (high_gradient.out_bias + low_gradient.out_bias)).abs() < 1e-6
+        );
+    }
+
+    #[test]
+    fn ranking_pair_uses_one_combined_adam_step_and_preserves_parent() {
+        let parent = Board::startpos();
+        let original_hash = parent.hash();
+        let moves = generate_legal_moves(&mut parent.clone());
+        let mut trainer = Trainer::new(42, 0.5);
+        let before = trainer.weights.snapshot_params();
+        let loss = trainer.train_ranking_batch(&[(parent.clone(), moves[0], moves[1])]);
+        assert!(loss.is_finite());
+        assert_eq!(trainer.weights.step, 1);
+        assert_ne!(trainer.weights.snapshot_params(), before);
+        assert_eq!(parent.hash(), original_hash);
     }
 
     #[test]
@@ -5430,5 +6056,15 @@ mod tests {
         assert_eq!(plain.total_loss, traced.total_loss);
         assert_eq!(plain.l2_dacc_sum, traced.l2_dacc_sum);
         assert_eq!(plain.ft_grad_norm_sum, traced.ft_grad_norm_sum);
+    }
+
+    #[test]
+    fn residual_target_is_absolute_teacher_minus_material() {
+        let board = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 b - 1").unwrap();
+        let mut trainer = Trainer::new(1, 0.5);
+        assert_eq!(trainer.target_from_absolute(&board, 321.0), 321.0);
+
+        trainer.set_residual_material_target(true);
+        assert_eq!(trainer.target_from_absolute(&board, 321.0), -719.0);
     }
 }

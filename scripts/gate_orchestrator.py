@@ -29,6 +29,7 @@ still works (matches the earlier T2 attempt's shape) but reuses processes
 across more games per shard.
 """
 import argparse
+import fcntl
 import json
 import os
 import re
@@ -61,6 +62,28 @@ def load_positions(corpus_path):
 
 def state_path(outdir):
     return os.path.join(outdir, "state.json")
+
+
+def acquire_run_lock(outdir):
+    """Take the lifetime-exclusive lock for one durable gate run.
+
+    Durable state makes a sequential restart safe, but two orchestrators that
+    read it concurrently can otherwise launch the same pending shard.
+    """
+    path = os.path.join(outdir, "orchestrator.lock")
+    lock = open(path, "a+")
+    try:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError as exc:
+        lock.close()
+        raise RuntimeError(
+            f"another gate orchestrator already owns {path}; refusing concurrent run"
+        ) from exc
+    lock.seek(0)
+    lock.truncate()
+    json.dump({"pid": os.getpid(), "started_at": time.time()}, lock)
+    lock.flush()
+    return lock
 
 
 def load_state(outdir):
@@ -221,23 +244,18 @@ def verify_weights_loaded(outdir, shard, timeout_s=15):
     return None
 
 
-def relabel_and_merge(outdir, confirmed_shards, positions_per_shard):
+def merge_confirmed_shards(outdir, confirmed_shards, positions_per_shard):
     """Rewrite each confirmed shard's jsonl ids to global pos indices and
     write a single combined.jsonl + combined.json (position-order, i.e.
     already in global order since shards are contiguous and processed in
     order).
 
-    IMPORTANT label swap: every shard is launched with --engine1=B,
-    --engine2=C (see launch_shard), so sekirei-match's own veridict labels
-    mean "candidate_win" = B won, "baseline_win" = C won (main.rs:1175-1179
-    hardcodes engine1 as veridict's "candidate"). But the question this gate
-    exists to answer is "is C (YBW) better than B by >= elo1", which needs C
-    to be veridict's candidate. Rather than swap --engine1/--engine2 (which
-    would make old and new shards inconsistent), every record's result is
-    flipped here: candidate_win -> baseline_win (B's win, now correctly
-    counted as baseline) and baseline_win -> candidate_win (C's win, now
-    candidate). This is a pure relabeling of already-played, already-fair
-    games -- no games are replayed and no compute is lost by this fix.
+    `launch_shard()` passes option1 to Engine1 and option2 to Engine2.  The
+    frozen strength-gate plan likewise defines option1 as the candidate and
+    option2 as the baseline.  `sekirei-match` emits its JSONL in exactly that
+    convention, so results must be preserved verbatim here.  Changing either
+    mapping would invert the SPRT hypothesis; do not relabel historical
+    records in this layer.
     """
     combined_jsonl_path = os.path.join(outdir, "combined.jsonl")
     combined_json_path = os.path.join(outdir, "combined.json")
@@ -261,20 +279,18 @@ def relabel_and_merge(outdir, confirmed_shards, positions_per_shard):
                     global_pos = global_offset + local_pos
                     rec["id"] = f"pos{global_pos}_{pair}"
                     raw_result = rec["result"]
-                    if raw_result == "candidate_win":  # B (engine1) won
-                        rec["result"] = "baseline_win"
-                        b_wins += 1
-                    elif raw_result == "baseline_win":  # C (engine2) won
-                        rec["result"] = "candidate_win"
+                    if raw_result == "candidate_win":
                         c_wins += 1
+                    elif raw_result == "baseline_win":
+                        b_wins += 1
                     else:
                         draws += 1
                     out.write(json.dumps(rec) + "\n")
                     n += 1
     # Elo/LOS point estimate (same formula family sekirei-match itself
     # uses) purely for the human-readable "report:" line `gate` prints --
-    # not used by the --sprt path's actual math. Positive elo_diff now means
-    # C (candidate, post-swap) is ahead of B (baseline).
+    # not used by the --sprt path's actual math. Positive elo_diff means the
+    # candidate (Engine1/option1) is ahead of the baseline (Engine2/option2).
     import math
 
     total = c_wins + b_wins + draws
@@ -416,30 +432,69 @@ def log_resource_snapshot(outdir, snapshot):
         f.write(json.dumps(snapshot) + "\n")
 
 
+def run_config(args):
+    """Return every argument that defines a durable gate run.
+
+    A resumed process must not silently change either the games being played
+    or their resource/preflight contract.  Keep this as one serializable
+    object so initialization, resume validation, and evidence recording use
+    the same definition of a run.
+    """
+    return {
+        "threads": args.threads,
+        "parallel": args.parallel,
+        "byoyomi": args.byoyomi,
+        "engine_bin": args.engine_bin,
+        "weights": args.weights,
+        "option1": args.option1,
+        "option2": args.option2,
+        "elo0": args.elo0,
+        "elo1": args.elo1,
+        "alpha": args.alpha,
+        "beta": args.beta,
+        "corpus": args.corpus,
+        "shard_positions": args.shard_positions,
+        "max_positions": args.max_positions,
+        "cores": args.cores,
+        "max_load_mult": args.max_load_mult,
+        "max_swap_pct": args.max_swap_pct,
+    }
+
+
+def require_matching_run_config(saved, requested):
+    """Fail closed rather than resume a state with different arguments."""
+    if saved == requested:
+        return
+    keys = sorted(set(saved) | set(requested))
+    changed = [key for key in keys if saved.get(key) != requested.get(key)]
+    details = ", ".join(changed)
+    raise ValueError(
+        "existing gate state configuration differs from this invocation "
+        f"({details}); choose a new --outdir instead of resuming it"
+    )
+
+
 def cmd_run(args):
+    """Run one gate process, rejecting concurrent writers for this outdir."""
+    os.makedirs(args.outdir, exist_ok=True)
+    lock = acquire_run_lock(args.outdir)
+    try:
+        return cmd_run_locked(args)
+    finally:
+        lock.close()
+
+
+def cmd_run_locked(args):
     os.makedirs(args.outdir, exist_ok=True)
     positions = load_positions(args.corpus)
     num_positions = min(len(positions), args.max_positions)
 
+    requested_cfg = run_config(args)
     state = load_state(args.outdir)
     if state is None:
         shards = make_shards(num_positions, args.shard_positions)
         state = {
-            "cfg": {
-                "threads": args.threads,
-                "parallel": args.parallel,
-                "byoyomi": args.byoyomi,
-                "engine_bin": args.engine_bin,
-                "weights": args.weights,
-                "option1": args.option1,
-                "option2": args.option2,
-                "elo0": args.elo0,
-                "elo1": args.elo1,
-                "alpha": args.alpha,
-                "beta": args.beta,
-                "corpus": args.corpus,
-                "shard_positions": args.shard_positions,
-            },
+            "cfg": requested_cfg,
             "shards": shards,
             "confirmed_prefix": 0,  # number of shards [0, confirmed_prefix) fully merged+checked
             "decisive_verdict": None,  # None | "PASS" | "FAIL"
@@ -454,6 +509,11 @@ def cmd_run(args):
             f"initialized: {len(shards)} shards, {num_positions} positions, "
             f"{num_positions * 2} max games, parallel={args.parallel}",
         )
+    else:
+        require_matching_run_config(state.get("cfg", {}), requested_cfg)
+    if args.initialize_only:
+        log_progress(args.outdir, "initialized only; no shard was launched")
+        return
     cfg = state["cfg"]
     # Popen objects for shards launched by *this* process invocation -- used
     # only to poll()/reap them so they don't sit as zombies (os.kill(pid, 0)
@@ -550,7 +610,7 @@ def cmd_run(args):
         if cp != state["confirmed_prefix"]:
             state["confirmed_prefix"] = cp
             all_confirmed = [shard_by_id[i] for i in range(cp)]
-            combined_json, combined_jsonl, c_wins, b_wins, draws = relabel_and_merge(
+            combined_json, combined_jsonl, c_wins, b_wins, draws = merge_confirmed_shards(
                 args.outdir, all_confirmed, args.shard_positions
             )
             total_games = c_wins + b_wins + draws
@@ -695,6 +755,10 @@ def main():
     r.add_argument("--elo1", type=float, default=20.0)
     r.add_argument("--alpha", type=float, default=0.05)
     r.add_argument("--beta", type=float, default=0.05)
+    r.add_argument(
+        "--initialize-only", action="store_true",
+        help="write/reuse durable state and exit before launching a shard",
+    )
     r.set_defaults(func=cmd_run)
 
     s = sub.add_parser("status")

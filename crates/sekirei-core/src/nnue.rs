@@ -47,8 +47,16 @@ use crate::square::Square;
 
 // ---- Dimensions ----
 
-/// Board-feature input dimension: square × piece kind × own/opp perspective.
-pub const BOARD_INPUT: usize = 81 * 14 * 2; // 2 268  (piece-square × own/opp)
+/// Board features in one king zone: square × piece kind × own/opp perspective.
+const BOARD_FEATURES_PER_ZONE: usize = 81 * 14 * 2;
+
+/// Board-feature input dimension. The optional B-small set adds the
+/// perspective's own king 3x3 zone as an outer feature bucket.
+#[cfg(not(feature = "king_relative_b_small"))]
+pub const BOARD_INPUT: usize = BOARD_FEATURES_PER_ZONE;
+#[cfg(feature = "king_relative_b_small")]
+/// Board features partitioned into nine own-king 3x3 zones.
+pub const BOARD_INPUT: usize = 9 * BOARD_FEATURES_PER_ZONE;
 
 // Hand piece thresholds: "has ≥ N of kind K" binary features.
 // Max counts: Fu:18, Kyou:4, Kei:4, Gin:4, Kin:4, Kaku:2, Hisha:2 → 38 total.
@@ -239,7 +247,11 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
 /// baseline while scoring the loaded checkpoint as the candidate) needs
 /// this side-effect-free path instead of `load_weights`.
 pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
+    #[cfg(not(feature = "king_relative_b_small"))]
     const MAGIC: &[u8] = b"SEKIRW01";
+    #[cfg(feature = "king_relative_b_small")]
+    const MAGIC: &[u8] = b"SEKIRW02";
+    #[cfg(not(feature = "king_relative_b_small"))]
     const MAGIC_LEGACY: &[u8] = b"JANOSW03";
     let ft_bytes = INPUT * L1 * 2;
     let bias_bytes = L1 * 2;
@@ -259,7 +271,16 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
             ),
         ));
     }
-    if &data[..8] != MAGIC && &data[..8] != MAGIC_LEGACY {
+    if &data[..8] != MAGIC && {
+        #[cfg(not(feature = "king_relative_b_small"))]
+        {
+            &data[..8] != MAGIC_LEGACY
+        }
+        #[cfg(feature = "king_relative_b_small")]
+        {
+            true
+        }
+    } {
         return Err(Error::new(
             ErrorKind::InvalidData,
             format!(
@@ -325,7 +346,10 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
     let capacity = 8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4;
     let mut data = Vec::with_capacity(capacity);
 
+    #[cfg(not(feature = "king_relative_b_small"))]
     data.extend_from_slice(b"SEKIRW01");
+    #[cfg(feature = "king_relative_b_small")]
+    data.extend_from_slice(b"SEKIRW02");
     for row in &w.ft {
         for &v in row {
             data.extend_from_slice(&v.to_le_bytes());
@@ -389,6 +413,30 @@ pub fn feature_index(sq: Square, kind: PieceKind, piece_color: Color, perspectiv
     sq.index() as usize * (14 * 2) + kind.index() * 2 + opp_flag
 }
 
+/// Compute a board feature index with an explicit own-king square.
+///
+/// The flat evaluator deliberately ignores this parameter. B-small uses the
+/// 3x3 king zone to select a separate board-feature bank.
+#[inline]
+pub fn feature_index_with_king(
+    sq: Square,
+    kind: PieceKind,
+    piece_color: Color,
+    perspective: Color,
+    own_king_sq: Square,
+) -> usize {
+    let base = feature_index(sq, kind, piece_color, perspective);
+    #[cfg(feature = "king_relative_b_small")]
+    {
+        own_king_sq.king_zone() * BOARD_FEATURES_PER_ZONE + base
+    }
+    #[cfg(not(feature = "king_relative_b_small"))]
+    {
+        let _ = own_king_sq;
+        base
+    }
+}
+
 // ---- Accumulator ----
 
 /// Two L1-vectors (one per Color perspective), updated incrementally.
@@ -396,6 +444,9 @@ pub fn feature_index(sq: Square, kind: PieceKind, piece_color: Color, perspectiv
 pub struct NnueAcc {
     /// Per-perspective (Black, White) accumulator vectors.
     pub values: [[i16; L1]; 2],
+    /// Own king square for each perspective, set before board features are
+    /// accumulated during a full refresh.
+    pub king_sq: [Square; 2],
 }
 
 impl NnueAcc {
@@ -403,6 +454,7 @@ impl NnueAcc {
     pub fn new() -> Self {
         NnueAcc {
             values: [weights().ft_bias; 2],
+            king_sq: [Square::from_index(0); 2],
         }
     }
 
@@ -415,6 +467,7 @@ impl NnueAcc {
     pub fn new_with(weights: &NnueWeights) -> Self {
         NnueAcc {
             values: [weights.ft_bias; 2],
+            king_sq: [Square::from_index(0); 2],
         }
     }
 
@@ -437,11 +490,13 @@ impl NnueAcc {
         hand: &[[u8; 7]; 2],
     ) {
         self.values = [weights.ft_bias; 2];
+        self.refresh_king_squares_from_tuples(mailbox);
         for (i, cell) in mailbox.iter().enumerate() {
             if let Some((kind, color)) = cell {
                 let sq = Square::from_index(i as u8);
                 for p in [Color::Black, Color::White] {
-                    let feat = feature_index(sq, *kind, *color, p);
+                    let feat =
+                        feature_index_with_king(sq, *kind, *color, p, self.king_sq[p.index()]);
                     self.add_col_with(weights, p.index(), feat);
                 }
             }
@@ -477,11 +532,18 @@ impl NnueAcc {
         hand: &[[u8; 7]; 2],
     ) {
         self.values = [weights.ft_bias; 2];
+        self.refresh_king_squares_from_pieces(mailbox);
         for (i, cell) in mailbox.iter().enumerate() {
             if let Some(piece) = cell {
                 let sq = Square::from_index(i as u8);
                 for p in [Color::Black, Color::White] {
-                    let feat = feature_index(sq, piece.kind, piece.color, p);
+                    let feat = feature_index_with_king(
+                        sq,
+                        piece.kind,
+                        piece.color,
+                        p,
+                        self.king_sq[p.index()],
+                    );
                     self.add_col_with(weights, p.index(), feat);
                 }
             }
@@ -499,6 +561,26 @@ impl NnueAcc {
                         );
                     }
                 }
+            }
+        }
+    }
+
+    fn refresh_king_squares_from_tuples(&mut self, mailbox: &[Option<(PieceKind, Color)>; 81]) {
+        for (index, cell) in mailbox.iter().enumerate() {
+            if let Some((PieceKind::Ou, color)) = cell {
+                self.king_sq[color.index()] = Square::from_index(index as u8);
+            }
+        }
+    }
+
+    fn refresh_king_squares_from_pieces(&mut self, mailbox: &[Option<Piece>; 81]) {
+        for (index, cell) in mailbox.iter().enumerate() {
+            if let Some(Piece {
+                kind: PieceKind::Ou,
+                color,
+            }) = cell
+            {
+                self.king_sq[color.index()] = Square::from_index(index as u8);
             }
         }
     }
@@ -542,9 +624,12 @@ impl NnueAcc {
     /// Incrementally update the accumulator for a piece placed at `sq`.
     #[inline(always)]
     pub fn add_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        if kind == PieceKind::Ou {
+            self.king_sq[color.index()] = sq;
+        }
         let weights = weights();
         for p in [Color::Black, Color::White] {
-            let feat = feature_index(sq, kind, color, p);
+            let feat = feature_index_with_king(sq, kind, color, p, self.king_sq[p.index()]);
             self.add_col_with(weights, p.index(), feat);
         }
     }
@@ -554,7 +639,7 @@ impl NnueAcc {
     pub fn remove_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
         let weights = weights();
         for p in [Color::Black, Color::White] {
-            let feat = feature_index(sq, kind, color, p);
+            let feat = feature_index_with_king(sq, kind, color, p, self.king_sq[p.index()]);
             self.sub_col_with(weights, p.index(), feat);
         }
     }
@@ -566,8 +651,10 @@ impl NnueAcc {
     pub fn move_piece(&mut self, from: Square, to: Square, kind: PieceKind, color: Color) {
         let weights = weights();
         for p in [Color::Black, Color::White] {
-            let old = &weights.ft[feature_index(from, kind, color, p)];
-            let new = &weights.ft[feature_index(to, kind, color, p)];
+            let old =
+                &weights.ft[feature_index_with_king(from, kind, color, p, self.king_sq[p.index()])];
+            let new =
+                &weights.ft[feature_index_with_king(to, kind, color, p, self.king_sq[p.index()])];
             let accumulator = &mut self.values[p.index()];
             for i in 0..L1 {
                 accumulator[i] = accumulator[i].saturating_sub(old[i]).saturating_add(new[i]);
@@ -590,10 +677,17 @@ impl NnueAcc {
         let (hand_kind, hand_count, hand_color) = hand;
         let weights = weights();
         for p in [Color::Black, Color::White] {
-            let old_moved = &weights.ft[feature_index(from, moved_kind, mover, p)];
-            let new_moved = &weights.ft[feature_index(to, moved_kind, mover, p)];
-            let captured_weights =
-                &weights.ft[feature_index(captured_square, captured_kind, captured_color, p)];
+            let old_moved = &weights.ft
+                [feature_index_with_king(from, moved_kind, mover, p, self.king_sq[p.index()])];
+            let new_moved = &weights.ft
+                [feature_index_with_king(to, moved_kind, mover, p, self.king_sq[p.index()])];
+            let captured_weights = &weights.ft[feature_index_with_king(
+                captured_square,
+                captured_kind,
+                captured_color,
+                p,
+                self.king_sq[p.index()],
+            )];
             let hand_weights =
                 &weights.ft[hand_feature_index(hand_kind, hand_count, hand_color, p)];
             let accumulator = &mut self.values[p.index()];
@@ -622,10 +716,17 @@ impl NnueAcc {
         let (hand_kind, hand_count, hand_color) = hand;
         let weights = weights();
         for p in [Color::Black, Color::White] {
-            let current = &weights.ft[feature_index(to, current_kind, mover, p)];
-            let original = &weights.ft[feature_index(from, original_kind, mover, p)];
-            let captured_weights =
-                &weights.ft[feature_index(captured_square, captured_kind, captured_color, p)];
+            let current = &weights.ft
+                [feature_index_with_king(to, current_kind, mover, p, self.king_sq[p.index()])];
+            let original = &weights.ft
+                [feature_index_with_king(from, original_kind, mover, p, self.king_sq[p.index()])];
+            let captured_weights = &weights.ft[feature_index_with_king(
+                captured_square,
+                captured_kind,
+                captured_color,
+                p,
+                self.king_sq[p.index()],
+            )];
             let hand_weights =
                 &weights.ft[hand_feature_index(hand_kind, hand_count, hand_color, p)];
             let accumulator = &mut self.values[p.index()];

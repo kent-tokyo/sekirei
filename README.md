@@ -218,7 +218,9 @@ records, weights, or generated training data.
 For opt-in post-game analysis, pass `--analysis-dir <dir>`. The client writes a sidecar
 `*.analysis.jsonl` file with one schema-versioned summary for each Sekirei search. Its header records
 the engine version and score perspective; each search record contains pre-move SFEN,
-selected CSA move, score, completed depth, nodes, elapsed time, and hashfull. The default is off;
+selected CSA move, score, completed depth, nodes, elapsed time, and hashfull. New v2 records also
+include the per-move budget, time remaining before search, and byoyomi, plus a distinct stop
+reason (`none`, `budget`, or `external_stop`). The default is off;
 completed games receive a final `game_end` result event, and interrupted games are closed with
 `aborted` so the sidecar is not left as an apparently complete trace. Final buffers are flushed
 and synced. The sidecar is diagnostic evidence, not a strength claim.

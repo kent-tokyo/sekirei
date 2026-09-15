@@ -17,7 +17,6 @@
 use std::io::{self, Write};
 
 use lineprior::{BuildConfig, Observation, Outcome};
-use sekirei_core::board::Board;
 use sekirei_core::color::Color;
 use sekirei_core::sfen::{board_to_sfen, move_to_usi};
 
@@ -37,7 +36,7 @@ pub fn build_book(
     let mut observations = Vec::new();
 
     for (game_idx, game) in games.iter().enumerate() {
-        let mut board = Board::startpos();
+        let mut board = game.initial_board.clone();
         for (ply, &mv) in game.moves.iter().enumerate() {
             if ply >= max_ply {
                 break;

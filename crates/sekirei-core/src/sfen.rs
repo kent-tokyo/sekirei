@@ -13,6 +13,7 @@
 //! * Drop piece letter is always uppercase; color comes from `side_to_move`.
 
 use crate::color::Color;
+use crate::movegen::is_in_check;
 use crate::mv::Move;
 use crate::piece::{Piece, PieceKind};
 use crate::square::Square;
@@ -260,12 +261,132 @@ pub fn apply_moves(board: &mut crate::board::Board, moves_str: &str) -> Result<(
     Ok(())
 }
 
+/// One position in the externally supplied USI game history.
+///
+/// The current board alone cannot distinguish an ordinary position from the
+/// fourth occurrence of that position. Search-internal lines use their own
+/// board state and never mutate this record.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PositionHistoryEntry {
+    /// Zobrist hash of the position after the recorded move.
+    pub hash: u64,
+    /// Side that made the recorded move; absent for the initial position.
+    pub mover: Option<Color>,
+    /// Whether the recorded move checked the new side to move.
+    pub gave_check: bool,
+}
+
+/// A complete history attached to one USI position command.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PositionHistory {
+    entries: Vec<PositionHistoryEntry>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// Outcome of a fourfold repetition in an externally supplied game history.
+pub enum RepetitionOutcome {
+    /// Ordinary fourfold repetition.
+    Draw,
+    /// This side continuously checked through the repeated cycle and loses.
+    PerpetualCheck(Color),
+}
+
+impl PositionHistory {
+    /// Begin a history at the supplied initial position hash.
+    pub fn initial(hash: u64) -> Self {
+        Self {
+            entries: vec![PositionHistoryEntry {
+                hash,
+                mover: None,
+                gave_check: false,
+            }],
+        }
+    }
+
+    /// Ordered positions from the initial state through the current state.
+    pub fn entries(&self) -> &[PositionHistoryEntry] {
+        &self.entries
+    }
+
+    /// Record a legal move that produced a new position hash.
+    pub fn push_after_move(&mut self, hash: u64, mover: Color, gave_check: bool) {
+        self.entries.push(PositionHistoryEntry {
+            hash,
+            mover: Some(mover),
+            gave_check,
+        });
+    }
+
+    /// Return an independent branch history after one legal move.
+    ///
+    /// Search siblings must never share mutable repetition state.  Keeping this
+    /// operation here makes that ownership boundary explicit at every
+    /// alpha-beta and quiescence child.
+    pub fn after_move(&self, hash: u64, mover: Color, gave_check: bool) -> Self {
+        let mut next = self.clone();
+        next.push_after_move(hash, mover, gave_check);
+        next
+    }
+
+    /// Return an outcome only when the current position has appeared four
+    /// times. The inspected cycle begins at the fourth-most-recent occurrence.
+    pub fn outcome_at_current_position(&self) -> Option<RepetitionOutcome> {
+        let current = self.entries.last()?.hash;
+        let occurrences: Vec<usize> = self
+            .entries
+            .iter()
+            .enumerate()
+            .filter_map(|(index, entry)| (entry.hash == current).then_some(index))
+            .collect();
+        if occurrences.len() < 4 {
+            return None;
+        }
+        let start = occurrences[occurrences.len() - 4];
+        let cycle = &self.entries[start + 1..];
+        let perpetual = [Color::Black, Color::White]
+            .into_iter()
+            .filter(|&color| {
+                let moves: Vec<_> = cycle
+                    .iter()
+                    .filter(|entry| entry.mover == Some(color))
+                    .collect();
+                !moves.is_empty() && moves.iter().all(|entry| entry.gave_check)
+            })
+            .collect::<Vec<_>>();
+        match perpetual.as_slice() {
+            [loser] => Some(RepetitionOutcome::PerpetualCheck(*loser)),
+            _ => Some(RepetitionOutcome::Draw),
+        }
+    }
+}
+
+fn apply_moves_with_history(
+    board: &mut crate::board::Board,
+    moves_str: &str,
+    history: &mut PositionHistory,
+) -> Result<(), String> {
+    for tok in moves_str.split_whitespace() {
+        let mover = board.side_to_move;
+        let m = move_from_usi(tok, board)?;
+        board.do_move(m);
+        history.push_after_move(board.hash(), mover, is_in_check(board, board.side_to_move));
+    }
+    Ok(())
+}
+
 /// Parse a USI "position" command body (the part after "position ").
 /// Examples:
 ///   `startpos`
 ///   `startpos moves 7g7f 3c3d`
 ///   `sfen lnsgkgsnl/1r5b1/... b - 1 moves 7g7f`
 pub fn parse_position_cmd(body: &str) -> Result<crate::board::Board, String> {
+    parse_position_cmd_with_history(body).map(|(board, _)| board)
+}
+
+/// Parse a USI position and preserve the actual move history used to reach it.
+pub fn parse_position_cmd_with_history(
+    body: &str,
+) -> Result<(crate::board::Board, PositionHistory), String> {
     let body = body.trim();
     if let Some(rest) = body.strip_prefix("startpos") {
         let rest = rest.trim();
@@ -277,8 +398,9 @@ pub fn parse_position_cmd(body: &str) -> Result<crate::board::Board, String> {
             return Err(format!("invalid startpos suffix: '{rest}'"));
         };
         let mut board = crate::board::Board::startpos();
-        apply_moves(&mut board, moves)?;
-        Ok(board)
+        let mut history = PositionHistory::initial(board.hash());
+        apply_moves_with_history(&mut board, moves, &mut history)?;
+        Ok((board, history))
     } else if let Some(sfen_rest) = body.strip_prefix("sfen").map(str::trim_start) {
         let tokens: Vec<&str> = sfen_rest.split_whitespace().collect();
         let moves_index = tokens.iter().position(|&token| token == "moves");
@@ -291,8 +413,9 @@ pub fn parse_position_cmd(body: &str) -> Result<crate::board::Board, String> {
             .map(|index| tokens[index + 1..].join(" "))
             .unwrap_or_default();
         let mut board = crate::board::Board::from_sfen(&sfen)?;
-        apply_moves(&mut board, &moves)?;
-        Ok(board)
+        let mut history = PositionHistory::initial(board.hash());
+        apply_moves_with_history(&mut board, &moves, &mut history)?;
+        Ok((board, history))
     } else {
         Err(format!("unknown position format: '{body}'"))
     }

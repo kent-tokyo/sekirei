@@ -1,7 +1,6 @@
 use std::io::{self, Write};
 
 use sekirei_core::{
-    board::Board,
     movegen::is_in_check,
     nnue::weights_active,
     search::{SearchConfig, Searcher},
@@ -21,7 +20,7 @@ pub fn export_game<W: Write>(
     out: &mut W,
 ) -> io::Result<()> {
     let searcher = Searcher::new(Tt::new(4));
-    let mut board = Board::startpos();
+    let mut board = game.initial_board.clone();
 
     for (ply, &mv) in game.moves.iter().enumerate() {
         if ply < min_ply || ply % sample_every != 0 {

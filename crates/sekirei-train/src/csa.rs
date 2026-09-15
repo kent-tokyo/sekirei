@@ -31,9 +31,10 @@ pub enum GameResult {
     Unknown,
 }
 
-#[derive(Debug)]
 pub struct CsaGame {
-    /// The game moves as legal `Move` values starting from `Board::startpos()`.
+    /// Board immediately before the first move. Normally startpos; self-play
+    /// CSA may set it through the explicit `sekirei_initial_sfen` comment.
+    pub initial_board: Board,
     pub moves: Vec<Move>,
     pub result: GameResult,
     pub black_rate: Option<f32>,
@@ -48,6 +49,7 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
     let mut moves = Vec::new();
     let mut result = GameResult::Unknown;
     let mut board = Board::startpos();
+    let mut initial_board = board.clone();
     let mut black_rate: Option<f32> = None;
     let mut white_rate: Option<f32> = None;
 
@@ -63,6 +65,13 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
         }
 
         // Rating comment lines: 'black_rate:Name+hash:4479.0  or  'white_rate:Name+hash:1800.0
+        if let Some(sfen) = line.strip_prefix("'sekirei_initial_sfen:") {
+            // Sekirei self-play extension.  CSA itself has no SFEN header;
+            // keep this a comment so ordinary CSA readers can ignore it.
+            board = Board::from_sfen(sfen.trim()).ok()?;
+            initial_board = board.clone();
+            continue;
+        }
         if line.starts_with("'black_rate:") {
             black_rate = line.rsplit(':').next().and_then(|s| s.parse().ok());
             continue;
@@ -143,7 +152,16 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
             };
 
             // Find the matching legal move (handles promotion disambiguation)
-            let m = find_legal_move(&mut board, from, to_sq, kind)?;
+            let Some(m) = find_legal_move(&mut board, from, to_sq, kind) else {
+                if std::env::var_os("SEKIREI_CSA_DEBUG").is_some() {
+                    eprintln!(
+                        "CSA replay rejected move {line:?} after {} plies from side {:?}",
+                        moves.len(),
+                        board.side_to_move
+                    );
+                }
+                return None;
+            };
             board.do_move(m);
             moves.push(m);
         }
@@ -152,7 +170,22 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
     if moves.is_empty() {
         return None;
     }
+    // Moves are stored independently of the temporary board used while
+    // parsing. Replay them from the preserved initial board once before
+    // exposing the game to the trainer. This rejects any parser/state drift
+    // before a training epoch can mutate weights from a malformed record.
+    let mut replay = initial_board.clone();
+    for mv in &moves {
+        if !generate_legal_moves(&mut replay).contains(mv) {
+            if std::env::var_os("SEKIREI_CSA_DEBUG").is_some() {
+                eprintln!("CSA replay validation rejected stored move {mv:?}");
+            }
+            return None;
+        }
+        replay.do_move(*mv);
+    }
     Some(CsaGame {
+        initial_board: initial_board.clone(),
         moves,
         result,
         black_rate,
@@ -242,6 +275,14 @@ T1
         assert_eq!(game.moves.len(), 2);
         // After 2 moves it is Black's turn again; Black resigned → White wins
         assert_eq!(game.result, GameResult::WhiteWin);
+    }
+
+    #[test]
+    fn sekirei_initial_sfen_comment_sets_the_replay_board() {
+        let text = "V2.2\n'sekirei_initial_sfen: 9/9/9/9/4K4/9/9/9/4k4 b R 1\n+0054HI\n%TORYO\n";
+        let game = parse_csa(text).expect("extended CSA must replay");
+        assert_eq!(game.moves.len(), 1);
+        assert_eq!(game.result, GameResult::BlackWin);
     }
 
     fn sample_with_ending(tag: &str) -> String {

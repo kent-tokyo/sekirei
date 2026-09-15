@@ -9,8 +9,19 @@ repository = "https://github.com/kent-tokyo/sekirei"
 [dependencies]
 rayon = "1"
 
+[features]
+king_relative_b_small = []
+
 [lib]
 name = "sekirei_core"
+
+[[bin]]
+name = "sekirei-search-diagnostic"
+path = "src/bin/search_diagnostic.rs"
+
+[[bin]]
+name = "sekirei-position-classifier"
+path = "src/bin/position_classifier.rs"
 
 [lints.rust]
 missing_docs = "warn"

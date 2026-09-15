@@ -11,6 +11,19 @@ SPEC.loader.exec_module(MODULE)
 
 
 class AnalysisReplayTest(unittest.TestCase):
+    def test_extracts_non_tactical_sfen_features(self):
+        features = MODULE.sfen_features("4k4/9/9/3+P5/9/9/9/9/4K4 b R2p 1")
+        self.assertEqual(features["status"], "verified")
+        self.assertEqual(features["board_piece_count"], 3)
+        self.assertEqual(features["promoted_piece_count"], 1)
+        self.assertEqual(features["hand_units"], 3)
+        self.assertEqual(features["side_to_move"], "black")
+        self.assertEqual(features["check_status"], "unknown")
+
+    def test_rejects_malformed_sfen_features(self):
+        self.assertEqual(MODULE.sfen_features("bad")["status"], "invalid")
+        self.assertEqual(MODULE.sfen_features(None)["status"], "unknown")
+
     def test_aligns_moves_and_flags_swing(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)
@@ -29,8 +42,10 @@ class AnalysisReplayTest(unittest.TestCase):
             self.assertEqual(report["swings"], 1)
             self.assertEqual(report["negative_swings"], 1)
             self.assertEqual(report["positive_swings"], 0)
+            self.assertEqual(report["sign_reversals"], 1)
             self.assertEqual(report["records"][1]["actual_move_csa"], "+2726FU")
             self.assertEqual(report["records"][1]["phase"], "middlegame")
+            self.assertEqual(report["records"][1]["relative_game_progress"], "middlegame")
             self.assertEqual(report["records"][1]["depth_band"], "shallow")
             self.assertEqual(report["records"][1]["elapsed_band"], "fast")
             self.assertEqual(report["records"][1]["previous_ply"], 0)
@@ -53,6 +68,7 @@ class AnalysisReplayTest(unittest.TestCase):
             self.assertTrue(report["records"][0]["terminal"])
             self.assertEqual(report["records"][0]["terminal_reason"], "mate_score")
             self.assertFalse(report["records"][0]["swing"])
+            self.assertFalse(report["records"][0]["sign_reversal"])
             self.assertEqual(report["terminal_records"], 1)
 
     def test_excludes_mate_score_from_normal_swings(self):

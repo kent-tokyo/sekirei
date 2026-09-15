@@ -212,6 +212,57 @@ fn setoption_evalfile_then_isready_activates_nnue() {
 }
 
 #[test]
+fn repeated_isready_does_not_reload_the_same_evalfile() {
+    let weights_path = write_marker_weights();
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_until(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name EvalFile value {}", weights_path.display()),
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
+    assert!(
+        !lines.iter().any(|line| line.contains("NNUE weights loaded")
+            || line.contains("weight load failed")),
+        "same EvalFile must stay quiet at a later isready; saw: {lines:?}"
+    );
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+    let _ = std::fs::remove_file(&weights_path);
+}
+
+#[test]
+fn nnue_output_option_is_advertised_and_acknowledges_explicit_mode() {
+    let (child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let lines = recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    assert!(
+        lines.iter().any(|line| {
+            line == "option name NnueOutput type combo default absolute var absolute var residual-material"
+        }),
+        "USI capability negotiation omitted NnueOutput: {lines:?}"
+    );
+
+    send(
+        &mut stdin,
+        "setoption name NnueOutput value residual-material",
+    );
+    recv_until(
+        &rx,
+        |line| line == "info string NNUE output mode residual-material",
+        Duration::from_secs(5),
+    );
+    terminate(child, &mut stdin);
+}
+
+#[test]
 fn duplicate_evalfile_load_is_reported_as_failure() {
     let first_path = write_marker_weights();
     let second_path = first_path.with_file_name(format!(

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0">
+<dict>
+<key>Label</key><string>com.kent-tokyo.sekirei-floodgate</string>
+<key>ProgramArguments</key><array>
+<string>/usr/bin/env</string><string>python3</string>
+<string>__SEKIREI_ROOT__/scripts/floodgate_supervisor.py</string>
+<string>--state-dir</string><string>__STATE_DIR__</string>
+<string>--stop-file</string><string>__STOP_FILE__</string>
+<string>--max-restarts</string><string>5</string>
+<string>--restart-window</string><string>600</string>
+<string>--restart-delay</string><string>30</string>
+<string>--poll-seconds</string><string>2</string>
+<string>--client-status-file</string><string>__STATE_DIR__/client-status.json</string>
+<string>--max-log-bytes</string><string>10485760</string>
+<string>--</string><string>__CSA_BINARY__</string>
+<string>--user</string><string>__FLOODGATE_USER__</string>
+<string>--game</string><string>floodgate-300-10F</string>
+<string>--record-dir</string><string>__RECORD_DIR__</string>
+<string>--analysis-dir</string><string>__ANALYSIS_DIR__</string>
+<string>--status-file</string><string>__STATE_DIR__/client-status.json</string>
+<string>--eval</string><string>__EVAL_MODE__</string>
+</array>
+<key>RunAtLoad</key><true/>
+<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>ThrottleInterval</key><integer>30</integer>
+<key>ProcessType</key><string>Background</string>
+<key>WorkingDirectory</key><string>__SEKIREI_ROOT__</string>
+<key>StandardOutPath</key><string>__STATE_DIR__/launchd.stdout.log</string>
+<key>StandardErrorPath</key><string>__STATE_DIR__/launchd.stderr.log</string>
+</dict>
+</plist>

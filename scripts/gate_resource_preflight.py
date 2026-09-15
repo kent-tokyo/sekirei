@@ -34,9 +34,11 @@ engine process, or any other subprocess besides the read-only system-
 inspection commands listed above.
 """
 import argparse
+import json
 import re
 import subprocess
 import sys
+from pathlib import Path
 
 # Per-engine-process dedicated speculative-search pool size. Currently
 # hardcoded in crates/sekirei-usi/src/main.rs's make_searcher() (top_n=3,
@@ -44,6 +46,7 @@ import sys
 # matching current engine behavior) so the preflight remains explicit.
 DEFAULT_SPEC_TOP_N = 3
 ENGINES_PER_SHARD = 2  # base + candidate, one sekirei-match shard
+DIAGNOSTIC_RELAXED_LOAD_LIMIT = 20.0
 
 # --contention-job matches by `pgrep -f` substring, which is a full-command-
 # line match -- it can hit an unrelated, near-idle process whose cwd/args
@@ -311,6 +314,7 @@ def build_checks(
     parallel,
     threads,
     spec_top_n,
+    diagnostic_relaxed_load=False,
 ):
     """Pure: takes already-parsed values (not raw command output) and
     returns the list of Check objects plus the overall predicted-thread
@@ -329,7 +333,11 @@ def build_checks(
         f"{logical_cores}" if logical_cores is not None else "unknown",
     ))
 
-    load_limit = (physical_cores - 2) if physical_cores is not None else None
+    load_limit = (
+        DIAGNOSTIC_RELAXED_LOAD_LIMIT
+        if diagnostic_relaxed_load
+        else (physical_cores - 2) if physical_cores is not None else None
+    )
     if load1 is None or load_limit is None:
         load_ok = None
     else:
@@ -410,7 +418,19 @@ def main():
         default=["renkin"],
         help="process-name substring to refuse launch on (repeatable); default: renkin",
     )
+    ap.add_argument("--output", help="optional JSON path for the read-only preflight report")
+    ap.add_argument(
+        "--diagnostic-relaxed-load",
+        action="store_true",
+        help=(
+            "diagnostic-only mode: allow load < 20 with the safe smoke configuration "
+            "(--parallel 1 --threads 1 --spec-top-n 0); never valid for a formal gate"
+        ),
+    )
     args = ap.parse_args()
+
+    if args.diagnostic_relaxed_load and (args.parallel, args.threads, args.spec_top_n) != (1, 1, 0):
+        ap.error("--diagnostic-relaxed-load requires --parallel 1 --threads 1 --spec-top-n 0")
 
     physical_cores = parse_int(collect_physical_cores())
     logical_cores = parse_int(collect_logical_cores())
@@ -449,6 +469,7 @@ def main():
         args.parallel,
         args.threads,
         args.spec_top_n,
+        args.diagnostic_relaxed_load,
     )
 
     print("Resource preflight (read-only, no match launched):\n")
@@ -456,6 +477,23 @@ def main():
         print(f"  [{c.status:7}] {c.label}: {c.detail}")
 
     all_pass = all(c.passed for c in checks)
+    report = {
+        "schema": "sekirei.gate-resource-preflight.v1",
+        "read_only": True,
+        "launch_performed": False,
+        "options": {"parallel": args.parallel, "threads": args.threads, "spec_top_n": args.spec_top_n,
+                    "contention_jobs": args.contention_job},
+        "mode": "diagnostic_relaxed_load" if args.diagnostic_relaxed_load else "formal_preflight",
+        "diagnostic_only": args.diagnostic_relaxed_load,
+        "formal_measurement_eligible": not args.diagnostic_relaxed_load,
+        "checks": [{"label": c.label, "status": c.status, "detail": c.detail} for c in checks],
+        "verdict": "pass" if all_pass else "refuse",
+    }
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+        print(f"preflight report: {output}")
     print()
     if all_pass:
         print("VERDICT: PASS -- launch conditions look clear.")

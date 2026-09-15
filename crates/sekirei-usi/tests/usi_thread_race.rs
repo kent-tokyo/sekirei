@@ -67,12 +67,23 @@ fn recv_line_matching(
 
 #[test]
 fn stop_flushes_bestmove_before_answering_the_next_command() {
-    stop_flushes_bestmove_before_answering_next_command(None);
+    stop_flushes_bestmove_before_answering_next_command(None, "position startpos");
 }
 
 #[test]
 fn lazy_smp_stop_flushes_bestmove_before_answering_next_command() {
-    stop_flushes_bestmove_before_answering_next_command(Some("LazySMP"));
+    stop_flushes_bestmove_before_answering_next_command(Some("LazySMP"), "position startpos");
+}
+
+#[test]
+fn history_replayed_stop_flushes_bestmove_before_readyok() {
+    // A rescued CSA prefix with a capture, replayed from its original
+    // non-starting SFEN. This pins the same stop/join ordering after the
+    // history-aware position path, rather than only after `startpos`.
+    stop_flushes_bestmove_before_answering_next_command(
+        None,
+        "position sfen lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22 moves 8i9i 9g9f",
+    );
 }
 
 #[test]
@@ -105,12 +116,12 @@ fn ponder_stop_then_new_position_has_one_fresh_bestmove() {
 
 #[test]
 fn dfpn_stop_flushes_bestmove_before_answering_next_command() {
-    stop_flushes_bestmove_before_answering_next_command(Some("Dfpn"));
+    stop_flushes_bestmove_before_answering_next_command(Some("Dfpn"), "position startpos");
 }
 
 #[test]
 fn shared_mcts_stop_flushes_bestmove_before_answering_next_command() {
-    stop_flushes_bestmove_before_answering_next_command(Some("SharedMcts"));
+    stop_flushes_bestmove_before_answering_next_command(Some("SharedMcts"), "position startpos");
 }
 
 #[test]
@@ -313,7 +324,7 @@ fn dfpn_quit_joins_inflight_search() {
     }
 }
 
-fn stop_flushes_bestmove_before_answering_next_command(mode: Option<&str>) {
+fn stop_flushes_bestmove_before_answering_next_command(mode: Option<&str>, position: &str) {
     let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
@@ -329,7 +340,7 @@ fn stop_flushes_bestmove_before_answering_next_command(mode: Option<&str>) {
         );
     }
 
-    send(&mut stdin, "position startpos");
+    send(&mut stdin, position);
 
     // Deep default max_depth (50) + a large clock budget keeps the search
     // thread busy well past the sleep below, so it is genuinely in flight

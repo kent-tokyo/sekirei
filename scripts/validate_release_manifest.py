@@ -83,6 +83,27 @@ def validate(doc):
                 errors.append(f"search_diagnostic.{key}")
         if not isinstance(search.get("strength_claim"), bool) or search.get("strength_claim"):
             errors.append("search_diagnostic.strength_claim")
+    diagnostic_artifacts = doc.get("diagnostic_artifacts")
+    if diagnostic_artifacts is not None:
+        if diagnostic_artifacts.get("diagnostic_only") is not True:
+            errors.append("diagnostic_artifacts.diagnostic_only")
+        if diagnostic_artifacts.get("strength_claim") != "not_permitted":
+            errors.append("diagnostic_artifacts.strength_claim")
+        artifacts = diagnostic_artifacts.get("artifacts")
+        if not isinstance(artifacts, list) or not artifacts:
+            errors.append("diagnostic_artifacts.artifacts")
+        else:
+            for index, artifact in enumerate(artifacts):
+                prefix = f"diagnostic_artifacts.artifacts[{index}]"
+                if not isinstance(artifact, dict):
+                    errors.append(prefix)
+                    continue
+                if not isinstance(artifact.get("path"), str) or not artifact["path"]:
+                    errors.append(prefix + ".path")
+                if not HEX64.fullmatch(artifact.get("sha256", "")):
+                    errors.append(prefix + ".sha256")
+                if not isinstance(artifact.get("schema"), str) or not artifact["schema"]:
+                    errors.append(prefix + ".schema")
     comparison = doc.get("mcts_comparison")
     if comparison is not None:
         if comparison.get("schema") != "sekirei.mcts-comparison.v1": errors.append("mcts_comparison.schema")

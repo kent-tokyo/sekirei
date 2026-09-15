@@ -15,12 +15,16 @@ use sekirei_core::{
     board::Board,
     color::Color,
     dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
+    eval::{NnueOutputMode, set_nnue_output_mode},
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
     nnue::load_weights,
     search::{MATE_SCORE, SearchConfig, SpecSearchInfo, SpeculativeSearcher},
-    sfen::{board_to_sfen, move_to_usi, parse_position_cmd},
+    sfen::{
+        PositionHistory, RepetitionOutcome, board_to_sfen, move_to_usi,
+        parse_position_cmd_with_history,
+    },
     tt::Tt,
 };
 
@@ -139,11 +143,38 @@ impl SearchBackend {
         }
     }
 
-    fn search(&self, board: &mut Board, config: SearchConfig) -> SearchResult {
+    fn search(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        position_history: &PositionHistory,
+    ) -> SearchResult {
+        if let Some(outcome) = position_history.outcome_at_current_position() {
+            let score = match outcome {
+                RepetitionOutcome::Draw => 0,
+                RepetitionOutcome::PerpetualCheck(loser) if loser == board.side_to_move => {
+                    -MATE_SCORE + 1
+                }
+                RepetitionOutcome::PerpetualCheck(_) => MATE_SCORE - 1,
+            };
+            return SearchResult {
+                best_move: fallback_legal_move(board),
+                score,
+                depth: 0,
+                nodes: 0,
+                elapsed: Duration::ZERO,
+                hashfull: 0,
+                pv_list: Vec::new(),
+                worker_stats: Vec::new(),
+                shared_mcts_stats: None,
+            };
+        }
         match self {
-            Self::Speculative(s) => normalize_spec_result(s.search(board, config)),
+            Self::Speculative(s) => {
+                normalize_spec_result(s.search_with_history(board, config, position_history))
+            }
             Self::LazySmp(s) => {
-                let info = s.search(board, config);
+                let info = s.search_with_history(board, config, position_history);
                 let result = info.result;
                 SearchResult {
                     best_move: result.best_move.or_else(|| fallback_legal_move(board)),
@@ -270,6 +301,23 @@ fn fallback_legal_move(board: &Board) -> Option<sekirei_core::mv::Move> {
     generate_legal_moves(&mut probe).into_iter().next()
 }
 
+/// Look up a TT ponder reply without ever applying an unvalidated move to the
+/// caller's board.  `bestmove` is checked before this helper is called; the
+/// TT reply itself is still only a cache hint and must be legal in the child
+/// position before it may be emitted to a GUI.
+fn legal_ponder_move(
+    searcher: &SearchBackend,
+    board: &mut Board,
+    best_move: sekirei_core::mv::Move,
+) -> Option<sekirei_core::mv::Move> {
+    let token = board.do_move(best_move);
+    let ponder = searcher
+        .probe_tt(board.hash())
+        .filter(|candidate| generate_legal_moves(board).contains(candidate));
+    board.undo_move(token);
+    ponder
+}
+
 /// Render an engine score using the USI score grammar.
 ///
 /// Search mate scores are encoded near `MATE_SCORE`; exposing those raw
@@ -351,6 +399,10 @@ fn main() {
     let mut search_mode = SearchMode::Speculative;
     let mut searcher = make_searcher(hash_mb, spec_top_n, threads_for_lazy_smp(0), search_mode);
     let mut eval_file: Option<String> = None;
+    // NNUE is intentionally a process-global OnceLock.  Remember the path
+    // which filled it so every `isready` barrier (including match-runner's
+    // per-game barrier) is quiet and does not attempt a second load.
+    let mut loaded_eval_file = (!weight_path.is_empty()).then(|| weight_path.clone());
     let mut move_overhead_ms: u64 = 50;
     let mut multi_pv: u32 = 1;
     let mut use_book = true;
@@ -362,6 +414,7 @@ fn main() {
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
+    let mut position_history = PositionHistory::initial(board.hash());
     // Ply reached by the last "position" command's move list (0 = startpos) --
     // used only to gate book lookups to the opening phase (BookMaxPly).
     let mut current_ply: usize = 0;
@@ -409,6 +462,9 @@ fn main() {
                 println!("option name Ponder type check default false");
                 println!("option name MultiPV type spin default 1 min 1 max 256");
                 println!("option name EvalFile type string default ");
+                println!(
+                    "option name NnueOutput type combo default absolute var absolute var residual-material"
+                );
                 println!("option name UseBook type check default true");
                 println!("option name BookMaxPly type spin default 30 min 0 max 200");
                 println!("option name BookMinConfidence type string default 0.20");
@@ -418,15 +474,24 @@ fn main() {
             }
 
             "isready" => {
-                if let Some(ref path) = eval_file {
-                    match sekirei_core::nnue::load_weights(Path::new(path)) {
-                        Ok(()) => {
-                            println!("info string NNUE weights loaded from {path}");
-                            // `board` (constructed at startup, before this load) has a
-                            // stale accumulator baked from the pre-load fallback weights.
-                            board.refresh_acc();
+                if let Some(ref path) = eval_file
+                    && loaded_eval_file.as_deref() != Some(path.as_str())
+                {
+                    if let Some(loaded) = &loaded_eval_file {
+                        println!(
+                            "info string weight load failed: EvalFile switch rejected; already loaded {loaded}; restart the engine to use {path}"
+                        );
+                    } else {
+                        match sekirei_core::nnue::load_weights(Path::new(path)) {
+                            Ok(()) => {
+                                println!("info string NNUE weights loaded from {path}");
+                                // `board` (constructed at startup, before this load) has a
+                                // stale accumulator baked from the pre-load fallback weights.
+                                board.refresh_acc();
+                                loaded_eval_file = Some(path.clone());
+                            }
+                            Err(e) => println!("info string weight load failed: {e}"),
                         }
-                        Err(e) => println!("info string weight load failed: {e}"),
                     }
                 }
                 if use_book && book_loaded_path.as_deref() != Some(book_file.as_str()) {
@@ -541,6 +606,31 @@ fn main() {
                     {
                         eval_file = Some(val.to_string());
                     }
+                } else if parts.get(1) == Some(&"NnueOutput") {
+                    let mode = match parts.get(3).copied() {
+                        Some("absolute") => NnueOutputMode::Absolute,
+                        Some("residual-material") => NnueOutputMode::ResidualMaterial,
+                        Some(value) => {
+                            println!(
+                                "info string invalid NnueOutput {value}; expected absolute or residual-material"
+                            );
+                            continue;
+                        }
+                        None => continue,
+                    };
+                    // TT scores depend on the evaluator, so never retain entries
+                    // across a semantic switch.  The default is absolute and
+                    // residual files require their training sidecar to be checked
+                    // by the caller before this option is selected.
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    set_nnue_output_mode(mode);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
+                    println!("info string NNUE output mode {}", mode.as_str());
                 } else if parts.get(1) == Some(&"UseBook") {
                     if let Some(v) = parts.get(3) {
                         use_book = *v == "true";
@@ -564,15 +654,17 @@ fn main() {
             "usinewgame" => {
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 board = Board::startpos();
+                position_history = PositionHistory::initial(board.hash());
                 current_ply = 0;
                 last_position_cmd = String::from("startpos");
                 searcher.clear_tt();
                 game_counter += 1;
             }
 
-            "position" => match parse_position_cmd(rest) {
-                Ok(b) => {
+            "position" => match parse_position_cmd_with_history(rest) {
+                Ok((b, history)) => {
                     board = b;
+                    position_history = history;
                     // Only gates book lookups (BookMaxPly) -- doesn't need to
                     // handle every conceivable "position" form, just the
                     // "startpos moves ..." shape this project's own tooling
@@ -662,6 +754,7 @@ fn main() {
 
                 let searcher2 = Arc::clone(&searcher);
                 let mut board2 = board.clone();
+                let position_history2 = position_history.clone();
                 let suppress2 = Arc::clone(&suppress_bm);
                 let diag_ctx = DiagCtx {
                     game_counter,
@@ -674,7 +767,7 @@ fn main() {
                 };
 
                 search_handle = Some(std::thread::spawn(move || {
-                    let info = searcher2.search(&mut board2, config);
+                    let info = searcher2.search(&mut board2, config, &position_history2);
 
                     if suppress2.load(Ordering::Relaxed) {
                         return; // ponderhit aborted this search; caller starts a new one
@@ -736,20 +829,21 @@ fn main() {
                         .map(move_to_usi)
                         .unwrap_or_else(|| "resign".to_string());
 
-                    // Probe TT for predicted opponent reply to offer GUI a ponder move.
-                    let ponder_token = info.best_move.and_then(|m| {
-                        let token = board2.do_move(m);
-                        let pm = searcher2.probe_tt(board2.hash());
-                        board2.undo_move(token);
-                        pm
-                    });
-
                     // "resign" (info.best_move == None) is a special
                     // response, not a move -- excluded from the legality
-                    // check by construction.
+                    // check by construction.  This must happen *before*
+                    // the ponder probe: `Board::do_move` is an internal
+                    // trusted operation and must never receive an invalid
+                    // search result just to discover its ponder reply.
                     if let Some(mv) = info.best_move {
                         invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
                     }
+                    // Probe TT for a predicted opponent reply only after
+                    // validating our own move; an invalid TT hint is simply
+                    // omitted rather than being sent as a USI ponder move.
+                    let ponder_token = info
+                        .best_move
+                        .and_then(|m| legal_ponder_move(&searcher2, &mut board2, m));
                     if let Some(pm) = ponder_token {
                         println!("bestmove {best} ponder {}", move_to_usi(pm));
                     } else {
@@ -778,6 +872,7 @@ fn main() {
                     search_abort = Some(abort);
                     let searcher2 = Arc::clone(&searcher);
                     let mut board2 = board.clone();
+                    let position_history2 = position_history.clone();
                     let suppress2 = Arc::clone(&suppress_bm);
                     let diag_ctx = DiagCtx {
                         game_counter,
@@ -789,7 +884,7 @@ fn main() {
                         accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
                     };
                     search_handle = Some(std::thread::spawn(move || {
-                        let info = searcher2.search(&mut board2, config);
+                        let info = searcher2.search(&mut board2, config, &position_history2);
                         if suppress2.load(Ordering::Relaxed) {
                             return;
                         }
@@ -818,15 +913,12 @@ fn main() {
                             .best_move
                             .map(move_to_usi)
                             .unwrap_or_else(|| "resign".to_string());
-                        let ponder_token = info.best_move.and_then(|m| {
-                            let token = board2.do_move(m);
-                            let pm = searcher2.probe_tt(board2.hash());
-                            board2.undo_move(token);
-                            pm
-                        });
                         if let Some(mv) = info.best_move {
                             invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
                         }
+                        let ponder_token = info
+                            .best_move
+                            .and_then(|m| legal_ponder_move(&searcher2, &mut board2, m));
                         if let Some(pm) = ponder_token {
                             println!("bestmove {best} ponder {}", move_to_usi(pm));
                         } else {

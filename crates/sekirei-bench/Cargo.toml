@@ -13,6 +13,9 @@ rsshogi = { version = "1.2.3", git = "https://github.com/nyoki-mtl/rsshogi.git",
 shogi_core = "0.1.5"
 serde_json = "1"
 
+[features]
+king_relative_b_small = ["sekirei-core/king_relative_b_small"]
+
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }
 

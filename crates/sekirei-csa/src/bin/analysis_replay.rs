@@ -8,7 +8,7 @@ use std::env;
 use std::fs;
 use std::process;
 
-use moves::{board_from_csa_position, csa_to_move};
+use moves::{board_from_csa_position, csa_to_move, is_csa_move_token};
 use sekirei_core::sfen::board_to_sfen;
 use serde_json::Value;
 
@@ -34,7 +34,12 @@ fn verify(csa_path: &str, analysis_path: &str) -> Result<(), String> {
         let value: Value = serde_json::from_str(line)
             .map_err(|e| format!("analysis line {}: {e}", line_no + 1))?;
         if line_no == 0 {
-            if value.get("schema").and_then(Value::as_str) != Some("sekirei.analysis-record.v1") {
+            if !matches!(
+                value.get("schema").and_then(Value::as_str),
+                Some("sekirei.analysis-record.v1")
+                    | Some("sekirei.analysis-record.v2")
+                    | Some("sekirei.analysis-record.v3")
+            ) {
                 return Err("invalid analysis schema".into());
             }
             analysis_game_id = value
@@ -73,9 +78,11 @@ fn verify(csa_path: &str, analysis_path: &str) -> Result<(), String> {
                 _ => "draw",
             });
         }
-        if token.starts_with('+') || token.starts_with('-') {
+        if is_csa_move_token(token) {
             csa_moves.push(token.to_owned());
-        } else if csa_moves.is_empty() && (token == "PI" || token.starts_with('P')) {
+        } else if csa_moves.is_empty()
+            && (token == "PI" || token.starts_with('P') || matches!(token, "+" | "-"))
+        {
             initial.push(token.to_owned());
         }
     }
@@ -167,7 +174,7 @@ mod tests {
     fn write_pair(dir: &std::path::Path, game_id: &str) {
         fs::write(
             dir.join("game.csa"),
-            format!("V2.2\n$EVENT:{game_id}\nPI\n+7776FU\n#WIN\n"),
+            format!("V2.2\n$EVENT:{game_id}\nPI\n+\n+7776FU\n#WIN\n"),
         )
         .expect("write CSA fixture");
         fs::write(
