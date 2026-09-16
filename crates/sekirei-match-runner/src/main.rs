@@ -662,6 +662,18 @@ fn options_json(options: &[String]) -> String {
     format!("{{{}}}", pairs.join(","))
 }
 
+/// JSON has no spelling for IEEE-754 NaN or infinity.  A match with only
+/// draws has an unbounded Elo confidence interval, so serialise that fact as
+/// `null` instead of emitting invalid JSON (`inf`) and making the complete
+/// record unreadable.
+fn json_number_or_null(value: f64, places: usize) -> String {
+    if value.is_finite() {
+        format!("{value:.places$}")
+    } else {
+        "null".to_string()
+    }
+}
+
 /// How much of a match's outcome is genuinely independent trials, versus a
 /// small number of games replayed over and over. A `startpos`-only (or
 /// narrow-opening) match between deterministic engines can produce a
@@ -1741,6 +1753,11 @@ fn main() {
 
     // JSON output
     if let Some(json_path) = &args.json_file {
+        let elo_json = json_number_or_null(elo, 2);
+        let ci_json = json_number_or_null(ci, 2);
+        let elo_low_json = json_number_or_null(elo - ci, 2);
+        let elo_high_json = json_number_or_null(elo + ci, 2);
+        let los_json = json_number_or_null(los, 4);
         let json = format!(
             r#"{{
   "engine1": {:?},
@@ -1756,11 +1773,11 @@ fn main() {
   "draws": {draws},
   "engine2_wins": {e2_wins},
   "engine1_score": {:.4},
-  "elo_diff": {:.2},
-  "elo_ci_95": {:.2},
-  "elo_ci_low": {:.2},
-  "elo_ci_high": {:.2},
-  "los": {:.4},
+  "elo_diff": {elo_json},
+  "elo_ci_95": {ci_json},
+  "elo_ci_low": {elo_low_json},
+  "elo_ci_high": {elo_high_json},
+  "los": {los_json},
   "unique_prefix10": {},
   "unique_prefix20": {},
   "top_prefix20_count": {},
@@ -1779,11 +1796,6 @@ fn main() {
             args.args2.join(" "),
             options_json(&args.engine_options2),
             e1_pct / 100.0,
-            elo,
-            ci,
-            elo - ci,
-            elo + ci,
-            los,
             diversity.unique_prefix10,
             diversity.unique_prefix20,
             diversity.top_prefix20_count,
@@ -1939,6 +1951,13 @@ mod tests {
     #[test]
     fn options_json_on_empty_input_is_empty_object() {
         assert_eq!(options_json(&[]), "{}");
+    }
+
+    #[test]
+    fn json_number_uses_null_for_non_finite_values() {
+        assert_eq!(json_number_or_null(12.345, 2), "12.35");
+        assert_eq!(json_number_or_null(f64::INFINITY, 2), "null");
+        assert_eq!(json_number_or_null(f64::NAN, 2), "null");
     }
 
     fn moves(seq: &[&str]) -> Vec<String> {

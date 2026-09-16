@@ -44,6 +44,20 @@ correctness diagnostics unless a preregistered experiment explicitly tests
 parallel behavior. A completed harness run is not automatically a strength
 result.
 
+## Local self-play collection
+
+- `run_local_selfplay.py`: one-command, offline self-play collector. It builds
+  missing release binaries, runs the same engine on both sides, and stores
+  `run-manifest.json`, a combined log, USI kifu, replay-validated CSA games,
+  per-move transcript, JSONL results, and a summary under a fresh
+  `data/runs/local_selfplay_<UTC>/` directory. Use `--weights <file>` to use
+  one NNUE on both sides, or `--positions <file> --games-per-position <n>` for
+  a fixed opening corpus. `--dry-run` checks the planned command and writes a
+  manifest without playing.
+
+Same-engine self-play is useful training and regression data, but it is not
+an Elo measurement or evidence that either version is stronger.
+
 ## Floodgate and post-game analysis
 
 - `floodgate_supervisor.py`: persistent process supervision and bounded retry.

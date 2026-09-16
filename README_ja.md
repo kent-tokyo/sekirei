@@ -110,6 +110,16 @@ cargo run --release -p sekirei-match-runner -- \
   --games-per-position 4 --json results/run.json
 ```
 
+外部サービスなしで、対局記録を継続収集するには次を実行します。
+
+```bash
+python3 scripts/run_local_selfplay.py --games 1000 --weights /path/to/weights.bin
+```
+
+`data/runs/` 以下に、新しいrun manifest、ログ、USI棋譜、CSA棋譜、
+各手transcript、結果ファイルをまとめて保存します。同一エンジン同士の
+自己対局は学習・回帰確認用のデータであり、Eloや棋力向上の根拠ではありません。
+
 CSA client：
 
 ```bash
