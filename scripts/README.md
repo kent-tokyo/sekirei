@@ -49,11 +49,14 @@ result.
 - `run_local_selfplay.py`: one-command, offline self-play collector. It builds
   missing release binaries, runs the same engine on both sides, and stores
   `run-manifest.json`, a combined log, USI kifu, replay-validated CSA games,
-  per-move transcript, JSONL results, and a summary under a fresh
+  a per-move transcript with USI score/depth/nodes/PV, incremental JSONL and
+  summary snapshots, and `dedup-index.json` under a fresh
   `data/runs/local_selfplay_<UTC>/` directory. Use `--weights <file>` to use
   one NNUE on both sides, or `--positions <file> --games-per-position <n>` for
-  a fixed opening corpus. `--dry-run` checks the planned command and writes a
-  manifest without playing.
+  a fixed opening corpus. Openings and engine colors are exhausted before a
+  condition is reused; raw duplicates are retained while the dedup index names
+  one representative for downstream training. `--dry-run` checks the planned
+  command and writes a manifest without playing.
 
 Same-engine self-play is useful training and regression data, but it is not
 an Elo measurement or evidence that either version is stronger.

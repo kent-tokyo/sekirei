@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+- Corrected engine/color assignment for arbitrary starting SFENs, including
+  White-to-move positions, and record structured USI score, mate, bound,
+  depth, nodes, and PV data for each move.
+- Made self-play JSONL, summary, and CSA manifests durable after every
+  completed game. The wrapper now preserves stop intent, rejects missing
+  required artifacts, balances opening/color reuse, and emits an exact-game
+  deduplication index for downstream training.
+
 ## [0.3.37] – 2026-09-16
 
 - Simplified the English and Japanese READMEs, added a categorized script

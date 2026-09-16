@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import signal
@@ -60,12 +61,20 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--output", type=Path, help="new run directory (default: data/runs/local_selfplay_<UTC>)")
     parser.add_argument("--build", action="store_true", help="rebuild release binaries before playing")
     parser.add_argument("--dry-run", action="store_true", help="write only a planned manifest")
+    parser.add_argument(
+        "--max-duplicate-ratio",
+        type=float,
+        default=0.50,
+        help="mark a completed run diagnostic when exact-game duplicates exceed this ratio",
+    )
     parsed = parser.parse_args(argv)
     for name in ("games", "byoyomi_ms", "threads", "max_moves"):
         if getattr(parsed, name) < 1:
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if parsed.games_per_position is not None and parsed.games_per_position < 1:
         parser.error("--games-per-position must be positive")
+    if not 0.0 <= parsed.max_duplicate_ratio <= 1.0:
+        parser.error("--max-duplicate-ratio must be between 0 and 1")
     return parsed
 
 
@@ -91,6 +100,56 @@ def count_lines(path: Path) -> int:
         return sum(1 for _ in source)
 
 
+def count_positions(path: Path | None) -> int:
+    if path is None:
+        return 1
+    with path.open(encoding="utf-8") as source:
+        return sum(1 for line in source if line.strip() and not line.lstrip().startswith("#"))
+
+
+def _game_key(path: Path) -> str | None:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if line.startswith("position "):
+            return line
+    return None
+
+
+def write_duplicate_index(kifu_dir: Path, path: Path) -> dict:
+    groups: dict[str, list[str]] = {}
+    missing_keys: list[str] = []
+    for kifu in sorted(kifu_dir.glob("*.txt")) if kifu_dir.is_dir() else []:
+        key = _game_key(kifu)
+        if key is None:
+            missing_keys.append(kifu.name)
+            continue
+        groups.setdefault(key, []).append(kifu.name)
+    records = [
+        {
+            "key_sha256": hashlib.sha256(key.encode()).hexdigest(),
+            "representative": files[0],
+            "occurrences": len(files),
+            "files": files,
+        }
+        for key, files in sorted(groups.items())
+    ]
+    total = sum(record["occurrences"] for record in records)
+    unique = len(records)
+    duplicates = total - unique
+    duplicate_ratio = duplicates / total if total else 0.0
+    index = {
+        "schema": "sekirei.local-selfplay-dedup.v1",
+        "policy": "retain_raw_select_one_representative_per_exact_position_and_move_sequence",
+        "games_indexed": total,
+        "unique_games": unique,
+        "duplicate_games": duplicates,
+        "duplicate_ratio": duplicate_ratio,
+        "missing_game_keys": missing_keys,
+        "groups": records,
+    }
+    write_manifest(path, index)
+    return {key: value for key, value in index.items() if key != "groups"}
+
+
 def result_diagnostics(path: Path) -> dict:
     if not path.is_file():
         return {"result_summary_present": False}
@@ -100,7 +159,11 @@ def result_diagnostics(path: Path) -> dict:
         return {"result_summary_present": True, "result_summary_error": str(error)}
     return {
         "result_summary_present": True,
+        "result_status": result.get("status"),
         "games_reported": result.get("games"),
+        "unique_games_reported": result.get("unique_games"),
+        "duplicate_games_reported": result.get("duplicate_games"),
+        "duplicate_ratio_reported": result.get("duplicate_ratio"),
         "invalid_games": result.get("invalid_games", []),
         "artifact_write_failures": result.get("artifact_write_failures", []),
     }
@@ -118,6 +181,39 @@ def csa_diagnostics(path: Path) -> dict:
         "csa_games_written": manifest.get("csa_games_written", []),
         "csa_games_skipped": manifest.get("csa_games_skipped", []),
     }
+
+
+def interrupted_returncode(returncode: int | None) -> bool:
+    return returncode in {
+        -signal.SIGINT,
+        -signal.SIGTERM,
+        128 + signal.SIGINT,
+        128 + signal.SIGTERM,
+    }
+
+
+def missing_required_artifacts(output: Path, audit: dict) -> list[str]:
+    missing = []
+    for relative in ("result.json", "result.jsonl", "csa/manifest.json"):
+        if not (output / relative).is_file():
+            missing.append(relative)
+    reported = audit.get("games_reported")
+    if isinstance(reported, int):
+        if audit.get("result_status") != "complete":
+            missing.append("final result status=complete")
+        if audit.get("usi_kifu_files", 0) != reported:
+            missing.append("usi_kifu files for every reported game")
+        if audit.get("record_lines", 0) != reported:
+            missing.append("result.jsonl record for every reported game")
+        if audit.get("transcript_lines", 0) < reported:
+            missing.append("transcript row for every reported game")
+        csa_written = audit.get("csa_games_written", [])
+        csa_skipped = audit.get("csa_games_skipped", [])
+        if audit.get("csa_files", 0) != len(csa_written):
+            missing.append("CSA files listed by csa/manifest.json")
+        if len(csa_written) + len(csa_skipped) != reported:
+            missing.append("CSA written/skipped accounting for every reported game")
+    return missing
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -146,6 +242,7 @@ def main(argv: list[str] | None = None) -> int:
     summary_path = output / "result.json"
     transcript_path = output / "transcript.jsonl"
     log_path = output / "match.log"
+    dedup_path = output / "dedup-index.json"
     engine_args = [str(weights)] if weights else []
     command = [
         str(runner), "--engine1", str(engine), "--engine2", str(engine),
@@ -163,8 +260,15 @@ def main(argv: list[str] | None = None) -> int:
     if args.games_per_position is not None:
         command.extend(["--games-per-position", str(args.games_per_position)])
 
+    opening_count = count_positions(positions)
+    games_scheduled_expected = (
+        opening_count * args.games_per_position
+        if args.games_per_position is not None
+        else args.games
+    )
+    unique_conditions = min(games_scheduled_expected, opening_count * 2)
     manifest = {
-        "schema": "sekirei.local-selfplay-run.v1",
+        "schema": "sekirei.local-selfplay-run.v2",
         "status": "planned" if args.dry_run else "running",
         "strength_claim": False,
         "started_at": utc_now(),
@@ -173,9 +277,19 @@ def main(argv: list[str] | None = None) -> int:
         "weights": {"path": str(weights) if weights else None, "sha256": sha256(weights)},
         "options": {"Threads": args.threads, "SpecTopN": 0, "byoyomi_ms": args.byoyomi_ms, "max_moves": args.max_moves},
         "games_requested": args.games,
+        "games_scheduled_expected": games_scheduled_expected,
         "positions": str(positions) if positions else "startpos",
+        "positions_sha256": sha256(positions),
+        "positions_count": opening_count,
         "games_per_position": args.games_per_position,
-        "artifacts": {"kifu_dir": "usi_kifu", "csa_dir": "csa", "summary": "result.json", "records": "result.jsonl", "transcript": "transcript.jsonl", "log": "match.log"},
+        "collection_policy": {
+            "opening_schedule": "shuffle_each_cycle_without_replacement_then_swap_engine_colors",
+            "unique_opening_color_conditions_before_reuse": unique_conditions,
+            "opening_reuse_cycles_expected": math.ceil(games_scheduled_expected / max(1, opening_count * 2)),
+            "max_duplicate_ratio": args.max_duplicate_ratio,
+            "duplicate_handling": "retain raw games and emit one representative per exact game in dedup-index.json",
+        },
+        "artifacts": {"kifu_dir": "usi_kifu", "csa_dir": "csa", "summary": "result.json", "records": "result.jsonl", "transcript": "transcript.jsonl", "dedup_index": "dedup-index.json", "log": "match.log"},
         "command": command,
     }
     write_manifest(manifest_path, manifest)
@@ -204,11 +318,20 @@ def main(argv: list[str] | None = None) -> int:
     def stop_child(signum: int, _frame: object) -> None:
         nonlocal interrupted
         interrupted = True
+        manifest.update(
+            {
+                "status": "stopping",
+                "stop_requested_at": utc_now(),
+                "stop_signal": signal.Signals(signum).name,
+            }
+        )
+        write_manifest(manifest_path, manifest)
         if child is not None and child.poll() is None:
             os.killpg(child.pid, signum)
 
     old_int = signal.signal(signal.SIGINT, stop_child)
     old_term = signal.signal(signal.SIGTERM, stop_child)
+    returncode: int | None = None
     try:
         print(f"Collecting local self-play in {output}", flush=True)
         with log_path.open("wb") as log:
@@ -218,22 +341,30 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGINT, old_int)
         signal.signal(signal.SIGTERM, old_term)
 
+    dedup = write_duplicate_index(kifu_dir, dedup_path)
     audit = {
         "usi_kifu_files": count_files(kifu_dir, ".txt"),
         "csa_files": count_files(csa_dir, ".csa"),
         "transcript_lines": count_lines(transcript_path),
+        "record_lines": count_lines(summary_path.with_suffix(".jsonl")),
+        "deduplication": dedup,
         **result_diagnostics(summary_path),
         **csa_diagnostics(csa_dir / "manifest.json"),
     }
+    audit["missing_required_artifacts"] = missing_required_artifacts(output, audit)
     manifest.update({"ended_at": utc_now(), "returncode": returncode, "artifact_audit": audit})
-    if interrupted:
+    if interrupted or interrupted_returncode(returncode):
         manifest["status"] = "interrupted"
     elif returncode != 0:
         manifest["status"] = "failed"
+    elif audit["missing_required_artifacts"]:
+        manifest["status"] = "incomplete"
     elif (
         audit.get("artifact_write_failures")
         or audit.get("invalid_games")
         or audit.get("csa_games_skipped")
+        or audit["deduplication"]["missing_game_keys"]
+        or audit["deduplication"]["duplicate_ratio"] > args.max_duplicate_ratio
     ):
         manifest["status"] = "completed_with_diagnostics"
     else:

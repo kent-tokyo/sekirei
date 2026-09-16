@@ -123,12 +123,15 @@ cargo run --release -p sekirei-match-runner -- \
 For unattended, offline self-play collection with durable records:
 
 ```bash
-python3 scripts/run_local_selfplay.py --games 1000 --weights /path/to/weights.bin
+python3 scripts/run_local_selfplay.py --games 1000 \
+  --weights /path/to/weights.bin \
+  --positions data/gate/openings_standard.sfen
 ```
 
 It creates a fresh directory under `data/runs/` containing a run manifest,
-log, USI kifu, CSA records, transcript, and result files. Same-engine
-self-play supplies training and regression data; it is not an Elo claim.
+log, USI kifu, CSA records, per-move search information, incremental result
+files, and an exact-game deduplication index. Same-engine self-play supplies
+training and regression data; it is not an Elo claim.
 
 Run the CSA client:
 

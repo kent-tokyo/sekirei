@@ -20,6 +20,51 @@ pub struct UsiEngine {
     nnue_output_acknowledgement: Option<String>,
 }
 
+/// Last structured USI `info` values observed before one `bestmove`.
+///
+/// Engines may emit several partial `info` lines during iterative deepening,
+/// so fields are merged independently and the raw line that most recently
+/// contributed data is retained for audit/debugging.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SearchInfo {
+    pub depth: Option<u32>,
+    pub nodes: Option<u64>,
+    pub score_cp: Option<i32>,
+    /// USI also permits `score mate +` / `score mate -`, hence a string.
+    pub score_mate: Option<String>,
+    pub bound: Option<String>,
+    pub pv: Vec<String>,
+    pub raw: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GoResult {
+    pub bestmove: String,
+    pub info: SearchInfo,
+}
+
+impl SearchInfo {
+    fn merge(&mut self, newer: SearchInfo) {
+        if newer.depth.is_some() {
+            self.depth = newer.depth;
+        }
+        if newer.nodes.is_some() {
+            self.nodes = newer.nodes;
+        }
+        if newer.score_cp.is_some() || newer.score_mate.is_some() {
+            self.score_cp = newer.score_cp;
+            self.score_mate = newer.score_mate;
+            self.bound = newer.bound;
+        }
+        if !newer.pv.is_empty() {
+            self.pv = newer.pv;
+        }
+        if newer.raw.is_some() {
+            self.raw = newer.raw;
+        }
+    }
+}
+
 /// Per-move grace beyond byoyomi before the engine is declared hung.
 const MOVE_GRACE: Duration = Duration::from_secs(3);
 /// Fallback per-move deadline when no byoyomi is present in the go command.
@@ -216,10 +261,11 @@ impl UsiEngine {
         self.rx.try_recv().ok()
     }
 
-    /// Send `position` + `go`, wait for `bestmove`, return the move string.
+    /// Send `position` + `go`, wait for `bestmove`, and return the move plus
+    /// the latest structured search information emitted before it.
     /// Times out at the byoyomi (parsed from `go_cmd`) plus a grace margin, so a
     /// hung engine returns a TimedOut error rather than blocking forever.
-    pub fn go(&mut self, position_cmd: &str, go_cmd: &str) -> io::Result<String> {
+    pub fn go(&mut self, position_cmd: &str, go_cmd: &str) -> io::Result<GoResult> {
         self.send(position_cmd)?;
         self.send(go_cmd)?;
 
@@ -227,6 +273,7 @@ impl UsiEngine {
             .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
             .unwrap_or(MOVE_FALLBACK);
 
+        let mut info = SearchInfo::default();
         loop {
             let line = self.recv_line(deadline)?; // TimedOut bubbles up = engine hung
             if line.starts_with("bestmove") {
@@ -235,11 +282,63 @@ impl UsiEngine {
                     .nth(1)
                     .unwrap_or("resign")
                     .to_string();
-                return Ok(mv);
+                return Ok(GoResult { bestmove: mv, info });
             }
-            // Ignore `info` lines
+            if line.starts_with("info ") {
+                info.merge(parse_search_info(&line));
+            }
         }
     }
+}
+
+fn parse_search_info(line: &str) -> SearchInfo {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    let mut parsed = SearchInfo {
+        raw: Some(line.to_string()),
+        ..SearchInfo::default()
+    };
+    let mut i = usize::from(tokens.first() == Some(&"info"));
+    while i < tokens.len() {
+        match tokens[i] {
+            "depth" => {
+                parsed.depth = tokens.get(i + 1).and_then(|value| value.parse().ok());
+                i += 2;
+            }
+            "nodes" => {
+                parsed.nodes = tokens.get(i + 1).and_then(|value| value.parse().ok());
+                i += 2;
+            }
+            "score" => {
+                let kind = tokens.get(i + 1).copied();
+                let value = tokens.get(i + 2).copied();
+                match (kind, value) {
+                    (Some("cp"), Some(value)) => parsed.score_cp = value.parse().ok(),
+                    (Some("mate"), Some(value)) => parsed.score_mate = Some(value.to_string()),
+                    _ => {}
+                }
+                i += 3;
+                if let Some(bound) = tokens.get(i).copied()
+                    && matches!(bound, "lowerbound" | "upperbound")
+                {
+                    parsed.bound = Some(bound.to_string());
+                    i += 1;
+                }
+            }
+            "lowerbound" | "upperbound" => {
+                parsed.bound = Some(tokens[i].to_string());
+                i += 1;
+            }
+            "pv" => {
+                parsed.pv = tokens[i + 1..]
+                    .iter()
+                    .map(|value| (*value).to_string())
+                    .collect();
+                break;
+            }
+            _ => i += 1,
+        }
+    }
+    parsed
 }
 
 /// Distinguishes a genuine slow-response timeout (engine still alive, just
@@ -362,5 +461,36 @@ mod tests {
     fn recv_ok_trims_trailing_whitespace() {
         let line = map_recv_result(Ok("bestmove 7g7f  \r\n".to_string())).unwrap();
         assert_eq!(line, "bestmove 7g7f");
+    }
+
+    #[test]
+    fn parses_cp_search_info_with_bound_and_pv() {
+        let info = parse_search_info(
+            "info depth 12 seldepth 18 score cp -37 upperbound nodes 12345 pv 7g7f 3c3d",
+        );
+        assert_eq!(info.depth, Some(12));
+        assert_eq!(info.nodes, Some(12_345));
+        assert_eq!(info.score_cp, Some(-37));
+        assert_eq!(info.score_mate, None);
+        assert_eq!(info.bound.as_deref(), Some("upperbound"));
+        assert_eq!(info.pv, ["7g7f", "3c3d"]);
+    }
+
+    #[test]
+    fn parses_symbolic_mate_score() {
+        let info = parse_search_info("info depth 9 score mate + nodes 42 pv 5a5b");
+        assert_eq!(info.score_cp, None);
+        assert_eq!(info.score_mate.as_deref(), Some("+"));
+        assert_eq!(info.nodes, Some(42));
+    }
+
+    #[test]
+    fn search_info_merge_preserves_values_from_partial_lines() {
+        let mut info = parse_search_info("info depth 8 nodes 100");
+        info.merge(parse_search_info("info score cp 25 pv 7g7f"));
+        assert_eq!(info.depth, Some(8));
+        assert_eq!(info.nodes, Some(100));
+        assert_eq!(info.score_cp, Some(25));
+        assert_eq!(info.pv, ["7g7f"]);
     }
 }

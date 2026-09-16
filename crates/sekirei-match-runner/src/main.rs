@@ -28,7 +28,7 @@ use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use engine::UsiEngine;
+use engine::{SearchInfo, UsiEngine};
 use sekirei_core::{
     board::Board,
     color::Color,
@@ -413,16 +413,46 @@ impl Transcript {
         legal_move_count: usize,
         raw_bestmove: &str,
         verdict: &str,
+        search: Option<&SearchInfo>,
     ) {
         if let Some(w) = &mut self.0 {
-            let _ = writeln!(
-                w,
-                r#"{{"ts_ms":{},"game_num":{game_num},"seq":{ply},"pid":{side_pid},"side":{side_name:?},"sfen_before":{sfen_before:?},"legal_move_count":{legal_move_count},"raw_bestmove":{raw_bestmove:?},"verdict":{verdict:?}}}"#,
-                now_ms()
-            );
+            let search = search.map(|info| {
+                serde_json::json!({
+                    "depth": info.depth,
+                    "nodes": info.nodes,
+                    "score_cp": info.score_cp,
+                    "score_mate": info.score_mate,
+                    "bound": info.bound,
+                    "pv": info.pv,
+                    "raw": info.raw,
+                })
+            });
+            let record = serde_json::json!({
+                "ts_ms": now_ms(),
+                "game_num": game_num,
+                "seq": ply,
+                "pid": side_pid,
+                "side": side_name,
+                "sfen_before": sfen_before,
+                "legal_move_count": legal_move_count,
+                "raw_bestmove": raw_bestmove,
+                "verdict": verdict,
+                "search": search,
+            });
+            let _ = serde_json::to_writer(&mut *w, &record);
+            let _ = writeln!(w);
             let _ = w.flush(); // rare (one per move), forensics value outweighs the syscall
         }
     }
+}
+
+fn engine1_to_move(e1_is_black: bool, side_to_move: Color) -> bool {
+    side_to_move
+        == if e1_is_black {
+            Color::Black
+        } else {
+            Color::White
+        }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -479,7 +509,9 @@ fn run_game(
     *hash_counts.entry(board.hash()).or_insert(0) += 1;
 
     for ply in 0..max_moves {
-        let e1_turn = (ply % 2 == 0) == e1_is_black;
+        // Arbitrary SFENs may begin with White to move. Engine assignment is
+        // a board-color property, not a ply-parity property.
+        let e1_turn = engine1_to_move(e1_is_black, board.side_to_move);
         let mover = if e1_turn { &mut *e1 } else { &mut *e2 };
         let mover_pid = mover.pid();
         let mover_name = mover.name.clone();
@@ -491,8 +523,8 @@ fn run_game(
         };
         let sfen_before = board_to_sfen(&board);
 
-        let mv_str = match mover.go(&pos_cmd, &go_cmd) {
-            Ok(m) => m,
+        let go_result = match mover.go(&pos_cmd, &go_cmd) {
+            Ok(result) => result,
             Err(e) => {
                 // Let the search actually wind down now instead of leaving
                 // it running until the next game's new-game barrier aborts
@@ -508,6 +540,7 @@ fn run_game(
                     0,
                     "",
                     &format!("timeout:{e}"),
+                    None,
                 );
                 let outcome = if e1_turn {
                     Outcome::E2Win
@@ -517,6 +550,8 @@ fn run_game(
                 return (outcome, moves, end_reason_for_go_error(&e));
             }
         };
+        let mv_str = go_result.bestmove;
+        let search_info = go_result.info;
 
         if mv_str == "resign" {
             transcript.log_move(
@@ -528,6 +563,7 @@ fn run_game(
                 0,
                 &mv_str,
                 "resign",
+                Some(&search_info),
             );
             let outcome = if e1_turn {
                 Outcome::E2Win
@@ -546,6 +582,7 @@ fn run_game(
                 0,
                 &mv_str,
                 "win",
+                Some(&search_info),
             );
             let outcome = if e1_turn {
                 Outcome::E1Win
@@ -581,6 +618,7 @@ fn run_game(
                 legal_usi.len(),
                 &mv_str,
                 "illegal",
+                Some(&search_info),
             );
             let outcome = if e1_turn {
                 Outcome::E2Win
@@ -599,6 +637,7 @@ fn run_game(
             legal_moves.len(),
             &mv_str,
             "ok",
+            Some(&search_info),
         );
 
         // Anything already queued right after the one bestmove we asked for
@@ -689,6 +728,14 @@ struct DiversityStats {
     diversity_ratio: f64,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct DuplicateStats {
+    unique_games: usize,
+    duplicate_games: usize,
+    top_game_count: usize,
+    duplicate_ratio: f64,
+}
+
 fn diversity_stats(game_moves: &[Vec<String>]) -> DiversityStats {
     fn prefix(moves: &[String], n: usize) -> String {
         moves.iter().take(n).cloned().collect::<Vec<_>>().join(" ")
@@ -719,6 +766,188 @@ fn diversity_stats(game_moves: &[Vec<String>]) -> DiversityStats {
     }
 }
 
+fn duplicate_stats(game_keys: &[String]) -> DuplicateStats {
+    let mut counts: HashMap<&str, usize> = HashMap::new();
+    for key in game_keys {
+        *counts.entry(key).or_insert(0) += 1;
+    }
+    let unique_games = counts.len();
+    let duplicate_games = game_keys.len().saturating_sub(unique_games);
+    let duplicate_ratio = if game_keys.is_empty() {
+        0.0
+    } else {
+        duplicate_games as f64 / game_keys.len() as f64
+    };
+    DuplicateStats {
+        unique_games,
+        duplicate_games,
+        top_game_count: counts.values().copied().max().unwrap_or(0),
+        duplicate_ratio,
+    }
+}
+
+fn write_atomic(path: &Path, contents: &[u8]) -> std::io::Result<()> {
+    let temporary = path.with_extension(format!(
+        "{}.tmp",
+        path.extension()
+            .and_then(|value| value.to_str())
+            .unwrap_or("file")
+    ));
+    let mut file = fs::File::create(&temporary)?;
+    file.write_all(contents)?;
+    file.sync_all()?;
+    fs::rename(temporary, path)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn result_summary_text(
+    args: &Args,
+    e1_label: &str,
+    e2_label: &str,
+    e1_wins: u32,
+    draws: u32,
+    e2_wins: u32,
+    game_moves: &[Vec<String>],
+    game_keys: &[String],
+    artifact_write_failures: &[String],
+    invalid_games: &[String],
+    status: &str,
+) -> String {
+    let total = e1_wins + e2_wins + draws;
+    let e1_score = if total > 0 {
+        (e1_wins as f64 + draws as f64 * 0.5) / total as f64
+    } else {
+        0.0
+    };
+    let elo = elo::elo_diff(e1_wins, draws, e2_wins);
+    let ci = elo::elo_ci(e1_wins, draws, e2_wins);
+    let los = elo::los(e1_wins, draws, e2_wins);
+    let diversity = diversity_stats(game_moves);
+    let duplicates = duplicate_stats(game_keys);
+    format!(
+        r#"{{
+  "status": {status:?},
+  "engine1": {e1_label:?},
+  "engine1_command": {:?},
+  "engine1_args": {:?},
+  "engine1_options": {},
+  "engine2": {e2_label:?},
+  "engine2_command": {:?},
+  "engine2_args": {:?},
+  "engine2_options": {},
+  "games": {total},
+  "engine1_wins": {e1_wins},
+  "draws": {draws},
+  "engine2_wins": {e2_wins},
+  "engine1_score": {e1_score:.4},
+  "elo_diff": {},
+  "elo_ci_95": {},
+  "elo_ci_low": {},
+  "elo_ci_high": {},
+  "los": {},
+  "unique_prefix10": {},
+  "unique_prefix20": {},
+  "top_prefix20_count": {},
+  "diversity_ratio": {:.4},
+  "unique_games": {},
+  "duplicate_games": {},
+  "top_exact_game_count": {},
+  "duplicate_ratio": {:.4},
+  "artifact_files_expected": {total},
+  "artifact_write_failures": {:?},
+  "invalid_games": {:?}
+}}
+"#,
+        args.engine1_path,
+        args.args1.join(" "),
+        options_json(&args.engine_options1),
+        args.engine2_path,
+        args.args2.join(" "),
+        options_json(&args.engine_options2),
+        json_number_or_null(elo, 2),
+        json_number_or_null(ci, 2),
+        json_number_or_null(elo - ci, 2),
+        json_number_or_null(elo + ci, 2),
+        json_number_or_null(los, 4),
+        diversity.unique_prefix10,
+        diversity.unique_prefix20,
+        diversity.top_prefix20_count,
+        diversity.diversity_ratio,
+        duplicates.unique_games,
+        duplicates.duplicate_games,
+        duplicates.top_game_count,
+        duplicates.duplicate_ratio,
+        artifact_write_failures,
+        invalid_games,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_result_snapshot(
+    path: &Path,
+    records: &str,
+    args: &Args,
+    e1_label: &str,
+    e2_label: &str,
+    e1_wins: u32,
+    draws: u32,
+    e2_wins: u32,
+    game_moves: &[Vec<String>],
+    game_keys: &[String],
+    artifact_write_failures: &[String],
+    invalid_games: &[String],
+    status: &str,
+) -> std::io::Result<()> {
+    // Raw trials are the source of truth. Publish them before the aggregate
+    // so an interruption can leave, at worst, an obviously stale summary.
+    write_atomic(&path.with_extension("jsonl"), records.as_bytes())?;
+    let summary = result_summary_text(
+        args,
+        e1_label,
+        e2_label,
+        e1_wins,
+        draws,
+        e2_wins,
+        game_moves,
+        game_keys,
+        artifact_write_failures,
+        invalid_games,
+        status,
+    );
+    write_atomic(path, summary.as_bytes())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn persist_csa_manifest(
+    dir: &Path,
+    args: &Args,
+    game_list: &[(bool, String)],
+    games_completed: u32,
+    csa_written: &[String],
+    csa_skipped: &[String],
+    status: &str,
+) -> std::io::Result<()> {
+    let manifest = serde_json::json!({
+        "schema": "sekirei.selfplay-csa-manifest.v1",
+        "status": status,
+        "strength_claim": false,
+        "start_positions": selfplay_start_positions_manifest(
+            game_list,
+            args.positions_file.as_deref(),
+        ),
+        "games_scheduled": game_list.len(),
+        "games_completed": games_completed,
+        "csa_games_written": csa_written,
+        "csa_games_skipped": csa_skipped,
+        "engine1": {"command": &args.engine1_path, "args": &args.args1, "options": &args.engine_options1},
+        "engine2": {"command": &args.engine2_path, "args": &args.args2, "options": &args.engine_options2},
+        "byoyomi_ms": args.byoyomi_ms,
+        "max_moves": args.max_moves,
+    });
+    let bytes = serde_json::to_vec_pretty(&manifest).map_err(std::io::Error::other)?;
+    write_atomic(&dir.join("manifest.json"), &bytes)
+}
+
 fn load_positions(path: &PathBuf) -> Vec<String> {
     fs::read_to_string(path)
         .unwrap_or_default()
@@ -739,9 +968,11 @@ impl Lcg {
             .wrapping_add(1_442_695_040_888_963_407);
         self.0
     }
-    fn pick<'a>(&mut self, items: &'a [String]) -> &'a str {
-        let idx = (self.next() as usize) % items.len();
-        &items[idx]
+    fn shuffle<T>(&mut self, items: &mut [T]) {
+        for i in (1..items.len()).rev() {
+            let j = (self.next() as usize) % (i + 1);
+            items.swap(i, j);
+        }
     }
 }
 
@@ -767,17 +998,28 @@ fn build_game_list(
             .flat_map(|pos| (0..gpp).map(move |g| (g % 2 == 0, pos.clone())))
             .collect()
     } else {
-        (1..=games)
-            .map(|game_num| {
-                let e1_is_black = game_num % 2 == 1;
-                let start_pos = if positions.is_empty() {
-                    "startpos".to_string()
-                } else {
-                    rng.pick(positions).to_string()
-                };
-                (e1_is_black, start_pos)
-            })
-            .collect()
+        let pos_list: Vec<String> = if positions.is_empty() {
+            vec!["startpos".to_string()]
+        } else {
+            positions.to_vec()
+        };
+        let mut game_list = Vec::with_capacity(games);
+        while game_list.len() < games {
+            let mut indices: Vec<usize> = (0..pos_list.len()).collect();
+            rng.shuffle(&mut indices);
+            for index in indices {
+                // Exhaust every opening/color condition once before any is
+                // reused. This avoids random-with-replacement duplication and
+                // keeps deterministic data collection color-balanced.
+                for e1_is_black in [true, false] {
+                    if game_list.len() == games {
+                        break;
+                    }
+                    game_list.push((e1_is_black, pos_list[index].clone()));
+                }
+            }
+        }
+        game_list
     }
 }
 
@@ -1493,6 +1735,7 @@ fn main() {
     // times, which makes the resulting Elo/CI look far more confident than
     // the data supports (see tasks/lessons.md).
     let mut game_moves: Vec<Vec<String>> = Vec::new();
+    let mut game_keys: Vec<String> = Vec::new();
     let mut artifact_write_failures: Vec<String> = Vec::new();
     // Illegal moves, engine disconnects, and time forfeits are game records
     // worth preserving for diagnosis, but never statistical observations for
@@ -1529,6 +1772,7 @@ fn main() {
             &mut transcript,
         );
         game_moves.push(moves.clone());
+        game_keys.push(format!("{start_pos}\n{}", moves.join(" ")));
 
         if matches!(
             reason,
@@ -1683,6 +1927,49 @@ fn main() {
                 }
             }
         }
+
+        let completed = e1_wins + e2_wins + draws;
+        if let Some(json_path) = &args.json_file
+            && let Err(error) = persist_result_snapshot(
+                json_path,
+                &veridict_records,
+                &args,
+                &e1_label,
+                &e2_label,
+                e1_wins,
+                draws,
+                e2_wins,
+                &game_moves,
+                &game_keys,
+                &artifact_write_failures,
+                &invalid_games,
+                "running",
+            )
+        {
+            eprintln!(
+                "incremental result snapshot write failed ({}): {error}",
+                json_path.display()
+            );
+            artifact_write_failures.push(json_path.display().to_string());
+        }
+        if let Some(dir) = &args.csa_output_dir
+            && let Err(error) = persist_csa_manifest(
+                dir,
+                &args,
+                &game_list,
+                completed,
+                &csa_written,
+                &csa_skipped,
+                "running",
+            )
+        {
+            let path = dir.join("manifest.json");
+            eprintln!(
+                "incremental CSA manifest write failed ({}): {error}",
+                path.display()
+            );
+            artifact_write_failures.push(path.display().to_string());
+        }
     }
 
     // Summary
@@ -1696,40 +1983,6 @@ fn main() {
     let elo = elo::elo_diff(e1_wins, draws, e2_wins);
     let ci = elo::elo_ci(e1_wins, draws, e2_wins);
     let los = elo::los(e1_wins, draws, e2_wins);
-
-    if let Some(dir) = &args.csa_output_dir {
-        let manifest = serde_json::json!({
-            "schema": "sekirei.selfplay-csa-manifest.v1",
-            "status": "complete",
-            "strength_claim": false,
-            "start_positions": selfplay_start_positions_manifest(
-                &game_list,
-                args.positions_file.as_deref(),
-            ),
-            "games_scheduled": game_list.len(),
-            "games_completed": total,
-            "csa_games_written": csa_written,
-            "csa_games_skipped": csa_skipped,
-            "engine1": {"command": args.engine1_path, "args": args.args1, "options": args.engine_options1},
-            "engine2": {"command": args.engine2_path, "args": args.args2, "options": args.engine_options2},
-            "byoyomi_ms": args.byoyomi_ms,
-            "max_moves": args.max_moves,
-        });
-        let path = dir.join("manifest.json");
-        match serde_json::to_vec_pretty(&manifest)
-            .map_err(std::io::Error::other)
-            .and_then(|bytes| fs::write(&path, bytes))
-        {
-            Ok(()) => eprintln!("Self-play CSA manifest saved to {}", path.display()),
-            Err(error) => {
-                eprintln!(
-                    "CSA self-play manifest write failed ({}): {error}",
-                    path.display()
-                );
-                artifact_write_failures.push(path.display().to_string());
-            }
-        }
-    }
 
     println!();
     println!("=== Results after {total} games ===");
@@ -1746,75 +1999,68 @@ fn main() {
     println!("LOS: {:.1}%", los * 100.0);
 
     let diversity = diversity_stats(&game_moves);
+    let duplicates = duplicate_stats(&game_keys);
     println!(
         "Diversity: {}/{total} unique 20-ply openings (ratio {:.2}, top repeat ×{})",
         diversity.unique_prefix20, diversity.diversity_ratio, diversity.top_prefix20_count
     );
+    println!(
+        "Exact games: {}/{} unique ({} duplicates, ratio {:.2}, top repeat ×{})",
+        duplicates.unique_games,
+        total,
+        duplicates.duplicate_games,
+        duplicates.duplicate_ratio,
+        duplicates.top_game_count
+    );
 
-    // JSON output
-    if let Some(json_path) = &args.json_file {
-        let elo_json = json_number_or_null(elo, 2);
-        let ci_json = json_number_or_null(ci, 2);
-        let elo_low_json = json_number_or_null(elo - ci, 2);
-        let elo_high_json = json_number_or_null(elo + ci, 2);
-        let los_json = json_number_or_null(los, 4);
-        let json = format!(
-            r#"{{
-  "engine1": {:?},
-  "engine1_command": {:?},
-  "engine1_args": {:?},
-  "engine1_options": {},
-  "engine2": {:?},
-  "engine2_command": {:?},
-  "engine2_args": {:?},
-  "engine2_options": {},
-  "games": {total},
-  "engine1_wins": {e1_wins},
-  "draws": {draws},
-  "engine2_wins": {e2_wins},
-  "engine1_score": {:.4},
-  "elo_diff": {elo_json},
-  "elo_ci_95": {ci_json},
-  "elo_ci_low": {elo_low_json},
-  "elo_ci_high": {elo_high_json},
-  "los": {los_json},
-  "unique_prefix10": {},
-  "unique_prefix20": {},
-  "top_prefix20_count": {},
-  "diversity_ratio": {:.4},
-  "artifact_files_expected": {},
-  "artifact_write_failures": {:?},
-  "invalid_games": {:?}
-}}
-"#,
-            e1_label,
-            args.engine1_path,
-            args.args1.join(" "),
-            options_json(&args.engine_options1),
-            e2_label,
-            args.engine2_path,
-            args.args2.join(" "),
-            options_json(&args.engine_options2),
-            e1_pct / 100.0,
-            diversity.unique_prefix10,
-            diversity.unique_prefix20,
-            diversity.top_prefix20_count,
-            diversity.diversity_ratio,
+    if let Some(dir) = &args.csa_output_dir {
+        let path = dir.join("manifest.json");
+        match persist_csa_manifest(
+            dir,
+            &args,
+            &game_list,
             total,
-            artifact_write_failures,
-            invalid_games
-        );
-        if let Err(e) = fs::write(json_path, &json) {
-            eprintln!("JSON write failed: {e}");
-        } else {
-            eprintln!("Result saved to {}", json_path.display());
+            &csa_written,
+            &csa_skipped,
+            "complete",
+        ) {
+            Ok(()) => eprintln!("Self-play CSA manifest saved to {}", path.display()),
+            Err(error) => {
+                eprintln!(
+                    "CSA self-play manifest write failed ({}): {error}",
+                    path.display()
+                );
+                artifact_write_failures.push(path.display().to_string());
+            }
         }
+    }
 
-        let records_path = json_path.with_extension("jsonl");
-        if let Err(e) = fs::write(&records_path, &veridict_records) {
-            eprintln!("per-game records write failed: {e}");
-        } else {
-            eprintln!("Per-game records saved to {}", records_path.display());
+    // Final JSON/JSONL output. Incremental snapshots were already published
+    // after every completed game; this only flips the status to complete.
+    if let Some(json_path) = &args.json_file {
+        match persist_result_snapshot(
+            json_path,
+            &veridict_records,
+            &args,
+            &e1_label,
+            &e2_label,
+            e1_wins,
+            draws,
+            e2_wins,
+            &game_moves,
+            &game_keys,
+            &artifact_write_failures,
+            &invalid_games,
+            "complete",
+        ) {
+            Ok(()) => {
+                eprintln!("Result saved to {}", json_path.display());
+                eprintln!(
+                    "Per-game records saved to {}",
+                    json_path.with_extension("jsonl").display()
+                );
+            }
+            Err(error) => eprintln!("final result snapshot write failed: {error}"),
         }
     }
 }
@@ -2011,6 +2257,27 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_stats_counts_exact_replays() {
+        let stats = duplicate_stats(&[
+            "sfenA\n7g7f 3c3d".to_string(),
+            "sfenA\n7g7f 3c3d".to_string(),
+            "sfenB\n7g7f 3c3d".to_string(),
+        ]);
+        assert_eq!(stats.unique_games, 2);
+        assert_eq!(stats.duplicate_games, 1);
+        assert_eq!(stats.top_game_count, 2);
+        assert!((stats.duplicate_ratio - 1.0 / 3.0).abs() < 1e-12);
+    }
+
+    #[test]
+    fn engine_assignment_uses_board_side_not_ply_parity() {
+        assert!(engine1_to_move(true, Color::Black));
+        assert!(!engine1_to_move(true, Color::White));
+        assert!(engine1_to_move(false, Color::White));
+        assert!(!engine1_to_move(false, Color::Black));
+    }
+
+    #[test]
     fn low_diversity_message_fires_below_threshold() {
         // A PASS-looking Elo must never matter here -- this check runs
         // before veridict is even consulted, so it only ever sees the ratio.
@@ -2102,6 +2369,19 @@ mod tests {
         let list = build_game_list(&positions, None, 5, &mut rng);
         assert_eq!(list.len(), 5);
         assert!(list.iter().all(|(_, pos)| pos == "sfenA"));
+    }
+
+    #[test]
+    fn random_mode_exhausts_each_opening_color_before_reuse() {
+        let positions = vec!["sfenA".to_string(), "sfenB".to_string()];
+        let mut rng = Lcg(1);
+        let list = build_game_list(&positions, None, 4, &mut rng);
+        let conditions: HashSet<_> = list.into_iter().collect();
+        assert_eq!(conditions.len(), 4);
+        assert!(conditions.contains(&(true, "sfenA".to_string())));
+        assert!(conditions.contains(&(false, "sfenA".to_string())));
+        assert!(conditions.contains(&(true, "sfenB".to_string())));
+        assert!(conditions.contains(&(false, "sfenB".to_string())));
     }
 
     #[test]
