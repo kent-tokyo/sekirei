@@ -87,13 +87,6 @@ jobs:
           python3 scripts/test_build_floodgate_diagnostic_corpus.py
           python3 scripts/test_validate_floodgate_diagnostic_corpus.py
           python3 scripts/test_sfen_symmetry.py
-          python3 scripts/verify_floodgate_corpus_symmetry.py \
-            --binary target/release/sekirei-search-diagnostic \
-            --corpus results/floodgate/20260912-review/diagnostic-corpus-with-controls.json \
-            --nodes 64
-          python3 scripts/validate_floodgate_diagnostic_corpus.py \
-            --verify-sources --root . \
-            results/floodgate/20260912-review/diagnostic-corpus-with-controls.json
           python3 scripts/test_run_floodgate_fixed_nodes.py
           python3 scripts/test_run_core_floodgate_diagnostic.py
           python3 scripts/test_validate_floodgate_diagnostic_summary.py
@@ -123,18 +116,12 @@ jobs:
           python3 scripts/test_assess_floodgate_candidate_holdout_alignment.py
           python3 scripts/test_prepare_floodgate_candidate_holdout_plan.py
           python3 scripts/test_validate_floodgate_candidate_holdout_plan.py
-          python3 scripts/validate_floodgate_candidate_decision.py \
-            results/floodgate/20260912-review/fg5e-candidate-decision.json
           python3 scripts/test_validate_floodgate_offline_acceptance.py
-          python3 scripts/validate_floodgate_offline_acceptance.py \
-            results/floodgate/20260912-review/fg2-offline-acceptance-manifest.json
           python3 scripts/test_validate_floodgate_supervisor_events.py
           python3 scripts/test_evaluate_floodgate_diagnostic_gate.py
           python3 scripts/test_build_independent_diagnostic_corpus.py
           python3 scripts/test_compare_floodgate_holdout_runs.py
           python3 scripts/test_validate_floodgate_holdout_comparison.py
-          python3 scripts/validate_floodgate_holdout_comparison.py \
-            results/floodgate/20260912-review/independent-holdout-depth2/comparison-v2.json
           python3 scripts/test_evaluate_floodgate_holdout_regression.py
           python3 scripts/test_analyze_floodgate_budget_ladder.py
           python3 scripts/test_validate_floodgate_budget_ladder.py

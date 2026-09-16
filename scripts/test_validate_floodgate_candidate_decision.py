@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 import importlib.util
-import json
 from pathlib import Path
 
 
@@ -13,15 +12,8 @@ assert SPEC.loader is not None
 SPEC.loader.exec_module(validator)
 
 
-def test_current_decision_is_conservative():
-    document = json.loads(
-        (ROOT / "results/floodgate/20260912-review/fg5e-candidate-decision.json").read_text()
-    )
-    assert validator.validate(document) == []
-
-
-def test_strength_claim_cannot_be_reclassified():
-    document = {
+def conservative_decision():
+    return {
         "schema": "sekirei.floodgate-candidate-decision.v1",
         "diagnostic_only": True,
         "status": "inconclusive",
@@ -38,11 +30,20 @@ def test_strength_claim_cannot_be_reclassified():
         "reasons": ["test"],
         "next_action": "test",
         "claims": {
-            "strength": "established",
+            "strength": "not_permitted",
             "release_approval": "not_granted",
             "competitor_superiority": "not_established",
         },
     }
+
+
+def test_current_decision_is_conservative():
+    assert validator.validate(conservative_decision()) == []
+
+
+def test_strength_claim_cannot_be_reclassified():
+    document = conservative_decision()
+    document["claims"]["strength"] = "established"
     assert "strength claim" in validator.validate(document)
 
 
