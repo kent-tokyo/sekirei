@@ -171,6 +171,7 @@ def test_actual_client_explicit_stop_does_not_restart_or_fabricate_result():
     listener.listen(1)
     port = listener.getsockname()[1]
     server_error = []
+    session_ready = threading.Event()
 
     def serve():
         try:
@@ -186,6 +187,7 @@ def test_actual_client_explicit_stop_does_not_restart_or_fabricate_result():
                 )
                 stream.flush()
                 assert stream.readline().decode().startswith("AGREE:offline-stop")
+                session_ready.set()
                 # Keep the session open; the supervisor must stop the client.
                 connection.settimeout(3.0)
                 while connection.recv(1024):
@@ -233,6 +235,7 @@ def test_actual_client_explicit_stop_does_not_restart_or_fabricate_result():
             time.sleep(0.01)
         else:
             raise AssertionError("real client did not reach running state")
+        assert session_ready.wait(timeout=3.0), "real client did not finish the CSA handshake"
         stop_file.write_text("stop\n")
         worker.join(timeout=5.0)
         server.join(timeout=5.0)
