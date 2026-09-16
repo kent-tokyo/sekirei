@@ -20,7 +20,7 @@ teacher_identity=$(python3 -c 'import sys
 h = 14695981039346656037
 for b in open(sys.argv[1], "rb").read():
     h = ((h ^ b) * 1099511628211) & ((1 << 64) - 1)
-print(f"nnue:{h:016x}")' "$run_dir/teacher.bin")
+print(f"nnue:absolute:{h:016x}")' "$run_dir/teacher.bin")
 
 cargo run "${common[@]}" \
   --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" \
