@@ -1,13 +1,14 @@
 import importlib.util
+import unittest
 from pathlib import Path
-
-import pytest
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("runner", ROOT / "scripts/run_core_floodgate_diagnostic.py")
 MODULE = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
 SPEC.loader.exec_module(MODULE)
+ASSERTIONS = unittest.TestCase()
 
 
 def test_parse_core_result():
@@ -98,12 +99,12 @@ def test_parse_core_result_structures_opt_in_root_candidates():
 
 
 def test_parse_core_result_rejects_malformed_root_candidate():
-    with pytest.raises(ValueError, match="invalid root_candidates"):
+    with ASSERTIONS.assertRaisesRegex(ValueError, "invalid root_candidates"):
         MODULE.parse_result("bestmove=3c4e\tdepth=1\tcompleted_bound=exact\tcompleted_iteration_valid=true\troot_candidates=broken")
 
 
 def test_parse_core_result_rejects_duplicate_root_candidate():
-    with pytest.raises(ValueError, match="duplicate root candidate"):
+    with ASSERTIONS.assertRaisesRegex(ValueError, "duplicate root candidate"):
         MODULE.parse_result(
             "bestmove=3c4e\tdepth=1\tcompleted_bound=exact\tcompleted_iteration_valid=true\troot_candidates=7g7f:20:1:exact:none,7g7f:10:1:exact:none"
         )
@@ -150,24 +151,25 @@ def test_summarize_tt_separates_cold_and_warm_values():
     assert summary["same_node_budget"] is True
 
 
-def test_run_corpus_selects_only_explicit_unique_entry_indices(monkeypatch):
+def test_run_corpus_selects_only_explicit_unique_entry_indices():
     corpus = {
         "entries": [
-            {"source": {"game_id": f"g{index}"}, "position": {"sfen": "s", "history_before": []}}
+            {"source": {"game_id": f"g{index}", "ply": index}, "position": {"sfen": "s", "history_before": []}}
             for index in range(3)
         ]
     }
-    monkeypatch.setattr(MODULE, "run_position", lambda *args, **kwargs: {
+    fake_result = {
         "completion": "search_completed", "bestmove": "7g7f", "score_cp": 0,
         "depth": 1, "nodes": 1, "elapsed_ms": 1,
         "completed_iteration_valid": "true", "completed_bound": "exact",
-    })
-    result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[2, 0])
-    assert [item["source"]["game_id"] for item in result["results"]] == ["g2", "g0"]
-    with pytest.raises(ValueError, match="unique"):
-        MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[0, 0])
-    with pytest.raises(ValueError, match="outside"):
-        MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[3])
+    }
+    with patch.object(MODULE, "run_position", return_value=fake_result):
+        result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[2, 0])
+        assert [item["source"]["game_id"] for item in result["results"]] == ["g2", "g0"]
+        with ASSERTIONS.assertRaisesRegex(ValueError, "unique"):
+            MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[0, 0])
+        with ASSERTIONS.assertRaisesRegex(ValueError, "outside"):
+            MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None, entry_indices=[3])
 
 
 def test_history_aware_corpus_normalizes_replayable_usi_context():
@@ -198,9 +200,9 @@ def test_history_aware_source_without_raw_csa_does_not_invoke_legacy_replay():
     }
 
 
-def test_run_corpus_marks_core_history_replay_only_when_v2_fields_are_complete(monkeypatch):
+def test_run_corpus_marks_core_history_replay_only_when_v2_fields_are_complete():
     corpus = {"entries": [{
-        "source": {"game_id": "g"},
+        "source": {"game_id": "g", "ply": 1},
         "position": {
             "sfen": "final", "initial_sfen": "initial",
             "history_before": ["+7776FU"], "history_before_usi": ["7g7f"],
@@ -217,17 +219,17 @@ def test_run_corpus_marks_core_history_replay_only_when_v2_fields_are_complete(m
             "history_replayed": True,
         }
 
-    monkeypatch.setattr(MODULE, "run_position", fake_run)
-    result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None)
+    with patch.object(MODULE, "run_position", fake_run):
+        result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None)
     assert result["results"][0]["history"]["replayed_into_core"] is True
     assert calls[0][0][1] == "initial"
     assert calls[0][1]["history_moves_usi"] == ["7g7f"]
     assert calls[0][1]["expected_sfen"] == "final"
 
 
-def test_run_corpus_accepts_direct_usi_observed_move(monkeypatch):
+def test_run_corpus_accepts_direct_usi_observed_move():
     corpus = {"entries": [{
-        "source": {"game_id": "gate-loss"},
+        "source": {"game_id": "gate-loss", "ply": 0},
         "position": {"sfen": "final", "actual_move_usi": "7g7f", "history_before": []},
     }]}
     calls = []
@@ -240,8 +242,8 @@ def test_run_corpus_accepts_direct_usi_observed_move(monkeypatch):
             "completed_iteration_valid": "true", "completed_bound": "exact",
         }
 
-    monkeypatch.setattr(MODULE, "run_position", fake_run)
-    result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None)
+    with patch.object(MODULE, "run_position", fake_run):
+        result = MODULE.run_corpus(Path("engine"), corpus, 1, 1, None, None)
     assert result["results"][0]["observed_move_usi"] == "7g7f"
     assert result["results"][0]["diagnostic"]["forcing_class"] == "unclassified"
     assert len(calls) == 2
@@ -257,6 +259,7 @@ def test_rejects_incomplete_core_result():
 
 
 if __name__ == "__main__":
-    test_parse_core_result()
-    test_rejects_incomplete_core_result()
+    for name, test in sorted(globals().copy().items()):
+        if name.startswith("test_") and callable(test):
+            test()
     print("PASS")
