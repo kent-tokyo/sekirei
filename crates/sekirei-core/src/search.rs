@@ -1152,7 +1152,11 @@ fn alpha_beta(
         if !matches!(entry.bound, Bound::Upper) {
             tt_se_score = Some(adj); // lower or exact bound is usable for SE
         }
-        if entry.depth >= depth as u8 {
+        // A singular-extension verification search re-enters this hash before
+        // making a move, with one candidate excluded.  Its partial move set
+        // must not be short-circuited by the unrestricted entry that selected
+        // the candidate in the first place.
+        if entry.depth >= depth as u8 && skip_move.is_none() {
             match entry.bound {
                 Bound::Exact => return adj,
                 Bound::Lower => {
@@ -3357,6 +3361,38 @@ mod regression_tests {
         assert_eq!(
             tt.probe(hash).expect("seed entry must remain").bound,
             original.bound
+        );
+    }
+
+    #[test]
+    fn singular_verification_does_not_short_circuit_on_its_own_tt_entry() {
+        let mut board = Board::startpos();
+        let hash = board.hash();
+        let tt_move = MoveBuffer::legal(&mut board).as_slice()[0];
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        let history = PositionHistory::initial(hash);
+
+        // This matches the entry that makes a singular-extension verification
+        // eligible: deep enough, usable score, and the move to exclude.
+        store_tt(&state, hash, 50, 4, Bound::Exact, Some(tt_move), 0, None);
+        let _ = alpha_beta(
+            &state,
+            &mut board,
+            -14,
+            50,
+            4,
+            0,
+            false,
+            None,
+            Some(tt_move),
+            None,
+            &history,
+        );
+
+        assert!(
+            state.budget.nodes() > 1,
+            "verification search must not return directly from its own TT entry"
         );
     }
 
