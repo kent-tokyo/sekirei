@@ -29,7 +29,9 @@
 
 use sekirei_core::board::Board;
 use sekirei_core::color::Color;
-use sekirei_core::nnue::{L1, L2, NnueWeights, feature_index, hand_feature_index, read_weights};
+use sekirei_core::nnue::{
+    L1, L2, NnueWeights, feature_index_with_king, hand_feature_index, read_weights,
+};
 use sekirei_core::piece::PieceKind;
 use sekirei_core::square::Square;
 use std::io::{self, BufRead};
@@ -48,11 +50,13 @@ const EPS: f32 = 1e-6;
 
 /// Identical to `l2_delta_z_probe.rs`'s already-verified `ft_output`.
 fn ft_output(board: &Board, perspective: Color, w: &NnueWeights) -> [f32; L1] {
+    let own_king_sq = board.pieces(perspective, PieceKind::Ou).lsb().unwrap();
     let mut acc = w.ft_bias;
     for i in 0..Square::NUM {
         let sq = Square::from_index(i as u8);
         if let Some(piece) = board.piece_at(sq) {
-            let feat = feature_index(sq, piece.kind, piece.color, perspective);
+            let feat =
+                feature_index_with_king(sq, piece.kind, piece.color, perspective, own_king_sq);
             for (j, a) in acc.iter_mut().enumerate() {
                 *a = a.saturating_add(w.ft[feat][j]);
             }

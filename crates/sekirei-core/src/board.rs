@@ -574,19 +574,25 @@ impl Board {
         place!(2, 9, Black, Kei);
         place!(1, 9, Black, Kyou);
 
-        // Compute Zobrist hash and NNUE accumulator from scratch
+        // Compute Zobrist hash from scratch
         let mut h = 0u64;
         for i in 0..Square::NUM {
             if let Some(p) = b.mailbox[i] {
                 h ^= zobrist::piece_key(Square::from_index(i as u8), p.color, p.kind);
-                b.acc
-                    .add_piece(Square::from_index(i as u8), p.kind, p.color);
             }
         }
         h ^= zobrist::side_key(); // Black to move
         b.hash = h;
         // A full pass locates both kings before placing board features. This
         // is required by king-relative NNUE and remains equivalent for flat.
+        b.refresh_acc();
+
+        // NNUE accumulator from scratch. Deliberately not a piece-by-piece
+        // `add_piece` loop like the Zobrist hash above: `refresh_acc()`
+        // locates both kings before placing any piece (see `NnueAcc::refresh`),
+        // which piece-by-piece `add_piece` calls in mailbox order cannot do —
+        // any piece indexed before a king would be added against a
+        // not-yet-established king square under `king_relative_b_small`.
         b.refresh_acc();
 
         b
@@ -753,6 +759,17 @@ impl Board {
                 // NNUE: piece arrives at its new square (possibly promoted)
                 if UPDATE_NNUE {
                     self.acc.add_piece(m.to, moved.kind, color);
+                }
+
+                // NNUE: a king move changes this perspective's own-king zone,
+                // which every one of its board features depends on under
+                // king_relative_b_small -- a full refresh supersedes whatever
+                // the incremental calls above just computed (wasted work on a
+                // king move, not unsound, since this always has the last word;
+                // see NnueAcc::add_piece's doc comment).
+                #[cfg(feature = "king_relative_b_small")]
+                if pre_kind == PieceKind::Ou {
+                    self.refresh_acc();
                 }
 
                 MoveToken {
@@ -1073,6 +1090,16 @@ impl Board {
                             (cap.kind.unpromoted(), before_remove, color),
                         );
                     }
+                }
+
+                // NNUE: undo of a king move, same rationale as do_move's own
+                // refresh above. Deliberately placed *after* the captured-piece
+                // block: a king-capture undo restores `self.hand` in that
+                // block, and `refresh_acc()` reads `self.hand` -- refreshing
+                // any earlier would read stale hand state.
+                #[cfg(feature = "king_relative_b_small")]
+                if token.moved.kind == PieceKind::Ou {
+                    self.refresh_acc();
                 }
             }
         }

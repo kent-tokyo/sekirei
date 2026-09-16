@@ -483,8 +483,15 @@ def list_pipeline_runs():
 
 
 def _count_lines(path):
+    # CodeQL (py/path-injection): `path` here only ever comes from
+    # glob.glob() results under an already-validated run_dir (see
+    # _resolve_pipeline_run_dir's containment check, its only caller's
+    # caller) -- CodeQL's interprocedural analysis doesn't recognize that
+    # guard as clearing taint across the function boundary. Reviewed safe;
+    # PipelineStatusPathTraversalTests in test_gate_dashboard.py exercises
+    # the actual traversal-rejection behavior this depends on.
     try:
-        with open(path) as f:
+        with open(path) as f:  # lgtm[py/path-injection]
             return sum(1 for _ in f)
     except OSError:
         return None
@@ -493,6 +500,36 @@ def _count_lines(path):
 def _last_match(pattern, text):
     matches = list(re.finditer(pattern, text))
     return matches[-1] if matches else None
+
+
+def _resolve_pipeline_run_dir(run_id):
+    """Validates `run_id` (a query-string value on both /api/pipeline's
+    `run` param, consumed by get_pipeline_status, and /api/review's `run`
+    param for kind=pipeline, consumed by get_pipeline_review) and returns
+    the real, contained `data/runs/<run_id>` directory, or None.
+
+    `list_pipeline_runs()` only ever hands out `os.path.basename(d)`
+    values, so a legitimate `run_id` can never itself contain a separator
+    or be "." / ".." (glob.glob's "*" never yields either).
+    `os.path.basename(x) == x` alone isn't enough -- `os.path.basename("..")`
+    is `".."` itself (no separator to strip), so a bare ".." would pass
+    that check and still escape one directory level (`DATA_DIR/runs/..`
+    == `DATA_DIR`); reject it explicitly too.
+
+    Belt-and-suspenders: even with the basename check, also confirm the
+    resolved directory is actually inside `DATA_DIR/runs/` before
+    returning it (`os.path.realpath` + prefix check) -- the canonical
+    containment-check shape, which also closes a symlink-based escape the
+    basename check alone wouldn't catch (a `data/runs/<name>` entry that
+    is itself a symlink pointing outside the tree).
+    """
+    if not run_id or run_id in (".", "..") or os.path.basename(run_id) != run_id:
+        return None
+    runs_root = os.path.realpath(os.path.join(DATA_DIR, "runs"))
+    run_dir = os.path.realpath(os.path.join(runs_root, run_id))
+    if run_dir != runs_root and not run_dir.startswith(runs_root + os.sep):
+        return None
+    return run_dir
 
 
 def get_pipeline_status(run_id):
@@ -507,15 +544,26 @@ def get_pipeline_status(run_id):
     *only* source for quietset's "kept X/Y" line (stderr-only, never
     written to any JSON) and sekirei-train's "Epoch N/M" progress.
     """
-    run_dir = os.path.join(DATA_DIR, "runs", run_id)
-    if not os.path.isdir(run_dir):
+    # CodeQL (py/path-injection) flags every os.path.isfile/isdir/open call
+    # below on run_dir/log_path/manifest_path/root_manifest_path as tainted
+    # by run_id -- it does not recognize _resolve_pipeline_run_dir's
+    # realpath+startswith containment check (a few lines up, one function
+    # away) as a barrier clearing that taint across the call boundary.
+    # Reviewed safe: run_dir is None here unless the check passed, and
+    # every path below is built by joining run_dir with a fixed literal
+    # segment (never with any more run_id-derived data). Verified,
+    # including the negative case, by PipelineStatusPathTraversalTests in
+    # test_gate_dashboard.py (run_id=".." is confirmed rejected, and
+    # reverting the check makes those tests fail the expected way).
+    run_dir = _resolve_pipeline_run_dir(run_id)
+    if run_dir is None or not os.path.isdir(run_dir):  # lgtm[py/path-injection]
         return None
 
     log = ""
     log_path = os.path.join(run_dir, "pipeline.log")
-    if os.path.isfile(log_path):
+    if os.path.isfile(log_path):  # lgtm[py/path-injection]
         try:
-            with open(log_path, errors="replace") as f:
+            with open(log_path, errors="replace") as f:  # lgtm[py/path-injection]
                 log = f.read()
         except OSError:
             pass
@@ -536,9 +584,9 @@ def get_pipeline_status(run_id):
     # written for some other reason) also counts as done.
     stage2 = {"status": "not_started"}
     manifest_path = os.path.join(run_dir, "stage2", "label_manifest.json")
-    if os.path.isfile(manifest_path):
+    if os.path.isfile(manifest_path):  # lgtm[py/path-injection] -- see run_dir note above
         try:
-            with open(manifest_path) as f:
+            with open(manifest_path) as f:  # lgtm[py/path-injection]
                 stage2 = {**json.load(f), "status": "done"}
         except (OSError, json.JSONDecodeError):
             pass
@@ -581,9 +629,9 @@ def get_pipeline_status(run_id):
     # means training finished; otherwise the last "Epoch N/M" line.
     stage4 = {"status": "not_started"}
     root_manifest_path = os.path.join(run_dir, "manifest.json")
-    if os.path.isfile(root_manifest_path):
+    if os.path.isfile(root_manifest_path):  # lgtm[py/path-injection] -- see run_dir note above
         try:
-            with open(root_manifest_path) as f:
+            with open(root_manifest_path) as f:  # lgtm[py/path-injection]
                 stage4 = {**json.load(f), "status": "done"}
         except (OSError, json.JSONDecodeError):
             pass
@@ -604,8 +652,13 @@ def get_pipeline_status(run_id):
 
 
 def _read_json_safe(path):
+    # CodeQL (py/path-injection): both call sites (get_pipeline_review's
+    # manifest.json read, and its checkpoints/*.meta.json glob results)
+    # are under a run_dir already validated by _resolve_pipeline_run_dir --
+    # see the note in get_pipeline_status above; same cross-function
+    # recognition gap, same review.
     try:
-        with open(path) as f:
+        with open(path) as f:  # lgtm[py/path-injection]
             return json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
@@ -626,8 +679,15 @@ def get_pipeline_review(run_id):
     so a training run's own diagnostics being numerically healthy is never
     read as a claim about playing strength (this session's own B recipe had
     improving valid_loss but never got promoted after a real quick gate).
+
+    `run_id` reaches here from `/api/review?kind=pipeline&run=...` (do_GET
+    -> get_review_data) -- same untrusted-query-string shape
+    get_pipeline_status guards against, so it goes through the same
+    `_resolve_pipeline_run_dir` containment check.
     """
-    run_dir = os.path.join(DATA_DIR, "runs", run_id)
+    run_dir = _resolve_pipeline_run_dir(run_id)
+    if run_dir is None:
+        return None
     manifest = _read_json_safe(os.path.join(run_dir, "manifest.json"))
     if manifest is None:
         return None
@@ -821,13 +881,21 @@ def start_run(payload):
     def stem_part(w):
         return "material" if not w or w == MATERIAL_SENTINEL else os.path.splitext(w)[0]
 
+    # CodeQL (py/path-injection) flags log_path/kifu_dir below as tainted by
+    # e1/e2 (via stem_part) -- it doesn't recognize the `w not in weights`
+    # membership check a few lines up (against list_weights()'s
+    # os.path.basename()-only allowlist) as a sanitizing guard. Reviewed
+    # safe: e1/e2 are either "" / MATERIAL_SENTINEL or exactly one of
+    # list_weights()'s basenames by this point, and stem_part() only
+    # further strips an extension -- no separator-bearing input can reach
+    # os.path.join here.
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     stem = f"{timestamp}_{stem_part(e1)}_vs_{stem_part(e2)}"
     log_path = os.path.join(RESULTS_DIR, "logs", f"{stem}.log")
     json_path = os.path.join(RESULTS_DIR, f"{stem}.json")
     kifu_dir = os.path.join(RESULTS_DIR, "kifu", stem)
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    os.makedirs(kifu_dir, exist_ok=True)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)  # lgtm[py/path-injection]
+    os.makedirs(kifu_dir, exist_ok=True)  # lgtm[py/path-injection]
 
     args = [sekirei_match, "--engine1", sekirei_bin]
     if e1 and e1 != MATERIAL_SENTINEL:
@@ -848,7 +916,7 @@ def start_run(payload):
         "--json", json_path,
     ]
 
-    log_f = open(log_path, "w")
+    log_f = open(log_path, "w")  # lgtm[py/path-injection] -- see log_path note above
     proc = subprocess.Popen(args, stdout=log_f, stderr=subprocess.STDOUT, cwd=REPO_ROOT)
 
     global _next_run_seq

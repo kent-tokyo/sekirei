@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kent-tokyo/sekirei/schemas/analysis_record_v1.schema.json",
+  "title": "Sekirei amateur-analysis benchmark record (v1)",
+  "description": "One engine's analysis of one position, produced by scripts/usi_analysis_export.py. See docs/amateur_analysis_benchmark.md for the format's purpose and metric definitions. This schema is documentation only -- no jsonschema validator is wired into this repo's tooling, so conformance is not enforced at export time.\n\nDesign notes:\n- `settings.depth`/`settings.nodes` and `lines[].score_cp`/`lines[].score_mate` are mutually exclusive via `oneOf` on KEY PRESENCE, not value nullability: a producer MUST OMIT the unused key entirely. Setting it to `null` still satisfies `required` and would fail `oneOf` by satisfying both branches.\n- `engine.weight_sha256` is the deliberate exception to that omission convention: it is always present, explicitly `null` when no weight file was loaded (material-eval fallback -- the expected default today, see docs/nnue_weights.md), and a hex string when one was.\n- `lines[].bound` absent means the engine emitted no bound token at all -- NOT that the score is exact. Every line Sekirei currently emits omits this token.\n- `lines[].bestmove` mirrors `lines[].pv[0]` for that candidate line (\"what this rank recommends\"), distinct from the top-level `bestmove`/`ponder` pair, which is the engine's one actual final USI `bestmove` command.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "sample_id", "game_id", "ply", "sfen", "engine",
+    "settings", "lines", "status", "error_detail", "wall_time_ms", "bestmove"
+  ],
+  "properties": {
+    "schema_version": { "const": "1" },
+    "sample_id": { "type": "string", "minLength": 1 },
+    "game_id": { "type": "string", "minLength": 1, "description": "Held-out split unit -- see docs/amateur_analysis_benchmark.md's game-level splitting section." },
+    "ply": { "type": "integer", "minimum": 0 },
+    "sfen": { "type": "string", "minLength": 1 },
+    "bestmove": {
+      "type": ["string", "null"],
+      "description": "The engine's actual final USI bestmove token. null when status != \"ok\"."
+    },
+    "ponder": {
+      "type": "string",
+      "description": "Optional key, present only when the engine sent a ponder move; omitted (not null) otherwise."
+    },
+    "status": { "enum": ["ok", "timeout", "incomplete", "engine_error"] },
+    "error_detail": {
+      "type": ["string", "null"],
+      "description": "null when status == \"ok\"; a human-readable cause otherwise."
+    },
+    "wall_time_ms": {
+      "type": ["integer", "null"],
+      "minimum": 0,
+      "description": "Driver-measured elapsed time (process spawn + handshake + search), distinct from lines[].time_ms which is the engine's own self-reported search-only time."
+    },
+    "engine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "version", "binary_sha256", "weight_sha256"],
+      "properties": {
+        "name": { "type": "string" },
+        "version": { "type": "string" },
+        "build_info": {
+          "type": ["object", "null"],
+          "additionalProperties": true,
+          "description": "Sekirei's `--build-info` JSON when available (name, version, nnue_arch, weight_magic, weight_size_expected, king_relative_b_small, spec_top_n_default); null for engines/builds without an equivalent."
+        },
+        "binary_sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "weight_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^([0-9a-f]{64})?$",
+          "description": "Explicit null means no weight file loaded (material-eval fallback), not \"field not applicable\"."
+        }
+      }
+    },
+    "settings": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["threads", "hash_mb", "multipv"],
+      "oneOf": [
+        { "required": ["depth"] },
+        { "required": ["nodes"] }
+      ],
+      "properties": {
+        "depth": { "type": "integer", "minimum": 1 },
+        "nodes": { "type": "integer", "minimum": 1 },
+        "threads": { "type": "integer", "minimum": 0 },
+        "spec_top_n": { "type": "integer", "minimum": 0 },
+        "hash_mb": { "type": "integer", "minimum": 1 },
+        "multipv": { "type": "integer", "minimum": 1 },
+        "eval_file": { "type": "string" }
+      }
+    },
+    "lines": {
+      "type": "array",
+      "description": "One entry per MultiPV rank at bestmove time (final snapshot, not a full search trace -- see docs/amateur_analysis_benchmark.md's eval-stability-across-depth methodology note). MUST be [] when status != \"ok\".",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["multipv", "bestmove", "pv", "depth", "nodes", "time_ms", "nps"],
+        "oneOf": [
+          { "required": ["score_cp"] },
+          { "required": ["score_mate"] }
+        ],
+        "properties": {
+          "multipv": { "type": "integer", "minimum": 1 },
+          "score_cp": { "type": "integer" },
+          "score_mate": { "type": "integer" },
+          "bound": {
+            "enum": ["exact", "lowerbound", "upperbound"],
+            "description": "Absent (not just omitted-as-\"exact\") means the engine emitted no bound token at all."
+          },
+          "bestmove": { "type": "string", "description": "Mirrors pv[0] for this candidate line." },
+          "pv": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "depth": { "type": "integer", "minimum": 0 },
+          "seldepth": { "type": "integer", "minimum": 0 },
+          "nodes": { "type": "integer", "minimum": 0 },
+          "time_ms": { "type": "integer", "minimum": 0 },
+          "nps": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}

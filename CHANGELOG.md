@@ -319,6 +319,239 @@
 - Aligned all workspace crate versions and `Cargo.lock` with the `v0.3.6` release.
 - Updated the public documentation and release metadata for the current distribution.
 
+## [0.3.5] – 2026-08-19
+
+Safer search contracts and clearer integration documentation. No search
+behavior change for the default build; no strength claim.
+
+### Search correctness
+
+- Fixed #6: none of `alpha_beta`'s 5 `store_tt` call sites were guarded on
+  `skip_move`, so the singular-extension verification search (which
+  excludes `tt_mv`) could write its result into the shared TT under the
+  position's ordinary hash — indistinguishable at probe time from a
+  genuine unrestricted search. `Tt::store`'s depth-preferred replacement
+  rule incidentally blocked this in practice, but that was never an
+  enforced invariant. `skip_move` is now threaded into `store_tt` itself
+  (single guarded call site), with a regression test that removes the
+  depth-preference confound by storing at matched depth.
+
+### Testing / resource predictability
+
+- Fixed #9: added the one missing piece of `SpecTopN`'s USI-option
+  exposure — a fixture pinning `SpeculativeSearcher`'s dedicated thread
+  pool size to the configured `top_n`, so the `Threads + SpecTopN`
+  capacity-planning formula (`docs/design/pr5_pool_isolation_static_audit.md`)
+  has regression coverage on the `SpecTopN` side.
+
+### Documentation
+
+- `docs/design/shared_tt_write_topology_audit.md` updated with the issue
+  #36/PR #37 abort-driven-TT-store fix outcome (the audit's own Finding 4
+  follow-up).
+- New `docs/nnue_weights.md`: NNUE weight model card and licensing —
+  clarifies that no production-recommended weight file is currently
+  distributed, that the software license (MIT/Apache-2.0) does not
+  automatically extend to any future weight file, the `SEKIRW01`/
+  `SEKIRW02`/`JANOSW03` format compatibility table, the king-relative
+  ("B-small") architecture's current `MECHANICAL_PASS / EXPERIMENTAL_HOLD`
+  status, and a model-card template for tracking a specific checkpoint's
+  provenance.
+- New `docs/mobile_integration.md`: current on-device/mobile integration
+  surface (USI binary only, no official FFI layer), the small
+  mobile-relevant dependency footprint, resource-planning USI options
+  (`Threads`, `SpecTopN`, `Hash`, `EvalFile`), and explicit "not yet true"
+  limitations — written for the real integration questions raised in #44.
+
+### Engineering
+
+- New `sekirei --build-info`: prints this build's name/version/NNUE
+  architecture/weight-format-magic/expected-weight-size/`SpecTopN`
+  default as JSON, without starting a USI session — lets a caller detect
+  a weight-file/binary architecture mismatch before attempting to load
+  one, rather than only at `read_weights`'s runtime error.
+
+## [0.3.4] – 2026-08-12
+
+Groundwork for the next strength-lever experiment (king-relative NNUE
+features), landed as opt-in infrastructure. **No default-build behavior
+change**: `king_relative_b_small` is a Cargo feature flag, default OFF —
+`sekirei`/`sekirei-train` built without it are unaffected in every way
+(same byte layout, same weight-file format, same search behavior). This
+release makes no Elo or playing-strength claim for the new feature; see
+"Known limitations."
+
+### NNUE (opt-in, default OFF)
+
+- New `king_relative_b_small` Cargo feature (`sekirei-core`, forwarded from
+  `sekirei`/`sekirei-train`): king-relative board features, bucketed by a
+  3×3-region zone (`Square::king_zone`) around each perspective's own king
+  (`INPUT` 2420 → 20564 when enabled; weight file magic bumps to
+  `SEKIRW02`, no legacy-format fallback for that variant). `Board::do_move`/
+  `undo_move` gain a feature-gated hook that fully rebuilds the NNUE
+  accumulator on a king move (every board feature for that perspective
+  depends on the moved king's zone); `NnueAcc.king_sq` is tracked
+  unconditionally (both build configurations) so this path is exercised by
+  default CI regardless of the flag. `Board::startpos()` switched from a
+  hand-rolled per-piece accumulator loop to a full refresh — a real
+  correctness fix for the flag-enabled build, a no-op under the default one.
+- Structural sanity, not strength: a fixed-depth A/B comparison (base vs.
+  `king_relative_b_small`, same commit, deterministic LCG-default
+  evaluation, 21 positions) found zero correctness issues (no
+  panic/timeout/illegal-move/incomplete-output either side).
+
+### Training pipeline
+
+- New calibration metric (`diagnostics::expected_calibration_error`):
+  Expected Calibration Error over predicted-win-probability deciles, using
+  the same linear cp↔probability mapping the WDL training target itself
+  uses. Wired into the `.meta.json` sidecar, `--eval-only`, and the
+  per-epoch console output, alongside the existing `valid_cp_mse`/
+  `valid_wdl_loss` metrics.
+- New `scripts/run_king_relative_phase2.sh` (multi-seed training
+  orchestration) and `scripts/select_king_relative_checkpoint.py`
+  (validation-metrics-only pass/fail gate, ≥2-of-3-seeds bar with
+  collapse/saturation-regression hard stops) — not yet run against real
+  training data.
+
+### CI / gate tooling
+
+- `.github/workflows/fixed-depth-ab.yml`: new `base_features`/
+  `candidate_features` inputs, so a run can compare one commit's Cargo
+  feature flag on vs. off, not just two different commits.
+- `scripts/sprint_gate.sh`: new `ENGINE1_BIN`/`ENGINE2_BIN` env overrides
+  (both default to the existing single auto-built binary — an unset
+  invocation is unchanged), for comparing two different binaries rather
+  than only two weight files.
+- New CI job (`king-relative-feature`) builds/clippies/tests the workspace
+  with `king_relative_b_small` enabled on every push/PR — previously that
+  code path was verified only by local runs.
+
+### Housekeeping
+
+- Removed 8 small `results/` files left tracked in git from before that
+  directory was gitignored (2026-07-01–07-04 debris, nothing referencing
+  them).
+
+## [0.3.3] – 2026-08-12
+
+A search-correctness patch release, plus documentation/evaluation-provenance
+cleanup. One real engine-behavior fix (below); everything else is docs,
+dependency, and process hygiene on top of v0.3.2.
+
+### Search correctness
+
+- **Fixed (issue #36, PR #37): abort-driven TT store could persist a
+  mislabeled bound, or a corrupted `0` score, from a truncated search.**
+  `root_search_inner` and two loops in `alpha_beta` (`crates/sekirei-core/src/search.rs`)
+  used to `break` on a search-deadline abort but then fall through to an
+  unconditional final TT store, persisting a partial result as if the
+  search had completed. A second, more severe path: the abort check only
+  ran at the top of each loop iteration, not immediately after that
+  iteration's own recursive `alpha_beta` call — if the deadline landed
+  *during* that recursive call, its abort-sentinel return value (`0`)
+  could be used as a real score, corrupting `best_score`/`best_move`, or
+  even firing a fabricated `Bound::Lower` TT store mid-loop. Fix: an
+  `aborted` flag now gates every final store, and a `should_abort()`
+  recheck runs immediately after each loop's recursive call, before its
+  result is used — matching the ordering `spec_alpha_beta` already used
+  correctly. 3 new deterministic regression tests (no timing dependence),
+  each independently confirmed to fail without the fix.
+
+### Dependencies
+
+- `lineprior` 0.9.0 → 0.10.0. The dependency's own CHANGELOG confirms the
+  only source-breaking change (3 new `TuneParam` variants) is never
+  referenced by Sekirei; diff scoped to `sekirei-train`/`sekirei-usi`/
+  `Cargo.lock`.
+
+### Documentation / evaluation provenance
+
+- **Corrected an evaluation-provenance issue in a prior internal
+  experiment.** An internal B-vs-C strength gate comparing `UseYBW=true`
+  vs. `UseYBW=false` had been run against a commit that turned out **not
+  to be an ancestor of `main`** — an unmerged side branch that predates
+  several of this release's own correctness fixes and adds
+  measurement-only toggles that don't exist on `main`. That gate's result
+  is **not** treated as evidence about `main`'s YBW implementation and is
+  not cited as such anywhere in this project's planning docs; see
+  `docs/experiments/gate_redesign_low_load.md` and internal roadmap notes
+  for the corrected framing. No code or default behavior is affected by
+  this correction — it's a documentation/process fix.
+- New: `docs/design/nnue_architecture_next_candidate.md` — a first
+  research pass comparing candidate next-step NNUE architecture changes
+  (king-relative input features vs. widening the feature transformer vs.
+  widening the second hidden layer) on parameter count, inference cost,
+  and weight/training-data compatibility. No implementation in this
+  release.
+- New: `docs/design/shared_tt_write_topology_audit.md` (issue #32) —
+  static audit of the shared transposition table's write topology under
+  YBW/speculative-search concurrency. Confirmed `Tt::store`'s equal-depth
+  replacement is unconditional last-writer-wins with no CAS, and that the
+  XOR-trick storage format can't produce cross-writer field mixing.
+  Classified 3 plausible-but-unconfirmed concurrency races; found this
+  release's issue #36 as a byproduct. No fix applied yet — recommended
+  next step (an instrumented live replay) is not started.
+- Recorded: PR #17's (quiescence-search TT integration, issue #8)
+  `repeats`-mode re-evaluation came back unfavorable — worse bestmove-
+  variance and node-swing than an already-lower-noise baseline. Not a
+  confirmed regression, but not merge-recommended either. PR #17 stays
+  draft.
+
+## [0.3.2] – 2026-08-10
+
+A distribution/reproducibility patch release — **no engine behavior,
+search algorithm, or public API changes**. Everything here is CI,
+dependency sourcing, and packaging, on top of the v0.3.1 code as
+published to crates.io.
+
+### Dependencies
+
+- `lineprior` switched from a git tag pin (`{ git = "...", tag = "v0.9.0" }`)
+  to a plain crates.io version requirement (`"0.9.0"`) in both
+  `sekirei-train` and `sekirei` (the `sekirei-usi` crate) — `lineprior`
+  0.9.0 is now published to crates.io. No source changes beyond the
+  manifests; the registry version resolves to the exact commit these
+  crates were already pinned to. This was the last blocker preventing
+  `sekirei-train`/`sekirei` from being published to crates.io at all
+  (cargo refuses to publish a crate with a git-sourced dependency that
+  has no version requirement).
+
+### Packaging / crates.io
+
+- All 6 workspace crates (`sekirei-core`, `sekirei-bench`, `sekirei-csa`,
+  `sekirei-match-runner`, `sekirei-train`, `sekirei`) are now published
+  to crates.io. `sekirei-core`/`bench`/`csa`/`match-runner` were
+  previously published at 0.3.1; `sekirei-train`/`sekirei` are newly
+  published starting with this release, now that the `lineprior`
+  blocker above is resolved.
+- Publishing moved from a manually-run `cargo publish` with a long-lived
+  API token to crates.io's **Trusted Publishing** (GitHub Actions OIDC):
+  a new `.github/workflows/cargo-publish.yml` authenticates per-crate via
+  a short-lived (30-minute), automatically-revoked token requested
+  through `rust-lang/crates-io-auth-action`. No `CARGO_REGISTRY_TOKEN`
+  repository secret exists.
+- That workflow is hardened against a real publish going wrong in ways
+  that can't be undone (a bad crates.io version can be yanked, never
+  deleted): it pins to an exact release tag rather than whatever ref
+  happened to trigger it, verifies every requested crate's `Cargo.toml`
+  version matches that tag before publishing anything, validates its
+  own crate-name input strictly, and polls the crates.io index for
+  `sekirei-core` to actually appear before publishing anything that
+  depends on it — instead of a fixed sleep.
+
+### CI
+
+- Fixed a `rustc` crash (`SIGILL`, illegal instruction) that could occur
+  compiling proc-macro dependencies on GitHub-hosted runners. Cause:
+  `.cargo/config.toml` sets `-C target-cpu=native` workspace-wide,
+  intentional for local release builds tuned to a known machine, but
+  GitHub Actions runners aren't guaranteed identical hardware between
+  runs — "native" CPU feature detection isn't reliable in that
+  environment. CI workflows (`ci.yml`, `cargo-publish.yml`,
+  `fixed-depth-ab.yml`) now override `RUSTFLAGS` to disable this for CI
+  specifically; local dev/release builds are unaffected.
+
 ## [0.3.1] – 2026-08-10
 
 This is the first published release since 0.2.4. A

@@ -56,6 +56,14 @@ DIAGNOSTIC_RELAXED_LOAD_LIMIT = 20.0
 # counts as actual contention if it's consuming meaningful CPU right now.
 CONTENTION_CPU_THRESHOLD_PERCENT = 5.0
 
+# --contention-job matches by `pgrep -f` substring, which is a full-command-
+# line match -- it can hit an unrelated, near-idle process whose cwd/args
+# merely contain the pattern (confirmed 2026-08-27: a 6-day-old, near-zero-
+# CPU MCP helper process running from a directory named after a real
+# contention job falsely refused launch for days). A matched pid only
+# counts as actual contention if it's consuming meaningful CPU right now.
+CONTENTION_CPU_THRESHOLD_PERCENT = 5.0
+
 
 # ------------------------------------------------------------------
 # OS-facing collection: thin wrappers, raw text (or None) out, no parsing.

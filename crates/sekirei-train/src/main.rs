@@ -1907,6 +1907,7 @@ fn save_checkpoint_meta(
     let (
         valid_cp_mse,
         valid_wdl_loss,
+        valid_calibration_error,
         valid_output_mean,
         valid_output_std,
         valid_output_min,
@@ -1924,6 +1925,15 @@ fn save_checkpoint_meta(
             } else {
                 None
             };
+            let calibration_error = if s.wdl_count > 0 {
+                Some(diagnostics::expected_calibration_error(
+                    &s.calibration_bucket_count,
+                    &s.calibration_bucket_predicted_sum,
+                    &s.calibration_bucket_actual_sum,
+                ))
+            } else {
+                None
+            };
             let (mean, std) = diagnostics::mean_std(s.output_sum, s.output_sum_sq, s.count);
             // min/max are computed directly (no variance-formula
             // cancellation), so they're the reliable signal for "is output
@@ -1937,9 +1947,18 @@ fn save_checkpoint_meta(
             } else {
                 (None, None, None)
             };
-            (cp_mse, wdl_loss, Some(mean), Some(std), min, max, range)
+            (
+                cp_mse,
+                wdl_loss,
+                calibration_error,
+                Some(mean),
+                Some(std),
+                min,
+                max,
+                range,
+            )
         }
-        None => (None, None, None, None, None, None, None),
+        None => (None, None, None, None, None, None, None, None),
     };
     let meta = serde_json::json!({
         "epoch": epoch,
@@ -2149,6 +2168,7 @@ fn save_checkpoint_meta(
         // (unlike `valid_loss`, which is only comparable within one λ).
         "valid_cp_mse": valid_cp_mse,
         "valid_wdl_loss": valid_wdl_loss,
+        "valid_calibration_error": valid_calibration_error,
         "valid_output_mean": valid_output_mean,
         "valid_output_std": valid_output_std,
         // min/max/range computed directly (no variance-formula cancellation)
