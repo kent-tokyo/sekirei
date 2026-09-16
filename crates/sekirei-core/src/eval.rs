@@ -269,13 +269,9 @@ mod tests {
     fn zero_residual_weights_exactly_match_material() {
         let board = Board::from_sfen("9/9/9/9/4R4/9/9/9/4k4 b - 1").unwrap();
         let mut weights = NnueWeights::default_lcg();
-        for row in &mut weights.ft {
-            *row = [0; crate::nnue::L1];
-        }
+        weights.ft.fill([0; crate::nnue::L1]);
         weights.ft_bias = [0; crate::nnue::L1];
-        for row in &mut weights.l2 {
-            *row = [0.0; crate::nnue::L2];
-        }
+        weights.l2.fill([0.0; crate::nnue::L2]);
         weights.l2_bias = [0.0; crate::nnue::L2];
         weights.out = [0.0; crate::nnue::L2];
         weights.out_bias = 0.0;
