@@ -660,6 +660,9 @@ impl NnueAcc {
                 accumulator[i] = accumulator[i].saturating_sub(old[i]).saturating_add(new[i]);
             }
         }
+        if kind == PieceKind::Ou {
+            self.king_sq[color.index()] = to;
+        }
     }
 
     /// Apply a board move, remove the captured piece, and add the captured
@@ -699,6 +702,9 @@ impl NnueAcc {
                     .saturating_add(hand_weights[i]);
             }
         }
+        if moved_kind == PieceKind::Ou {
+            self.king_sq[mover.index()] = to;
+        }
     }
 
     /// Reverse a capture in one accumulator traversal. The order mirrors the
@@ -737,6 +743,9 @@ impl NnueAcc {
                     .saturating_add(captured_weights[i])
                     .saturating_sub(hand_weights[i]);
             }
+        }
+        if original_kind == PieceKind::Ou {
+            self.king_sq[mover.index()] = from;
         }
     }
 

@@ -56,11 +56,11 @@ A weight file is ≈1.24 MB (flat "A" architecture) or ≈10.0 MB
 `docs/nnue_weights.md`) on disk, loaded once into a process-global
 `OnceLock`. `Hash` (TT size, MB) is the other controllable memory knob.
 Neither scales with position complexity or game length. No measurement of
-actual peak RSS under a real mobile OS/sandbox has been done as part of
-this repo's own testing — the smoke-test figures that exist
-(`docs/experiments/king_relative_b_small_phase3_diagnostic.md`) are from a
-desktop training run, not an on-device inference measurement, and
-shouldn't be extrapolated to a phone without your own verification.
+actual peak RSS under a real mobile OS/sandbox has been done as part of this
+repo's own testing. The B-small outcome summarized in
+[`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
+comes from desktop validation, not on-device inference, and must not be
+extrapolated to a phone without direct measurement.
 
 ## What this does NOT have, as of this writing
 

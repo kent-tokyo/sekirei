@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.3.37] – 2026-09-16
+
+- Simplified the English and Japanese READMEs, added a categorized script
+  index, and condensed historical gate/audit notes without changing their
+  verdicts.
+- Removed two unreferenced throwaway load-test wrappers. No engine runtime,
+  NNUE format, or playing-strength behavior changed.
+- Prevented singular-extension verification searches from reusing a TT cutoff
+  that belongs to the unverified parent search.
+- Added history-aware SFEN/search diagnostics, root-ranking audits, and
+  Floodgate replay, holdout, budget-ladder, manifest, and supervisor tooling.
+- Hardened candidate/gate execution contracts so evaluator mode, weight hash,
+  source identity, resume state, and diagnostic-only results remain explicit.
+- Added the opt-in king-relative B-small NNUE architecture and calibration
+  diagnostics. Its offline validation remains `EXPERIMENTAL_HOLD`; this
+  release makes no new playing-strength claim.
+- Improved trainer observability and reproducibility with progress logging,
+  patience-based early stopping, ranking diagnostics, and corrected
+  `--checkpoint-dir` handling for CSA-game training.
+- Added reproducible USI analysis export, an experimental static Explorer,
+  and correct USI `score mate` output for mate-distance scores.
+- Updated the component benchmark capture contract and retained A/A noise-floor
+  requirements. Diagnostic results are not an overall speed or Elo ranking.
+
 ## [0.3.36] – 2026-09-12
 
 - Updated workspace versions, `Cargo.lock`, release metadata, and public

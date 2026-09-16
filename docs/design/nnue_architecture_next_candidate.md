@@ -1,13 +1,22 @@
 # NNUE architecture: candidate comparison for the next experiment
 
-Status: design-only. No training run, no code change, no benchmark executed
-to produce this doc — every number below is computed from reading
+Status: historical design plus outcome summary. The original comparison below
+was design-only; every sizing number was computed from reading
 `crates/sekirei-core/src/nnue.rs`'s actual binary-format arithmetic (verified
 against the real 1,305,356-byte size of `data/weights_v011_opening_combined.bin`
 and siblings) and `crates/sekirei-train/`, plus a survey of this repo's own
 prior NNUE-training experiment docs. Written to close the gap `ROADMAP.md`
 §6 flags: *"no NNUE architecture upgrade path has been researched or decided
 yet... This needs its own research pass before implementation."*
+
+Outcome update (2026-08-19): B-small was implemented behind the
+`king_relative_b_small` feature and passed mechanical loading/inference checks.
+In matched three-seed validation, `valid_cp_mse` improved in 3/3 seeds, while
+`valid_wdl_loss` and `valid_calibration_error` regressed in 3/3 seeds. The
+frozen status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD**. No paired Elo/SPRT
+gate established a strength improvement, and B-small is not a production
+recommendation. This outcome does not turn the sizing comparison below into
+benchmark evidence.
 
 ## Current architecture (baseline, "A")
 

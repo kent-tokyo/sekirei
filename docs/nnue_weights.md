@@ -70,7 +70,7 @@ Offset        Size           Content
 | Architecture | Status | Recommended for production use? |
 |---|---|---|
 | A (flat, default) | Shipping default since this project's earliest NNUE work | No weight file has cleared the material-eval strength gate yet (see above) — the architecture itself is stable, but no specific trained checkpoint is currently recommended |
-| B-small (king-relative, opt-in) | Experimental. Phase 3 validation: `valid_cp_mse` improved in 3/3 seeds, but `valid_wdl_loss`/`valid_calibration_error` regressed in 3/3 seeds against the same baseline — status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD** (`docs/experiments/king_relative_b_small_phase3_diagnostic.md`, `docs/experiments/king_relative_scale_contract_static_audit.md`). No paired Elo/SPRT strength gate has been run. **Not recommended for production use at this time.** |
+| B-small (king-relative, opt-in) | Experimental. Phase 3 validation: `valid_cp_mse` improved in 3/3 seeds, but `valid_wdl_loss`/`valid_calibration_error` regressed in 3/3 seeds against the same baseline — status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD** (see [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)). No paired Elo/SPRT strength gate established an improvement. **Not recommended for production use at this time.** |
 
 Neither architecture currently has a published, production-recommended
 checkpoint. For app-size-insensitive integrators (per issue #44's own
@@ -114,5 +114,7 @@ strength_gate_status:   not run | SPRT PASS (H0/H1, N games) | SPRT FAIL | INCON
 license:                <explicit statement -- do not assume it inherits the code's MIT/Apache-2.0>
 ```
 
-`docs/experiments/king_relative_b_small_phase3_diagnostic.md` §1 is a
-worked example of this template applied to a real (non-production) run.
+The outcome in
+[`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
+shows how a real non-production validation verdict remains separate from a
+strength or release claim.
