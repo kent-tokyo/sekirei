@@ -102,6 +102,94 @@ def sha256(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def load1() -> float:
+    """Return the capture-start one-minute load in a testable form."""
+    return float(os.getloadavg()[0])
+
+
+def require_load_at_most(max_load1, observed_load1):
+    if max_load1 is not None and observed_load1 > max_load1:
+        raise ValueError(
+            f"capture start load {observed_load1:.2f} exceeds --max-load1 {max_load1:.2f}"
+        )
+
+
+def parse_power_source(text: str) -> str:
+    """Normalize the macOS power source without retaining battery details."""
+    if "Now drawing from 'AC Power'" in text:
+        return "ac"
+    if "Now drawing from 'Battery Power'" in text:
+        return "battery"
+    return "unknown"
+
+
+def power_source() -> str:
+    """Return a conservative power-source value; unsupported hosts are unknown."""
+    if platform.system() != "Darwin":
+        return "unknown"
+    try:
+        return parse_power_source(
+            subprocess.check_output(
+                ("pmset", "-g", "batt"), text=True, stderr=subprocess.STDOUT
+            )
+        )
+    except (OSError, subprocess.CalledProcessError):
+        return "unknown"
+
+
+def require_ac_power(require_ac, observed_power_source):
+    if require_ac and observed_power_source != "ac":
+        raise ValueError(
+            "capture start power source is "
+            f"{observed_power_source!r}; --require-ac requires AC power"
+        )
+
+
+def thermal_status(command_runner=subprocess.check_output, system: str | None = None) -> dict[str, str]:
+    """Report only explicit macOS warning state; do not infer CPU temperature."""
+    if (system or platform.system()) != "Darwin":
+        return {"thermal_warning": "unknown", "performance_warning": "unknown"}
+    try:
+        text = command_runner(("pmset", "-g", "therm"), text=True, stderr=subprocess.STDOUT)
+    except (OSError, subprocess.CalledProcessError):
+        return {"thermal_warning": "unknown", "performance_warning": "unknown"}
+    return {
+        "thermal_warning": "none" if "No thermal warning level" in text else "reported",
+        "performance_warning": "none" if "No performance warning level" in text else "reported",
+    }
+
+
+def require_thermal_normal(require_normal, observed_thermal):
+    if require_normal and any(value != "none" for value in observed_thermal.values()):
+        raise ValueError(
+            "capture start thermal state is not explicitly normal: "
+            f"{observed_thermal}"
+        )
+
+
+def validated_preflight(path: Path) -> dict:
+    """Bind a capture to an explicit passing preflight artifact when supplied."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValueError(f"invalid preflight artifact: {path}") from error
+    if document.get("schema") != "sekirei.component-benchmark-preflight.v1":
+        raise ValueError(f"unexpected preflight schema: {path}")
+    checks = document.get("checks")
+    expected_checks = {"load1", "power", "thermal_warning", "performance_warning"}
+    if (document.get("verdict") != "PASS" or not isinstance(checks, dict)
+            or set(checks) != expected_checks or not all(
+                isinstance(check, dict) and check.get("pass") is True
+                for check in checks.values()
+            )):
+        raise ValueError(f"preflight artifact is not a complete PASS: {path}")
+    return {
+        "path": str(path.resolve()),
+        "sha256": sha256(path),
+        "checked_utc": document.get("checked_utc"),
+    }
+
+
 def validate_samples(text):
     """Reject truncated/malformed runs instead of treating partial CSV as success."""
     if "schema=sekirei.component-benchmark.v1\n" not in text:
@@ -170,7 +258,29 @@ def main():
         action="store_true",
         help="Allow a new capture from a dirty worktree; the status is recorded.",
     )
+    parser.add_argument(
+        "--max-load1",
+        type=float,
+        help="Reject a capture when the one-minute load at start exceeds this value",
+    )
+    parser.add_argument(
+        "--require-ac",
+        action="store_true",
+        help="Reject a capture unless macOS reports AC power at start",
+    )
+    parser.add_argument(
+        "--require-thermal-normal",
+        action="store_true",
+        help="Reject a capture unless macOS reports no thermal/performance warnings",
+    )
+    parser.add_argument(
+        "--preflight",
+        type=Path,
+        help="Require and record a passing component-benchmark preflight JSON",
+    )
     args = parser.parse_args()
+    if args.max_load1 is not None and args.max_load1 <= 0:
+        parser.error("--max-load1 must be positive")
     binary = (args.replay / "cross_library" if args.replay else args.binary)
     replay_metadata = None
     root = Path(__file__).resolve().parents[1]
@@ -193,6 +303,16 @@ def main():
         build_metadata = {"command": build_command, "profile": "release", "offline": True}
     else:
         binary = binary.resolve(strict=True)
+    observed_load1 = load1()
+    observed_power_source = power_source()
+    observed_thermal = thermal_status()
+    try:
+        preflight_artifact = validated_preflight(args.preflight) if args.preflight else None
+        require_load_at_most(args.max_load1, observed_load1)
+        require_ac_power(args.require_ac, observed_power_source)
+        require_thermal_normal(args.require_thermal_normal, observed_thermal)
+    except ValueError as error:
+        parser.error(str(error))
     args.output.mkdir(parents=True, exist_ok=False)
     frozen = args.output.resolve() / "cross_library"
     shutil.copy2(binary, frozen)
@@ -208,6 +328,13 @@ def main():
         "platform": platform.platform(),
         "cpu": command("sysctl", "-n", "machdep.cpu.brand_string") if platform.system() == "Darwin" else platform.processor(),
         "load_before": os.getloadavg(),
+        "capture_start_load1": observed_load1,
+        "max_load1": args.max_load1,
+        "capture_start_power_source": observed_power_source,
+        "require_ac": args.require_ac,
+        "capture_start_thermal": observed_thermal,
+        "require_thermal_normal": args.require_thermal_normal,
+        "preflight": preflight_artifact,
         "build_flags_note": "Build is external: verify matching compiler/profile/flags for every arm; capture does not infer them.",
         "build": build_metadata,
         "argv": ["./cross_library", "--components"],
@@ -215,7 +342,13 @@ def main():
     }
     if replay_metadata is not None:
         metadata = dict(replay_metadata, replay_utc=datetime.now(timezone.utc).isoformat(),
-                        replay_load_before=os.getloadavg())
+                        replay_load_before=os.getloadavg(), replay_start_load1=observed_load1,
+                        replay_max_load1=args.max_load1,
+                        replay_start_power_source=observed_power_source,
+                        replay_require_ac=args.require_ac,
+                        replay_start_thermal=observed_thermal,
+                        replay_require_thermal_normal=args.require_thermal_normal,
+                        replay_preflight=preflight_artifact)
     (args.output / "provenance.json").write_text(json.dumps(metadata, indent=2) + "\n")
     subprocess.run([str(frozen), "--check"], check=True)
     with (args.output / "samples.csv").open("x") as stream:

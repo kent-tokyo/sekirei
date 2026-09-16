@@ -1,6 +1,16 @@
 import unittest
+import json
 
-from run_component_benchmark import BUILD_COMMAND, EXPECTED_CASES, validate_samples
+from run_component_benchmark import (
+    BUILD_COMMAND,
+    EXPECTED_CASES,
+    parse_power_source,
+    require_ac_power,
+    require_thermal_normal,
+    thermal_status,
+    validated_preflight,
+    validate_samples,
+)
 
 
 def fixture():
@@ -48,6 +58,53 @@ class ComponentSamplesTest(unittest.TestCase):
         )
         with self.assertRaises(ValueError):
             validate_samples(text)
+
+    def test_power_source_contract(self):
+        self.assertEqual(parse_power_source("Now drawing from 'AC Power'"), "ac")
+        self.assertEqual(parse_power_source("Now drawing from 'Battery Power'"), "battery")
+        self.assertEqual(parse_power_source("unavailable"), "unknown")
+        require_ac_power(False, "unknown")
+        require_ac_power(True, "ac")
+        for source in ("battery", "unknown"):
+            with self.assertRaises(ValueError):
+                require_ac_power(True, source)
+
+    def test_thermal_contract_requires_explicitly_normal_status(self):
+        def no_warning(*_args, **_kwargs):
+            return "No thermal warning level\nNo performance warning level\n"
+
+        normal = thermal_status(no_warning, "Darwin")
+        self.assertEqual(normal, {"thermal_warning": "none", "performance_warning": "none"})
+        require_thermal_normal(True, normal)
+        with self.assertRaises(ValueError):
+            require_thermal_normal(
+                True, {"thermal_warning": "unknown", "performance_warning": "none"}
+            )
+
+    def test_preflight_artifact_must_be_complete_pass(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
+
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "preflight.json"
+            passing = {
+                "schema": "sekirei.component-benchmark-preflight.v1",
+                "verdict": "PASS",
+                "checked_utc": "2026-09-16T00:00:00+00:00",
+                "checks": {
+                    "load1": {"pass": True},
+                    "power": {"pass": True},
+                    "thermal_warning": {"pass": True},
+                    "performance_warning": {"pass": True},
+                },
+            }
+            path.write_text(json.dumps(passing))
+            reference = validated_preflight(path)
+            self.assertEqual(reference["checked_utc"], passing["checked_utc"])
+            passing["checks"]["load1"]["pass"] = False
+            path.write_text(json.dumps(passing))
+            with self.assertRaises(ValueError):
+                validated_preflight(path)
 
 
 if __name__ == "__main__":
