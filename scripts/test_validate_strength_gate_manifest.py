@@ -27,3 +27,16 @@ def test_rejects_ranking_calibration_that_claims_strength():
     data = ranking_diagnostic()
     data["claims"]["strength"] = "claimed"
     assert MODULE.validate_calibration(data)
+
+
+def test_accepts_diagnostic_only_selfplay_calibration_summary():
+    data = {
+        "schema": "sekirei.selfplay-calibration-holdout-summary.v1",
+        "diagnostic_only": True,
+        "strength_claim": False,
+        "summary": {
+            "selected": 128, "complete": 128, "cp_comparable": 123,
+            "material_anchors_abs_ge_1000": 77, "verdict": "DIAGNOSTIC_SIGNAL_ONLY",
+        },
+    }
+    assert MODULE.validate_calibration(data) == []

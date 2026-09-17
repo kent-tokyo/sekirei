@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.nnue-model-card.v1",
+  "artifact": "weights/sekirei-nnue-v0.3.38.bin",
+  "release": "v0.3.38",
+  "sha256": "154ad1e4c8335b5e51a87af946d50a6789fbaf2d2568af58e85c6431e9d3797a",
+  "bytes": 1305356,
+  "architecture": "A-flat-ps",
+  "magic": "SEKIRW01",
+  "nnue_output": "absolute",
+  "license": "CC-BY-4.0",
+  "attribution": "Sekirei project, Kentaro Tanabe, https://github.com/kent-tokyo/sekirei",
+  "training": {
+    "recipe": "one epoch, fresh Adam, learning rate 0.0003, deterministic seed/shuffle 42",
+    "training_positions": {"path": "data/runs/local_selfplay_20260917T041358Z_review/c5d0-holdout/train-positions.jsonl", "sha256": "3ebd55bab8367886b706ea26be63d61e38730ee2e5e27daedcaf1546d02aa023", "positions": 5991, "games": 64},
+    "teacher": {"path": "data/runs/fg5e_csa2023_1024_seed42_20260915/teacher_initialized_step_half/candidate.best.bin", "sha256": "e7bbddae5e814c9b10a65f9ca33790f127f7ff17a8b26d12b083fdeceae4feb2", "nnue_output": "residual-material"},
+    "teacher_cache_sha256": "dfbf1a720fb2558ebcf3317c96afeaea71e5d7f8827d4796d2b5ae2517b481e4",
+    "pre_registration_sha256": "a221ca1c6228c3dae2494879a06df197a6baa1e2d0c05237c04a837471337def"
+  },
+  "health": {"strict_probe": "pass", "same_seed_rerun_byte_identical": true},
+  "strength_gate": {
+    "artifact": "results/strength_gate_runs/strength-gate-plan/final.json",
+    "sha256": "9f0add8e2da8a51b9ccb213a3b0b861830cdcfb6c0d1fe64dd445987ea2d46bb",
+    "protocol": "47 color-reversed pairs, paired trinomial SPRT H0=0 Elo H1=+20 Elo, alpha=beta=0.05",
+    "verdict": "PASS", "games": 94, "candidate_wins": 80, "baseline_wins": 14, "draws": 0,
+    "elo_estimate": 302.78478052548223,
+    "scope": "Local candidate-versus-baseline result only; not a Floodgate, human, or competitor rating."
+  }
+}

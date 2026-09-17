@@ -60,6 +60,10 @@ struct SearchResult {
     elapsed: Duration,
     hashfull: u32,
     pv_list: Vec<(sekirei_core::mv::Move, i32)>,
+    /// Primary legal continuation.  `pv_list` is the root-only MultiPV
+    /// ranking; this is deliberately kept separate so a continuation is
+    /// never attributed to another root candidate.
+    pv: Vec<sekirei_core::mv::Move>,
     worker_stats: Vec<LazySmpWorkerInfo>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
 }
@@ -165,6 +169,7 @@ impl SearchBackend {
                 elapsed: Duration::ZERO,
                 hashfull: 0,
                 pv_list: Vec::new(),
+                pv: Vec::new(),
                 worker_stats: Vec::new(),
                 shared_mcts_stats: None,
             };
@@ -187,6 +192,7 @@ impl SearchBackend {
                     elapsed: info.elapsed,
                     hashfull: result.hashfull,
                     pv_list: Vec::new(),
+                    pv: result.pv,
                     worker_stats: info.worker_results,
                     shared_mcts_stats: None,
                 }
@@ -228,6 +234,7 @@ impl SearchBackend {
                     elapsed: started.elapsed(),
                     hashfull: 0,
                     pv_list: Vec::new(),
+                    pv: result.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
                     shared_mcts_stats: None,
                 }
@@ -267,6 +274,7 @@ impl SearchBackend {
                     elapsed: started.elapsed(),
                     hashfull: 0,
                     pv_list: Vec::new(),
+                    pv: info.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
                     shared_mcts_stats: Some((
                         info.simulations,
@@ -288,6 +296,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         elapsed: info.elapsed,
         hashfull: info.hashfull,
         pv_list: info.pv_list,
+        pv: info.pv,
         worker_stats: Vec::new(),
         shared_mcts_stats: None,
     }
@@ -299,6 +308,27 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
 fn fallback_legal_move(board: &Board) -> Option<sekirei_core::mv::Move> {
     let mut probe = board.clone();
     generate_legal_moves(&mut probe).into_iter().next()
+}
+
+/// Render a USI PV without fabricating a continuation for a secondary
+/// MultiPV root.  The primary line is reconstructed from exact TT entries;
+/// the root move remains available as a valid one-ply PV if reconstruction is
+/// shorter than the completed depth.
+fn render_pv(
+    primary: &[sekirei_core::mv::Move],
+    root: sekirei_core::mv::Move,
+    is_primary: bool,
+) -> String {
+    if is_primary && primary.first() == Some(&root) {
+        primary
+            .iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>()
+            .join(" ")
+    } else {
+        move_to_usi(root)
+    }
 }
 
 /// Look up a TT ponder reply without ever applying an unvalidated move to the
@@ -808,7 +838,7 @@ fn main() {
                                 nps,
                                 elapsed_ms,
                                 info.hashfull,
-                                move_to_usi(mv)
+                                render_pv(&info.pv, mv, i == 0)
                             );
                         }
                     } else if let Some(m) = info.best_move {
@@ -820,7 +850,7 @@ fn main() {
                             nps,
                             elapsed_ms,
                             info.hashfull,
-                            move_to_usi(m)
+                            render_pv(&info.pv, m, true)
                         );
                     }
 
@@ -906,7 +936,7 @@ fn main() {
                                 nps,
                                 elapsed_ms,
                                 info.hashfull,
-                                move_to_usi(m)
+                                render_pv(&info.pv, m, true)
                             );
                         }
                         let best = info

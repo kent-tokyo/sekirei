@@ -17,8 +17,10 @@ catch *before* spending compute, not after).
 ## Objective and scope
 
 Produce, validate, and (in later, separately-approved rounds) publish one **official, production-recommended
-A-flat (flat piece-square) NNUE checkpoint** for Sekirei — the deliverable `docs/nnue_weights.md` has been
-missing since that document was written: "No production-recommended trained weight file exists yet."
+A-flat (flat piece-square) NNUE checkpoint** for Sekirei. The later
+`sekirei-nnue-v0.3.38.bin` release artifact fulfills that deliverable; this
+document remains a historical preregistration and does not retroactively
+validate any later training or gate result.
 
 **Preregistration and training are separate branches, not phases of one branch.** This PR
 (`experiment/official-nnue-v1-training`) is preregistration-only and merges as such. The actual training work

@@ -418,12 +418,16 @@ impl Transcript {
         if let Some(w) = &mut self.0 {
             let search = search.map(|info| {
                 serde_json::json!({
+                    "multipv": info.multipv,
                     "depth": info.depth,
                     "nodes": info.nodes,
+                    "time_ms": info.time_ms,
+                    "nps": info.nps,
                     "score_cp": info.score_cp,
                     "score_mate": info.score_mate,
                     "bound": info.bound,
                     "pv": info.pv,
+                    "completed_iteration": info.completed_iteration,
                     "raw": info.raw,
                 })
             });
@@ -948,14 +952,44 @@ fn persist_csa_manifest(
     write_atomic(&dir.join("manifest.json"), &bytes)
 }
 
-fn load_positions(path: &PathBuf) -> Vec<String> {
-    fs::read_to_string(path)
-        .unwrap_or_default()
+fn load_positions(path: &Path) -> Result<Vec<String>, String> {
+    let positions: Vec<String> = fs::read_to_string(path)
+        .map_err(|error| format!("cannot read opening file {}: {error}", path.display()))?
         .lines()
         .map(str::trim)
         .filter(|l| !l.is_empty() && !l.starts_with('#'))
         .map(str::to_string)
-        .collect()
+        .collect();
+    if positions.is_empty() {
+        return Err(format!(
+            "opening file contains no SFEN positions: {}",
+            path.display()
+        ));
+    }
+    for (line_number, sfen) in positions.iter().enumerate() {
+        parse_position_cmd(&format!("sfen {sfen}")).map_err(|error| {
+            format!(
+                "invalid SFEN in {} at non-comment position line {}: {error}",
+                path.display(),
+                line_number + 1
+            )
+        })?;
+    }
+    Ok(positions)
+}
+
+fn run_validate_positions(args: &[String]) {
+    if args.len() != 1 {
+        eprintln!("usage: sekirei-match validate-positions <one-sfen-per-line-file>");
+        std::process::exit(2);
+    }
+    match load_positions(Path::new(&args[0])) {
+        Ok(positions) => println!("{{\"status\":\"valid\",\"positions\":{}}}", positions.len()),
+        Err(error) => {
+            eprintln!("invalid opening positions: {error}");
+            std::process::exit(1);
+        }
+    }
 }
 
 /// Simple LCG for deterministic random selection (no rand crate dependency).
@@ -1663,6 +1697,10 @@ fn main() {
         run_summarize(&argv0[1..]);
         return;
     }
+    if argv0.first().map(|s| s.as_str()) == Some("validate-positions") {
+        run_validate_positions(&argv0[1..]);
+        return;
+    }
 
     let args = parse_args().unwrap_or_else(|e| {
         eprintln!("error: {e}");
@@ -1696,11 +1734,13 @@ fn main() {
         std::process::exit(1);
     }
 
-    let positions: Vec<String> = args
-        .positions_file
-        .as_ref()
-        .map(load_positions)
-        .unwrap_or_default();
+    let positions: Vec<String> = match args.positions_file.as_ref() {
+        Some(path) => load_positions(path).unwrap_or_else(|error| {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }),
+        None => Vec::new(),
+    };
     let mut rng = Lcg(0x_dead_beef_cafe_0001);
 
     let mut e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1);

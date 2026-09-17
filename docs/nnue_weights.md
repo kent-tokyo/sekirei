@@ -9,30 +9,27 @@ from a prospective commercial mobile integrator.
 Sekirei's **source code** is dual-licensed MIT / Apache-2.0 (`LICENSE-MIT`,
 `LICENSE-APACHE`), same as most of the Rust ecosystem — permissive, no
 copyleft, no GPL. A **trained NNUE weight file** is a separate artifact:
-it's data derived from training runs, not code, and this repository does
-not currently ship one. Nothing in this repo grants a license to a weight
-file, for the simple reason that no weight file is distributed as part of
-it — the entire `data/` directory (where any weights would live) is
-`.gitignore`d (see `.gitignore`), so no `.bin` weight file has ever been a
-tracked, released, or distributed artifact of this project.
+it is data derived from training runs, not code. Project training runs remain
+under ignored `data/`, while each distributed checkpoint lives in the tracked
+`weights/` directory with its own model card, SHA-256, and CC BY 4.0 notice.
+The source-code license does not extend to a weight artifact.
 
-## Currently distributed weights: none
+## Currently distributed weights
 
-**No production-recommended trained weight file exists yet.** Without one,
-`sekirei` runs on a genuine material-count fallback
+[`weights/sekirei-nnue-v0.3.38.bin`](../weights/sekirei-nnue-v0.3.38.bin) is
+the versioned recommended optional A-flat checkpoint for 0.3.38. Its SHA-256,
+training provenance, output mode, strict-health result, and local
+strength-gate scope are pinned in its adjacent
+[model card](../weights/sekirei-nnue-v0.3.38.json). It cleared a local,
+color-reversed paired-SPRT comparison against the pinned baseline. That does
+not establish a Floodgate rating, a human rating, or superiority to another
+engine.
+
+The crate and executable do not embed a model. Without an explicit `EvalFile`
+or command-line checkpoint, `sekirei` runs on a genuine material-count fallback
 (`crates/sekirei-core/src/eval.rs::evaluate`, dispatches to
 `material_score` whenever `nnue::weights_active()` is false) — correct
-shogi play, but not the strength-relevant evaluation NNUE-class engines are
-built around. This is a real, current limitation, not a hedge: this
-project's own backlog (`tasks/todo.md`) still lists "deploy NNUE to
-floodgate once it beats material eval baseline" as **not done**, and no
-weight file has cleared this project's own strength gate against that
-baseline as of this writing.
-
-If/when a production-quality weight file is published, its license terms
-(including whether commercial redistribution is permitted) will be
-specified explicitly at that time — do not assume the code's MIT/Apache-2.0
-terms extend to it by default.
+shogi play, but not the checkpoint-backed evaluation measured above.
 
 ## Weight file format compatibility
 
@@ -69,14 +66,14 @@ Offset        Size           Content
 
 | Architecture | Status | Recommended for production use? |
 |---|---|---|
-| A (flat, default) | Shipping default since this project's earliest NNUE work | No weight file has cleared the material-eval strength gate yet (see above) — the architecture itself is stable, but no specific trained checkpoint is currently recommended |
+| A (flat, default) | Shipping default since this project's earliest NNUE work | `sekirei-nnue-v0.3.38.bin` is the recommended optional checkpoint; its claim boundary is the pinned local paired-SPRT result above |
 | B-small (king-relative, opt-in) | Experimental. Phase 3 validation: `valid_cp_mse` improved in 3/3 seeds, but `valid_wdl_loss`/`valid_calibration_error` regressed in 3/3 seeds against the same baseline — status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD** (see [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)). No paired Elo/SPRT strength gate established an improvement. **Not recommended for production use at this time.** |
 
-Neither architecture currently has a published, production-recommended
-checkpoint. For app-size-insensitive integrators (per issue #44's own
-framing), B-small is the more representationally interesting long-term
-direction — but "interesting" and "validated" are different things here,
-and it is explicitly not the latter yet.
+Only the A-flat checkpoint above is recommended for 0.3.38, and only within
+its recorded local paired-SPRT scope. For app-size-insensitive integrators
+(per issue #44's own framing), B-small is the more representationally
+interesting long-term direction — but "interesting" and "validated" are
+different things here, and it is explicitly not the latter yet.
 
 ## Training your own weights
 

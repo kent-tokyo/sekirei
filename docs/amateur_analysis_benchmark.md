@@ -95,10 +95,10 @@ summary, strength-gate status), don't duplicate that here — use
 [`docs/nnue_weights.md`](nnue_weights.md)'s existing "Model-card template
 for a specific checkpoint" section.
 
-**As of this writing, no production-recommended weight file exists**
-(see `docs/nnue_weights.md`), so `engine.weight_sha256: null` — material-
-eval fallback — is the *expected default* for any Sekirei run made with
-this kit today, not an edge case to special-case around.
+The versioned optional checkpoint and its claim boundary are documented in
+[`docs/nnue_weights.md`](nnue_weights.md). Record its SHA-256 when it is used;
+`engine.weight_sha256: null` remains the correct record for material-fallback
+runs and must not be replaced with an inferred checkpoint identity.
 
 ## Do not overclaim
 

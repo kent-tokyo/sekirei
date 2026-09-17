@@ -65,8 +65,10 @@ extrapolated to a phone without direct measurement.
 ## What this does NOT have, as of this writing
 
 - No official mobile FFI/bindings (see above).
-- No production-recommended trained NNUE weight file (`docs/nnue_weights.md`)
-  — material-fallback-only until you supply your own `EvalFile`.
+- No on-device production validation for the recommended optional NNUE weight
+  (`docs/nnue_weights.md`). The versioned checkpoint can be supplied through
+  `EvalFile`; material evaluation remains the fallback when it is omitted or
+  cannot be loaded.
 - No verified on-device (iOS/Android) memory or battery profiling.
 - No published benchmark against amateur-game analysis quality specifically
   (this project's own strength-gating work has focused on engine-vs-engine
@@ -79,7 +81,7 @@ but typically come with a heavier native-toolchain/licensing footprint for
 embedded use than a small, permissively-licensed (MIT/Apache-2.0), pure-Rust
 crate offers by construction. That's a structural, license-and-toolchain
 difference, not a strength claim — Sekirei does not currently claim to
-match those engines' playing strength (see `docs/nnue_weights.md`'s
-material-fallback-until-validated status). If your priority is integration
+match those engines' playing strength (see `docs/nnue_weights.md` for the
+local-gate-only checkpoint claim boundary). If your priority is integration
 simplicity and license clarity over maximum engine-vs-engine Elo, that's
 the actual, honest tradeoff this project currently offers.

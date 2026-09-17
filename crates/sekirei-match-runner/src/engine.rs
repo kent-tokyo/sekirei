@@ -22,18 +22,22 @@ pub struct UsiEngine {
 
 /// Last structured USI `info` values observed before one `bestmove`.
 ///
-/// Engines may emit several partial `info` lines during iterative deepening,
-/// so fields are merged independently and the raw line that most recently
-/// contributed data is retained for audit/debugging.
+/// Only a single complete primary-PV line is persisted for one `bestmove`.
+/// This prevents unrelated iterative-deepening or MultiPV lines from being
+/// combined into a score/PV pair that the engine never actually reported.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SearchInfo {
+    pub multipv: Option<u32>,
     pub depth: Option<u32>,
     pub nodes: Option<u64>,
+    pub time_ms: Option<u64>,
+    pub nps: Option<u64>,
     pub score_cp: Option<i32>,
     /// USI also permits `score mate +` / `score mate -`, hence a string.
     pub score_mate: Option<String>,
     pub bound: Option<String>,
     pub pv: Vec<String>,
+    pub completed_iteration: bool,
     pub raw: Option<String>,
 }
 
@@ -44,24 +48,12 @@ pub struct GoResult {
 }
 
 impl SearchInfo {
-    fn merge(&mut self, newer: SearchInfo) {
-        if newer.depth.is_some() {
-            self.depth = newer.depth;
-        }
-        if newer.nodes.is_some() {
-            self.nodes = newer.nodes;
-        }
-        if newer.score_cp.is_some() || newer.score_mate.is_some() {
-            self.score_cp = newer.score_cp;
-            self.score_mate = newer.score_mate;
-            self.bound = newer.bound;
-        }
-        if !newer.pv.is_empty() {
-            self.pv = newer.pv;
-        }
-        if newer.raw.is_some() {
-            self.raw = newer.raw;
-        }
+    fn is_completed_primary(&self) -> bool {
+        self.multipv.unwrap_or(1) == 1
+            && self.depth.is_some()
+            && (self.score_cp.is_some() || self.score_mate.is_some())
+            && self.bound.is_none()
+            && !self.pv.is_empty()
     }
 }
 
@@ -181,7 +173,7 @@ impl UsiEngine {
         let expected_nnue_ack = options.iter().find_map(|option| {
             option
                 .strip_prefix("NnueOutput=")
-                .map(|mode| format!("info string NNUE output mode: {mode}"))
+                .map(|mode| format!("info string NNUE output mode {mode}"))
         });
         let mut acknowledged = expected_nnue_ack.is_none();
         loop {
@@ -273,7 +265,7 @@ impl UsiEngine {
             .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
             .unwrap_or(MOVE_FALLBACK);
 
-        let mut info = SearchInfo::default();
+        let mut completed_primary = None;
         loop {
             let line = self.recv_line(deadline)?; // TimedOut bubbles up = engine hung
             if line.starts_with("bestmove") {
@@ -282,17 +274,31 @@ impl UsiEngine {
                     .nth(1)
                     .unwrap_or("resign")
                     .to_string();
-                return Ok(GoResult { bestmove: mv, info });
+                return Ok(GoResult {
+                    bestmove: mv,
+                    info: completed_primary.unwrap_or_default(),
+                });
             }
             if line.starts_with("info ") {
-                info.merge(parse_search_info(&line));
+                retain_completed_primary(&mut completed_primary, &line);
             }
         }
     }
 }
 
-fn parse_search_info(line: &str) -> SearchInfo {
+fn retain_completed_primary(slot: &mut Option<SearchInfo>, line: &str) {
+    if let Some(info) = parse_search_info(line)
+        && info.is_completed_primary()
+    {
+        *slot = Some(info);
+    }
+}
+
+fn parse_search_info(line: &str) -> Option<SearchInfo> {
     let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.get(1) == Some(&"string") {
+        return None;
+    }
     let mut parsed = SearchInfo {
         raw: Some(line.to_string()),
         ..SearchInfo::default()
@@ -300,12 +306,24 @@ fn parse_search_info(line: &str) -> SearchInfo {
     let mut i = usize::from(tokens.first() == Some(&"info"));
     while i < tokens.len() {
         match tokens[i] {
+            "multipv" => {
+                parsed.multipv = tokens.get(i + 1).and_then(|value| value.parse().ok());
+                i += 2;
+            }
             "depth" => {
                 parsed.depth = tokens.get(i + 1).and_then(|value| value.parse().ok());
                 i += 2;
             }
             "nodes" => {
                 parsed.nodes = tokens.get(i + 1).and_then(|value| value.parse().ok());
+                i += 2;
+            }
+            "time" => {
+                parsed.time_ms = tokens.get(i + 1).and_then(|value| value.parse().ok());
+                i += 2;
+            }
+            "nps" => {
+                parsed.nps = tokens.get(i + 1).and_then(|value| value.parse().ok());
                 i += 2;
             }
             "score" => {
@@ -338,7 +356,8 @@ fn parse_search_info(line: &str) -> SearchInfo {
             _ => i += 1,
         }
     }
-    parsed
+    parsed.completed_iteration = parsed.is_completed_primary();
+    Some(parsed)
 }
 
 /// Distinguishes a genuine slow-response timeout (engine still alive, just
@@ -467,7 +486,8 @@ mod tests {
     fn parses_cp_search_info_with_bound_and_pv() {
         let info = parse_search_info(
             "info depth 12 seldepth 18 score cp -37 upperbound nodes 12345 pv 7g7f 3c3d",
-        );
+        )
+        .unwrap();
         assert_eq!(info.depth, Some(12));
         assert_eq!(info.nodes, Some(12_345));
         assert_eq!(info.score_cp, Some(-37));
@@ -478,19 +498,50 @@ mod tests {
 
     #[test]
     fn parses_symbolic_mate_score() {
-        let info = parse_search_info("info depth 9 score mate + nodes 42 pv 5a5b");
+        let info = parse_search_info("info depth 9 score mate + nodes 42 pv 5a5b").unwrap();
         assert_eq!(info.score_cp, None);
         assert_eq!(info.score_mate.as_deref(), Some("+"));
         assert_eq!(info.nodes, Some(42));
     }
 
     #[test]
-    fn search_info_merge_preserves_values_from_partial_lines() {
-        let mut info = parse_search_info("info depth 8 nodes 100");
-        info.merge(parse_search_info("info score cp 25 pv 7g7f"));
+    fn keeps_only_one_complete_primary_iteration() {
+        let incomplete = parse_search_info("info depth 8 nodes 100").unwrap();
+        let secondary =
+            parse_search_info("info multipv 2 depth 9 score cp 25 nodes 200 pv 7g7f 3c3d").unwrap();
+        let primary = parse_search_info(
+            "info multipv 1 depth 9 score cp 31 nodes 200 time 4 nps 50000 pv 2g2f 8c8d",
+        )
+        .unwrap();
+        assert!(!incomplete.completed_iteration);
+        assert!(!secondary.completed_iteration);
+        assert!(primary.completed_iteration);
+        assert_eq!(primary.depth, Some(9));
+        assert_eq!(primary.score_cp, Some(31));
+        assert_eq!(primary.pv, ["2g2f", "8c8d"]);
+    }
+
+    #[test]
+    fn ignores_info_string_messages() {
+        assert!(parse_search_info("info string NNUE output mode absolute").is_none());
+    }
+
+    #[test]
+    fn preserves_last_completed_primary_across_stop_like_partial_output() {
+        let mut retained = None;
+        retain_completed_primary(
+            &mut retained,
+            "info depth 8 score cp 17 nodes 100 pv 7g7f 3c3d",
+        );
+        retain_completed_primary(&mut retained, "info depth 9 nodes 200");
+        retain_completed_primary(
+            &mut retained,
+            "info multipv 2 depth 9 score cp 99 nodes 200 pv 2g2f",
+        );
+        retain_completed_primary(&mut retained, "info string stopping");
+        let info = retained.expect("completed primary is retained");
         assert_eq!(info.depth, Some(8));
-        assert_eq!(info.nodes, Some(100));
-        assert_eq!(info.score_cp, Some(25));
-        assert_eq!(info.pv, ["7g7f"]);
+        assert_eq!(info.score_cp, Some(17));
+        assert_eq!(info.pv, ["7g7f", "3c3d"]);
     }
 }

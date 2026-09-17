@@ -152,6 +152,20 @@ def validate_calibration(data: dict[str, object]) -> list[str]:
             if not isinstance(item, str) or not item:
                 return ["ranking diagnostic inputs"]
         return []
+    if data.get("schema") == "sekirei.selfplay-calibration-holdout-summary.v1":
+        summary = data.get("summary")
+        if data.get("diagnostic_only") is not True or data.get("strength_claim") is not False:
+            return ["selfplay calibration claim boundary"]
+        if not isinstance(summary, dict):
+            return ["selfplay calibration summary"]
+        required_ints = ("selected", "complete", "cp_comparable", "material_anchors_abs_ge_1000")
+        if any(not isinstance(summary.get(key), int) or summary[key] <= 0 for key in required_ints):
+            return ["selfplay calibration counts"]
+        if summary["complete"] > summary["selected"] or summary["cp_comparable"] > summary["complete"]:
+            return ["selfplay calibration count ordering"]
+        if summary.get("verdict") not in {"DIAGNOSTIC_SIGNAL_ONLY", "REJECTED_FOR_CALIBRATION"}:
+            return ["selfplay calibration verdict"]
+        return []
     required = ("games", "engine1_wins", "draws", "engine2_wins", "diversity_ratio")
     if any(key not in data for key in required):
         return ["missing fields"]

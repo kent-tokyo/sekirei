@@ -15,11 +15,12 @@ with tempfile.TemporaryDirectory() as temporary:
     output = Path(temporary) / "run"
     assert MODULE.main(["--games", "2", "--output", str(output), "--dry-run"]) == 0
     manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema"] == "sekirei.local-selfplay-run.v2"
+    assert manifest["schema"] == "sekirei.local-selfplay-run.v3"
     assert manifest["status"] == "planned"
     assert manifest["strength_claim"] is False
     assert manifest["options"]["Threads"] == 1
     assert manifest["options"]["SpecTopN"] == 0
+    assert manifest["options"]["NnueOutput"] == "absolute"
     assert manifest["command"].count("--engine1") == 1
     assert manifest["positions_count"] == 1
     assert manifest["games_scheduled_expected"] == 2
@@ -115,6 +116,36 @@ with tempfile.TemporaryDirectory() as temporary:
         (interrupted / "run-manifest.json").read_text(encoding="utf-8")
     )
     assert interrupted_manifest["status"] == "interrupted"
+
+with tempfile.TemporaryDirectory() as temporary:
+    temporary_path = Path(temporary)
+    fake_engine = temporary_path / "fake-engine"
+    fake_engine.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    fake_engine.chmod(0o755)
+    child_marker = temporary_path / "engine-child-started"
+    fake_runner = temporary_path / "fake-runner"
+    fake_runner.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"validate-positions\" ]; then echo '{\"status\":\"valid\",\"positions\":1}'; exit 0; fi\n"
+        f"touch '{child_marker}'\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+    weak_weights = temporary_path / "weak.bin"
+    weak_weights.write_bytes(b"weak")
+    rejecting_probe = temporary_path / "rejecting-probe"
+    rejecting_probe.write_text("#!/bin/sh\necho '{\"strict\":false}'\nexit 1\n", encoding="utf-8")
+    rejecting_probe.chmod(0o755)
+    output = temporary_path / "preflight-failed"
+    assert MODULE.main([
+        "--games", "1", "--engine", str(fake_engine), "--runner", str(fake_runner),
+        "--probe", str(rejecting_probe), "--weights", str(weak_weights), "--output", str(output),
+    ]) == 1
+    manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["status"] == "preflight_failed"
+    assert manifest["preflight"]["weights"]["returncode"] == 1
+    assert not child_marker.exists()
 
 try:
     MODULE.parse_args(["--games", "0"])

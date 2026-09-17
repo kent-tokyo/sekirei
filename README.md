@@ -1,13 +1,13 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.37-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.37)
+[![Release](https://img.shields.io/badge/release-v0.3.38-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.38)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.37`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.38`
 provides a USI engine, CSA/Floodgate client, match runner, NNUE training tools,
 and reusable core library. Playing strength is still under development; local
 diagnostics and self-play results are not absolute rating claims.
@@ -30,13 +30,17 @@ cargo run --release -p sekirei
 ```
 
 Register the resulting `sekirei` executable in a USI-compatible shogi GUI.
-Without a checkpoint the engine uses material evaluation. To enable NNUE:
+Without a checkpoint the engine uses material evaluation. The recommended
+0.3.38 checkpoint is versioned separately at
+[`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin):
 
 ```bash
-sekirei /path/to/weights.bin
+sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-NNUE weights are not bundled with the crate.
+Verify the SHA-256 and license in [the weight artifact card](weights/README.md)
+before use. NNUE weights are not bundled with the crate; this keeps the
+MIT/Apache source package and CC BY 4.0 model artifact separate.
 
 ## What is included
 

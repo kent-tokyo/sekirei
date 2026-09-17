@@ -54,8 +54,15 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--threads", type=int, default=1, help="USI Threads per engine")
     parser.add_argument("--max-moves", type=int, default=512, help="draw cap per game")
     parser.add_argument("--weights", type=Path, help="optional NNUE weight file for both sides")
+    parser.add_argument(
+        "--nnue-output",
+        choices=("absolute", "residual-material"),
+        default="absolute",
+        help="explicit NnueOutput mode recorded and acknowledged by both engines",
+    )
     parser.add_argument("--engine", type=Path, help="USI engine binary (default: target/release/sekirei)")
     parser.add_argument("--runner", type=Path, help="match binary (default: target/release/sekirei-match)")
+    parser.add_argument("--probe", type=Path, help="NNUE probe binary (default: target/release/nnue_probe)")
     parser.add_argument("--positions", type=Path, help="optional one-SFEN-per-line opening file")
     parser.add_argument("--games-per-position", type=int, help="cover every opening this many times")
     parser.add_argument("--output", type=Path, help="new run directory (default: data/runs/local_selfplay_<UTC>)")
@@ -192,14 +199,16 @@ def interrupted_returncode(returncode: int | None) -> bool:
     }
 
 
-def missing_required_artifacts(output: Path, audit: dict) -> list[str]:
+def missing_required_artifacts(output: Path, audit: dict, allow_running_snapshot: bool = False) -> list[str]:
     missing = []
     for relative in ("result.json", "result.jsonl", "csa/manifest.json"):
         if not (output / relative).is_file():
             missing.append(relative)
     reported = audit.get("games_reported")
     if isinstance(reported, int):
-        if audit.get("result_status") != "complete":
+        if audit.get("result_status") != "complete" and not (
+            allow_running_snapshot and audit.get("result_status") == "running"
+        ):
             missing.append("final result status=complete")
         if audit.get("usi_kifu_files", 0) != reported:
             missing.append("usi_kifu files for every reported game")
@@ -216,6 +225,46 @@ def missing_required_artifacts(output: Path, audit: dict) -> list[str]:
     return missing
 
 
+def run_preflight(
+    *, runner: Path, probe: Path, weights: Path | None, positions: Path | None, nnue_output: str
+) -> dict:
+    """Run only validation tools; never launch a self-play child process."""
+    report: dict = {"status": "passed", "positions": None, "weights": None}
+    if positions is not None:
+        checked = subprocess.run(
+            [str(runner), "validate-positions", str(positions)], text=True, capture_output=True, check=False
+        )
+        report["positions"] = {
+            "command": [str(runner), "validate-positions", str(positions)],
+            "returncode": checked.returncode,
+            "stdout": checked.stdout.strip(),
+            "stderr": checked.stderr.strip(),
+        }
+        if checked.returncode != 0:
+            report["status"] = "failed"
+            return report
+    if weights is not None:
+        checked = subprocess.run(
+            [str(probe), str(weights), "--json", "--strict", "--nnue-output", nnue_output],
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        try:
+            parsed = json.loads(checked.stdout)
+        except json.JSONDecodeError:
+            parsed = None
+        report["weights"] = {
+            "command": [str(probe), str(weights), "--json", "--strict", "--nnue-output", nnue_output],
+            "returncode": checked.returncode,
+            "report": parsed,
+            "stderr": checked.stderr.strip(),
+        }
+        if checked.returncode != 0 or parsed is None:
+            report["status"] = "failed"
+    return report
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(sys.argv[1:] if argv is None else argv)
     output = (args.output or default_run_dir()).resolve()
@@ -226,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
 
     engine = (args.engine or ROOT / "target" / "release" / "sekirei").resolve()
     runner = (args.runner or ROOT / "target" / "release" / "sekirei-match").resolve()
+    probe = (args.probe or ROOT / "target" / "release" / "nnue_probe").resolve()
     weights = args.weights.resolve() if args.weights else None
     positions = args.positions.resolve() if args.positions else None
     for label, path in (("weights", weights), ("positions", positions)):
@@ -251,7 +301,8 @@ def main(argv: list[str] | None = None) -> int:
         "--csa-output", str(csa_dir), "--json", str(summary_path),
         "--transcript", str(transcript_path), "--engine-option1", f"Threads={args.threads}",
         "--engine-option2", f"Threads={args.threads}", "--engine-option1", "SpecTopN=0",
-        "--engine-option2", "SpecTopN=0",
+        "--engine-option2", "SpecTopN=0", "--engine-option1", f"NnueOutput={args.nnue_output}",
+        "--engine-option2", f"NnueOutput={args.nnue_output}",
     ]
     if engine_args:
         command.extend(["--args1", " ".join(engine_args), "--args2", " ".join(engine_args)])
@@ -268,14 +319,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     unique_conditions = min(games_scheduled_expected, opening_count * 2)
     manifest = {
-        "schema": "sekirei.local-selfplay-run.v2",
-        "status": "planned" if args.dry_run else "running",
+        "schema": "sekirei.local-selfplay-run.v3",
+        "status": "preflight_pending",
         "strength_claim": False,
         "started_at": utc_now(),
         "repository": {"head": git_value("rev-parse", "HEAD"), "dirty": bool(git_value("status", "--porcelain"))},
         "engine": {"path": str(engine), "sha256": sha256(engine) if engine.is_file() else None},
+        "runner": {"path": str(runner), "sha256": sha256(runner) if runner.is_file() else None},
+        "probe": {"path": str(probe) if weights else None, "sha256": sha256(probe) if weights and probe.is_file() else None},
         "weights": {"path": str(weights) if weights else None, "sha256": sha256(weights)},
-        "options": {"Threads": args.threads, "SpecTopN": 0, "byoyomi_ms": args.byoyomi_ms, "max_moves": args.max_moves},
+        "options": {"Threads": args.threads, "SpecTopN": 0, "NnueOutput": args.nnue_output, "byoyomi_ms": args.byoyomi_ms, "max_moves": args.max_moves},
         "games_requested": args.games,
         "games_scheduled_expected": games_scheduled_expected,
         "positions": str(positions) if positions else "startpos",
@@ -293,23 +346,42 @@ def main(argv: list[str] | None = None) -> int:
         "command": command,
     }
     write_manifest(manifest_path, manifest)
-    if args.dry_run:
-        print(f"Planned local self-play run: {output}")
-        return 0
 
-    if args.build or not (engine.is_file() and runner.is_file()):
-        build = ["cargo", "build", "--release", "-p", "sekirei", "-p", "sekirei-match-runner"]
+    required_binaries = [engine, runner] + ([probe] if weights is not None else [])
+    if args.build or not all(path.is_file() for path in required_binaries):
+        builds = [["cargo", "build", "--release", "-p", "sekirei", "-p", "sekirei-match-runner"]]
+        if weights is not None:
+            builds.append(["cargo", "build", "--release", "-p", "sekirei-bench", "--bin", "nnue_probe"])
         print("Building release binaries...", flush=True)
-        if subprocess.run(build, cwd=ROOT).returncode != 0:
-            manifest.update({"status": "build_failed", "ended_at": utc_now()})
-            write_manifest(manifest_path, manifest)
-            return 1
-    if not (engine.is_file() and runner.is_file()):
+        for build in builds:
+            if subprocess.run(build, cwd=ROOT).returncode != 0:
+                manifest.update({"status": "build_failed", "ended_at": utc_now()})
+                write_manifest(manifest_path, manifest)
+                return 1
+    if not all(path.is_file() for path in required_binaries):
         print("error: release binaries were not produced", file=sys.stderr)
         manifest.update({"status": "build_failed", "ended_at": utc_now()})
         write_manifest(manifest_path, manifest)
         return 1
     manifest["engine"]["sha256"] = sha256(engine)
+    manifest["runner"]["sha256"] = sha256(runner)
+    if weights is not None:
+        manifest["probe"]["sha256"] = sha256(probe)
+    preflight = run_preflight(
+        runner=runner, probe=probe, weights=weights, positions=positions, nnue_output=args.nnue_output
+    )
+    manifest["preflight"] = preflight
+    if preflight["status"] != "passed":
+        manifest.update({"status": "preflight_failed", "ended_at": utc_now()})
+        write_manifest(manifest_path, manifest)
+        print("error: self-play preflight failed; no engine child was started", file=sys.stderr)
+        return 1
+    if args.dry_run:
+        manifest["status"] = "planned"
+        write_manifest(manifest_path, manifest)
+        print(f"Planned local self-play run: {output}")
+        return 0
+    manifest["status"] = "running"
     write_manifest(manifest_path, manifest)
 
     interrupted = False
@@ -351,9 +423,21 @@ def main(argv: list[str] | None = None) -> int:
         **result_diagnostics(summary_path),
         **csa_diagnostics(csa_dir / "manifest.json"),
     }
-    audit["missing_required_artifacts"] = missing_required_artifacts(output, audit)
+    is_interrupted = interrupted or interrupted_returncode(returncode)
+    audit["missing_required_artifacts"] = missing_required_artifacts(
+        output, audit, allow_running_snapshot=is_interrupted
+    )
+    audit["result_state"] = (
+        "interrupted_snapshot"
+        if is_interrupted and audit.get("result_status") == "running"
+        else "final_complete"
+        if audit.get("result_status") == "complete"
+        else "unstarted_or_output_failed"
+        if not audit.get("result_summary_present")
+        else "unfinished_or_invalid"
+    )
     manifest.update({"ended_at": utc_now(), "returncode": returncode, "artifact_audit": audit})
-    if interrupted or interrupted_returncode(returncode):
+    if is_interrupted:
         manifest["status"] = "interrupted"
     elif returncode != 0:
         manifest["status"] = "failed"

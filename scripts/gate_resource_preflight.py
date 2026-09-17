@@ -47,6 +47,15 @@ from pathlib import Path
 DEFAULT_SPEC_TOP_N = 3
 ENGINES_PER_SHARD = 2  # base + candidate, one sekirei-match shard
 DIAGNOSTIC_RELAXED_LOAD_LIMIT = 20.0
+STANDARD_MAX_SWAP_FRACTION = 0.30
+# Some macOS hosts provision only 1 GiB of swap.  A few hundred MiB in that
+# small pool can look like a large percentage despite ample reclaimable RAM.
+# The exception below is deliberately narrow and applies only together with
+# the normal formal-memory check; it must never turn an unknown or genuinely
+# large swap allocation into a pass.
+SMALL_SWAP_TOTAL_MAX_MB = 1024.0
+SMALL_SWAP_USED_MAX_MB = 512.0
+SMALL_SWAP_MIN_FREE_MEMORY_GB = 6.0
 
 # --contention-job matches by `pgrep -f` substring, which is a full-command-
 # line match -- it can hit an unrelated, near-idle process whose cwd/args
@@ -150,7 +159,13 @@ def parse_load_average_1min(uptime_output):
     return float(m.group(1)) if m else None
 
 
-def parse_swap_used_fraction(swapusage_output):
+def parse_swap_usage_mb(swapusage_output):
+    """Return ``(total_mb, used_mb)`` from ``vm.swapusage`` or ``None``.
+
+    Keeping the absolute values is necessary on small-swap macOS hosts: a
+    percentage alone cannot distinguish 438 MiB of 1 GiB from 4.38 GiB of
+    10 GiB.  Contradictory zero-total/nonzero-used output remains unknown.
+    """
     if swapusage_output is None:
         return None
     # e.g. "vm.swapusage: total = 5120.00M  used = 4352.10M  free = 767.90M ..."
@@ -161,10 +176,19 @@ def parse_swap_used_fraction(swapusage_output):
     # macOS reports total/used/free as 0.00M when swap is disabled or has
     # never been allocated. That is a known zero-use state, not UNKNOWN.
     if total == 0 and used == 0:
-        return 0.0
+        return total, used
     if total < 0 or used < 0 or total == 0:
         return None
-    return used / total
+    return total, used
+
+
+def parse_swap_used_fraction(swapusage_output):
+    """Backward-compatible fraction view of :func:`parse_swap_usage_mb`."""
+    usage = parse_swap_usage_mb(swapusage_output)
+    if usage is None:
+        return None
+    total, used = usage
+    return 0.0 if total == 0 else used / total
 
 
 def parse_free_memory_gb(vm_stat_output):
@@ -287,6 +311,40 @@ def evaluate_thread_budget(parallel, threads, spec_top_n, physical_cores, engine
     return predicted, limit, predicted <= limit
 
 
+def evaluate_swap_safety(swap_fraction, swap_total_mb, swap_used_mb, free_mem_gb):
+    """Return ``(ok, policy)`` for a formal gate's swap condition.
+
+    The ordinary percentage ceiling remains the default policy.  The narrow
+    absolute-use exception protects small, fixed-swap macOS configurations
+    from a misleading percentage while requiring substantially more
+    reclaimable memory than the ordinary 2 GiB floor.
+    """
+    if swap_fraction is None:
+        return None, "unknown swap usage"
+    if swap_fraction <= STANDARD_MAX_SWAP_FRACTION:
+        return True, f"standard fraction <= {STANDARD_MAX_SWAP_FRACTION:.0%}"
+    if swap_total_mb is None or swap_used_mb is None:
+        return False, "fraction exceeds standard limit; absolute usage unavailable"
+    if free_mem_gb is None:
+        return False, "fraction exceeds standard limit; reclaimable memory unavailable"
+    small_swap_ok = (
+        swap_total_mb <= SMALL_SWAP_TOTAL_MAX_MB
+        and swap_used_mb <= SMALL_SWAP_USED_MAX_MB
+        and free_mem_gb >= SMALL_SWAP_MIN_FREE_MEMORY_GB
+    )
+    if small_swap_ok:
+        return True, (
+            "small-swap absolute exception "
+            f"(total <= {SMALL_SWAP_TOTAL_MAX_MB:.0f} MiB, "
+            f"used <= {SMALL_SWAP_USED_MAX_MB:.0f} MiB, "
+            f"reclaimable memory >= {SMALL_SWAP_MIN_FREE_MEMORY_GB:.1f} GiB)"
+        )
+    return False, (
+        f"fraction exceeds {STANDARD_MAX_SWAP_FRACTION:.0%}; "
+        "small-swap absolute exception not satisfied"
+    )
+
+
 class Check:
     """One preflight line: a label, a tri-state verdict, and the detail
     string shown next to it. ok=True -> PASS, ok=False -> REFUSE,
@@ -315,6 +373,8 @@ def build_checks(
     logical_cores,
     load1,
     swap_fraction,
+    swap_total_mb,
+    swap_used_mb,
     free_mem_gb,
     disk_free_gb_value,
     contention_hits,
@@ -356,11 +416,17 @@ def build_checks(
         f"{load1} (limit < {load_limit})" if load1 is not None else "unknown",
     ))
 
-    swap_ok = None if swap_fraction is None else swap_fraction <= 0.30
+    swap_ok, swap_policy = evaluate_swap_safety(
+        swap_fraction, swap_total_mb, swap_used_mb, free_mem_gb
+    )
+    swap_detail = "unknown" if swap_fraction is None else f"{swap_fraction:.1%}"
+    if swap_total_mb is not None and swap_used_mb is not None:
+        swap_detail += f" ({swap_used_mb:.0f} MiB / {swap_total_mb:.0f} MiB)"
+    swap_detail += f"; {swap_policy}"
     checks.append(Check(
-        "swap used fraction",
+        "swap usage",
         swap_ok,
-        f"{swap_fraction:.1%}" if swap_fraction is not None else "unknown",
+        swap_detail,
     ))
 
     mem_ok = None if free_mem_gb is None else free_mem_gb >= 2.0
@@ -443,7 +509,11 @@ def main():
     physical_cores = parse_int(collect_physical_cores())
     logical_cores = parse_int(collect_logical_cores())
     load1 = parse_load_average_1min(collect_load_average())
-    swap_fraction = parse_swap_used_fraction(collect_swap_usage())
+    swap_usage = parse_swap_usage_mb(collect_swap_usage())
+    swap_total_mb, swap_used_mb = swap_usage if swap_usage is not None else (None, None)
+    swap_fraction = (
+        None if swap_usage is None else (0.0 if swap_total_mb == 0 else swap_used_mb / swap_total_mb)
+    )
     free_mem_gb = parse_free_memory_gb(collect_vm_stat())
     disk_free = parse_disk_free_gb(collect_disk_free())
 
@@ -470,6 +540,8 @@ def main():
         logical_cores,
         load1,
         swap_fraction,
+        swap_total_mb,
+        swap_used_mb,
         free_mem_gb,
         disk_free,
         contention_hits_value,
@@ -491,6 +563,14 @@ def main():
         "launch_performed": False,
         "options": {"parallel": args.parallel, "threads": args.threads, "spec_top_n": args.spec_top_n,
                     "contention_jobs": args.contention_job},
+        "resource_policy": {
+            "standard_max_swap_fraction": STANDARD_MAX_SWAP_FRACTION,
+            "small_swap_exception": {
+                "max_total_mb": SMALL_SWAP_TOTAL_MAX_MB,
+                "max_used_mb": SMALL_SWAP_USED_MAX_MB,
+                "min_reclaimable_memory_gb": SMALL_SWAP_MIN_FREE_MEMORY_GB,
+            },
+        },
         "mode": "diagnostic_relaxed_load" if args.diagnostic_relaxed_load else "formal_preflight",
         "diagnostic_only": args.diagnostic_relaxed_load,
         "formal_measurement_eligible": not args.diagnostic_relaxed_load,

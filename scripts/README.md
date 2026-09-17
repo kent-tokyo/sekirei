@@ -13,6 +13,8 @@ directory before starting a long job.
   required license references.
 - `check_documentation_references.py`: verifies local paths in both READMEs.
 - `validate_release_manifest.py`: schema and artifact validation.
+- `validate_nnue_release_artifact.py`: verifies a versioned NNUE binary,
+  checksum, model card, license boundary, and the declared local gate scope.
 - `test_public_contracts.sh`: lightweight aggregate for the public boundary.
 
 ## Performance diagnostics
@@ -56,7 +58,14 @@ result.
   a fixed opening corpus. Openings and engine colors are exhausted before a
   condition is reused; raw duplicates are retained while the dedup index names
   one representative for downstream training. `--dry-run` checks the planned
-  command and writes a manifest without playing.
+  command and writes a manifest without playing. A weighted run fails closed
+  before launching an engine unless `nnue_probe --strict` passes; it records
+  the engine, runner, probe, weights, opening file hashes and explicit
+  `NnueOutput`. Empty or invalid opening files are rejected. The transcript
+  stores only the last completed primary-PV iteration, avoiding mixed-depth or
+  secondary-MultiPV scores. `build_selfplay_ledger.py` merges replay-verified
+  representative runs into a development-only split/overlap ledger and freezes
+  a bounded diagnostic position set; it is not a training exporter.
 
 Same-engine self-play is useful training and regression data, but it is not
 an Elo measurement or evidence that either version is stronger.
@@ -82,6 +91,17 @@ manifests, plist files, command transcripts, or saved logs.
   `analyze_nnue_outliers.py`: evaluator diagnostics.
 - `select_longrun_checkpoint.py`, `select_king_relative_checkpoint.py`: apply
   experiment-specific, validation-only selection rules.
+- `build_selfplay_color_pairs.py`, `freeze_selfplay_calibration_split.py`,
+  `freeze_selfplay_diagnostic_corpus.py`: freeze C5 diagnostic inputs without
+  reusing positions across their declared split.
+- `run_fixed_selfplay_diagnostic.py`,
+  `run_c5e_teacher_search_distribution_diagnostic.py`,
+  `run_selfplay_calibration_holdout.py`, `run_selfplay_search_factorial.py`:
+  run bounded evaluator, calibration, and search-factorial diagnostics.
+- `audit_historical_nnue_teachers.py`, `diagnose_c5h_teacher_transfer.py`,
+  `classify_fixed_selfplay_diagnostic.py`, and the two `summarize_*` scripts:
+  audit or summarize saved diagnostics. They do not train, select, or deploy a
+  weight.
 - `cleanup_runs.sh`: dry-run by default; removes old completed intermediate
   stages only when `APPLY=1` is explicitly set.
 

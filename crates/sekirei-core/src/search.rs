@@ -718,7 +718,7 @@ impl Searcher {
                 best_score = evaluate(board);
             }
         }
-        let pv = extract_pv(self, board, best_move, done_depth);
+        let pv = extract_pv(&self.tt, board, best_move, done_depth);
 
         let aborted = state.budget.should_abort();
         let completed_bound = bound;
@@ -740,12 +740,7 @@ impl Searcher {
 }
 
 /// Reconstruct a conservative PV without treating non-exact TT bounds as a line.
-fn extract_pv(
-    searcher: &Searcher,
-    board: &mut Board,
-    first: Option<Move>,
-    depth: u32,
-) -> Vec<Move> {
+fn extract_pv(tt: &Tt, board: &mut Board, first: Option<Move>, depth: u32) -> Vec<Move> {
     let mut line = Vec::new();
     let mut tokens = Vec::new();
     let mut next = first;
@@ -761,8 +756,7 @@ fn extract_pv(
         }
         tokens.push(board.do_move(mv));
         line.push(mv);
-        next = searcher
-            .tt
+        next = tt
             .probe(board.hash())
             .filter(|entry| entry.bound == Bound::Exact)
             .and_then(|entry| entry.mv);
@@ -2002,6 +1996,11 @@ pub struct SpecSearchInfo {
     pub spec_total: u32,
     /// MultiPV results: [(move, score)] ordered best-first. Index 0 == best_move.
     pub pv_list: Vec<(Move, i32)>,
+    /// Legal principal-variation prefix reconstructed from exact TT entries.
+    ///
+    /// This is the continuation for the primary move only. MultiPV callers
+    /// must not attribute it to a non-primary candidate.
+    pub pv: Vec<Move>,
     /// Number of depths where bestmove changed (instability indicator).
     pub bestmove_changes: u32,
 }
@@ -2213,6 +2212,7 @@ impl SpeculativeSearcher {
 
         state.budget.abort_now();
 
+        let pv = extract_pv(&self.tt, board, best_move, done_depth);
         SpecSearchInfo {
             best_move,
             score: best_score,
@@ -2223,6 +2223,7 @@ impl SpeculativeSearcher {
             spec_hits,
             spec_total,
             pv_list,
+            pv,
             bestmove_changes,
         }
     }

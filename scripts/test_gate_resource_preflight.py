@@ -24,6 +24,7 @@ try:
         Check,
         build_checks,
         evaluate_thread_budget,
+        evaluate_swap_safety,
         parse_contending_pids,
         parse_disk_free_gb,
         parse_free_memory_gb,
@@ -33,6 +34,7 @@ try:
         parse_process_count,
         parse_process_present,
         parse_swap_used_fraction,
+        parse_swap_usage_mb,
     )
 except ModuleNotFoundError:
     # Also support `python -m unittest scripts.test_gate_resource_preflight`
@@ -42,6 +44,7 @@ except ModuleNotFoundError:
     Check,
     build_checks,
     evaluate_thread_budget,
+    evaluate_swap_safety,
     parse_contending_pids,
     parse_disk_free_gb,
     parse_free_memory_gb,
@@ -51,6 +54,7 @@ except ModuleNotFoundError:
     parse_process_count,
     parse_process_present,
     parse_swap_used_fraction,
+    parse_swap_usage_mb,
     )
 
 SAMPLE_UPTIME = "07:59  up 24 days, 20:34, 5 users, load averages: 17.51 15.32 14.20\n"
@@ -125,6 +129,28 @@ class ParseSwapFractionTests(unittest.TestCase):
             parse_swap_used_fraction("vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M\n"),
             0.0,
         )
+
+    def test_absolute_usage_is_preserved(self):
+        self.assertEqual(parse_swap_usage_mb(SAMPLE_SWAPUSAGE_LOW), (5120.0, 512.0))
+
+
+class EvaluateSwapSafetyTests(unittest.TestCase):
+    def test_standard_fraction_passes_without_absolute_exception(self):
+        self.assertEqual(
+            evaluate_swap_safety(0.30, 5120.0, 1536.0, 2.0)[0],
+            True,
+        )
+
+    def test_small_swap_absolute_exception_requires_all_three_bounds(self):
+        ok, policy = evaluate_swap_safety(438.38 / 1024.0, 1024.0, 438.38, 6.77)
+        self.assertTrue(ok)
+        self.assertIn("small-swap absolute exception", policy)
+
+    def test_small_swap_exception_refuses_low_reclaimable_memory(self):
+        self.assertFalse(evaluate_swap_safety(0.43, 1024.0, 438.0, 5.99)[0])
+
+    def test_small_swap_exception_refuses_large_absolute_use(self):
+        self.assertFalse(evaluate_swap_safety(0.60, 1024.0, 600.0, 8.0)[0])
 
 
 class ParseFreeMemoryTests(unittest.TestCase):
@@ -296,6 +322,8 @@ class BuildChecksTests(unittest.TestCase):
             logical_cores=10,
             load1=2.0,
             swap_fraction=0.05,
+            swap_total_mb=5120.0,
+            swap_used_mb=256.0,
             free_mem_gb=8.0,
             disk_free_gb_value=50.0,
             contention_hits=[],
@@ -314,6 +342,8 @@ class BuildChecksTests(unittest.TestCase):
             logical_cores=10,
             load1=17.51,
             swap_fraction=0.82,
+            swap_total_mb=5120.0,
+            swap_used_mb=4200.0,
             free_mem_gb=0.08,
             disk_free_gb_value=25.0,
             contention_hits=["renkin"],
@@ -325,7 +355,7 @@ class BuildChecksTests(unittest.TestCase):
         self.assertFalse(all(c.passed for c in checks))
         by_label = {c.label: c for c in checks}
         self.assertEqual(by_label["load average (1min)"].status, "REFUSE")
-        self.assertEqual(by_label["swap used fraction"].status, "REFUSE")
+        self.assertEqual(by_label["swap usage"].status, "REFUSE")
         self.assertEqual(by_label["free memory (GB)"].status, "REFUSE")
         self.assertEqual(by_label["named contention jobs"].status, "REFUSE")
         self.assertEqual(by_label["concurrent claude sessions"].status, "REFUSE")
@@ -339,6 +369,8 @@ class BuildChecksTests(unittest.TestCase):
             logical_cores=10,
             load1=16.79,
             swap_fraction=0.0,
+            swap_total_mb=0.0,
+            swap_used_mb=0.0,
             free_mem_gb=6.5,
             disk_free_gb_value=34.0,
             contention_hits=[],
@@ -358,6 +390,8 @@ class BuildChecksTests(unittest.TestCase):
             logical_cores=10,
             load1=16.79,
             swap_fraction=0.0,
+            swap_total_mb=0.0,
+            swap_used_mb=0.0,
             free_mem_gb=6.5,
             disk_free_gb_value=34.0,
             contention_hits=[],
@@ -375,6 +409,8 @@ class BuildChecksTests(unittest.TestCase):
             logical_cores=None,
             load1=None,
             swap_fraction=0.05,
+            swap_total_mb=5120.0,
+            swap_used_mb=256.0,
             free_mem_gb=8.0,
             disk_free_gb_value=50.0,
             contention_hits=None,  # pgrep itself failed

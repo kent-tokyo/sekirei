@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+## [0.3.38] – 2026-09-18
+
+- Published the optional A-flat NNUE checkpoint `sekirei-nnue-v0.3.38.bin`
+  with a CC BY 4.0 model card, SHA-256, training provenance, strict-health
+  status, and a machine-validated artifact contract.
+- The pinned candidate cleared the local 1-thread, color-reversed paired-SPRT
+  gate against its pinned NNUE baseline: 80 wins, 14 losses, 0 draws over 47
+  completed pairs (94 games), with a gate-only estimate of +302.8 Elo. This is
+  neither a Floodgate/human rating nor a claim against external engines.
+- Added a small-swap formal-preflight exception only for hosts with at most
+  1 GiB total swap, at most 512 MiB used swap, and at least 6 GiB reclaimable
+  memory. Unknown values and all other resource checks remain fail-closed.
+- Preserved only completed primary-PV iterations in match/self-play records,
+  added explicit opening-SFEN validation, and expanded durable local self-play
+  provenance for NNUE experiments.
+
 - Corrected engine/color assignment for arbitrary starting SFENs, including
   White-to-move positions, and record structured USI score, mate, bound,
   depth, nodes, and PV data for each move.
