@@ -8,9 +8,8 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.38`
-provides a USI engine, CSA/Floodgate client, match runner, NNUE training tools,
-and reusable core library. Playing strength is still under development; local
-diagnostics and self-play results are not absolute rating claims.
+provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
+library. Local diagnostics are not absolute rating claims.
 
 ## Quick start
 
@@ -71,60 +70,27 @@ The engine reports its complete option list after the USI `usi` command. The
 main options are `Hash`, `Threads`, `MoveOverhead`, `Ponder`, `MultiPV`,
 `EvalFile`, `SearchMode`, `SpecTopN`, and the opening-book options.
 
-`SearchMode=Speculative` is the default. `SearchMode=LazySMP` runs independent
-workers with private boards and heuristics while sharing the transposition
-table and stop flag. Scheduling can make parallel searches nondeterministic.
+`SearchMode=Speculative` is the default; parallel modes may be
+nondeterministic. Use `Threads=1` and `SpecTopN=0` for deterministic checks.
+Weight validation, model format, and the limited external-SFNN boundary are
+documented in [NNUE weights](docs/nnue_weights.md).
 
-Check a weight file without installing it globally:
-
-```bash
-cargo run --release -p sekirei-bench --bin nnue_probe -- \
-  /path/to/weights.bin --strict --json
-```
-
-The strict probe detects constant or nearly constant output, missing material
-or side-to-move sensitivity, collapsed layers, and nondeterministic reloads.
-See [NNUE weights](docs/nnue_weights.md) for the model and license boundary.
-External SFNN support currently stops at bounded header and provenance
-inspection; accepted metadata does not imply inference compatibility.
-
-## Build, test, and benchmark
+## Build and verify
 
 ```bash
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo bench --bench movegen -p sekirei-bench
 ```
 
-For the pinned cross-library diagnostic:
-
-```bash
-cargo run --release -p sekirei-bench --bin cross_library -- --check
-cargo run --release -p sekirei-bench --bin cross_library -- --components
-```
-
-The v0.3.35 ten-session comparison measured a combined rsshogi/Sekirei ratio
-of 1.1596x (95% CI 1.1364–1.1833x) on three shared legal-move-generation
-cases. It excludes full-state updates, NNUE, search, and playing strength, so
-it is not an overall speed ranking. The corresponding
-[ten-session report](scripts/benchmark_reports/cross_library_component_10session_2026-09-12.md)
-records the host and measurement boundary.
+Benchmark and cross-library commands, their pinned inputs, and historical
+scope are indexed in [scripts/README.md](scripts/README.md). A component timing
+is not an overall speed or playing-strength ranking.
 
 ## Matches and CSA/Floodgate
 
-Run a local match:
-
-```bash
-cargo run --release -p sekirei-match-runner -- \
-  --engine1 ./target/release/sekirei \
-  --engine2 /path/to/other-engine \
-  --games 100 --byoyomi 10000 \
-  --positions data/gate/openings_standard.sfen \
-  --games-per-position 4 --json results/run.json
-```
-
-For unattended, offline self-play collection with durable records:
+Use `sekirei-match` for local USI matches. For unattended offline self-play
+with durable records:
 
 ```bash
 python3 scripts/run_local_selfplay.py --games 1000 \
@@ -132,24 +98,12 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-It creates a fresh directory under `data/runs/` containing a run manifest,
-log, USI kifu, CSA records, per-move search information, incremental result
-files, and an exact-game deduplication index. Same-engine self-play supplies
-training and regression data; it is not an Elo claim.
+Each run stores a manifest, kifu, CSA, per-move search data, and deduplication
+metadata below ignored `data/runs/`. Same-engine self-play is training and
+regression data, not an Elo claim.
 
-Run the CSA client:
-
-```bash
-cargo run --release -p sekirei-csa -- \
-  --user <name> --trip <secret> --game floodgate-300-10F \
-  --record-dir data/floodgate --loop
-```
-
-`FLOODGATE_ACCOUNT` and `FLOODGATE_TRIP` may be injected through the
-environment instead of command-line arguments. Do not commit credentials,
-game records, generated weights, or training data. `--analysis-dir <dir>`
-adds schema-versioned per-move diagnostic sidecars; missing historical values
-must remain missing rather than being reconstructed as observations.
+`sekirei-csa` provides CSA/Floodgate play. Inject credentials at runtime and
+never commit credentials, game records, generated weights, or training data.
 
 Self-play Elo is relative to the selected baseline and is not a Floodgate or
 human rating. Statistical gates distinguish `PASS`, `FAIL`, and
@@ -157,16 +111,10 @@ human rating. Statistical gates distinguish `PASS`, `FAIL`, and
 
 ## NNUE training
 
-```bash
-cargo run --release -p sekirei-train -- --help
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights.bin --epochs 3
-```
-
-The trainer supports fixed NNUE teachers, deterministic node-budget labels,
-validation splits, Adam state, and full mid-epoch resume checkpoints. Training
-artifacts remain separate from inference `.bin` files. Detailed operational
-entry points are indexed in [scripts/README.md](scripts/README.md).
+Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
+Reproducible recipes, diagnostics, and resume tooling are indexed in
+[scripts/README.md](scripts/README.md); generated training artifacts remain
+outside Git.
 
 ## Documentation
 

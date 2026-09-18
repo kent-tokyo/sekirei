@@ -8,9 +8,8 @@
 [English](README.md)
 
 SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.38`は、
-USIエンジン、CSA/Floodgateクライアント、対局runner、NNUE学習ツール、再利用可能な
-core libraryを含みます。棋力は開発中であり、ローカル診断や自己対局の結果を絶対レート
-としては扱いません。
+USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
+含みます。ローカル診断は絶対的なレートを示すものではありません。
 
 ## まず動かす
 
@@ -63,56 +62,26 @@ USIの`usi`コマンドで全optionを表示します。主なoptionは`Hash`、
 `MoveOverhead`、`Ponder`、`MultiPV`、`EvalFile`、`SearchMode`、`SpecTopN`、
 定跡関連です。
 
-既定は`SearchMode=Speculative`です。`SearchMode=LazySMP`では各workerが盤面と
-heuristicを個別に持ち、TTと停止flagを共有します。並列探索はscheduleにより同条件でも
-結果が揺れる場合があります。
+既定は`SearchMode=Speculative`で、並列modeは結果が揺れる場合があります。決定論的な
+確認では`Threads=1`、`SpecTopN=0`を使います。重みの検証、format、外部SFNNの
+限定的な対応範囲は[NNUE重み](docs/nnue_weights.md)に集約しています。
 
-重みをprocess全体へ組み込まずに検査できます。
-
-```bash
-cargo run --release -p sekirei-bench --bin nnue_probe -- \
-  /path/to/weights.bin --strict --json
-```
-
-strict probeは定数・準定数出力、material／手番感度不足、layer縮退、再読込の非決定性を
-検出します。modelとlicense境界は[NNUE重み](docs/nnue_weights.md)を参照してください。
-外部SFNNは現在、headerと由来の限定検査までで、推論互換性は未実装です。
-
-## build・test・benchmark
+## Buildと検証
 
 ```bash
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
-cargo bench --bench movegen -p sekirei-bench
 ```
 
-固定した競合比較診断：
-
-```bash
-cargo run --release -p sekirei-bench --bin cross_library -- --check
-cargo run --release -p sekirei-bench --bin cross_library -- --components
-```
-
-v0.3.35の10 session比較では、共通する合法手生成3 caseのrsshogi/Sekirei比が
-1.1596倍（95% CI 1.1364〜1.1833倍）でした。全状態更新、NNUE、探索、棋力は対象外で、
-総合速度順位を示しません。hostと測定境界は
-[10 session report](scripts/benchmark_reports/cross_library_component_10session_2026-09-12.md)に記録しています。
+Benchmark・競合比較のcommand、固定入力、過去結果の範囲は
+[script索引](scripts/README.md)に集約しています。Component単位の時間は、総合速度や
+棋力順位を示しません。
 
 ## 対局・CSA/Floodgate
 
-ローカル対局：
-
-```bash
-cargo run --release -p sekirei-match-runner -- \
-  --engine1 ./target/release/sekirei \
-  --engine2 /path/to/other-engine \
-  --games 100 --byoyomi 10000 \
-  --positions data/gate/openings_standard.sfen \
-  --games-per-position 4 --json results/run.json
-```
-
-外部サービスなしで、対局記録を継続収集するには次を実行します。
+ローカルUSI対局には`sekirei-match`を使います。外部サービスなしで対局記録を
+継続収集する場合：
 
 ```bash
 python3 scripts/run_local_selfplay.py --games 1000 \
@@ -120,36 +89,20 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-`data/runs/` 以下に、新しいrun manifest、ログ、USI棋譜、CSA棋譜、
-各手の探索情報、逐次更新される結果、完全重複局の代表索引を保存します。同一エンジン同士の
-自己対局は学習・回帰確認用のデータであり、Eloや棋力向上の根拠ではありません。
+Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、各手の探索値、重複情報を保存します。
+同一engine自己対局は学習・回帰用であり、Elo測定ではありません。
 
-CSA client：
-
-```bash
-cargo run --release -p sekirei-csa -- \
-  --user <name> --trip <secret> --game floodgate-300-10F \
-  --record-dir data/floodgate --loop
-```
-
-command lineの代わりに`FLOODGATE_ACCOUNT`と`FLOODGATE_TRIP`を環境から注入できます。
-認証情報、棋譜、生成重み、学習dataはcommitしないでください。`--analysis-dir <dir>`は
-各手のschema付き診断sidecarを保存します。過去に存在しない評価値を観測値として補完しません。
+`sekirei-csa`はCSA/Floodgate対局に対応します。認証情報は実行時に注入し、認証情報、
+棋譜、生成重み、学習dataをcommitしないでください。
 
 自己対局Eloは選択した基準に対する相対値で、Floodgateや人間のレートではありません。
 統計gateは`PASS`、`FAIL`、`INCONCLUSIVE`を区別します。
 
 ## NNUE学習
 
-```bash
-cargo run --release -p sekirei-train -- --help
-cargo run --release -p sekirei-train -- \
-  --games /path/to/csa_dir --output weights.bin --epochs 3
-```
-
-固定NNUE教師、決定的なnode上限label、validation split、Adam状態、epoch途中の完全resumeに
-対応します。学習artifactと推論用`.bin`は分離します。運用scriptは
-[scripts索引](scripts/README.md)を参照してください。
+学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。再現可能なrecipe、
+診断、resume toolingは[scripts索引](scripts/README.md)に集約し、生成artifactはGit外に
+保持します。
 
 ## 文書
 
