@@ -35,7 +35,7 @@ use sekirei_core::{
     mv::Move,
     nnue::{INPUT, L1, L2, NnueWeights, feature_index_with_king, hand_feature_index},
     piece::PieceKind,
-    search::{SearchConfig, Searcher},
+    search::{MATE_SCORE, SearchBound, SearchConfig, SearchInfo, Searcher},
     sfen::board_to_sfen,
     tt::Tt,
 };
@@ -360,6 +360,25 @@ fn he_bound(fan_in: usize) -> f32 {
 #[inline]
 fn blend_search_target(search_weight: f32, searched: f32, static_teacher: f32) -> f32 {
     search_weight * searched + (1.0 - search_weight) * static_teacher
+}
+
+/// Accept only a completed exact iteration as a bounded training label.
+///
+/// A node/time budget can end a search before its first iterative-deepening
+/// pass completes. Its fallback score is suitable for returning a responsive
+/// interactive move, but not for a reproducible supervised target. Failing
+/// before cache mutation keeps an incomplete label out of later epochs and
+/// separate runs which reuse the on-disk cache.
+fn completed_teacher_score(info: SearchInfo, sfen: &str) -> i32 {
+    assert!(
+        info.depth > 0 && info.completed_bound == SearchBound::Exact,
+        "teacher label search did not complete an exact iteration for {sfen}: depth={} completed_bound={} nodes={} abort_reason={}",
+        info.depth,
+        info.completed_bound.as_str(),
+        info.nodes,
+        info.abort_reason,
+    );
+    info.score
 }
 
 /// Convert a child evaluation (whose positive direction is the child side to
@@ -725,6 +744,11 @@ pub struct Trainer {
     /// implicit trainer constant so cache-backed experiments cannot silently
     /// compare different target scales.
     pub teacher_score_cap: f32,
+    /// Positions-mode diagnostic: exclude mate-scale search labels rather
+    /// than collapsing them into the ordinary CP regression cap.
+    pub exclude_mate_labels: bool,
+    /// Number of positions skipped under `exclude_mate_labels` this epoch.
+    pub dropped_mate_labels: u64,
     /// Weight given to the searched teacher target.  The remaining weight is
     /// the fixed teacher's static evaluation, which is useful when fine-
     /// tuning an imported NNUE must retain its root move ordering.
@@ -1251,6 +1275,8 @@ impl Trainer {
             teacher_time_limit: None,
             teacher_node_limit: None,
             teacher_score_cap: 600.0,
+            exclude_mate_labels: false,
+            dropped_mate_labels: 0,
             search_target_weight: 1.0,
             residual_material_target: false,
             grad_clip_norm: None,
@@ -1416,6 +1442,11 @@ impl Trainer {
     }
 
     #[inline]
+    fn excludes_mate_label(&self, score_cp: i32) -> bool {
+        self.exclude_mate_labels && score_cp.abs() >= MATE_SCORE - 1_000
+    }
+
+    #[inline]
     fn target_from_absolute(&self, board: &Board, absolute: f32) -> f32 {
         if self.residual_material_target {
             absolute - material_score(board) as f32
@@ -1489,10 +1520,22 @@ impl Trainer {
                     multi_pv: 1,
                 };
                 let mut b = sample.board.clone();
-                let cp = self.searcher.search(&mut b, config).score;
+                // Positions JSONL is a training-label path, not an
+                // interactive move-selection path.  Match the CSA path's
+                // bounded teacher search so the root-only mate safety filter
+                // cannot consume a small node budget before one iteration is
+                // completed.
+                let cp = completed_teacher_score(
+                    self.searcher.search_for_teacher(&mut b, config),
+                    &sfen,
+                );
                 new_entries.push((sfen, cp));
                 cp
             };
+            if self.excludes_mate_label(score_cp) {
+                self.dropped_mate_labels += 1;
+                continue;
+            }
             let absolute_teacher = self.capped_teacher_score(score_cp);
             let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
             // No WDL signal on the positions path (positions.jsonl carries
@@ -1547,10 +1590,20 @@ impl Trainer {
                     multi_pv: 1,
                 };
                 let mut b = sample.board.clone();
-                let cp = self.searcher.search(&mut b, config).score;
+                // Keep validation on exactly the same teacher-search route
+                // as train_positions.  Otherwise cached labels and cache
+                // misses would measure different objectives.
+                let cp = completed_teacher_score(
+                    self.searcher.search_for_teacher(&mut b, config),
+                    &sfen,
+                );
                 new_entries.push((sfen, cp));
                 cp
             };
+            if self.excludes_mate_label(teacher_cp) {
+                self.dropped_mate_labels += 1;
+                continue;
+            }
             let absolute_teacher = self.capped_teacher_score(teacher_cp);
             let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
             let score = self.forward(&sample.board);
@@ -3039,6 +3092,7 @@ impl Trainer {
         self.total_count = 0;
         self.total_weight = 0.0;
         self.dropped_missing = 0;
+        self.dropped_mate_labels = 0;
         self.ft_ever_active.iter_mut().for_each(|b| *b = false);
         self.ft_ever_saturated.iter_mut().for_each(|b| *b = false);
         self.l2_ever_active.iter_mut().for_each(|b| *b = false);
@@ -4069,6 +4123,22 @@ fn adam_update_scalar(
 mod tests {
     use super::*;
 
+    fn teacher_info(depth: u32, completed_bound: SearchBound) -> SearchInfo {
+        SearchInfo {
+            best_move: None,
+            score: 123,
+            depth,
+            nodes: 1_000,
+            elapsed: std::time::Duration::ZERO,
+            hashfull: 0,
+            bound: completed_bound,
+            completed_bound,
+            aborted: false,
+            abort_reason: "none",
+            pv: Vec::new(),
+        }
+    }
+
     fn variance(xs: &[f32]) -> f32 {
         let mean = xs.iter().sum::<f32>() / xs.len() as f32;
         xs.iter().map(|x| (x - mean).powi(2)).sum::<f32>() / xs.len() as f32
@@ -4083,6 +4153,20 @@ mod tests {
         assert!(variance(&w.ft[0..L1]) > 0.0);
         assert!(variance(&w.l2[0..L2]) > 0.0);
         assert!(variance(&w.out) > 0.0);
+    }
+
+    #[test]
+    fn completed_teacher_score_accepts_an_exact_completed_iteration() {
+        assert_eq!(
+            completed_teacher_score(teacher_info(1, SearchBound::Exact), "fixture"),
+            123
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "teacher label search did not complete")]
+    fn completed_teacher_score_rejects_a_pre_iteration_budget_stop() {
+        let _ = completed_teacher_score(teacher_info(0, SearchBound::Unknown), "fixture");
     }
 
     #[test]
@@ -4335,6 +4419,16 @@ mod tests {
         trainer.teacher_score_cap = 1_200.0;
         assert_eq!(trainer.capped_teacher_score(900), 900.0);
         assert_eq!(trainer.capped_teacher_score(-1_300), -1_200.0);
+    }
+
+    #[test]
+    fn mate_label_exclusion_is_explicit_and_uses_the_search_mate_band() {
+        let mut trainer = Trainer::new(42, 0.5);
+        assert!(!trainer.excludes_mate_label(MATE_SCORE - 1));
+        trainer.exclude_mate_labels = true;
+        assert!(trainer.excludes_mate_label(MATE_SCORE - 1));
+        assert!(trainer.excludes_mate_label(-(MATE_SCORE - 1)));
+        assert!(!trainer.excludes_mate_label(MATE_SCORE - 1_001));
     }
 
     #[test]

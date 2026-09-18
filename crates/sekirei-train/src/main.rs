@@ -252,6 +252,7 @@ struct Args {
     reuse_teacher_cache: bool,                           // --reuse-teacher-cache
     cache_only: bool,       // --cache-only: never search for a missing teacher label
     strict_positions: bool, // --strict-positions: reject invalid JSONL rows
+    exclude_mate_labels: bool, // --exclude-mate-labels: positions mode diagnostic
     wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
     lr: f32,                // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
@@ -577,6 +578,7 @@ fn parse_args() -> Result<Args, String> {
     let mut reuse_teacher_cache = false;
     let mut cache_only = false;
     let mut strict_positions = false;
+    let mut exclude_mate_labels = false;
     let mut wdl_lambda: Option<f32> = None;
     let mut lr = 0.001f32;
     let mut lr_schedule = LrSchedule::StepHalf;
@@ -974,6 +976,9 @@ fn parse_args() -> Result<Args, String> {
             "--strict-positions" => {
                 strict_positions = true;
             }
+            "--exclude-mate-labels" => {
+                exclude_mate_labels = true;
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -999,6 +1004,9 @@ fn parse_args() -> Result<Args, String> {
         return Err(
             "--wdl-lambda requires --games (CSA path) -- shogiesa positions.jsonl carries no game_result yet".to_string(),
         );
+    }
+    if exclude_mate_labels && positions_path.is_none() {
+        return Err("--exclude-mate-labels requires --positions <jsonl>".to_string());
     }
     if eval_only.is_some() && positions_path.is_some() {
         return Err("--eval-only requires --games (CSA path)".to_string());
@@ -1170,6 +1178,7 @@ fn parse_args() -> Result<Args, String> {
         reuse_teacher_cache,
         cache_only,
         strict_positions,
+        exclude_mate_labels,
         wdl_lambda,
         lr,
         lr_schedule,
@@ -1299,6 +1308,15 @@ fn configure_teacher(args: &Args) -> Result<String, String> {
     if let Some(limit) = args.label_nodes {
         identity.push_str(&format!(":nodes{limit}"));
     }
+    // Positions mode historically used interactive `Searcher::search()` for
+    // cache misses while CSA labels used `search_for_teacher()`.  The
+    // positions route now uses the latter as well.  Keep the old cache
+    // namespace separate: cached scores do not record iteration completion
+    // or which root-only filter produced them, so reusing old entries would
+    // silently retain the previous training contract.
+    if args.positions_path.is_some() {
+        identity.push_str(":positions-teacher-v2");
+    }
     Ok(identity)
 }
 
@@ -1389,7 +1407,7 @@ fn resume_config_fingerprint(
     let mut phase_weights: Vec<_> = args.phase_weights.iter().collect();
     phase_weights.sort_by(|a, b| a.0.cmp(b.0));
     let recipe = format!(
-        "dataset={dataset};split={split};teacher={teacher_identity};initial_weights={initial_weights_identity:?};nnue_output={};sample={};quiet={};min_ply={};label_depth={};label_time_ms={:?};label_nodes={:?};teacher_score_cap={};search_target_weight={};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
+        "dataset={dataset};split={split};teacher={teacher_identity};initial_weights={initial_weights_identity:?};nnue_output={};sample={};quiet={};min_ply={};label_depth={};label_time_ms={:?};label_nodes={:?};teacher_score_cap={};exclude_mate_labels={};search_target_weight={};min_rate={};stability={};stability_weighted={};side_balance={};source_cap={};validation_ratio={:.9};init_seed={};split_seed={};shuffle_seed={:?};wdl_lambda={:?};wdl_target_scale={};lr={};schedule={:?};min_lr={};warmup={};schedule_epochs={};phase_weights={phase_weights:?}",
         args.nnue_output.as_str(),
         args.sample,
         args.quiet,
@@ -1398,6 +1416,7 @@ fn resume_config_fingerprint(
         args.label_time_ms,
         args.label_nodes,
         args.teacher_score_cap,
+        args.exclude_mate_labels,
         args.search_target_weight,
         args.min_rate,
         args.min_stability,
@@ -1971,6 +1990,7 @@ fn save_checkpoint_meta(
         "label_time_ms": args.label_time_ms,
         "label_nodes": args.label_nodes,
         "teacher_score_cap": args.teacher_score_cap,
+        "exclude_mate_labels": args.exclude_mate_labels,
         "search_target_weight": args.search_target_weight,
         "teacher_eval": format!("{:?}", args.teacher_eval).to_lowercase(),
         "teacher_nnue_output": args.teacher_nnue_output.as_str(),
@@ -2227,6 +2247,9 @@ fn print_usage() {
     eprintln!("  --games <dir>       Directory containing .csa game files");
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
     eprintln!("  --strict-positions  Reject invalid JSONL/SFEN rows instead of skipping them");
+    eprintln!(
+        "  --exclude-mate-labels  Positions only: omit mate-scale labels from CP regression (diagnostic, default: off)"
+    );
     eprintln!("  --output <file>     Output weight file (default: weights.bin)");
     eprintln!("  --epochs <n>        Training epochs (default: 3)");
     eprintln!("  --sample <n>        Sample every N plies per game (default: 4)");
@@ -2728,6 +2751,7 @@ fn main() {
         trainer.teacher_time_limit = args.label_time_ms.map(Duration::from_millis);
         trainer.teacher_node_limit = args.label_nodes;
         trainer.teacher_score_cap = args.teacher_score_cap;
+        trainer.exclude_mate_labels = args.exclude_mate_labels;
         trainer.search_target_weight = args.search_target_weight;
         if args.resume_adam.is_some() && args.resume_checkpoint.is_some() {
             eprintln!("error: --resume-adam and --resume-checkpoint are mutually exclusive");
@@ -3029,9 +3053,10 @@ fn main() {
                 1.0
             };
             eprintln!(
-                "  train: avg_loss={:.4}  samples={}  avg_final_weight={:.3}",
+                "  train: avg_loss={:.4}  samples={}  dropped_mate_labels={}  avg_final_weight={:.3}",
                 trainer.avg_loss(),
                 trainer.total_count,
+                trainer.dropped_mate_labels,
                 avg_final_weight,
             );
 

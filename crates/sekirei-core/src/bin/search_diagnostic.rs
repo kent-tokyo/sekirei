@@ -27,6 +27,7 @@ fn main() {
     let mut root_candidates_limit = None;
     let mut disable_nmp = false;
     let mut disable_lmr = false;
+    let mut teacher_search = false;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--nodes" => {
@@ -83,6 +84,7 @@ fn main() {
             }
             "--disable-nmp" => disable_nmp = true,
             "--disable-lmr" => disable_lmr = true,
+            "--teacher-search" => teacher_search = true,
             _ => {
                 eprintln!("unknown option: {arg}");
                 std::process::exit(2);
@@ -106,7 +108,7 @@ fn main() {
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic --nodes N --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic --nodes N --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
@@ -178,6 +180,12 @@ fn main() {
         soft_limit: None,
         multi_pv: 1,
     };
+    if teacher_search && (root_move.is_some() || history_supplied) {
+        eprintln!(
+            "--teacher-search is only supported for a root SFEN without --moves or --root-move"
+        );
+        std::process::exit(2);
+    }
     let warmup = warmup_nodes.map(|warmup_nodes| {
         let warmup_config = SearchConfig {
             node_limit: (!depth_mode).then_some(warmup_nodes),
@@ -190,6 +198,7 @@ fn main() {
                 root_move,
                 &position_history,
             ),
+            None if teacher_search => searcher.search_for_teacher(&mut board, warmup_config),
             None => searcher.search_with_history(&mut board, warmup_config, &position_history),
         };
         searcher.reset_abort_flag();
@@ -199,6 +208,7 @@ fn main() {
         Some(root_move) => {
             searcher.search_root_move_with_history(&mut board, config, root_move, &position_history)
         }
+        None if teacher_search => searcher.search_for_teacher(&mut board, config),
         None => searcher.search_with_history(&mut board, config, &position_history),
     };
     let bestmove = info
@@ -264,7 +274,7 @@ fn main() {
             .join(",")
     });
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -274,6 +284,7 @@ fn main() {
         info.depth > 0,
         info.aborted,
         info.abort_reason,
+        teacher_search,
         pv,
         pv_legal,
         pv_replay_preserves_input,
