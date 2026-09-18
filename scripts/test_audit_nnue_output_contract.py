@@ -32,10 +32,10 @@ class ContractAuditTests(unittest.TestCase):
             cache.write_text("{\"score_cp\": -1200}\n{\"score_cp\": 1200}\n", encoding="utf-8")
             document = CONTRACT.audit(weights, cache, 1200.0)
             self.assertEqual(document["model"]["theoretical_min_cp"], -127.0 / 64.0)
-            self.assertFalse(document["conclusion"]["all_capped_labels_representable"])
+            self.assertFalse(document["conclusion"]["checkpoint_envelope_contains_all_capped_labels"])
             self.assertGreater(document["conclusion"]["lower_shortfall_cp"], 1_000.0)
             self.assertGreater(document["conclusion"]["upper_shortfall_cp"], 1_000.0)
-            self.assertEqual(document["conclusion"]["action"], "block_candidate_from_strength_gate")
+            self.assertEqual(document["conclusion"]["action"], "hold_checkpoint_from_strength_gate")
 
     def test_label_summary_uses_training_cap(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -47,7 +47,7 @@ class ContractAuditTests(unittest.TestCase):
             self.assertEqual(document["labels"]["at_or_beyond_cap"], 2)
             self.assertEqual(document["labels"]["capped_min_cp"], -600.0)
             self.assertEqual(document["labels"]["capped_max_cp"], 600.0)
-            self.assertTrue(document["conclusion"]["all_capped_labels_representable"])
+            self.assertTrue(document["conclusion"]["checkpoint_envelope_contains_all_capped_labels"])
 
 
 if __name__ == "__main__":

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Audit whether an NNUE's representable CP range fits its teacher labels.
+"""Audit a checkpoint's current CP range against its teacher labels.
 
 This is a diagnostic gate.  It reads the stable ``SEKIRW01`` layout directly,
 computes a conservative architectural output bound from the clipped L2 layer,
-and compares it with the labels actually supplied to a training run.  It does
-not decide playing strength or modify weights.
+and compares it with the labels actually supplied to a training run. The bound
+describes this checkpoint, not what a later checkpoint can learn. It does not
+decide playing strength or modify weights.
 """
 
 from __future__ import annotations
@@ -121,10 +122,10 @@ def audit(weights: Path, cache: Path, cap: float) -> dict:
         },
         "labels": labels,
         "conclusion": {
-            "all_capped_labels_representable": representable,
+            "checkpoint_envelope_contains_all_capped_labels": representable,
             "lower_shortfall_cp": max(0.0, lower - labels["capped_min_cp"]),
             "upper_shortfall_cp": max(0.0, labels["capped_max_cp"] - upper),
-            "action": "eligible_for_further_diagnostics" if representable else "block_candidate_from_strength_gate",
+            "action": "eligible_for_further_diagnostics" if representable else "hold_checkpoint_from_strength_gate",
         },
     }
 

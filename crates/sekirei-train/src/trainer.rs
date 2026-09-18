@@ -1512,7 +1512,9 @@ impl Trainer {
     }
 
     /// Forward-only pass for validation loss (no weight updates).
-    /// Returns `(loss_raw, loss_weighted, count)`.
+    /// Returns the raw and weighted losses plus the same output/CP statistics
+    /// used by CSA validation.  Positions mode has no WDL labels, so its
+    /// returned `ValidStats` intentionally leaves WDL fields empty.
     /// `loss_raw` = plain MSE; `loss_weighted` = MSE weighted by phase/side multipliers.
     /// Teacher scores are looked up in `teacher_cache` first, same as
     /// `train_positions` — without this, validation re-ran a real
@@ -1527,11 +1529,11 @@ impl Trainer {
         side_weights: &HashMap<String, f32>,
         teacher_cache: &HashMap<String, i32>,
         new_entries: &mut Vec<(String, i32)>,
-    ) -> (f64, f64, u64) {
+    ) -> (f64, f64, ValidStats) {
         let mut loss_raw = 0.0f64;
         let mut loss_weighted = 0.0f64;
         let mut total_w = 0.0f64;
-        let mut count = 0u64;
+        let mut stats = ValidStats::default();
         for sample in samples {
             let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
             let teacher_cp = if let Some(&cp) = teacher_cache.get(&sfen) {
@@ -1554,6 +1556,12 @@ impl Trainer {
             let score = self.forward(&sample.board);
             let err2 = ((score - teacher) * (score - teacher)) as f64;
             loss_raw += err2;
+            stats.loss_sum += err2;
+            stats.cp_mse_sum += err2;
+            stats.output_sum += score as f64;
+            stats.output_sum_sq += (score * score) as f64;
+            stats.output_min = stats.output_min.min(score);
+            stats.output_max = stats.output_max.max(score);
             let w = phase_weights.get(&sample.phase).copied().unwrap_or(1.0)
                 * side_weights
                     .get(&sample.side_to_move)
@@ -1561,10 +1569,10 @@ impl Trainer {
                     .unwrap_or(1.0);
             loss_weighted += w as f64 * err2;
             total_w += w as f64;
-            count += 1;
+            stats.count += 1;
         }
-        let raw = if count > 0 {
-            loss_raw / count as f64
+        let raw = if stats.count > 0 {
+            loss_raw / stats.count as f64
         } else {
             0.0
         };
@@ -1573,7 +1581,7 @@ impl Trainer {
         } else {
             0.0
         };
-        (raw, weighted, count)
+        (raw, weighted, stats)
     }
 
     /// Computes the teacher target for a single position: a clamped
@@ -4799,6 +4807,39 @@ mod tests {
         assert_eq!(trainer.cache_hits, 1);
         assert_eq!(cache.len(), 1);
         assert_eq!(first, second);
+    }
+
+    #[test]
+    fn eval_positions_reports_cp_and_output_statistics() {
+        let board = Board::startpos();
+        let sfen = sekirei_core::sfen::board_to_sfen(&board);
+        let samples = vec![crate::positions::PositionSample {
+            board,
+            phase: "opening".to_string(),
+            side_to_move: "black".to_string(),
+            ply: 0,
+            source: "fixture".to_string(),
+        }];
+        let mut cache = HashMap::new();
+        cache.insert(sfen, 300);
+        let mut trainer = Trainer::new(42, 0.5);
+        let entries = &mut Vec::new();
+        let (raw, weighted, stats) = trainer.eval_positions(
+            &samples,
+            1,
+            &HashMap::new(),
+            &HashMap::new(),
+            &cache,
+            entries,
+        );
+
+        assert_eq!(stats.count, 1);
+        assert!(entries.is_empty(), "cached teacher must avoid a search");
+        assert!((stats.cp_mse_sum - raw).abs() < 1e-9);
+        assert!((weighted - raw).abs() < 1e-9);
+        assert!(stats.output_min.is_finite());
+        assert_eq!(stats.output_min, stats.output_max);
+        assert_eq!(stats.wdl_count, 0);
     }
 
     #[test]

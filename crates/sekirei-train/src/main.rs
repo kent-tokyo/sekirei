@@ -2940,8 +2940,8 @@ fn main() {
             }
 
             let mut new_val_entries: Vec<(String, i32)> = Vec::new();
-            let (vloss_raw, vloss_w, vcount) = if valid_samples.is_empty() {
-                (0.0, 0.0, 0)
+            let (vloss_raw, vloss_w, valid_stats) = if valid_samples.is_empty() {
+                (0.0, 0.0, trainer::ValidStats::default())
             } else {
                 trainer.eval_positions(
                     &valid_samples,
@@ -2952,6 +2952,7 @@ fn main() {
                     &mut new_val_entries,
                 )
             };
+            let vcount = valid_stats.count;
             new_entries.extend(new_val_entries);
             let cache_misses_epoch = new_entries.len() as u64;
             let cache_hits_epoch =
@@ -3115,8 +3116,8 @@ fn main() {
                 ckpt_hash,
                 Some(cache_hits_epoch),
                 Some(cache_misses_epoch),
-                None, // positions path doesn't route through position_teacher_components
-                None, // positions path has no per-game WDL target
+                None,               // positions path has no per-game search-time accumulator
+                Some(&valid_stats), // positions path has CP-only validation statistics
             ) {
                 eprintln!("  metadata save failed: {e}");
             } else {
