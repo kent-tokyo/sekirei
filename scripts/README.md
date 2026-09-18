@@ -89,6 +89,9 @@ manifests, plist files, command transcripts, or saved logs.
   lineage without modifying the source release manifest.
 - `compare_teacher_evals.py`, `analyze_nnue_calibration.py`,
   `analyze_nnue_outliers.py`: evaluator diagnostics.
+- `build_teacher_strata_corpus.py`, `summarize_nnue_profile_strata.py`:
+  deterministic phase/material/mate strata and root-error summaries. They are
+  calibration diagnostics, not checkpoint selection or strength gates.
 - `select_longrun_checkpoint.py`, `select_king_relative_checkpoint.py`: apply
   experiment-specific, validation-only selection rules.
 - `build_selfplay_color_pairs.py`, `freeze_selfplay_calibration_split.py`,

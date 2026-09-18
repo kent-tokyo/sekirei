@@ -1,13 +1,13 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.38-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.38)
+[![Release](https://img.shields.io/badge/release-v0.3.39-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.39)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.38`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.39`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
 library. Local diagnostics are not absolute rating claims.
 
@@ -30,7 +30,7 @@ cargo run --release -p sekirei
 
 Register the resulting `sekirei` executable in a USI-compatible shogi GUI.
 Without a checkpoint the engine uses material evaluation. The recommended
-0.3.38 checkpoint is versioned separately at
+0.3.38 checkpoint remains versioned separately at
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin):
 
 ```bash

@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.39] – 2026-09-18
+
+- Hardened bounded positions-mode teacher labels: only completed exact search
+  iterations may enter a cache, and positions now use the dedicated teacher
+  search route. Earlier cache entries remain isolated by a new cache identity.
+- Added an opt-in positions-mode diagnostic to exclude mate-scale labels from
+  ordinary CP regression, with resume/checkpoint provenance and accounting.
+- Added deterministic teacher-label strata tooling for phase, material balance,
+  and mate/non-mate calibration diagnostics. These tools do not select a
+  checkpoint or make a playing-strength claim.
+
 ## [0.3.38] – 2026-09-18
 
 - Added the optional A-flat NNUE checkpoint
