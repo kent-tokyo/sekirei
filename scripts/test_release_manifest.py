@@ -33,6 +33,10 @@ def latest_release_manifest(root: Path) -> Path:
 
 
 RELEASE_MANIFEST = latest_release_manifest(Path(__file__).parents[1])
+# Attachment tools require a publication-verified source. Their behavioral
+# tests must therefore not infer that the newest development candidate is
+# already published.
+VERIFIED_RELEASE_MANIFEST = Path(__file__).parents[1] / "release-manifest-v0.3.34.json"
 
 class ReleaseManifestTests(unittest.TestCase):
     def test_latest_release_manifest_uses_numeric_version_order(self):
@@ -86,7 +90,7 @@ class ReleaseManifestTests(unittest.TestCase):
             release = root / "release.json"
             resume = root / "resume.json"
             output = root / "combined.json"
-            release.write_text(RELEASE_MANIFEST.read_text(), encoding="utf-8")
+            release.write_text(VERIFIED_RELEASE_MANIFEST.read_text(), encoding="utf-8")
             resume.write_text(json.dumps({
                 "schema": "sekirei.resume-manifest.v1",
                 "checkpoint": {"path": "checkpoint.json", "sha256": "a" * 64, "schema": "sekirei.resume-checkpoint.v1", "epoch_completed": 1, "next_game_index": 0, "config_fingerprint": "fp", "optimizer_step": 2, "teacher_cache_entries": 0},
@@ -105,7 +109,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_records_search_diagnostic_without_mutating_source(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record_search_diagnostic(
@@ -129,7 +133,7 @@ class ReleaseManifestTests(unittest.TestCase):
             source = root / "release.json"
             readiness = root / "readiness.json"
             output = root / "combined.json"
-            source.write_text(RELEASE_MANIFEST.read_text(), encoding="utf-8")
+            source.write_text(VERIFIED_RELEASE_MANIFEST.read_text(), encoding="utf-8")
             readiness.write_text(json.dumps({
                 "schema": "sekirei.candidate-readiness.v1",
                 "candidate": "weights.bin",
@@ -191,7 +195,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_records_mcts_diagnostic_without_mutating_source(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record(source, output, "SharedMcts", 4, 31, 0)
@@ -213,7 +217,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_verifies_transcript_and_manifest_counts(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         transcript = Path(__file__).parent / "fixtures" / "usi_smoke_shared_mcts_v0.3.29.txt"
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
@@ -223,7 +227,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_rejects_mismatched_transcript_and_manifest_counts(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             transcript = Path(directory) / "transcript.txt"
@@ -262,7 +266,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_summarizes_mcts_comparison_without_strength_claim(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             record(source, output, "SharedMcts", 4, 31, 0)
@@ -273,7 +277,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_aggregates_comparison_summaries_by_budget(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first.json"
             second = Path(directory) / "second.json"
@@ -326,7 +330,7 @@ class ReleaseManifestTests(unittest.TestCase):
     def test_classifies_comparison_agreement(self):
         import tempfile
 
-        source = RELEASE_MANIFEST
+        source = VERIFIED_RELEASE_MANIFEST
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "candidate.json"
             output.write_text(

@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.40",
+  "commit": "9db7b3ed7403ba4ad7f128fe06e6ca918e3cef8e",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.40",
+    "sekirei-core": "0.3.40",
+    "sekirei-bench": "0.3.40",
+    "sekirei-csa": "0.3.40",
+    "sekirei-match-runner": "0.3.40",
+    "sekirei-train": "0.3.40"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "e9958943bf528834977db0c5e969e5195a7f6233bf5981eb0437002b88bf524b"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Workspace tests, lint, USI state-transition transcripts, and the small cshogi legal-move oracle corpus passed; no playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external engine or GUI result is a release criterion or strength claim."
+  },
+  "known_limitations": [
+    "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented.",
+    "ShogiBoardQ real-GUI registration remains an external pending check; engine-side USI transcripts are covered locally.",
+    "Publication is planned only. Replace this state with the successful crates.io workflow run before declaring the release verified.",
+    "No new heavy strength measurement, external-GUI compatibility result, or overall-speed result is included."
+  ]
+}
