@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Summarize baseline/candidate root-profile errors by fixed strata.
 
-Each input must be a `sekirei.nnue-root-profile-comparison.v1` document with
+Each input must be a `sekirei.nnue-root-profile-comparison.v2` document with
 the same baseline and teacher settings.  This is a calibration diagnostic; it
 does not compare playing strength or select a release candidate.
 """
@@ -12,7 +12,7 @@ import argparse
 import hashlib
 import json
 import statistics
-from collections import defaultdict
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -28,17 +28,21 @@ def same_sign(score: int, teacher: int) -> bool:
     return (score >= 0) == (teacher >= 0)
 
 
-def strata(row: dict[str, Any], labels: dict[str, int]) -> dict[str, str]:
-    attributes = row["attributes"]
+def teacher_class(row: dict[str, Any], labels: dict[str, int]) -> str:
     # Prefer the frozen source label.  The profile's teacher score is a fresh
     # re-search and may legitimately differ in mate detection at another
     # node budget.
     teacher = labels.get(row.get("sfen", ""), row["teacher"]["score_cp"])
+    return "mate" if abs(teacher) >= MATE_THRESHOLD else "non_mate"
+
+
+def strata(row: dict[str, Any], labels: dict[str, int]) -> dict[str, str]:
+    attributes = row["attributes"]
     return {
         "all": "all",
         "phase": attributes["phase"],
         "material_band": attributes["material_band"],
-        "teacher_class": "mate" if abs(teacher) >= MATE_THRESHOLD else "non_mate",
+        "teacher_class": teacher_class(row, labels),
     }
 
 
@@ -47,8 +51,18 @@ def summarize_rows(
 ) -> dict[str, dict[str, dict[str, float | int]]]:
     labels = labels or {}
     buckets: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    excluded = Counter()
     for row in rows:
         if not row.get("comparable") or not isinstance(row.get("teacher"), dict):
+            excluded["incomplete_or_invalid"] += 1
+            continue
+        classification = teacher_class(row, labels)
+        observed = abs(row["teacher"]["score_cp"]) >= MATE_THRESHOLD
+        if classification == "mate":
+            excluded["mate"] += 1
+            continue
+        if observed:
+            excluded["mate_class_mismatch"] += 1
             continue
         for axis, value in strata(row, labels).items():
             buckets[axis][value].append(row)
@@ -67,12 +81,12 @@ def summarize_rows(
                 "candidate_same_sign": sum(same_sign(row["candidate"]["score_cp"], row["teacher"]["score_cp"]) for row in group),
                 "bestmove_changed": sum(row["bestmove_changed"] for row in group),
             }
-    return result
+    return {"ordinary_cp": result, "excluded": dict(sorted(excluded.items()))}
 
 
 def read_profile(path: Path) -> dict[str, Any]:
     value = json.loads(path.read_text(encoding="utf-8"))
-    if value.get("schema") != "sekirei.nnue-root-profile-comparison.v1":
+    if value.get("schema") != "sekirei.nnue-root-profile-comparison.v2":
         raise ValueError(f"unsupported profile schema: {path}")
     if not isinstance(value.get("rows"), list):
         raise ValueError(f"profile has no rows: {path}")
@@ -82,7 +96,7 @@ def read_profile(path: Path) -> dict[str, Any]:
 def read_teacher_label_manifest(path: Path) -> tuple[dict[str, int], str]:
     raw = path.read_bytes()
     value = json.loads(raw)
-    if value.get("schema") != "sekirei.teacher-strata-corpus.v1":
+    if value.get("schema") not in {"sekirei.teacher-strata-corpus.v1", "sekirei.teacher-strata-corpus.v2"}:
         raise ValueError(f"unsupported teacher label manifest: {path}")
     rows = value.get("rows")
     if not isinstance(rows, list):
@@ -120,7 +134,7 @@ def main() -> int:
         value = read_profile(path)
         profiles.append({"path": str(path), "summary": summarize_rows(value["rows"], labels)})
     output = {
-        "schema": "sekirei.nnue-root-profile-strata.v1",
+        "schema": "sekirei.nnue-root-profile-strata.v2",
         "diagnostic_only": True,
         "strength_claim": False,
         "mate_threshold_cp": MATE_THRESHOLD,

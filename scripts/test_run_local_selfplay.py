@@ -13,14 +13,24 @@ SPEC.loader.exec_module(MODULE)
 
 with tempfile.TemporaryDirectory() as temporary:
     output = Path(temporary) / "run"
-    assert MODULE.main(["--games", "2", "--output", str(output), "--dry-run"]) == 0
+    assert MODULE.main([
+        "--games", "2", "--material-only", "--startpos-smoke", "--output", str(output), "--dry-run",
+    ]) == 0
     manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
-    assert manifest["schema"] == "sekirei.local-selfplay-run.v3"
+    assert manifest["schema"] == "sekirei.local-selfplay-run.v4"
     assert manifest["status"] == "planned"
     assert manifest["strength_claim"] is False
+    assert manifest["repository"]["head"]
+    assert manifest["repository"]["dirty_patch_sha256"]
+    assert manifest["repository"]["untracked_file_count"] is not None
+    assert manifest["repository"]["untracked_content_sha256"]
+    assert manifest["repository"]["toolchain"].startswith("rustc ")
     assert manifest["options"]["Threads"] == 1
     assert manifest["options"]["SpecTopN"] == 0
     assert manifest["options"]["NnueOutput"] == "absolute"
+    assert manifest["options"]["UseBook"] is False
+    assert manifest["evaluator"]["kind"] == "material"
+    assert manifest["evaluator"]["strength_evidence"] is False
     assert manifest["command"].count("--engine1") == 1
     assert manifest["positions_count"] == 1
     assert manifest["games_scheduled_expected"] == 2
@@ -77,6 +87,8 @@ with tempfile.TemporaryDirectory() as temporary:
             [
                 "--games",
                 "1",
+                "--material-only",
+                "--startpos-smoke",
                 "--engine",
                 str(fake_engine),
                 "--runner",
@@ -102,6 +114,8 @@ with tempfile.TemporaryDirectory() as temporary:
             [
                 "--games",
                 "1",
+                "--material-only",
+                "--startpos-smoke",
                 "--engine",
                 str(fake_engine),
                 "--runner",
@@ -116,6 +130,10 @@ with tempfile.TemporaryDirectory() as temporary:
         (interrupted / "run-manifest.json").read_text(encoding="utf-8")
     )
     assert interrupted_manifest["status"] == "interrupted"
+    assert interrupted_manifest["artifact_audit"]["result_state"] == "interrupted_snapshot"
+    snapshot = json.loads((interrupted / "interruption-snapshot.json").read_text(encoding="utf-8"))
+    assert snapshot["schema"] == "sekirei.local-selfplay-interruption.v1"
+    assert interrupted_manifest["artifact_audit"]["missing_required_artifacts"] == []
 
 with tempfile.TemporaryDirectory() as temporary:
     temporary_path = Path(temporary)
@@ -140,18 +158,63 @@ with tempfile.TemporaryDirectory() as temporary:
     output = temporary_path / "preflight-failed"
     assert MODULE.main([
         "--games", "1", "--engine", str(fake_engine), "--runner", str(fake_runner),
-        "--probe", str(rejecting_probe), "--weights", str(weak_weights), "--output", str(output),
+        "--probe", str(rejecting_probe), "--weights", str(weak_weights),
+        "--startpos-smoke", "--output", str(output),
     ]) == 1
     manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
     assert manifest["status"] == "preflight_failed"
     assert manifest["preflight"]["weights"]["returncode"] == 1
     assert not child_marker.exists()
 
+with tempfile.TemporaryDirectory() as temporary:
+    temporary_path = Path(temporary)
+    fake_engine = temporary_path / "acknowledging-engine"
+    fake_engine.write_text(
+        "#!/bin/sh\n"
+        "echo 'id name test-engine'\n"
+        "echo readyok\n"
+        "echo 'info string NNUE weights loaded from '$1 >&2\n",
+        encoding="utf-8",
+    )
+    fake_engine.chmod(0o755)
+    fake_runner = temporary_path / "runner"
+    fake_runner.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = \"validate-positions\" ]; then echo '{\"status\":\"valid\",\"positions\":1}'; fi\n",
+        encoding="utf-8",
+    )
+    fake_runner.chmod(0o755)
+    probe = temporary_path / "probe"
+    probe.write_text("#!/bin/sh\necho '{\"strict_pass\":true}'\n", encoding="utf-8")
+    probe.chmod(0o755)
+    weights = temporary_path / "healthy.bin"
+    weights.write_bytes(b"healthy")
+    positions = temporary_path / "openings.sfen"
+    positions.write_text("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\n", encoding="utf-8")
+    output = temporary_path / "nnue-dry-run"
+    assert MODULE.main([
+        "--games", "1", "--engine", str(fake_engine), "--runner", str(fake_runner), "--probe", str(probe),
+        "--weights", str(weights), "--positions", str(positions), "--output", str(output), "--dry-run",
+    ]) == 0
+    manifest = json.loads((output / "run-manifest.json").read_text(encoding="utf-8"))
+    assert manifest["preflight"]["engine_activation"]["weight_load_acknowledged"]
+
 try:
-    MODULE.parse_args(["--games", "0"])
+    MODULE.parse_args(["--games", "0", "--material-only", "--startpos-smoke"])
 except SystemExit:
     pass
 else:
     raise AssertionError("zero games was accepted")
+
+for rejected in (
+    ["--games", "1", "--startpos-smoke"],
+    ["--games", "1", "--material-only"],
+    ["--games", "3", "--material-only", "--startpos-smoke"],
+):
+    try:
+        MODULE.parse_args(rejected)
+    except SystemExit:
+        continue
+    raise AssertionError(f"invalid collection contract was accepted: {rejected}")
 
 print("PASS")

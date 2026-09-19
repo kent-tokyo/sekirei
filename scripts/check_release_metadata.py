@@ -44,6 +44,11 @@ def main() -> int:
         action="store_true",
         help="require a valid release manifest for the current version",
     )
+    parser.add_argument(
+        "--allow-planned-release-manifest",
+        action="store_true",
+        help="allow a pre-publish manifest with publish.status=planned",
+    )
     args = parser.parse_args()
     errors: list[str] = []
     packages = {name: tomllib.loads(path.read_text())["package"] for name, path in MANIFESTS.items()}
@@ -115,7 +120,11 @@ def main() -> int:
             except (OSError, ValueError) as exc:
                 errors.append(f"current release manifest is unreadable: {exc}")
             else:
-                manifest_errors = validate_release_manifest(release_manifest_doc)
+                allow_planned = args.allow_planned_release_manifest or not args.require_release_manifest
+                manifest_errors = validate_release_manifest(
+                    release_manifest_doc,
+                    allow_planned_publish=allow_planned,
+                )
                 if manifest_errors:
                     errors.append(
                         "current release manifest is invalid: " + ", ".join(manifest_errors)

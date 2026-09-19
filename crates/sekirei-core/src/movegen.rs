@@ -3338,6 +3338,108 @@ mod king_capture_tests {
 mod legality_probe_tests {
     use super::*;
 
+    fn assert_legal_moves_restore_everything(sfen: &str) {
+        let mut board = Board::from_sfen(sfen).expect("boundary fixture must parse");
+        let before_hash = board.hash();
+        let before_side = board.side_to_move;
+        let before_ply = board.ply;
+        let before_acc = board.acc.clone();
+        let legal = generate_legal_moves(&mut board);
+        for mv in legal {
+            let token = board.do_move(mv);
+            board.undo_move(token);
+            assert_eq!(
+                board.hash(),
+                before_hash,
+                "hash must restore after {mv:?} in {sfen}"
+            );
+            assert_eq!(
+                board.side_to_move, before_side,
+                "side must restore after {mv:?} in {sfen}"
+            );
+            assert_eq!(
+                board.ply, before_ply,
+                "ply must restore after {mv:?} in {sfen}"
+            );
+            assert_eq!(
+                board.acc, before_acc,
+                "accumulator must restore after {mv:?} in {sfen}"
+            );
+        }
+    }
+
+    #[test]
+    fn boundary_check_corpus_keeps_only_legal_evasions_and_restores_state() {
+        // Black's king on 5i is attacked by both the rook on 5a and bishop
+        // on 1e.  A double check admits king moves only.
+        const DOUBLE_CHECK: &str = "k3r4/9/9/9/8b/9/9/9/4K4 b - 1";
+        // A white promoted pawn moves like a gold; from 5h it checks 5i.
+        const GOLD_LIKE_CHECK: &str = "k8/9/9/9/9/9/9/4+p4/4K4 b - 1";
+        // Moving the black silver off 5g would expose the rook's file check.
+        const OPEN_CHECK: &str = "k3r4/9/9/9/9/9/4S4/9/4K4 b - 1";
+        // The bishop captures the checking rook from outside its file.
+        const CAPTURE_EVADER: &str = "k3r4/9/9/9/8B/9/9/9/4K4 b - 1";
+        // A black pawn reaching the first rank must promote.
+        const LAST_RANK_PAWN: &str = "k8/4P4/9/9/9/9/9/9/4K4 b - 1";
+
+        let mut double_check = Board::from_sfen(DOUBLE_CHECK).unwrap();
+        let king = Square::from_shogi(5, 9);
+        assert!(is_in_check(&double_check, Color::Black));
+        assert!(
+            generate_legal_moves(&mut double_check)
+                .iter()
+                .all(|mv| mv.from == Some(king)),
+            "non-king evasion escaped a double check"
+        );
+
+        let gold_like = Board::from_sfen(GOLD_LIKE_CHECK).unwrap();
+        assert!(is_in_check(&gold_like, Color::Black));
+
+        let mut open_check = Board::from_sfen(OPEN_CHECK).unwrap();
+        let expose = Move::normal(
+            Square::from_shogi(5, 7),
+            Square::from_shogi(4, 6),
+            PieceKind::Gin,
+            false,
+        );
+        assert!(generate_moves(&open_check).contains(&expose));
+        assert!(
+            !generate_legal_moves(&mut open_check).contains(&expose),
+            "a move exposing the king to a rook must be illegal"
+        );
+
+        let mut capture_evader = Board::from_sfen(CAPTURE_EVADER).unwrap();
+        let capture = crate::sfen::move_from_usi("1e5a", &capture_evader).unwrap();
+        assert!(is_in_check(&capture_evader, Color::Black));
+        assert!(
+            generate_legal_moves(&mut capture_evader).contains(&capture),
+            "capturing the checking rook must remain a legal evasion"
+        );
+
+        let mut last_rank_pawn = Board::from_sfen(LAST_RANK_PAWN).unwrap();
+        let pawn_to_last_rank = generate_legal_moves(&mut last_rank_pawn)
+            .into_iter()
+            .filter(|mv| {
+                mv.from == Some(Square::from_shogi(5, 2)) && mv.to == Square::from_shogi(5, 1)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(pawn_to_last_rank.len(), 1);
+        assert!(
+            pawn_to_last_rank[0].promote,
+            "a last-rank pawn move must promote"
+        );
+
+        for sfen in [
+            DOUBLE_CHECK,
+            GOLD_LIKE_CHECK,
+            OPEN_CHECK,
+            CAPTURE_EVADER,
+            LAST_RANK_PAWN,
+        ] {
+            assert_legal_moves_restore_everything(sfen);
+        }
+    }
+
     fn is_uchifuzume_reference(board: &mut Board, opponent: Color) -> bool {
         if !is_in_check(board, opponent) {
             return false;

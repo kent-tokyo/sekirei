@@ -6,7 +6,7 @@ document = {
     "diagnostic_only": True,
     "contract": {"normal_score_abs_max_cp": 10_000},
     "rows": [
-        {"id": "a", "category": "opening", "candidate_prefix_complete": True,
+        {"id": "a", "category": "opening", "candidate_prefix_complete": True, "complete_legal_root_set": True,
          "source": {"replay_sha256": "source-a"},
          "teacher_root": {"root_candidates": [
              {"move": "7g7f", "score_cp": 10},
@@ -30,4 +30,10 @@ assert {
     (label["higher_move_usi"], label["lower_move_usi"], label["teacher_score_gap_cp"])
     for label in adjacent_labels
 } == {("7g7f", "2g2f", 7)}
+try:
+    pairs(document, top_k=1)
+except ValueError as error:
+    assert "top_k" in str(error)
+else:
+    raise AssertionError("top_k=1 unexpectedly accepted")
 print("PASS")

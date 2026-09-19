@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Derive strict pairwise ranking labels from a root-prefix teacher corpus.
+"""Derive strict pairwise ranking labels from a complete-root teacher corpus.
 
-Rows whose candidate prefix was incomplete are never promoted into a pair.
+Rows without a verified complete legal-root set are never promoted into a pair.
 The source scores are already measured from the parent's side to move; child
 evaluation conversion is deliberately deferred to the trainer boundary.
 """
@@ -16,9 +16,11 @@ SCHEMA = "sekirei.root-rank-pairs.v1"
 PAIR_SELECTIONS = ("all", "adjacent")
 
 
-def pairs(document: dict, selection: str = "all") -> list[dict]:
+def pairs(document: dict, selection: str = "all", top_k: int = 8) -> list[dict]:
     if selection not in PAIR_SELECTIONS:
         raise ValueError(f"unsupported pair selection: {selection}")
+    if top_k < 2:
+        raise ValueError("top_k must be at least two")
     if document.get("schema") != "sekirei.root-rank-teacher-corpus.v1":
         raise ValueError("unsupported root teacher corpus schema")
     if document.get("diagnostic_only") is not True:
@@ -30,6 +32,8 @@ def pairs(document: dict, selection: str = "all") -> list[dict]:
     result: list[dict] = []
     for row in document.get("rows", []):
         if row.get("candidate_prefix_complete") is not True:
+            continue
+        if row.get("complete_legal_root_set") is not True:
             continue
         candidates = row.get("teacher_root", {}).get("root_candidates")
         if not isinstance(candidates, list):
@@ -46,7 +50,7 @@ def pairs(document: dict, selection: str = "all") -> list[dict]:
             normalized.append((move, score))
         if len(normalized) < 2:
             continue
-        ranked = sorted(normalized, key=lambda candidate: candidate[1], reverse=True)
+        ranked = sorted(normalized, key=lambda candidate: candidate[1], reverse=True)[:top_k]
         if selection == "all":
             selected = (
                 (high_move, high_score, low_move, low_score)
@@ -84,6 +88,7 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--selection", choices=PAIR_SELECTIONS, default="all")
+    parser.add_argument("--top-k", type=int, default=8, help="maximum teacher-ranked legal moves per parent")
     args = parser.parse_args()
     try:
         source = json.loads(args.input.read_text(encoding="utf-8"))
@@ -94,7 +99,7 @@ def main() -> int:
             "source_contract": source.get("contract"),
             "source_teacher": source.get("teacher"),
             "pair_selection": args.selection,
-            "pairs": pairs(source, args.selection),
+            "pairs": pairs(source, args.selection, args.top_k),
         }
     except (OSError, ValueError, json.JSONDecodeError) as error:
         parser.error(str(error))

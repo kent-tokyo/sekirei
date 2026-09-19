@@ -373,11 +373,11 @@ fn load_ranking_pairs(
     if source.depth == 0
         || source.threads != 1
         || source.spec_top_n != 0
-        || source.root_candidate_mode != "legal_move_generation_prefix"
+        || source.root_candidate_mode != "complete_legal_set"
         || source.root_candidate_limit == 0
         || source.per_category_unique_positions == 0
         || source.normal_score_abs_max_cp <= 0
-        || source.complete_legal_root_set
+        || !source.complete_legal_root_set
     {
         return Err("ranking pairs have an unsupported source contract".to_owned());
     }
@@ -2578,7 +2578,7 @@ fn main() {
             "schema": "sekirei.ranking-training-run.v1",
             "diagnostic_only": true,
             "strength_claim": "not_permitted",
-            "training_mode": "pairwise-root-prefix",
+            "training_mode": "pairwise-complete-legal-root-set",
             "pairs_path": pair_path,
             "input_pairs": input_pair_count,
             "pairs": pairs.len(),
@@ -3953,8 +3953,8 @@ mod tests {
             "strength_claim": "not_permitted",
             "source_contract": {
                 "depth": 3, "threads": 1, "spec_top_n": 0,
-                "root_candidate_mode": "legal_move_generation_prefix",
-                "root_candidate_limit": 32, "complete_legal_root_set": false,
+                "root_candidate_mode": "complete_legal_set",
+                "root_candidate_limit": 32, "complete_legal_root_set": true,
                 "per_category_unique_positions": 1, "normal_score_abs_max_cp": 10000
             },
             "source_teacher": {
@@ -3989,8 +3989,8 @@ mod tests {
             "strength_claim": "not_permitted",
             "source_contract": {
                 "depth": 3, "threads": 1, "spec_top_n": 0,
-                "root_candidate_mode": "legal_move_generation_prefix",
-                "root_candidate_limit": 32, "complete_legal_root_set": false,
+                "root_candidate_mode": "complete_legal_set",
+                "root_candidate_limit": 32, "complete_legal_root_set": true,
                 "per_category_unique_positions": 1, "normal_score_abs_max_cp": 10000
             },
             "source_teacher": {

@@ -1,13 +1,13 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.39-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.39)
+[![Release](https://img.shields.io/badge/release-v0.3.40-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.40)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.39`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.40`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
 library. Local diagnostics are not absolute rating claims.
 
@@ -81,6 +81,7 @@ documented in [NNUE weights](docs/nnue_weights.md).
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 Benchmark and cross-library commands, their pinned inputs, and historical
@@ -100,7 +101,10 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 
 Each run stores a manifest, kifu, CSA, per-move search data, and deduplication
 metadata below ignored `data/runs/`. Same-engine self-play is training and
-regression data, not an Elo claim.
+regression data, not an Elo claim. The collector rejects an unspecified
+evaluator or opening source: a normal run requires both `--weights` and
+`--positions`. `--material-only --startpos-smoke` is available only for up to
+two explicit smoke games and is never NNUE or strength evidence.
 
 `sekirei-csa` provides CSA/Floodgate play. Inject credentials at runtime and
 never commit credentials, game records, generated weights, or training data.

@@ -317,6 +317,29 @@ pub struct SearchInfo {
     pub pv: Vec<Move>,
 }
 
+/// One fully completed iterative-deepening pass captured for diagnostics.
+///
+/// Normal production searches do not allocate or populate this record.  The
+/// trace is intended to distinguish root-order and iteration effects without
+/// changing pruning, evaluation, or the search budget.
+pub struct SearchIteration {
+    /// Completed root depth.
+    pub depth: u32,
+    /// Principal root move after this pass, if the position has a legal move.
+    pub best_move: Option<Move>,
+    /// Root score after this pass.
+    pub score: i32,
+    /// Cumulative nodes consumed through this pass.
+    pub nodes: u64,
+    /// Proof status returned by the root pass.
+    pub bound: SearchBound,
+    /// Cumulative nodes spent in root mate-in-one checks, if a diagnostic
+    /// observer was attached.
+    pub root_mate_in_one_nodes: Option<u64>,
+    /// Cumulative nodes spent filtering root mate blunders, if observed.
+    pub root_mate_blunder_nodes: Option<u64>,
+}
+
 /// Result for one explicitly requested root move in a diagnostic comparison.
 ///
 /// This is separate from [`SearchInfo`]: normal search remains a
@@ -364,6 +387,10 @@ pub struct SearchDiagnostics {
     order_killer: AtomicU64,
     order_countermove: AtomicU64,
     order_history: AtomicU64,
+    root_mate_in_one_nodes: AtomicU64,
+    root_mate_blunder_nodes: AtomicU64,
+    root_mate_in_one_cache_hits: AtomicU64,
+    root_mate_blunder_cache_hits: AtomicU64,
 }
 
 /// A point-in-time copy of [`SearchDiagnostics`] counters.
@@ -381,6 +408,26 @@ pub struct SearchDiagnosticsSnapshot {
     pub order_countermove: u64,
     /// Number of moves scored by the history heuristic.
     pub order_history: u64,
+    /// Nodes consumed by root mate-in-one checks.
+    pub root_mate_in_one_nodes: u64,
+    /// Nodes consumed by root mate-blunder filtering.
+    pub root_mate_blunder_nodes: u64,
+    /// Iterative-deepening passes that reused the completed root mate-in-one scan.
+    pub root_mate_in_one_cache_hits: u64,
+    /// Iterative-deepening passes that reused the completed root mate-blunder scan.
+    pub root_mate_blunder_cache_hits: u64,
+}
+
+/// Per-search cache for root mate safety facts that do not depend on depth.
+///
+/// The root board and legal move set stay unchanged across iterative-deepening
+/// passes.  Store unsafe moves rather than an ordered safe list, so later
+/// passes retain their newly computed move ordering while avoiding the same
+/// immediate-mate enumeration.
+#[derive(Default)]
+struct RootMateSafetyCache {
+    mate_in_one_checked: bool,
+    unsafe_moves: Option<Vec<Move>>,
 }
 
 impl SearchDiagnostics {
@@ -393,6 +440,10 @@ impl SearchDiagnostics {
             order_killer: AtomicU64::new(0),
             order_countermove: AtomicU64::new(0),
             order_history: AtomicU64::new(0),
+            root_mate_in_one_nodes: AtomicU64::new(0),
+            root_mate_blunder_nodes: AtomicU64::new(0),
+            root_mate_in_one_cache_hits: AtomicU64::new(0),
+            root_mate_blunder_cache_hits: AtomicU64::new(0),
         }
     }
 
@@ -405,6 +456,10 @@ impl SearchDiagnostics {
             order_killer: self.order_killer.load(Ordering::Relaxed),
             order_countermove: self.order_countermove.load(Ordering::Relaxed),
             order_history: self.order_history.load(Ordering::Relaxed),
+            root_mate_in_one_nodes: self.root_mate_in_one_nodes.load(Ordering::Relaxed),
+            root_mate_blunder_nodes: self.root_mate_blunder_nodes.load(Ordering::Relaxed),
+            root_mate_in_one_cache_hits: self.root_mate_in_one_cache_hits.load(Ordering::Relaxed),
+            root_mate_blunder_cache_hits: self.root_mate_blunder_cache_hits.load(Ordering::Relaxed),
         }
     }
 }
@@ -488,6 +543,20 @@ impl Searcher {
         }
     }
 
+    /// Create a searcher with controlled pruning and opt-in diagnostics.
+    pub fn with_pruning_and_diagnostics(
+        tt: Arc<Tt>,
+        pruning: PruningConfig,
+        diagnostics: Arc<SearchDiagnostics>,
+    ) -> Self {
+        Searcher {
+            tt,
+            external_abort: Arc::new(AtomicBool::new(false)),
+            diagnostics: Some(diagnostics),
+            pruning,
+        }
+    }
+
     /// Create a searcher that records optional move-ordering diagnostics.
     pub fn with_diagnostics(tt: Arc<Tt>, diagnostics: Arc<SearchDiagnostics>) -> Self {
         Self {
@@ -508,13 +577,23 @@ impl Searcher {
         self.external_abort.store(false, Ordering::Relaxed);
     }
 
+    /// Probe the TT for a legal ponder hint in the current position.
+    pub fn probe_tt(&self, hash: u64) -> Option<Move> {
+        self.tt.probe(hash).and_then(|entry| entry.mv)
+    }
+
+    /// Clear all cached positions before a new unrelated game.
+    pub fn clear_tt(&self) {
+        self.tt.clear();
+    }
+
     /// Run iterative-deepening search from the current position up to `config.max_depth`
     /// or until a time limit / abort signal fires, returning the best line found.
     ///
     /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
         let history = PositionHistory::initial(board.hash());
-        self.search_impl(board, config, None, true, &history)
+        self.search_impl(board, config, None, true, &history, None)
     }
 
     /// Search a position together with its already-played game history.
@@ -532,7 +611,60 @@ impl Searcher {
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
         );
-        self.search_impl(board, config, None, true, history)
+        self.search_impl(board, config, None, true, history, None)
+    }
+
+    /// Run a normal history-aware search and retain each completed iteration.
+    ///
+    /// This is opt-in diagnostic instrumentation. It records only passes that
+    /// finished before a hard stop, so an interrupted deeper pass cannot be
+    /// mistaken for a stable root result.
+    pub fn search_with_history_trace(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SearchInfo, Vec<SearchIteration>) {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        let mut trace = Vec::new();
+        let info = self.search_impl(board, config, None, true, history, Some(&mut trace));
+        (info, trace)
+    }
+
+    /// Run a history-aware search without the production-only root mate safety
+    /// filter. This is exclusively for controlled diagnostics: callers must
+    /// not use it to choose an engine move.
+    pub fn search_with_history_without_root_mate_safety(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> SearchInfo {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        self.search_impl(board, config, None, false, history, None)
+    }
+
+    /// Diagnostic counterpart to [`Self::search_with_history_trace`] with the
+    /// root mate safety filter disabled.
+    pub fn search_with_history_trace_without_root_mate_safety(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SearchInfo, Vec<SearchIteration>) {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        let mut trace = Vec::new();
+        let info = self.search_impl(board, config, None, false, history, Some(&mut trace));
+        (info, trace)
     }
 
     /// Search a bounded position label without the expensive shallow
@@ -544,7 +676,7 @@ impl Searcher {
     /// drops; it must not be used to choose a production USI move.
     pub fn search_for_teacher(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
         let history = PositionHistory::initial(board.hash());
-        self.search_impl(board, config, None, false, &history)
+        self.search_impl(board, config, None, false, &history, None)
     }
 
     /// Search while fixing the root move to `root_move`.
@@ -592,7 +724,7 @@ impl Searcher {
                 pv: Vec::new(),
             };
         }
-        self.search_impl(board, config, Some(root_move), true, history)
+        self.search_impl(board, config, Some(root_move), true, history, None)
     }
 
     /// Search an explicit set of legal root candidates independently.
@@ -649,6 +781,7 @@ impl Searcher {
         root_move: Option<Move>,
         root_mate_safety: bool,
         history: &PositionHistory,
+        mut iteration_trace: Option<&mut Vec<SearchIteration>>,
     ) -> SearchInfo {
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
@@ -669,6 +802,7 @@ impl Searcher {
         let mut done_depth = 0;
         let mut prev_best: Option<Move> = None;
         let mut bound = SearchBound::Unknown;
+        let mut root_mate_safety_cache = RootMateSafetyCache::default();
 
         for depth in 1..=config.max_depth {
             let (m, score, root_bound) = root_search(
@@ -680,6 +814,7 @@ impl Searcher {
                 root_move,
                 root_mate_safety,
                 history,
+                Some(&mut root_mate_safety_cache),
             );
 
             if state.budget.should_abort() {
@@ -690,6 +825,24 @@ impl Searcher {
             best_score = score;
             done_depth = depth;
             bound = root_bound;
+
+            if let Some(trace) = iteration_trace.as_deref_mut() {
+                let diagnostics = state
+                    .diagnostics
+                    .as_ref()
+                    .map(|observer| observer.snapshot());
+                trace.push(SearchIteration {
+                    depth,
+                    best_move,
+                    score,
+                    nodes: state.budget.nodes(),
+                    bound: root_bound,
+                    root_mate_in_one_nodes: diagnostics
+                        .map(|snapshot| snapshot.root_mate_in_one_nodes),
+                    root_mate_blunder_nodes: diagnostics
+                        .map(|snapshot| snapshot.root_mate_blunder_nodes),
+                });
+            }
 
             if score.abs() >= MATE_SCORE - 1000 {
                 break;
@@ -781,6 +934,7 @@ fn root_search(
     root_move: Option<Move>,
     root_mate_safety: bool,
     history: &PositionHistory,
+    mut root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
@@ -850,17 +1004,66 @@ fn root_search(
         // Root mate filters are production move-selection guards, not search
         // nodes. They must nevertheless count against the caller's hard
         // budget so a bounded search cannot spend unbounded time here.
-        if let Some(m) = root_mate_in_one(state, board, ordered) {
-            return (Some(m), MATE_SCORE - 1, SearchBound::Exact);
+        let mate_in_one_checked = root_mate_safety_cache
+            .as_ref()
+            .is_some_and(|cache| cache.mate_in_one_checked);
+        if !mate_in_one_checked {
+            let before_mate_in_one = state.budget.nodes();
+            let mate_in_one = root_mate_in_one(state, board, ordered);
+            if let Some(diagnostics) = state.diagnostics.as_deref() {
+                diagnostics.root_mate_in_one_nodes.fetch_add(
+                    state.budget.nodes().saturating_sub(before_mate_in_one),
+                    Ordering::Relaxed,
+                );
+            }
+            if let Some(m) = mate_in_one {
+                return (Some(m), MATE_SCORE - 1, SearchBound::Exact);
+            }
+            if !state.budget.should_abort()
+                && let Some(cache) = root_mate_safety_cache.as_deref_mut()
+            {
+                cache.mate_in_one_checked = true;
+            }
+        } else if let Some(diagnostics) = state.diagnostics.as_deref() {
+            diagnostics
+                .root_mate_in_one_cache_hits
+                .fetch_add(1, Ordering::Relaxed);
         }
         if state.budget.should_abort() {
             return (None, 0, SearchBound::Unknown);
         }
-        let safe_moves = filter_root_mate_blunders(state, board, ordered, depth);
-        if state.budget.should_abort() {
-            return (None, 0, SearchBound::Unknown);
+        if depth <= 2 {
+            let unsafe_moves = root_mate_safety_cache
+                .as_ref()
+                .and_then(|cache| cache.unsafe_moves.as_deref());
+            let unsafe_moves = if let Some(unsafe_moves) = unsafe_moves {
+                if let Some(diagnostics) = state.diagnostics.as_deref() {
+                    diagnostics
+                        .root_mate_blunder_cache_hits
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                unsafe_moves.to_vec()
+            } else {
+                let before_blunder_filter = state.budget.nodes();
+                let unsafe_moves = root_mate_blunders(state, board, ordered);
+                if let Some(diagnostics) = state.diagnostics.as_deref() {
+                    diagnostics.root_mate_blunder_nodes.fetch_add(
+                        state.budget.nodes().saturating_sub(before_blunder_filter),
+                        Ordering::Relaxed,
+                    );
+                }
+                let Some(unsafe_moves) = unsafe_moves else {
+                    return (None, 0, SearchBound::Unknown);
+                };
+                if let Some(cache) = root_mate_safety_cache {
+                    cache.unsafe_moves = Some(unsafe_moves.clone());
+                }
+                unsafe_moves
+            };
+            safe_root_moves(ordered, &unsafe_moves)
+        } else {
+            None
         }
-        safe_moves
     } else {
         None
     };
@@ -921,17 +1124,12 @@ fn root_mate_in_one(state: &SearchState, board: &mut Board, ordered: &[Move]) ->
 /// At shallow root depths, discard moves that allow an immediate opponent mate.
 /// Returning `None` means either no blunder was found or filtering would remove
 /// every move; in both cases the original ordered list remains authoritative.
-fn filter_root_mate_blunders(
+fn root_mate_blunders(
     state: &SearchState,
     board: &mut Board,
     ordered: &[Move],
-    depth: u32,
 ) -> Option<Vec<Move>> {
-    if depth > 2 {
-        return None;
-    }
-    let mut safe_moves = Vec::with_capacity(ordered.len());
-    let mut has_unsafe = false;
+    let mut unsafe_moves = Vec::new();
     for &m in ordered {
         if state.budget.tick() {
             return None;
@@ -954,12 +1152,23 @@ fn filter_root_mate_blunders(
         }
         board.undo_move(tok);
         if opponent_can_mate {
-            has_unsafe = true;
-        } else {
-            safe_moves.push(m);
+            unsafe_moves.push(m);
         }
     }
-    (has_unsafe && !safe_moves.is_empty()).then_some(safe_moves)
+    Some(unsafe_moves)
+}
+
+/// Preserve the current ordered list unless filtering leaves at least one move.
+fn safe_root_moves(ordered: &[Move], unsafe_moves: &[Move]) -> Option<Vec<Move>> {
+    if unsafe_moves.is_empty() {
+        return None;
+    }
+    let safe_moves = ordered
+        .iter()
+        .copied()
+        .filter(|candidate| !unsafe_moves.contains(candidate))
+        .collect::<Vec<_>>();
+    (!safe_moves.is_empty()).then_some(safe_moves)
 }
 
 fn root_search_inner(
@@ -2138,7 +2347,7 @@ impl SpeculativeSearcher {
             let mut excluded: Vec<Move> = Vec::new();
             for _ in 0..config.multi_pv {
                 let (m, score, _) = root_search(
-                    &state, board, depth, best_score, &excluded, None, true, history,
+                    &state, board, depth, best_score, &excluded, None, true, history, None,
                 );
                 if state.budget.should_abort() {
                     break;
@@ -2816,6 +3025,87 @@ mod see_tests {
                 + snapshot.order_history
                 > 0
         );
+        assert!(snapshot.root_mate_blunder_nodes > 0);
+        assert!(snapshot.root_mate_in_one_cache_hits > 0);
+        assert!(snapshot.root_mate_blunder_cache_hits > 0);
+    }
+
+    #[test]
+    fn iteration_trace_keeps_only_completed_passes_and_reports_root_safety_cost() {
+        let diagnostics = Arc::new(SearchDiagnostics::new());
+        let searcher = Searcher::with_pruning_and_diagnostics(
+            Tt::new(1),
+            PruningConfig::default(),
+            diagnostics,
+        );
+        let mut board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (info, trace) = searcher.search_with_history_trace(
+            &mut board,
+            SearchConfig {
+                max_depth: 3,
+                node_limit: Some(20_000),
+                ..SearchConfig::default()
+            },
+            &history,
+        );
+        assert!(!trace.is_empty());
+        assert_eq!(
+            trace.last().map(|iteration| iteration.depth),
+            Some(info.depth)
+        );
+        assert_eq!(
+            trace.last().and_then(|iteration| iteration.best_move),
+            info.best_move
+        );
+        assert!(
+            trace
+                .windows(2)
+                .all(|pair| pair[0].depth < pair[1].depth && pair[0].nodes <= pair[1].nodes)
+        );
+        assert!(
+            trace
+                .last()
+                .and_then(|iteration| iteration.root_mate_blunder_nodes)
+                .unwrap_or(0)
+                > 0
+        );
+        if let [first, second, ..] = trace.as_slice() {
+            assert_eq!(
+                first.root_mate_blunder_nodes, second.root_mate_blunder_nodes,
+                "depth two must reuse complete depth-one root mate safety facts"
+            );
+        }
+    }
+
+    #[test]
+    fn cached_root_mate_safety_preserves_the_current_move_order() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let unsafe_move = moves[0];
+        let reordered = vec![moves[2], unsafe_move, moves[1]];
+        assert_eq!(
+            safe_root_moves(&reordered, &[unsafe_move]),
+            Some(vec![moves[2], moves[1]]),
+            "a cached unsafe set must filter membership without restoring stale ordering"
+        );
+        assert_eq!(safe_root_moves(&reordered, &[]), None);
+    }
+
+    #[test]
+    fn cached_root_safety_retains_an_immediate_mate() {
+        let mut board =
+            Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").expect("mate fixture must parse");
+        let info = Searcher::new(Tt::new(1)).search(
+            &mut board,
+            SearchConfig {
+                max_depth: 3,
+                node_limit: Some(10_000),
+                ..SearchConfig::default()
+            },
+        );
+        assert!(info.score >= MATE_SCORE - 1);
+        assert_eq!(info.depth, 1, "root mate-in-one must finish immediately");
     }
 
     #[test]
@@ -3313,6 +3603,7 @@ mod regression_tests {
             Some(forced_root),
             false,
             &history,
+            None,
         );
 
         assert_eq!(best, Some(forced_root));

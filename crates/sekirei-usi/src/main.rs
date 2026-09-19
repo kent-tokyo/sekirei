@@ -5,9 +5,9 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
@@ -20,7 +20,10 @@ use sekirei_core::{
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
     nnue::load_weights,
-    search::{MATE_SCORE, SearchConfig, SpecSearchInfo, SpeculativeSearcher},
+    search::{
+        MATE_SCORE, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo,
+        Searcher, SpecSearchInfo, SpeculativeSearcher,
+    },
     sfen::{
         PositionHistory, RepetitionOutcome, board_to_sfen, move_to_usi,
         parse_position_cmd_with_history,
@@ -66,9 +69,21 @@ struct SearchResult {
     pv: Vec<sekirei_core::mv::Move>,
     worker_stats: Vec<LazySmpWorkerInfo>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
+    /// Per-search root mate-safety metrics, only available on the sequential
+    /// backend used by `Speculative` with `SpecTopN=0`.
+    root_safety: Option<SearchDiagnosticsSnapshot>,
+}
+
+struct SequentialBackend {
+    searcher: Arc<Searcher>,
+    diagnostics: Arc<SearchDiagnostics>,
 }
 
 enum SearchBackend {
+    /// The Speculative USI mode with `SpecTopN=0` has no speculative work.
+    /// Route it to the regular searcher so all production root-safety logic
+    /// (including the cached mate-safety pass) is actually active.
+    Sequential(Arc<SequentialBackend>),
     Speculative(Arc<SpeculativeSearcher>),
     LazySmp(Arc<LazySmpSearcher>),
     Dfpn(Arc<DfpnBackend>),
@@ -87,6 +102,16 @@ struct SharedMctsBackend {
 
 impl SearchBackend {
     fn speculative(hash_mb: usize, spec_top_n: usize) -> Self {
+        if spec_top_n == 0 {
+            let diagnostics = Arc::new(SearchDiagnostics::new());
+            return Self::Sequential(Arc::new(SequentialBackend {
+                searcher: Arc::new(Searcher::with_diagnostics(
+                    Tt::new(hash_mb),
+                    diagnostics.clone(),
+                )),
+                diagnostics,
+            }));
+        }
         Self::Speculative(Arc::new(SpeculativeSearcher::new(
             Tt::new(hash_mb),
             spec_top_n,
@@ -113,6 +138,7 @@ impl SearchBackend {
 
     fn abort_flag(&self) -> Arc<AtomicBool> {
         match self {
+            Self::Sequential(s) => s.searcher.abort_flag(),
             Self::Speculative(s) => s.abort_flag(),
             Self::LazySmp(s) => s.abort_flag(),
             Self::Dfpn(s) => Arc::clone(&s.abort),
@@ -122,6 +148,7 @@ impl SearchBackend {
 
     fn reset_abort_flag(&self) {
         match self {
+            Self::Sequential(s) => s.searcher.reset_abort_flag(),
             Self::Speculative(s) => s.reset_abort_flag(),
             Self::LazySmp(s) => s.reset_abort_flag(),
             Self::Dfpn(s) => s.abort.store(false, Ordering::Relaxed),
@@ -131,6 +158,7 @@ impl SearchBackend {
 
     fn clear_tt(&self) {
         match self {
+            Self::Sequential(s) => s.searcher.clear_tt(),
             Self::Speculative(s) => s.clear_tt(),
             Self::LazySmp(s) => s.clear_tt(),
             Self::Dfpn(_) => {}
@@ -140,6 +168,7 @@ impl SearchBackend {
 
     fn probe_tt(&self, hash: u64) -> Option<sekirei_core::mv::Move> {
         match self {
+            Self::Sequential(s) => s.searcher.probe_tt(hash),
             Self::Speculative(s) => s.probe_tt(hash),
             Self::LazySmp(s) => s.probe_tt(hash),
             Self::Dfpn(_) => None,
@@ -172,9 +201,19 @@ impl SearchBackend {
                 pv: Vec::new(),
                 worker_stats: Vec::new(),
                 shared_mcts_stats: None,
+                root_safety: None,
             };
         }
         match self {
+            Self::Sequential(s) => {
+                let before = s.diagnostics.snapshot();
+                let info = s
+                    .searcher
+                    .search_with_history(board, config, position_history);
+                let mut result = normalize_sequential_result(info);
+                result.root_safety = Some(diagnostics_delta(s.diagnostics.snapshot(), before));
+                result
+            }
             Self::Speculative(s) => {
                 normalize_spec_result(s.search_with_history(board, config, position_history))
             }
@@ -195,6 +234,7 @@ impl SearchBackend {
                     pv: result.pv,
                     worker_stats: info.worker_results,
                     shared_mcts_stats: None,
+                    root_safety: None,
                 }
             }
             Self::Dfpn(s) => {
@@ -237,6 +277,7 @@ impl SearchBackend {
                     pv: result.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
                     shared_mcts_stats: None,
+                    root_safety: None,
                 }
             }
             Self::SharedMcts(s) => {
@@ -281,9 +322,26 @@ impl SearchBackend {
                         info.nodes,
                         info.transposition_hits,
                     )),
+                    root_safety: None,
                 }
             }
         }
+    }
+}
+
+fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
+    SearchResult {
+        best_move: info.best_move,
+        score: info.score,
+        depth: info.depth,
+        nodes: info.nodes,
+        elapsed: info.elapsed,
+        hashfull: info.hashfull,
+        pv_list: Vec::new(),
+        pv: info.pv,
+        worker_stats: Vec::new(),
+        shared_mcts_stats: None,
+        root_safety: None,
     }
 }
 
@@ -299,6 +357,35 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         pv: info.pv,
         worker_stats: Vec::new(),
         shared_mcts_stats: None,
+        root_safety: None,
+    }
+}
+
+fn diagnostics_delta(
+    after: SearchDiagnosticsSnapshot,
+    before: SearchDiagnosticsSnapshot,
+) -> SearchDiagnosticsSnapshot {
+    SearchDiagnosticsSnapshot {
+        tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
+        tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
+        order_tt: after.order_tt.saturating_sub(before.order_tt),
+        order_killer: after.order_killer.saturating_sub(before.order_killer),
+        order_countermove: after
+            .order_countermove
+            .saturating_sub(before.order_countermove),
+        order_history: after.order_history.saturating_sub(before.order_history),
+        root_mate_in_one_nodes: after
+            .root_mate_in_one_nodes
+            .saturating_sub(before.root_mate_in_one_nodes),
+        root_mate_blunder_nodes: after
+            .root_mate_blunder_nodes
+            .saturating_sub(before.root_mate_blunder_nodes),
+        root_mate_in_one_cache_hits: after
+            .root_mate_in_one_cache_hits
+            .saturating_sub(before.root_mate_in_one_cache_hits),
+        root_mate_blunder_cache_hits: after
+            .root_mate_blunder_cache_hits
+            .saturating_sub(before.root_mate_blunder_cache_hits),
     }
 }
 
@@ -361,6 +448,88 @@ fn score_to_usi(score: i32) -> String {
     } else {
         format!("cp {score}")
     }
+}
+
+/// Emit the complete response for one search generation.  Keeping this in one
+/// place prevents `go`, `stop`, and `ponderhit` from rendering a completed
+/// result with subtly different score/PV/ponder semantics.
+fn emit_search_result(
+    searcher: &SearchBackend,
+    board: &mut Board,
+    info: SearchResult,
+    diag_ctx: &DiagCtx,
+) {
+    let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
+    let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
+    if !info.worker_stats.is_empty() {
+        let summary = info
+            .worker_stats
+            .iter()
+            .enumerate()
+            .map(|(i, worker)| {
+                format!("w{i}:d{}:n{}:s{}", worker.depth, worker.nodes, worker.score)
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        println!("info string lazy_smp {summary}");
+    }
+    if let Some(root_safety) = info.root_safety {
+        println!(
+            "info string root_mate_safety mate1_cache_hits {} blunder_cache_hits {} mate1_nodes {} blunder_nodes {}",
+            root_safety.root_mate_in_one_cache_hits,
+            root_safety.root_mate_blunder_cache_hits,
+            root_safety.root_mate_in_one_nodes,
+            root_safety.root_mate_blunder_nodes,
+        );
+    }
+    if let Some((simulations, arena_nodes, transposition_hits)) = info.shared_mcts_stats {
+        println!(
+            "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
+        );
+    }
+    if info.pv_list.len() > 1 {
+        for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
+            println!(
+                "info multipv {} depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
+                i + 1,
+                info.depth,
+                score_to_usi(score),
+                info.nodes,
+                nps,
+                elapsed_ms,
+                info.hashfull,
+                render_pv(&info.pv, mv, i == 0)
+            );
+        }
+    } else if let Some(m) = info.best_move {
+        println!(
+            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
+            info.depth,
+            score_to_usi(info.score),
+            info.nodes,
+            nps,
+            elapsed_ms,
+            info.hashfull,
+            render_pv(&info.pv, m, true)
+        );
+    }
+
+    let best = info
+        .best_move
+        .map(move_to_usi)
+        .unwrap_or_else(|| "resign".to_string());
+    if let Some(mv) = info.best_move {
+        invariant::assert_legal_bestmove(board, mv, diag_ctx);
+    }
+    let ponder_token = info
+        .best_move
+        .and_then(|m| legal_ponder_move(searcher, board, m));
+    if let Some(pm) = ponder_token {
+        println!("bestmove {best} ponder {}", move_to_usi(pm));
+    } else {
+        println!("bestmove {best}");
+    }
+    io::stdout().lock().flush().ok();
 }
 
 // ---- Main loop ----
@@ -463,6 +632,12 @@ fn main() {
     let suppress_bm: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // Saved args from `go ponder ...` so ponderhit can restart with real time limits
     let mut ponder_go_args: Option<String> = None;
+    // A ponder search may finish before the GUI sends either `ponderhit` or
+    // `stop` (a mate-in-one is the usual case).  USI must not send that
+    // bestmove early: retain it and associate it with the command that ends
+    // the ponder generation instead.
+    let ponder_result: Arc<Mutex<Option<SearchResult>>> = Arc::new(Mutex::new(None));
+    let mut active_ponder = false;
 
     for raw in stdin.lock().lines() {
         let Ok(line) = raw else { break };
@@ -732,6 +907,11 @@ fn main() {
                 // suppress_bm stays false so the dying thread still emits bestmove.
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 let pondering = rest.split_whitespace().any(|t| t == "ponder");
+                active_ponder = pondering;
+                ponder_result
+                    .lock()
+                    .expect("ponder result lock poisoned")
+                    .take();
                 if pondering {
                     ponder_go_args = Some(rest.to_string());
                 } else {
@@ -786,6 +966,7 @@ fn main() {
                 let mut board2 = board.clone();
                 let position_history2 = position_history.clone();
                 let suppress2 = Arc::clone(&suppress_bm);
+                let ponder_result2 = Arc::clone(&ponder_result);
                 let diag_ctx = DiagCtx {
                     game_counter,
                     last_position_cmd: last_position_cmd.clone(),
@@ -799,100 +980,74 @@ fn main() {
                 search_handle = Some(std::thread::spawn(move || {
                     let info = searcher2.search(&mut board2, config, &position_history2);
 
+                    if pondering {
+                        *ponder_result2.lock().expect("ponder result lock poisoned") = Some(info);
+                        return;
+                    }
                     if suppress2.load(Ordering::Relaxed) {
                         return; // ponderhit aborted this search; caller starts a new one
                     }
-
-                    let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
-                    let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
-                    if !info.worker_stats.is_empty() {
-                        let summary = info
-                            .worker_stats
-                            .iter()
-                            .enumerate()
-                            .map(|(i, worker)| {
-                                format!(
-                                    "w{i}:d{}:n{}:s{}",
-                                    worker.depth, worker.nodes, worker.score
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(",");
-                        println!("info string lazy_smp {summary}");
-                    }
-                    if let Some((simulations, arena_nodes, transposition_hits)) =
-                        info.shared_mcts_stats
-                    {
-                        println!(
-                            "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
-                        );
-                    }
-                    if info.pv_list.len() > 1 {
-                        for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
-                            println!(
-                                "info multipv {} depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
-                                i + 1,
-                                info.depth,
-                                score_to_usi(score),
-                                info.nodes,
-                                nps,
-                                elapsed_ms,
-                                info.hashfull,
-                                render_pv(&info.pv, mv, i == 0)
-                            );
-                        }
-                    } else if let Some(m) = info.best_move {
-                        println!(
-                            "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
-                            info.depth,
-                            score_to_usi(info.score),
-                            info.nodes,
-                            nps,
-                            elapsed_ms,
-                            info.hashfull,
-                            render_pv(&info.pv, m, true)
-                        );
-                    }
-
-                    let best = info
-                        .best_move
-                        .map(move_to_usi)
-                        .unwrap_or_else(|| "resign".to_string());
-
-                    // "resign" (info.best_move == None) is a special
-                    // response, not a move -- excluded from the legality
-                    // check by construction.  This must happen *before*
-                    // the ponder probe: `Board::do_move` is an internal
-                    // trusted operation and must never receive an invalid
-                    // search result just to discover its ponder reply.
-                    if let Some(mv) = info.best_move {
-                        invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
-                    }
-                    // Probe TT for a predicted opponent reply only after
-                    // validating our own move; an invalid TT hint is simply
-                    // omitted rather than being sent as a USI ponder move.
-                    let ponder_token = info
-                        .best_move
-                        .and_then(|m| legal_ponder_move(&searcher2, &mut board2, m));
-                    if let Some(pm) = ponder_token {
-                        println!("bestmove {best} ponder {}", move_to_usi(pm));
-                    } else {
-                        println!("bestmove {best}");
-                    }
-                    io::stdout().lock().flush().ok();
+                    emit_search_result(&searcher2, &mut board2, info, &diag_ctx);
                 }));
             }
 
             "stop" => {
+                let was_pondering = active_ponder;
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                active_ponder = false;
+                ponder_go_args = None;
+                if was_pondering
+                    && let Some(info) = ponder_result
+                        .lock()
+                        .expect("ponder result lock poisoned")
+                        .take()
+                {
+                    let diag_ctx = DiagCtx {
+                        game_counter,
+                        last_position_cmd: last_position_cmd.clone(),
+                        weight_path: weight_path.clone(),
+                        weight_hash,
+                        threads,
+                        board_hash_at_search_start: board.hash(),
+                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+                    };
+                    emit_search_result(&searcher, &mut board, info, &diag_ctx);
+                }
             }
 
             "ponderhit" => {
-                // Suppress bestmove from dying ponder thread, abort it, then restart
-                // with the original go-ponder time args (opponent's clock hasn't ticked).
-                suppress_bm.store(true, Ordering::Relaxed);
+                if !active_ponder {
+                    continue;
+                }
+                // If ponder already completed (notably a forced mate), return
+                // that single retained response.  Otherwise discard the
+                // aborted partial search and restart with real time limits.
+                let completed = search_handle.as_ref().is_some_and(JoinHandle::is_finished);
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                // Reset suppress before launching the real timed search.
+                active_ponder = false;
+                if completed
+                    && let Some(info) = ponder_result
+                        .lock()
+                        .expect("ponder result lock poisoned")
+                        .take()
+                {
+                    ponder_go_args = None;
+                    let diag_ctx = DiagCtx {
+                        game_counter,
+                        last_position_cmd: last_position_cmd.clone(),
+                        weight_path: weight_path.clone(),
+                        weight_hash,
+                        threads,
+                        board_hash_at_search_start: board.hash(),
+                        accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
+                    };
+                    emit_search_result(&searcher, &mut board, info, &diag_ctx);
+                    continue;
+                }
+                ponder_result
+                    .lock()
+                    .expect("ponder result lock poisoned")
+                    .take();
                 suppress_bm.store(false, Ordering::Relaxed);
                 if let Some(ref args) = ponder_go_args.take() {
                     let config =
@@ -918,43 +1073,7 @@ fn main() {
                         if suppress2.load(Ordering::Relaxed) {
                             return;
                         }
-                        let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
-                        let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
-                        if let Some((simulations, arena_nodes, transposition_hits)) =
-                            info.shared_mcts_stats
-                        {
-                            println!(
-                                "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
-                            );
-                        }
-                        if let Some(m) = info.best_move {
-                            println!(
-                                "info depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
-                                info.depth,
-                                score_to_usi(info.score),
-                                info.nodes,
-                                nps,
-                                elapsed_ms,
-                                info.hashfull,
-                                render_pv(&info.pv, m, true)
-                            );
-                        }
-                        let best = info
-                            .best_move
-                            .map(move_to_usi)
-                            .unwrap_or_else(|| "resign".to_string());
-                        if let Some(mv) = info.best_move {
-                            invariant::assert_legal_bestmove(&board2, mv, &diag_ctx);
-                        }
-                        let ponder_token = info
-                            .best_move
-                            .and_then(|m| legal_ponder_move(&searcher2, &mut board2, m));
-                        if let Some(pm) = ponder_token {
-                            println!("bestmove {best} ponder {}", move_to_usi(pm));
-                        } else {
-                            println!("bestmove {best}");
-                        }
-                        io::stdout().lock().flush().ok();
+                        emit_search_result(&searcher2, &mut board2, info, &diag_ctx);
                     }));
                 }
             }
@@ -1269,5 +1388,39 @@ mod tests {
         );
         let hard = cfg.time_limit.expect("clock input should produce a limit");
         assert!(hard <= Duration::from_millis(u64::MAX));
+    }
+
+    #[test]
+    fn spec_top_n_zero_uses_the_root_safety_enabled_usi_backend() {
+        let backend = SearchBackend::speculative(1, 0);
+        assert!(
+            matches!(backend, SearchBackend::Sequential(_)),
+            "SpecTopN=0 must not bypass the regular root-safety search path"
+        );
+
+        let mut board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let result = backend.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                time_limit: None,
+                // Leave enough budget for a completed depth-one root-safety
+                // scan to be reused on the next iterative-deepening pass.
+                node_limit: Some(20_000),
+                soft_limit: None,
+                multi_pv: 1,
+            },
+            &history,
+        );
+        let best = result
+            .best_move
+            .expect("root search must return a legal move");
+        assert!(generate_legal_moves(&mut board).contains(&best));
+        let root_safety = result
+            .root_safety
+            .expect("sequential USI route must expose root-safety metrics");
+        assert!(root_safety.root_mate_in_one_cache_hits > 0);
+        assert!(root_safety.root_mate_blunder_cache_hits > 0);
     }
 }

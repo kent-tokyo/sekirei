@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from validate_release_manifest import validate
+from validate_release_manifest import PACKAGES, validate
 from record_mcts_manifest import record
 from record_mcts_transcript import parse_transcript
 from verify_mcts_diagnostic import verify
@@ -47,7 +47,18 @@ class ReleaseManifestTests(unittest.TestCase):
 
     def test_current_release_manifest_is_valid(self):
         manifest = RELEASE_MANIFEST
-        self.assertEqual(validate(json.loads(manifest.read_text())), [])
+        self.assertEqual(validate(json.loads(manifest.read_text()), allow_planned_publish=True), [])
+
+    def test_planned_publish_is_rejected_by_final_manifest_validation(self):
+        document = json.loads(FIXTURE.read_text())
+        document["publish"] = {
+            "workflow_run": None,
+            "registry": "crates.io",
+            "status": "planned",
+            "crates": sorted(PACKAGES),
+        }
+        self.assertIn("publish", validate(document))
+        self.assertEqual(validate(document, allow_planned_publish=True), [])
 
     def test_rejects_schema_and_diagnostic_classification(self):
         doc = json.loads(FIXTURE.read_text())

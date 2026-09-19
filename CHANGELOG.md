@@ -6,6 +6,24 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.40] – 2026-09-20
+
+- Fixed the USI ponder state machine so a completed ponder search is emitted
+  exactly once when `ponderhit` or `stop` arrives. Added release-binary
+  transcripts for stop, ponder, mate-score, MultiPV, and quit boundaries.
+- Added a diagnostic-only legal-move binary plus a versioned small boundary
+  corpus. Its static rule expectations and optional `cshogi==1.0.5` oracle
+  must both match; cshogi is not a runtime dependency.
+- Hardened root-mate-safety diagnostics, match-runner handling of incomplete
+  bounds, and durable self-play contracts. Normal self-play now requires an
+  explicit NNUE checkpoint and opening source; material start-position runs
+  are limited smoke tests and never NNUE or strength evidence.
+- Added a planned-versus-verified release-manifest state. A manifest can be
+  checked before publishing without claiming that crates.io publication has
+  occurred; only a workflow-backed manifest is verified after publication.
+- No new playing-strength, external-GUI compatibility, or overall-speed claim
+  is made by this release.
+
 ## [0.3.39] – 2026-09-18
 
 - Hardened bounded positions-mode teacher labels: only completed exact search

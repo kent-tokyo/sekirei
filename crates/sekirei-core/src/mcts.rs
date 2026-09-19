@@ -576,11 +576,17 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
                 } else {
                     0.0
                 };
+                if context.abort.load(Ordering::Relaxed) {
+                    return None;
+                }
                 context.arena[node_index].visits += 1;
                 context.arena[node_index].value_sum += result;
                 return Some(result);
             }
             let result = context.value.value(board).clamp(-1.0, 1.0);
+            if context.abort.load(Ordering::Relaxed) {
+                return None;
+            }
             context.arena[node_index].visits += 1;
             context.arena[node_index].value_sum += result;
             return Some(result);
@@ -592,6 +598,9 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
             } else {
                 0.0
             };
+            if context.abort.load(Ordering::Relaxed) {
+                return None;
+            }
             context.arena[node_index].visits += 1;
             context.arena[node_index].value_sum += result;
             return Some(result);
@@ -624,6 +633,9 @@ fn shared_simulate<P: MctsPolicy, V: MctsValue>(
     let token = board.do_move_for_search(selected_move);
     let child_value = shared_simulate(board, selected_node, depth_left - 1, exploration, context);
     board.undo_move_for_search(token);
+    if context.abort.load(Ordering::Relaxed) {
+        return None;
+    }
     let result = -child_value?;
     context.arena[node_index].visits += 1;
     context.arena[node_index].value_sum += result;
@@ -701,6 +713,9 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
             } else {
                 context.value.value(board).clamp(-1.0, 1.0)
             };
+            if context.abort.load(Ordering::Relaxed) {
+                return None;
+            }
             node.visits += 1;
             node.value_sum += result;
             return Some(result);
@@ -712,6 +727,9 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
             } else {
                 0.0
             };
+            if context.abort.load(Ordering::Relaxed) {
+                return None;
+            }
             node.visits += 1;
             node.value_sum += result;
             return Some(result);
@@ -732,6 +750,9 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
         } else {
             context.value.value(board).clamp(-1.0, 1.0)
         };
+        if context.abort.load(Ordering::Relaxed) {
+            return None;
+        }
         node.visits += 1;
         node.value_sum += result;
         return Some(result);
@@ -760,6 +781,9 @@ fn tree_simulate<P: MctsPolicy, V: MctsValue>(
     let token = board.do_move_for_search(child.mv);
     let child_value = tree_simulate(board, &mut child.node, depth_left - 1, context);
     board.undo_move_for_search(token);
+    if context.abort.load(Ordering::Relaxed) {
+        return None;
+    }
     let result = -child_value?;
     node.visits += 1;
     node.value_sum += result;
@@ -1164,6 +1188,39 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "bounded concurrency stress; run explicitly before a parallel-search release"]
+    fn root_parallelism_remains_equivalent_across_repeated_scheduler_runs() {
+        // Do not use sleeps to manufacture a race.  Repeatedly construct the
+        // two- and four-worker schedules from the same immutable position and
+        // require the public result to remain the sequential result.
+        let board = Board::startpos();
+        let config = MctsConfig {
+            simulations: 64,
+            root_widening: Some(8),
+            ..MctsConfig::default()
+        };
+        let expected = RootMcts::default().search(&board, config, &UniformPolicy, &MaterialValue);
+        for workers in [2, 4] {
+            for _ in 0..1_000 {
+                let actual = RootMcts::default().search_parallel(
+                    &board,
+                    config,
+                    &UniformPolicy,
+                    &MaterialValue,
+                    workers,
+                );
+                assert_eq!(actual.best_move, expected.best_move);
+                assert_eq!(actual.score, expected.score);
+                assert_eq!(actual.simulations, expected.simulations);
+                assert_eq!(
+                    actual.expanded_root_children,
+                    expected.expanded_root_children
+                );
+            }
+        }
+    }
+
+    #[test]
     fn tree_pilot_is_deterministic_and_visits_below_the_root() {
         let board = Board::startpos();
         let config = TreeMctsConfig {
@@ -1234,6 +1291,33 @@ mod tests {
     }
 
     #[test]
+    fn tree_pilot_discards_a_simulation_aborted_during_leaf_evaluation() {
+        struct AbortDuringValue<'a>(&'a AtomicBool);
+        impl MctsValue for AbortDuringValue<'_> {
+            fn value(&self, _board: &Board) -> f32 {
+                self.0.store(true, Ordering::Relaxed);
+                0.75
+            }
+        }
+
+        let abort = AtomicBool::new(false);
+        let info = TreeMcts::default().search_with_abort(
+            &Board::startpos(),
+            TreeMctsConfig {
+                simulations: 16,
+                max_depth: 1,
+                ..TreeMctsConfig::default()
+            },
+            &UniformPolicy,
+            &AbortDuringValue(&abort),
+            &abort,
+        );
+        assert!(abort.load(Ordering::Relaxed));
+        assert_eq!(info.simulations, 0, "the partial leaf must not count");
+        assert_eq!(info.score, 0, "the partial leaf must not affect root value");
+    }
+
+    #[test]
     fn shared_tree_pilot_is_deterministic_and_reports_arena_nodes() {
         let config = SharedTreeMctsConfig {
             simulations: 16,
@@ -1274,6 +1358,33 @@ mod tests {
         );
         assert_eq!(info.simulations, 0);
         assert_eq!(info.nodes, 31);
+    }
+
+    #[test]
+    fn shared_tree_discards_a_simulation_aborted_during_leaf_evaluation() {
+        struct AbortDuringValue<'a>(&'a AtomicBool);
+        impl MctsValue for AbortDuringValue<'_> {
+            fn value(&self, _board: &Board) -> f32 {
+                self.0.store(true, Ordering::Relaxed);
+                -0.5
+            }
+        }
+
+        let abort = AtomicBool::new(false);
+        let info = SharedTreeMcts::default().search_with_abort(
+            &Board::startpos(),
+            SharedTreeMctsConfig {
+                simulations: 16,
+                max_depth: 1,
+                ..SharedTreeMctsConfig::default()
+            },
+            &UniformPolicy,
+            &AbortDuringValue(&abort),
+            &abort,
+        );
+        assert!(abort.load(Ordering::Relaxed));
+        assert_eq!(info.simulations, 0, "the partial leaf must not count");
+        assert_eq!(info.score, 0, "the partial leaf must not affect root value");
     }
 
     #[test]

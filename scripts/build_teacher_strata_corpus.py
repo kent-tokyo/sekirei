@@ -85,7 +85,7 @@ def main() -> int:
         "".join(f"{row['sfen']}\n" for row in selected), encoding="utf-8"
     )
     manifest = {
-        "schema": "sekirei.teacher-strata-corpus.v1",
+        "schema": "sekirei.teacher-strata-corpus.v2",
         "diagnostic_only": True,
         "strength_claim": False,
         "teacher_cache": str(args.teacher_cache),

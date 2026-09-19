@@ -190,11 +190,11 @@ fn validate_source(corpus: &Corpus) -> Result<(), String> {
     if source.depth == 0
         || source.threads != 1
         || source.spec_top_n != 0
-        || source.root_candidate_mode != "legal_move_generation_prefix"
+        || source.root_candidate_mode != "complete_legal_set"
         || source.root_candidate_limit == 0
         || source.per_category_unique_positions == 0
         || source.normal_score_abs_max_cp <= 0
-        || source.complete_legal_root_set
+        || !source.complete_legal_root_set
     {
         return Err("unsupported or unsafe root-ranking source contract".to_owned());
     }
@@ -403,9 +403,9 @@ mod tests {
                 depth: 3,
                 threads: 1,
                 spec_top_n: 0,
-                root_candidate_mode: "legal_move_generation_prefix".to_owned(),
+                root_candidate_mode: "complete_legal_set".to_owned(),
                 root_candidate_limit: 32,
-                complete_legal_root_set: false,
+                complete_legal_root_set: true,
                 per_category_unique_positions: 1,
                 normal_score_abs_max_cp: 10_000,
             },

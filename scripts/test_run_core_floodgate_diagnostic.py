@@ -90,12 +90,13 @@ def test_parse_core_result_normalizes_pv_integrity_booleans():
 def test_parse_core_result_structures_opt_in_root_candidates():
     result = MODULE.parse_result(
         "bestmove=3c4e\tdepth=2\tscore_cp=20\tnodes=64\telapsed_ms=5\tcompleted_bound=exact\tcompleted_iteration_valid=true"
-        "\troot_candidates=7g7f:20:2:exact:none,2g2f:-10:1:unknown:budget"
+        "\troot_candidates=7g7f:20:2:exact:none,2g2f:-10:1:unknown:budget\troot_legal_move_count=12"
     )
     assert result["root_candidates"] == [
         {"move": "7g7f", "score_cp": 20, "depth": 2, "bound": "exact", "abort_reason": "none"},
         {"move": "2g2f", "score_cp": -10, "depth": 1, "bound": "unknown", "abort_reason": "budget"},
     ]
+    assert result["root_legal_move_count"] == 12
 
 
 def test_parse_core_result_rejects_malformed_root_candidate():

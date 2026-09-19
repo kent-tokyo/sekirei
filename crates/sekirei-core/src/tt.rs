@@ -342,6 +342,8 @@ fn floor_pow2(n: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Barrier};
+    use std::thread;
 
     // Regression test for a bug where `Tt::new` computed capacity as
     // `(bytes/16).next_power_of_two() >> 1`. When bytes/16 was already an
@@ -472,5 +474,99 @@ mod tests {
         assert_eq!(replaced.depth, 12);
         assert_eq!(replaced.score, 20);
         assert_eq!(replaced.bound, Bound::Upper);
+    }
+
+    #[test]
+    fn concurrent_colliding_writes_are_misses_or_complete_matching_entries() {
+        // Deliberately map four unrelated hashes to the same slot.  A probe
+        // may miss while another writer is publishing, but must never decode
+        // another hash's data as a valid entry for the requested hash.
+        let tt = Tt::new(1);
+        let stride = tt.len() as u64;
+        let barrier = Arc::new(Barrier::new(4));
+        let workers = (0..4u64)
+            .map(|worker| {
+                let table = tt.clone();
+                let start = barrier.clone();
+                thread::spawn(move || {
+                    let hash = 0x1000_0000_0000_0001u64 + worker * stride;
+                    start.wait();
+                    for round in 0..2_000u64 {
+                        let score = (worker as i32) * 1_000_000 + round as i32;
+                        table.store(
+                            hash,
+                            TtEntry {
+                                score,
+                                depth: (round % 32 + 1) as u8,
+                                bound: Bound::Exact,
+                                mv: None,
+                            },
+                        );
+                        if let Some(entry) = table.probe(hash) {
+                            assert!(
+                                entry.score >= (worker as i32) * 1_000_000
+                                    && entry.score < (worker as i32 + 1) * 1_000_000,
+                                "torn or foreign entry observed for hash {hash:#x}: {entry:?}"
+                            );
+                            assert!((1..=32).contains(&entry.depth));
+                            assert_eq!(entry.bound, Bound::Exact);
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker.join().expect("concurrent TT worker must not panic");
+        }
+    }
+
+    #[test]
+    #[ignore = "bounded concurrency stress; run explicitly before a parallel-search release"]
+    fn concurrent_colliding_writes_stay_well_formed_under_stress() {
+        // Keep the contention topology identical to the small regression, but
+        // repeat it often enough to exercise publication interleavings that a
+        // single scheduler run is unlikely to cover.  This is intentionally
+        // not a proof that every interleaving is safe: the small test above is
+        // the deterministic invariant, while this is a release-gate soak.
+        const ROUNDS: u64 = 100_000;
+        let tt = Tt::new(1);
+        let stride = tt.len() as u64;
+        let barrier = Arc::new(Barrier::new(4));
+        let workers = (0..4u64)
+            .map(|worker| {
+                let table = tt.clone();
+                let start = barrier.clone();
+                thread::spawn(move || {
+                    let hash = 0x2000_0000_0000_0001u64 + worker * stride;
+                    start.wait();
+                    for round in 0..ROUNDS {
+                        let score = (worker as i32) * 1_000_000 + round as i32;
+                        table.store(
+                            hash,
+                            TtEntry {
+                                score,
+                                depth: (round % 32 + 1) as u8,
+                                bound: Bound::Exact,
+                                mv: None,
+                            },
+                        );
+                        if let Some(entry) = table.probe(hash) {
+                            assert!(
+                                entry.score >= (worker as i32) * 1_000_000
+                                    && entry.score < (worker as i32 + 1) * 1_000_000,
+                                "torn or foreign entry observed for hash {hash:#x}: {entry:?}"
+                            );
+                            assert!((1..=32).contains(&entry.depth));
+                            assert_eq!(entry.bound, Bound::Exact);
+                        }
+                    }
+                })
+            })
+            .collect::<Vec<_>>();
+        for worker in workers {
+            worker
+                .join()
+                .expect("concurrent TT stress worker must not panic");
+        }
     }
 }

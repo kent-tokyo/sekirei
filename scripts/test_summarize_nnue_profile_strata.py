@@ -25,7 +25,7 @@ class RootProfileStrataTests(unittest.TestCase):
             "candidate": {"score_cp": -50},
             "teacher": {"score_cp": -80},
         }
-        summary = STRATA.summarize_rows([row])
+        summary = STRATA.summarize_rows([row])["ordinary_cp"]
         self.assertEqual(summary["phase"]["opening"]["n"], 1)
         self.assertEqual(summary["material_band"]["balanced"]["candidate_same_sign"], 1)
         self.assertEqual(summary["teacher_class"]["non_mate"]["baseline_abs_error_mean_cp"], 180.0)
@@ -38,7 +38,19 @@ class RootProfileStrataTests(unittest.TestCase):
             "teacher": {"score_cp": 0},
         }
         summary = STRATA.summarize_rows([row], {"fixture": 899_000})
-        self.assertEqual(summary["teacher_class"]["mate"]["n"], 1)
+        self.assertEqual(summary["ordinary_cp"], {})
+        self.assertEqual(summary["excluded"]["mate"], 1)
+
+    def test_researched_mate_is_not_a_normal_cp_error(self) -> None:
+        row = {
+            "sfen": "fixture", "comparable": True, "bestmove_changed": False,
+            "attributes": {"phase": "endgame", "material_band": "stm_behind"},
+            "baseline": {"score_cp": -12}, "candidate": {"score_cp": -151},
+            "teacher": {"score_cp": -899_994},
+        }
+        summary = STRATA.summarize_rows([row], {"fixture": 0})
+        self.assertEqual(summary["ordinary_cp"], {})
+        self.assertEqual(summary["excluded"]["mate_class_mismatch"], 1)
 
 
 if __name__ == "__main__":

@@ -3,12 +3,13 @@
 
 use std::env;
 use std::path::Path;
+use std::sync::Arc;
 
 use sekirei_core::board::Board;
 use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode};
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::nnue::load_weights;
-use sekirei_core::search::{PruningConfig, SearchConfig, Searcher};
+use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searcher};
 use sekirei_core::sfen::{PositionHistory, move_from_usi, move_to_usi};
 use sekirei_core::tt::Tt;
 
@@ -25,6 +26,8 @@ fn main() {
     let mut expected_sfen = None;
     let mut root_move = None;
     let mut root_candidates_limit = None;
+    let mut iteration_trace = false;
+    let mut disable_root_mate_safety = false;
     let mut disable_nmp = false;
     let mut disable_lmr = false;
     let mut teacher_search = false;
@@ -82,6 +85,8 @@ fn main() {
                     std::process::exit(2);
                 }
             }
+            "--iteration-trace" => iteration_trace = true,
+            "--disable-root-mate-safety" => disable_root_mate_safety = true,
             "--disable-nmp" => disable_nmp = true,
             "--disable-lmr" => disable_lmr = true,
             "--teacher-search" => teacher_search = true,
@@ -108,7 +113,7 @@ fn main() {
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic --nodes N --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic --nodes N --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
@@ -166,13 +171,19 @@ fn main() {
             std::process::exit(1);
         })
     });
-    let searcher = Searcher::with_pruning(
-        Tt::new(64),
-        PruningConfig {
-            null_move: !disable_nmp,
-            late_move_reduction: !disable_lmr,
-        },
-    );
+    let pruning = PruningConfig {
+        null_move: !disable_nmp,
+        late_move_reduction: !disable_lmr,
+    };
+    let searcher = if iteration_trace {
+        Searcher::with_pruning_and_diagnostics(
+            Tt::new(64),
+            pruning,
+            Arc::new(SearchDiagnostics::new()),
+        )
+    } else {
+        Searcher::with_pruning(Tt::new(64), pruning)
+    };
     let config = SearchConfig {
         max_depth,
         time_limit: None,
@@ -186,6 +197,16 @@ fn main() {
         );
         std::process::exit(2);
     }
+    if (iteration_trace || disable_root_mate_safety) && (teacher_search || root_move.is_some()) {
+        eprintln!("--iteration-trace supports normal unrestricted searches only");
+        std::process::exit(2);
+    }
+    let root_initial_order = iteration_trace.then(|| {
+        generate_legal_moves(&mut board)
+            .into_iter()
+            .map(move_to_usi)
+            .collect::<Vec<_>>()
+    });
     let warmup = warmup_nodes.map(|warmup_nodes| {
         let warmup_config = SearchConfig {
             node_limit: (!depth_mode).then_some(warmup_nodes),
@@ -204,12 +225,38 @@ fn main() {
         searcher.reset_abort_flag();
         info
     });
-    let info = match root_move {
-        Some(root_move) => {
-            searcher.search_root_move_with_history(&mut board, config, root_move, &position_history)
+    let (info, completed_iterations) = match root_move {
+        Some(root_move) => (
+            searcher.search_root_move_with_history(
+                &mut board,
+                config,
+                root_move,
+                &position_history,
+            ),
+            Vec::new(),
+        ),
+        None if teacher_search => (searcher.search_for_teacher(&mut board, config), Vec::new()),
+        None if iteration_trace && disable_root_mate_safety => searcher
+            .search_with_history_trace_without_root_mate_safety(
+                &mut board,
+                config,
+                &position_history,
+            ),
+        None if iteration_trace => {
+            searcher.search_with_history_trace(&mut board, config, &position_history)
         }
-        None if teacher_search => searcher.search_for_teacher(&mut board, config),
-        None => searcher.search_with_history(&mut board, config, &position_history),
+        None if disable_root_mate_safety => (
+            searcher.search_with_history_without_root_mate_safety(
+                &mut board,
+                config,
+                &position_history,
+            ),
+            Vec::new(),
+        ),
+        None => (
+            searcher.search_with_history(&mut board, config, &position_history),
+            Vec::new(),
+        ),
     };
     let bestmove = info
         .best_move
@@ -233,7 +280,9 @@ fn main() {
     }
     let pv_replay_preserves_input = board.hash() == pv_start_hash;
     let root_candidates = root_candidates_limit.map(|limit| {
-        let mut candidates = generate_legal_moves(&mut board)
+        let legal_moves = generate_legal_moves(&mut board);
+        let legal_move_count = legal_moves.len();
+        let mut candidates = legal_moves
             .into_iter()
             .take(limit)
             .map(|candidate| {
@@ -258,7 +307,7 @@ fn main() {
                 })),
             )
         });
-        candidates
+        let encoded = candidates
             .into_iter()
             .map(|(candidate, candidate_info)| {
                 format!(
@@ -271,10 +320,30 @@ fn main() {
                 )
             })
             .collect::<Vec<_>>()
-            .join(",")
+            .join(",");
+        (encoded, legal_move_count)
     });
+    let iteration_trace = completed_iterations
+        .iter()
+        .map(|iteration| {
+            format!(
+                "{}:{}:{}:{}:{}:{}:{}",
+                iteration.depth,
+                iteration
+                    .best_move
+                    .map(move_to_usi)
+                    .unwrap_or_else(|| "resign".to_string()),
+                iteration.score,
+                iteration.nodes,
+                iteration.bound.as_str(),
+                iteration.root_mate_in_one_nodes.unwrap_or(0),
+                iteration.root_mate_blunder_nodes.unwrap_or(0),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -291,7 +360,12 @@ fn main() {
         history_moves,
         history_supplied,
         history_matches_expected,
-        root_candidates.unwrap_or_default(),
+        root_candidates.as_ref().map_or("", |(candidates, _)| candidates),
+        root_candidates
+            .as_ref()
+            .map_or_else(String::new, |(_, count)| format!("\troot_legal_move_count={count}")),
+        root_initial_order.map_or_else(String::new, |moves| moves.join(",")),
+        iteration_trace,
         warmup.map_or_else(String::new, |warmup| {
             let warmup_pv = warmup
                 .pv

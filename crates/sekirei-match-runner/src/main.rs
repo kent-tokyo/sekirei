@@ -429,6 +429,12 @@ impl Transcript {
                     "pv": info.pv,
                     "completed_iteration": info.completed_iteration,
                     "raw": info.raw,
+                    "root_mate_safety": info.root_mate_safety.map(|metrics| serde_json::json!({
+                        "mate1_cache_hits": metrics.mate1_cache_hits,
+                        "blunder_cache_hits": metrics.blunder_cache_hits,
+                        "mate1_nodes": metrics.mate1_nodes,
+                        "blunder_nodes": metrics.blunder_nodes,
+                    })),
                 })
             });
             let record = serde_json::json!({

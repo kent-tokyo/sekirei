@@ -25,8 +25,15 @@ assert SPEC and SPEC.loader
 FIXED = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(FIXED)
 
-PIECE_VALUE = {"P": 1, "L": 3, "N": 3, "S": 5, "G": 6, "B": 8, "R": 10,
-               "+P": 6, "+L": 6, "+N": 6, "+S": 6, "+B": 10, "+R": 12}
+# Must match `sekirei_core::eval::PIECE_VALUE`.  Keep this explicit instead of
+# using a convenient, approximate shogi table: the fields below are a
+# diagnostic view of the same material notion used by the engine.
+PIECE_VALUE_CP = {
+    "P": 100, "L": 430, "N": 470, "S": 640, "G": 680, "B": 890, "R": 1040,
+    "+P": 600, "+L": 600, "+N": 600, "+S": 640, "+B": 1150, "+R": 1300,
+}
+HAND_KINDS = frozenset(("P", "L", "N", "S", "G", "B", "R"))
+MATERIAL_BAND_CP = 200
 
 
 def sha256(path: Path) -> str:
@@ -61,8 +68,8 @@ def attributes(sfen: str) -> dict[str, Any]:
             index += 1
             token += board[index]
             promoted += 1
-        if token.upper() in PIECE_VALUE:
-            value = PIECE_VALUE[token.upper()]
+        if token.upper() in PIECE_VALUE_CP:
+            value = PIECE_VALUE_CP[token.upper()]
             if token.isupper() or token[1:].isupper():
                 black += value
             else:
@@ -70,19 +77,55 @@ def attributes(sfen: str) -> dict[str, Any]:
             pieces += 1
         index += 1
     hands = fields[2]
-    hand_pieces = 0 if hands == "-" else sum(1 for char in hands if char.isalpha())
-    imbalance = black - white
+    hand_pieces = 0
+    hand_counts = {"black": 0, "white": 0}
+    hand_material = {"black": 0, "white": 0}
+    if hands != "-":
+        index = 0
+        while index < len(hands):
+            count_start = index
+            while index < len(hands) and hands[index].isdigit():
+                index += 1
+            count = int(hands[count_start:index]) if index > count_start else 1
+            if index >= len(hands) or not hands[index].isalpha():
+                raise ValueError(f"invalid hand field in SFEN: {sfen!r}")
+            token = hands[index]
+            kind = token.upper()
+            if kind not in HAND_KINDS:
+                raise ValueError(f"invalid hand piece in SFEN: {sfen!r}")
+            owner = "black" if token.isupper() else "white"
+            hand_pieces += count
+            hand_counts[owner] += count
+            hand_material[owner] += count * PIECE_VALUE_CP[kind]
+            index += 1
+    black_total = black + hand_material["black"]
+    white_total = white + hand_material["white"]
+    board_imbalance = black - white
+    imbalance = black_total - white_total
+    side = "black" if fields[1] == "b" else "white"
+    material_stm = imbalance if side == "black" else -imbalance
     return {
-        "side_to_move": "black" if fields[1] == "b" else "white",
+        "side_to_move": side,
         "move_number": int(fields[3]),
         "phase": "opening" if int(fields[3]) <= 20 else "middlegame" if int(fields[3]) <= 60 else "endgame",
         "board_nonking_pieces": pieces,
         "promoted_pieces": promoted,
-        "hand_piece_kinds": hand_pieces,
-        "black_material": black,
-        "white_material": white,
-        "material_imbalance": imbalance,
-        "material_band": "balanced" if abs(imbalance) <= 2 else "black_ahead" if imbalance > 0 else "white_ahead",
+        "hand_pieces": hand_pieces,
+        "black_hand_pieces": hand_counts["black"],
+        "white_hand_pieces": hand_counts["white"],
+        "black_board_material_cp": black,
+        "white_board_material_cp": white,
+        "black_hand_material_cp": hand_material["black"],
+        "white_hand_material_cp": hand_material["white"],
+        "black_material_cp": black_total,
+        "white_material_cp": white_total,
+        "board_material_imbalance_cp": board_imbalance,
+        "material_imbalance_cp": imbalance,
+        "material_stm_cp": material_stm,
+        "material_band": (
+            "balanced" if abs(material_stm) <= MATERIAL_BAND_CP
+            else "stm_ahead" if material_stm > 0 else "stm_behind"
+        ),
     }
 
 
@@ -103,9 +146,14 @@ def static_score(probe: Path, weights: Path, sfen: str) -> int:
     return probes[0]["score_cp"]
 
 
-def search_score(engine: Path, weights: Path, output: str, sfen: str, nodes: int) -> dict[str, Any]:
+def search_score(
+    engine: Path, weights: Path, output: str, sfen: str, nodes: int, *, teacher_search: bool = False
+) -> dict[str, Any]:
+    command = [str(engine), "--nodes", str(nodes), "--sfen", sfen, "--weights", str(weights), "--nnue-output", output]
+    if teacher_search:
+        command.append("--teacher-search")
     completed = subprocess.run(
-        [str(engine), "--nodes", str(nodes), "--sfen", sfen, "--weights", str(weights), "--nnue-output", output],
+        command,
         text=True, capture_output=True, check=False, timeout=120,
     )
     if completed.returncode:
@@ -154,8 +202,10 @@ def main() -> int:
         source = {"pre_move_sfen": sfen}
         baseline = search_score(args.engine, args.baseline, "absolute", sfen, args.nodes)
         candidate = search_score(args.engine, args.candidate, "absolute", sfen, args.nodes)
-        comparable = exact(baseline) and exact(candidate)
-        teacher = search_score(args.engine, args.teacher, args.teacher_nnue_output, sfen, args.teacher_nodes) if args.teacher else None
+        teacher = search_score(
+            args.engine, args.teacher, args.teacher_nnue_output, sfen, args.teacher_nodes, teacher_search=True
+        ) if args.teacher else None
+        comparable = exact(baseline) and exact(candidate) and (teacher is None or exact(teacher))
         rows.append({
             "id": f"root-{index:03d}", "sfen": sfen, "attributes": attributes(sfen),
             "baseline_static_score_cp": static_score(args.probe, args.baseline, sfen),
@@ -165,8 +215,8 @@ def main() -> int:
             "bestmove_changed": baseline["bestmove"] != candidate["bestmove"] if comparable else None,
         })
     document = {
-        "schema": "sekirei.nnue-root-profile-comparison.v1", "diagnostic_only": True, "strength_claim": False,
-        "contract": {"nodes": args.nodes, "threads": 1, "spec_top_n": 0, "tt": "cold_process_per_search", "nnue_output": "absolute"},
+        "schema": "sekirei.nnue-root-profile-comparison.v2", "diagnostic_only": True, "strength_claim": False,
+        "contract": {"nodes": args.nodes, "threads": 1, "spec_top_n": 0, "tt": "cold_process_per_search", "nnue_output": "absolute", "teacher_search": bool(args.teacher)},
         "inputs": {"positions": str(args.positions), "positions_sha256": sha256(args.positions), "baseline": str(args.baseline), "baseline_sha256": sha256(args.baseline), "candidate": str(args.candidate), "candidate_sha256": sha256(args.candidate), "probe": str(args.probe), "probe_sha256": sha256(args.probe), "teacher": str(args.teacher) if args.teacher else None, "teacher_sha256": sha256(args.teacher) if args.teacher else None, "teacher_nnue_output": args.teacher_nnue_output if args.teacher else None, "teacher_nodes": args.teacher_nodes if args.teacher else None},
         "rows": rows, "summary": summarize(rows),
     }

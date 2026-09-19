@@ -209,6 +209,14 @@ def parse_result(stdout: str) -> dict:
         values["root_candidates"] = candidates
     else:
         values["root_candidates"] = []
+    raw_legal_count = values.get("root_legal_move_count")
+    if raw_legal_count is not None:
+        try:
+            values["root_legal_move_count"] = int(raw_legal_count)
+        except ValueError as exc:
+            raise ValueError("invalid root_legal_move_count field") from exc
+        if values["root_legal_move_count"] < len(values["root_candidates"]):
+            raise ValueError("root_legal_move_count smaller than returned candidates")
     return values
 
 

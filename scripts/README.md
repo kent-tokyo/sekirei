@@ -8,7 +8,10 @@ directory before starting a long job.
 ## Release and public-contract checks
 
 - `check_release_metadata.py`: crate versions, lockfile, changelog, README,
-  license files, optional tag, and release manifest.
+  license files, optional tag, and release manifest. A pre-publish manifest
+  must be checked with `--allow-planned-release-manifest`; the default
+  `--require-release-manifest` accepts only a post-publish, workflow-verified
+  manifest.
 - `check_public_surface.py`: keeps internal `ROADMAP.md` out of Git and checks
   required license references.
 - `check_documentation_references.py`: verifies local paths in both READMEs.
@@ -53,19 +56,43 @@ result.
   `run-manifest.json`, a combined log, USI kifu, replay-validated CSA games,
   a per-move transcript with USI score/depth/nodes/PV, incremental JSONL and
   summary snapshots, and `dedup-index.json` under a fresh
-  `data/runs/local_selfplay_<UTC>/` directory. Use `--weights <file>` to use
-  one NNUE on both sides, or `--positions <file> --games-per-position <n>` for
-  a fixed opening corpus. Openings and engine colors are exhausted before a
+  `data/runs/local_selfplay_<UTC>/` directory. A collection run must name both
+  `--weights <file>` and `--positions <file>`; the manifest records the weight
+  SHA-256, strict probe result, evaluator kind, and fixed USI options. The only
+  exception is an explicit `--material-only --startpos-smoke` run of at most
+  two games, which is marked as non-NNUE, non-strength evidence. Use
+  `--games-per-position <n>` for a fixed opening corpus. Openings and engine colors are exhausted before a
   condition is reused; raw duplicates are retained while the dedup index names
   one representative for downstream training. `--dry-run` checks the planned
   command and writes a manifest without playing. A weighted run fails closed
   before launching an engine unless `nnue_probe --strict` passes; it records
   the engine, runner, probe, weights, opening file hashes and explicit
-  `NnueOutput`. Empty or invalid opening files are rejected. The transcript
+  `NnueOutput`. It also records source identity, toolchain, and resource
+  preflight. A signal interruption writes an SHA-256-backed
+  `interruption-snapshot.json`; this is distinct from a completed aggregate.
+  Empty or invalid opening files are rejected. The transcript
   stores only the last completed primary-PV iteration, avoiding mixed-depth or
   secondary-MultiPV scores. `build_selfplay_ledger.py` merges replay-verified
   representative runs into a development-only split/overlap ledger and freezes
   a bounded diagnostic position set; it is not a training exporter.
+- `profile_nnue_transcript.py`: measures static output diversity from an
+  explicitly named NNUE weight file on replayable transcript positions. It
+  records the source evaluator separately, so a material or legacy run cannot
+  be relabelled as NNUE evidence.
+- `summarize_q12_screen.py`: rebuilds a Q12 engineering-screen manifest from
+  every completed `pairN/result.json`. It rejects incomplete pairs, mismatched
+  engine contracts, and invalid two-game colour pairs rather than allowing a
+  hand-maintained aggregate to decide candidate promotion.
+- `test_usi_state_transitions.py`: launches the release USI and checks
+  stop/ponder/ponderhit state transitions, one-bestmove-per-search behavior,
+  current-root mate-score signs, and the limited scope of root-safety metrics.
+- `compare_cshogi_oracle.py`: compares exact legal USI move sets for a fixed
+  SFEN corpus with a diagnostic-only `cshogi==1.0.5` Linux container. Build it
+  with `docker build -t sekirei-cshogi-oracle:1.0.5 -f
+  scripts/cshogi-oracle.Dockerfile .`, then run
+  `python3 scripts/compare_cshogi_oracle.py`. The container is an oracle, not
+  a runtime dependency or a correctness verdict when the two implementations
+  disagree.
 
 Same-engine self-play is useful training and regression data, but it is not
 an Elo measurement or evidence that either version is stronger.
@@ -78,6 +105,12 @@ an Elo measurement or evidence that either version is stronger.
 - `analyze_floodgate_analysis.py`, `classify_swing_positions.py`: convert
   recorded sidecars into review candidates without inventing missing values.
 - `run_core_floodgate_diagnostic.py`: local re-search of frozen positions.
+- `run_selfplay_swing_diagnostic.py`: replay selected self-play positions with
+  their exact game history, then compare free, forced-root, TT, NMP, LMR, and
+  fixed-depth cells. It isolates causes; it is not move-regret evidence.
+- `run_root_ordering_diagnostic.py`: records legal-generator root order,
+  completed iterative-deepening passes, and opt-in root mate-safety cost for
+  replayed self-play positions. Disabling root mate safety is diagnostic-only.
 
 Credentials must be supplied at runtime. Never put `FLOODGATE_TRIP` in Git,
 manifests, plist files, command transcripts, or saved logs.
@@ -90,7 +123,9 @@ manifests, plist files, command transcripts, or saved logs.
 - `compare_teacher_evals.py`, `analyze_nnue_calibration.py`,
   `analyze_nnue_outliers.py`: evaluator diagnostics.
 - `build_teacher_strata_corpus.py`, `summarize_nnue_profile_strata.py`:
-  deterministic phase/material/mate strata and root-error summaries. They are
+  deterministic phase/material/mate strata and root-error summaries. Material
+  includes board and hands from the side-to-move perspective; mate and
+  incomplete searches are excluded from ordinary-CP error metrics. They are
   calibration diagnostics, not checkpoint selection or strength gates.
 - `select_longrun_checkpoint.py`, `select_king_relative_checkpoint.py`: apply
   experiment-specific, validation-only selection rules.

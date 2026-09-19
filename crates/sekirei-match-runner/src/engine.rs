@@ -6,6 +6,7 @@
 //! channel + `recv_timeout`, a stuck engine is turned into a TimedOut error and
 //! the runner scores it as a loss instead of deadlocking.
 
+use std::collections::HashSet;
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
@@ -39,6 +40,18 @@ pub struct SearchInfo {
     pub pv: Vec<String>,
     pub completed_iteration: bool,
     pub raw: Option<String>,
+    /// Root mate-safety cache metrics reported by the Sequential backend.
+    /// This is separate from the completed depth/score line because USI emits
+    /// it as an `info string` diagnostic.
+    pub root_mate_safety: Option<RootMateSafetyMetrics>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RootMateSafetyMetrics {
+    pub mate1_cache_hits: u64,
+    pub blunder_cache_hits: u64,
+    pub mate1_nodes: u64,
+    pub blunder_nodes: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,12 +165,23 @@ impl UsiEngine {
     /// tasks/lessons.md) and makes match results harder to reproduce.
     pub fn initialize(&mut self, options: &[String]) -> io::Result<()> {
         self.send("usi")?;
+        let mut advertised_options = HashSet::new();
         loop {
             let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
             if line.starts_with("id name ") {
                 self.name = line.strip_prefix("id name ").unwrap_or(&line).to_string();
+            } else if let Some(name) = advertised_option_name(&line) {
+                advertised_options.insert(name.to_string());
             } else if line.contains("usiok") {
                 break;
+            }
+        }
+        for name in requested_option_names(options) {
+            if !advertised_options.contains(name) {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("engine did not advertise requested USI option {name}"),
+                ));
             }
         }
         for cmd in setoption_commands(options) {
@@ -265,7 +289,8 @@ impl UsiEngine {
             .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
             .unwrap_or(MOVE_FALLBACK);
 
-        let mut completed_primary = None;
+        let mut completed_primary: Option<SearchInfo> = None;
+        let mut root_mate_safety = None;
         loop {
             let line = self.recv_line(deadline)?; // TimedOut bubbles up = engine hung
             if line.starts_with("bestmove") {
@@ -274,16 +299,38 @@ impl UsiEngine {
                     .nth(1)
                     .unwrap_or("resign")
                     .to_string();
-                return Ok(GoResult {
-                    bestmove: mv,
-                    info: completed_primary.unwrap_or_default(),
-                });
+                let mut info = completed_primary.unwrap_or_default();
+                info.root_mate_safety = root_mate_safety;
+                return Ok(GoResult { bestmove: mv, info });
             }
             if line.starts_with("info ") {
                 retain_completed_primary(&mut completed_primary, &line);
+                if let Some(metrics) = parse_root_mate_safety_metrics(&line) {
+                    root_mate_safety = Some(metrics);
+                }
             }
         }
     }
+}
+
+fn parse_root_mate_safety_metrics(line: &str) -> Option<RootMateSafetyMetrics> {
+    let tokens: Vec<&str> = line.split_whitespace().collect();
+    if tokens.get(0..3) != Some(["info", "string", "root_mate_safety"].as_slice()) {
+        return None;
+    }
+    let value = |name| {
+        tokens
+            .iter()
+            .position(|token| *token == name)
+            .and_then(|index| tokens.get(index + 1))
+            .and_then(|value| value.parse::<u64>().ok())
+    };
+    Some(RootMateSafetyMetrics {
+        mate1_cache_hits: value("mate1_cache_hits")?,
+        blunder_cache_hits: value("blunder_cache_hits")?,
+        mate1_nodes: value("mate1_nodes")?,
+        blunder_nodes: value("blunder_nodes")?,
+    })
 }
 
 fn retain_completed_primary(slot: &mut Option<SearchInfo>, line: &str) {
@@ -390,6 +437,24 @@ fn parse_byoyomi_ms(go_cmd: &str) -> Option<u64> {
     None
 }
 
+/// Extract the option name from a standard USI option declaration.
+///
+/// Names may contain spaces, so this uses the mandatory ` type ` delimiter
+/// instead of splitting on whitespace. Malformed lines authorize nothing.
+fn advertised_option_name(line: &str) -> Option<&str> {
+    line.strip_prefix("option name ")?
+        .split_once(" type ")
+        .map(|(name, _)| name)
+        .filter(|name| !name.is_empty())
+}
+
+/// Requested names that will actually be sent by [`setoption_commands`].
+fn requested_option_names(options: &[String]) -> impl Iterator<Item = &str> {
+    options
+        .iter()
+        .filter_map(|option| option.split_once('=').map(|(name, _)| name))
+}
+
 /// Turns `["Threads=1", "MoveOverhead=100"]` into the USI command lines
 /// `setoption` expects. An entry with no `=` is skipped rather than sent
 /// malformed -- a typo'd `--engine-option` should be a silent no-op here,
@@ -424,6 +489,52 @@ impl Drop for UsiEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn advertised_option_name_accepts_standard_declarations() {
+        assert_eq!(
+            advertised_option_name("option name Move Overhead type spin default 50 min 0 max 5000"),
+            Some("Move Overhead")
+        );
+        assert_eq!(
+            advertised_option_name("option name Hash type spin default 64"),
+            Some("Hash")
+        );
+        assert_eq!(
+            advertised_option_name("option Hash type spin default 64"),
+            None
+        );
+    }
+
+    #[test]
+    fn requested_option_names_excludes_malformed_entries() {
+        let options = vec![
+            "Threads=1".to_string(),
+            "invalid".to_string(),
+            "UseBook=false".to_string(),
+        ];
+        assert_eq!(
+            requested_option_names(&options).collect::<Vec<_>>(),
+            vec!["Threads", "UseBook"]
+        );
+    }
+
+    #[test]
+    fn parses_root_mate_safety_metrics_only_from_complete_diagnostic() {
+        let metrics = parse_root_mate_safety_metrics(
+            "info string root_mate_safety mate1_cache_hits 1 blunder_cache_hits 2 mate1_nodes 30 blunder_nodes 930",
+        )
+        .expect("complete metric line");
+        assert_eq!(metrics.mate1_cache_hits, 1);
+        assert_eq!(metrics.blunder_cache_hits, 2);
+        assert_eq!(metrics.mate1_nodes, 30);
+        assert_eq!(metrics.blunder_nodes, 930);
+        assert!(
+            parse_root_mate_safety_metrics("info string root_mate_safety mate1_cache_hits 1")
+                .is_none()
+        );
+        assert!(parse_root_mate_safety_metrics("info depth 2 score cp 0").is_none());
+    }
 
     #[test]
     fn setoption_commands_formats_name_value_pairs_in_order() {
@@ -494,6 +605,23 @@ mod tests {
         assert_eq!(info.score_mate, None);
         assert_eq!(info.bound.as_deref(), Some("upperbound"));
         assert_eq!(info.pv, ["7g7f", "3c3d"]);
+        assert!(
+            !info.is_completed_primary(),
+            "a bound is not a completed score and must not survive a stop"
+        );
+    }
+
+    #[test]
+    fn lowerbound_iteration_is_not_retained_as_a_completed_primary() {
+        let mut retained = None;
+        retain_completed_primary(
+            &mut retained,
+            "info depth 10 score cp 45 lowerbound nodes 200 pv 7g7f 3c3d",
+        );
+        assert!(
+            retained.is_none(),
+            "a lowerbound is partial search state, not a completed iteration"
+        );
     }
 
     #[test]

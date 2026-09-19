@@ -1,0 +1,67 @@
+{
+  "schema": "sekirei.cshogi-boundary-cases.v1",
+  "purpose": "diagnostic-only legal-move conformance corpus",
+  "oracle": {
+    "package": "cshogi==1.0.5",
+    "upstream_commit": "47564dff4a51bfcaa8222fcb4441b315d61895d4"
+  },
+  "cases": [
+    {
+      "id": "double-check-king-only",
+      "source": "synthetic Sekirei Q1 boundary fixture",
+      "rule": "double check permits only king evasions",
+      "initial_sfen": "k3r4/9/9/9/8b/9/9/9/4K4 b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["5i4i", "5i6h", "5i6i"]
+    },
+    {
+      "id": "promoted-pawn-gold-check",
+      "source": "synthetic Sekirei Q1 boundary fixture",
+      "rule": "promoted pawn attacks as gold",
+      "initial_sfen": "k8/9/9/9/9/9/9/4+p4/4K4 b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["5i5h"]
+    },
+    {
+      "id": "open-rook-check",
+      "source": "synthetic Sekirei Q1 boundary fixture",
+      "rule": "self-pin cannot expose a rook check",
+      "initial_sfen": "k3r4/9/9/9/9/9/4S4/9/4K4 b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["5g5f", "5i4h", "5i4i", "5i5h", "5i6h", "5i6i"]
+    },
+    {
+      "id": "capture-checker",
+      "source": "synthetic Sekirei Q1 boundary fixture",
+      "rule": "a distant bishop may capture the checking rook",
+      "initial_sfen": "k3r4/9/9/9/8B/9/9/9/4K4 b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["1e5a", "1e5a+", "5i4h", "5i4i", "5i6h", "5i6i"]
+    },
+    {
+      "id": "last-rank-pawn-promotion",
+      "source": "synthetic Sekirei Q1 boundary fixture",
+      "rule": "a pawn entering the last rank must promote",
+      "initial_sfen": "k8/4P4/9/9/9/9/9/9/4K4 b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["5b5a+", "5i4h", "5i4i", "5i5h", "5i6h", "5i6i"]
+    },
+    {
+      "id": "pawn-drop-mate-boundary",
+      "source": "movegen.rs pawn_drop_mate_fast_probe_matches_full_move_probe",
+      "rule": "uchifuzume probe must agree with full legal-move reference",
+      "initial_sfen": "l+N4knl/6g2/4+P2p1/p2s2Pp1/1pp1l2P1/P1sK2P1P/1P3S1r1/5G3/LN7 w R2BGSN3Pg2p 1",
+      "history_usi": [],
+      "expected_legal_count": 129,
+      "expected_uchifuzume_after_pawn_drop_6e": false
+    },
+    {
+      "id": "startpos",
+      "source": "standard shogi initial position",
+      "rule": "baseline legal move set",
+      "initial_sfen": "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+      "history_usi": [],
+      "expected_legal_usi": ["1g1f", "1i1h", "2g2f", "2h1h", "2h3h", "2h4h", "2h5h", "2h6h", "2h7h", "3g3f", "3i3h", "3i4h", "4g4f", "4i3h", "4i4h", "4i5h", "5g5f", "5i4h", "5i5h", "5i6h", "6g6f", "6i5h", "6i6h", "6i7h", "7g7f", "7i6h", "7i7h", "8g8f", "9g9f", "9i9h"]
+    }
+  ]
+}

@@ -37,12 +37,58 @@ def sha256(path: Path | None) -> str | None:
     return digest.hexdigest()
 
 
+def sha256_bytes(value: bytes) -> str:
+    return hashlib.sha256(value).hexdigest()
+
+
 def git_value(*args: str) -> str | None:
     completed = subprocess.run(
         ["git", *args], cwd=ROOT, text=True, capture_output=True, check=False
     )
     value = completed.stdout.strip()
     return value if completed.returncode == 0 and value else None
+
+
+def command_value(*args: str) -> str | None:
+    completed = subprocess.run(list(args), cwd=ROOT, text=True, capture_output=True, check=False)
+    value = completed.stdout.strip()
+    return value if completed.returncode == 0 and value else None
+
+
+def repository_identity() -> dict:
+    """Record a dirty checkout without embedding a potentially large patch."""
+    diff = subprocess.run(
+        ["git", "diff", "--binary", "HEAD"], cwd=ROOT, capture_output=True, check=False
+    )
+    patch_sha256 = sha256_bytes(diff.stdout) if diff.returncode == 0 else None
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"],
+        cwd=ROOT,
+        capture_output=True,
+        check=False,
+    )
+    untracked_hasher = hashlib.sha256()
+    untracked_count = 0
+    if untracked.returncode == 0:
+        for raw_path in untracked.stdout.split(b"\0"):
+            if not raw_path:
+                continue
+            path = ROOT / raw_path.decode("utf-8", errors="surrogateescape")
+            if not path.is_file():
+                continue
+            untracked_hasher.update(raw_path)
+            untracked_hasher.update(b"\0")
+            untracked_hasher.update(path.read_bytes())
+            untracked_count += 1
+    return {
+        "head": git_value("rev-parse", "HEAD"),
+        "dirty": bool(git_value("status", "--porcelain")),
+        "dirty_patch_sha256": patch_sha256,
+        "dirty_patch_bytes": len(diff.stdout) if diff.returncode == 0 else None,
+        "untracked_file_count": untracked_count if untracked.returncode == 0 else None,
+        "untracked_content_sha256": untracked_hasher.hexdigest() if untracked.returncode == 0 else None,
+        "toolchain": command_value("rustc", "--version"),
+    }
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
@@ -53,7 +99,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--byoyomi-ms", type=int, default=1_000, help="per-move byoyomi in ms")
     parser.add_argument("--threads", type=int, default=1, help="USI Threads per engine")
     parser.add_argument("--max-moves", type=int, default=512, help="draw cap per game")
-    parser.add_argument("--weights", type=Path, help="optional NNUE weight file for both sides")
+    evaluator = parser.add_mutually_exclusive_group(required=True)
+    evaluator.add_argument("--weights", type=Path, help="NNUE weight file for both sides")
+    evaluator.add_argument(
+        "--material-only",
+        action="store_true",
+        help="explicitly collect a material-evaluation smoke run; never NNUE evidence",
+    )
     parser.add_argument(
         "--nnue-output",
         choices=("absolute", "residual-material"),
@@ -63,7 +115,13 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument("--engine", type=Path, help="USI engine binary (default: target/release/sekirei)")
     parser.add_argument("--runner", type=Path, help="match binary (default: target/release/sekirei-match)")
     parser.add_argument("--probe", type=Path, help="NNUE probe binary (default: target/release/nnue_probe)")
-    parser.add_argument("--positions", type=Path, help="optional one-SFEN-per-line opening file")
+    openings = parser.add_mutually_exclusive_group(required=True)
+    openings.add_argument("--positions", type=Path, help="one-SFEN-per-line opening file")
+    openings.add_argument(
+        "--startpos-smoke",
+        action="store_true",
+        help="explicitly allow at most two startpos smoke games",
+    )
     parser.add_argument("--games-per-position", type=int, help="cover every opening this many times")
     parser.add_argument("--output", type=Path, help="new run directory (default: data/runs/local_selfplay_<UTC>)")
     parser.add_argument("--build", action="store_true", help="rebuild release binaries before playing")
@@ -80,6 +138,11 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             parser.error(f"--{name.replace('_', '-')} must be positive")
     if parsed.games_per_position is not None and parsed.games_per_position < 1:
         parser.error("--games-per-position must be positive")
+    if parsed.startpos_smoke:
+        if parsed.games > 2:
+            parser.error("--startpos-smoke is limited to at most two games")
+        if parsed.games_per_position is not None:
+            parser.error("--games-per-position requires --positions")
     if not 0.0 <= parsed.max_duplicate_ratio <= 1.0:
         parser.error("--max-duplicate-ratio must be between 0 and 1")
     return parsed
@@ -200,6 +263,12 @@ def interrupted_returncode(returncode: int | None) -> bool:
 
 
 def missing_required_artifacts(output: Path, audit: dict, allow_running_snapshot: bool = False) -> list[str]:
+    # A signal can stop the match runner before it creates its final aggregate.
+    # The parent preserves an explicit interruption snapshot in that case;
+    # reporting expected final files as a write failure would conceal the
+    # useful distinction between a clean stop and an output fault.
+    if allow_running_snapshot:
+        return []
     missing = []
     for relative in ("result.json", "result.jsonl", "csa/manifest.json"):
         if not (output / relative).is_file():
@@ -226,10 +295,10 @@ def missing_required_artifacts(output: Path, audit: dict, allow_running_snapshot
 
 
 def run_preflight(
-    *, runner: Path, probe: Path, weights: Path | None, positions: Path | None, nnue_output: str
+    *, engine: Path, runner: Path, probe: Path, weights: Path | None, positions: Path | None, nnue_output: str
 ) -> dict:
     """Run only validation tools; never launch a self-play child process."""
-    report: dict = {"status": "passed", "positions": None, "weights": None}
+    report: dict = {"status": "passed", "positions": None, "weights": None, "engine_activation": None}
     if positions is not None:
         checked = subprocess.run(
             [str(runner), "validate-positions", str(positions)], text=True, capture_output=True, check=False
@@ -262,7 +331,51 @@ def run_preflight(
         }
         if checked.returncode != 0 or parsed is None:
             report["status"] = "failed"
+            return report
+        activated = subprocess.run(
+            [str(engine), str(weights)],
+            input="usi\nisready\nquit\n",
+            text=True,
+            capture_output=True,
+            check=False,
+            timeout=15,
+        )
+        acknowledgement = "NNUE weights loaded from" in activated.stderr and "readyok" in activated.stdout
+        report["engine_activation"] = {
+            "command": [str(engine), str(weights), "<USI handshake redacted>"],
+            "returncode": activated.returncode,
+            "readyok": "readyok" in activated.stdout,
+            "weight_load_acknowledged": acknowledgement,
+            # Preserve only bounded diagnostic tails: paths and user-provided
+            # engine arguments can otherwise be needlessly replicated here.
+            "stdout_tail": activated.stdout.strip().splitlines()[-4:],
+            "stderr_tail": activated.stderr.strip().splitlines()[-4:],
+        }
+        if activated.returncode != 0 or not acknowledgement:
+            report["status"] = "failed"
     return report
+
+
+def resource_preflight(*, threads: int) -> dict:
+    """Capture, but do not reinterpret, the host readiness result for this run.
+
+    A self-play smoke remains a smoke even if the formal-gate resource policy
+    refuses it.  The exact preflight verdict is therefore evidence in the
+    manifest, not a backdoor strength-gate pass/fail decision.
+    """
+    command = [
+        sys.executable,
+        str(ROOT / "scripts" / "gate_resource_preflight.py"),
+        "--parallel", "1", "--threads", str(threads), "--spec-top-n", "0",
+    ]
+    completed = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, check=False)
+    return {
+        "command": command,
+        "returncode": completed.returncode,
+        "stdout": completed.stdout.strip(),
+        "stderr": completed.stderr.strip(),
+        "formal_gate_ready": completed.returncode == 0,
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -293,17 +406,29 @@ def main(argv: list[str] | None = None) -> int:
     transcript_path = output / "transcript.jsonl"
     log_path = output / "match.log"
     dedup_path = output / "dedup-index.json"
+    interruption_snapshot_path = output / "interruption-snapshot.json"
     engine_args = [str(weights)] if weights else []
+    engine_options = {
+        "Threads": args.threads,
+        "SearchMode": "Speculative",
+        "SpecTopN": 0,
+        "MultiPV": 1,
+        "UseBook": False,
+        "Hash": 64,
+        "MoveOverhead": 50,
+        "NnueOutput": args.nnue_output,
+    }
     command = [
         str(runner), "--engine1", str(engine), "--engine2", str(engine),
         "--games", str(args.games), "--byoyomi", str(args.byoyomi_ms),
         "--max-moves", str(args.max_moves), "--output", str(kifu_dir),
         "--csa-output", str(csa_dir), "--json", str(summary_path),
-        "--transcript", str(transcript_path), "--engine-option1", f"Threads={args.threads}",
-        "--engine-option2", f"Threads={args.threads}", "--engine-option1", "SpecTopN=0",
-        "--engine-option2", "SpecTopN=0", "--engine-option1", f"NnueOutput={args.nnue_output}",
-        "--engine-option2", f"NnueOutput={args.nnue_output}",
+        "--transcript", str(transcript_path),
     ]
+    for key, value in engine_options.items():
+        rendered = str(value).lower() if isinstance(value, bool) else str(value)
+        command.extend(["--engine-option1", f"{key}={rendered}"])
+        command.extend(["--engine-option2", f"{key}={rendered}"])
     if engine_args:
         command.extend(["--args1", " ".join(engine_args), "--args2", " ".join(engine_args)])
     if positions is not None:
@@ -319,16 +444,22 @@ def main(argv: list[str] | None = None) -> int:
     )
     unique_conditions = min(games_scheduled_expected, opening_count * 2)
     manifest = {
-        "schema": "sekirei.local-selfplay-run.v3",
+        "schema": "sekirei.local-selfplay-run.v4",
         "status": "preflight_pending",
         "strength_claim": False,
         "started_at": utc_now(),
-        "repository": {"head": git_value("rev-parse", "HEAD"), "dirty": bool(git_value("status", "--porcelain"))},
+        "repository": repository_identity(),
         "engine": {"path": str(engine), "sha256": sha256(engine) if engine.is_file() else None},
         "runner": {"path": str(runner), "sha256": sha256(runner) if runner.is_file() else None},
+        "evaluator": {
+            "kind": "nnue" if weights else "material",
+            "weight_required": True,
+            "weight_load_acknowledged_by": "nnue_probe --strict" if weights else None,
+            "strength_evidence": bool(weights),
+        },
         "probe": {"path": str(probe) if weights else None, "sha256": sha256(probe) if weights and probe.is_file() else None},
         "weights": {"path": str(weights) if weights else None, "sha256": sha256(weights)},
-        "options": {"Threads": args.threads, "SpecTopN": 0, "NnueOutput": args.nnue_output, "byoyomi_ms": args.byoyomi_ms, "max_moves": args.max_moves},
+        "options": {**engine_options, "byoyomi_ms": args.byoyomi_ms, "max_moves": args.max_moves},
         "games_requested": args.games,
         "games_scheduled_expected": games_scheduled_expected,
         "positions": str(positions) if positions else "startpos",
@@ -336,7 +467,10 @@ def main(argv: list[str] | None = None) -> int:
         "positions_count": opening_count,
         "games_per_position": args.games_per_position,
         "collection_policy": {
-            "opening_schedule": "shuffle_each_cycle_without_replacement_then_swap_engine_colors",
+            "opening_schedule": (
+                "shuffle_each_cycle_without_replacement_then_swap_engine_colors"
+                if positions else "explicit_startpos_smoke"
+            ),
             "unique_opening_color_conditions_before_reuse": unique_conditions,
             "opening_reuse_cycles_expected": math.ceil(games_scheduled_expected / max(1, opening_count * 2)),
             "max_duplicate_ratio": args.max_duplicate_ratio,
@@ -368,8 +502,9 @@ def main(argv: list[str] | None = None) -> int:
     if weights is not None:
         manifest["probe"]["sha256"] = sha256(probe)
     preflight = run_preflight(
-        runner=runner, probe=probe, weights=weights, positions=positions, nnue_output=args.nnue_output
+        engine=engine, runner=runner, probe=probe, weights=weights, positions=positions, nnue_output=args.nnue_output
     )
+    preflight["resource"] = resource_preflight(threads=args.threads)
     manifest["preflight"] = preflight
     if preflight["status"] != "passed":
         manifest.update({"status": "preflight_failed", "ended_at": utc_now()})
@@ -413,23 +548,45 @@ def main(argv: list[str] | None = None) -> int:
         signal.signal(signal.SIGINT, old_int)
         signal.signal(signal.SIGTERM, old_term)
 
+    is_interrupted = interrupted or interrupted_returncode(returncode)
+    if is_interrupted:
+        snapshot = {
+            "schema": "sekirei.local-selfplay-interruption.v1",
+            "recorded_at": utc_now(),
+            "stop_signal": manifest.get("stop_signal"),
+            "runner_returncode": returncode,
+            "artifacts_at_stop": {
+                "transcript_lines": count_lines(transcript_path),
+                "log_sha256": sha256(log_path) if log_path.is_file() else None,
+                "transcript_sha256": sha256(transcript_path) if transcript_path.is_file() else None,
+                "summary_present": summary_path.is_file(),
+                "records_present": summary_path.with_suffix(".jsonl").is_file(),
+                "csa_manifest_present": (csa_dir / "manifest.json").is_file(),
+            },
+        }
+        write_manifest(interruption_snapshot_path, snapshot)
+
     dedup = write_duplicate_index(kifu_dir, dedup_path)
     audit = {
         "usi_kifu_files": count_files(kifu_dir, ".txt"),
         "csa_files": count_files(csa_dir, ".csa"),
         "transcript_lines": count_lines(transcript_path),
         "record_lines": count_lines(summary_path.with_suffix(".jsonl")),
+        "interruption_snapshot": (
+            json.loads(interruption_snapshot_path.read_text(encoding="utf-8"))
+            if interruption_snapshot_path.is_file()
+            else None
+        ),
         "deduplication": dedup,
         **result_diagnostics(summary_path),
         **csa_diagnostics(csa_dir / "manifest.json"),
     }
-    is_interrupted = interrupted or interrupted_returncode(returncode)
     audit["missing_required_artifacts"] = missing_required_artifacts(
         output, audit, allow_running_snapshot=is_interrupted
     )
     audit["result_state"] = (
         "interrupted_snapshot"
-        if is_interrupted and audit.get("result_status") == "running"
+        if is_interrupted
         else "final_complete"
         if audit.get("result_status") == "complete"
         else "unstarted_or_output_failed"

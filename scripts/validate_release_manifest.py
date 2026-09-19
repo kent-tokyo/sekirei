@@ -10,7 +10,7 @@ HEX40 = re.compile(r"^[0-9a-f]{40}$")
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 PACKAGES = {"sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"}
 
-def validate(doc):
+def validate(doc, *, allow_planned_publish=False):
     errors = []
     if doc.get("schema") != "sekirei.release-manifest.v1": errors.append("schema")
     release = doc.get("release", "")
@@ -24,7 +24,23 @@ def validate(doc):
     binary = doc.get("binary", {})
     if not isinstance(binary.get("path"), str) or not HEX64.fullmatch(binary.get("sha256", "")): errors.append("binary")
     publish = doc.get("publish", {})
-    if publish.get("registry") != "crates.io" or publish.get("status") != "verified" or not str(publish.get("workflow_run", "")).isdigit() or set(publish.get("crates", [])) != PACKAGES: errors.append("publish")
+    publish_common = (
+        publish.get("registry") == "crates.io"
+        and set(publish.get("crates", [])) == PACKAGES
+    )
+    verified_publish = (
+        publish_common
+        and publish.get("status") == "verified"
+        and str(publish.get("workflow_run", "")).isdigit()
+        and int(publish["workflow_run"]) > 0
+    )
+    planned_publish = (
+        allow_planned_publish
+        and publish_common
+        and publish.get("status") == "planned"
+        and publish.get("workflow_run") is None
+    )
+    if not (verified_publish or planned_publish): errors.append("publish")
     measurement = doc.get("internal_measurement", {})
     if not isinstance(measurement.get("spec_top_n"), int) or measurement["spec_top_n"] < 0 or not isinstance(measurement.get("threads"), int) or measurement["threads"] < 1 or not isinstance(measurement.get("parallel"), int) or measurement["parallel"] < 1 or not isinstance(measurement.get("strength_claim"), bool): errors.append("internal_measurement")
     external = doc.get("external_opponents", {})

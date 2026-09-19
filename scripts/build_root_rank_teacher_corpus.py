@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Capture fixed-teacher root-candidate scores for a history-aware corpus.
 
-This is a diagnostic label generator, not a strength test.  `--root-candidates`
-selects a fixed prefix of the core legal-move generator, so the resulting
-candidate list is explicitly *not* asserted to be the complete legal set.
+This is a diagnostic label generator, not a strength test.  The output records
+the core-reported legal-root count; downstream ranking accepts a row only when
+the requested candidate count covered that complete legal set.
 """
 from __future__ import annotations
 
@@ -64,12 +64,14 @@ def capture(binary: Path, weights: Path, corpus_path: Path, depth: int, root_can
             nnue_output=nnue_output,
         )
         candidates = result.get("root_candidates", [])
+        legal_move_count = result.get("root_legal_move_count")
         completed = result.get("completion") == "search_completed"
         candidates_complete = completed and bool(candidates) and all(
             candidate.get("depth", 0) > 0 and candidate.get("bound") == "exact"
             and candidate.get("abort_reason") == "none"
             for candidate in candidates
         )
+        complete_legal_root_set = isinstance(legal_move_count, int) and legal_move_count == len(candidates)
         rows.append({
             "id": entry["id"],
             "category": entry["category"],
@@ -79,6 +81,7 @@ def capture(binary: Path, weights: Path, corpus_path: Path, depth: int, root_can
             "source": entry.get("source"),
             "teacher_root": result,
             "candidate_prefix_complete": candidates_complete,
+            "complete_legal_root_set": complete_legal_root_set,
         })
     return {
         "schema": SCHEMA,
@@ -88,9 +91,9 @@ def capture(binary: Path, weights: Path, corpus_path: Path, depth: int, root_can
             "depth": depth,
             "threads": 1,
             "spec_top_n": 0,
-            "root_candidate_mode": "legal_move_generation_prefix",
+            "root_candidate_mode": "complete_legal_set" if rows and all(row["complete_legal_root_set"] for row in rows) else "legal_move_generation_prefix",
             "root_candidate_limit": root_candidates,
-            "complete_legal_root_set": False,
+            "complete_legal_root_set": bool(rows) and all(row["complete_legal_root_set"] for row in rows),
             "per_category_unique_positions": per_category,
             "normal_score_abs_max_cp": NORMAL_SCORE_ABS_MAX_CP,
         },

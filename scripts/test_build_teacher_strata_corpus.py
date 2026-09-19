@@ -20,7 +20,7 @@ class TeacherStrataTests(unittest.TestCase):
         rows = [
             {"sfen": "z", "teacher_class": "mate", "phase": "opening", "material_band": "balanced"},
             {"sfen": "a", "teacher_class": "mate", "phase": "opening", "material_band": "balanced"},
-            {"sfen": "b", "teacher_class": "non_mate", "phase": "endgame", "material_band": "white_ahead"},
+            {"sfen": "b", "teacher_class": "non_mate", "phase": "endgame", "material_band": "stm_behind"},
         ]
         selected = STRATA.select(rows, 1)
         self.assertEqual([row["sfen"] for row in selected], ["a", "b"])
