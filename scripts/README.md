@@ -27,6 +27,10 @@ directory before starting a long job.
   forward pass on fixed fixtures. `q21_same_time_profile.py` captures the
   complementary fixed-time T-versus-material search-cost profile; both are
   diagnostics, not strength gates.
+- `q21_residual_ablation.py`: compares material, loaded-NNUE with zero
+  residual scale, and a normal residual evaluator on a fixed loss/control
+  corpus. It separates evaluator cost from evaluator content; it does not
+  choose a strength candidate.
 - `component_benchmark_preflight.py`: load, thermal, and measurement-contract
   checks before a capture.
 - `run_component_aa_batch.py`, `aggregate_component_aa.py`: A/A noise-floor

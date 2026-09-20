@@ -5,7 +5,7 @@
 use crate::board::Board;
 use crate::nnue::NnueWeights;
 use crate::piece::PieceKind;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU16, Ordering};
 
 /// Meaning of an NNUE output.  Weight binaries deliberately keep their stable
 /// `SEKIRW01` layout, so a caller must select this explicitly (and record it
@@ -29,6 +29,9 @@ impl NnueOutputMode {
 }
 
 static NNUE_OUTPUT_MODE: AtomicU8 = AtomicU8::new(0);
+const RESIDUAL_SCALE_DEFAULT_PERMILLE: u16 = 1_000;
+const RESIDUAL_SCALE_MAX_PERMILLE: u16 = 2_000;
+static NNUE_RESIDUAL_SCALE_PERMILLE: AtomicU16 = AtomicU16::new(RESIDUAL_SCALE_DEFAULT_PERMILLE);
 
 /// Sets the process-wide interpretation of loaded NNUE weights.  The default
 /// is absolute, preserving every existing weight file and USI invocation.
@@ -49,6 +52,31 @@ pub fn nnue_output_mode() -> NnueOutputMode {
         1 => NnueOutputMode::ResidualMaterial,
         _ => NnueOutputMode::Absolute,
     }
+}
+
+/// Sets the multiplier applied to a residual NNUE output, in thousandths.
+///
+/// A value of 1,000 retains the trained evaluator's normal meaning. Zero is
+/// useful only for diagnostics: it still exercises NNUE accumulator work but
+/// leaves the final static score equal to material.
+pub fn set_nnue_residual_scale_permille(scale: u16) -> Result<(), &'static str> {
+    if scale > RESIDUAL_SCALE_MAX_PERMILLE {
+        return Err("residual scale must be in 0..=2000 permille");
+    }
+    NNUE_RESIDUAL_SCALE_PERMILLE.store(scale, Ordering::Relaxed);
+    Ok(())
+}
+
+/// Returns the residual NNUE multiplier in thousandths.
+#[inline]
+pub fn nnue_residual_scale_permille() -> u16 {
+    NNUE_RESIDUAL_SCALE_PERMILLE.load(Ordering::Relaxed)
+}
+
+#[inline]
+fn scaled_residual(nnue: i32, scale_permille: u16) -> i32 {
+    let scaled = i64::from(nnue) * i64::from(scale_permille);
+    (scaled / i64::from(RESIDUAL_SCALE_DEFAULT_PERMILLE)) as i32
 }
 
 /// Approximate piece values in centipawns (standard shogi heuristics)
@@ -105,7 +133,11 @@ pub fn evaluate(board: &Board) -> i32 {
         match nnue_output_mode() {
             NnueOutputMode::Absolute => board.acc.evaluate(board.side_to_move),
             NnueOutputMode::ResidualMaterial => {
-                material_score(board) + board.acc.evaluate(board.side_to_move)
+                material_score(board)
+                    + scaled_residual(
+                        board.acc.evaluate(board.side_to_move),
+                        nnue_residual_scale_permille(),
+                    )
             }
         }
     } else {
@@ -132,10 +164,30 @@ pub fn evaluate_with_weights_mode(
     weights: &NnueWeights,
     mode: NnueOutputMode,
 ) -> i32 {
+    evaluate_with_weights_mode_and_residual_scale(
+        board,
+        weights,
+        mode,
+        RESIDUAL_SCALE_DEFAULT_PERMILLE,
+    )
+}
+
+/// Explicit-weight evaluation with a caller-provided residual scale.
+///
+/// This is deliberately separate from the process-wide setting so diagnostic
+/// tools can compare scales without leaking one experiment into another.
+pub fn evaluate_with_weights_mode_and_residual_scale(
+    board: &Board,
+    weights: &NnueWeights,
+    mode: NnueOutputMode,
+    residual_scale_permille: u16,
+) -> i32 {
     let nnue = board.evaluate_with_weights(weights);
     match mode {
         NnueOutputMode::Absolute => nnue,
-        NnueOutputMode::ResidualMaterial => material_score(board) + nnue,
+        NnueOutputMode::ResidualMaterial => {
+            material_score(board) + scaled_residual(nnue, residual_scale_permille)
+        }
     }
 }
 
@@ -279,5 +331,29 @@ mod tests {
             evaluate_with_weights_mode(&board, &weights, NnueOutputMode::ResidualMaterial),
             material_score(&board)
         );
+    }
+
+    #[test]
+    fn zero_residual_scale_preserves_material_while_exercising_explicit_weights() {
+        let mut weights = NnueWeights::default_lcg();
+        weights.out_bias = 640.0;
+        let board = Board::startpos();
+
+        assert_ne!(board.evaluate_with_weights(&weights), 0);
+        assert_eq!(
+            evaluate_with_weights_mode_and_residual_scale(
+                &board,
+                &weights,
+                NnueOutputMode::ResidualMaterial,
+                0,
+            ),
+            material_score(&board),
+        );
+    }
+
+    #[test]
+    fn residual_scale_rejects_out_of_contract_values() {
+        assert!(set_nnue_residual_scale_permille(2_001).is_err());
+        set_nnue_residual_scale_permille(RESIDUAL_SCALE_DEFAULT_PERMILLE).unwrap();
     }
 }

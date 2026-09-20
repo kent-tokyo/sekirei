@@ -15,7 +15,7 @@ use sekirei_core::{
     board::Board,
     color::Color,
     dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
-    eval::{NnueOutputMode, set_nnue_output_mode},
+    eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille},
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
@@ -673,6 +673,9 @@ fn main() {
                 println!(
                     "option name NnueOutput type combo default absolute var absolute var residual-material"
                 );
+                println!(
+                    "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000"
+                );
                 println!("option name UseBook type check default true");
                 println!("option name BookMaxPly type spin default 30 min 0 max 200");
                 println!("option name BookMinConfidence type string default 0.20");
@@ -839,6 +842,28 @@ fn main() {
                         search_mode,
                     );
                     println!("info string NNUE output mode {}", mode.as_str());
+                } else if parts.get(1) == Some(&"NnueResidualScalePermille") {
+                    let Some(scale) = parts.get(3).and_then(|value| value.parse::<u16>().ok())
+                    else {
+                        println!(
+                            "info string invalid NnueResidualScalePermille; expected 0..=2000"
+                        );
+                        continue;
+                    };
+                    if let Err(error) = set_nnue_residual_scale_permille(scale) {
+                        println!("info string invalid NnueResidualScalePermille: {error}");
+                        continue;
+                    }
+                    // A residual-scale change alters every static evaluation,
+                    // so cached bounds from the prior scale cannot be reused.
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
+                    println!("info string NNUE residual scale {scale} permille");
                 } else if parts.get(1) == Some(&"UseBook") {
                     if let Some(v) = parts.get(3) {
                         use_book = *v == "true";

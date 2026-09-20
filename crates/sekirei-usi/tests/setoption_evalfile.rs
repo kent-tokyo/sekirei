@@ -212,6 +212,33 @@ fn setoption_evalfile_then_isready_activates_nnue() {
 }
 
 #[test]
+fn residual_scale_option_is_advertised_and_acknowledged() {
+    let (child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    let usi_lines = recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    assert!(
+        usi_lines.iter().any(|line| {
+            line == "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000"
+        }),
+        "residual-scale option was not advertised: {usi_lines:?}"
+    );
+
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 500",
+    );
+    let acknowledgement = recv_until(
+        &rx,
+        |line| line == "info string NNUE residual scale 500 permille",
+        Duration::from_secs(5),
+    );
+    assert!(acknowledgement.contains(&"info string NNUE residual scale 500 permille".to_string()));
+
+    terminate(child, &mut stdin);
+}
+
+#[test]
 fn repeated_isready_does_not_reload_the_same_evalfile() {
     let weights_path = write_marker_weights();
     let (mut child, rx, mut stdin) = spawn_engine();

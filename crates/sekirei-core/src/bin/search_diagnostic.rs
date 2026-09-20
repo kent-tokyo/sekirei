@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sekirei_core::board::Board;
-use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode};
+use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille};
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::nnue::load_weights;
 use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searcher};
@@ -23,6 +23,7 @@ fn main() {
     let mut warmup_nodes = None;
     let mut weights = None;
     let mut nnue_output = NnueOutputMode::Absolute;
+    let mut nnue_residual_scale_permille = 1_000_u16;
     let mut sfen = None;
     let mut moves = None;
     let mut expected_sfen = None;
@@ -88,6 +89,16 @@ fn main() {
                     std::process::exit(2);
                 }
             },
+            "--nnue-residual-scale-permille" => {
+                nnue_residual_scale_permille = args
+                    .next()
+                    .and_then(|value| value.parse().ok())
+                    .filter(|value| *value <= 2_000)
+                    .unwrap_or_else(|| {
+                        eprintln!("--nnue-residual-scale-permille requires 0..=2000");
+                        std::process::exit(2);
+                    });
+            }
             "--sfen" => sfen = args.next(),
             "--moves" => moves = args.next(),
             "--expected-sfen" => expected_sfen = args.next(),
@@ -125,10 +136,11 @@ fn main() {
             std::process::exit(1);
         });
         set_nnue_output_mode(nnue_output);
+        set_nnue_residual_scale_permille(nnue_residual_scale_permille).unwrap();
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material --nnue-residual-scale-permille 0..=2000] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
