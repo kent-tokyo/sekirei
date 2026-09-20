@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.41",
+  "commit": "c369224a37ccc5c3e332143fb5fbe969762be3aa",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.41",
+    "sekirei-core": "0.3.41",
+    "sekirei-bench": "0.3.41",
+    "sekirei-csa": "0.3.41",
+    "sekirei-match-runner": "0.3.41",
+    "sekirei-train": "0.3.41"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "e0fd150f6a6948c49ad0e2b25c85a21d303990d4538032971fca0d3b9108a566"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Workspace tests, lint, and output-equivalent NNUE forward-pass checks passed. The residual-scale selection screen did not select a candidate; no playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external engine or GUI result is a release criterion or strength claim."
+  },
+  "known_limitations": [
+    "Publication is planned only. Replace this state with the successful crates.io workflow run before declaring the release verified.",
+    "The NNUE forward-pass result is a fixed-fixture component diagnostic, not an overall search-speed or playing-strength result.",
+    "The residual-scale candidate was not adopted after its local selection screen.",
+    "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented."
+  ]
+}
