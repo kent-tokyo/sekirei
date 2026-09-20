@@ -381,6 +381,7 @@ impl SearchBound {
 /// The observer is detached from normal searches, so production callers do not
 /// pay for these atomic increments unless they explicitly opt in.
 pub struct SearchDiagnostics {
+    static_evaluations: AtomicU64,
     tt_probes: AtomicU64,
     tt_hits: AtomicU64,
     order_tt: AtomicU64,
@@ -396,6 +397,8 @@ pub struct SearchDiagnostics {
 /// A point-in-time copy of [`SearchDiagnostics`] counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct SearchDiagnosticsSnapshot {
+    /// Number of calls to the configured static evaluator.
+    pub static_evaluations: u64,
     /// Number of transposition-table probes.
     pub tt_probes: u64,
     /// Number of probes that found an entry.
@@ -434,6 +437,7 @@ impl SearchDiagnostics {
     /// Create an empty observer.
     pub fn new() -> Self {
         Self {
+            static_evaluations: AtomicU64::new(0),
             tt_probes: AtomicU64::new(0),
             tt_hits: AtomicU64::new(0),
             order_tt: AtomicU64::new(0),
@@ -450,6 +454,7 @@ impl SearchDiagnostics {
     /// Return counters collected so far without resetting the observer.
     pub fn snapshot(&self) -> SearchDiagnosticsSnapshot {
         SearchDiagnosticsSnapshot {
+            static_evaluations: self.static_evaluations.load(Ordering::Relaxed),
             tt_probes: self.tt_probes.load(Ordering::Relaxed),
             tt_hits: self.tt_hits.load(Ordering::Relaxed),
             order_tt: self.order_tt.load(Ordering::Relaxed),
@@ -482,6 +487,20 @@ struct SearchState {
     countermoves: CountermoveTable,
     diagnostics: Option<Arc<SearchDiagnostics>>,
     pruning: PruningConfig,
+}
+
+/// Call the static evaluator while accounting for it in an opt-in diagnostic.
+///
+/// The observer is absent from production searches, so no atomic operation is
+/// performed outside an explicitly requested cost profile.
+#[inline]
+fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
+    if let Some(diagnostics) = &state.diagnostics {
+        diagnostics
+            .static_evaluations
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    evaluate(board)
 }
 
 /// Search pruning switches used by diagnostic ablations.
@@ -868,7 +887,7 @@ impl Searcher {
                 .filter(|candidate| legal.as_slice().contains(candidate))
                 .or_else(|| legal.as_slice().first().copied());
             if best_move.is_some() {
-                best_score = evaluate(board);
+                best_score = evaluate_for_search(&state, board);
             }
         }
         let pv = extract_pv(&self.tt, board, best_move, done_depth);
@@ -1395,7 +1414,7 @@ fn alpha_beta(
     // Skipped when in check (position is not "quiet") or depth > 5 (overhead not justified).
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     let static_eval: Option<i32> = if !in_check && depth <= 5 {
-        Some(evaluate(board))
+        Some(evaluate_for_search(state, board))
     } else {
         None
     };
@@ -1921,7 +1940,7 @@ fn quiescence(
     // until the clock runs out — the move then blows past its byoyomi.
     const QSEARCH_MAX_PLY: u32 = 10;
     if qply >= QSEARCH_MAX_PLY {
-        return evaluate(board);
+        return evaluate_for_search(state, board);
     }
 
     // A depth-zero TT entry represents only the top-level qsearch problem.
@@ -1965,7 +1984,7 @@ fn quiescence(
     // Stand-pat and delta pruning only apply when not in check.
     // In check the side to move has no quiet option, so stand-pat is invalid.
     if !in_check {
-        let stand_pat = evaluate(board);
+        let stand_pat = evaluate_for_search(state, board);
         if stand_pat >= beta {
             if qply == 0 && !state.budget.should_abort() {
                 state.tt.store(

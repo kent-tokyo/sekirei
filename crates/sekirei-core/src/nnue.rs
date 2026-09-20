@@ -772,6 +772,42 @@ impl NnueAcc {
         const FT_SCALE: f32 = 64.0;
         // L2 forward (input-first loop for cache-friendly access to l2[j]).
         let mut l2_acc = w.l2_bias;
+        for j in (0..L1).step_by(2) {
+            let a0 = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            let b0 = self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            let a1 = self.values[us][j + 1].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            let b1 = self.values[them][j + 1].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+            let row_us0 = &w.l2[j];
+            let row_them0 = &w.l2[L1 + j];
+            let row_us1 = &w.l2[j + 1];
+            let row_them1 = &w.l2[L1 + j + 1];
+            for o in 0..L2 {
+                l2_acc[o] += a0 * row_us0[o];
+                l2_acc[o] += b0 * row_them0[o];
+                l2_acc[o] += a1 * row_us1[o];
+                l2_acc[o] += b1 * row_them1[o];
+            }
+        }
+
+        // ClippedReLU L2 → output
+        let mut out = w.out_bias;
+        for o in 0..L2 {
+            let relu_l2 = l2_acc[o].clamp(0.0, 127.0);
+            out += relu_l2 * w.out[o];
+        }
+        (out / 64.0) as i32
+    }
+
+    /// Scalar reference for the forward pass.
+    ///
+    /// Kept only in tests so the two-row hot-path unroll has an independent,
+    /// output-identical oracle without adding a production branch or loop.
+    #[cfg(test)]
+    fn evaluate_with_scalar_reference(&self, w: &NnueWeights, stm: Color) -> i32 {
+        let us = stm.index();
+        let them = 1 - us;
+        const FT_SCALE: f32 = 64.0;
+        let mut l2_acc = w.l2_bias;
         for j in 0..L1 {
             let a = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
             let b = self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
@@ -782,12 +818,9 @@ impl NnueAcc {
                 l2_acc[o] += b * row_them[o];
             }
         }
-
-        // ClippedReLU L2 → output
         let mut out = w.out_bias;
         for o in 0..L2 {
-            let relu_l2 = l2_acc[o].clamp(0.0, 127.0);
-            out += relu_l2 * w.out[o];
+            out += l2_acc[o].clamp(0.0, 127.0) * w.out[o];
         }
         (out / 64.0) as i32
     }
@@ -946,6 +979,27 @@ mod tests {
         let mut empty = NnueAcc::new_with(&weights);
         empty.refresh_with(&weights, &[None; 81], &[[0; 7]; 2]);
         assert_eq!(empty.evaluate_with(&weights, Color::Black), 0);
+    }
+
+    #[test]
+    fn two_row_forward_unroll_matches_scalar_reference() {
+        let weights = NnueWeights::default_lcg();
+        let mut acc = NnueAcc::new_with(&weights);
+        for perspective in 0..2 {
+            for neuron in 0..L1 {
+                // Include negative, in-range, and clipped-high accumulator values.
+                acc.values[perspective][neuron] =
+                    ((perspective * 37 + neuron * 73) % 20_001) as i16 - 10_000;
+            }
+        }
+
+        for side in [Color::Black, Color::White] {
+            assert_eq!(
+                acc.evaluate_with(&weights, side),
+                acc.evaluate_with_scalar_reference(&weights, side),
+                "unrolled forward pass changed the {side:?} score"
+            );
+        }
     }
 
     #[test]

@@ -4,6 +4,7 @@
 use std::env;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use sekirei_core::board::Board;
 use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode};
@@ -16,6 +17,7 @@ use sekirei_core::tt::Tt;
 fn main() {
     let mut args = env::args().skip(1);
     let mut nodes = 20_000_u64;
+    let mut time_limit = None;
     let mut max_depth = 50_u32;
     let mut depth_mode = false;
     let mut warmup_nodes = None;
@@ -27,6 +29,7 @@ fn main() {
     let mut root_move = None;
     let mut root_candidates_limit = None;
     let mut iteration_trace = false;
+    let mut profile_cost = false;
     let mut disable_root_mate_safety = false;
     let mut disable_nmp = false;
     let mut disable_lmr = false;
@@ -41,6 +44,17 @@ fn main() {
                         eprintln!("--nodes requires a positive integer");
                         std::process::exit(2);
                     });
+            }
+            "--time-ms" => {
+                let millis = args
+                    .next()
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .filter(|value| *value > 0)
+                    .unwrap_or_else(|| {
+                        eprintln!("--time-ms requires a positive integer");
+                        std::process::exit(2);
+                    });
+                time_limit = Some(Duration::from_millis(millis));
             }
             "--max-depth" => {
                 max_depth = args
@@ -86,6 +100,7 @@ fn main() {
                 }
             }
             "--iteration-trace" => iteration_trace = true,
+            "--profile-cost" => profile_cost = true,
             "--disable-root-mate-safety" => disable_root_mate_safety = true,
             "--disable-nmp" => disable_nmp = true,
             "--disable-lmr" => disable_lmr = true,
@@ -113,7 +128,7 @@ fn main() {
     }
     let Some(sfen) = sfen else {
         eprintln!(
-            "usage: sekirei-search-diagnostic --nodes N --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
+            "usage: sekirei-search-diagnostic [--nodes N | --time-ms N] --sfen 'INITIAL SFEN' [--moves 'USI ...' --expected-sfen 'FINAL SFEN'] [--max-depth N] [--root-move USI] [--root-candidates N] [--iteration-trace] [--profile-cost] [--disable-root-mate-safety] [--warmup-nodes N] [--weights FILE --nnue-output absolute|residual-material] [--teacher-search] [--disable-nmp] [--disable-lmr]"
         );
         std::process::exit(2);
     };
@@ -175,19 +190,16 @@ fn main() {
         null_move: !disable_nmp,
         late_move_reduction: !disable_lmr,
     };
-    let searcher = if iteration_trace {
-        Searcher::with_pruning_and_diagnostics(
-            Tt::new(64),
-            pruning,
-            Arc::new(SearchDiagnostics::new()),
-        )
+    let diagnostics = (iteration_trace || profile_cost).then(|| Arc::new(SearchDiagnostics::new()));
+    let searcher = if let Some(diagnostics) = diagnostics.as_ref() {
+        Searcher::with_pruning_and_diagnostics(Tt::new(64), pruning, diagnostics.clone())
     } else {
         Searcher::with_pruning(Tt::new(64), pruning)
     };
     let config = SearchConfig {
         max_depth,
-        time_limit: None,
-        node_limit: (!depth_mode).then_some(nodes),
+        time_limit,
+        node_limit: (!depth_mode && time_limit.is_none()).then_some(nodes),
         soft_limit: None,
         multi_pv: 1,
     };
@@ -258,6 +270,7 @@ fn main() {
             Vec::new(),
         ),
     };
+    let profile = diagnostics.as_ref().map(|observer| observer.snapshot());
     let bestmove = info
         .best_move
         .map(move_to_usi)
@@ -343,7 +356,7 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -354,6 +367,8 @@ fn main() {
         info.aborted,
         info.abort_reason,
         teacher_search,
+        profile_cost,
+        profile.map_or(0, |snapshot| snapshot.static_evaluations),
         pv,
         pv_legal,
         pv_replay_preserves_input,

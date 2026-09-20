@@ -366,6 +366,9 @@ fn diagnostics_delta(
     before: SearchDiagnosticsSnapshot,
 ) -> SearchDiagnosticsSnapshot {
     SearchDiagnosticsSnapshot {
+        static_evaluations: after
+            .static_evaluations
+            .saturating_sub(before.static_evaluations),
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         order_tt: after.order_tt.saturating_sub(before.order_tt),

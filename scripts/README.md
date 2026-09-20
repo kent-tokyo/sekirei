@@ -23,6 +23,10 @@ directory before starting a long job.
 ## Performance diagnostics
 
 - `run_component_benchmark.py`: capture component timings with provenance.
+- `nnue_forward_bench`: Cargo benchmark binary for a named weight file's
+  forward pass on fixed fixtures. `q21_same_time_profile.py` captures the
+  complementary fixed-time T-versus-material search-cost profile; both are
+  diagnostics, not strength gates.
 - `component_benchmark_preflight.py`: load, thermal, and measurement-contract
   checks before a capture.
 - `run_component_aa_batch.py`, `aggregate_component_aa.py`: A/A noise-floor
