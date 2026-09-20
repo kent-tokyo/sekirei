@@ -58,7 +58,7 @@ fi
 
 # A deterministic node budget is also isolated from an unlimited cache.
 if cargo run "${common[@]}" \
-  --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" --label-nodes 64 \
+  --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" --label-nodes 1000 \
   --teacher-cache "$run_dir/nnue-cache.jsonl" --reuse-teacher-cache --cache-only \
   --output "$run_dir/wrong-node-budget.bin" \
   >"$run_dir/cache-node-budget-mismatch.log" 2>&1; then
@@ -66,18 +66,19 @@ if cargo run "${common[@]}" \
   exit 1
 fi
 
-# Two fresh node-bounded runs must produce byte-identical cache labels. This
-# exercises the deterministic budget through the real CLI, not only Budget's
-# unit test.
+# Two fresh node-bounded runs must produce byte-identical cache labels. The
+# 1,000-node limit is deliberately high enough for every fixture position to
+# complete an iteration; a 64-node limit instead tests the trainer's intended
+# incomplete-search rejection path.
 for suffix in a b; do
   cargo run "${common[@]}" \
-    --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" --label-nodes 64 \
+    --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" --label-nodes 1000 \
     --teacher-cache "$run_dir/node-cache-$suffix.jsonl" \
     --output "$run_dir/node-student-$suffix.bin" \
     >"$run_dir/node-$suffix.log" 2>&1
 done
 cmp "$run_dir/node-cache-a.jsonl" "$run_dir/node-cache-b.jsonl"
-grep -F "Teacher evaluator: ${teacher_identity%:positions-teacher-v2}:nodes64:positions-teacher-v2" "$run_dir/node-a.log" >/dev/null
+grep -F "Teacher evaluator: ${teacher_identity%:positions-teacher-v2}:nodes1000:positions-teacher-v2" "$run_dir/node-a.log" >/dev/null
 
 if cargo run "${common[@]}" \
   --teacher-cache "$run_dir/nnue-cache.jsonl" --reuse-teacher-cache --cache-only \
