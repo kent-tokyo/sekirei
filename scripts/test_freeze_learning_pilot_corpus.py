@@ -34,6 +34,20 @@ class FreezeLearningPilotCorpusTests(unittest.TestCase):
         self.assertEqual(rejected, {"excluded": 1, "duplicate": 1})
         self.assertEqual(len(first), 2)
 
+    def test_phase_material_sampling_is_deterministic_and_keeps_source_cap(self) -> None:
+        rows = [
+            row("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1", "a"),
+            row("4k4/9/9/9/9/9/9/9/4K4 b R 30", "a"),
+            row("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 61", "b"),
+            row("4k4/9/9/9/9/9/9/9/4K4 w r 30", "b"),
+        ]
+        first, _ = PILOT.freeze(rows, set(), per_source=1, seed=42, stratify_phase_material=True)
+        second, _ = PILOT.freeze(list(reversed(rows)), set(), per_source=1, seed=42, stratify_phase_material=True)
+        self.assertEqual([item["sfen"] for item in first], [item["sfen"] for item in second])
+        self.assertEqual(len(first), 2)
+        self.assertEqual(len({item["source"]["path"] for item in first}), 2)
+        self.assertTrue(all("/" in PILOT.phase_material_stratum(item) for item in first))
+
 
 if __name__ == "__main__":
     unittest.main()

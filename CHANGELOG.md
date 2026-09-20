@@ -6,6 +6,20 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.41] – 2026-09-21
+
+- Reduced the fixed-fixture NNUE L2 forward-pass cost with an
+  output-equivalent two-row accumulation path. This is a component diagnostic,
+  not an overall search-speed or playing-strength claim.
+- Added `NnueResidualScalePermille` and fixed-contract residual/cost
+  diagnostics, including explicit loaded-weight acknowledgement in gate
+  records.
+- Added deterministic, source-capped pilot-corpus selection by game phase and
+  hand-aware side-to-move material stratum. It records sampling provenance but
+  does not select a model.
+- The residual-scale candidate did not pass its selection screen and remains
+  unadopted. No new playing-strength claim is made by this release.
+
 ## [0.3.40] – 2026-09-20
 
 - Fixed the USI ponder state machine so a completed ponder search is emitted

@@ -1,15 +1,16 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.40-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.40)
+[![Release](https://img.shields.io/badge/release-v0.3.41-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.41)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.40`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.41`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. Local diagnostics are not absolute rating claims.
+library. It adds NNUE forward-pass and sampling diagnostics; local diagnostics
+are not absolute rating claims.
 
 ## Quick start
 
@@ -68,7 +69,8 @@ Workspace binaries:
 
 The engine reports its complete option list after the USI `usi` command. The
 main options are `Hash`, `Threads`, `MoveOverhead`, `Ponder`, `MultiPV`,
-`EvalFile`, `SearchMode`, `SpecTopN`, and the opening-book options.
+`EvalFile`, `NnueResidualScalePermille`, `SearchMode`, `SpecTopN`, and the
+opening-book options.
 
 `SearchMode=Speculative` is the default; parallel modes may be
 nondeterministic. Use `Threads=1` and `SpecTopN=0` for deterministic checks.

@@ -12,10 +12,20 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+
+ROOT = Path(__file__).resolve().parents[1]
+PROFILE_SPEC = importlib.util.spec_from_file_location(
+    "nnue_root_profiles", ROOT / "scripts" / "compare_nnue_root_profiles.py"
+)
+assert PROFILE_SPEC and PROFILE_SPEC.loader
+PROFILES = importlib.util.module_from_spec(PROFILE_SPEC)
+PROFILE_SPEC.loader.exec_module(PROFILES)
 
 
 FNV_OFFSET = 14695981039346656037
@@ -68,7 +78,29 @@ def sfen_set(path: Path) -> set[str]:
     return result
 
 
-def freeze(rows: list[dict[str, Any]], excluded: set[str], per_source: int, seed: int) -> tuple[list[dict[str, Any]], dict[str, int]]:
+def phase_material_stratum(row: dict[str, Any]) -> str:
+    """Classify a row with its trainer-consumed phase tag and the same
+    hand-aware, side-to-move material model as the root-profile diagnostic.
+
+    This is deliberately a sampling label, not a training target.  Keeping it
+    in one shared implementation prevents a pilot corpus from silently using
+    the old board-only material classification.
+    """
+    tags = row.get("tags")
+    phase = tags.get("phase") if isinstance(tags, dict) else None
+    if phase not in {"opening", "middlegame", "endgame"}:
+        raise ValueError("row tags.phase must be opening, middlegame, or endgame")
+    attributes = PROFILES.attributes(row["sfen"])
+    return f"{phase}/{attributes['material_band']}"
+
+
+def freeze(
+    rows: list[dict[str, Any]],
+    excluded: set[str],
+    per_source: int,
+    seed: int,
+    stratify_phase_material: bool = False,
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
     if per_source <= 0:
         raise ValueError("per_source must be positive")
     by_source: dict[str, list[tuple[int, dict[str, Any]]]] = defaultdict(list)
@@ -95,9 +127,49 @@ def freeze(rows: list[dict[str, Any]], excluded: set[str], per_source: int, seed
             continue
         seen.add(canonical)
         by_source[path].append((fnv1a_seeded(f"{path}\0{sfen}", seed), row))
-    selected: list[dict[str, Any]] = []
-    for source in sorted(by_source):
-        selected.extend(row for _, row in sorted(by_source[source], key=lambda item: item[0])[:per_source])
+    if not stratify_phase_material:
+        selected: list[dict[str, Any]] = []
+        for source in sorted(by_source):
+            selected.extend(row for _, row in sorted(by_source[source], key=lambda item: item[0])[:per_source])
+        return selected, rejected
+
+    # Select a deterministic round-robin over the nine phase/material strata,
+    # still respecting the per-source cap.  A missing stratum is skipped; no
+    # row is duplicated to fill it.  Within each stratum the original seeded
+    # ranking and source name fully define selection, so input order cannot
+    # affect the result.
+    buckets: dict[str, list[tuple[int, str, dict[str, Any]]]] = defaultdict(list)
+    for source, candidates in by_source.items():
+        for rank, row in candidates:
+            buckets[phase_material_stratum(row)].append((rank, source, row))
+    for candidates in buckets.values():
+        candidates.sort(key=lambda item: (item[0], item[1], item[2]["sfen"]))
+
+    selected = []
+    selected_per_source: Counter[str] = Counter()
+    seen_rows: set[str] = set()
+    cursors = {stratum: 0 for stratum in buckets}
+    while True:
+        progressed = False
+        for stratum in sorted(buckets):
+            candidates = buckets[stratum]
+            cursor = cursors[stratum]
+            while cursor < len(candidates):
+                _, source, row = candidates[cursor]
+                cursor += 1
+                if selected_per_source[source] >= per_source:
+                    continue
+                canonical = canonical_sfen(row["sfen"])
+                if canonical in seen_rows:
+                    continue
+                selected.append(row)
+                selected_per_source[source] += 1
+                seen_rows.add(canonical)
+                progressed = True
+                break
+            cursors[stratum] = cursor
+        if not progressed:
+            break
     return selected, rejected
 
 
@@ -106,6 +178,11 @@ def main() -> int:
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--exclude-jsonl", type=Path, action="append", default=[])
     parser.add_argument("--per-source", type=int, required=True)
+    parser.add_argument(
+        "--stratify-phase-material",
+        action="store_true",
+        help="round-robin phase x hand-aware side-to-move material strata while preserving the per-source cap",
+    )
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
@@ -113,7 +190,13 @@ def main() -> int:
     excluded: set[str] = set()
     for path in args.exclude_jsonl:
         excluded.update(sfen_set(path))
-    selected, rejected = freeze(rows, excluded, args.per_source, args.seed)
+    selected, rejected = freeze(
+        rows,
+        excluded,
+        args.per_source,
+        args.seed,
+        stratify_phase_material=args.stratify_phase_material,
+    )
     if not selected:
         parser.error("selection is empty")
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -123,10 +206,27 @@ def main() -> int:
         "schema": "sekirei.nnue-learning-pilot-corpus.v1",
         "status": "frozen_development_only",
         "strength_claim": False,
-        "selection": {"algorithm": "FNV-1a(source.path + NUL + full SFEN) XOR seed, lowest per source", "seed": args.seed, "per_source": args.per_source},
+        "selection": {
+            "algorithm": (
+                "round-robin phase/material strata, then FNV-1a(source.path + NUL + full SFEN) XOR seed"
+                if args.stratify_phase_material
+                else "FNV-1a(source.path + NUL + full SFEN) XOR seed, lowest per source"
+            ),
+            "seed": args.seed,
+            "per_source": args.per_source,
+            "stratify_phase_material": args.stratify_phase_material,
+        },
         "input": {"path": str(args.input), "sha256": sha256(args.input), "rows": len(rows)},
         "exclusions": [{"path": str(path), "sha256": sha256(path), "canonical_sfen_count": len(sfen_set(path))} for path in args.exclude_jsonl],
-        "result": {"path": str(output), "sha256": sha256(output), "positions": len(selected), "sources": len({row["source"]["path"] for row in selected}), "phase_counts": dict(sorted(Counter(row.get("tags", {}).get("phase", "missing") for row in selected).items())), "rejected": rejected},
+        "result": {
+            "path": str(output),
+            "sha256": sha256(output),
+            "positions": len(selected),
+            "sources": len({row["source"]["path"] for row in selected}),
+            "phase_counts": dict(sorted(Counter(row.get("tags", {}).get("phase", "missing") for row in selected).items())),
+            "phase_material_counts": dict(sorted(Counter(phase_material_stratum(row) for row in selected).items())),
+            "rejected": rejected,
+        },
     }
     (args.output_dir / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     print(json.dumps({"positions": len(selected), "sources": manifest["result"]["sources"], **rejected}, sort_keys=True))

@@ -1,15 +1,16 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.40-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.40)
+[![Release](https://img.shields.io/badge/release-v0.3.41-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.41)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.40`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.41`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。ローカル診断は絶対的なレートを示すものではありません。
+含み、NNUE forward passとsamplingの診断を強化します。ローカル診断は絶対的な
+レートを示すものではありません。
 
 ## まず動かす
 
@@ -29,7 +30,7 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIのエンジンとして登録します。checkpointなしでは
-material評価を使います。推奨する0.3.38用NNUEは0.3.40でも引き続き利用でき、
+material評価を使います。推奨する0.3.38用NNUEは0.3.41でも引き続き利用でき、
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin)です。
 
 ```bash
@@ -59,8 +60,8 @@ NNUE重みはcrateに同梱せず、MIT/Apache-2.0のソースとCC BY 4.0の重
 ## エンジン設定
 
 USIの`usi`コマンドで全optionを表示します。主なoptionは`Hash`、`Threads`、
-`MoveOverhead`、`Ponder`、`MultiPV`、`EvalFile`、`SearchMode`、`SpecTopN`、
-定跡関連です。
+`MoveOverhead`、`Ponder`、`MultiPV`、`EvalFile`、`NnueResidualScalePermille`、
+`SearchMode`、`SpecTopN`、定跡関連です。
 
 既定は`SearchMode=Speculative`で、並列modeは結果が揺れる場合があります。決定論的な
 確認では`Threads=1`、`SpecTopN=0`を使います。重みの検証、format、外部SFNNの

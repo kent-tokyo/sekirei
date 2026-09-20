@@ -138,8 +138,12 @@ manifests, plist files, command transcripts, or saved logs.
 - `select_longrun_checkpoint.py`, `select_king_relative_checkpoint.py`: apply
   experiment-specific, validation-only selection rules.
 - `build_selfplay_color_pairs.py`, `freeze_selfplay_calibration_split.py`,
-  `freeze_selfplay_diagnostic_corpus.py`: freeze C5 diagnostic inputs without
-  reusing positions across their declared split.
+  `freeze_selfplay_diagnostic_corpus.py`, `freeze_learning_pilot_corpus.py`:
+  freeze C5 diagnostic or learning inputs without reusing positions across
+  their declared split. The learning-pilot tool can additionally round-robin
+  trainer-consumed phase tags × hand-aware, side-to-move material strata while
+  retaining the source cap; this changes sampling only, never the teacher or
+  loss.
 - `run_fixed_selfplay_diagnostic.py`,
   `run_c5e_teacher_search_distribution_diagnostic.py`,
   `run_selfplay_calibration_holdout.py`, `run_selfplay_search_factorial.py`:
