@@ -20,7 +20,7 @@ teacher_identity=$(python3 -c 'import sys
 h = 14695981039346656037
 for b in open(sys.argv[1], "rb").read():
     h = ((h ^ b) * 1099511628211) & ((1 << 64) - 1)
-print(f"nnue:absolute:{h:016x}")' "$run_dir/teacher.bin")
+print(f"nnue:absolute:{h:016x}:positions-teacher-v2")' "$run_dir/teacher.bin")
 
 cargo run "${common[@]}" \
   --teacher-eval nnue --teacher-weights "$run_dir/teacher.bin" \
@@ -77,7 +77,7 @@ for suffix in a b; do
     >"$run_dir/node-$suffix.log" 2>&1
 done
 cmp "$run_dir/node-cache-a.jsonl" "$run_dir/node-cache-b.jsonl"
-grep -F "Teacher evaluator: ${teacher_identity}:nodes64" "$run_dir/node-a.log" >/dev/null
+grep -F "Teacher evaluator: ${teacher_identity%:positions-teacher-v2}:nodes64:positions-teacher-v2" "$run_dir/node-a.log" >/dev/null
 
 if cargo run "${common[@]}" \
   --teacher-cache "$run_dir/nnue-cache.jsonl" --reuse-teacher-cache --cache-only \
