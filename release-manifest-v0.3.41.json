@@ -18,9 +18,9 @@
     "sha256": "e0fd150f6a6948c49ad0e2b25c85a21d303990d4538032971fca0d3b9108a566"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "35541344105",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
   },
   "internal_measurement": {
@@ -36,7 +36,7 @@
     "configuration": "No external engine or GUI result is a release criterion or strength claim."
   },
   "known_limitations": [
-    "Publication is planned only. Replace this state with the successful crates.io workflow run before declaring the release verified.",
+    "All six crates were published by GitHub workflow 35541344105.",
     "The NNUE forward-pass result is a fixed-fixture component diagnostic, not an overall search-speed or playing-strength result.",
     "The residual-scale candidate was not adopted after its local selection screen.",
     "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented."
