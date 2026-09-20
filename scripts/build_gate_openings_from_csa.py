@@ -24,6 +24,28 @@ def sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def canonical_paths(path: Path | str) -> set[str]:
+    candidate = Path(path)
+    return {str(candidate), str(candidate.resolve())}
+
+
+def excluded_source_paths(manifests: list[Path]) -> set[str]:
+    """Read CSA paths from prior subset manifests in their two common shapes."""
+    excluded: set[str] = set()
+    for manifest in manifests:
+        document = json.loads(manifest.read_text(encoding="utf-8"))
+        for row in document.get("sources", []):
+            if isinstance(row, dict) and isinstance(row.get("path"), str):
+                excluded.update(canonical_paths(row["path"]))
+        for row in document.get("entries", []):
+            if isinstance(row, dict) and isinstance(row.get("source"), str):
+                excluded.update(canonical_paths(row["source"]))
+        for row in document.get("selected", []):
+            if isinstance(row, dict) and isinstance(row.get("path"), str):
+                excluded.update(canonical_paths(row["path"]))
+    return excluded
+
+
 def select_position(document: dict, source_hash: str) -> dict | None:
     """Select one replayable, non-opening position deterministically."""
     if document.get("schema") != "sekirei.csa-replay.v2":
@@ -61,14 +83,19 @@ def export_replay(binary: Path, source: Path) -> dict:
         return json.loads(output.read_text(encoding="utf-8"))
 
 
-def build(binary: Path, source_dir: Path, count: int) -> tuple[list[str], list[dict], list[dict]]:
+def build(
+    binary: Path, source_dir: Path, count: int, excluded: set[str] | None = None
+) -> tuple[list[str], list[dict], list[dict]]:
     lines: list[str] = []
     selected: list[dict] = []
     rejected: list[dict] = []
     seen_sfens: set[str] = set()
+    excluded = excluded or set()
     for source in sorted(source_dir.glob("*.csa")):
         if len(lines) == count:
             break
+        if canonical_paths(source) & excluded:
+            continue
         source_hash = sha256(source)
         try:
             position = select_position(export_replay(binary, source), source_hash)
@@ -103,13 +130,21 @@ def main() -> int:
     parser.add_argument("--count", type=int, default=200)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--manifest", type=Path, required=True)
+    parser.add_argument(
+        "--exclude-manifest",
+        type=Path,
+        action="append",
+        default=[],
+        help="prior source-subset manifest; repeat to exclude every listed CSA file",
+    )
     args = parser.parse_args()
     if args.count <= 0:
         parser.error("count must be positive")
     if not args.history_binary.is_file() or not args.source_dir.is_dir():
         parser.error("history binary or CSA source directory is unavailable")
     try:
-        lines, selected, rejected = build(args.history_binary, args.source_dir, args.count)
+        excluded = excluded_source_paths(args.exclude_manifest)
+        lines, selected, rejected = build(args.history_binary, args.source_dir, args.count, excluded)
     except ValueError as error:
         parser.error(str(error))
     args.output.parent.mkdir(parents=True, exist_ok=True)
@@ -121,6 +156,10 @@ def main() -> int:
         "strength_claim": "not_permitted",
         "history_binary": {"path": str(args.history_binary), "sha256": sha256(args.history_binary)},
         "source_dir": str(args.source_dir),
+        "excluded_source_manifests": [
+            {"path": str(path), "sha256": sha256(path)} for path in args.exclude_manifest
+        ],
+        "excluded_source_count": len(excluded),
         "positions": len(selected),
         "openings_sha256": sha256(args.output),
         "selected": selected,

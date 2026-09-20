@@ -30,6 +30,7 @@ across more games per shard.
 """
 import argparse
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -244,6 +245,52 @@ def verify_weights_loaded(outdir, shard, timeout_s=15):
     return None
 
 
+def evaluator_identity(options):
+    """Return the explicit EvalFile identity expected for one engine arm.
+
+    A missing EvalFile intentionally denotes the material-only arm.  Capture
+    the file digest before a durable run starts so a resume cannot silently
+    compare a replacement file at the same path.
+    """
+    paths = [option.split("=", 1)[1] for option in options if option.startswith("EvalFile=")]
+    if len(paths) > 1:
+        raise ValueError("one engine arm may specify at most one EvalFile")
+    if not paths:
+        return {"eval_file": None, "sha256": None}
+    path = paths[0]
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for block in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(block)
+    return {"eval_file": path, "sha256": digest.hexdigest()}
+
+
+def verify_completed_evaluators(cfg, outdir, shard):
+    """Validate the per-arm EvalFile acknowledgements in a finished shard.
+
+    `sekirei-match` records the exact acknowledgement it observed before
+    readyok.  That is stronger than counting merged stderr lines, which cannot
+    identify the engine arm and treats the intentional material-only arm as
+    perpetually undecidable.
+    """
+    paths = shard_paths(outdir, shard["shard_id"])
+    try:
+        with open(paths["json"]) as handle:
+            summary = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return False
+    for number, expected in ((1, cfg["engine1_evaluator"]), (2, cfg["engine2_evaluator"])):
+        observed = summary.get(f"engine{number}_eval_file_acknowledgement")
+        expected_path = expected["eval_file"]
+        expected_ack = (
+            None if expected_path is None
+            else f"info string NNUE weights loaded from {expected_path}"
+        )
+        if observed != expected_ack:
+            return False
+    return True
+
+
 def merge_confirmed_shards(outdir, confirmed_shards, positions_per_shard):
     """Rewrite each confirmed shard's jsonl ids to global pos indices and
     write a single combined.jsonl + combined.json (position-order, i.e.
@@ -329,6 +376,7 @@ def run_sprt_check(cfg, combined_json_path):
         "--sprt-variant",
         "trinomial",
         "--paired-by-id",
+        "--require-complete-pairs",
         "--min-diversity-ratio",
         "0",
     ]
@@ -448,6 +496,8 @@ def run_config(args):
         "weights": args.weights,
         "option1": args.option1,
         "option2": args.option2,
+        "engine1_evaluator": evaluator_identity(args.option1),
+        "engine2_evaluator": evaluator_identity(args.option2),
         "elo0": args.elo0,
         "elo1": args.elo1,
         "alpha": args.alpha,
@@ -534,13 +584,22 @@ def cmd_run_locked(args):
         for s in running:
             paths = shard_paths(args.outdir, s["shard_id"])
             if shard_output_ready(args.outdir, s):
-                s["status"] = "done"
+                if verify_completed_evaluators(cfg, args.outdir, s):
+                    s["status"] = "done"
+                else:
+                    s["status"] = "failed"
+                    log_progress(
+                        args.outdir,
+                        f"shard {s['shard_id']} FAILED evaluator acknowledgement check -- "
+                        f"see {paths['json']}",
+                    )
                 proc = live_popens.pop(s["shard_id"], None)
                 if proc is not None:
                     proc.wait()  # reap; already exited, returns immediately
-                log_progress(
-                    args.outdir, f"shard {s['shard_id']} completed ({s['start_pos']}-{s['end_pos']})"
-                )
+                if s["status"] == "done":
+                    log_progress(
+                        args.outdir, f"shard {s['shard_id']} completed ({s['start_pos']}-{s['end_pos']})"
+                    )
                 continue
             proc = live_popens.get(s["shard_id"])
             if proc is not None and proc.poll() is not None:

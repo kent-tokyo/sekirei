@@ -32,5 +32,9 @@ name = "nnue_probe"
 path = "src/bin/nnue_probe.rs"
 
 [[bin]]
+name = "nnue_forward_bench"
+path = "src/bin/nnue_forward_bench.rs"
+
+[[bin]]
 name = "cross_library"
 path = "src/bin/cross_library.rs"

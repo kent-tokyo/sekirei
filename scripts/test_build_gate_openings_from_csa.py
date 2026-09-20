@@ -1,5 +1,7 @@
 import importlib.util
+import json
 from pathlib import Path
+import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,3 +31,16 @@ def test_select_position_rejects_malformed_history_or_wrong_schema():
         {"ply": 12, "pre_move_sfen": "x", "history_before_usi": [""]},
     ]}
     assert MODULE.select_position(malformed, "b" * 64) is None
+
+
+def test_excluded_source_paths_supports_prior_manifest_shapes():
+    with tempfile.TemporaryDirectory() as directory:
+        manifest = Path(directory) / "prior.json"
+        manifest.write_text(json.dumps({
+            "sources": [{"path": "data/csa/2025/old-a.csa"}],
+            "entries": [{"source": "data/csa/2025/old-b.csa"}],
+            "selected": [{"path": "data/csa/2025/old-c.csa"}],
+        }), encoding="utf-8")
+        excluded = MODULE.excluded_source_paths([manifest])
+        for name in ("old-a.csa", "old-b.csa", "old-c.csa"):
+            assert f"data/csa/2025/{name}" in excluded

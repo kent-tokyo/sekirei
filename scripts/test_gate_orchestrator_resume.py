@@ -20,9 +20,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from gate_orchestrator import (
     acquire_run_lock,
+    evaluator_identity,
     launch_shard,
     merge_confirmed_shards,
     shard_is_alive,
+    verify_completed_evaluators,
     verify_weights_loaded,
 )
 
@@ -110,6 +112,31 @@ class VerifyWeightsLoadedTest(unittest.TestCase):
                 f.write("info string weight load failed: invalid checkpoint\n")
             shard = {"shard_id": 0}
             self.assertFalse(verify_weights_loaded(outdir, shard))
+
+
+class CompletedEvaluatorVerificationTest(unittest.TestCase):
+    def test_asymmetric_evalfile_acknowledgement_is_verified_per_arm(self):
+        with tempfile.TemporaryDirectory() as outdir, tempfile.NamedTemporaryFile() as weight:
+            identity = evaluator_identity([f"EvalFile={weight.name}"])
+            cfg = {
+                "engine1_evaluator": identity,
+                "engine2_evaluator": {"eval_file": None, "sha256": None},
+            }
+            with open(os.path.join(outdir, "shard_0000.json"), "w") as handle:
+                json.dump(
+                    {
+                        "engine1_eval_file_acknowledgement": (
+                            f"info string NNUE weights loaded from {weight.name}"
+                        ),
+                        "engine2_eval_file_acknowledgement": None,
+                    },
+                    handle,
+                )
+            self.assertTrue(verify_completed_evaluators(cfg, outdir, {"shard_id": 0}))
+
+            with open(os.path.join(outdir, "shard_0000.json"), "w") as handle:
+                json.dump({}, handle)
+            self.assertFalse(verify_completed_evaluators(cfg, outdir, {"shard_id": 0}))
 
 
 class MergeConfirmedShardsTest(unittest.TestCase):

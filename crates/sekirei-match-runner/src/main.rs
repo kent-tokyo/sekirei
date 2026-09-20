@@ -723,6 +723,13 @@ fn json_number_or_null(value: f64, places: usize) -> String {
     }
 }
 
+fn json_string_or_null(value: Option<&str>) -> String {
+    value.map_or_else(
+        || "null".to_string(),
+        |text| serde_json::to_string(text).expect("string serialization cannot fail"),
+    )
+}
+
 /// How much of a match's outcome is genuinely independent trials, versus a
 /// small number of games replayed over and over. A `startpos`-only (or
 /// narrow-opening) match between deterministic engines can produce a
@@ -814,6 +821,8 @@ fn result_summary_text(
     args: &Args,
     e1_label: &str,
     e2_label: &str,
+    e1_eval_file_ack: Option<&str>,
+    e2_eval_file_ack: Option<&str>,
     e1_wins: u32,
     draws: u32,
     e2_wins: u32,
@@ -841,10 +850,12 @@ fn result_summary_text(
   "engine1_command": {:?},
   "engine1_args": {:?},
   "engine1_options": {},
+  "engine1_eval_file_acknowledgement": {},
   "engine2": {e2_label:?},
   "engine2_command": {:?},
   "engine2_args": {:?},
   "engine2_options": {},
+  "engine2_eval_file_acknowledgement": {},
   "games": {total},
   "engine1_wins": {e1_wins},
   "draws": {draws},
@@ -871,9 +882,11 @@ fn result_summary_text(
         args.engine1_path,
         args.args1.join(" "),
         options_json(&args.engine_options1),
+        json_string_or_null(e1_eval_file_ack),
         args.engine2_path,
         args.args2.join(" "),
         options_json(&args.engine_options2),
+        json_string_or_null(e2_eval_file_ack),
         json_number_or_null(elo, 2),
         json_number_or_null(ci, 2),
         json_number_or_null(elo - ci, 2),
@@ -899,6 +912,8 @@ fn persist_result_snapshot(
     args: &Args,
     e1_label: &str,
     e2_label: &str,
+    e1_eval_file_ack: Option<&str>,
+    e2_eval_file_ack: Option<&str>,
     e1_wins: u32,
     draws: u32,
     e2_wins: u32,
@@ -915,6 +930,8 @@ fn persist_result_snapshot(
         args,
         e1_label,
         e2_label,
+        e1_eval_file_ack,
+        e2_eval_file_ack,
         e1_wins,
         draws,
         e2_wins,
@@ -1093,7 +1110,9 @@ fn json_f64(json: &str, key: &str) -> Option<f64> {
     let start = json.find(&needle)? + needle.len();
     let rest = json[start..].trim_start();
     let end = rest
-        .find(|c: char| c != '-' && c != '+' && c != '.' && !c.is_ascii_digit())
+        .find(|c: char| {
+            c != '-' && c != '+' && c != '.' && c != 'e' && c != 'E' && !c.is_ascii_digit()
+        })
         .unwrap_or(rest.len());
     rest[..end].trim().parse().ok()
 }
@@ -1227,6 +1246,36 @@ fn sprt_decide(
     )
 }
 
+/// Refuse a paired strength decision unless every record belongs to one
+/// completed two-game pair.  `veridict`'s trinomial reduction correctly
+/// handles a *complete* color-reversed pair, but it cannot infer that a
+/// singleton came from an interrupted match.  Letting one through makes an
+/// early-stop verdict depend on an unfinished condition.
+fn incomplete_pair_message(records: &[(usize, veridict::input::Record)]) -> Option<String> {
+    let mut lines_by_id: HashMap<String, Vec<usize>> = HashMap::new();
+    for (line, record) in records {
+        let Some(id) = record.id.as_deref().filter(|id| !id.is_empty()) else {
+            return Some(format!(
+                "gate: --require-complete-pairs rejected record without an id at line {line}"
+            ));
+        };
+        lines_by_id.entry(id.to_owned()).or_default().push(*line);
+    }
+
+    let mut incomplete: Vec<_> = lines_by_id
+        .into_iter()
+        .filter(|(_, lines)| lines.len() != 2)
+        .map(|(id, lines)| format!("{id} ({} record(s), lines {:?})", lines.len(), lines))
+        .collect();
+    incomplete.sort();
+    (!incomplete.is_empty()).then(|| {
+        format!(
+            "gate: --require-complete-pairs rejected incomplete paired records: {}",
+            incomplete.join(", ")
+        )
+    })
+}
+
 fn run_gate(argv: &[String]) {
     let mut pass_elo = 20.0f64;
     let mut pass_los = 0.95f64;
@@ -1245,6 +1294,7 @@ fn run_gate(argv: &[String]) {
     let mut beta = 0.05f64;
     let mut sprt_variant = veridict::sprt::SprtVariant::Wald;
     let mut paired_by_id = false;
+    let mut require_complete_pairs = false;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
@@ -1305,6 +1355,7 @@ fn run_gate(argv: &[String]) {
                 };
             }
             "--paired-by-id" => paired_by_id = true,
+            "--require-complete-pairs" => require_complete_pairs = true,
             "--min-diversity-ratio" => {
                 i += 1;
                 if let Some(v) = argv.get(i) {
@@ -1320,7 +1371,7 @@ fn run_gate(argv: &[String]) {
         Some(p) => p,
         None => {
             eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial] [--paired-by-id]]"
+                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial] [--paired-by-id --require-complete-pairs]]"
             );
             std::process::exit(2);
         }
@@ -1390,6 +1441,16 @@ fn run_gate(argv: &[String]) {
                 std::process::exit(2);
             }
         };
+        if require_complete_pairs {
+            if !paired_by_id {
+                eprintln!("gate: --require-complete-pairs requires --paired-by-id");
+                std::process::exit(2);
+            }
+            if let Some(msg) = incomplete_pair_message(&records) {
+                eprintln!("{msg}");
+                std::process::exit(2);
+            }
+        }
         let report = match sprt_decide(
             &records,
             elo0,
@@ -1756,6 +1817,8 @@ fn main() {
     let e2_label = engine_display_label(&e2.name, &args.args2);
     let e1_nnue_ack = e1.nnue_output_acknowledgement().map(str::to_owned);
     let e2_nnue_ack = e2.nnue_output_acknowledgement().map(str::to_owned);
+    let e1_eval_file_ack = e1.eval_file_acknowledgement().map(str::to_owned);
+    let e2_eval_file_ack = e2.eval_file_acknowledgement().map(str::to_owned);
     println!("Engine1: {e1_label}");
     println!("Engine2: {e2_label}");
     if !positions.is_empty() {
@@ -1982,6 +2045,8 @@ fn main() {
                 &args,
                 &e1_label,
                 &e2_label,
+                e1_eval_file_ack.as_deref(),
+                e2_eval_file_ack.as_deref(),
                 e1_wins,
                 draws,
                 e2_wins,
@@ -2090,6 +2155,8 @@ fn main() {
             &args,
             &e1_label,
             &e2_label,
+            e1_eval_file_ack.as_deref(),
+            e2_eval_file_ack.as_deref(),
             e1_wins,
             draws,
             e2_wins,
@@ -2250,6 +2317,20 @@ mod tests {
         assert_eq!(json_number_or_null(12.345, 2), "12.35");
         assert_eq!(json_number_or_null(f64::INFINITY, 2), "null");
         assert_eq!(json_number_or_null(f64::NAN, 2), "null");
+    }
+
+    #[test]
+    fn json_string_or_null_is_valid_json() {
+        assert_eq!(json_string_or_null(None), "null");
+        assert_eq!(json_string_or_null(Some("a\\\"b")), "\"a\\\\\\\"b\"");
+    }
+
+    #[test]
+    fn json_f64_accepts_json_exponent_notation() {
+        assert_eq!(
+            json_f64(r#"{"los":2.87235595958224e-06}"#, "los"),
+            Some(2.87235595958224e-06)
+        );
     }
 
     fn moves(seq: &[&str]) -> Vec<String> {
@@ -2546,6 +2627,25 @@ mod tests {
             (report.candidate_wins, report.draws, report.baseline_wins),
             (0, 1, 0)
         );
+    }
+
+    #[test]
+    fn complete_pair_validation_accepts_only_two_records_per_id() {
+        let complete = vec![
+            rec("pos0_pair0", "candidate_win"),
+            rec("pos0_pair0", "baseline_win"),
+            rec("pos1_pair0", "draw"),
+            rec("pos1_pair0", "draw"),
+        ];
+        assert!(incomplete_pair_message(&complete).is_none());
+
+        let singleton = vec![rec("pos0_pair0", "candidate_win")];
+        let message = incomplete_pair_message(&singleton).unwrap();
+        assert!(message.contains("pos0_pair0 (1 record(s), lines [0])"));
+
+        let missing_id = vec![rec("", "candidate_win"), rec("", "baseline_win")];
+        let message = incomplete_pair_message(&missing_id).unwrap();
+        assert!(message.contains("without an id at line 0"));
     }
 
     #[test]

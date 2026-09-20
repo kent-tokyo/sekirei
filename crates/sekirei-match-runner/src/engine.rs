@@ -19,6 +19,7 @@ pub struct UsiEngine {
     rx: Receiver<String>,
     pub name: String,
     nnue_output_acknowledgement: Option<String>,
+    eval_file_acknowledgement: Option<String>,
 }
 
 /// Last structured USI `info` values observed before one `bestmove`.
@@ -124,6 +125,7 @@ impl UsiEngine {
             rx,
             name: path.to_string(),
             nnue_output_acknowledgement: None,
+            eval_file_acknowledgement: None,
         })
     }
 
@@ -199,18 +201,35 @@ impl UsiEngine {
                 .strip_prefix("NnueOutput=")
                 .map(|mode| format!("info string NNUE output mode {mode}"))
         });
-        let mut acknowledged = expected_nnue_ack.is_none();
+        let expected_eval_ack = options.iter().find_map(|option| {
+            option
+                .strip_prefix("EvalFile=")
+                .filter(|path| !path.is_empty())
+                .map(|path| format!("info string NNUE weights loaded from {path}"))
+        });
+        let mut nnue_acknowledged = expected_nnue_ack.is_none();
+        let mut eval_acknowledged = expected_eval_ack.is_none();
         loop {
             let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
             if expected_nnue_ack.as_deref() == Some(line.as_str()) {
-                acknowledged = true;
+                nnue_acknowledged = true;
                 self.nnue_output_acknowledgement = expected_nnue_ack.clone();
             }
+            if expected_eval_ack.as_deref() == Some(line.as_str()) {
+                eval_acknowledged = true;
+                self.eval_file_acknowledgement = expected_eval_ack.clone();
+            }
             if line.contains("readyok") {
-                if !acknowledged {
+                if !nnue_acknowledged {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidData,
                         "engine did not acknowledge requested NnueOutput before readyok",
+                    ));
+                }
+                if !eval_acknowledged {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "engine did not acknowledge requested EvalFile before readyok",
                     ));
                 }
                 break;
@@ -229,6 +248,13 @@ impl UsiEngine {
     /// later audits do not infer the effective mode from argv alone.
     pub fn nnue_output_acknowledgement(&self) -> Option<&str> {
         self.nnue_output_acknowledgement.as_deref()
+    }
+
+    /// Exact `info string` acknowledgement observed for an explicit EvalFile.
+    /// This proves that an asymmetric match did not silently fall back to
+    /// material evaluation on the arm expected to load NNUE weights.
+    pub fn eval_file_acknowledgement(&self) -> Option<&str> {
+        self.eval_file_acknowledgement.as_deref()
     }
 
     /// Best-effort abort of any search still running from the previous move
