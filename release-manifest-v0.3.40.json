@@ -18,9 +18,9 @@
     "sha256": "e9958943bf528834977db0c5e969e5195a7f6233bf5981eb0437002b88bf524b"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "35481568665",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
   },
   "internal_measurement": {
@@ -38,7 +38,7 @@
   "known_limitations": [
     "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented.",
     "ShogiBoardQ real-GUI registration remains an external pending check; engine-side USI transcripts are covered locally.",
-    "Publication is planned only. Replace this state with the successful crates.io workflow run before declaring the release verified.",
+    "All six crates were published by the recorded crates.io workflow; no new heavy strength measurement, external-GUI compatibility result, or overall-speed result is included.",
     "No new heavy strength measurement, external-GUI compatibility result, or overall-speed result is included."
   ]
 }
