@@ -1,7 +1,7 @@
 {
   "schema": "sekirei.release-manifest.v1",
   "release": "v0.3.40",
-  "commit": "304c4fe2fd609824bde01e225562ed4b2f0e0d56",
+  "commit": "07386f96f7420e33daf97778041f6b7ad4320ee4",
   "branch_at_release": "main",
   "packages": {
     "sekirei": "0.3.40",
