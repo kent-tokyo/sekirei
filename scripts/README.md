@@ -150,6 +150,11 @@ manifests, plist files, command transcripts, or saved logs.
   positions. Exact, file-mirrored, color-rotated, and combined symmetry
   identities remain in one split. Missing legacy mate-kind data stays
   `unknown`; it is never inferred from a large numeric cp score.
+- `prepare_q21i_imitation_pilot.py`, `evaluate_q21i_imitation_screen.py`,
+  `finalize_q21i_imitation_pilot.py`: freeze the Q21i one-seed imitation
+  recipe, apply its teacher-ranking screen, and validate the conditional
+  color-reversed development match. A ranking pass remains diagnostic; Q20 is
+  authorized only when the separately frozen match threshold passes.
 - `run_fixed_selfplay_diagnostic.py`,
   `run_c5e_teacher_search_distribution_diagnostic.py`,
   `run_selfplay_calibration_holdout.py`, `run_selfplay_search_factorial.py`:
