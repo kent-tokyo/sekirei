@@ -78,6 +78,11 @@ host and revision. They are not general speed or Elo rankings.
   `finalize_q21n_depth7_adjudication.py`: adjudicate every 100-299cp depth-5
   regret using one cold depth-7 free search plus the tied depth-3 top moves as
   fixed roots. This resolves Q21n without another complete-root explosion.
+- `prepare_q21o_teacher_contract.py`, `run_q21o_teacher_contract.py`,
+  `finalize_q21o_teacher_contract.py`: compare deterministic depth-7 and
+  3.2M-node fixed-T labels on three Q21n failures plus three score-blind phase
+  controls, then require the selected top labels to avoid 300cp regret under
+  both contracts. This is label QA, not a strength or training result.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 
