@@ -63,6 +63,21 @@ host and revision. They are not general speed or Elo rankings.
 - `prepare_q21m_pairwise_pilot.py`, `finalize_q21m_pairwise_pilot.py`: freeze
   and fail-close the one-factor parent-balanced pairwise-ranking pilot. A
   ranking-screen failure forbids both its development match and Q20.
+- `prepare_q21n_teacher_depth_audit.py`, `summarize_q21n_teacher_depth_audit.py`:
+  freeze and validate the complete-root depth-3 versus depth-5 fixed-T audit
+  on all 18 score-blind validation parents. Deeper T is a self-reference, not
+  a correct-move oracle; this diagnostic never authorizes a match or Q20.
+- `prepare_q21n_timeout_retry.py`, `merge_q21n_teacher_depth_retry.py`: allow
+  one longer retry only when the frozen Q21n run has exactly one parent with a
+  timeout and no score/ranking; bind and merge that retry without changing the
+  parent set, teacher, depth, or decision rule.
+- `prepare_q21n_timeout_exclusion.py`: after that retry also returns no label,
+  freeze a 17/18 resource-censored completion only if all six balanced parents
+  and every phase/material stratum remain; no replacement parent is allowed.
+- `prepare_q21n_depth7_adjudication.py`, `run_q21n_depth7_adjudication.py`,
+  `finalize_q21n_depth7_adjudication.py`: adjudicate every 100-299cp depth-5
+  regret using one cold depth-7 free search plus the tied depth-3 top moves as
+  fixed roots. This resolves Q21n without another complete-root explosion.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 
