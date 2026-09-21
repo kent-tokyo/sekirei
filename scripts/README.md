@@ -155,6 +155,13 @@ manifests, plist files, command transcripts, or saved logs.
   recipe, apply its teacher-ranking screen, and validate the conditional
   color-reversed development match. A ranking pass remains diagnostic; Q20 is
   authorized only when the separately frozen match threshold passes.
+- `prepare_q21j_failure_audit.py`, `run_q21j_failure_audit.py`,
+  `summarize_q21j_failure_audit.py`: select one blinded decision from each
+  Q21i match game, compare material/cost-only/candidate/teacher under fixed
+  nodes and fixed time, and fail closed on an incomplete or invalid 896-cell
+  matrix. The summary separates content differences, NNUE compute pressure,
+  and forced-move regret; it never assigns causal percentages to match losses
+  or promotes a rejected candidate.
 - `run_fixed_selfplay_diagnostic.py`,
   `run_c5e_teacher_search_distribution_diagnostic.py`,
   `run_selfplay_calibration_holdout.py`, `run_selfplay_search_factorial.py`:
