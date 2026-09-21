@@ -106,6 +106,13 @@ host and revision. They are not general speed or Elo rankings.
   A later capacity, feature, or data-distribution candidate must receive a new
   identifier, change one declared factor, and use a newly frozen screen; Q21u
   validation and Q21v folds remain audit evidence rather than selection data.
+- `prepare_q21w_coverage.py`: proves whether any score-blind Q21h inventory
+  remains after every Q21m/Q21p/Q21t/Q21u derived group is excluded. If the
+  nine strata cannot be covered, it scans a fixed, seed-ordered window of
+  unused CSA files and freezes disjoint train and fresh hold-out reserves
+  before labels. It binds the complete source-scan snapshot, teacher, recipe,
+  tools, one-factor contract, and stopping conditions. It does not label,
+  train, select, or promote a checkpoint.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 
