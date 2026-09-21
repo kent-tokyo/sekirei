@@ -770,37 +770,53 @@ impl NnueAcc {
         // Keeping the values in registers avoids two temporary L1 arrays and a separate
         // preprocessing pass on the hot inference path.
         const FT_SCALE: f32 = 64.0;
-        // L2 forward (input-first loop for cache-friendly access to l2[j]).
+        let l2_acc = self.forward_l2(w, us, them, FT_SCALE);
+
+        // ClippedReLU L2 → output
+        let mut out = w.out_bias;
+        for o in 0..L2 {
+            out += l2_acc[o].clamp(0.0, 127.0) * w.out[o];
+        }
+        (out / 64.0) as i32
+    }
+
+    #[inline(always)]
+    fn forward_l2(&self, w: &NnueWeights, us: usize, them: usize, ft_scale: f32) -> [f32; L2] {
         let mut l2_acc = w.l2_bias;
-        for j in (0..L1).step_by(2) {
-            let a0 = self.values[us][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-            let b0 = self.values[them][j].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-            let a1 = self.values[us][j + 1].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
-            let b1 = self.values[them][j + 1].clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+        for j in (0..L1).step_by(4) {
+            let a0 = self.values[us][j].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let b0 = self.values[them][j].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let a1 = self.values[us][j + 1].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let b1 = self.values[them][j + 1].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let a2 = self.values[us][j + 2].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let b2 = self.values[them][j + 2].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let a3 = self.values[us][j + 3].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
+            let b3 = self.values[them][j + 3].clamp(0, (127.0 * ft_scale) as i16) as f32 / ft_scale;
             let row_us0 = &w.l2[j];
             let row_them0 = &w.l2[L1 + j];
             let row_us1 = &w.l2[j + 1];
             let row_them1 = &w.l2[L1 + j + 1];
+            let row_us2 = &w.l2[j + 2];
+            let row_them2 = &w.l2[L1 + j + 2];
+            let row_us3 = &w.l2[j + 3];
+            let row_them3 = &w.l2[L1 + j + 3];
             for o in 0..L2 {
                 l2_acc[o] += a0 * row_us0[o];
                 l2_acc[o] += b0 * row_them0[o];
                 l2_acc[o] += a1 * row_us1[o];
                 l2_acc[o] += b1 * row_them1[o];
+                l2_acc[o] += a2 * row_us2[o];
+                l2_acc[o] += b2 * row_them2[o];
+                l2_acc[o] += a3 * row_us3[o];
+                l2_acc[o] += b3 * row_them3[o];
             }
         }
-
-        // ClippedReLU L2 → output
-        let mut out = w.out_bias;
-        for o in 0..L2 {
-            let relu_l2 = l2_acc[o].clamp(0.0, 127.0);
-            out += relu_l2 * w.out[o];
-        }
-        (out / 64.0) as i32
+        l2_acc
     }
 
     /// Scalar reference for the forward pass.
     ///
-    /// Kept only in tests so the two-row hot-path unroll has an independent,
+    /// Kept only in tests so the four-row hot-path unroll has an independent,
     /// output-identical oracle without adding a production branch or loop.
     #[cfg(test)]
     fn evaluate_with_scalar_reference(&self, w: &NnueWeights, stm: Color) -> i32 {
@@ -982,7 +998,7 @@ mod tests {
     }
 
     #[test]
-    fn two_row_forward_unroll_matches_scalar_reference() {
+    fn four_row_forward_matches_scalar_reference_without_mutating_state() {
         let weights = NnueWeights::default_lcg();
         let mut acc = NnueAcc::new_with(&weights);
         for perspective in 0..2 {
@@ -992,14 +1008,15 @@ mod tests {
                     ((perspective * 37 + neuron * 73) % 20_001) as i16 - 10_000;
             }
         }
-
+        let before = acc.clone();
         for side in [Color::Black, Color::White] {
             assert_eq!(
                 acc.evaluate_with(&weights, side),
                 acc.evaluate_with_scalar_reference(&weights, side),
-                "unrolled forward pass changed the {side:?} score"
+                "four-row forward pass changed the {side:?} score"
             );
         }
+        assert_eq!(acc, before, "four-row forward pass mutated state");
     }
 
     #[test]

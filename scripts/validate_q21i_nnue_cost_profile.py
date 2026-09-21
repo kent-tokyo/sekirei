@@ -18,6 +18,11 @@ def sha256(path: Path) -> str:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("artifact_dir", type=Path)
+    parser.add_argument(
+        "--baseline-dir",
+        type=Path,
+        help="also require fixed-node output/state identity with this prior artifact",
+    )
     args = parser.parse_args()
     prereg_path = args.artifact_dir / "preregistration.json"
     profile_path = args.artifact_dir / "profile.json"
@@ -84,6 +89,81 @@ def main() -> int:
     attribution = summary.get("forward_attribution", {})
     if len(attribution.get("positions", [])) != 9:
         errors.append("forward attribution does not cover nine positions")
+    baseline_comparison = None
+    if args.baseline_dir is not None:
+        try:
+            baseline_prereg = json.loads(
+                (args.baseline_dir / "preregistration.json").read_text(encoding="utf-8")
+            )
+            baseline_profile = json.loads(
+                (args.baseline_dir / "profile.json").read_text(encoding="utf-8")
+            )
+        except (OSError, json.JSONDecodeError) as error:
+            errors.append(f"baseline read failed: {error}")
+        else:
+            for input_key in ("corpus_sha256", "weights_sha256"):
+                if prereg.get("inputs", {}).get(input_key) != baseline_prereg.get("inputs", {}).get(
+                    input_key
+                ):
+                    errors.append(f"baseline {input_key} mismatch")
+            for contract_key in ("fixed_nodes", "fixed_time_ms", "repetitions", "rayon_threads"):
+                if prereg.get("contract", {}).get(contract_key) != baseline_prereg.get(
+                    "contract", {}
+                ).get(contract_key):
+                    errors.append(f"baseline contract mismatch: {contract_key}")
+            if ids != baseline_prereg.get("position_ids"):
+                errors.append("baseline position IDs or order mismatch")
+
+            def fixed_node_rows(document):
+                return {
+                    (row["repetition"], row["position_id"], row["arm"]): row["result"]
+                    for row in document.get("rows", [])
+                    if row.get("budget") == "fixed_nodes"
+                }
+
+            baseline_rows = fixed_node_rows(baseline_profile)
+            candidate_rows = fixed_node_rows(profile)
+            identity_fields = (
+                "bestmove",
+                "depth",
+                "score_cp",
+                "nodes",
+                "bound",
+                "completed_bound",
+                "completed_iteration_valid",
+                "aborted",
+                "abort_reason",
+                "static_evaluations",
+                "pv_usi",
+                "pv_legal",
+                "pv_replay_preserves_input",
+                "history_final_hash",
+                "history_matches_expected",
+            )
+            mismatches = []
+            if baseline_rows.keys() != candidate_rows.keys():
+                errors.append("baseline fixed-node row matrix mismatch")
+            else:
+                for key in baseline_rows:
+                    for field in identity_fields:
+                        if baseline_rows[key].get(field) != candidate_rows[key].get(field):
+                            mismatches.append(
+                                {
+                                    "key": key,
+                                    "field": field,
+                                    "baseline": baseline_rows[key].get(field),
+                                    "candidate": candidate_rows[key].get(field),
+                                }
+                            )
+            if mismatches:
+                errors.append(f"baseline output/state mismatches: {len(mismatches)}")
+            baseline_comparison = {
+                "fixed_node_rows": len(candidate_rows),
+                "fields_per_row": len(identity_fields),
+                "comparisons": len(candidate_rows) * len(identity_fields),
+                "mismatches": mismatches[:20],
+                "mismatch_count": len(mismatches),
+            }
     result = {
         "valid": not errors,
         "errors": errors,
@@ -92,6 +172,8 @@ def main() -> int:
         "component_runs": len(components),
         "zero_scale_identity": identity,
     }
+    if baseline_comparison is not None:
+        result["baseline_comparison"] = baseline_comparison
     print(json.dumps(result, sort_keys=True))
     return 0 if not errors else 1
 

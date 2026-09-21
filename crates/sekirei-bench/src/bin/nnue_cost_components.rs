@@ -160,6 +160,13 @@ fn do_undo_case(name: &str, sfen: &str, move_usi: &str) -> serde_json::Value {
 
 fn forward_case(name: &str, sfen: &str) -> serde_json::Value {
     let board = Board::from_sfen(sfen).expect("fixture SFEN must parse");
+    let active_inputs = board
+        .acc
+        .values
+        .iter()
+        .flatten()
+        .filter(|value| **value > 0)
+        .count();
     let expected = board.acc.evaluate(board.side_to_move);
     let operation = || {
         black_box(board.acc.evaluate(board.side_to_move));
@@ -173,6 +180,7 @@ fn forward_case(name: &str, sfen: &str) -> serde_json::Value {
         "sfen": sfen,
         "iterations": iterations,
         "samples": SAMPLES,
+        "active_inputs": active_inputs,
         "score_cp": expected,
         "median_ns": median(samples),
     })
