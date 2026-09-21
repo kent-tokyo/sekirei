@@ -17,9 +17,32 @@
     "pre_registration_sha256": "a221ca1c6228c3dae2494879a06df197a6baa1e2d0c05237c04a837471337def"
   },
   "health": {"strict_probe": "pass", "same_seed_rerun_byte_identical": true},
+  "current_status": {
+    "as_of": "2026-09-21",
+    "availability": "published_optional_checkpoint",
+    "recommendation": "hold_after_current_material_comparison",
+    "reason": "The historical v0.3.38 gate does not establish an advantage over the current material-only evaluator, and the current-engine diagnostic strongly favored material at both tested time settings.",
+    "comparison": {
+      "status": "complete",
+      "engine_sha256": "25db114721b348005d24513501d491662d0153a73c653777f4077926ccbd123c",
+      "openings_sha256": "cfccffb0dd50740251341bb2220b6bdc7247416c1245a0b29c7144794378430f",
+      "positions": 16,
+      "games_per_setting": 32,
+      "settings": [
+        {"byoyomi_ms": 1000, "wins": 1, "draws": 0, "losses": 31},
+        {"byoyomi_ms": 5000, "wins": 2, "draws": 0, "losses": 30}
+      ],
+      "pooled": false,
+      "scope": "Local diagnostic only; not a formal default-selection gate, Floodgate rating, human rating, or competitor comparison."
+    }
+  },
   "strength_gate": {
     "artifact": "results/strength_gate_runs/strength-gate-plan/final.json",
     "sha256": "9f0add8e2da8a51b9ccb213a3b0b861830cdcfb6c0d1fe64dd445987ea2d46bb",
+    "baseline": {
+      "path": "data/weights_gate0_init_fix.bin",
+      "sha256": "bea7a8262f74b6d61c17f1dd7bf6e507236acf136d65e4e1a7e3702c47c0849a"
+    },
     "protocol": "47 color-reversed pairs, paired trinomial SPRT H0=0 Elo H1=+20 Elo, alpha=beta=0.05",
     "verdict": "PASS", "games": 94, "candidate_wins": 80, "baseline_wins": 14, "draws": 0,
     "elo_estimate": 302.78478052548223,

@@ -30,13 +30,20 @@ cargo run --release -p sekirei
 ```
 
 Register the resulting `sekirei` executable in a USI-compatible shogi GUI.
-Without a checkpoint the engine uses material evaluation. The recommended
-0.3.38 checkpoint remains versioned separately at
+Without a checkpoint the engine uses material evaluation. The 0.3.38
+checkpoint remains available as a separately versioned optional artifact at
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin):
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
+
+For a GUI, set `EvalFile` to the absolute checkpoint path and
+`NnueOutput=absolute` before `isready`. Its historical v0.3.38 paired gate is
+retained in the model card. A current-engine local diagnostic found B scored
+1/32 at 1 second per move and 2/32 at 5 seconds per move against material-only
+evaluation. This small comparison is not a formal default-selection gate, but
+it keeps the blanket strength recommendation on hold.
 
 Verify the SHA-256 and license in [the weight artifact card](weights/README.md)
 before use. NNUE weights are not bundled with the crate; this keeps the

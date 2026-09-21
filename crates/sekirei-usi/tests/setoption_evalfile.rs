@@ -141,6 +141,62 @@ fn recv_until(
     }
 }
 
+fn parse_score_and_bestmove(lines: &[String]) -> (i32, String) {
+    let score_line = lines
+        .iter()
+        .rev()
+        .find(|line| line.contains("score cp"))
+        .unwrap_or_else(|| panic!("no score cp line in: {lines:?}"));
+    let score = score_line
+        .split_whitespace()
+        .skip_while(|&token| token != "cp")
+        .nth(1)
+        .and_then(|token| token.parse().ok())
+        .unwrap_or_else(|| panic!("could not parse score cp from: {score_line}"));
+    let bestmove = lines
+        .iter()
+        .find(|line| line.starts_with("bestmove "))
+        .cloned()
+        .unwrap_or_else(|| panic!("no bestmove line in: {lines:?}"));
+    (score, bestmove)
+}
+
+fn search_startpos_depth_one(rx: &Receiver<String>, stdin: &mut ChildStdin) -> (i32, String) {
+    send(stdin, "position startpos");
+    send(stdin, "go depth 1");
+    let lines = recv_until(
+        rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    parse_score_and_bestmove(&lines)
+}
+
+fn configure_marker_residual_engine(
+    weights_path: &std::path::Path,
+) -> (Child, Receiver<String>, ChildStdin) {
+    let (child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(
+        &mut stdin,
+        &format!("setoption name EvalFile value {}", weights_path.display()),
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        "setoption name NnueOutput value residual-material",
+    );
+    recv_until(
+        &rx,
+        |line| line == "info string NNUE output mode residual-material",
+        Duration::from_secs(5),
+    );
+    (child, rx, stdin)
+}
+
 #[test]
 fn ponderhit_restarts_a_ponder_search_even_if_sent_immediately() {
     let (child, rx, mut stdin) = spawn_engine();
@@ -236,6 +292,223 @@ fn residual_scale_option_is_advertised_and_acknowledged() {
     assert!(acknowledgement.contains(&"info string NNUE residual scale 500 permille".to_string()));
 
     terminate(child, &mut stdin);
+}
+
+#[test]
+fn residual_scale_boundaries_invalid_values_and_fresh_process_are_consistent() {
+    let weights_path = write_marker_weights();
+    let (child, rx, mut stdin) = configure_marker_residual_engine(&weights_path);
+
+    for (scale, expected_score) in [(0, 0), (500, -5), (1_000, -10), (2_000, -20)] {
+        send(
+            &mut stdin,
+            &format!("setoption name NnueResidualScalePermille value {scale}"),
+        );
+        recv_until(
+            &rx,
+            |line| line == format!("info string NNUE residual scale {scale} permille"),
+            Duration::from_secs(5),
+        );
+        let (score, _) = search_startpos_depth_one(&rx, &mut stdin);
+        assert_eq!(score, expected_score, "unexpected score at scale {scale}");
+    }
+
+    // Repeating a valid value is allowed. It also establishes the value that
+    // every invalid request below must leave unchanged.
+    for _ in 0..2 {
+        send(
+            &mut stdin,
+            "setoption name NnueResidualScalePermille value 500",
+        );
+        recv_until(
+            &rx,
+            |line| line == "info string NNUE residual scale 500 permille",
+            Duration::from_secs(5),
+        );
+    }
+    let changed_process_result = search_startpos_depth_one(&rx, &mut stdin);
+    assert_eq!(changed_process_result.0, -5);
+
+    for invalid in ["2001", "-1", "not-a-number"] {
+        send(
+            &mut stdin,
+            &format!("setoption name NnueResidualScalePermille value {invalid}"),
+        );
+        recv_until(
+            &rx,
+            |line| line.starts_with("info string invalid NnueResidualScalePermille"),
+            Duration::from_secs(5),
+        );
+        let (score, _) = search_startpos_depth_one(&rx, &mut stdin);
+        assert_eq!(
+            score, -5,
+            "invalid value {invalid} changed the active residual scale"
+        );
+    }
+    terminate(child, &mut stdin);
+
+    // A process that changed scale after populating its TT must agree with a
+    // fresh process configured directly to that scale. Matching bestmove and
+    // score guard both evaluator application and stale-TT reuse.
+    let (fresh_child, fresh_rx, mut fresh_stdin) = configure_marker_residual_engine(&weights_path);
+    send(
+        &mut fresh_stdin,
+        "setoption name NnueResidualScalePermille value 500",
+    );
+    recv_until(
+        &fresh_rx,
+        |line| line == "info string NNUE residual scale 500 permille",
+        Duration::from_secs(5),
+    );
+    let fresh_result = search_startpos_depth_one(&fresh_rx, &mut fresh_stdin);
+    assert_eq!(changed_process_result, fresh_result);
+    terminate(fresh_child, &mut fresh_stdin);
+
+    let _ = std::fs::remove_file(weights_path);
+}
+
+#[test]
+fn residual_scale_change_joins_normal_search_before_acknowledgement() {
+    let (child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(50));
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 500",
+    );
+
+    let lines = recv_until(
+        &rx,
+        |line| line == "info string NNUE residual scale 500 permille",
+        Duration::from_secs(10),
+    );
+    assert!(
+        lines.iter().any(|line| line.starts_with("bestmove ")),
+        "scale acknowledgement preceded the old search's bestmove: {lines:?}"
+    );
+
+    let (_, _) = search_startpos_depth_one(&rx, &mut stdin);
+    terminate(child, &mut stdin);
+}
+
+#[test]
+fn invalid_residual_scale_does_not_stop_inflight_search() {
+    let (child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(50));
+
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 2001",
+    );
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("info string invalid NnueResidualScalePermille")),
+        "invalid scale was not rejected: {lines:?}"
+    );
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "invalid scale stopped the in-flight search before readyok: {lines:?}"
+    );
+
+    send(&mut stdin, "stop");
+    recv_until(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    terminate(child, &mut stdin);
+}
+
+#[test]
+fn residual_scale_change_during_ponder_has_one_response_per_transition() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "position startpos");
+
+    send(&mut stdin, "go ponder movetime 50");
+    std::thread::sleep(Duration::from_millis(50));
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 500",
+    );
+    recv_until(
+        &rx,
+        |line| line == "info string NNUE residual scale 500 permille",
+        Duration::from_secs(10),
+    );
+    send(&mut stdin, "stop");
+    let stop_lines = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    assert_eq!(
+        stop_lines
+            .iter()
+            .filter(|line| line.starts_with("bestmove "))
+            .count(),
+        1
+    );
+    send(&mut stdin, "isready");
+    let after_stop = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        after_stop.iter().all(|line| !line.starts_with("bestmove ")),
+        "stale ponder bestmove escaped after stop: {after_stop:?}"
+    );
+
+    send(&mut stdin, "go ponder movetime 50");
+    std::thread::sleep(Duration::from_millis(50));
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 1000",
+    );
+    recv_until(
+        &rx,
+        |line| line == "info string NNUE residual scale 1000 permille",
+        Duration::from_secs(10),
+    );
+    send(&mut stdin, "ponderhit");
+    let ponderhit_lines = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    assert_eq!(
+        ponderhit_lines
+            .iter()
+            .filter(|line| line.starts_with("bestmove "))
+            .count(),
+        1
+    );
+
+    send(&mut stdin, "go ponder movetime 50");
+    std::thread::sleep(Duration::from_millis(50));
+    send(
+        &mut stdin,
+        "setoption name NnueResidualScalePermille value 2000",
+    );
+    recv_until(
+        &rx,
+        |line| line == "info string NNUE residual scale 2000 permille",
+        Duration::from_secs(10),
+    );
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for ponder quit test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
 }
 
 #[test]

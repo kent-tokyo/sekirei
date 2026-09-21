@@ -15,7 +15,10 @@ use sekirei_core::{
     board::Board,
     color::Color,
     dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
-    eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille},
+    eval::{
+        NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille,
+        validate_nnue_residual_scale_permille,
+    },
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
@@ -558,6 +561,18 @@ fn abort_and_join_inflight_search(
     }
 }
 
+/// Change process-wide evaluator state only after an in-flight search can no
+/// longer observe it. Keeping the mutation in this helper makes the ordering
+/// explicit and directly testable without relying on scheduler timing.
+fn mutate_evaluator_after_join<T>(
+    search_abort: &mut Option<Arc<AtomicBool>>,
+    search_handle: &mut Option<JoinHandle<()>>,
+    mutate: impl FnOnce() -> T,
+) -> T {
+    abort_and_join_inflight_search(search_abort, search_handle);
+    mutate()
+}
+
 fn main() {
     if let Some(arg) = std::env::args().nth(1)
         && matches!(arg.as_str(), "--version" | "-V")
@@ -833,8 +848,9 @@ fn main() {
                     // across a semantic switch.  The default is absolute and
                     // residual files require their training sidecar to be checked
                     // by the caller before this option is selected.
-                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    set_nnue_output_mode(mode);
+                    mutate_evaluator_after_join(&mut search_abort, &mut search_handle, || {
+                        set_nnue_output_mode(mode)
+                    });
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
@@ -850,13 +866,18 @@ fn main() {
                         );
                         continue;
                     };
-                    if let Err(error) = set_nnue_residual_scale_permille(scale) {
+                    if let Err(error) = validate_nnue_residual_scale_permille(scale) {
                         println!("info string invalid NnueResidualScalePermille: {error}");
                         continue;
                     }
                     // A residual-scale change alters every static evaluation,
                     // so cached bounds from the prior scale cannot be reused.
-                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    // Validation must remain side-effect-free: only update the
+                    // global scale after the old search has fully joined.
+                    mutate_evaluator_after_join(&mut search_abort, &mut search_handle, || {
+                        set_nnue_residual_scale_permille(scale)
+                            .expect("residual scale was validated before search shutdown")
+                    });
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
@@ -1276,6 +1297,32 @@ fn parse_go(
 mod tests {
     use super::*;
     use sekirei_core::color::Color;
+    use std::sync::mpsc;
+
+    #[test]
+    fn evaluator_mutation_happens_after_inflight_search_has_joined() {
+        let abort = Arc::new(AtomicBool::new(false));
+        let worker_abort = Arc::clone(&abort);
+        let (event_tx, event_rx) = mpsc::channel();
+        let worker_tx = event_tx.clone();
+        let handle = std::thread::spawn(move || {
+            while !worker_abort.load(Ordering::Relaxed) {
+                std::thread::yield_now();
+            }
+            worker_tx.send("search-finished").unwrap();
+        });
+        let mut search_abort = Some(abort);
+        let mut search_handle = Some(handle);
+
+        mutate_evaluator_after_join(&mut search_abort, &mut search_handle, || {
+            event_tx.send("evaluator-mutated").unwrap();
+        });
+
+        assert_eq!(event_rx.recv().unwrap(), "search-finished");
+        assert_eq!(event_rx.recv().unwrap(), "evaluator-mutated");
+        assert!(search_abort.is_none());
+        assert!(search_handle.is_none());
+    }
 
     #[test]
     fn score_to_usi_preserves_cp_and_converts_mates() {

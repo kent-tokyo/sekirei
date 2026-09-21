@@ -65,7 +65,7 @@ extrapolated to a phone without direct measurement.
 ## What this does NOT have, as of this writing
 
 - No official mobile FFI/bindings (see above).
-- No on-device production validation for the recommended optional NNUE weight
+- No on-device production validation for the available optional NNUE weight
   (`docs/nnue_weights.md`). The versioned checkpoint can be supplied through
   `EvalFile`; material evaluation remains the fallback when it is omitted or
   cannot be loaded.

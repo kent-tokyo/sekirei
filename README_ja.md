@@ -30,12 +30,19 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIのエンジンとして登録します。checkpointなしでは
-material評価を使います。推奨する0.3.38用NNUEは0.3.41でも引き続き利用でき、
+material評価を使います。0.3.38用NNUEは、別管理された任意の公開artifactとして
+0.3.41でも引き続き利用でき、
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin)です。
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
+
+GUIでは`isready`より前に、`EvalFile`へcheckpointの絶対pathを、
+`NnueOutput`へ`absolute`を設定します。model cardには0.3.38当時のpaired gateを
+履歴として残しています。現行engineでのlocal診断では、material評価に対し
+1秒/手で1/32、5秒/手で2/32の得点でした。この少数比較だけで既定評価器は
+切り替えませんが、棋力面での一律推奨は保留します。
 
 使用前に[重みartifact card](weights/README.md)でSHA-256とライセンスを検証してください。
 NNUE重みはcrateに同梱せず、MIT/Apache-2.0のソースとCC BY 4.0の重みを分離します。

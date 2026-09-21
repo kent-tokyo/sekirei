@@ -51,6 +51,32 @@ def validate(card: dict, root: Path) -> list[str]:
         errors.append("strength_gate")
     elif not isinstance(gate.get("scope"), str) or "not a Floodgate" not in gate["scope"]:
         errors.append("strength_gate.scope")
+    elif not isinstance(gate.get("baseline"), dict) or not SHA256.fullmatch(
+        gate["baseline"].get("sha256", "")
+    ):
+        errors.append("strength_gate.baseline")
+    status = card.get("current_status")
+    if not isinstance(status, dict):
+        errors.append("current_status")
+    elif (
+        status.get("availability") != "published_optional_checkpoint"
+        or status.get("recommendation") != "hold_after_current_material_comparison"
+        or not isinstance(status.get("reason"), str)
+        or not status["reason"]
+    ):
+        errors.append("current_status.contract")
+    else:
+        comparison = status.get("comparison")
+        settings = comparison.get("settings") if isinstance(comparison, dict) else None
+        if (
+            not isinstance(comparison, dict)
+            or comparison.get("status") != "complete"
+            or comparison.get("pooled") is not False
+            or not isinstance(settings, list)
+            or [row.get("byoyomi_ms") for row in settings if isinstance(row, dict)]
+            != [1000, 5000]
+        ):
+            errors.append("current_status.comparison")
     return errors
 
 

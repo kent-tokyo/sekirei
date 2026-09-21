@@ -17,13 +17,20 @@ The source-code license does not extend to a weight artifact.
 ## Currently distributed weights
 
 [`weights/sekirei-nnue-v0.3.38.bin`](../weights/sekirei-nnue-v0.3.38.bin) is
-the versioned recommended optional A-flat checkpoint for 0.3.38. Its SHA-256,
-training provenance, output mode, strict-health result, and local
+the versioned optional A-flat checkpoint published for 0.3.38. Its SHA-256,
+training provenance, output mode, strict-health result, and historical local
 strength-gate scope are pinned in its adjacent
 [model card](../weights/sekirei-nnue-v0.3.38.json). It cleared a local,
-color-reversed paired-SPRT comparison against the pinned baseline. That does
-not establish a Floodgate rating, a human rating, or superiority to another
-engine.
+color-reversed paired-SPRT comparison against the pinned
+`data/weights_gate0_init_fix.bin` baseline (SHA-256
+`bea7a8262f74b6d61c17f1dd7bf6e507236acf136d65e4e1a7e3702c47c0849a`). That does
+not establish an advantage over the current material-only evaluator, a
+Floodgate rating, a human rating, or superiority to another engine. The
+current-engine B-versus-material diagnostic used 16 newly selected positions,
+both colors, and separate 1,000ms and 5,000ms settings. B scored 1/32 and 2/32
+respectively. The settings were not pooled. This is enough to keep blanket
+strength recommendation on hold, but not a formal default-selection gate or a
+reason to erase the artifact's historical result.
 
 The crate and executable do not embed a model. Without an explicit `EvalFile`
 or command-line checkpoint, `sekirei` runs on a genuine material-count fallback
@@ -66,11 +73,12 @@ Offset        Size           Content
 
 | Architecture | Status | Recommended for production use? |
 |---|---|---|
-| A (flat, default) | Shipping default since this project's earliest NNUE work | `sekirei-nnue-v0.3.38.bin` is the recommended optional checkpoint; its claim boundary is the pinned local paired-SPRT result above |
+| A (flat, default) | Shipping default since this project's earliest NNUE work | `sekirei-nnue-v0.3.38.bin` remains available; blanket strength recommendation is on hold after the current B-versus-material diagnostic |
 | B-small (king-relative, opt-in) | Experimental. Phase 3 validation: `valid_cp_mse` improved in 3/3 seeds, but `valid_wdl_loss`/`valid_calibration_error` regressed in 3/3 seeds against the same baseline — status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD** (see [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)). No paired Elo/SPRT strength gate established an improvement. **Not recommended for production use at this time.** |
 
-Only the A-flat checkpoint above is recommended for 0.3.38, and only within
-its recorded local paired-SPRT scope. For app-size-insensitive integrators
+Only the A-flat checkpoint above is distributed. Its historical result applies
+only to its recorded 0.3.38 local paired-SPRT scope and is not a current
+material-baseline result. For app-size-insensitive integrators
 (per issue #44's own framing), B-small is the more representationally
 interesting long-term direction — but "interesting" and "validated" are
 different things here, and it is explicitly not the latter yet.

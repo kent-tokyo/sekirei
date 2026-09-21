@@ -21,7 +21,20 @@ def card(payload: bytes) -> dict:
         "sha256": hashlib.sha256(payload).hexdigest(), "bytes": len(payload),
         "architecture": "A-flat-ps", "nnue_output": "absolute", "license": "CC-BY-4.0",
         "attribution": "Sekirei project, Kentaro Tanabe", "training": {"teacher": {}},
-        "strength_gate": {"verdict": "PASS", "games": 94, "scope": "Local only; not a Floodgate rating."},
+        "current_status": {
+            "availability": "published_optional_checkpoint",
+            "recommendation": "hold_after_current_material_comparison",
+            "reason": "Current material comparison is complete.",
+            "comparison": {
+                "status": "complete", "pooled": False,
+                "settings": [{"byoyomi_ms": 1000}, {"byoyomi_ms": 5000}],
+            },
+        },
+        "strength_gate": {
+            "verdict": "PASS", "games": 94,
+            "scope": "Local only; not a Floodgate rating.",
+            "baseline": {"path": "baseline.bin", "sha256": "0" * 64},
+        },
     }
 
 
@@ -36,6 +49,9 @@ def main() -> int:
         assert ARTIFACT.validate(document, root) == []
         document["bytes"] += 1
         assert "bytes" in ARTIFACT.validate(document, root)
+        document["bytes"] -= 1
+        document["current_status"]["recommendation"] = "recommended"
+        assert "current_status.contract" in ARTIFACT.validate(document, root)
     print("NNUE release artifact validator: ok")
     return 0
 

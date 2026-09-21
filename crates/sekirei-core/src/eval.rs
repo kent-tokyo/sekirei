@@ -59,10 +59,20 @@ pub fn nnue_output_mode() -> NnueOutputMode {
 /// A value of 1,000 retains the trained evaluator's normal meaning. Zero is
 /// useful only for diagnostics: it still exercises NNUE accumulator work but
 /// leaves the final static score equal to material.
-pub fn set_nnue_residual_scale_permille(scale: u16) -> Result<(), &'static str> {
+pub fn validate_nnue_residual_scale_permille(scale: u16) -> Result<(), &'static str> {
     if scale > RESIDUAL_SCALE_MAX_PERMILLE {
         return Err("residual scale must be in 0..=2000 permille");
     }
+    Ok(())
+}
+
+/// Updates the process-wide residual multiplier after validating it.
+///
+/// Callers that must stop concurrent evaluation before changing this global
+/// setting should call [`validate_nnue_residual_scale_permille`] first, stop
+/// and join those evaluators, and only then call this setter.
+pub fn set_nnue_residual_scale_permille(scale: u16) -> Result<(), &'static str> {
+    validate_nnue_residual_scale_permille(scale)?;
     NNUE_RESIDUAL_SCALE_PERMILLE.store(scale, Ordering::Relaxed);
     Ok(())
 }
@@ -353,7 +363,9 @@ mod tests {
 
     #[test]
     fn residual_scale_rejects_out_of_contract_values() {
-        assert!(set_nnue_residual_scale_permille(2_001).is_err());
-        set_nnue_residual_scale_permille(RESIDUAL_SCALE_DEFAULT_PERMILLE).unwrap();
+        for scale in [0, 500, 1_000, 2_000] {
+            assert_eq!(validate_nnue_residual_scale_permille(scale), Ok(()));
+        }
+        assert!(validate_nnue_residual_scale_permille(2_001).is_err());
     }
 }
