@@ -36,5 +36,9 @@ name = "nnue_forward_bench"
 path = "src/bin/nnue_forward_bench.rs"
 
 [[bin]]
+name = "nnue_cost_components"
+path = "src/bin/nnue_cost_components.rs"
+
+[[bin]]
 name = "cross_library"
 path = "src/bin/cross_library.rs"
