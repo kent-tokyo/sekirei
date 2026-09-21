@@ -31,6 +31,10 @@ directory before starting a long job.
   residual scale, and a normal residual evaluator on a fixed loss/control
   corpus. It separates evaluator cost from evaluator content; it does not
   choose a strength candidate.
+- `q21i_nnue_cost_profile.py`, `validate_q21i_nnue_cost_profile.py`,
+  `evaluate_q21k_eval_cache.py`: record the fixed-node identity, A/A noise,
+  cache hit rate, memory, and same-time node contract for the exact NNUE
+  evaluation cache. A cost-screen PASS is not strength evidence.
 - `component_benchmark_preflight.py`: load, thermal, and measurement-contract
   checks before a capture.
 - `run_component_aa_batch.py`, `aggregate_component_aa.py`: A/A noise-floor
@@ -49,6 +53,10 @@ host and revision. They are not general speed or Elo rankings.
 - `gate_orchestrator.py`: resumable shard orchestration.
 - `create_strength_gate_manifest.py`, `record_strength_gate_execution.py`,
   `finalize_strength_gate_execution.py`: freeze and audit a gate.
+- `prepare_q21k_phase_reweight.py`: freezes the Q21h split and the one-factor
+  phase-sampling candidate. `prepare_q21k_development_match.py` and
+  `finalize_q21k_development_match.py` bind the two passed engineering screens
+  to a fresh 16-pair development match and fail closed on changed artifacts.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 

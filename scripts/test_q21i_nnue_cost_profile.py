@@ -62,6 +62,8 @@ class Q21iCostProfileTests(unittest.TestCase):
                                     "nodes": value,
                                     "elapsed_ms": value,
                                     "static_evaluations": value,
+                                    "eval_cache_probes": value,
+                                    "eval_cache_hits": value // 2,
                                     "max_rss_bytes": value * 1000,
                                     "bestmove": "7g7f",
                                     "score_cp": 0,
@@ -86,6 +88,14 @@ class Q21iCostProfileTests(unittest.TestCase):
         summary = Q21I.aggregate(rows, components)
         # Per-position medians are 20 and 200; their median is 110.
         self.assertEqual(summary["corpus_medians"]["fixed_nodes"]["material"]["nodes"], 110)
+        self.assertEqual(
+            summary["corpus_medians"]["fixed_nodes"]["material"]["eval_cache_probes"],
+            110,
+        )
+        self.assertAlmostEqual(
+            summary["corpus_medians"]["fixed_nodes"]["material"]["eval_cache_hit_rate"],
+            0.5,
+        )
         self.assertEqual(summary["components"]["quiet"]["material"], 11)
         self.assertEqual(summary["zero_scale_fixed_node_identity"]["matching"], 6)
         self.assertIn("median_mixed_remainder_ms", summary["forward_attribution"])
@@ -93,6 +103,32 @@ class Q21iCostProfileTests(unittest.TestCase):
             summary["fixed_time_variability"]["material"]["positions_with_bestmove_variation"],
             0,
         )
+
+    def test_parser_accepts_and_types_cache_counters(self):
+        result = Q21I.parse_profile(
+            "\t".join(
+                (
+                    "bestmove=7g7f",
+                    "depth=4",
+                    "score_cp=12",
+                    "nodes=100",
+                    "elapsed_ms=1",
+                    "bound=exact",
+                    "completed_bound=exact",
+                    "completed_iteration_valid=true",
+                    "aborted=false",
+                    "abort_reason=none",
+                    "static_evaluations=40",
+                    "eval_cache_probes=40",
+                    "eval_cache_hits=10",
+                    "pv_legal=true",
+                    "pv_replay_preserves_input=true",
+                    "history_matches_expected=true",
+                )
+            )
+        )
+        self.assertEqual(result["eval_cache_probes"], 40)
+        self.assertEqual(result["eval_cache_hits"], 10)
 
 
 if __name__ == "__main__":

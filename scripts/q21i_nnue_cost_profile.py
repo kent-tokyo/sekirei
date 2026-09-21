@@ -87,7 +87,19 @@ def parse_profile(text: str) -> dict:
     missing = sorted(required - fields.keys())
     if missing:
         raise ValueError(f"diagnostic output missing: {', '.join(missing)}")
-    for key in ("depth", "score_cp", "nodes", "elapsed_ms", "static_evaluations"):
+    for key in (
+        "depth",
+        "score_cp",
+        "nodes",
+        "elapsed_ms",
+        "static_evaluations",
+        "eval_cache_probes",
+        "eval_cache_hits",
+    ):
+        if key not in fields:
+            if key.startswith("eval_cache_"):
+                continue
+            raise ValueError(f"diagnostic output missing integer field: {key}")
         fields[key] = int(fields[key])
     for key in (
         "completed_iteration_valid",
@@ -222,6 +234,12 @@ def aggregate(rows: list[dict], components: list[dict]) -> dict:
                         "max_rss_bytes",
                     )
                 }
+                if all("eval_cache_probes" in run for run in runs):
+                    probes = median([run["eval_cache_probes"] for run in runs])
+                    hits = median([run["eval_cache_hits"] for run in runs])
+                    record["arms"][arm]["eval_cache_probes"] = probes
+                    record["arms"][arm]["eval_cache_hits"] = hits
+                    record["arms"][arm]["eval_cache_hit_rate"] = ratio(hits, probes)
                 record["arms"][arm]["bestmoves"] = [run["bestmove"] for run in runs]
                 record["arms"][arm]["scores_cp"] = [run["score_cp"] for run in runs]
                 record["arms"][arm]["variability"] = {
@@ -241,8 +259,9 @@ def aggregate(rows: list[dict], components: list[dict]) -> dict:
     corpus = {}
     for budget in ("fixed_nodes", "fixed_time"):
         records = [record for record in position_medians if record["budget"] == budget]
-        corpus[budget] = {
-            arm: {
+        corpus[budget] = {}
+        for arm in ARMS:
+            arm_summary = {
                 key: median([record["arms"][arm][key] for record in records])
                 for key in (
                     "depth",
@@ -252,8 +271,17 @@ def aggregate(rows: list[dict], components: list[dict]) -> dict:
                     "max_rss_bytes",
                 )
             }
-            for arm in ARMS
-        }
+            if all("eval_cache_probes" in record["arms"][arm] for record in records):
+                probes = median(
+                    [record["arms"][arm]["eval_cache_probes"] for record in records]
+                )
+                hits = median(
+                    [record["arms"][arm]["eval_cache_hits"] for record in records]
+                )
+                arm_summary["eval_cache_probes"] = probes
+                arm_summary["eval_cache_hits"] = hits
+                arm_summary["eval_cache_hit_rate"] = ratio(hits, probes)
+            corpus[budget][arm] = arm_summary
     corpus["fixed_nodes"]["cost_elapsed_ratio_vs_material"] = ratio(
         corpus["fixed_nodes"]["cost-only"]["elapsed_ms"],
         corpus["fixed_nodes"]["material"]["elapsed_ms"],

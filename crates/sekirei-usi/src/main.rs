@@ -372,6 +372,10 @@ fn diagnostics_delta(
         static_evaluations: after
             .static_evaluations
             .saturating_sub(before.static_evaluations),
+        eval_cache_probes: after
+            .eval_cache_probes
+            .saturating_sub(before.eval_cache_probes),
+        eval_cache_hits: after.eval_cache_hits.saturating_sub(before.eval_cache_hits),
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         order_tt: after.order_tt.saturating_sub(before.order_tt),

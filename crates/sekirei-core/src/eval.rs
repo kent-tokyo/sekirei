@@ -83,6 +83,40 @@ pub fn nnue_residual_scale_permille() -> u16 {
     NNUE_RESIDUAL_SCALE_PERMILLE.load(Ordering::Relaxed)
 }
 
+/// Mixes the process-wide evaluator interpretation into a board hash used by
+/// optional evaluation caches.
+///
+/// NNUE weights are process-global and immutable after loading, but callers
+/// may change the output interpretation or residual scale between searches.
+/// Keeping those settings in the key prevents a long-lived [`Searcher`](crate::search::Searcher)
+/// from returning a score produced under an earlier interpretation.  The
+/// absolute mode deliberately ignores the residual scale because that setting
+/// has no effect on its score.
+#[inline]
+pub(crate) fn evaluation_cache_key(board_hash: u64) -> u64 {
+    evaluation_cache_key_for(
+        board_hash,
+        nnue_output_mode(),
+        nnue_residual_scale_permille(),
+    )
+}
+
+#[inline]
+const fn evaluation_cache_key_for(
+    board_hash: u64,
+    mode: NnueOutputMode,
+    residual_scale_permille: u16,
+) -> u64 {
+    let domain = match mode {
+        NnueOutputMode::Absolute => 0,
+        NnueOutputMode::ResidualMaterial => {
+            // Keep the mode bit separate from every valid 0..=2000 scale.
+            (1_u64 << 63) | residual_scale_permille as u64
+        }
+    };
+    board_hash ^ domain
+}
+
 #[inline]
 fn scaled_residual(nnue: i32, scale_permille: u16) -> i32 {
     let scaled = i64::from(nnue) * i64::from(scale_permille);
@@ -247,6 +281,19 @@ pub fn move_order_score(board: &Board, m: crate::mv::Move) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn evaluation_cache_key_separates_score_semantics() {
+        let hash = 0x0123_4567_89ab_cdef;
+        let absolute_a = evaluation_cache_key_for(hash, NnueOutputMode::Absolute, 0);
+        let absolute_b = evaluation_cache_key_for(hash, NnueOutputMode::Absolute, 2_000);
+        let residual_zero = evaluation_cache_key_for(hash, NnueOutputMode::ResidualMaterial, 0);
+        let residual_full = evaluation_cache_key_for(hash, NnueOutputMode::ResidualMaterial, 1_000);
+
+        assert_eq!(absolute_a, absolute_b);
+        assert_ne!(absolute_a, residual_zero);
+        assert_ne!(residual_zero, residual_full);
+    }
 
     #[test]
     fn material_score_is_zero_for_startpos() {

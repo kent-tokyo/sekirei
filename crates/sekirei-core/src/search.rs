@@ -30,11 +30,12 @@ use std::time::Duration;
 use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
-use crate::eval::{PIECE_VALUE, evaluate};
+use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
 #[cfg(test)]
 use crate::movegen::generate_legal_moves;
 use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check};
 use crate::mv::Move;
+use crate::nnue::weights_active;
 use crate::piece::PieceKind;
 use crate::sfen::{PositionHistory, RepetitionOutcome};
 use crate::speculative::{SpecGroup, SpecState};
@@ -382,6 +383,8 @@ impl SearchBound {
 /// pay for these atomic increments unless they explicitly opt in.
 pub struct SearchDiagnostics {
     static_evaluations: AtomicU64,
+    eval_cache_probes: AtomicU64,
+    eval_cache_hits: AtomicU64,
     tt_probes: AtomicU64,
     tt_hits: AtomicU64,
     order_tt: AtomicU64,
@@ -399,6 +402,10 @@ pub struct SearchDiagnostics {
 pub struct SearchDiagnosticsSnapshot {
     /// Number of calls to the configured static evaluator.
     pub static_evaluations: u64,
+    /// Number of exact NNUE evaluation-cache probes.
+    pub eval_cache_probes: u64,
+    /// Number of probes that reused a hash-identical NNUE evaluation.
+    pub eval_cache_hits: u64,
     /// Number of transposition-table probes.
     pub tt_probes: u64,
     /// Number of probes that found an entry.
@@ -438,6 +445,8 @@ impl SearchDiagnostics {
     pub fn new() -> Self {
         Self {
             static_evaluations: AtomicU64::new(0),
+            eval_cache_probes: AtomicU64::new(0),
+            eval_cache_hits: AtomicU64::new(0),
             tt_probes: AtomicU64::new(0),
             tt_hits: AtomicU64::new(0),
             order_tt: AtomicU64::new(0),
@@ -455,6 +464,8 @@ impl SearchDiagnostics {
     pub fn snapshot(&self) -> SearchDiagnosticsSnapshot {
         SearchDiagnosticsSnapshot {
             static_evaluations: self.static_evaluations.load(Ordering::Relaxed),
+            eval_cache_probes: self.eval_cache_probes.load(Ordering::Relaxed),
+            eval_cache_hits: self.eval_cache_hits.load(Ordering::Relaxed),
             tt_probes: self.tt_probes.load(Ordering::Relaxed),
             tt_hits: self.tt_hits.load(Ordering::Relaxed),
             order_tt: self.order_tt.load(Ordering::Relaxed),
@@ -467,6 +478,92 @@ impl SearchDiagnostics {
             root_mate_blunder_cache_hits: self.root_mate_blunder_cache_hits.load(Ordering::Relaxed),
         }
     }
+}
+
+const EVAL_CACHE_ENTRIES: usize = 1 << 16;
+
+struct EvalCacheSlot {
+    sequence: AtomicU64,
+    hash: AtomicU64,
+    score: AtomicI32,
+}
+
+/// Exact, nonblocking cache for repeated NNUE static evaluations.
+///
+/// The sequence guard makes a concurrent overwrite a miss rather than a
+/// mixed hash/score hit. Writers that lose the per-slot CAS simply skip the
+/// optional store, so search workers never wait for one another.
+struct EvalCache {
+    slots: Box<[EvalCacheSlot]>,
+    mask: usize,
+}
+
+impl EvalCache {
+    fn new() -> Self {
+        let slots = (0..EVAL_CACHE_ENTRIES)
+            .map(|_| EvalCacheSlot {
+                sequence: AtomicU64::new(0),
+                hash: AtomicU64::new(0),
+                score: AtomicI32::new(0),
+            })
+            .collect::<Vec<_>>()
+            .into_boxed_slice();
+        Self {
+            slots,
+            mask: EVAL_CACHE_ENTRIES - 1,
+        }
+    }
+
+    #[inline]
+    fn slot(&self, hash: u64) -> &EvalCacheSlot {
+        &self.slots[hash as usize & self.mask]
+    }
+
+    #[inline]
+    fn probe(&self, hash: u64) -> Option<i32> {
+        let slot = self.slot(hash);
+        let before = slot.sequence.load(Ordering::Acquire);
+        if before == 0 || before & 1 != 0 {
+            return None;
+        }
+        let stored_hash = slot.hash.load(Ordering::Relaxed);
+        let score = slot.score.load(Ordering::Relaxed);
+        let after = slot.sequence.load(Ordering::Acquire);
+        (before == after && after & 1 == 0 && stored_hash == hash).then_some(score)
+    }
+
+    #[inline]
+    fn store(&self, hash: u64, score: i32) {
+        let slot = self.slot(hash);
+        let sequence = slot.sequence.load(Ordering::Relaxed);
+        if sequence & 1 != 0
+            || slot
+                .sequence
+                .compare_exchange_weak(
+                    sequence,
+                    sequence.wrapping_add(1),
+                    Ordering::Acquire,
+                    Ordering::Relaxed,
+                )
+                .is_err()
+        {
+            return;
+        }
+        slot.hash.store(hash, Ordering::Relaxed);
+        slot.score.store(score, Ordering::Relaxed);
+        slot.sequence
+            .store(sequence.wrapping_add(2), Ordering::Release);
+    }
+
+    fn clear(&self) {
+        for slot in &self.slots {
+            slot.sequence.store(0, Ordering::Relaxed);
+        }
+    }
+}
+
+fn active_eval_cache() -> Option<Arc<EvalCache>> {
+    weights_active().then(|| Arc::new(EvalCache::new()))
 }
 
 impl Default for SearchDiagnostics {
@@ -486,6 +583,7 @@ struct SearchState {
     history: HistoryTable,
     countermoves: CountermoveTable,
     diagnostics: Option<Arc<SearchDiagnostics>>,
+    eval_cache: Option<Arc<EvalCache>>,
     pruning: PruningConfig,
 }
 
@@ -500,7 +598,25 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
             .static_evaluations
             .fetch_add(1, Ordering::Relaxed);
     }
-    evaluate(board)
+    if let Some(cache) = &state.eval_cache {
+        if let Some(diagnostics) = &state.diagnostics {
+            diagnostics
+                .eval_cache_probes
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        let key = evaluation_cache_key(board.hash());
+        if let Some(score) = cache.probe(key) {
+            if let Some(diagnostics) = &state.diagnostics {
+                diagnostics.eval_cache_hits.fetch_add(1, Ordering::Relaxed);
+            }
+            return score;
+        }
+        let score = evaluate(board);
+        cache.store(key, score);
+        score
+    } else {
+        evaluate(board)
+    }
 }
 
 /// Search pruning switches used by diagnostic ablations.
@@ -531,6 +647,7 @@ pub struct Searcher {
     /// Exposed for USI "stop" command — set to true to abort an in-progress search
     external_abort: Arc<AtomicBool>,
     diagnostics: Option<Arc<SearchDiagnostics>>,
+    eval_cache: Option<Arc<EvalCache>>,
     pruning: PruningConfig,
 }
 
@@ -547,6 +664,7 @@ impl Searcher {
             tt,
             external_abort,
             diagnostics: None,
+            eval_cache: active_eval_cache(),
             pruning: PruningConfig::default(),
         }
     }
@@ -558,6 +676,7 @@ impl Searcher {
             tt,
             external_abort: Arc::new(AtomicBool::new(false)),
             diagnostics: None,
+            eval_cache: active_eval_cache(),
             pruning,
         }
     }
@@ -572,6 +691,7 @@ impl Searcher {
             tt,
             external_abort: Arc::new(AtomicBool::new(false)),
             diagnostics: Some(diagnostics),
+            eval_cache: active_eval_cache(),
             pruning,
         }
     }
@@ -582,6 +702,7 @@ impl Searcher {
             tt,
             external_abort: Arc::new(AtomicBool::new(false)),
             diagnostics: Some(diagnostics),
+            eval_cache: active_eval_cache(),
             pruning: PruningConfig::default(),
         }
     }
@@ -604,6 +725,9 @@ impl Searcher {
     /// Clear all cached positions before a new unrelated game.
     pub fn clear_tt(&self) {
         self.tt.clear();
+        if let Some(cache) = &self.eval_cache {
+            cache.clear();
+        }
     }
 
     /// Run iterative-deepening search from the current position up to `config.max_depth`
@@ -813,6 +937,7 @@ impl Searcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: self.diagnostics.clone(),
+            eval_cache: self.eval_cache.clone(),
             pruning: self.pruning,
         });
 
@@ -2237,6 +2362,7 @@ pub struct SpecSearchInfo {
 /// parallel speculation driven by the policy function.
 pub struct SpeculativeSearcher {
     tt: Arc<Tt>,
+    eval_cache: Option<Arc<EvalCache>>,
     top_n: usize,
     external_abort: Arc<AtomicBool>,
     // Dedicated pool for SpecGroup's background tasks, isolated from rayon's
@@ -2255,6 +2381,7 @@ impl SpeculativeSearcher {
             .expect("failed to build dedicated speculative-search thread pool");
         SpeculativeSearcher {
             tt,
+            eval_cache: active_eval_cache(),
             top_n,
             external_abort: Arc::new(AtomicBool::new(false)),
             spec_pool: Arc::new(spec_pool),
@@ -2280,6 +2407,9 @@ impl SpeculativeSearcher {
     /// probes entries left behind by a previous, unrelated game.
     pub fn clear_tt(&self) {
         self.tt.clear();
+        if let Some(cache) = &self.eval_cache {
+            cache.clear();
+        }
     }
 
     /// Run iterative-deepening search with preemptive speculative parallelism on
@@ -2316,6 +2446,7 @@ impl SpeculativeSearcher {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            eval_cache: self.eval_cache.clone(),
             pruning: PruningConfig::default(),
         });
 
@@ -2822,7 +2953,49 @@ where
 mod see_tests {
     use super::*;
     use crate::board::Board;
+    use std::thread;
     use std::time::Instant;
+
+    #[test]
+    fn eval_cache_round_trips_signed_scores_and_rejects_collisions() {
+        let cache = EvalCache::new();
+        let first = 0x1234_5678_0000_0042;
+        let collision = first ^ (1 << 32);
+        assert_eq!(cache.probe(first), None);
+        cache.store(first, -12_345);
+        assert_eq!(cache.probe(first), Some(-12_345));
+        assert_eq!(cache.probe(collision), None);
+        cache.store(collision, 67_890);
+        assert_eq!(cache.probe(collision), Some(67_890));
+        assert_eq!(cache.probe(first), None);
+        cache.clear();
+        assert_eq!(cache.probe(collision), None);
+    }
+
+    #[test]
+    fn eval_cache_concurrent_collision_never_returns_another_hash_score() {
+        let cache = Arc::new(EvalCache::new());
+        thread::scope(|scope| {
+            for worker in 0..4u64 {
+                let cache = cache.clone();
+                scope.spawn(move || {
+                    let hash = 0xfeed_0000_0000_002au64 ^ (worker << 32);
+                    let score = worker as i32 * 1_000 - 1_500;
+                    for _ in 0..10_000 {
+                        cache.store(hash, score);
+                        if let Some(observed) = cache.probe(hash) {
+                            assert_eq!(observed, score);
+                        }
+                    }
+                });
+            }
+        });
+    }
+
+    #[test]
+    fn eval_cache_stays_within_preregistered_memory_budget() {
+        assert!(std::mem::size_of::<EvalCacheSlot>() * EVAL_CACHE_ENTRIES <= 2 * 1024 * 1024);
+    }
 
     #[test]
     fn lmr_table_is_bit_exact_with_previous_formula() {
@@ -2942,6 +3115,7 @@ mod see_tests {
                 history: HistoryTable::new(),
                 countermoves: CountermoveTable::new(),
                 diagnostics: None,
+                eval_cache: None,
                 pruning: PruningConfig::default(),
             })
         };
@@ -3519,6 +3693,7 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            eval_cache: None,
             pruning: PruningConfig::default(),
         })
     }
@@ -3749,6 +3924,7 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            eval_cache: None,
             pruning: PruningConfig::default(),
         });
         root_search_inner(
@@ -3831,6 +4007,7 @@ mod regression_tests {
             history: HistoryTable::new(),
             countermoves: CountermoveTable::new(),
             diagnostics: None,
+            eval_cache: None,
             pruning: PruningConfig::default(),
         });
         let _ = quiescence(

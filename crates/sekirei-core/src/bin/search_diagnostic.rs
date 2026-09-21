@@ -368,7 +368,7 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -381,6 +381,8 @@ fn main() {
         teacher_search,
         profile_cost,
         profile.map_or(0, |snapshot| snapshot.static_evaluations),
+        profile.map_or(0, |snapshot| snapshot.eval_cache_probes),
+        profile.map_or(0, |snapshot| snapshot.eval_cache_hits),
         pv,
         pv_legal,
         pv_replay_preserves_input,
