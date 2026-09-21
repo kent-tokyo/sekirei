@@ -449,6 +449,32 @@ pub struct NnueAcc {
     pub king_sq: [Square; 2],
 }
 
+/// Aggregate hidden-layer state for one explicit-weight diagnostic forward pass.
+///
+/// Counts cover both 256-unit feature-transformer perspectives and the single
+/// 32-unit L2 layer. This is deliberately separate from hot-path evaluation:
+/// callers use it to distinguish inactive/saturated representations from a
+/// ranking objective that merely failed to transfer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NnueActivationSummary {
+    /// Number of clipped FT values across both perspectives.
+    pub ft_units: usize,
+    /// FT values strictly above zero after clipping.
+    pub ft_active: usize,
+    /// FT values at the upper clipping boundary.
+    pub ft_saturated: usize,
+    /// Mean clipped FT activation.
+    pub ft_mean: f64,
+    /// Number of L2 values.
+    pub l2_units: usize,
+    /// L2 values strictly above zero after clipping.
+    pub l2_active: usize,
+    /// L2 values at the upper clipping boundary.
+    pub l2_saturated: usize,
+    /// Mean clipped L2 activation.
+    pub l2_mean: f64,
+}
+
 impl NnueAcc {
     /// Initialize from the bias vector (empty board baseline).
     pub fn new() -> Self {
@@ -780,6 +806,45 @@ impl NnueAcc {
         (out / 64.0) as i32
     }
 
+    /// Summarize FT/L2 activation for an explicit checkpoint without changing
+    /// evaluation state or process-global weights.
+    pub fn activation_summary_with(&self, w: &NnueWeights, stm: Color) -> NnueActivationSummary {
+        const FT_SCALE: f32 = 64.0;
+        let us = stm.index();
+        let them = 1 - us;
+        let mut ft_active = 0usize;
+        let mut ft_saturated = 0usize;
+        let mut ft_sum = 0.0f64;
+        for perspective in [us, them] {
+            for &value in &self.values[perspective] {
+                let clipped = value.clamp(0, (127.0 * FT_SCALE) as i16) as f32 / FT_SCALE;
+                ft_active += usize::from(clipped > 0.0);
+                ft_saturated += usize::from(clipped >= 127.0);
+                ft_sum += f64::from(clipped);
+            }
+        }
+        let l2_acc = self.forward_l2(w, us, them, FT_SCALE);
+        let mut l2_active = 0usize;
+        let mut l2_saturated = 0usize;
+        let mut l2_sum = 0.0f64;
+        for value in l2_acc {
+            let clipped = value.clamp(0.0, 127.0);
+            l2_active += usize::from(clipped > 0.0);
+            l2_saturated += usize::from(clipped >= 127.0);
+            l2_sum += f64::from(clipped);
+        }
+        NnueActivationSummary {
+            ft_units: 2 * L1,
+            ft_active,
+            ft_saturated,
+            ft_mean: ft_sum / (2 * L1) as f64,
+            l2_units: L2,
+            l2_active,
+            l2_saturated,
+            l2_mean: l2_sum / L2 as f64,
+        }
+    }
+
     #[inline(always)]
     fn forward_l2(&self, w: &NnueWeights, us: usize, them: usize, ft_scale: f32) -> [f32; L2] {
         let mut l2_acc = w.l2_bias;
@@ -946,6 +1011,35 @@ mod tests {
             from_board.evaluate_with(&weights, Color::White),
             from_snapshot.evaluate_with(&weights, Color::White)
         );
+    }
+
+    #[test]
+    fn activation_summary_counts_both_ft_perspectives_and_l2_boundaries() {
+        let mut weights = NnueWeights {
+            ft: vec![[0i16; L1]; INPUT],
+            ft_bias: [0i16; L1],
+            l2: vec![[0.0f32; L2]; 2 * L1],
+            l2_bias: [0.0f32; L2],
+            out: [0.0f32; L2],
+            out_bias: 0.0,
+        };
+        weights.l2_bias[0] = 1.0;
+        weights.l2_bias[1] = 127.0;
+        weights.l2_bias[2] = -1.0;
+        let mut accumulator = NnueAcc::new_with(&weights);
+        accumulator.values[Color::Black.index()][0] = 64;
+        accumulator.values[Color::Black.index()][1] = 127 * 64;
+        accumulator.values[Color::White.index()][2] = -64;
+
+        let summary = accumulator.activation_summary_with(&weights, Color::Black);
+        assert_eq!(summary.ft_units, 2 * L1);
+        assert_eq!(summary.ft_active, 2);
+        assert_eq!(summary.ft_saturated, 1);
+        assert!((summary.ft_mean - 0.25).abs() < f64::EPSILON);
+        assert_eq!(summary.l2_units, L2);
+        assert_eq!(summary.l2_active, 2);
+        assert_eq!(summary.l2_saturated, 1);
+        assert!((summary.l2_mean - 4.0).abs() < f64::EPSILON);
     }
 
     #[test]

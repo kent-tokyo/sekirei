@@ -9,7 +9,7 @@ use std::{collections::BTreeMap, env, fs, process};
 use sekirei_core::{
     board::Board,
     eval::{NnueOutputMode, evaluate_with_weights_mode},
-    nnue::read_weights,
+    nnue::{NnueActivationSummary, read_weights},
     sfen::{board_to_sfen, move_from_usi},
 };
 use serde::{Deserialize, Serialize};
@@ -42,6 +42,8 @@ struct SourceContract {
     root_candidate_mode: String,
     root_candidate_limit: u32,
     complete_legal_root_set: bool,
+    #[serde(default)]
+    candidate_source_sha256: Option<String>,
     per_category_unique_positions: u32,
     normal_score_abs_max_cp: i32,
 }
@@ -96,6 +98,7 @@ struct AuditSource {
     spec_top_n: u32,
     root_candidate_mode: String,
     complete_legal_root_set: bool,
+    candidate_source_sha256: Option<String>,
     pair_selection: String,
     teacher_binary_sha256: String,
     teacher_weights_sha256: String,
@@ -114,16 +117,74 @@ struct ModelDiagnostic {
     mean_parent_oriented_margin_cp: f64,
     mean_parent_rank_loss_cp: f64,
     major_blunders_ge_300cp: usize,
+    unique_moves_scored: usize,
+    mean_activation: ActivationDiagnostic,
     parent_diagnostics: Vec<ParentRankingDiagnostic>,
+    move_diagnostics: Vec<MoveDiagnostic>,
     pair_diagnostics: Vec<PairDiagnostic>,
 }
 
 #[derive(Debug, Serialize)]
 struct ParentRankingDiagnostic {
     parent_id: String,
+    candidate_moves: usize,
     model_chosen_move_usi: String,
+    model_top_margin_cp: i32,
     teacher_rank_loss_cp: i32,
     major_blunder_ge_300cp: bool,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize)]
+struct ActivationDiagnostic {
+    ft_active_ratio: f64,
+    ft_saturated_ratio: f64,
+    ft_mean: f64,
+    l2_active_ratio: f64,
+    l2_saturated_ratio: f64,
+    l2_mean: f64,
+}
+
+impl ActivationDiagnostic {
+    fn from_summary(summary: NnueActivationSummary) -> Self {
+        Self {
+            ft_active_ratio: summary.ft_active as f64 / summary.ft_units as f64,
+            ft_saturated_ratio: summary.ft_saturated as f64 / summary.ft_units as f64,
+            ft_mean: summary.ft_mean,
+            l2_active_ratio: summary.l2_active as f64 / summary.l2_units as f64,
+            l2_saturated_ratio: summary.l2_saturated as f64 / summary.l2_units as f64,
+            l2_mean: summary.l2_mean,
+        }
+    }
+
+    fn add_assign(&mut self, other: Self) {
+        self.ft_active_ratio += other.ft_active_ratio;
+        self.ft_saturated_ratio += other.ft_saturated_ratio;
+        self.ft_mean += other.ft_mean;
+        self.l2_active_ratio += other.l2_active_ratio;
+        self.l2_saturated_ratio += other.l2_saturated_ratio;
+        self.l2_mean += other.l2_mean;
+    }
+
+    fn divided_by(mut self, count: usize) -> Self {
+        let denominator = count as f64;
+        self.ft_active_ratio /= denominator;
+        self.ft_saturated_ratio /= denominator;
+        self.ft_mean /= denominator;
+        self.l2_active_ratio /= denominator;
+        self.l2_saturated_ratio /= denominator;
+        self.l2_mean /= denominator;
+        self
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct MoveDiagnostic {
+    parent_id: String,
+    move_usi: String,
+    parent_score_cp: i32,
+    teacher_rank_loss_cp: i32,
+    teacher_top: bool,
+    activation: ActivationDiagnostic,
 }
 
 /// Per-pair static result retained solely for stratified error analysis.
@@ -194,18 +255,35 @@ fn validate_source(corpus: &Corpus) -> Result<(), String> {
                 .to_owned(),
         );
     }
-    if !matches!(corpus.pair_selection.as_str(), "all" | "adjacent") {
+    if !matches!(
+        corpus.pair_selection.as_str(),
+        "all" | "adjacent" | "top-vs-rest"
+    ) {
         return Err("unsupported root-ranking pair selection".to_owned());
     }
     let source = &corpus.source_contract;
+    let source_scope_valid = match source.root_candidate_mode.as_str() {
+        "complete_legal_set" => {
+            source.complete_legal_root_set && source.candidate_source_sha256.is_none()
+        }
+        "preregistered_candidate_union" => {
+            !source.complete_legal_root_set
+                && source
+                    .candidate_source_sha256
+                    .as_ref()
+                    .is_some_and(|digest| {
+                        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+        }
+        _ => false,
+    };
     if source.depth == 0
         || source.threads != 1
         || source.spec_top_n != 0
-        || source.root_candidate_mode != "complete_legal_set"
         || source.root_candidate_limit == 0
         || source.per_category_unique_positions == 0
         || source.normal_score_abs_max_cp <= 0
-        || !source.complete_legal_root_set
+        || !source_scope_valid
     {
         return Err("unsupported or unsafe root-ranking source contract".to_owned());
     }
@@ -288,14 +366,20 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
     let mut pair_diagnostics = Vec::with_capacity(corpus.pairs.len());
     let mut parent_move_scores: BTreeMap<String, BTreeMap<String, i32>> = BTreeMap::new();
     let mut parent_move_losses: BTreeMap<String, BTreeMap<String, i32>> = BTreeMap::new();
+    let mut parent_move_activations: BTreeMap<String, BTreeMap<String, ActivationDiagnostic>> =
+        BTreeMap::new();
     for (index, pair) in corpus.pairs.iter().enumerate() {
         let (mut board, high, low) =
             reconstruct_pair(pair, index, corpus.source_contract.normal_score_abs_max_cp)?;
         let high_undo = board.do_move(high);
         let high_parent_score = -evaluate_with_weights_mode(&board, &weights, mode);
+        let high_activation =
+            ActivationDiagnostic::from_summary(board.nnue_activation_summary_with(&weights));
         board.undo_move(high_undo);
         let low_undo = board.do_move(low);
         let low_parent_score = -evaluate_with_weights_mode(&board, &weights, mode);
+        let low_activation =
+            ActivationDiagnostic::from_summary(board.nnue_activation_summary_with(&weights));
         board.undo_move(low_undo);
         let margin = high_parent_score - low_parent_score;
         ordered += usize::from(margin > 0);
@@ -304,15 +388,26 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
         let scores = parent_move_scores
             .entry(pair.parent_id.clone())
             .or_default();
-        for (move_usi, score) in [
-            (&pair.higher_move_usi, high_parent_score),
-            (&pair.lower_move_usi, low_parent_score),
+        for (move_usi, score, activation) in [
+            (&pair.higher_move_usi, high_parent_score, high_activation),
+            (&pair.lower_move_usi, low_parent_score, low_activation),
         ] {
             if let Some(previous) = scores.insert(move_usi.clone(), score)
                 && previous != score
             {
                 return Err(format!(
                     "parent {:?} move {:?} has inconsistent static scores",
+                    pair.parent_id, move_usi
+                ));
+            }
+            let activations = parent_move_activations
+                .entry(pair.parent_id.clone())
+                .or_default();
+            if let Some(previous) = activations.insert(move_usi.clone(), activation)
+                && previous != activation
+            {
+                return Err(format!(
+                    "parent {:?} move {:?} has inconsistent activation diagnostics",
                     pair.parent_id, move_usi
                 ));
             }
@@ -339,19 +434,45 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
     }
     let count = corpus.pairs.len() as f64;
     let mut parent_diagnostics = Vec::with_capacity(parent_move_scores.len());
+    let mut move_diagnostics = Vec::new();
+    let mut activation_total = ActivationDiagnostic::default();
     for (parent_id, scores) in parent_move_scores {
-        let (chosen_move, _) = scores
-            .iter()
-            .max_by(|left, right| left.1.cmp(right.1).then_with(|| right.0.cmp(left.0)))
-            .ok_or_else(|| format!("parent {parent_id:?} has no model scores"))?;
-        let rank_loss = parent_move_losses
-            .get(&parent_id)
-            .and_then(|losses| losses.get(chosen_move))
+        let mut ranked: Vec<_> = scores.iter().collect();
+        ranked.sort_by(|left, right| right.1.cmp(left.1).then_with(|| left.0.cmp(right.0)));
+        let (chosen_move, chosen_score) = ranked
+            .first()
             .copied()
-            .unwrap_or(0);
+            .ok_or_else(|| format!("parent {parent_id:?} has no model scores"))?;
+        let model_top_margin_cp = ranked
+            .get(1)
+            .map_or(0, |(_, runner_up)| *chosen_score - **runner_up);
+        let losses = parent_move_losses
+            .get(&parent_id)
+            .ok_or_else(|| format!("parent {parent_id:?} has no teacher losses"))?;
+        let rank_loss = losses.get(chosen_move).copied().unwrap_or(0);
+        let activations = parent_move_activations
+            .get(&parent_id)
+            .ok_or_else(|| format!("parent {parent_id:?} has no activation diagnostics"))?;
+        for (move_usi, score) in &scores {
+            let activation = *activations.get(move_usi).ok_or_else(|| {
+                format!("parent {parent_id:?} move {move_usi:?} lacks activation diagnostics")
+            })?;
+            activation_total.add_assign(activation);
+            let teacher_rank_loss_cp = losses.get(move_usi).copied().unwrap_or(0);
+            move_diagnostics.push(MoveDiagnostic {
+                parent_id: parent_id.clone(),
+                move_usi: move_usi.clone(),
+                parent_score_cp: *score,
+                teacher_rank_loss_cp,
+                teacher_top: teacher_rank_loss_cp == 0,
+                activation,
+            });
+        }
         parent_diagnostics.push(ParentRankingDiagnostic {
             parent_id,
+            candidate_moves: scores.len(),
             model_chosen_move_usi: chosen_move.clone(),
+            model_top_margin_cp,
             teacher_rank_loss_cp: rank_loss,
             major_blunder_ge_300cp: rank_loss >= 300,
         });
@@ -366,6 +487,8 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
         .iter()
         .filter(|row| row.major_blunder_ge_300cp)
         .count();
+    let unique_moves_scored = move_diagnostics.len();
+    let mean_activation = activation_total.divided_by(unique_moves_scored);
     Ok(ModelDiagnostic {
         checkpoint: checkpoint.to_owned(),
         output_mode: corpus.source_teacher.nnue_output.clone(),
@@ -376,7 +499,10 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
         mean_parent_oriented_margin_cp: total_margin / count,
         mean_parent_rank_loss_cp,
         major_blunders_ge_300cp,
+        unique_moves_scored,
+        mean_activation,
         parent_diagnostics,
+        move_diagnostics,
         pair_diagnostics,
     })
 }
@@ -424,6 +550,7 @@ fn audit(corpus: &Corpus, weights: Option<&str>) -> Result<AuditReport, String> 
             spec_top_n: corpus.source_contract.spec_top_n,
             root_candidate_mode: corpus.source_contract.root_candidate_mode.clone(),
             complete_legal_root_set: corpus.source_contract.complete_legal_root_set,
+            candidate_source_sha256: corpus.source_contract.candidate_source_sha256.clone(),
             pair_selection: corpus.pair_selection.clone(),
             teacher_binary_sha256: corpus.source_teacher.binary_sha256.clone(),
             teacher_weights_sha256: corpus.source_teacher.weights_sha256.clone(),
@@ -474,6 +601,7 @@ mod tests {
                 root_candidate_mode: "complete_legal_set".to_owned(),
                 root_candidate_limit: 32,
                 complete_legal_root_set: true,
+                candidate_source_sha256: None,
                 per_category_unique_positions: 1,
                 normal_score_abs_max_cp: 10_000,
             },
@@ -511,6 +639,31 @@ mod tests {
         assert_eq!(report.pairs_verified, 1);
         assert_eq!(report.parent_positions, 1);
         assert!(!report.training_performed);
+    }
+
+    #[test]
+    fn accepts_top_vs_rest_pair_selection() {
+        let mut input = corpus(start_pair());
+        input.pair_selection = "top-vs-rest".to_owned();
+        let report = audit(&input, None).unwrap();
+        assert_eq!(report.source.pair_selection, "top-vs-rest");
+    }
+
+    #[test]
+    fn accepts_only_bound_preregistered_candidate_union() {
+        let mut input = corpus(start_pair());
+        input.source_contract.depth = 7;
+        input.source_contract.root_candidate_mode = "preregistered_candidate_union".to_owned();
+        input.source_contract.complete_legal_root_set = false;
+        input.source_contract.candidate_source_sha256 = Some("c".repeat(64));
+        let report = audit(&input, None).unwrap();
+        assert_eq!(
+            report.source.candidate_source_sha256.as_deref(),
+            Some("cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc")
+        );
+
+        input.source_contract.candidate_source_sha256 = None;
+        assert!(audit(&input, None).is_err());
     }
 
     #[test]

@@ -496,13 +496,7 @@ impl Board {
             .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
     }
 
-    /// Evaluate this position with an explicitly supplied NNUE checkpoint.
-    ///
-    /// The board's normal incremental accumulator is intentionally left
-    /// untouched.  This gives diagnostics and candidate comparisons an
-    /// isolated, one-shot path that does not depend on the process-global
-    /// `nnue::load_weights()` singleton or on load order.
-    pub fn evaluate_with_weights(&self, weights: &NnueWeights) -> i32 {
+    fn accumulator_with_weights(&self, weights: &NnueWeights) -> NnueAcc {
         let mut snapshot = [None; 81];
         for (i, cell) in snapshot.iter_mut().enumerate() {
             *cell = self.mailbox[i].map(|p| (p.kind, p.color));
@@ -524,7 +518,29 @@ impl Board {
         }
         let mut acc = NnueAcc::new_with(weights);
         acc.refresh_with(weights, &snapshot, &hand_counts);
+        acc
+    }
+
+    /// Evaluate this position with an explicitly supplied NNUE checkpoint.
+    ///
+    /// The board's normal incremental accumulator is intentionally left
+    /// untouched.  This gives diagnostics and candidate comparisons an
+    /// isolated, one-shot path that does not depend on the process-global
+    /// `nnue::load_weights()` singleton or on load order.
+    pub fn evaluate_with_weights(&self, weights: &NnueWeights) -> i32 {
+        let acc = self.accumulator_with_weights(weights);
         acc.evaluate_with(weights, self.side_to_move)
+    }
+
+    /// Return hidden-layer activation counts for an explicit NNUE checkpoint.
+    /// This diagnostic path rebuilds an isolated accumulator like
+    /// [`Self::evaluate_with_weights`] and leaves the board untouched.
+    pub fn nnue_activation_summary_with(
+        &self,
+        weights: &NnueWeights,
+    ) -> crate::nnue::NnueActivationSummary {
+        self.accumulator_with_weights(weights)
+            .activation_summary_with(weights, self.side_to_move)
     }
 
     // ---- Starting position ----
