@@ -51,12 +51,16 @@ def corpus_positions(corpus: dict) -> list[dict]:
     if isinstance(positions, list) and positions:
         normalized = []
         for position in positions:
-            if not isinstance(position, dict) or not isinstance(position.get("id"), str) or not isinstance(position.get("sfen"), str):
-                raise ValueError("each history-aware position needs id and sfen")
+            nested = position.get("position") if isinstance(position, dict) else None
+            sfen = position.get("sfen") if isinstance(position, dict) else None
+            if sfen is None and isinstance(nested, dict):
+                sfen = nested.get("sfen")
+            if not isinstance(position, dict) or not isinstance(position.get("id"), str) or not isinstance(sfen, str):
+                raise ValueError("each history-aware position needs id and direct or nested sfen")
             normalized.append({
                 "id": position["id"],
-                "sfen": position["sfen"],
-                "source_category": position.get("category", "unclassified"),
+                "sfen": sfen,
+                "source_category": position.get("category", position.get("selection", {}).get("rule", "unclassified")),
             })
         return normalized
     entries = corpus.get("entries")

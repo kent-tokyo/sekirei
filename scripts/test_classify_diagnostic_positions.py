@@ -7,6 +7,7 @@ import unittest
 sys.path.insert(0, os.path.dirname(__file__))
 
 from classify_diagnostic_positions import corpus_positions
+from diagnostic_contract import stable_entry_id
 
 
 class CorpusPositionsTest(unittest.TestCase):
@@ -20,16 +21,32 @@ class CorpusPositionsTest(unittest.TestCase):
         }])
 
     def test_csa_replay_entries_receive_stable_game_ply_id(self):
+        entry = {
+            "source": {"game_id": "game-a", "ply": 7},
+            "position": {"sfen": "board w P 8"},
+            "selection_reason": "opponent_capture",
+        }
         corpus = {
             "diagnostic_only": True,
-            "entries": [{
-                "source": {"game_id": "game-a", "ply": 7},
-                "position": {"sfen": "board w P 8"},
-                "selection_reason": "opponent_capture",
+            "entries": [entry],
+        }
+        self.assertEqual(corpus_positions(corpus), [{
+            "id": stable_entry_id(entry), "sfen": "board w P 8", "source_category": "opponent_capture",
+        }])
+
+    def test_failure_audit_positions_accept_nested_sfen(self):
+        corpus = {
+            "diagnostic_only": True,
+            "positions": [{
+                "id": "q21j-game-01",
+                "selection": {"rule": "first_candidate_score_drop_ge_300cp"},
+                "position": {"sfen": "board b - 42"},
             }],
         }
         self.assertEqual(corpus_positions(corpus), [{
-            "id": "game-a-ply007", "sfen": "board w P 8", "source_category": "opponent_capture",
+            "id": "q21j-game-01",
+            "sfen": "board b - 42",
+            "source_category": "first_candidate_score_drop_ge_300cp",
         }])
 
     def test_non_diagnostic_corpus_is_rejected(self):

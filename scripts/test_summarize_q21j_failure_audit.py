@@ -133,6 +133,8 @@ def main() -> None:
         assert summary["signals"]["classification_counts"] == {"both": 16, "cost_only": 16}
         assert summary["candidate_remains_rejected"] is True
         assert summary["q20_authorized"] is False
+        assert "25 losses" in summary["conclusion"]["interpretation"]
+        assert "25 losses" in MODULE.report_markdown(summary)
 
 
 if __name__ == "__main__":

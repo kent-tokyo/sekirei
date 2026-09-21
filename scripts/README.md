@@ -57,6 +57,12 @@ host and revision. They are not general speed or Elo rankings.
   phase-sampling candidate. `prepare_q21k_development_match.py` and
   `finalize_q21k_development_match.py` bind the two passed engineering screens
   to a fresh 16-pair development match and fail closed on changed artifacts.
+- `summarize_q21l_transfer_strata.py`: joins a validated 32-position
+  content/cost audit with phase, hand-aware material, forcing class, immediate
+  check availability, and fixed-node depth. Played moves remain observations.
+- `prepare_q21m_pairwise_pilot.py`, `finalize_q21m_pairwise_pilot.py`: freeze
+  and fail-close the one-factor parent-balanced pairwise-ranking pilot. A
+  ranking-screen failure forbids both its development match and Q20.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 

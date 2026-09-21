@@ -340,20 +340,21 @@ def summarize(corpus: dict, preregistration: dict, manifest: dict, rows: list[di
         "candidate_wins": [item for item in position_rows if item["game_result"] == "candidate_win"],
     }
 
+    candidate_loss_count = len(outcomes["candidate_losses"])
     if cost_pressure and content_difference:
         interpretation = (
             "Both evaluator-content differences and residual-NNUE compute-cost pressure are present "
-            "on the frozen decisions. The audit does not assign a causal percentage of the 25 losses."
+            f"on the frozen decisions. The audit does not assign a causal percentage of the {candidate_loss_count} losses."
         )
     elif cost_pressure:
         interpretation = (
             "Residual-NNUE compute-cost pressure is present; the preregistered content signal is absent. "
-            "The audit does not assign a causal percentage of the 25 losses."
+            f"The audit does not assign a causal percentage of the {candidate_loss_count} losses."
         )
     elif content_difference:
         interpretation = (
             "Evaluator-content differences are present; the preregistered compute-cost threshold is not met. "
-            "The audit does not assign a causal percentage of the 25 losses."
+            f"The audit does not assign a causal percentage of the {candidate_loss_count} losses."
         )
     else:
         interpretation = (
@@ -440,13 +441,13 @@ def report_markdown(summary: dict) -> str:
     ratio_item = cost["candidate_cost_only_material_node_ratio"]
     candidate_content = content["candidate_vs_material"]
     lines = [
-        "# Q21j failure audit",
+        "# NNUE failure audit",
         "",
         "This is a diagnostic attribution audit, not a strength gate.",
         "",
         "## Validation",
         "",
-        f"- 32 positions, {summary['validation']['measurements']} measurements, missing/duplicate/invalid: 0/0/0.",
+        f"- {summary['validation']['positions']} positions, {summary['validation']['measurements']} measurements, missing/duplicate/invalid: 0/0/0.",
         f"- Fixed-node material/cost-only identity: {summary['cost_isolation']['raw_fixed_node_score_and_bestmove_matches']}/{summary['cost_isolation']['raw_fixed_node_comparisons']} "
         f"({summary['cost_isolation']['raw_identity_rate']:.1%}); requirement >=95%: {'PASS' if summary['cost_isolation']['pass'] else 'FAIL'}.",
         "",
@@ -456,11 +457,11 @@ def report_markdown(summary: dict) -> str:
         f"candidate {nodes['candidate']:,}; teacher {nodes['teacher']:,}.",
         f"- Per-position cost-only/material node ratio median {ratio_item['median']:.3f} "
         f"(range {ratio_item['min']:.3f}-{ratio_item['max']:.3f}); <=0.75 in "
-        f"{ratio_item['positions_at_or_below_threshold']}/32 positions: {'PASS' if ratio_item['pass'] else 'FAIL'}.",
+        f"{ratio_item['positions_at_or_below_threshold']}/{summary['validation']['positions']} positions: {'PASS' if ratio_item['pass'] else 'FAIL'}.",
         "",
         "## Evaluator content",
         "",
-        f"- Candidate versus material bestmove disagreement: {candidate_content['bestmove_disagreements']}/32.",
+        f"- Candidate versus material bestmove disagreement: {candidate_content['bestmove_disagreements']}/{summary['validation']['positions']}.",
         f"- Candidate versus material >=300cp difference: {candidate_content['large_score_differences_ge_300cp']}/"
         f"{candidate_content['normal_cp_positions']} ordinary-cp positions; mate-like positions excluded: "
         f"{candidate_content['mate_like_positions_excluded_from_cp_metrics']}.",
