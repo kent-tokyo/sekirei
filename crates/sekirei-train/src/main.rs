@@ -65,6 +65,31 @@ enum NnueOutput {
     ResidualMaterial,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RankingObjective {
+    Pairwise,
+    ListwiseSoftmax,
+}
+
+impl RankingObjective {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "pairwise" => Ok(Self::Pairwise),
+            "listwise-softmax" => Ok(Self::ListwiseSoftmax),
+            _ => Err(format!(
+                "unknown --ranking-objective {value:?}; expected pairwise or listwise-softmax"
+            )),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Pairwise => "pairwise",
+            Self::ListwiseSoftmax => "listwise-softmax",
+        }
+    }
+}
+
 impl NnueOutput {
     fn parse(value: &str) -> Result<Self, String> {
         match value {
@@ -105,6 +130,8 @@ struct Args {
     ranking_max_pairs: usize,        // --ranking-max-pairs (0 = every input pair)
     ranking_batch_pairs: usize, // --ranking-batch-pairs (default 1 preserves pair-step semantics)
     ranking_parent_balanced: bool, // --ranking-parent-balanced (one averaged update per parent)
+    ranking_objective: RankingObjective,
+    ranking_temperature_cp: f32,
     output: PathBuf,
     epochs: usize,
     sample: usize,                    // sample every N plies per game
@@ -310,6 +337,8 @@ struct RankingSourceContract {
     root_candidate_mode: String,
     root_candidate_limit: u32,
     complete_legal_root_set: bool,
+    #[serde(default)]
+    candidate_source_sha256: Option<String>,
     per_category_unique_positions: u32,
     normal_score_abs_max_cp: i32,
 }
@@ -342,17 +371,16 @@ struct RankingPairRecord {
     teacher_score_gap_cp: i32,
 }
 
-fn load_ranking_pairs(
-    path: &Path,
-) -> Result<
-    Vec<(
-        String,
-        Board,
-        sekirei_core::mv::Move,
-        sekirei_core::mv::Move,
-    )>,
+type LoadedRankingPair = (
     String,
-> {
+    Board,
+    sekirei_core::mv::Move,
+    sekirei_core::mv::Move,
+    i32,
+);
+type ParentRankingPair = (Board, sekirei_core::mv::Move, sekirei_core::mv::Move, i32);
+
+fn load_ranking_pairs(path: &Path) -> Result<Vec<LoadedRankingPair>, String> {
     let text = fs::read_to_string(path)
         .map_err(|error| format!("cannot read ranking pairs {path:?}: {error}"))?;
     let input: RankingPairsFile = serde_json::from_str(&text)
@@ -367,18 +395,35 @@ fn load_ranking_pairs(
                 .to_owned(),
         );
     }
-    if !matches!(input.pair_selection.as_str(), "all" | "adjacent") {
+    if !matches!(
+        input.pair_selection.as_str(),
+        "all" | "adjacent" | "top-vs-rest"
+    ) {
         return Err("ranking pairs have an unsupported pair selection".to_owned());
     }
     let source = &input.source_contract;
+    let source_scope_valid = match source.root_candidate_mode.as_str() {
+        "complete_legal_set" => {
+            source.complete_legal_root_set && source.candidate_source_sha256.is_none()
+        }
+        "preregistered_candidate_union" => {
+            !source.complete_legal_root_set
+                && source
+                    .candidate_source_sha256
+                    .as_ref()
+                    .is_some_and(|digest| {
+                        digest.len() == 64 && digest.bytes().all(|byte| byte.is_ascii_hexdigit())
+                    })
+        }
+        _ => false,
+    };
     if source.depth == 0
         || source.threads != 1
         || source.spec_top_n != 0
-        || source.root_candidate_mode != "complete_legal_set"
         || source.root_candidate_limit == 0
         || source.per_category_unique_positions == 0
         || source.normal_score_abs_max_cp <= 0
-        || !source.complete_legal_root_set
+        || !source_scope_valid
     {
         return Err("ranking pairs have an unsupported source contract".to_owned());
     }
@@ -429,9 +474,47 @@ fn load_ranking_pairs(
             if high == low {
                 return Err(format!("{label}: moves must be distinct"));
             }
-            Ok((pair.parent_id, board, high, low))
+            Ok((pair.parent_id, board, high, low, pair.teacher_score_gap_cp))
         })
         .collect()
+}
+
+fn listwise_choices(
+    pairs: &[ParentRankingPair],
+) -> Result<(Board, Vec<(sekirei_core::mv::Move, f32)>), String> {
+    let (first_board, _, _, _) = pairs
+        .first()
+        .ok_or_else(|| "listwise parent has no pairs".to_string())?;
+    let expected_sfen = board_to_sfen(first_board);
+    let mut choices: Vec<(sekirei_core::mv::Move, i32)> = Vec::new();
+    let mut insert = |mv, score| -> Result<(), String> {
+        if let Some((_, previous)) = choices.iter().find(|(known, _)| *known == mv) {
+            if *previous != score {
+                return Err("listwise move has inconsistent teacher score".to_string());
+            }
+        } else {
+            choices.push((mv, score));
+        }
+        Ok(())
+    };
+    for (board, higher, lower, gap) in pairs {
+        if board_to_sfen(board) != expected_sfen {
+            return Err("listwise parent group contains different boards".to_string());
+        }
+        insert(*higher, 0)?;
+        insert(*lower, -*gap)?;
+    }
+    if choices.len() < 2 {
+        return Err("listwise parent has fewer than two unique moves".to_string());
+    }
+    choices.sort_by_key(|(mv, _)| move_to_usi(*mv));
+    Ok((
+        first_board.clone(),
+        choices
+            .into_iter()
+            .map(|(mv, score)| (mv, score as f32))
+            .collect(),
+    ))
 }
 
 fn parse_phase_weights(s: &str) -> Result<HashMap<String, f32>, String> {
@@ -511,6 +594,8 @@ fn parse_args() -> Result<Args, String> {
     let mut ranking_max_pairs = 0usize;
     let mut ranking_batch_pairs = 1usize;
     let mut ranking_parent_balanced = false;
+    let mut ranking_objective = RankingObjective::Pairwise;
+    let mut ranking_temperature_cp = 400.0f32;
     let mut output = PathBuf::from("weights.bin");
     let mut epochs = 3usize;
     let mut sample = 4usize;
@@ -622,6 +707,13 @@ fn parse_args() -> Result<Args, String> {
             }
             "--ranking-parent-balanced" => {
                 ranking_parent_balanced = true;
+            }
+            "--ranking-objective" => {
+                let value: String = next_value(&argv, &mut i, "--ranking-objective")?;
+                ranking_objective = RankingObjective::parse(&value)?;
+            }
+            "--ranking-temperature-cp" => {
+                ranking_temperature_cp = next_value(&argv, &mut i, "--ranking-temperature-cp")?;
             }
             "--output" => {
                 i += 1;
@@ -1118,6 +1210,9 @@ fn parse_args() -> Result<Args, String> {
     if ranking_batch_pairs == 0 {
         return Err("--ranking-batch-pairs must be greater than zero".to_string());
     }
+    if !ranking_temperature_cp.is_finite() || ranking_temperature_cp <= 0.0 {
+        return Err("--ranking-temperature-cp must be finite and greater than zero".to_string());
+    }
     if ranking_pairs_path.is_some() {
         if init_weights.is_none() {
             return Err("--ranking-pairs requires --init-weights <checkpoint.bin>".to_string());
@@ -1136,6 +1231,14 @@ fn parse_args() -> Result<Args, String> {
                 "--ranking-parent-balanced cannot combine with --ranking-max-pairs".to_string(),
             );
         }
+        if ranking_objective == RankingObjective::ListwiseSoftmax
+            && (!ranking_parent_balanced || ranking_batch_pairs != 1)
+        {
+            return Err(
+                "--ranking-objective listwise-softmax requires --ranking-parent-balanced and --ranking-batch-pairs 1"
+                    .to_string(),
+            );
+        }
     }
     let epochs_u32 = u32::try_from(epochs)
         .map_err(|_| "--epochs exceeds the supported u32 range".to_string())?;
@@ -1151,6 +1254,8 @@ fn parse_args() -> Result<Args, String> {
         ranking_max_pairs,
         ranking_batch_pairs,
         ranking_parent_balanced,
+        ranking_objective,
+        ranking_temperature_cp,
         output,
         epochs,
         sample,
@@ -2257,11 +2362,21 @@ fn split_games_by_validation_key(
 
 fn print_usage() {
     eprintln!(
-        "Usage: train (--games <dir> | --positions <jsonl>) [--output weights.bin] [--epochs 3] [--sample 4]"
+        "Usage: train (--games <dir> | --positions <jsonl> | --ranking-pairs <json>) [--output weights.bin]"
     );
     eprintln!();
     eprintln!("  --games <dir>       Directory containing .csa game files");
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
+    eprintln!(
+        "  --ranking-pairs <json>  Audited root-ranking corpus (alternative to --games/--positions)"
+    );
+    eprintln!("  --ranking-objective <name>  pairwise or listwise-softmax (default: pairwise)");
+    eprintln!(
+        "  --ranking-temperature-cp <f>  Softmax temperature in cp for listwise training (default: 400)"
+    );
+    eprintln!(
+        "  --ranking-parent-balanced  Apply one optimizer step per parent (required by listwise-softmax)"
+    );
     eprintln!(
         "  --validation-positions <jsonl>  Explicit frozen hold-out (requires --positions; excludes --validation-ratio)"
     );
@@ -2516,9 +2631,8 @@ fn main() {
 
     let git_commit = git_commit_hash();
 
-    // ---- explicit pairwise root-ranking mode ----
-    // This is intentionally isolated from scalar CSA/positions training: the
-    // pair loss has two child boards and must apply one combined Adam step.
+    // ---- explicit root-ranking mode ----
+    // This is intentionally isolated from scalar CSA/positions training.
     if let Some(pair_path) = &args.ranking_pairs_path {
         let mut pairs = match load_ranking_pairs(pair_path) {
             Ok(pairs) => pairs,
@@ -2533,11 +2647,13 @@ fn main() {
         }
         let parent_groups: BTreeMap<String, Vec<_>> = if args.ranking_parent_balanced {
             let mut groups: BTreeMap<String, Vec<_>> = BTreeMap::new();
-            for (parent_id, board, higher, lower) in &pairs {
-                groups
-                    .entry(parent_id.clone())
-                    .or_default()
-                    .push((board.clone(), *higher, *lower));
+            for (parent_id, board, higher, lower, teacher_gap) in &pairs {
+                groups.entry(parent_id.clone()).or_default().push((
+                    board.clone(),
+                    *higher,
+                    *lower,
+                    *teacher_gap,
+                ));
             }
             groups
         } else {
@@ -2549,8 +2665,15 @@ fn main() {
         let mut trainer = Trainer::new(args.init_seed, args.l2_bias_init);
         trainer.weights = initial.clone();
         trainer.lr = args.lr;
+        let initial_params = trainer.weights.snapshot_params();
+        let ranking_output_mode = match args.nnue_output {
+            NnueOutput::Absolute => NnueOutputMode::Absolute,
+            NnueOutput::ResidualMaterial => NnueOutputMode::ResidualMaterial,
+        };
         eprintln!(
-            "Ranking mode: {}/{} strict diagnostic pairs, {} epoch(s), batch={}, parent_balanced={}, parents={}, lr={:.6}",
+            "Ranking mode: objective={}, temperature_cp={:.3}, {}/{} strict diagnostic pairs, {} epoch(s), batch={}, parent_balanced={}, parents={}, lr={:.6}",
+            args.ranking_objective.as_str(),
+            args.ranking_temperature_cp,
             pairs.len(),
             input_pair_count,
             args.ranking_epochs,
@@ -2562,24 +2685,64 @@ fn main() {
         let mut final_loss = 0.0f64;
         for epoch in 1..=args.ranking_epochs {
             let mut sum = 0.0f64;
-            if args.ranking_parent_balanced {
-                for batch in parent_groups.values() {
-                    sum += trainer.train_ranking_batch(batch) as f64 * batch.len() as f64;
+            let observations = match args.ranking_objective {
+                RankingObjective::ListwiseSoftmax => {
+                    for batch in parent_groups.values() {
+                        let (parent, choices) = match listwise_choices(batch) {
+                            Ok(value) => value,
+                            Err(error) => {
+                                eprintln!("error: invalid listwise parent: {error}");
+                                std::process::exit(1);
+                            }
+                        };
+                        sum += trainer.train_listwise_parent(
+                            &parent,
+                            &choices,
+                            ranking_output_mode,
+                            args.ranking_temperature_cp,
+                        ) as f64;
+                    }
+                    parent_groups.len()
                 }
-            } else {
-                for chunk in pairs.chunks(args.ranking_batch_pairs) {
-                    let batch: Vec<_> = chunk
-                        .iter()
-                        .map(|(_, board, higher, lower)| (board.clone(), *higher, *lower))
-                        .collect();
-                    sum += trainer.train_ranking_batch(&batch) as f64 * batch.len() as f64;
+                RankingObjective::Pairwise if args.ranking_parent_balanced => {
+                    for batch in parent_groups.values() {
+                        let pair_batch: Vec<_> = batch
+                            .iter()
+                            .map(|(board, higher, lower, _)| (board.clone(), *higher, *lower))
+                            .collect();
+                        sum += trainer.train_ranking_batch(&pair_batch, ranking_output_mode) as f64
+                            * pair_batch.len() as f64;
+                    }
+                    pairs.len()
                 }
-            }
-            final_loss = sum / pairs.len() as f64;
+                RankingObjective::Pairwise => {
+                    for chunk in pairs.chunks(args.ranking_batch_pairs) {
+                        let batch: Vec<_> = chunk
+                            .iter()
+                            .map(|(_, board, higher, lower, _)| (board.clone(), *higher, *lower))
+                            .collect();
+                        sum += trainer.train_ranking_batch(&batch, ranking_output_mode) as f64
+                            * batch.len() as f64;
+                    }
+                    pairs.len()
+                }
+            };
+            final_loss = sum / observations as f64;
             eprintln!(
-                "  ranking epoch {epoch}/{}: mean_pairwise_loss={final_loss:.6}",
-                args.ranking_epochs
+                "  ranking epoch {epoch}/{}: mean_{}_loss={final_loss:.6}",
+                args.ranking_epochs,
+                args.ranking_objective.as_str(),
             );
+        }
+        let final_params = trainer.weights.snapshot_params();
+        let mut parameter_update_sq = 0.0f64;
+        let mut parameter_update_max_abs = 0.0f32;
+        let mut parameters_changed = 0usize;
+        for (before, after) in initial_params.iter().zip(&final_params) {
+            let delta = after - before;
+            parameter_update_sq += f64::from(delta) * f64::from(delta);
+            parameter_update_max_abs = parameter_update_max_abs.max(delta.abs());
+            parameters_changed += usize::from(delta != 0.0);
         }
         let weights = trainer.weights.to_nnue_weights();
         if let Err(error) = save_weights(&weights, &args.output) {
@@ -2597,7 +2760,9 @@ fn main() {
             "schema": "sekirei.ranking-training-run.v1",
             "diagnostic_only": true,
             "strength_claim": "not_permitted",
-            "training_mode": "pairwise-complete-legal-root-set",
+            "training_mode": "audited-root-ranking",
+            "ranking_objective": args.ranking_objective.as_str(),
+            "ranking_temperature_cp": args.ranking_temperature_cp,
             "pairs_path": pair_path,
             "input_pairs": input_pair_count,
             "pairs": pairs.len(),
@@ -2607,7 +2772,13 @@ fn main() {
             "parent_groups": parent_groups.len(),
             "epochs": args.ranking_epochs,
             "learning_rate": args.lr,
-            "mean_pairwise_loss_final": final_loss,
+            "mean_ranking_loss_final": final_loss,
+            "mean_pairwise_loss_final": if args.ranking_objective == RankingObjective::Pairwise { Some(final_loss) } else { None },
+            "mean_listwise_cross_entropy_final": if args.ranking_objective == RankingObjective::ListwiseSoftmax { Some(final_loss) } else { None },
+            "parameter_update_l2": parameter_update_sq.sqrt(),
+            "parameter_update_max_abs": parameter_update_max_abs,
+            "parameters_changed": parameters_changed,
+            "parameter_count": final_params.len(),
             "initial_weights": initial_identity,
             "output": args.output,
             "nnue_output": args.nnue_output.as_str(),
@@ -4016,6 +4187,63 @@ mod tests {
         fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
         let pairs = load_ranking_pairs(&path).unwrap();
         assert_eq!(pairs.len(), 1);
+    }
+
+    #[test]
+    fn ranking_pair_loader_accepts_bound_preregistered_candidate_union() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.json");
+        let start = board_to_sfen(&Board::startpos());
+        let document = serde_json::json!({
+            "schema": "sekirei.root-rank-pairs.v1",
+            "diagnostic_only": true,
+            "strength_claim": "not_permitted",
+            "source_contract": {
+                "depth": 7, "threads": 1, "spec_top_n": 0,
+                "root_candidate_mode": "preregistered_candidate_union",
+                "root_candidate_limit": 9, "complete_legal_root_set": false,
+                "candidate_source_sha256": "c".repeat(64),
+                "per_category_unique_positions": 2, "normal_score_abs_max_cp": 10000
+            },
+            "source_teacher": {
+                "binary": "teacher", "binary_sha256": "a".repeat(64),
+                "weights": "weights", "weights_sha256": "b".repeat(64),
+                "nnue_output": "residual-material"
+            },
+            "pair_selection": "adjacent",
+            "pairs": [{
+                "parent_id": "start",
+                "category": "opening_control",
+                "initial_sfen": start,
+                "history_before_usi": [],
+                "parent_sfen": board_to_sfen(&Board::startpos()),
+                "higher_move_usi": "7g7f",
+                "lower_move_usi": "2g2f",
+                "teacher_score_gap_cp": 1
+            }]
+        });
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert_eq!(load_ranking_pairs(&path).unwrap().len(), 1);
+
+        let mut top_vs_rest = document.clone();
+        top_vs_rest["pair_selection"] = serde_json::json!("top-vs-rest");
+        fs::write(&path, serde_json::to_vec(&top_vs_rest).unwrap()).unwrap();
+        let loaded = load_ranking_pairs(&path).unwrap();
+        assert_eq!(loaded.len(), 1);
+        let parent_pairs: Vec<_> = loaded
+            .iter()
+            .map(|(_, board, higher, lower, gap)| (board.clone(), *higher, *lower, *gap))
+            .collect();
+        let (_, choices) = listwise_choices(&parent_pairs).unwrap();
+        assert_eq!(choices.len(), 2);
+        let scores: Vec<_> = choices.iter().map(|(_, score)| *score).collect();
+        assert!(scores.contains(&0.0));
+        assert!(scores.contains(&-1.0));
+
+        let mut unbound = document;
+        unbound["source_contract"]["candidate_source_sha256"] = serde_json::Value::Null;
+        fs::write(&path, serde_json::to_vec(&unbound).unwrap()).unwrap();
+        assert!(load_ranking_pairs(&path).is_err());
     }
 
     #[test]

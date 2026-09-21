@@ -30,7 +30,7 @@ use std::collections::HashMap;
 use sekirei_core::{
     board::Board,
     color::Color,
-    eval::{evaluate, material_score},
+    eval::{NnueOutputMode, evaluate, material_score},
     movegen::{generate_legal_moves, is_in_check},
     mv::Move,
     nnue::{INPUT, L1, L2, NnueWeights, feature_index_with_king, hand_feature_index},
@@ -388,6 +388,23 @@ fn parent_score_from_child(child_score: f32) -> f32 {
     -child_score
 }
 
+/// Convert the trainable NNUE output into the same child score used by
+/// inference before orienting it to the parent. In residual mode material is
+/// constant with respect to network parameters, but differs between child
+/// moves and therefore belongs in the pair-ordering objective.
+#[inline]
+fn ranking_parent_score(
+    child_nnue_score: f32,
+    child_material_score: i32,
+    output_mode: NnueOutputMode,
+) -> f32 {
+    let child_score = match output_mode {
+        NnueOutputMode::Absolute => child_nnue_score,
+        NnueOutputMode::ResidualMaterial => child_nnue_score + child_material_score as f32,
+    };
+    parent_score_from_child(child_score)
+}
+
 /// Pairwise logistic ranking objective for a teacher-labelled strict pair.
 ///
 /// `higher_parent_score` must be the model score of the child reached by the
@@ -414,6 +431,55 @@ fn pairwise_logistic_loss_and_gradient(
         1.0 / (1.0 + margin.exp())
     };
     (loss, -probability_reversed, probability_reversed)
+}
+
+/// Listwise distillation objective over every audited root move of one parent.
+///
+/// Both teacher and model scores are parent-oriented centipawns.  Temperature
+/// is therefore expressed in centipawns as well.  The returned gradient is
+/// with respect to each model score, and sums to zero up to rounding.
+fn listwise_softmax_loss_and_gradient(
+    model_scores: &[f32],
+    teacher_scores: &[f32],
+    temperature_cp: f32,
+) -> (f32, Vec<f32>) {
+    assert_eq!(model_scores.len(), teacher_scores.len());
+    assert!(
+        model_scores.len() >= 2,
+        "listwise parent needs at least two moves"
+    );
+    assert!(temperature_cp.is_finite() && temperature_cp > 0.0);
+
+    fn probabilities(scores: &[f32], temperature_cp: f32) -> Vec<f32> {
+        let max_logit = scores
+            .iter()
+            .map(|score| *score / temperature_cp)
+            .fold(f32::NEG_INFINITY, f32::max);
+        let mut values: Vec<f32> = scores
+            .iter()
+            .map(|score| (*score / temperature_cp - max_logit).exp())
+            .collect();
+        let sum: f32 = values.iter().sum();
+        assert!(sum.is_finite() && sum > 0.0);
+        for value in &mut values {
+            *value /= sum;
+        }
+        values
+    }
+
+    let model = probabilities(model_scores, temperature_cp);
+    let teacher = probabilities(teacher_scores, temperature_cp);
+    let loss = teacher
+        .iter()
+        .zip(&model)
+        .map(|(&target, &prediction)| -target * prediction.max(f32::MIN_POSITIVE).ln())
+        .sum();
+    let gradient = model
+        .iter()
+        .zip(&teacher)
+        .map(|(&prediction, &target)| (prediction - target) / temperature_cp)
+        .collect();
+    (loss, gradient)
 }
 
 /// Deterministic Fisher-Yates shuffle of `0..n`, for `--shuffle-seed`.
@@ -1990,7 +2056,11 @@ impl Trainer {
     /// pairs and make one Adam step.  This preserves simultaneous child
     /// gradients within each pair while avoiding a dense `INPUT × L1` Adam
     /// scan for every individual pair.
-    pub fn train_ranking_batch(&mut self, pairs: &[(Board, Move, Move)]) -> f32 {
+    pub fn train_ranking_batch(
+        &mut self,
+        pairs: &[(Board, Move, Move)],
+        output_mode: NnueOutputMode,
+    ) -> f32 {
         assert!(!pairs.is_empty(), "ranking batch must not be empty");
         let mut gradient = FullGradient::zero();
         let mut total_loss = 0.0;
@@ -2004,8 +2074,12 @@ impl Trainer {
             let low_cache = forward_cache(&self.weights, &low_board);
             let (loss, high_parent_derivative, low_parent_derivative) =
                 pairwise_logistic_loss_and_gradient(
-                    parent_score_from_child(high_cache.score),
-                    parent_score_from_child(low_cache.score),
+                    ranking_parent_score(
+                        high_cache.score,
+                        material_score(&high_board),
+                        output_mode,
+                    ),
+                    ranking_parent_score(low_cache.score, material_score(&low_board), output_mode),
                 );
             total_loss += loss;
             accumulate_full_backward(
@@ -2024,6 +2098,44 @@ impl Trainer {
         gradient.scale(1.0 / pairs.len() as f32);
         self.apply_ranking_gradient(&mut gradient);
         total_loss / pairs.len() as f32
+    }
+
+    /// One parent-balanced listwise update.  Teacher scores may use an
+    /// arbitrary additive offset; only their softmax distribution matters.
+    pub fn train_listwise_parent(
+        &mut self,
+        parent: &Board,
+        choices: &[(Move, f32)],
+        output_mode: NnueOutputMode,
+        temperature_cp: f32,
+    ) -> f32 {
+        assert!(
+            choices.len() >= 2,
+            "listwise parent needs at least two moves"
+        );
+        let mut caches = Vec::with_capacity(choices.len());
+        let mut model_scores = Vec::with_capacity(choices.len());
+        let mut teacher_scores = Vec::with_capacity(choices.len());
+        for &(mv, teacher_score) in choices {
+            let mut child = parent.clone();
+            child.do_move(mv);
+            let cache = forward_cache(&self.weights, &child);
+            model_scores.push(ranking_parent_score(
+                cache.score,
+                material_score(&child),
+                output_mode,
+            ));
+            teacher_scores.push(teacher_score);
+            caches.push(cache);
+        }
+        let (loss, derivatives) =
+            listwise_softmax_loss_and_gradient(&model_scores, &teacher_scores, temperature_cp);
+        let mut gradient = FullGradient::zero();
+        for (cache, parent_derivative) in caches.iter().zip(derivatives) {
+            accumulate_full_backward(&self.weights, cache, -parent_derivative, &mut gradient);
+        }
+        self.apply_ranking_gradient(&mut gradient);
+        loss
     }
 
     fn apply_ranking_gradient(&mut self, gradient: &mut FullGradient) {
@@ -4471,6 +4583,41 @@ mod tests {
     }
 
     #[test]
+    fn listwise_softmax_gradient_matches_finite_difference() {
+        let model = [20.0, -10.0, 5.0];
+        let teacher = [0.0, -300.0, -50.0];
+        let temperature = 400.0;
+        let (_, gradient) = listwise_softmax_loss_and_gradient(&model, &teacher, temperature);
+        let epsilon = 1e-2;
+        for index in 0..model.len() {
+            let mut plus = model;
+            let mut minus = model;
+            plus[index] += epsilon;
+            minus[index] -= epsilon;
+            let numeric = (listwise_softmax_loss_and_gradient(&plus, &teacher, temperature).0
+                - listwise_softmax_loss_and_gradient(&minus, &teacher, temperature).0)
+                / (2.0 * epsilon);
+            assert!((gradient[index] - numeric).abs() < 2e-5);
+        }
+        assert!(gradient.iter().sum::<f32>().abs() < 1e-6);
+    }
+
+    #[test]
+    fn listwise_softmax_rewards_matching_teacher_distribution() {
+        let teacher = [0.0, -100.0, -500.0];
+        let matched = listwise_softmax_loss_and_gradient(&teacher, &teacher, 400.0).0;
+        let reversed =
+            listwise_softmax_loss_and_gradient(&[-500.0, -100.0, 0.0], &teacher, 400.0).0;
+        assert!(matched < reversed);
+        for temperature in [1.0, 25.0, 400.0, 10_000.0] {
+            let (loss, gradient) =
+                listwise_softmax_loss_and_gradient(&teacher, &teacher, temperature);
+            assert!(loss.is_finite());
+            assert!(gradient.iter().all(|value| value.is_finite()));
+        }
+    }
+
+    #[test]
     fn child_score_normalization_and_move_undo_preserve_parent_state() {
         assert_eq!(parent_score_from_child(42.5), -42.5);
         let mut board = Board::startpos();
@@ -4481,6 +4628,18 @@ mod tests {
         assert_eq!(parent_score_from_child(child_score), -17.0);
         board.undo_move(undo);
         assert_eq!(board.hash(), before);
+    }
+
+    #[test]
+    fn residual_ranking_score_includes_material_before_parent_orientation() {
+        assert_eq!(
+            ranking_parent_score(17.0, 100, NnueOutputMode::ResidualMaterial),
+            -117.0
+        );
+        assert_eq!(
+            ranking_parent_score(17.0, 100, NnueOutputMode::Absolute),
+            -17.0
+        );
     }
 
     #[test]
@@ -4618,7 +4777,29 @@ mod tests {
         let moves = generate_legal_moves(&mut parent.clone());
         let mut trainer = Trainer::new(42, 0.5);
         let before = trainer.weights.snapshot_params();
-        let loss = trainer.train_ranking_batch(&[(parent.clone(), moves[0], moves[1])]);
+        let loss = trainer.train_ranking_batch(
+            &[(parent.clone(), moves[0], moves[1])],
+            NnueOutputMode::Absolute,
+        );
+        assert!(loss.is_finite());
+        assert_eq!(trainer.weights.step, 1);
+        assert_ne!(trainer.weights.snapshot_params(), before);
+        assert_eq!(parent.hash(), original_hash);
+    }
+
+    #[test]
+    fn listwise_parent_uses_one_adam_step_and_preserves_parent() {
+        let parent = Board::startpos();
+        let original_hash = parent.hash();
+        let moves = generate_legal_moves(&mut parent.clone());
+        let mut trainer = Trainer::new(42, 0.5);
+        let before = trainer.weights.snapshot_params();
+        let loss = trainer.train_listwise_parent(
+            &parent,
+            &[(moves[0], 0.0), (moves[1], -50.0), (moves[2], -300.0)],
+            NnueOutputMode::ResidualMaterial,
+            400.0,
+        );
         assert!(loss.is_finite());
         assert_eq!(trainer.weights.step, 1);
         assert_ne!(trainer.weights.snapshot_params(), before);
