@@ -83,6 +83,29 @@ host and revision. They are not general speed or Elo rankings.
   3.2M-node fixed-T labels on three Q21n failures plus three score-blind phase
   controls, then require the selected top labels to avoid 300cp regret under
   both contracts. This is label QA, not a strength or training result.
+- Q21p/Q21q/Q21r form one closed candidate chain. The Q21p tools freeze and
+  audit the adjacent-pair ranking candidate, Q21q calibrates its train-only
+  recipe without opening validation, and Q21r alone runs that exact
+  candidate's separately frozen development match. Q21p's static PASS cannot
+  adopt a checkpoint; Q21r rejected it and did not authorize Q20.
+- Q21s is a post-match content-versus-cost diagnosis of the rejected Q21p
+  candidate. Its preparer, runner, and two summarizers cannot select, train,
+  or promote another candidate.
+- Q21t is a separate one-factor screen that changes the ranking pairs from
+  adjacent comparisons to direct teacher-top-versus-rest comparisons. Its
+  frozen static and same-time screens both belong to Q21t only; failure
+  forbids a development match and Q20.
+- Q21u is a separate one-factor screen that keeps the frozen parent corpus and
+  teacher contract while changing the objective to gap-aware listwise
+  softmax. Recipe selection uses train parents only. The validation preparer
+  opens a fresh hold-out only after the recipe is fixed, and adoption requires
+  both the static and same-time conditions.
+- Q21v is diagnostic-only. It compares teacher distributions, quantized score
+  movement, FT/L2 activation, and 18 leave-one-parent-out folds for the
+  rejected Q21u candidate. It cannot adopt a checkpoint or authorize a match.
+  A later capacity, feature, or data-distribution candidate must receive a new
+  identifier, change one declared factor, and use a newly frozen screen; Q21u
+  validation and Q21v folds remain audit evidence rather than selection data.
 - `sprint_gate.sh`, `run_frozen_strength_gate.sh`: bounded wrappers for an
   already-defined gate; they do not choose a candidate.
 
