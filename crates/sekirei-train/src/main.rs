@@ -99,6 +99,7 @@ impl TeacherEval {
 struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
+    validation_positions_path: Option<PathBuf>, // --validation-positions: frozen hold-out JSONL
     ranking_pairs_path: Option<PathBuf>, // --ranking-pairs: strict diagnostic root-ranking JSON
     ranking_epochs: usize,           // --ranking-epochs (ranking-pairs mode only)
     ranking_max_pairs: usize,        // --ranking-max-pairs (0 = every input pair)
@@ -504,6 +505,7 @@ fn parse_args() -> Result<Args, String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut games_dir = None;
     let mut positions_path: Option<PathBuf> = None;
+    let mut validation_positions_path: Option<PathBuf> = None;
     let mut ranking_pairs_path: Option<PathBuf> = None;
     let mut ranking_epochs = 1usize;
     let mut ranking_max_pairs = 0usize;
@@ -601,6 +603,10 @@ fn parse_args() -> Result<Args, String> {
             "--positions" => {
                 i += 1;
                 positions_path = argv.get(i).map(PathBuf::from);
+            }
+            "--validation-positions" => {
+                i += 1;
+                validation_positions_path = argv.get(i).map(PathBuf::from);
             }
             "--ranking-pairs" => {
                 ranking_pairs_path = Some(next_value(&argv, &mut i, "--ranking-pairs")?);
@@ -1000,6 +1006,14 @@ fn parse_args() -> Result<Args, String> {
     if input_modes > 1 {
         return Err("--games, --positions, and --ranking-pairs are mutually exclusive".to_string());
     }
+    if validation_positions_path.is_some() && positions_path.is_none() {
+        return Err("--validation-positions requires --positions <jsonl>".to_string());
+    }
+    if validation_positions_path.is_some() && validation_ratio > 0.0 {
+        return Err(
+            "--validation-positions and --validation-ratio are mutually exclusive".to_string(),
+        );
+    }
     if wdl_lambda.is_some() && positions_path.is_some() {
         return Err(
             "--wdl-lambda requires --games (CSA path) -- shogiesa positions.jsonl carries no game_result yet".to_string(),
@@ -1131,6 +1145,7 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         games_dir,
         positions_path,
+        validation_positions_path,
         ranking_pairs_path,
         ranking_epochs,
         ranking_max_pairs,
@@ -1982,6 +1997,7 @@ fn save_checkpoint_meta(
     let meta = serde_json::json!({
         "epoch": epoch,
         "positions": args.positions_path,
+        "validation_positions": args.validation_positions_path,
         "games_dir": args.games_dir,
         "min_rate": args.min_rate,
         "sample": args.sample,
@@ -2246,6 +2262,9 @@ fn print_usage() {
     eprintln!();
     eprintln!("  --games <dir>       Directory containing .csa game files");
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
+    eprintln!(
+        "  --validation-positions <jsonl>  Explicit frozen hold-out (requires --positions; excludes --validation-ratio)"
+    );
     eprintln!("  --strict-positions  Reject invalid JSONL/SFEN rows instead of skipping them");
     eprintln!(
         "  --exclude-mate-labels  Positions only: omit mate-scale labels from CP regression (diagnostic, default: off)"
@@ -2618,7 +2637,11 @@ fn main() {
                 std::process::exit(1);
             });
         }
-        let ds_hash = dataset_hash(std::slice::from_ref(pos_path));
+        let mut dataset_paths = vec![pos_path.clone()];
+        if let Some(path) = &args.validation_positions_path {
+            dataset_paths.push(path.clone());
+        }
+        let ds_hash = dataset_hash(&dataset_paths);
         let raw_samples = load_positions(pos_path);
         if raw_samples.is_empty() {
             eprintln!("No valid positions loaded");
@@ -2640,23 +2663,40 @@ fn main() {
             raw_samples
         };
 
-        // Deterministic validation split via SFEN hash
-        let split_threshold = (args.validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
+        // Prefer an explicitly frozen hold-out. Falling back to the legacy
+        // hash split remains supported for older experiment recipes.
         let (mut train_samples, mut valid_samples): (Vec<_>, Vec<_>) =
-            all_samples.into_iter().partition(|s| {
-                let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
-                positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
-            });
+            if let Some(validation_path) = &args.validation_positions_path {
+                if args.strict_positions {
+                    positions::validate_positions(validation_path).unwrap_or_else(|error| {
+                        eprintln!("strict validation positions validation failed: {error}");
+                        std::process::exit(1);
+                    });
+                }
+                let validation = load_positions(validation_path);
+                if validation.is_empty() {
+                    eprintln!("No valid explicit validation positions loaded");
+                    std::process::exit(1);
+                }
+                (all_samples, validation)
+            } else {
+                let split_threshold = (args.validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
+                all_samples.into_iter().partition(|s| {
+                    let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
+                    positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
+                })
+            };
         let mut split_h = split_hash(
             valid_samples
                 .iter()
                 .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
         );
         eprintln!(
-            "  train={} valid={} (validation_ratio={:.2}, split_seed={})",
+            "  train={} valid={} (validation_ratio={:.2}, explicit_validation={}, split_seed={})",
             train_samples.len(),
             valid_samples.len(),
             args.validation_ratio,
+            args.validation_positions_path.is_some(),
             args.split_seed
         );
 
@@ -3177,7 +3217,7 @@ fn main() {
             // validation is actually on -- with no held-out set there is
             // no valid loss to select by, and `vcount==0` would otherwise
             // make every epoch tie at 0.0.
-            if args.validation_ratio > 0.0 && vcount > 0 && vloss_raw < best_valid_loss {
+            if !valid_samples.is_empty() && vcount > 0 && vloss_raw < best_valid_loss {
                 best_valid_loss = vloss_raw;
                 best_valid_checkpoint = Some(checkpoint.clone());
             }
