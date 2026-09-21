@@ -144,6 +144,12 @@ manifests, plist files, command transcripts, or saved logs.
   trainer-consumed phase tags × hand-aware, side-to-move material strata while
   retaining the source cap; this changes sampling only, never the teacher or
   loss.
+- `freeze_q21h_independent_split.py`,
+  `validate_q21h_independent_split.py`: audit replay provenance and freeze a
+  source-group split after excluding prior training, diagnostic, and gate
+  positions. Exact, file-mirrored, color-rotated, and combined symmetry
+  identities remain in one split. Missing legacy mate-kind data stays
+  `unknown`; it is never inferred from a large numeric cp score.
 - `run_fixed_selfplay_diagnostic.py`,
   `run_c5e_teacher_search_distribution_diagnostic.py`,
   `run_selfplay_calibration_holdout.py`, `run_selfplay_search_factorial.py`:
