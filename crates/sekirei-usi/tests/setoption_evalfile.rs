@@ -153,11 +153,15 @@ fn parse_score_and_bestmove(lines: &[String]) -> (i32, String) {
         .nth(1)
         .and_then(|token| token.parse().ok())
         .unwrap_or_else(|| panic!("could not parse score cp from: {score_line}"));
-    let bestmove = lines
+    let bestmove_line = lines
         .iter()
         .find(|line| line.starts_with("bestmove "))
-        .cloned()
         .unwrap_or_else(|| panic!("no bestmove line in: {lines:?}"));
+    let bestmove = bestmove_line
+        .split_whitespace()
+        .nth(1)
+        .map(str::to_owned)
+        .unwrap_or_else(|| panic!("missing primary move in: {bestmove_line}"));
     (score, bestmove)
 }
 
