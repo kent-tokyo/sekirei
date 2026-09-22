@@ -96,7 +96,12 @@ def test_passes_only_when_every_preregistered_condition_passes() -> None:
     assert decision["status"] == "screen_pass"
     assert all(decision["checks"].values())
 
-    candidate[1]["rows"][1]["result"]["score_cp"] = 11
+    fixed_node_cost_row = next(
+        row
+        for row in candidate[1]["rows"]
+        if row["budget"] == "fixed_nodes" and row["arm"] == "cost-only"
+    )
+    fixed_node_cost_row["result"]["score_cp"] = 11
     decision = MODULE.evaluate(preregistration(), baselines, candidate)
     assert decision["status"] == "screen_fail"
     assert decision["checks"]["fixed_node_identity"] is False

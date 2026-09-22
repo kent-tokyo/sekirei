@@ -64,6 +64,12 @@ jobs:
           python3 scripts/test_compare_teacher_evals.py
           python3 scripts/test_merge_teacher_caches.py
           python3 scripts/test_summarize_self_distill.py
+      - name: Q21 NNUE experiment tests
+        run: |
+          set -euo pipefail
+          for test_file in scripts/test_*q21*.py; do
+            python3 "$test_file"
+          done
       - name: release manifest schema
         run: |
           python3 scripts/test_release_manifest.py

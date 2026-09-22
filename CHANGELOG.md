@@ -6,6 +6,20 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.42] – 2026-09-22
+
+- Added output-equivalent four-row NNUE L2 accumulation, exact-evaluation
+  caching, and fixed-contract component profiling. These are component-level
+  performance changes, not an overall engine-speed claim.
+- Added explicit frozen validation inputs plus audited pairwise and listwise
+  root-ranking objectives, activation diagnostics, and teacher/source contract
+  checks to the NNUE trainer.
+- Preserved the Q21 diagnostic chain with deterministic corpus, teacher-depth,
+  transfer, and independent-coverage checks, and connected all Q21 tests to CI.
+- No Q21 candidate passed the preregistered adoption screens. The optional
+  v0.3.38 checkpoint is unchanged, and this release makes no new
+  playing-strength claim.
+
 ## [0.3.41] – 2026-09-21
 
 - Reduced the fixed-fixture NNUE L2 forward-pass cost with an
