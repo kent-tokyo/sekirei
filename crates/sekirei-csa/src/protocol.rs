@@ -8,10 +8,11 @@
 //!   5. #WIN / #LOSE / #DRAW / #CHUDAN → game over
 //!   6. END → back to step 2 (if --loop)
 
-use std::fs::{self, File};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -324,12 +325,20 @@ impl CsaClient {
     }
 
     fn send(&mut self, msg: &str) -> io::Result<()> {
-        if msg.starts_with("LOGIN ") {
-            eprintln!("[csa] >> LOGIN <redacted>");
-        } else {
-            eprintln!("[csa] >> {msg}");
-        }
+        eprintln!("[csa] >> {msg}");
         writeln!(self.writer, "{msg}")?;
+        self.writer.flush()
+    }
+
+    /// Sends credentials without constructing a value that the general
+    /// protocol logger can receive.
+    fn send_login(&mut self) -> io::Result<()> {
+        eprintln!("[csa] >> LOGIN <redacted>");
+        writeln!(
+            self.writer,
+            "LOGIN {} {}",
+            self.config.user, self.config.password
+        )?;
         self.writer.flush()
     }
 
@@ -369,8 +378,7 @@ impl CsaClient {
     }
 
     fn login(&mut self) -> io::Result<()> {
-        let msg = format!("LOGIN {} {}", self.config.user, self.config.password);
-        self.send(&msg)?;
+        self.send_login()?;
         let resp = self.recv_expect("LOGIN:")?;
         if resp.contains(" OK") {
             eprintln!("[csa] logged in");
@@ -986,6 +994,8 @@ struct RecordMetadata<'a> {
     run_manifest: Option<&'a Path>,
 }
 
+static RECORD_SEQUENCE: AtomicU64 = AtomicU64::new(0);
+
 struct GameRecord {
     writer: BufWriter<File>,
     analysis: Option<AnalysisLog>,
@@ -1008,9 +1018,13 @@ impl GameRecord {
             .duration_since(UNIX_EPOCH)
             .map(|duration| duration.as_millis())
             .unwrap_or(0);
-        let name = format!("{}_{}.csa", sanitize_filename(metadata.game_id), stamp);
+        // The server controls `metadata.game_id`; retain it in the CSA record
+        // body, but never make it part of a filesystem path.  A local sequence
+        // also prevents an existing file from being overwritten.
+        let sequence = RECORD_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+        let name = format!("game_{stamp}_{sequence}.csa");
         let path = directory.join(&name);
-        let file = match File::create(&path) {
+        let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(error) => {
                 eprintln!("[csa] record file unavailable: {error}");
@@ -1121,7 +1135,7 @@ impl AnalysisLog {
         }
         let stem = csa_name.strip_suffix(".csa").unwrap_or(csa_name);
         let path = directory.join(format!("{stem}.analysis.jsonl"));
-        let file = match File::create(&path) {
+        let file = match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(file) => file,
             Err(error) => {
                 eprintln!("[csa] analysis log unavailable: {error}");
@@ -1291,24 +1305,6 @@ impl Drop for GameRecord {
             self.result_written = true;
         }
         self.finish();
-    }
-}
-
-fn sanitize_filename(value: &str) -> String {
-    let sanitized: String = value
-        .chars()
-        .map(|ch| {
-            if ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_') {
-                ch
-            } else {
-                '_'
-            }
-        })
-        .collect();
-    if sanitized.is_empty() {
-        "floodgate-game".into()
-    } else {
-        sanitized
     }
 }
 
@@ -1807,6 +1803,34 @@ mod tests {
         assert_eq!(fs::read_dir(&record_dir).unwrap().count(), 0);
         fs::remove_dir_all(record_dir).unwrap();
         fs::remove_file(analysis_path).unwrap();
+    }
+
+    #[test]
+    fn server_game_id_is_never_used_as_a_record_filename() {
+        let record_dir = unique_test_directory("untrusted-game-id");
+        fs::create_dir_all(&record_dir).unwrap();
+        let metadata = RecordMetadata {
+            game_id: "../../outside/controlled-game",
+            ..test_metadata()
+        };
+        let mut record = GameRecord::open(&record_dir, metadata, None).unwrap();
+        record.finish();
+
+        let records: Vec<PathBuf> = fs::read_dir(&record_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        assert_eq!(records.len(), 1);
+        let file_name = records[0].file_name().unwrap().to_string_lossy();
+        assert!(file_name.starts_with("game_"));
+        assert!(file_name.ends_with(".csa"));
+        assert!(!file_name.contains("controlled"));
+        assert!(
+            fs::read_to_string(&records[0])
+                .unwrap()
+                .contains("$EVENT:../../outside/controlled-game")
+        );
+        fs::remove_dir_all(record_dir).unwrap();
     }
 
     #[test]

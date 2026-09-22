@@ -377,6 +377,14 @@ class PipelineStatusPathTraversalTests(unittest.TestCase):
     def test_rejects_empty_string(self):
         self.assertIsNone(gd.get_pipeline_status(""))
 
+    def test_rejects_symlinked_run_directory_outside_runs_root(self):
+        outside = os.path.join(_REPO_ROOT, "outside-run")
+        os.makedirs(outside, exist_ok=True)
+        _write_json(os.path.join(outside, "manifest.json"), {"leaked": True})
+        os.symlink(outside, os.path.join(_DATA_DIR, "runs", "escape"))
+        self.assertIsNone(gd.get_pipeline_status("escape"))
+        shutil.rmtree(outside)
+
     def test_traversal_payload_never_reaches_the_secret_file(self):
         # End-to-end: even if some future refactor changes the exact
         # rejection mechanics above, the observable contract that matters
