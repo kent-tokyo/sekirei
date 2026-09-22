@@ -43,6 +43,17 @@ def excluded_source_paths(manifests: list[Path]) -> set[str]:
         for row in document.get("selected", []):
             if isinstance(row, dict) and isinstance(row.get("path"), str):
                 excluded.update(canonical_paths(row["path"]))
+        # Training/diagnostic reserve manifests keep replay provenance below
+        # each position.  Treat them as source exclusions too: a future gate
+        # must not silently draw an opening from a game that chose a model,
+        # label recipe, or capacity candidate.
+        positions = document.get("positions", [])
+        for row in positions if isinstance(positions, list) else ():
+            if not isinstance(row, dict):
+                continue
+            source = row.get("source")
+            if isinstance(source, dict) and isinstance(source.get("path"), str):
+                excluded.update(canonical_paths(source["path"]))
     return excluded
 
 

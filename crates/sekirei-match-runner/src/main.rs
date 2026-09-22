@@ -32,9 +32,12 @@ use engine::{SearchInfo, UsiEngine};
 use sekirei_core::{
     board::Board,
     color::Color,
-    movegen::generate_legal_moves,
+    movegen::{generate_legal_moves, is_in_check},
     piece::PieceKind,
-    sfen::{board_to_sfen, move_from_usi, move_to_usi, parse_position_cmd},
+    sfen::{
+        PositionHistory, RepetitionOutcome, board_to_sfen, move_from_usi, move_to_usi,
+        parse_position_cmd,
+    },
 };
 
 // ---- Args ----
@@ -225,6 +228,7 @@ enum EndReason {
     Win,
     IllegalMove,
     Repetition,
+    PerpetualCheck(Color),
     MaxMoves,
     EngineError,
     TimeForfeit,
@@ -237,7 +241,7 @@ enum EndReason {
 fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<String, String> {
     let result = match reason {
         EndReason::Resign => "%TORYO",
-        EndReason::Repetition => "%SENNICHITE",
+        EndReason::Repetition | EndReason::PerpetualCheck(_) => "%SENNICHITE",
         EndReason::Win => {
             return Err("USI win declaration has no move to encode as CSA %KACHI".to_string());
         }
@@ -261,6 +265,17 @@ fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<S
     } else {
         format!("V2.2\n'sekirei_initial_sfen: {start_pos}\n")
     };
+    if let EndReason::PerpetualCheck(loser) = reason {
+        let loser = match loser {
+            Color::Black => "black",
+            Color::White => "white",
+        };
+        // CSA represents all repetition outcomes with %SENNICHITE. Preserve
+        // the decisive continuous-check adjudication in a Sekirei comment so
+        // our replay-validated training reader never silently turns a loss
+        // into a draw, while ordinary CSA consumers still see a repetition.
+        let _ = writeln!(text, "'sekirei_perpetual_check_loser: {loser}");
+    }
     for move_text in moves {
         let mv = move_from_usi(move_text, &board)
             .map_err(|error| format!("cannot replay USI move {move_text:?}: {error}"))?;
@@ -343,6 +358,23 @@ fn end_reason_for_go_error(e: &std::io::Error) -> EndReason {
         EndReason::TimeForfeit
     } else {
         EndReason::EngineError
+    }
+}
+
+fn repetition_result(e1_is_black: bool, repetition: RepetitionOutcome) -> (Outcome, EndReason) {
+    match repetition {
+        RepetitionOutcome::Draw => (Outcome::Draw, EndReason::Repetition),
+        RepetitionOutcome::PerpetualCheck(loser) => {
+            let e1_loses = engine1_to_move(e1_is_black, loser);
+            (
+                if e1_loses {
+                    Outcome::E2Win
+                } else {
+                    Outcome::E1Win
+                },
+                EndReason::PerpetualCheck(loser),
+            )
+        }
     }
 }
 
@@ -479,9 +511,6 @@ fn run_game(
     let go_cmd = format!("go byoyomi {byoyomi_ms}");
     let mut moves: Vec<String> = Vec::new();
 
-    // Track position for repetition detection (千日手 = 4 identical positions)
-    let mut hash_counts: HashMap<u64, u8> = HashMap::new();
-
     // Game-boundary barrier (usinewgame -> isready -> readyok on each side)
     // -- see UsiEngine::begin_new_game's doc comment for why this isn't
     // cosmetic. Failure here means the engine is unresponsive or the
@@ -516,7 +545,7 @@ fn run_game(
             Ok(b) => b,
             Err(_) => Board::startpos(),
         };
-    *hash_counts.entry(board.hash()).or_insert(0) += 1;
+    let mut position_history = PositionHistory::initial(board.hash());
 
     for ply in 0..max_moves {
         // Arbitrary SFENs may begin with White to move. Engine assignment is
@@ -662,15 +691,19 @@ fn run_game(
         }
 
         // Apply move
+        let mover_color = board.side_to_move;
         let mv = parsed.unwrap();
         board.do_move(mv);
         moves.push(mv_str);
 
-        // Repetition detection: 4 occurrences = draw (千日手)
-        let count = hash_counts.entry(board.hash()).or_insert(0);
-        *count += 1;
-        if *count >= 4 {
-            return (Outcome::Draw, moves, EndReason::Repetition);
+        position_history.push_after_move(
+            board.hash(),
+            mover_color,
+            is_in_check(&board, board.side_to_move),
+        );
+        if let Some(repetition) = position_history.outcome_at_current_position() {
+            let (outcome, reason) = repetition_result(e1_is_black, repetition);
+            return (outcome, moves, reason);
         }
     }
 
@@ -1970,6 +2003,8 @@ fn main() {
             EndReason::Win => " (jishogi)",
             EndReason::IllegalMove => " (illegal)",
             EndReason::Repetition => " (千日手)",
+            EndReason::PerpetualCheck(Color::Black) => " (連続王手千日手: Black lose)",
+            EndReason::PerpetualCheck(Color::White) => " (連続王手千日手: White lose)",
             EndReason::MaxMoves => " (max moves)",
             EndReason::EngineError => " (engine error)",
             EndReason::TimeForfeit => " (time forfeit)",
@@ -2195,6 +2230,34 @@ mod tests {
         assert!(game_to_csa("startpos", &[], EndReason::MaxMoves).is_err());
         assert!(game_to_csa("startpos", &[], EndReason::TimeForfeit).is_err());
         assert!(game_to_csa("startpos", &[], EndReason::Win).is_err());
+    }
+
+    #[test]
+    fn perpetual_check_repetition_awards_a_loss_to_the_checking_side() {
+        assert_eq!(
+            repetition_result(true, RepetitionOutcome::PerpetualCheck(Color::Black)),
+            (Outcome::E2Win, EndReason::PerpetualCheck(Color::Black))
+        );
+        assert_eq!(
+            repetition_result(true, RepetitionOutcome::PerpetualCheck(Color::White)),
+            (Outcome::E1Win, EndReason::PerpetualCheck(Color::White))
+        );
+        assert_eq!(
+            repetition_result(false, RepetitionOutcome::PerpetualCheck(Color::Black)),
+            (Outcome::E1Win, EndReason::PerpetualCheck(Color::Black))
+        );
+        assert_eq!(
+            repetition_result(false, RepetitionOutcome::Draw),
+            (Outcome::Draw, EndReason::Repetition)
+        );
+    }
+
+    #[test]
+    fn perpetual_check_csa_retains_the_loser_for_training_replay() {
+        let moves = vec!["7g7f".to_string(), "3c3d".to_string()];
+        let csa = game_to_csa("startpos", &moves, EndReason::PerpetualCheck(Color::Black)).unwrap();
+        assert!(csa.contains("'sekirei_perpetual_check_loser: black\n"));
+        assert!(csa.ends_with("%SENNICHITE\n"));
     }
 
     #[test]

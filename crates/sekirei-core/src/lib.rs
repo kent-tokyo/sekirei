@@ -517,6 +517,8 @@ mod tests {
     fn explicit_nnue_evaluation_is_isolated() {
         let board = Board::startpos();
         let mut candidate = nnue::NnueWeights::default_lcg();
+        candidate.out.fill(0.0);
+        candidate.out_bias = 0.0;
         let before = board.hash();
         let baseline = eval::evaluate_with_weights(&board, &candidate);
 
@@ -538,8 +540,12 @@ mod tests {
         let board = Board::startpos();
         let before_hash = board.hash();
         let before_acc = board.acc.clone();
-        let first_weights = nnue::NnueWeights::default_lcg();
+        let mut first_weights = nnue::NnueWeights::default_lcg();
+        first_weights.out.fill(0.0);
+        first_weights.out_bias = 0.0;
         let mut second_weights = nnue::NnueWeights::default_lcg();
+        second_weights.out.fill(0.0);
+        second_weights.out_bias = 0.0;
         second_weights.out_bias += 64.0;
 
         let first_score = eval::evaluate_with_weights(&board, &first_weights);

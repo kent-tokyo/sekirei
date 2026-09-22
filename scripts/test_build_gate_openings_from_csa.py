@@ -40,7 +40,15 @@ def test_excluded_source_paths_supports_prior_manifest_shapes():
             "sources": [{"path": "data/csa/2025/old-a.csa"}],
             "entries": [{"source": "data/csa/2025/old-b.csa"}],
             "selected": [{"path": "data/csa/2025/old-c.csa"}],
+            "positions": [{"source": {"path": "data/csa/2025/old-d.csa"}}],
         }), encoding="utf-8")
         excluded = MODULE.excluded_source_paths([manifest])
-        for name in ("old-a.csa", "old-b.csa", "old-c.csa"):
+        for name in ("old-a.csa", "old-b.csa", "old-c.csa", "old-d.csa"):
             assert f"data/csa/2025/{name}" in excluded
+
+
+def test_excluded_source_paths_accepts_count_only_positions():
+    with tempfile.TemporaryDirectory() as directory:
+        manifest = Path(directory) / "prior.json"
+        manifest.write_text(json.dumps({"positions": 16}), encoding="utf-8")
+        assert MODULE.excluded_source_paths([manifest]) == set()

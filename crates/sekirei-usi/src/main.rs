@@ -5,7 +5,7 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -378,6 +378,7 @@ fn diagnostics_delta(
         eval_cache_hits: after.eval_cache_hits.saturating_sub(before.eval_cache_hits),
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
+        tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
         order_tt: after.order_tt.saturating_sub(before.order_tt),
         order_killer: after.order_killer.saturating_sub(before.order_killer),
         order_countermove: after
@@ -396,6 +397,36 @@ fn diagnostics_delta(
         root_mate_blunder_cache_hits: after
             .root_mate_blunder_cache_hits
             .saturating_sub(before.root_mate_blunder_cache_hits),
+        alpha_beta_calls: after
+            .alpha_beta_calls
+            .saturating_sub(before.alpha_beta_calls),
+        quiescence_calls: after
+            .quiescence_calls
+            .saturating_sub(before.quiescence_calls),
+        static_evaluation_ns: after
+            .static_evaluation_ns
+            .saturating_sub(before.static_evaluation_ns),
+        tt_probe_ns: after.tt_probe_ns.saturating_sub(before.tt_probe_ns),
+        tt_store_ns: after.tt_store_ns.saturating_sub(before.tt_store_ns),
+        movegen_order_ns: after
+            .movegen_order_ns
+            .saturating_sub(before.movegen_order_ns),
+        movegen_generate_ns: after
+            .movegen_generate_ns
+            .saturating_sub(before.movegen_generate_ns),
+        move_order_ns: after.move_order_ns.saturating_sub(before.move_order_ns),
+        move_order_score_ns: after
+            .move_order_score_ns
+            .saturating_sub(before.move_order_score_ns),
+        move_order_sort_ns: after
+            .move_order_sort_ns
+            .saturating_sub(before.move_order_sort_ns),
+        quiescence_inclusive_ns: after
+            .quiescence_inclusive_ns
+            .saturating_sub(before.quiescence_inclusive_ns),
+        root_mate_safety_ns: after
+            .root_mate_safety_ns
+            .saturating_sub(before.root_mate_safety_ns),
     }
 }
 
@@ -600,11 +631,13 @@ fn main() {
     let mut weight_hash: Option<u64> = None;
     if let Some(path) = std::env::args().nth(1) {
         match load_weights(Path::new(&path)) {
-            Ok(()) => eprintln!("info string NNUE weights loaded from {path}"),
+            Ok(()) => {
+                eprintln!("info string NNUE weights loaded from {path}");
+                weight_hash = invariant::hash_file(&path);
+                weight_path = path;
+            }
             Err(e) => eprintln!("info string weight load failed ({path}): {e}"),
         }
-        weight_hash = invariant::hash_file(&path);
-        weight_path = path;
     }
     let binary_hash = std::env::current_exe()
         .ok()
@@ -650,6 +683,12 @@ fn main() {
     // Abort flag and handle for the currently running search (None if no search in flight)
     let mut search_abort: Option<Arc<AtomicBool>> = None;
     let mut search_handle: Option<JoinHandle<()>> = None;
+    // A completed worker may be just about to publish `bestmove` when the
+    // GUI replaces the position.  The abort flag alone is cooperative, so a
+    // monotonically increasing generation gives publication an exact command
+    // boundary: a worker may only publish or retain ponder output for the
+    // `go` command that created it.
+    let search_generation = Arc::new(AtomicU64::new(0));
     // Set true before aborting a ponder search so the dying thread skips bestmove output
     let suppress_bm: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
     // Saved args from `go ponder ...` so ponderhit can restart with real time limits
@@ -712,15 +751,35 @@ fn main() {
                             "info string weight load failed: EvalFile switch rejected; already loaded {loaded}; restart the engine to use {path}"
                         );
                     } else {
-                        match sekirei_core::nnue::load_weights(Path::new(path)) {
-                            Ok(()) => {
-                                println!("info string NNUE weights loaded from {path}");
-                                // `board` (constructed at startup, before this load) has a
-                                // stale accumulator baked from the pre-load fallback weights.
-                                board.refresh_acc();
-                                loaded_eval_file = Some(path.clone());
-                            }
-                            Err(e) => println!("info string weight load failed: {e}"),
+                        let loaded = mutate_evaluator_after_join(
+                            &mut search_abort,
+                            &mut search_handle,
+                            || match load_weights(Path::new(path)) {
+                                Ok(()) => {
+                                    println!("info string NNUE weights loaded from {path}");
+                                    true
+                                }
+                                Err(e) => {
+                                    println!("info string weight load failed: {e}");
+                                    false
+                                }
+                            },
+                        );
+                        if loaded {
+                            // The board and searcher were constructed before
+                            // the load. Refresh the accumulator and rebuild
+                            // the backend so its optional NNUE cache observes
+                            // the newly active global evaluator.
+                            board.refresh_acc();
+                            weight_hash = invariant::hash_file(path);
+                            weight_path = path.clone();
+                            searcher = make_searcher(
+                                hash_mb,
+                                spec_top_n,
+                                threads_for_lazy_smp(threads),
+                                search_mode,
+                            );
+                            loaded_eval_file = Some(path.clone());
                         }
                     }
                 }
@@ -921,6 +980,19 @@ fn main() {
 
             "position" => match parse_position_cmd_with_history(rest) {
                 Ok((b, history)) => {
+                    // `position` supersedes an old question. Invalidate its
+                    // publication generation before joining, so an old
+                    // worker cannot emit a stale bestmove in the tiny window
+                    // between command arrival and cooperative cancellation.
+                    search_generation.fetch_add(1, Ordering::AcqRel);
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    active_ponder = false;
+                    ponder_go_args = None;
+                    ponder_result
+                        .lock()
+                        .expect("ponder result lock poisoned")
+                        .take();
+                    suppress_bm.store(false, Ordering::Relaxed);
                     board = b;
                     position_history = history;
                     // Only gates book lookups (BookMaxPly) -- doesn't need to
@@ -972,6 +1044,7 @@ fn main() {
                 }
                 // Reset suppress flag now that the previous thread has joined.
                 suppress_bm.store(false, Ordering::Relaxed);
+                let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
 
                 // Book lookup: skip search entirely for a known opening
                 // position, within BookMaxPly. Not applied while pondering --
@@ -1020,6 +1093,7 @@ fn main() {
                 let position_history2 = position_history.clone();
                 let suppress2 = Arc::clone(&suppress_bm);
                 let ponder_result2 = Arc::clone(&ponder_result);
+                let search_generation2 = Arc::clone(&search_generation);
                 let diag_ctx = DiagCtx {
                     game_counter,
                     last_position_cmd: last_position_cmd.clone(),
@@ -1034,10 +1108,15 @@ fn main() {
                     let info = searcher2.search(&mut board2, config, &position_history2);
 
                     if pondering {
-                        *ponder_result2.lock().expect("ponder result lock poisoned") = Some(info);
+                        if search_generation2.load(Ordering::Acquire) == generation {
+                            *ponder_result2.lock().expect("ponder result lock poisoned") =
+                                Some(info);
+                        }
                         return;
                     }
-                    if suppress2.load(Ordering::Relaxed) {
+                    if search_generation2.load(Ordering::Acquire) != generation
+                        || suppress2.load(Ordering::Relaxed)
+                    {
                         return; // ponderhit aborted this search; caller starts a new one
                     }
                     emit_search_result(&searcher2, &mut board2, info, &diag_ctx);
@@ -1112,6 +1191,8 @@ fn main() {
                     let mut board2 = board.clone();
                     let position_history2 = position_history.clone();
                     let suppress2 = Arc::clone(&suppress_bm);
+                    let generation = search_generation.fetch_add(1, Ordering::AcqRel) + 1;
+                    let search_generation2 = Arc::clone(&search_generation);
                     let diag_ctx = DiagCtx {
                         game_counter,
                         last_position_cmd: last_position_cmd.clone(),
@@ -1123,7 +1204,9 @@ fn main() {
                     };
                     search_handle = Some(std::thread::spawn(move || {
                         let info = searcher2.search(&mut board2, config, &position_history2);
-                        if suppress2.load(Ordering::Relaxed) {
+                        if search_generation2.load(Ordering::Acquire) != generation
+                            || suppress2.load(Ordering::Relaxed)
+                        {
                             return;
                         }
                         emit_search_result(&searcher2, &mut board2, info, &diag_ctx);

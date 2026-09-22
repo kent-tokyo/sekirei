@@ -11,6 +11,16 @@ from typing import Any
 import build_q21p_depth7_pairs as base
 
 
+def ranked_top_and_lower(
+    scores: dict[str, int], limit: int
+) -> tuple[list[tuple[str, int]], list[str], list[tuple[str, int]]]:
+    ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[:limit]
+    best_score = ranked[0][1]
+    top_moves = [move for move, score in ranked if score == best_score]
+    lower_moves = [(move, score) for move, score in ranked if score < best_score]
+    return ranked, top_moves, lower_moves
+
+
 def build(
     preregistration_path: Path, measurements_path: Path
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -71,13 +81,25 @@ def build(
                 }
             )
             continue
-        ranked = sorted(scores.items(), key=lambda item: (-item[1], item[0]))[
-            : contract["top_k_after_depth7_reranking"]
-        ]
+        ranked, top_moves, lower_moves = ranked_top_and_lower(
+            scores, contract["top_k_after_depth7_reranking"]
+        )
         best_score = ranked[0][1]
-        top_moves = [move for move, score in ranked if score == best_score]
-        lower_moves = [(move, score) for move, score in ranked if score < best_score]
-        base.require(lower_moves, f"{identifier}: no strict top-versus-rest pair")
+        if not lower_moves:
+            audit_rows.append(
+                {
+                    "parent_id": identifier,
+                    "category": row["category"],
+                    "ordinary_moves": len(scores),
+                    "ranked_moves": len(ranked),
+                    "teacher_top_moves": top_moves,
+                    "top_score_cp": best_score,
+                    "direct_pairs": 0,
+                    "excluded": True,
+                    "reason": "all_ordinary_depth7_scores_tied",
+                }
+            )
+            continue
         parent_pairs = 0
         for top_move in top_moves:
             for lower_move, lower_score in lower_moves:

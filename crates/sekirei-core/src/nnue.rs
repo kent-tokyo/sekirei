@@ -69,9 +69,25 @@ pub const HAND_INPUT: usize = HAND_THRESHOLDS * 4; // 152
 pub const INPUT: usize = BOARD_INPUT + HAND_INPUT; // 2 420
 
 /// Feature-transformer (first hidden layer) size, per perspective.
-pub const L1: usize = 256; // feature-transformer neurons per perspective
+#[cfg(all(feature = "nnue_l1_128", not(feature = "nnue_l1_384")))]
+/// Capacity-efficiency diagnostic feature-transformer width.
+pub const L1: usize = 128;
+#[cfg(all(not(feature = "nnue_l1_128"), not(feature = "nnue_l1_384")))]
+/// Default feature-transformer width used by released flat-weight builds.
+pub const L1: usize = 256;
+/// Capacity-diagnostic feature-transformer width.
+#[cfg(feature = "nnue_l1_384")]
+pub const L1: usize = 384;
 /// Second hidden layer size.
-pub const L2: usize = 32; // hidden layer neurons
+#[cfg(all(feature = "nnue_l2_16", not(feature = "nnue_l2_64")))]
+/// Capacity-efficiency diagnostic second hidden-layer width.
+pub const L2: usize = 16;
+#[cfg(all(not(feature = "nnue_l2_16"), not(feature = "nnue_l2_64")))]
+/// Default second hidden-layer width used by released flat-weight builds.
+pub const L2: usize = 32;
+/// Capacity-diagnostic second hidden-layer width.
+#[cfg(feature = "nnue_l2_64")]
+pub const L2: usize = 64;
 
 // Cumulative threshold offsets for each hand kind (Fu=0..Hisha=6):
 // Fu:18 → [0], Kyou:4 → [18], Kei:4 → [22], Gin:4 → [26], Kin:4 → [30], Kaku:2 → [34], Hisha:2 → [36]
@@ -1035,11 +1051,11 @@ mod tests {
         assert_eq!(summary.ft_units, 2 * L1);
         assert_eq!(summary.ft_active, 2);
         assert_eq!(summary.ft_saturated, 1);
-        assert!((summary.ft_mean - 0.25).abs() < f64::EPSILON);
+        assert!((summary.ft_mean - 64.0 / L1 as f64).abs() < f64::EPSILON);
         assert_eq!(summary.l2_units, L2);
         assert_eq!(summary.l2_active, 2);
         assert_eq!(summary.l2_saturated, 1);
-        assert!((summary.l2_mean - 4.0).abs() < f64::EPSILON);
+        assert!((summary.l2_mean - 128.0 / L2 as f64).abs() < f64::EPSILON);
     }
 
     #[test]

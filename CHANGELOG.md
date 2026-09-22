@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Condensed the public documentation and script index, refreshed the NNUE
+  format/compatibility boundary, and marked historical design records as such.
+  This documentation work does not publish a checkpoint or make a new
+  playing-strength claim.
+
 ## [0.3.42] – 2026-09-22
 
 - Added output-equivalent four-row NNUE L2 accumulation, exact-evaluation

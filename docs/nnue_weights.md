@@ -1,125 +1,76 @@
-# NNUE weights — model card and licensing
+# NNUE weights: use, compatibility, and licensing
 
-This document exists because it's a real adoption question, not a
-hypothetical one — see [issue #44](https://github.com/kent-tokyo/sekirei/issues/44),
-from a prospective commercial mobile integrator.
+An NNUE weight file is a data artifact, separate from Sekirei's source code.
+The source is available under MIT OR Apache-2.0; every distributed weight must
+carry its own model card, checksum, provenance, strength-gate scope, and
+license. Local training data and unpublished checkpoints remain outside Git.
 
-## Software license vs. weights license — these are separate things
-
-Sekirei's **source code** is dual-licensed MIT / Apache-2.0 (`LICENSE-MIT`,
-`LICENSE-APACHE`), same as most of the Rust ecosystem — permissive, no
-copyleft, no GPL. A **trained NNUE weight file** is a separate artifact:
-it is data derived from training runs, not code. Project training runs remain
-under ignored `data/`, while each distributed checkpoint lives in the tracked
-`weights/` directory with its own model card, SHA-256, and CC BY 4.0 notice.
-The source-code license does not extend to a weight artifact.
-
-## Currently distributed weights
+## Distributed artifact
 
 [`weights/sekirei-nnue-v0.3.38.bin`](../weights/sekirei-nnue-v0.3.38.bin) is
-the versioned optional A-flat checkpoint published for 0.3.38. Its SHA-256,
-training provenance, output mode, strict-health result, and historical local
-strength-gate scope are pinned in its adjacent
-[model card](../weights/sekirei-nnue-v0.3.38.json). It cleared a local,
-color-reversed paired-SPRT comparison against the pinned
-`data/weights_gate0_init_fix.bin` baseline (SHA-256
-`bea7a8262f74b6d61c17f1dd7bf6e507236acf136d65e4e1a7e3702c47c0849a`). That does
-not establish an advantage over the current material-only evaluator, a
-Floodgate rating, a human rating, or superiority to another engine. The
-current-engine B-versus-material diagnostic used 16 newly selected positions,
-both colors, and separate 1,000ms and 5,000ms settings. B scored 1/32 and 2/32
-respectively. The settings were not pooled. This is enough to keep blanket
-strength recommendation on hold, but not a formal default-selection gate or a
-reason to erase the artifact's historical result.
+the optional flat evaluator published for 0.3.38. Its adjacent model card
+pins the SHA-256, training provenance, output mode, strict-health result, and
+historical local gate.
 
-The crate and executable do not embed a model. Without an explicit `EvalFile`
-or command-line checkpoint, `sekirei` runs on a genuine material-count fallback
-(`crates/sekirei-core/src/eval.rs::evaluate`, dispatches to
-`material_score` whenever `nnue::weights_active()` is false) — correct
-shogi play, but not the checkpoint-backed evaluation measured above.
+It is retained for compatibility and experimentation, not as a blanket
+strength recommendation. On the current engine, a small local comparison
+against material evaluation scored 1/32 at 1 second per move and 2/32 at
+5 seconds per move. Those settings were separate and are not a default-choice
+gate, external rating, or comparison with another engine.
 
-## Weight file format compatibility
+Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
+fallback. It does not silently select or substitute a model.
 
-| Magic | Architecture | Compatible builds |
-|---|---|---|
-| `SEKIRW01` | Flat piece-square ("A", default) | Default build (`king_relative_b_small` feature off) |
-| `SEKIRW02` | King-relative 9-zone ("B-small") | `--features king_relative_b_small` build only |
-| `JANOSW03` (legacy) | Flat piece-square, same layout as `SEKIRW01` | Default build only, accepted for backward compatibility |
-| `JANOSW02` (legacy) | Different layout | **Not accepted by any current build** |
+## Loading a weight
 
-A binary refuses to load the wrong variant's file: the magic string is
-checked first, and `read_weights` requires an *exact* byte-length match
-(not just a minimum), so a wrong-architecture file fails with a clear
-error instead of silently misparsing (`crates/sekirei-core/src/nnue.rs`,
-module doc and `read_weights`). Binary layout (identical shape in both
-variants, `INPUT` differs per architecture):
-
-```
-Offset        Size           Content
-0             8              Magic
-8             INPUT*L1*2     ft_weights: INPUT × L1 × i16
-+L1*2         L1*2           ft_bias: L1 × i16
-+2*L1*L2*4    2*L1*L2*4      l2_weights: (2×L1) × L2 × f32
-+L2*4         L2*4           l2_bias: L2 × f32
-+L2*4         L2*4           out_weights: L2 × f32
-+4            4              out_bias: f32
+```bash
+sekirei /absolute/path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-`L1=256`, `L2=32` in both variants. `INPUT=2420` (flat) / `INPUT=20564`
-(king-relative). Total file size: ≈1.24 MB (flat) / ≈10.0 MB
-(king-relative).
+For a USI GUI, set `EvalFile` to an absolute path and
+`NnueOutput=absolute` before `isready`. Verify the checksum and CC BY 4.0
+terms in [`weights/README.md`](../weights/README.md) first.
 
-## Architecture status
+## Exact build compatibility
 
-| Architecture | Status | Recommended for production use? |
-|---|---|---|
-| A (flat, default) | Shipping default since this project's earliest NNUE work | `sekirei-nnue-v0.3.38.bin` remains available; blanket strength recommendation is on hold after the current B-versus-material diagnostic |
-| B-small (king-relative, opt-in) | Experimental. Phase 3 validation: `valid_cp_mse` improved in 3/3 seeds, but `valid_wdl_loss`/`valid_calibration_error` regressed in 3/3 seeds against the same baseline — status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD** (see [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)). No paired Elo/SPRT strength gate established an improvement. **Not recommended for production use at this time.** |
+The loader verifies both an 8-byte magic value and the exact expected byte
+length. A mismatched architecture or width is rejected rather than parsed
+silently.
 
-Only the A-flat checkpoint above is distributed. Its historical result applies
-only to its recorded 0.3.38 local paired-SPRT scope and is not a current
-material-baseline result. For app-size-insensitive integrators
-(per issue #44's own framing), B-small is the more representationally
-interesting long-term direction — but "interesting" and "validated" are
-different things here, and it is explicitly not the latter yet.
+| Build family | Magic | Dimensions | Status |
+|---|---|---|---|
+| Flat default | `SEKIRW01` (also legacy `JANOSW03`) | input 2420, L1 256, L2 32 | The only family with a distributed artifact. |
+| King-relative B-small | `SEKIRW02` | input 20564, L1 256, L2 32 | Experimental; no released weight. |
+| Flat width diagnostics | `SEKIRW01` | `nnue_l1_128` / `nnue_l1_384` and `nnue_l2_16` / `nnue_l2_64` | Unreleased experiment builds; a file must match the exact selected dimensions. |
 
-## Training your own weights
+The `king_relative_b_small` feature changes the feature layout and requires a
+separately trained file. Width features likewise change the required file
+length even though they retain the flat magic. `JANOSW02` is not supported.
 
-`sekirei-train` is the training crate; nothing about it requires this
-project's own teacher data specifically. If you use a strong external USI
-engine as a teacher to generate evaluation/WDL labels for your own position
-dataset, note:
+## Evidence boundary
 
-- The resulting weight file's licensing is yours to determine, informed
-  by whatever license terms attach to the teacher engine's own output and
-  the position dataset used — this repo makes no claim about that, since
-  it isn't the origin of either.
-- The trained file must match the exact binary format (§ above) and,
-  architecture-wise, one of the two supported feature configurations —
-  there is no format-conversion tool for arbitrary external NNUE weights.
-- `sekirei-train` never calls `nnue::load_weights` during training itself
-  (confirmed: label generation runs on the fixed-depth search/material
-  path, independent of any NNUE weights) — so training does not require a
-  pre-existing Sekirei weight file to bootstrap from.
+The B-small implementation passed mechanical load/inference checks, but its
+validation signals disagreed and it has no successful paired strength gate.
+It remains experimental. Unreleased candidate runs and their diagnostics do
+not make a new file distributable or stronger than material evaluation.
 
-## Model-card template for a specific checkpoint
+Any checkpoint considered for distribution needs, at minimum:
 
-If you produce and want to track a specific weight file's provenance,
-record at minimum:
-
-```
-checkpoint_sha256:     <shasum -a 256 output>
-architecture:           A-flat-ps | B-small-king9zone
-magic:                  SEKIRW01 | SEKIRW02
-training_commit:        <sekirei git commit the training run was built from>
-dataset_hash:           <from the .meta.json sidecar, if trained with sekirei-train>
-teacher_cache_sha256:   <if applicable>
-validation_summary:     valid_cp_mse / valid_wdl_loss / valid_calibration_error
-strength_gate_status:   not run | SPRT PASS (H0/H1, N games) | SPRT FAIL | INCONCLUSIVE
-license:                <explicit statement -- do not assume it inherits the code's MIT/Apache-2.0>
+```text
+checkpoint_sha256:     <sha256>
+architecture/build:    <features and dimensions>
+training_commit:       <commit>
+dataset/teacher hashes: <hashes>
+validation summary:    <metrics and held-out input>
+strength gate status:  not run | PASS | FAIL | INCONCLUSIVE
+license:               <explicit artifact license>
 ```
 
-The outcome in
-[`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
-shows how a real non-production validation verdict remains separate from a
-strength or release claim.
+Training can use a separately operated external teacher, but its license and
+the dataset terms must be assessed by the person distributing the resulting
+weights. Sekirei does not convert arbitrary external NNUE formats into its
+own format.
+
+See [`design/nnue_architecture_next_candidate.md`](design/nnue_architecture_next_candidate.md)
+for the historical architecture decision record and internal `ROADMAP.md` for
+active unpublished work.

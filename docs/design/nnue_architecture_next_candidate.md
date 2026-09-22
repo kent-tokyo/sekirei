@@ -1,152 +1,49 @@
-# NNUE architecture: candidate comparison for the next experiment
+# NNUE architecture decision record
 
-Status: historical design plus outcome summary. The original comparison below
-was design-only; every sizing number was computed from reading
-`crates/sekirei-core/src/nnue.rs`'s actual binary-format arithmetic (verified
-against the real 1,305,356-byte size of `data/weights_v011_opening_combined.bin`
-and siblings) and `crates/sekirei-train/`, plus a survey of this repo's own
-prior NNUE-training experiment docs. Written to close the gap `ROADMAP.md`
-§6 flags: *"no NNUE architecture upgrade path has been researched or decided
-yet... This needs its own research pass before implementation."*
+Status: **historical design record**. This document records what was decided
+and tested for the first architecture exploration; it is not a current model
+recommendation or a strength result. Active, unpublished work belongs in the
+internal roadmap and run manifests.
 
-Outcome update (2026-08-19): B-small was implemented behind the
-`king_relative_b_small` feature and passed mechanical loading/inference checks.
-In matched three-seed validation, `valid_cp_mse` improved in 3/3 seeds, while
-`valid_wdl_loss` and `valid_calibration_error` regressed in 3/3 seeds. The
-frozen status is **MECHANICAL_PASS / EXPERIMENTAL_HOLD**. No paired Elo/SPRT
-gate established a strength improvement, and B-small is not a production
-recommendation. This outcome does not turn the sizing comparison below into
-benchmark evidence.
+## Baseline and options considered
 
-## Current architecture (baseline, "A")
+The original flat evaluator uses piece-square and hand features, an
+input width of 2420, `L1=256` per perspective, and `L2=32`. It has no
+king-relative board feature.
 
-From `crates/sekirei-core/src/nnue.rs`: plain piece-square + hand features,
-**no king-relative conditioning at all** — `feature_index(sq, kind,
-piece_color, perspective)` (`nnue.rs:334`) depends only on the piece and
-perspective, never on either king's square. `INPUT=2420` (2268 board + 152
-hand), `L1=256`/perspective, single `L2=32`, single scalar output. Weight
-file: SEKIRW01 binary, 1.31 MB, ~636K parameters. This is the architecture
-every `data/weights_*.bin` file in the repo was trained under.
+| Option | Intended effect | Main cost or risk |
+|---|---|---|
+| B-small | Add the own king's 3×3 zone to board features. | Much larger feature table; a king move refreshes the accumulator. |
+| Wider L1 | Increase feature-transformer capacity. | Larger file and incremental-update work. |
+| Wider L2 | Increase output-side capacity. | Earlier diagnostics indicated L2 saturation, so width alone was not a good first bet. |
 
-## The three candidates
+The first implementation chose B-small: it adds nine king-zone buckets while
+leaving hand features unconditioned. It uses `SEKIRW02`, input width 20564,
+`L1=256`, and `L2=32`; it is incompatible with the flat released artifact.
 
-**B. Add king-relative board features.** Condition each board feature on
-the *owning perspective's own* king square (standard "Half-KP"-style
-design, not full KKP) — hand features stay unconditioned (they already
-don't have a natural square to relate to a king). Sub-variants by bucket
-granularity, since full per-square conditioning (81 squares on a 9×9 board)
-is the expensive end of a real range, not the only option:
+## Outcome
 
-| Variant | King granularity | `INPUT` | File size | Params |
-|---|---|---|---|---|
-| B-small | 9 zones (e.g. 3×3 board regions) | 20,564 | 10.6 MB | 5.28M |
-| B-mid | 27 buckets (file × rank-band) | 61,388 | 31.5 MB | 15.7M |
-| B-full | 81 (every king square, HalfKP-standard) | 183,860 | 94.2 MB | 47.1M |
+B-small passed format, loading, inference, and differential-update checks.
+Across its matched three-seed validation, CP MSE improved in all three seeds,
+while WDL loss and calibration error regressed in all three. No paired
+playing-strength gate established an advantage.
 
-**C. Widen the feature transformer, `L1` 256→512.** `INPUT` and `L2`
-unchanged. File size: 2.61 MB, ~1.27M params (≈2× baseline — FT dominates
-total params at this scale, 97%+, so doubling `L1` ≈ doubling everything).
+**Verdict: `MECHANICAL_PASS / EXPERIMENTAL_HOLD`.** The implementation remains
+available behind `king_relative_b_small`, but no B-small checkpoint is
+distributed and it is not a production recommendation.
 
-**D. Widen the second hidden layer, `L2` 32→64.** `INPUT` and `L1`
-unchanged. File size: 1.37 MB, ~653K params (+2.6% — `L2` is a small
-fraction of total params regardless of `L1`, so this is a cheap change by
-size alone).
+## Durable lessons
 
-## Comparison table
+1. A feature or capacity change needs a fresh matching weight file; magic and
+   exact-length checks must reject an incompatible file.
+2. Offline validation metrics may disagree. Do not promote a checkpoint until
+   an independent, fixed-condition playing-strength gate passes.
+3. Separate representational content from inference cost. A faster or larger
+   evaluator is not automatically a stronger engine.
+4. Change one declared factor at a time, preserve source/teacher/checkpoint
+   hashes, and keep resource-censored runs distinct from failures.
 
-| Axis | A (current) | B (king-relative) | C (FT 256→512) | D (L2 32→64) |
-|---|---|---|---|---|
-| Params | 636K | 5.3M–47.1M (variant-dependent) | 1.27M | 653K |
-| File size | 1.31 MB | 10.6–94.2 MB | 2.61 MB | 1.37 MB |
-| Inference cost (L2 forward pass) | baseline (`L1×L2` = 8,192 MACs) | **unchanged** (same `L1`/`L2`) | 2× (16,384 MACs) | 2× (16,384 MACs) |
-| Incremental-update cost | O(1) per piece move (`add_col`/`sub_col`, `nnue.rs:468`/`478`) | O(1) for non-king moves; **a king move forces a full `NnueAcc::refresh`** (`nnue.rs:358`, scans every piece on the board) — this is the standard NNUE tradeoff, not a bug, but a genuinely new cost class this codebase doesn't have today | O(1), same shape, just longer per-move SIMD vectors (linear in `L1`, not a new complexity class) | O(1), unaffected — `L2` isn't touched by incremental updates at all |
-| Representational power | No king-safety/mating-net signal representable except through what L2/output can compensate for indirectly | Directly represents "this piece/square matters differently depending on king position" — the specific gap vs. HalfKP-class engines (YaneuraOu/Suisho, `ROADMAP.md` §0's named competitive targets) | More per-feature nonlinear capacity, same feature semantics — helps if the current bottleneck is FT underfitting, not feature expressiveness | More L2 capacity — **but see the saturation risk below, which argues this doesn't currently translate to more usable capacity** |
-| Existing weight compatibility | — | **Breaks all existing `data/weights_*.bin`** (`read_weights`'s size check, `nnue.rs:221-250`, rejects any file whose length doesn't match compile-time `INPUT/L1/L2` — same mechanism for B/C/D, no discriminating factor here) | Breaks all existing weights (same mechanism) | Breaks all existing weights (same mechanism) |
-| Teacher-label / training-data cost | — | **None** — confirmed `sekirei-train` never calls `nnue::load_weights` (label-depth search always runs on the material-count fallback, independent of NNUE weights); `teacher_cache.rs`'s cache is keyed on SFEN + `label_depth` only, architecture-agnostic. A full **weight retrain** is still required (new `INPUT` shape), just not new teacher labels. | Same: no new teacher data, full weight retrain required | Same: no new teacher data, full weight retrain required |
-| Engineering cost beyond training | Feature-index change is one function (`nnue.rs:334`), trainer picks it up automatically (`sekirei-train/src/trainer.rs:2985` calls the same `feature_index`) — but `NnueAcc` needs a new king-move-triggers-refresh code path, which doesn't exist today | Pure hyperparameter change, no new code path | Pure hyperparameter change, no new code path | — |
-
-## The finding that should drive this decision: L2 is already saturating
-
-This repo has an extensive, causally-verified prior investigation
-(`docs/experiments/l2_saturation_mechanism_p0.md`,
-`l2_saturation_freeze_diagnostic.md`, task #91) into an **unresolved**
-training pathology: by ~1/4 into epoch 1, L2's gradient path is ~100%
-closed (only ~0.1% of activations remain in the non-clamped/"linear"
-region; the rest is split between dead and saturated), consistent across 3
-seeds. Proven causal (not just correlational) via selective-freeze
-experiments: freezing FT-output *or* L2-weight updates alone fully blocks
-new saturation for as long as the freeze holds. Root cause identified:
-`z_L2 = FT_output × W_L2 + b_L2` is a product of two factors that move in a
-correlated, reinforcing direction early in training — an update-direction/
-structure problem, not a magnitude or init-distance one. **Three separate
-mitigations were tried and all failed**: LR warmup, `--l2-bias-init`, and
-gradient clipping (`output_warmup.md`, `l2_bias_init.md`,
-`global_gradient_clipping.md`).
-
-This describes saturation as a *fraction of L2's width*, not a fixed
-neuron count — no width ablation exists in the corpus to confirm this
-directly, but the mechanism predicts that **widening L2 (candidate D)
-produces more saturated/dead neurons in absolute terms, not more usable
-capacity**, until the underlying saturation mechanism itself is fixed.
-**Recommendation: do not run D as the next experiment.** It's the
-cheapest candidate by param count, which makes it tempting, but the
-cheapest wrong experiment isn't the right first move.
-
-## Recommendation: B (king-relative), starting from B-small, as the first experiment
-
-Reasoning, weighing the table above against the project's own stated goal
-(`ROADMAP.md` §0: surpass YaneuraOu/Suisho, not just improve over Sekirei's
-own baseline):
-
-1. **D is actively discouraged** by this repo's own prior research (above).
-2. **C (FT 256→512)** is the safe, low-risk option — no new code path, no
-   feature-semantics change — but it's a "more of the same shape" bet. It
-   doesn't address the one concrete, named representational gap this repo
-   has relative to its own stated competitive targets: no king-conditioning
-   at all, when king-relative features are close to universal in
-   HalfKP-class engines specifically because king safety/mating-net
-   evaluation is exactly what a flat piece-square net structurally
-   struggles to represent.
-3. **B-full (81-square HalfKP-standard)** is the "do it properly" version
-   top engines use, but at 94.2 MB / 47.1M params it's a ~72× jump from
-   today's 1.31 MB file — a large training-cost and engineering-risk step
-   for a first experiment, and this repo has zero prior data at any
-   king-relative scale to de-risk that jump.
-4. **B-small (9 zone buckets)** is the proposed first move: it introduces
-   real king-position sensitivity — enough to test whether the *category*
-   of feature (king-conditioned vs. not) helps at all before committing to
-   fine granularity — at a 10.6 MB / 5.3M-param scale that's a large but not
-   extreme step up, and reuses 100% of the existing teacher-label
-   infrastructure. If B-small shows a clear signal, B-mid/B-full become the
-   natural follow-ups; if it shows none, that's a cheap way to learn the
-   *category* isn't the bottleneck before spending a 72×-larger training
-   run to find out.
-
-## Open questions (not resolved by this design pass)
-
-- ~~Exact zone-bucketing scheme for B-small~~ — **resolved during
-  implementation (PR #41, 2026-08-12)**: a plain 3×3 grid
-  (`Square::king_zone`, `(file_0/3)*3 + rank_0/3`), matching this doc's own
-  example. Not a rigorous design pass on its own, but a reasonable default
-  that's now shipped behind `king_relative_b_small`; a king-safety-geometry
-  scheme (castle formations etc.) remains a possible future refinement, not
-  attempted here.
-- ~~Whether `NnueAcc`'s king-move-triggers-refresh path has an acceptable
-  perf cost~~ — **first real data point (2026-08-12)**: a fixed-depth
-  structural comparison ([workflow run
-  31600576135](https://github.com/kent-tokyo/sekirei/actions/runs/31600576135),
-  depth 9, 21 positions, same commit both sides) found zero correctness
-  issues and a median node ratio of 0.999 (candidate/base) — not a
-  strength or wall-clock benchmark (no real NNUE weights are used by that
-  tool, by design), but it does show the refresh hook doesn't blow up
-  search-node cost at this shallow depth. A real per-move wall-clock cost
-  under `Threads>1`/real weights is still unmeasured.
-- Whether L2 saturation should be fixed *before* B is trained regardless
-  (a saturated L2 may cap how much of B's improved input signal is usable)
-  — this design pass didn't investigate mitigation options beyond the
-  three already tried and ruled out; flagged as a real open question, not
-  addressed here since it's a separate, deeper investigation of its own.
-- This entire comparison assumes the current single-L2/single-output
-  topology; it does not evaluate deeper/wider net *shapes* (e.g. an extra
-  hidden layer) as a fourth category, since the user's own candidate list
-  scoped this pass to B/C/D as given.
+For the supported formats and the published flat artifact, see
+[`../nnue_weights.md`](../nnue_weights.md). The historical detailed evidence
+is retained in experiment artifacts; it should be consulted only when
+reopening this specific decision.

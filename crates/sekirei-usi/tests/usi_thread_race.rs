@@ -65,6 +65,31 @@ fn recv_line_matching(
     }
 }
 
+fn recv_until_collect(
+    rx: &Receiver<String>,
+    mut pred: impl FnMut(&str) -> bool,
+    timeout: Duration,
+) -> Vec<String> {
+    let deadline = Instant::now() + timeout;
+    let mut seen = Vec::new();
+    loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            panic!("timed out waiting for expected line; saw: {seen:?}");
+        }
+        match rx.recv_timeout(remaining) {
+            Ok(line) => {
+                let matched = pred(&line);
+                seen.push(line);
+                if matched {
+                    return seen;
+                }
+            }
+            Err(_) => panic!("engine stdout closed before expected line arrived; saw: {seen:?}"),
+        }
+    }
+}
+
 #[test]
 fn stop_flushes_bestmove_before_answering_the_next_command() {
     stop_flushes_bestmove_before_answering_next_command(None, "position startpos");
@@ -111,6 +136,71 @@ fn ponder_stop_then_new_position_has_one_fresh_bestmove() {
 
     send(&mut stdin, "quit");
     let status = child.wait().expect("failed to wait for ponder reset test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
+fn position_discards_an_inflight_normal_search_without_stale_bestmove() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go infinite");
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "position startpos moves 7g7f");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(10));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "position accepted a new board but old search still published bestmove: {lines:?}"
+    );
+
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for generation test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
+fn position_discards_a_completed_ponder_result() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go ponder infinite");
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "position startpos moves 7g7f");
+    send(&mut stdin, "stop");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(10));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "position leaked a ponder result into the replacement position: {lines:?}"
+    );
+
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for ponder generation test");
     assert!(status.success(), "engine exited unsuccessfully: {status}");
 }
 

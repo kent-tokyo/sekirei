@@ -72,7 +72,24 @@ struct RankPair {
     source: Option<serde_json::Value>,
     higher_move_usi: String,
     lower_move_usi: String,
-    teacher_score_gap_cp: i32,
+    #[serde(default)]
+    teacher_score_gap_cp: Option<i32>,
+    #[serde(default = "default_label_kind")]
+    label_kind: LabelKind,
+    #[serde(default)]
+    teacher_order_margin: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LabelKind {
+    Centipawn,
+    MateOrdinal,
+    TerminalOrdinal,
+}
+
+fn default_label_kind() -> LabelKind {
+    LabelKind::Centipawn
 }
 
 #[derive(Debug, Serialize)]
@@ -85,8 +102,9 @@ struct AuditReport {
     pairs_verified: usize,
     parent_positions: usize,
     categories: BTreeMap<String, usize>,
-    teacher_gap_cp_min: i32,
-    teacher_gap_cp_max: i32,
+    teacher_gap_cp_min: Option<i32>,
+    teacher_gap_cp_max: Option<i32>,
+    label_kinds: BTreeMap<String, usize>,
     source: AuditSource,
     model_diagnostic: Option<ModelDiagnostic>,
 }
@@ -194,7 +212,9 @@ struct MoveDiagnostic {
 struct PairDiagnostic {
     parent_id: String,
     category: String,
-    teacher_score_gap_cp: i32,
+    label_kind: LabelKind,
+    teacher_score_gap_cp: Option<i32>,
+    teacher_order_margin: Option<u8>,
     higher_move_usi: String,
     lower_move_usi: String,
     higher_parent_score_cp: i32,
@@ -309,14 +329,28 @@ fn reconstruct_pair(
 ) -> Result<(Board, sekirei_core::mv::Move, sekirei_core::mv::Move), String> {
     let label = format!("pair[{index}] parent_id={:?}", pair.parent_id);
     let _source = &pair.source;
-    if pair.category.is_empty()
-        || pair.parent_id.is_empty()
-        || pair.teacher_score_gap_cp <= 0
-        || pair.teacher_score_gap_cp > normal_score_abs_max_cp.saturating_mul(2)
-    {
+    if pair.category.is_empty() || pair.parent_id.is_empty() {
         return Err(format!(
             "{label}: missing category/parent id or non-strict score gap"
         ));
+    }
+    match pair.label_kind {
+        LabelKind::Centipawn => {
+            let Some(gap) = pair.teacher_score_gap_cp else {
+                return Err(format!("{label}: centipawn label lacks a cp gap"));
+            };
+            if gap <= 0
+                || gap > normal_score_abs_max_cp.saturating_mul(2)
+                || pair.teacher_order_margin.is_some()
+            {
+                return Err(format!("{label}: invalid centipawn label"));
+            }
+        }
+        LabelKind::MateOrdinal | LabelKind::TerminalOrdinal => {
+            if pair.teacher_score_gap_cp.is_some() || pair.teacher_order_margin != Some(1) {
+                return Err(format!("{label}: invalid mate ordinal label"));
+            }
+        }
     }
     let mut board = Board::from_sfen(&pair.initial_sfen)
         .map_err(|error| format!("{label}: invalid initial SFEN: {error}"))?;
@@ -357,6 +391,13 @@ fn pairwise_loss(margin: f64) -> f64 {
 }
 
 fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, String> {
+    if corpus
+        .pairs
+        .iter()
+        .any(|pair| pair.label_kind != LabelKind::Centipawn)
+    {
+        return Err("static cp diagnostics do not accept non-centipawn ordinal labels".to_owned());
+    }
     let weights = read_weights(std::path::Path::new(checkpoint))
         .map_err(|error| format!("cannot read NNUE checkpoint {checkpoint:?}: {error}"))?;
     let mode = output_mode(&corpus.source_teacher.nnue_output)?;
@@ -418,12 +459,16 @@ fn diagnose_model(corpus: &Corpus, checkpoint: &str) -> Result<ModelDiagnostic, 
         losses.entry(pair.higher_move_usi.clone()).or_insert(0);
         losses
             .entry(pair.lower_move_usi.clone())
-            .and_modify(|value| *value = (*value).max(pair.teacher_score_gap_cp))
-            .or_insert(pair.teacher_score_gap_cp);
+            .and_modify(|value| {
+                *value = (*value).max(pair.teacher_score_gap_cp.expect("cp-only diagnostics"))
+            })
+            .or_insert(pair.teacher_score_gap_cp.expect("cp-only diagnostics"));
         pair_diagnostics.push(PairDiagnostic {
             parent_id: pair.parent_id.clone(),
             category: pair.category.clone(),
+            label_kind: pair.label_kind,
             teacher_score_gap_cp: pair.teacher_score_gap_cp,
+            teacher_order_margin: pair.teacher_order_margin,
             higher_move_usi: pair.higher_move_usi.clone(),
             lower_move_usi: pair.lower_move_usi.clone(),
             higher_parent_score_cp: high_parent_score,
@@ -511,8 +556,9 @@ fn audit(corpus: &Corpus, weights: Option<&str>) -> Result<AuditReport, String> 
     validate_source(corpus)?;
     let mut categories = BTreeMap::new();
     let mut parents = std::collections::BTreeSet::new();
-    let mut min_gap = i32::MAX;
-    let mut max_gap = i32::MIN;
+    let mut min_gap = None;
+    let mut max_gap = None;
+    let mut label_kinds = BTreeMap::new();
 
     for (index, pair) in corpus.pairs.iter().enumerate() {
         let (mut board, high, low) =
@@ -530,8 +576,17 @@ fn audit(corpus: &Corpus, weights: Option<&str>) -> Result<AuditReport, String> 
         }
         *categories.entry(pair.category.clone()).or_insert(0) += 1;
         parents.insert((pair.parent_id.as_str(), pair.parent_sfen.as_str()));
-        min_gap = min_gap.min(pair.teacher_score_gap_cp);
-        max_gap = max_gap.max(pair.teacher_score_gap_cp);
+        if let Some(gap) = pair.teacher_score_gap_cp {
+            min_gap = Some(min_gap.map_or(gap, |previous: i32| previous.min(gap)));
+            max_gap = Some(max_gap.map_or(gap, |previous: i32| previous.max(gap)));
+        }
+        *label_kinds
+            .entry(match pair.label_kind {
+                LabelKind::Centipawn => "centipawn".to_owned(),
+                LabelKind::MateOrdinal => "mate_ordinal".to_owned(),
+                LabelKind::TerminalOrdinal => "terminal_ordinal".to_owned(),
+            })
+            .or_insert(0) += 1;
     }
     Ok(AuditReport {
         schema: "sekirei.root-rank-pair-audit.v1",
@@ -544,6 +599,7 @@ fn audit(corpus: &Corpus, weights: Option<&str>) -> Result<AuditReport, String> 
         categories,
         teacher_gap_cp_min: min_gap,
         teacher_gap_cp_max: max_gap,
+        label_kinds,
         source: AuditSource {
             depth: corpus.source_contract.depth,
             threads: corpus.source_contract.threads,
@@ -629,7 +685,9 @@ mod tests {
             source: None,
             higher_move_usi: "7g7f".to_owned(),
             lower_move_usi: "2g2f".to_owned(),
-            teacher_score_gap_cp: 1,
+            teacher_score_gap_cp: Some(1),
+            label_kind: LabelKind::Centipawn,
+            teacher_order_margin: None,
         }
     }
 
@@ -669,7 +727,7 @@ mod tests {
     #[test]
     fn rejects_non_strict_or_state_mismatched_pair() {
         let mut non_strict = start_pair();
-        non_strict.teacher_score_gap_cp = 0;
+        non_strict.teacher_score_gap_cp = Some(0);
         assert!(audit(&corpus(non_strict), None).is_err());
         let mut mismatched = start_pair();
         mismatched.parent_sfen = "invalid parent state".to_owned();
@@ -688,5 +746,16 @@ mod tests {
         assert!(pairwise_loss(1_000.0).is_finite());
         assert!(pairwise_loss(-1_000.0).is_finite());
         assert!(pairwise_loss(10.0) < pairwise_loss(-10.0));
+    }
+
+    #[test]
+    fn accepts_mate_ordinal_without_inventing_a_centipawn_gap() {
+        let mut pair = start_pair();
+        pair.teacher_score_gap_cp = None;
+        pair.label_kind = LabelKind::MateOrdinal;
+        pair.teacher_order_margin = Some(1);
+        let report = audit(&corpus(pair), None).unwrap();
+        assert_eq!(report.label_kinds.get("mate_ordinal"), Some(&1));
+        assert_eq!(report.teacher_gap_cp_min, None);
     }
 }

@@ -272,6 +272,43 @@ fn setoption_evalfile_then_isready_activates_nnue() {
 }
 
 #[test]
+fn evalfile_load_joins_normal_search_before_acknowledgement() {
+    let weights_path = write_marker_weights();
+    let (child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(50));
+    send(
+        &mut stdin,
+        &format!("setoption name EvalFile value {}", weights_path.display()),
+    );
+    send(&mut stdin, "isready");
+
+    let lines = recv_until(&rx, |line| line == "readyok", Duration::from_secs(10));
+    let bestmove = lines
+        .iter()
+        .position(|line| line.starts_with("bestmove "))
+        .unwrap_or_else(|| panic!("EvalFile acknowledgement skipped old bestmove: {lines:?}"));
+    let loaded = lines
+        .iter()
+        .position(|line| line.starts_with("info string NNUE weights loaded"))
+        .unwrap_or_else(|| panic!("EvalFile was not acknowledged: {lines:?}"));
+    assert!(
+        bestmove < loaded,
+        "EvalFile load mutated evaluator before the old search completed: {lines:?}"
+    );
+
+    let (score, _) = search_startpos_depth_one(&rx, &mut stdin);
+    assert_eq!(score, EXPECTED_SCORE_CP);
+    terminate(child, &mut stdin);
+    let _ = std::fs::remove_file(weights_path);
+}
+
+#[test]
 fn residual_scale_option_is_advertised_and_acknowledged() {
     let (child, rx, mut stdin) = spawn_engine();
 

@@ -5,7 +5,8 @@
 //!     full board setup lines are skipped gracefully)
 //!   - Move lines: `+7776FU` / `-3334FU` / `+0076FU` (drop)
 //!   - Result lines: `%TORYO`/`%TSUMI`/`%KACHI` (decisive), `%JISHOGI`/
-//!     `%SENNICHITE` (drawn) all map to a definite `GameResult`; `%CHUDAN`,
+//!     `%SENNICHITE` (drawn; or a Sekirei continuous-check result comment)
+//!     all map to a definite `GameResult`; `%CHUDAN`,
 //!     `%ILLEGAL_MOVE`, `%TIME_UP` and anything else map to
 //!     `GameResult::Unknown` -- see `GameResult`'s doc for why those aren't
 //!     treated as a real win/loss/draw signal
@@ -52,6 +53,7 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
     let mut initial_board = board.clone();
     let mut black_rate: Option<f32> = None;
     let mut white_rate: Option<f32> = None;
+    let mut perpetual_check_loser = None;
 
     for line in text.lines() {
         let line = line.trim();
@@ -78,6 +80,14 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
         }
         if line.starts_with("'white_rate:") {
             white_rate = line.rsplit(':').next().and_then(|s| s.parse().ok());
+            continue;
+        }
+        if let Some(loser) = line.strip_prefix("'sekirei_perpetual_check_loser:") {
+            perpetual_check_loser = match loser.trim() {
+                "black" => Some(sekirei_core::color::Color::Black),
+                "white" => Some(sekirei_core::color::Color::White),
+                _ => None,
+            };
             continue;
         }
         if line.starts_with('\'') {
@@ -127,7 +137,12 @@ pub fn parse_csa(text: &str) -> Option<CsaGame> {
                         GameResult::BlackWin
                     }
                 }
-                "%JISHOGI" | "%SENNICHITE" => GameResult::Draw,
+                "%JISHOGI" => GameResult::Draw,
+                "%SENNICHITE" => match perpetual_check_loser {
+                    Some(sekirei_core::color::Color::Black) => GameResult::WhiteWin,
+                    Some(sekirei_core::color::Color::White) => GameResult::BlackWin,
+                    None => GameResult::Draw,
+                },
                 _ => GameResult::Unknown, // CHUDAN, ILLEGAL_MOVE, TIME_UP, etc.
             };
             break;
@@ -303,6 +318,16 @@ T1
     fn sennichite_is_a_draw() {
         let game = parse_csa(&sample_with_ending("%SENNICHITE")).expect("parse failed");
         assert_eq!(game.result, GameResult::Draw);
+    }
+
+    #[test]
+    fn sekirei_perpetual_check_comment_keeps_the_decisive_result() {
+        let text = SAMPLE_CSA.replace(
+            "%TORYO",
+            "'sekirei_perpetual_check_loser: black\n%SENNICHITE",
+        );
+        let game = parse_csa(&text).expect("parse failed");
+        assert_eq!(game.result, GameResult::WhiteWin);
     }
 
     #[test]

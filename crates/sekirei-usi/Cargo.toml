@@ -17,3 +17,7 @@ lineprior = "0.11.1"
 
 [features]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
+nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
+nnue_l1_128 = ["sekirei-core/nnue_l1_128"]
+nnue_l2_64 = ["sekirei-core/nnue_l2_64"]
+nnue_l2_16 = ["sekirei-core/nnue_l2_16"]

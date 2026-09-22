@@ -25,7 +25,7 @@
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
@@ -387,6 +387,7 @@ pub struct SearchDiagnostics {
     eval_cache_hits: AtomicU64,
     tt_probes: AtomicU64,
     tt_hits: AtomicU64,
+    tt_stores: AtomicU64,
     order_tt: AtomicU64,
     order_killer: AtomicU64,
     order_countermove: AtomicU64,
@@ -395,6 +396,18 @@ pub struct SearchDiagnostics {
     root_mate_blunder_nodes: AtomicU64,
     root_mate_in_one_cache_hits: AtomicU64,
     root_mate_blunder_cache_hits: AtomicU64,
+    alpha_beta_calls: AtomicU64,
+    quiescence_calls: AtomicU64,
+    static_evaluation_ns: AtomicU64,
+    tt_probe_ns: AtomicU64,
+    tt_store_ns: AtomicU64,
+    movegen_order_ns: AtomicU64,
+    movegen_generate_ns: AtomicU64,
+    move_order_ns: AtomicU64,
+    move_order_score_ns: AtomicU64,
+    move_order_sort_ns: AtomicU64,
+    quiescence_inclusive_ns: AtomicU64,
+    root_mate_safety_ns: AtomicU64,
 }
 
 /// A point-in-time copy of [`SearchDiagnostics`] counters.
@@ -410,6 +423,8 @@ pub struct SearchDiagnosticsSnapshot {
     pub tt_probes: u64,
     /// Number of probes that found an entry.
     pub tt_hits: u64,
+    /// Number of transposition-table store attempts.
+    pub tt_stores: u64,
     /// Number of moves selected as the TT move.
     pub order_tt: u64,
     /// Number of moves selected by the killer heuristic.
@@ -426,6 +441,65 @@ pub struct SearchDiagnosticsSnapshot {
     pub root_mate_in_one_cache_hits: u64,
     /// Iterative-deepening passes that reused the completed root mate-blunder scan.
     pub root_mate_blunder_cache_hits: u64,
+    /// Number of alpha-beta calls, including calls that enter quiescence.
+    pub alpha_beta_calls: u64,
+    /// Number of quiescence calls.
+    pub quiescence_calls: u64,
+    /// Inclusive wall time spent in static-evaluation calls.
+    pub static_evaluation_ns: u64,
+    /// Inclusive wall time spent probing the transposition table.
+    pub tt_probe_ns: u64,
+    /// Inclusive wall time spent storing transposition-table entries.
+    pub tt_store_ns: u64,
+    /// Inclusive wall time spent generating and ordering moves.
+    pub movegen_order_ns: u64,
+    /// Inclusive wall time spent generating legal/capture move lists.
+    pub movegen_generate_ns: u64,
+    /// Inclusive wall time spent assigning move-order scores and sorting.
+    pub move_order_ns: u64,
+    /// Wall time spent calculating move-order keys. This is nested in
+    /// [`Self::move_order_sort_ns`], because cached-key sorting invokes the
+    /// scorer while it orders the move list.
+    pub move_order_score_ns: u64,
+    /// Inclusive wall time spent in move-list sorting, including key creation.
+    pub move_order_sort_ns: u64,
+    /// Inclusive wall time spent in quiescence search.
+    ///
+    /// This overlaps the leaf component timers above because quiescence calls
+    /// them recursively; consumers must not add component durations together.
+    pub quiescence_inclusive_ns: u64,
+    /// Wall time spent in root mate-safety checks and their cache handling.
+    pub root_mate_safety_ns: u64,
+}
+
+/// A diagnostic-only inclusive timer.
+///
+/// When diagnostics are disabled this owns no clock reading, keeping the
+/// normal search path unchanged. Timers deliberately report inclusive spans:
+/// recursive search and its leaf components overlap, so reports describe
+/// hotspots rather than an additive CPU-time breakdown.
+struct ProfileTimer<'a> {
+    counter: Option<&'a AtomicU64>,
+    started: Option<Instant>,
+}
+
+impl<'a> ProfileTimer<'a> {
+    #[inline]
+    fn new(counter: Option<&'a AtomicU64>) -> Self {
+        Self {
+            started: counter.map(|_| Instant::now()),
+            counter,
+        }
+    }
+}
+
+impl Drop for ProfileTimer<'_> {
+    fn drop(&mut self) {
+        if let (Some(counter), Some(started)) = (self.counter, self.started) {
+            let elapsed = started.elapsed().as_nanos().min(u64::MAX as u128) as u64;
+            counter.fetch_add(elapsed, Ordering::Relaxed);
+        }
+    }
 }
 
 /// Per-search cache for root mate safety facts that do not depend on depth.
@@ -449,6 +523,7 @@ impl SearchDiagnostics {
             eval_cache_hits: AtomicU64::new(0),
             tt_probes: AtomicU64::new(0),
             tt_hits: AtomicU64::new(0),
+            tt_stores: AtomicU64::new(0),
             order_tt: AtomicU64::new(0),
             order_killer: AtomicU64::new(0),
             order_countermove: AtomicU64::new(0),
@@ -457,6 +532,18 @@ impl SearchDiagnostics {
             root_mate_blunder_nodes: AtomicU64::new(0),
             root_mate_in_one_cache_hits: AtomicU64::new(0),
             root_mate_blunder_cache_hits: AtomicU64::new(0),
+            alpha_beta_calls: AtomicU64::new(0),
+            quiescence_calls: AtomicU64::new(0),
+            static_evaluation_ns: AtomicU64::new(0),
+            tt_probe_ns: AtomicU64::new(0),
+            tt_store_ns: AtomicU64::new(0),
+            movegen_order_ns: AtomicU64::new(0),
+            movegen_generate_ns: AtomicU64::new(0),
+            move_order_ns: AtomicU64::new(0),
+            move_order_score_ns: AtomicU64::new(0),
+            move_order_sort_ns: AtomicU64::new(0),
+            quiescence_inclusive_ns: AtomicU64::new(0),
+            root_mate_safety_ns: AtomicU64::new(0),
         }
     }
 
@@ -468,6 +555,7 @@ impl SearchDiagnostics {
             eval_cache_hits: self.eval_cache_hits.load(Ordering::Relaxed),
             tt_probes: self.tt_probes.load(Ordering::Relaxed),
             tt_hits: self.tt_hits.load(Ordering::Relaxed),
+            tt_stores: self.tt_stores.load(Ordering::Relaxed),
             order_tt: self.order_tt.load(Ordering::Relaxed),
             order_killer: self.order_killer.load(Ordering::Relaxed),
             order_countermove: self.order_countermove.load(Ordering::Relaxed),
@@ -476,6 +564,18 @@ impl SearchDiagnostics {
             root_mate_blunder_nodes: self.root_mate_blunder_nodes.load(Ordering::Relaxed),
             root_mate_in_one_cache_hits: self.root_mate_in_one_cache_hits.load(Ordering::Relaxed),
             root_mate_blunder_cache_hits: self.root_mate_blunder_cache_hits.load(Ordering::Relaxed),
+            alpha_beta_calls: self.alpha_beta_calls.load(Ordering::Relaxed),
+            quiescence_calls: self.quiescence_calls.load(Ordering::Relaxed),
+            static_evaluation_ns: self.static_evaluation_ns.load(Ordering::Relaxed),
+            tt_probe_ns: self.tt_probe_ns.load(Ordering::Relaxed),
+            tt_store_ns: self.tt_store_ns.load(Ordering::Relaxed),
+            movegen_order_ns: self.movegen_order_ns.load(Ordering::Relaxed),
+            movegen_generate_ns: self.movegen_generate_ns.load(Ordering::Relaxed),
+            move_order_ns: self.move_order_ns.load(Ordering::Relaxed),
+            move_order_score_ns: self.move_order_score_ns.load(Ordering::Relaxed),
+            move_order_sort_ns: self.move_order_sort_ns.load(Ordering::Relaxed),
+            quiescence_inclusive_ns: self.quiescence_inclusive_ns.load(Ordering::Relaxed),
+            root_mate_safety_ns: self.root_mate_safety_ns.load(Ordering::Relaxed),
         }
     }
 }
@@ -593,6 +693,12 @@ struct SearchState {
 /// performed outside an explicitly requested cost profile.
 #[inline]
 fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
+    let _timer = ProfileTimer::new(
+        state
+            .diagnostics
+            .as_deref()
+            .map(|diagnostics| &diagnostics.static_evaluation_ns),
+    );
     if let Some(diagnostics) = &state.diagnostics {
         diagnostics
             .static_evaluations
@@ -616,6 +722,40 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
         score
     } else {
         evaluate(board)
+    }
+}
+
+#[inline]
+fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
+    let entry = {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.tt_probe_ns),
+        );
+        state.tt.probe(hash)
+    };
+    if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
+        if entry.is_some() {
+            diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    entry
+}
+
+#[inline]
+fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
+    let _timer = ProfileTimer::new(
+        state
+            .diagnostics
+            .as_deref()
+            .map(|diagnostics| &diagnostics.tt_store_ns),
+    );
+    state.tt.store(hash, entry);
+    if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics.tt_stores.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -1087,28 +1227,45 @@ fn root_search(
             SearchBound::Exact,
         );
     }
-    let mut move_buffer = MoveBuffer::legal(board);
-    let moves = move_buffer.as_mut_list();
-    if !excluded.is_empty() {
-        moves.retain(|m| !excluded.contains(m));
-    }
-    if let Some(root_move) = root_move {
-        moves.retain(|m| *m == root_move);
-    }
-    if moves.is_empty() {
-        let score = if is_in_check(board, board.side_to_move) {
-            -MATE_SCORE
-        } else {
-            0
+    let mut move_buffer = {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.movegen_order_ns),
+        );
+        let mut move_buffer = {
+            let _generate_timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.movegen_generate_ns),
+            );
+            MoveBuffer::legal(board)
         };
-        return (None, score, SearchBound::Exact);
-    }
+        let moves = move_buffer.as_mut_list();
+        if !excluded.is_empty() {
+            moves.retain(|m| !excluded.contains(m));
+        }
+        if let Some(root_move) = root_move {
+            moves.retain(|m| *m == root_move);
+        }
+        if moves.is_empty() {
+            let score = if is_in_check(board, board.side_to_move) {
+                -MATE_SCORE
+            } else {
+                0
+            };
+            return (None, score, SearchBound::Exact);
+        }
+        move_buffer
+    };
 
     // A forced root move still needs a real child search: the child may be a
     // history-dependent fourth occurrence, which a static evaluation cannot
     // adjudicate correctly.
-    if moves.len() == 1 && root_move.is_none() {
-        let only_move = moves.as_slice()[0];
+    if move_buffer.len() == 1 && root_move.is_none() {
+        let only_move = move_buffer.as_slice()[0];
         let mover = board.side_to_move;
         let tok = board.do_move(only_move);
         let child_in_check = is_in_check(board, board.side_to_move);
@@ -1130,21 +1287,41 @@ fn root_search(
         return (Some(only_move), score, SearchBound::Exact);
     }
 
-    let tt_mv = state.tt.probe(board.hash()).and_then(|e| e.mv);
+    let tt_mv = probe_tt_for_search(state, board.hash()).and_then(|e| e.mv);
     let killers = state.killers.get(0);
-    order_moves_in_place(
-        board,
-        moves.as_mut_slice(),
-        tt_mv,
-        killers,
-        None,
-        &state.history,
-        board.side_to_move,
-        state.diagnostics.as_deref(),
-    );
+    {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.movegen_order_ns),
+        );
+        let _order_timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.move_order_ns),
+        );
+        order_moves_in_place(
+            board,
+            move_buffer.as_mut_list().as_mut_slice(),
+            tt_mv,
+            killers,
+            None,
+            &state.history,
+            board.side_to_move,
+            state.diagnostics.as_deref(),
+        );
+    }
     let ordered = move_buffer.as_slice();
 
     let safe_moves = if root_mate_safety {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.root_mate_safety_ns),
+        );
         // Root mate filters are production move-selection guards, not search
         // nodes. They must nevertheless count against the caller's hard
         // budget so a bounded search cannot spend unbounded time here.
@@ -1370,7 +1547,8 @@ fn root_search_inner(
         } else {
             Bound::Exact
         };
-        state.tt.store(
+        store_tt_for_search(
+            state,
             board.hash(),
             TtEntry {
                 score: score_to_tt(alpha, 0), // ply=0 at root
@@ -1461,6 +1639,9 @@ fn alpha_beta(
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
     history: &PositionHistory,
 ) -> i32 {
+    if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
+    }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
     }
@@ -1486,13 +1667,7 @@ fn alpha_beta(
     let mut tt_se_score = None::<i32>; // TT score for singular extension (lower/exact bound only)
     let mut tt_se_depth = 0u8; // TT entry depth for SE eligibility check
 
-    if let Some(diagnostics) = state.diagnostics.as_deref() {
-        diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
-    }
-    if let Some(entry) = state.tt.probe(hash) {
-        if let Some(diagnostics) = state.diagnostics.as_deref() {
-            diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
-        }
+    if let Some(entry) = probe_tt_for_search(state, hash) {
         let adj = score_from_tt(entry.score, ply);
         tt_mv = entry.mv;
         tt_se_depth = entry.depth;
@@ -1649,22 +1824,47 @@ fn alpha_beta(
         }
     }
 
-    let mut move_buffer = MoveBuffer::legal_with_in_check(board, in_check);
-    if move_buffer.is_empty() {
-        return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
-    }
-
     let killers = state.killers.get(ply as usize);
-    order_moves_in_place(
-        board,
-        move_buffer.as_mut_list().as_mut_slice(),
-        tt_mv,
-        killers,
-        countermove,
-        &state.history,
-        stm,
-        state.diagnostics.as_deref(),
-    );
+    let mut move_buffer = {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.movegen_order_ns),
+        );
+        let mut move_buffer = {
+            let _generate_timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.movegen_generate_ns),
+            );
+            MoveBuffer::legal_with_in_check(board, in_check)
+        };
+        if move_buffer.is_empty() {
+            return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
+        }
+
+        {
+            let _order_timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.move_order_ns),
+            );
+            order_moves_in_place(
+                board,
+                move_buffer.as_mut_list().as_mut_slice(),
+                tt_mv,
+                killers,
+                countermove,
+                &state.history,
+                stm,
+                state.diagnostics.as_deref(),
+            );
+        }
+        move_buffer
+    };
 
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
     if let Some(skip) = skip_move {
@@ -2050,6 +2250,15 @@ fn quiescence(
     known_in_check: Option<bool>,
     history: &PositionHistory,
 ) -> i32 {
+    let _quiescence_timer = ProfileTimer::new(
+        state
+            .diagnostics
+            .as_deref()
+            .map(|diagnostics| &diagnostics.quiescence_inclusive_ns),
+    );
+    if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+    }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
     }
@@ -2077,7 +2286,7 @@ fn quiescence(
     let hash = board.hash();
     let mut tt_mv = None;
     if qply == 0
-        && let Some(entry) = state.tt.probe(hash)
+        && let Some(entry) = probe_tt_for_search(state, hash)
         && entry.depth == 0
     {
         let adj = score_from_tt(entry.score, ply);
@@ -2112,7 +2321,8 @@ fn quiescence(
         let stand_pat = evaluate_for_search(state, board);
         if stand_pat >= beta {
             if qply == 0 && !state.budget.should_abort() {
-                state.tt.store(
+                store_tt_for_search(
+                    state,
                     hash,
                     TtEntry {
                         score: score_to_tt(stand_pat, ply),
@@ -2132,7 +2342,8 @@ fn quiescence(
         const DELTA_MARGIN: i32 = 1_800;
         if stand_pat + DELTA_MARGIN < alpha {
             if qply == 0 && !state.budget.should_abort() {
-                state.tt.store(
+                store_tt_for_search(
+                    state,
                     hash,
                     TtEntry {
                         score: score_to_tt(alpha, ply),
@@ -2146,10 +2357,44 @@ fn quiescence(
         }
     }
 
-    let mut move_buffer = if in_check {
-        MoveBuffer::legal_with_in_check(board, true) // must escape check; all legal moves required
-    } else {
-        MoveBuffer::captures_with_in_check(board, false)
+    let move_buffer = {
+        let _timer = ProfileTimer::new(
+            state
+                .diagnostics
+                .as_deref()
+                .map(|diagnostics| &diagnostics.movegen_order_ns),
+        );
+        let mut move_buffer = {
+            let _generate_timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.movegen_generate_ns),
+            );
+            if in_check {
+                MoveBuffer::legal_with_in_check(board, true) // must escape check; all legal moves required
+            } else {
+                MoveBuffer::captures_with_in_check(board, false)
+            }
+        };
+        // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
+        // per node (qsearch is the hottest path); the coarse capture ordering is
+        // plenty for quiescence and keeps each node fast enough to respect the clock.
+        {
+            let _order_timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.move_order_ns),
+            );
+            move_buffer.as_mut_list().sort_by_cached_key(|&m| {
+                (
+                    if Some(m) == tt_mv { 0 } else { 1 },
+                    -qsearch_order_key(board, m),
+                )
+            });
+        }
+        move_buffer
     };
 
     if move_buffer.is_empty() {
@@ -2159,7 +2404,8 @@ fn quiescence(
             alpha
         };
         if qply == 0 && !state.budget.should_abort() {
-            state.tt.store(
+            store_tt_for_search(
+                state,
                 hash,
                 TtEntry {
                     score: score_to_tt(score, ply),
@@ -2175,16 +2421,6 @@ fn quiescence(
         }
         return score;
     }
-
-    // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
-    // per node (qsearch is the hottest path); the coarse capture ordering is
-    // plenty for quiescence and keeps each node fast enough to respect the clock.
-    move_buffer.as_mut_list().sort_by_cached_key(|&m| {
-        (
-            if Some(m) == tt_mv { 0 } else { 1 },
-            -qsearch_order_key(board, m),
-        )
-    });
 
     let mut best_move = None;
     for &m in move_buffer.as_slice() {
@@ -2209,7 +2445,8 @@ fn quiescence(
         }
         if score >= beta {
             if qply == 0 && !state.budget.should_abort() {
-                state.tt.store(
+                store_tt_for_search(
+                    state,
                     hash,
                     TtEntry {
                         score: score_to_tt(score, ply),
@@ -2233,10 +2470,35 @@ fn quiescence(
     if !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
-        let mut qchecks = MoveBuffer::legal_with_in_check(board, false);
-        qchecks
-            .as_mut_list()
-            .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
+        let qchecks = {
+            let _timer = ProfileTimer::new(
+                state
+                    .diagnostics
+                    .as_deref()
+                    .map(|diagnostics| &diagnostics.movegen_order_ns),
+            );
+            let mut qchecks = {
+                let _generate_timer = ProfileTimer::new(
+                    state
+                        .diagnostics
+                        .as_deref()
+                        .map(|diagnostics| &diagnostics.movegen_generate_ns),
+                );
+                MoveBuffer::legal_with_in_check(board, false)
+            };
+            {
+                let _order_timer = ProfileTimer::new(
+                    state
+                        .diagnostics
+                        .as_deref()
+                        .map(|diagnostics| &diagnostics.move_order_ns),
+                );
+                qchecks
+                    .as_mut_list()
+                    .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
+            }
+            qchecks
+        };
         for &m in qchecks.as_slice() {
             // Skip captures — already handled above
             if m.from.is_some() && board.piece_at(m.to).is_some() {
@@ -2283,7 +2545,8 @@ fn quiescence(
             }
             if score >= beta {
                 if !state.budget.should_abort() {
-                    state.tt.store(
+                    store_tt_for_search(
+                        state,
                         hash,
                         TtEntry {
                             score: score_to_tt(score, ply),
@@ -2307,7 +2570,8 @@ fn quiescence(
     }
 
     if qply == 0 && !state.budget.should_abort() {
-        state.tt.store(
+        store_tt_for_search(
+            state,
             hash,
             TtEntry {
                 score: score_to_tt(alpha, ply),
@@ -2657,7 +2921,8 @@ fn store_tt(
     if skip_move.is_some() {
         return;
     }
-    state.tt.store(
+    store_tt_for_search(
+        state,
         hash,
         TtEntry {
             score: score_to_tt(score, ply),
@@ -2870,6 +3135,8 @@ fn order_moves_in_place(
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
     let mut key = |m: &Move| {
+        let _score_timer =
+            ProfileTimer::new(diagnostics.map(|diagnostics| &diagnostics.move_order_score_ns));
         let m = *m;
         if tt_mv.is_some_and(|t| t == m) {
             if let Some(d) = diagnostics {
@@ -2915,6 +3182,8 @@ fn order_moves_in_place(
         }
         -(-8_000 + history.get(stm, m.piece_kind, m.to))
     };
+    let _sort_timer =
+        ProfileTimer::new(diagnostics.map(|diagnostics| &diagnostics.move_order_sort_ns));
     if moves.len() <= 64 {
         sort_by_cached_i32_key_small(moves, &mut key);
     } else {
@@ -3192,6 +3461,29 @@ mod see_tests {
     }
 
     #[test]
+    fn small_cached_key_sort_is_stable_and_scores_each_move_once() {
+        let mut moves = vec![
+            Move::drop(Square::from_index(3), PieceKind::Fu),
+            Move::drop(Square::from_index(1), PieceKind::Fu),
+            Move::drop(Square::from_index(2), PieceKind::Fu),
+            Move::drop(Square::from_index(0), PieceKind::Fu),
+        ];
+        let expected = vec![moves[1], moves[3], moves[0], moves[2]];
+        let mut calls = 0;
+        sort_by_cached_i32_key_small(&mut moves, &mut |mv| {
+            calls += 1;
+            if mv.to == Square::from_index(1) || mv.to == Square::from_index(0) {
+                0
+            } else {
+                1
+            }
+        });
+
+        assert_eq!(calls, 4);
+        assert_eq!(moves, expected);
+    }
+
+    #[test]
     fn diagnostics_observer_records_search_path_without_changing_result() {
         let diagnostics = Arc::new(SearchDiagnostics::new());
         let searcher = Searcher::with_diagnostics(Tt::new(1), diagnostics.clone());
@@ -3211,6 +3503,17 @@ mod see_tests {
         let snapshot = diagnostics.snapshot();
         assert!(snapshot.tt_probes > 0);
         assert!(snapshot.tt_hits <= snapshot.tt_probes);
+        assert!(snapshot.tt_stores > 0);
+        assert!(snapshot.alpha_beta_calls > 0);
+        assert!(snapshot.quiescence_calls > 0);
+        assert!(snapshot.static_evaluation_ns > 0);
+        assert!(snapshot.tt_probe_ns > 0);
+        assert!(snapshot.tt_store_ns > 0);
+        assert!(snapshot.movegen_order_ns > 0);
+        assert!(snapshot.movegen_generate_ns > 0);
+        assert!(snapshot.move_order_ns > 0);
+        assert!(snapshot.quiescence_inclusive_ns > 0);
+        assert!(snapshot.root_mate_safety_ns > 0);
         assert!(
             snapshot.order_tt
                 + snapshot.order_killer

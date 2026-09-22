@@ -15,6 +15,8 @@ serde_json = "1"
 
 [features]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
+nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
+nnue_l2_64 = ["sekirei-core/nnue_l2_64"]
 
 [dev-dependencies]
 criterion = { version = "0.8", features = ["html_reports"] }

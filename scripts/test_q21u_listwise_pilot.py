@@ -11,6 +11,24 @@ import run_q21u_validation_screen as validation
 
 
 class Q21uTests(unittest.TestCase):
+    def test_validation_phase_contract_accepts_q21x_without_weakening_q21u(self) -> None:
+        self.assertEqual(
+            validation.phase_contract({"schema": validation.PREREG_SCHEMA}),
+            ("q21u", "frozen_before_depth7_labels_and_validation_screen"),
+        )
+        self.assertEqual(
+            validation.phase_contract({"schema": validation.Q21X_PREREG_SCHEMA}),
+            ("q21x", "frozen_before_holdout_labels"),
+        )
+        self.assertEqual(
+            validation.phase_contract({"schema": validation.Q28_PREREG_SCHEMA}),
+            ("q28", "frozen_before_holdout_labels"),
+        )
+        self.assertEqual(
+            validation.phase_contract({"schema": validation.Q29_PREREG_SCHEMA}),
+            ("q29", "frozen_before_holdout_labels"),
+        )
+
     def test_softmax_is_normalized_and_monotonic(self) -> None:
         values = prepare.softmax({"a": 100, "b": 0, "c": -100}, 400)
         self.assertAlmostEqual(sum(values.values()), 1.0)

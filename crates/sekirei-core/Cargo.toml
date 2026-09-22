@@ -11,6 +11,10 @@ rayon = "1"
 
 [features]
 king_relative_b_small = []
+nnue_l1_384 = []
+nnue_l1_128 = []
+nnue_l2_64 = []
+nnue_l2_16 = []
 
 [lib]
 name = "sekirei_core"
@@ -26,6 +30,10 @@ path = "src/bin/position_classifier.rs"
 [[bin]]
 name = "sekirei-legal-moves"
 path = "src/bin/legal_moves.rs"
+
+[[bin]]
+name = "sekirei-rule-probe"
+path = "src/bin/rule_probe.rs"
 
 [lints.rust]
 missing_docs = "warn"

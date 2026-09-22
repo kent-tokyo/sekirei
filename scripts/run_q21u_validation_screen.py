@@ -14,6 +14,22 @@ import run_q21t_top_choice_pilot as q21t
 
 
 PREREG_SCHEMA = "sekirei.q21u-listwise-validation-preregistration.v1"
+Q21X_PREREG_SCHEMA = "sekirei.q21x-holdout-preregistration.v1"
+Q28_PREREG_SCHEMA = "sekirei.q28-holdout-preregistration.v1"
+Q29_PREREG_SCHEMA = "sekirei.q29-holdout-preregistration.v1"
+
+
+def phase_contract(prereg: dict[str, Any]) -> tuple[str, str]:
+    schema = prereg.get("schema")
+    if schema == PREREG_SCHEMA:
+        return "q21u", "frozen_before_depth7_labels_and_validation_screen"
+    if schema == Q21X_PREREG_SCHEMA:
+        return "q21x", "frozen_before_holdout_labels"
+    if schema == Q28_PREREG_SCHEMA:
+        return "q28", "frozen_before_holdout_labels"
+    if schema == Q29_PREREG_SCHEMA:
+        return "q29", "frozen_before_holdout_labels"
+    raise ValueError("unexpected validation preregistration")
 
 
 def bind(path: Path) -> dict[str, str]:
@@ -127,10 +143,10 @@ def teacher_tables(
 def run(args: argparse.Namespace) -> dict[str, Any]:
     prereg = q21t.read(args.preregistration)
     pairs = q21t.read(args.validation_pairs)
+    phase, expected_status = phase_contract(prereg)
     require(
-        prereg.get("schema") == PREREG_SCHEMA
-        and prereg.get("status") == "frozen_before_depth7_labels_and_validation_screen",
-        "unexpected Q21u validation preregistration",
+        prereg.get("status") == expected_status,
+        f"unexpected {phase} validation preregistration status",
     )
     for name, path in (
         ("engine", args.engine),
@@ -149,7 +165,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
     plan = {
-        "schema": "sekirei.q21u-same-time-plan.v1",
+        "schema": f"sekirei.{phase}-same-time-plan.v1",
         "status": "frozen_before_same_time_measurement",
         "diagnostic_only": True,
         "strength_claim": False,
@@ -165,7 +181,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "threads": 1,
             "spec_top_n": 0,
             "cold_process_per_search": True,
-            "arms": {"candidate": "Q21u frozen candidate", "material": "no weights"},
+            "arms": {"candidate": f"{phase.upper()} frozen candidate", "material": "no weights"},
             "repeat_order": ["candidate,material", "material,candidate"],
             "stability_requirement": "each arm must choose one identical move in both repeats",
             "mate_like_fallback": (
@@ -275,7 +291,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         ),
     }
     measurements_document = {
-        "schema": "sekirei.q21u-same-time-measurements.v1",
+        "schema": f"sekirei.{phase}-same-time-measurements.v1",
         "status": "complete",
         "diagnostic_only": True,
         "strength_claim": False,
@@ -289,13 +305,15 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     same_time_pass = all(same_time_conditions.values())
     passed = static_pass and same_time_pass
     decision = {
-        "schema": "sekirei.q21u-listwise-validation-decision.v1",
+        "schema": f"sekirei.{phase}-listwise-validation-decision.v1",
         "status": "pass" if passed else "fail",
         "diagnostic_only": True,
         "strength_claim": False,
         "experiment_complete": True,
         "candidate_adopted": False,
-        "development_match_authorized": passed,
+        "development_match_authorized": passed if phase == "q21u" else False,
+        "q21y_authorized": passed if phase == "q21x" else False,
+        "q27_authorized": passed if phase in {"q28", "q29"} else False,
         "q20_authorized": False,
         "static": {
             **static,
@@ -305,9 +323,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         },
         "same_time": {**same_time, "conditions": same_time_conditions, "pass": same_time_pass},
         "next_action": (
-            "run only the preregistered 32-game development match"
+            (
+                "continue to Q21y capacity-only comparison"
+                if phase == "q21x"
+                else ("run the preregistered Q27 32-game candidate-versus-material screen" if phase in {"q28", "q29"} else "run only the preregistered 32-game development match")
+            )
             if passed
-            else "reject the Q21u candidate; do not run the development match or Q20"
+            else f"reject the {phase.upper()} candidate; do not run the development match or Q20"
         ),
         "artifacts": {
             name: bind(path)
@@ -326,7 +348,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     }
     q21t.atomic_write(args.output_dir / "decision.json", decision)
     report = [
-        "# Q21u listwise validation screen",
+        f"# {phase.upper()} listwise validation screen",
         "",
         "This is a diagnostic screen on a fresh holdout, not a strength result.",
         "",
@@ -339,7 +361,8 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         f"- Same-time mean regret, candidate/material: "
         f"{same_time['candidate']['mean_direct_top_regret_cp']:.3f} / "
         f"{same_time['material']['mean_direct_top_regret_cp']:.3f} cp.",
-        f"- Development match authorized: {passed}.",
+        f"- Development match authorized: {decision['development_match_authorized']}.",
+        f"- Q27 authorized: {decision['q27_authorized']}.",
         "- Q20 remains unauthorized.",
         "",
     ]

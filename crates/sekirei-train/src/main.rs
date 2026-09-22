@@ -71,6 +71,47 @@ enum RankingObjective {
     ListwiseSoftmax,
 }
 
+/// How much a pairwise root-ranking update trusts an external teacher gap.
+///
+/// `Uniform` preserves the historical behavior. `CappedTeacherGap` is an
+/// explicit diagnostic mode: ordinary centipawn pairs are weighted by their
+/// teacher gap up to one listwise-temperature (400cp), while mate ordinals
+/// remain unit-weighted because they deliberately have no fabricated cp unit.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum RankingPairWeighting {
+    Uniform,
+    CappedTeacherGap,
+}
+
+impl RankingPairWeighting {
+    fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "uniform" => Ok(Self::Uniform),
+            "capped-teacher-gap" => Ok(Self::CappedTeacherGap),
+            _ => Err(format!(
+                "unknown --ranking-pair-weighting {value:?}; expected uniform or capped-teacher-gap"
+            )),
+        }
+    }
+
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Uniform => "uniform",
+            Self::CappedTeacherGap => "capped-teacher-gap",
+        }
+    }
+
+    fn weight(self, teacher_margin: i32, label_kind: RankingLabelKind) -> f32 {
+        if label_kind != RankingLabelKind::Centipawn {
+            return 1.0;
+        }
+        match self {
+            Self::CappedTeacherGap => (teacher_margin as f32 / 400.0).clamp(0.05, 1.0),
+            Self::Uniform => 1.0,
+        }
+    }
+}
+
 impl RankingObjective {
     fn parse(value: &str) -> Result<Self, String> {
         match value {
@@ -131,6 +172,7 @@ struct Args {
     ranking_batch_pairs: usize, // --ranking-batch-pairs (default 1 preserves pair-step semantics)
     ranking_parent_balanced: bool, // --ranking-parent-balanced (one averaged update per parent)
     ranking_objective: RankingObjective,
+    ranking_pair_weighting: RankingPairWeighting,
     ranking_temperature_cp: f32,
     output: PathBuf,
     epochs: usize,
@@ -368,7 +410,27 @@ struct RankingPairRecord {
     source: Option<serde_json::Value>,
     higher_move_usi: String,
     lower_move_usi: String,
-    teacher_score_gap_cp: i32,
+    /// Centipawn gaps are meaningful only for `centipawn` labels. A mate
+    /// result must never be encoded as an invented centipawn value.
+    #[serde(default)]
+    teacher_score_gap_cp: Option<i32>,
+    #[serde(default = "default_ranking_label_kind")]
+    label_kind: RankingLabelKind,
+    /// Strict ordinal margin for a mate-derived pair; it has no cp unit.
+    #[serde(default)]
+    teacher_order_margin: Option<u8>,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "snake_case")]
+enum RankingLabelKind {
+    Centipawn,
+    MateOrdinal,
+    TerminalOrdinal,
+}
+
+fn default_ranking_label_kind() -> RankingLabelKind {
+    RankingLabelKind::Centipawn
 }
 
 type LoadedRankingPair = (
@@ -377,8 +439,15 @@ type LoadedRankingPair = (
     sekirei_core::mv::Move,
     sekirei_core::mv::Move,
     i32,
+    RankingLabelKind,
 );
-type ParentRankingPair = (Board, sekirei_core::mv::Move, sekirei_core::mv::Move, i32);
+type ParentRankingPair = (
+    Board,
+    sekirei_core::mv::Move,
+    sekirei_core::mv::Move,
+    i32,
+    RankingLabelKind,
+);
 
 fn load_ranking_pairs(path: &Path) -> Result<Vec<LoadedRankingPair>, String> {
     let text = fs::read_to_string(path)
@@ -446,17 +515,33 @@ fn load_ranking_pairs(path: &Path) -> Result<Vec<LoadedRankingPair>, String> {
         .map(|(index, pair)| {
             let label = format!("ranking pair {index} ({})", pair.parent_id);
             let _source = &pair.source;
-            if pair.category.is_empty()
-                || pair.parent_id.is_empty()
-                || pair.teacher_score_gap_cp <= 0
-                || pair.teacher_score_gap_cp
-                    > input
-                        .source_contract
-                        .normal_score_abs_max_cp
-                        .saturating_mul(2)
-            {
+            if pair.category.is_empty() || pair.parent_id.is_empty() {
                 return Err(format!("{label}: non-strict or incomplete pair"));
             }
+            let margin = match pair.label_kind {
+                RankingLabelKind::Centipawn => {
+                    let Some(gap) = pair.teacher_score_gap_cp else {
+                        return Err(format!("{label}: centipawn label lacks a cp gap"));
+                    };
+                    if gap <= 0
+                        || gap
+                            > input
+                                .source_contract
+                                .normal_score_abs_max_cp
+                                .saturating_mul(2)
+                        || pair.teacher_order_margin.is_some()
+                    {
+                        return Err(format!("{label}: invalid centipawn label"));
+                    }
+                    gap
+                }
+                RankingLabelKind::MateOrdinal | RankingLabelKind::TerminalOrdinal => {
+                    if pair.teacher_score_gap_cp.is_some() || pair.teacher_order_margin != Some(1) {
+                        return Err(format!("{label}: invalid mate ordinal label"));
+                    }
+                    1
+                }
+            };
             let mut board = Board::from_sfen(&pair.initial_sfen)
                 .map_err(|error| format!("{label}: invalid initial SFEN: {error}"))?;
             for move_usi in &pair.history_before_usi {
@@ -474,7 +559,7 @@ fn load_ranking_pairs(path: &Path) -> Result<Vec<LoadedRankingPair>, String> {
             if high == low {
                 return Err(format!("{label}: moves must be distinct"));
             }
-            Ok((pair.parent_id, board, high, low, pair.teacher_score_gap_cp))
+            Ok((pair.parent_id, board, high, low, margin, pair.label_kind))
         })
         .collect()
 }
@@ -482,7 +567,7 @@ fn load_ranking_pairs(path: &Path) -> Result<Vec<LoadedRankingPair>, String> {
 fn listwise_choices(
     pairs: &[ParentRankingPair],
 ) -> Result<(Board, Vec<(sekirei_core::mv::Move, f32)>), String> {
-    let (first_board, _, _, _) = pairs
+    let (first_board, _, _, _, _) = pairs
         .first()
         .ok_or_else(|| "listwise parent has no pairs".to_string())?;
     let expected_sfen = board_to_sfen(first_board);
@@ -497,7 +582,10 @@ fn listwise_choices(
         }
         Ok(())
     };
-    for (board, higher, lower, gap) in pairs {
+    for (board, higher, lower, gap, label_kind) in pairs {
+        if *label_kind != RankingLabelKind::Centipawn {
+            return Err("listwise parent cannot use mate ordinal labels".to_string());
+        }
         if board_to_sfen(board) != expected_sfen {
             return Err("listwise parent group contains different boards".to_string());
         }
@@ -595,6 +683,7 @@ fn parse_args() -> Result<Args, String> {
     let mut ranking_batch_pairs = 1usize;
     let mut ranking_parent_balanced = false;
     let mut ranking_objective = RankingObjective::Pairwise;
+    let mut ranking_pair_weighting = RankingPairWeighting::Uniform;
     let mut ranking_temperature_cp = 400.0f32;
     let mut output = PathBuf::from("weights.bin");
     let mut epochs = 3usize;
@@ -711,6 +800,10 @@ fn parse_args() -> Result<Args, String> {
             "--ranking-objective" => {
                 let value: String = next_value(&argv, &mut i, "--ranking-objective")?;
                 ranking_objective = RankingObjective::parse(&value)?;
+            }
+            "--ranking-pair-weighting" => {
+                let value: String = next_value(&argv, &mut i, "--ranking-pair-weighting")?;
+                ranking_pair_weighting = RankingPairWeighting::parse(&value)?;
             }
             "--ranking-temperature-cp" => {
                 ranking_temperature_cp = next_value(&argv, &mut i, "--ranking-temperature-cp")?;
@@ -1239,6 +1332,13 @@ fn parse_args() -> Result<Args, String> {
                     .to_string(),
             );
         }
+        if ranking_objective != RankingObjective::Pairwise
+            && ranking_pair_weighting != RankingPairWeighting::Uniform
+        {
+            return Err(
+                "--ranking-pair-weighting applies only to --ranking-objective pairwise".to_string(),
+            );
+        }
     }
     let epochs_u32 = u32::try_from(epochs)
         .map_err(|_| "--epochs exceeds the supported u32 range".to_string())?;
@@ -1255,6 +1355,7 @@ fn parse_args() -> Result<Args, String> {
         ranking_batch_pairs,
         ranking_parent_balanced,
         ranking_objective,
+        ranking_pair_weighting,
         ranking_temperature_cp,
         output,
         epochs,
@@ -2647,18 +2748,29 @@ fn main() {
         }
         let parent_groups: BTreeMap<String, Vec<_>> = if args.ranking_parent_balanced {
             let mut groups: BTreeMap<String, Vec<_>> = BTreeMap::new();
-            for (parent_id, board, higher, lower, teacher_gap) in &pairs {
+            for (parent_id, board, higher, lower, teacher_gap, label_kind) in &pairs {
                 groups.entry(parent_id.clone()).or_default().push((
                     board.clone(),
                     *higher,
                     *lower,
                     *teacher_gap,
+                    *label_kind,
                 ));
             }
             groups
         } else {
             BTreeMap::new()
         };
+        if args.ranking_objective == RankingObjective::ListwiseSoftmax
+            && pairs
+                .iter()
+                .any(|(_, _, _, _, _, label_kind)| *label_kind != RankingLabelKind::Centipawn)
+        {
+            eprintln!(
+                "error: listwise-softmax does not accept mate ordinal labels; use pairwise or a cp-only corpus"
+            );
+            std::process::exit(1);
+        }
         let (initial, initial_identity) = initial_weights
             .as_ref()
             .expect("--ranking-pairs requires --init-weights during parse");
@@ -2671,8 +2783,9 @@ fn main() {
             NnueOutput::ResidualMaterial => NnueOutputMode::ResidualMaterial,
         };
         eprintln!(
-            "Ranking mode: objective={}, temperature_cp={:.3}, {}/{} strict diagnostic pairs, {} epoch(s), batch={}, parent_balanced={}, parents={}, lr={:.6}",
+            "Ranking mode: objective={}, pair_weighting={}, temperature_cp={:.3}, {}/{} strict diagnostic pairs, {} epoch(s), batch={}, parent_balanced={}, parents={}, lr={:.6}",
             args.ranking_objective.as_str(),
+            args.ranking_pair_weighting.as_str(),
             args.ranking_temperature_cp,
             pairs.len(),
             input_pair_count,
@@ -2706,23 +2819,63 @@ fn main() {
                 }
                 RankingObjective::Pairwise if args.ranking_parent_balanced => {
                     for batch in parent_groups.values() {
-                        let pair_batch: Vec<_> = batch
-                            .iter()
-                            .map(|(board, higher, lower, _)| (board.clone(), *higher, *lower))
-                            .collect();
-                        sum += trainer.train_ranking_batch(&pair_batch, ranking_output_mode) as f64
-                            * pair_batch.len() as f64;
+                        if args.ranking_pair_weighting == RankingPairWeighting::Uniform {
+                            let pair_batch: Vec<_> = batch
+                                .iter()
+                                .map(|(board, higher, lower, _, _)| {
+                                    (board.clone(), *higher, *lower)
+                                })
+                                .collect();
+                            sum += trainer.train_ranking_batch(&pair_batch, ranking_output_mode)
+                                as f64
+                                * pair_batch.len() as f64;
+                        } else {
+                            let pair_batch: Vec<_> = batch
+                                .iter()
+                                .map(|(board, higher, lower, margin, label_kind)| {
+                                    (
+                                        board.clone(),
+                                        *higher,
+                                        *lower,
+                                        args.ranking_pair_weighting.weight(*margin, *label_kind),
+                                    )
+                                })
+                                .collect();
+                            sum += trainer
+                                .train_ranking_batch_weighted(&pair_batch, ranking_output_mode)
+                                as f64
+                                * pair_batch.len() as f64;
+                        }
                     }
                     pairs.len()
                 }
                 RankingObjective::Pairwise => {
                     for chunk in pairs.chunks(args.ranking_batch_pairs) {
-                        let batch: Vec<_> = chunk
-                            .iter()
-                            .map(|(_, board, higher, lower, _)| (board.clone(), *higher, *lower))
-                            .collect();
-                        sum += trainer.train_ranking_batch(&batch, ranking_output_mode) as f64
-                            * batch.len() as f64;
+                        if args.ranking_pair_weighting == RankingPairWeighting::Uniform {
+                            let batch: Vec<_> = chunk
+                                .iter()
+                                .map(|(_, board, higher, lower, _, _)| {
+                                    (board.clone(), *higher, *lower)
+                                })
+                                .collect();
+                            sum += trainer.train_ranking_batch(&batch, ranking_output_mode) as f64
+                                * batch.len() as f64;
+                        } else {
+                            let batch: Vec<_> = chunk
+                                .iter()
+                                .map(|(_, board, higher, lower, margin, label_kind)| {
+                                    (
+                                        board.clone(),
+                                        *higher,
+                                        *lower,
+                                        args.ranking_pair_weighting.weight(*margin, *label_kind),
+                                    )
+                                })
+                                .collect();
+                            sum += trainer.train_ranking_batch_weighted(&batch, ranking_output_mode)
+                                as f64
+                                * batch.len() as f64;
+                        }
                     }
                     pairs.len()
                 }
@@ -2762,6 +2915,7 @@ fn main() {
             "strength_claim": "not_permitted",
             "training_mode": "audited-root-ranking",
             "ranking_objective": args.ranking_objective.as_str(),
+            "ranking_pair_weighting": args.ranking_pair_weighting.as_str(),
             "ranking_temperature_cp": args.ranking_temperature_cp,
             "pairs_path": pair_path,
             "input_pairs": input_pair_count,
@@ -4232,7 +4386,9 @@ mod tests {
         assert_eq!(loaded.len(), 1);
         let parent_pairs: Vec<_> = loaded
             .iter()
-            .map(|(_, board, higher, lower, gap)| (board.clone(), *higher, *lower, *gap))
+            .map(|(_, board, higher, lower, gap, label_kind)| {
+                (board.clone(), *higher, *lower, *gap, *label_kind)
+            })
             .collect();
         let (_, choices) = listwise_choices(&parent_pairs).unwrap();
         assert_eq!(choices.len(), 2);
@@ -4278,6 +4434,44 @@ mod tests {
             }]
         });
         fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        assert!(load_ranking_pairs(&path).is_err());
+    }
+
+    #[test]
+    fn ranking_pair_loader_accepts_only_explicit_mate_ordinal_labels() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("pairs.json");
+        let start = board_to_sfen(&Board::startpos());
+        let document = serde_json::json!({
+            "schema": "sekirei.root-rank-pairs.v1",
+            "diagnostic_only": true,
+            "strength_claim": "not_permitted",
+            "source_contract": {
+                "depth": 3, "threads": 1, "spec_top_n": 0,
+                "root_candidate_mode": "complete_legal_set",
+                "root_candidate_limit": 32, "complete_legal_root_set": true,
+                "per_category_unique_positions": 1, "normal_score_abs_max_cp": 10000
+            },
+            "source_teacher": {
+                "binary": "teacher", "binary_sha256": "a".repeat(64),
+                "weights": "weights", "weights_sha256": "b".repeat(64),
+                "nnue_output": "absolute"
+            },
+            "pairs": [{
+                "parent_id": "start", "category": "opening_control",
+                "initial_sfen": start, "history_before_usi": [],
+                "parent_sfen": board_to_sfen(&Board::startpos()),
+                "higher_move_usi": "7g7f", "lower_move_usi": "2g2f",
+                "label_kind": "mate_ordinal", "teacher_order_margin": 1
+            }]
+        });
+        fs::write(&path, serde_json::to_vec(&document).unwrap()).unwrap();
+        let pairs = load_ranking_pairs(&path).unwrap();
+        assert_eq!(pairs[0].5, RankingLabelKind::MateOrdinal);
+
+        let mut invalid = document;
+        invalid["pairs"][0]["teacher_score_gap_cp"] = serde_json::json!(1);
+        fs::write(&path, serde_json::to_vec(&invalid).unwrap()).unwrap();
         assert!(load_ranking_pairs(&path).is_err());
     }
 

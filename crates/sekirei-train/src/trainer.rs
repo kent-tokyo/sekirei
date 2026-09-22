@@ -2100,6 +2100,60 @@ impl Trainer {
         total_loss / pairs.len() as f32
     }
 
+    /// Weighted variant of [`Self::train_ranking_batch`]. Every pair keeps its
+    /// two child gradients simultaneous; weights only change the contribution
+    /// of complete pairs before the one Adam step. This is used for explicit
+    /// teacher-confidence experiments, never to synthesize a mate centipawn.
+    pub fn train_ranking_batch_weighted(
+        &mut self,
+        pairs: &[(Board, Move, Move, f32)],
+        output_mode: NnueOutputMode,
+    ) -> f32 {
+        assert!(!pairs.is_empty(), "ranking batch must not be empty");
+        let mut gradient = FullGradient::zero();
+        let mut total_loss = 0.0;
+        let mut total_weight = 0.0;
+        for (parent, higher, lower, weight) in pairs {
+            assert_ne!(higher, lower, "ranking pair requires distinct moves");
+            assert!(
+                weight.is_finite() && *weight > 0.0,
+                "ranking pair weight must be positive"
+            );
+            let mut high_board = parent.clone();
+            high_board.do_move(*higher);
+            let mut low_board = parent.clone();
+            low_board.do_move(*lower);
+            let high_cache = forward_cache(&self.weights, &high_board);
+            let low_cache = forward_cache(&self.weights, &low_board);
+            let (loss, high_parent_derivative, low_parent_derivative) =
+                pairwise_logistic_loss_and_gradient(
+                    ranking_parent_score(
+                        high_cache.score,
+                        material_score(&high_board),
+                        output_mode,
+                    ),
+                    ranking_parent_score(low_cache.score, material_score(&low_board), output_mode),
+                );
+            total_loss += loss * *weight;
+            total_weight += *weight;
+            accumulate_full_backward(
+                &self.weights,
+                &high_cache,
+                -high_parent_derivative * *weight,
+                &mut gradient,
+            );
+            accumulate_full_backward(
+                &self.weights,
+                &low_cache,
+                -low_parent_derivative * *weight,
+                &mut gradient,
+            );
+        }
+        gradient.scale(1.0 / total_weight);
+        self.apply_ranking_gradient(&mut gradient);
+        total_loss / total_weight
+    }
+
     /// One parent-balanced listwise update.  Teacher scores may use an
     /// arbitrary additive offset; only their softmax distribution matters.
     pub fn train_listwise_parent(
@@ -4785,6 +4839,31 @@ mod tests {
         assert_eq!(trainer.weights.step, 1);
         assert_ne!(trainer.weights.snapshot_params(), before);
         assert_eq!(parent.hash(), original_hash);
+    }
+
+    #[test]
+    fn uniform_weighted_ranking_batch_matches_unweighted_update() {
+        let parent = Board::startpos();
+        let moves = generate_legal_moves(&mut parent.clone());
+        let pairs = [
+            (parent.clone(), moves[0], moves[1]),
+            (parent, moves[2], moves[3]),
+        ];
+        let weighted = [
+            (pairs[0].0.clone(), pairs[0].1, pairs[0].2, 1.0),
+            (pairs[1].0.clone(), pairs[1].1, pairs[1].2, 1.0),
+        ];
+        let mut unweighted_trainer = Trainer::new(42, 0.5);
+        let mut weighted_trainer = Trainer::new(42, 0.5);
+        let unweighted_loss =
+            unweighted_trainer.train_ranking_batch(&pairs, NnueOutputMode::ResidualMaterial);
+        let weighted_loss = weighted_trainer
+            .train_ranking_batch_weighted(&weighted, NnueOutputMode::ResidualMaterial);
+        assert_eq!(unweighted_loss, weighted_loss);
+        assert_eq!(
+            unweighted_trainer.weights.snapshot_params(),
+            weighted_trainer.weights.snapshot_params()
+        );
     }
 
     #[test]

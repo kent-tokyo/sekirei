@@ -84,15 +84,32 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         "sekirei.q21u-listwise-validation-preregistration.v1": (
             "frozen_before_depth7_labels_and_validation_screen"
         ),
+        "sekirei.q21x-train-preregistration.v1": "frozen_before_train_labels",
+        "sekirei.q21x-holdout-preregistration.v1": "frozen_before_holdout_labels",
+        "sekirei.q28-train-preregistration.v1": "frozen_before_train_labels",
+        "sekirei.q28-holdout-preregistration.v1": "frozen_before_holdout_labels",
+        "sekirei.q29-train-preregistration.v1": "frozen_before_train_labels",
+        "sekirei.q29-holdout-preregistration.v1": "frozen_before_holdout_labels",
+        "sekirei.q30-train-preregistration.v1": "frozen_before_train_labels",
+        "sekirei.q30-holdout-preregistration.v1": "frozen_before_holdout_labels",
     }.get(prereg.get("schema"))
     require(expected_status is not None and prereg.get("status") == expected_status, "unexpected Q21p preregistration")
-    for name, path in (
-        ("corpus", args.corpus),
-        ("shallow_teacher", args.shallow_teacher),
-        ("engine", args.engine),
-        ("weights", args.weights),
-    ):
+    for name, path in (("corpus", args.corpus), ("engine", args.engine), ("weights", args.weights)):
         require(prereg["inputs"][name]["sha256"] == sha256(path), f"{name} SHA mismatch")
+    if "shallow_teacher" in prereg["inputs"]:
+        require(
+            prereg["inputs"]["shallow_teacher"]["sha256"] == sha256(args.shallow_teacher),
+            "shallow_teacher SHA mismatch",
+        )
+    else:
+        require(
+            shallow.get("source_corpus", {}).get("sha256") == sha256(args.corpus)
+            and shallow.get("teacher", {}).get("binary_sha256") == sha256(args.engine)
+            and shallow.get("teacher", {}).get("weights_sha256") == sha256(args.weights)
+            and shallow.get("contract", {}).get("depth") == 3
+            and shallow.get("contract", {}).get("complete_legal_root_set") is True,
+            "Q21x shallow teacher is not a complete depth-3 derivative of the frozen corpus",
+        )
     contract = prereg["candidate_contract"]
     require(args.timeout == prereg["teacher_contract"]["timeout_seconds_per_search"], "timeout differs from preregistration")
     positions = {row["id"]: row for row in corpus["positions"]}
