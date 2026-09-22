@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.42",
+  "commit": "655f37fd03a61c8c41cd8bb48502b9cea47cb7b9",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.42",
+    "sekirei-core": "0.3.42",
+    "sekirei-bench": "0.3.42",
+    "sekirei-csa": "0.3.42",
+    "sekirei-match-runner": "0.3.42",
+    "sekirei-train": "0.3.42"
+  },
+  "dependencies": { "lineprior": "0.11.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "07a6bed3065f4fb971a5bfd56254aea03a5b10d42a4034e34c08d3b71e1b00bd"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode workspace tests, lint, rustdoc, public-contract checks, and all 24 Q21 script tests passed. Q21 diagnostics did not select a new checkpoint; no playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external engine or GUI result is a release criterion or strength claim."
+  },
+  "known_limitations": [
+    "The Q21 corpus, teacher, ranking, and transfer results are diagnostic evidence and did not adopt a new NNUE checkpoint.",
+    "The NNUE accumulation and exact-evaluation-cache changes are component-level improvements, not an overall engine-speed result.",
+    "The optional v0.3.38 checkpoint is unchanged and its current material-baseline strength recommendation remains on hold.",
+    "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented."
+  ]
+}
