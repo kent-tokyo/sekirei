@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.43",
+  "commit": "62b6af5d8cdd182a725aec507a9a1c5460afef31",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.43",
+    "sekirei-core": "0.3.43",
+    "sekirei-bench": "0.3.43",
+    "sekirei-csa": "0.3.43",
+    "sekirei-match-runner": "0.3.43",
+    "sekirei-train": "0.3.43"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "376733e1ea613c4182363d51cfa04621bb020790718ca77fa7f239173330ce75"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 62b6af5. Workspace tests, lint, formatting, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. This release does not select a new NNUE checkpoint or make a playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external engine or GUI result is a release criterion or strength claim."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint was adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The lineprior and shogiesa compatibility checks verify integration, not playing strength.",
+    "External SFNN support is limited to bounded header inspection and provenance/compatibility validation; inference is not implemented."
+  ]
+}
