@@ -1,17 +1,17 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.42-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.42)
+[![Release](https://img.shields.io/badge/release-v0.3.43-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.43)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.42`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.43`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。NNUE推論・cost診断、固定validation入力、監査付きpairwise/listwise
-順位学習を追加しました。新しいcheckpointは採用しておらず、棋力向上の主張は
-行いません。
+含みます。直接依存の`lineprior`を更新し、data scriptをshogiesa 0.10.0で確認、
+ローカルrecordとdashboardのpath処理を強化しました。新しいcheckpointは採用して
+おらず、棋力向上の主張は行いません。
 
 ## まず動かす
 
@@ -32,31 +32,24 @@ cargo run --release -p sekirei
 
 生成された`sekirei`をUSI対応GUIのエンジンとして登録します。checkpointなしでは
 material評価を使います。0.3.38用NNUEは、別管理された任意の公開artifactとして
-0.3.42でも引き続き利用でき、
+0.3.43でも引き続き利用でき、
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin)です。
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-GUIでは`isready`より前に、`EvalFile`へcheckpointの絶対pathを、
-`NnueOutput`へ`absolute`を設定します。model cardには0.3.38当時のpaired gateを
-履歴として残しています。現行engineでのlocal診断では、material評価に対し
-1秒/手で1/32、5秒/手で2/32の得点でした。この少数比較だけで既定評価器は
-切り替えませんが、棋力面での一律推奨は保留します。
-
+GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。
 使用前に[重みartifact card](weights/README.md)でSHA-256とライセンスを検証してください。
-NNUE重みはcrateに同梱せず、MIT/Apache-2.0のソースとCC BY 4.0の重みを分離します。
+0.3.38のgateは同cardに履歴として残しますが、現行local診断のB対materialは
+1秒/手で1/32、5秒/手で2/32であり、一律の棋力推奨はしません。NNUE重みは
+CC BY 4.0の別artifactです。
 
 ## 主な機能
 
-- 合法手生成、成り、駒打ち、SFEN、USI表記を含む将棋ルール。
-- 反復深化alpha-beta/PVS、静止探索、枝刈り、手順序、lock-free TT。
-- 任意の投機探索とLazy SMP。決定的診断では`SpecTopN=0`、`Threads=1`を使用。
-- 差分更新NNUE評価と再現可能な学習pipeline。
-- 上限付きroot MCTSとdf-pn詰み探索API。いずれも実験機能で、棋力主張ではありません。
-- CSA v2.2/Floodgate対局とUSI同士のmatch runner。
-- coreの探索・評価に`unsafe`を使わないPure Rust実装。
+- 将棋ルール、SFEN/USI表記、alpha-beta/PVS、静止探索、手順序、lock-free TT。
+- 任意の投機探索、Lazy SMP、NNUE学習、MCTS、df-pn。実験modeは棋力主張ではありません。
+- CSA/Floodgate・USI対局tool。coreの探索・評価に`unsafe`を使わないPure Rust実装。
 
 | コマンド | package | 用途 |
 |---|---|---|
@@ -67,13 +60,9 @@ NNUE重みはcrateに同梱せず、MIT/Apache-2.0のソースとCC BY 4.0の重
 
 ## エンジン設定
 
-USIの`usi`コマンドで全optionを表示します。主なoptionは`Hash`、`Threads`、
-`MoveOverhead`、`Ponder`、`MultiPV`、`EvalFile`、`NnueResidualScalePermille`、
-`SearchMode`、`SpecTopN`、定跡関連です。
-
-既定は`SearchMode=Speculative`で、並列modeは結果が揺れる場合があります。決定論的な
-確認では`Threads=1`、`SpecTopN=0`を使います。重みの検証、format、外部SFNNの
-限定的な対応範囲は[NNUE重み](docs/nnue_weights.md)に集約しています。
+USIの`usi`で全optionを表示します。決定論的な診断は`Threads=1`、`SpecTopN=0`で
+実行します。投機並列modeはscheduleにより揺れる場合があります。重みの検証、format、
+外部SFNNの範囲は[NNUE重み](docs/nnue_weights.md)を参照してください。
 
 ## Buildと検証
 
@@ -99,8 +88,9 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、各手の探索値、重複情報を保存します。
-同一engine自己対局は学習・回帰用であり、Elo測定ではありません。
+Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、探索値、重複情報を保存します。
+通常収集には`--weights`と`--positions`が必要です。同一engine自己対局は学習・回帰用で、
+Elo測定ではありません。
 
 `sekirei-csa`はCSA/Floodgate対局に対応します。認証情報は実行時に注入し、認証情報、
 棋譜、生成重み、学習dataをcommitしないでください。
@@ -110,9 +100,9 @@ Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、各手の探索値、�
 
 ## NNUE学習
 
-学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。再現可能なrecipe、
-診断、resume toolingは[scripts索引](scripts/README.md)に集約し、生成artifactはGit外に
-保持します。
+学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。このcheckoutは
+`lineprior 0.12.0`を固定し、外部data scriptは`shogiesa 0.10.0`で確認しています。
+recipeとresume toolingは[scripts索引](scripts/README.md)を参照し、生成artifactはGit外に保持します。
 
 ## 文書
 
@@ -127,10 +117,9 @@ Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、各手の探索値、�
 
 ## ライセンスと帰属表示
 
-source codeは利用者の選択により[MIT](LICENSE-MIT)または
-[Apache-2.0](LICENSE-APACHE)で利用できます。[NOTICE](NOTICE)にあるSekireiと
-Kentaro Tanabeの著作権・帰属表示を保持してください。NNUE重みは別成果物として
-CC BY 4.0でlicenseします。詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
+source codeは[MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE)です。
+[NOTICE](NOTICE)の帰属表示を保持してください。NNUE重みはCC BY 4.0の別成果物です。
+詳細は[NNUE-LICENSE.md](NNUE-LICENSE.md)を参照してください。
 
 推奨表示：
 

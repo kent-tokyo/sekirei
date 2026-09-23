@@ -6,10 +6,15 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
-- Condensed the public documentation and script index, refreshed the NNUE
-  format/compatibility boundary, and marked historical design records as such.
-  This documentation work does not publish a checkpoint or make a new
-  playing-strength claim.
+## [0.3.43] – 2026-09-23
+
+- Updated the direct `lineprior` dependency to 0.12.0 and verified the
+  external data scripts with `shogiesa` 0.10.0.
+- Hardened CSA record names and dashboard path handling; credentials no longer
+  pass through the generic protocol logger. These changes do not publish a
+  checkpoint or make a new playing-strength claim.
+- Condensed public guidance and retained detailed historical evidence in the
+  changelog archive and dated experiment records.
 
 ## [0.3.42] – 2026-09-22
 

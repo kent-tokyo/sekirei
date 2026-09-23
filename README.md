@@ -1,17 +1,17 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.42-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.42)
+[![Release](https://img.shields.io/badge/release-v0.3.43-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.43)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.42`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.43`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. It adds NNUE inference/cost diagnostics, frozen validation inputs, and
-audited pairwise/listwise ranking experiments. No new checkpoint was adopted,
-and these diagnostics are not a playing-strength claim.
+library. It updates the direct `lineprior` dependency, verifies the data scripts
+with shogiesa 0.10.0, and hardens local record and dashboard path handling. No
+new checkpoint was adopted, and this release makes no playing-strength claim.
 
 ## Quick start
 
@@ -39,30 +39,20 @@ checkpoint remains available as a separately versioned optional artifact at
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-For a GUI, set `EvalFile` to the absolute checkpoint path and
-`NnueOutput=absolute` before `isready`. Its historical v0.3.38 paired gate is
-retained in the model card. A current-engine local diagnostic found B scored
-1/32 at 1 second per move and 2/32 at 5 seconds per move against material-only
-evaluation. This small comparison is not a formal default-selection gate, but
-it keeps the blanket strength recommendation on hold.
-
-Verify the SHA-256 and license in [the weight artifact card](weights/README.md)
-before use. NNUE weights are not bundled with the crate; this keeps the
-MIT/Apache source package and CC BY 4.0 model artifact separate.
+For a GUI, set `EvalFile` and `NnueOutput=absolute` before `isready`.
+Verify the SHA-256 and license in [the weight artifact card](weights/README.md).
+The historical gate is recorded there; a current local B-vs-material diagnostic
+(1/32 at 1 second and 2/32 at 5 seconds) does not support a blanket strength
+recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
 
 ## What is included
 
-- Complete shogi rules, legal move generation, drops, promotions, SFEN, and
-  USI move notation.
-- Iterative-deepening alpha-beta/PVS search, quiescence search, pruning,
-  move ordering, and a lock-free transposition table.
-- Optional speculative search and Lazy SMP. Use `SpecTopN=0`, `Threads=1`
-  for deterministic diagnostics.
-- Incrementally updated NNUE-style evaluation and a reproducible trainer.
-- Opt-in bounded root MCTS and df-pn mate-search APIs. These are experimental
-  capabilities, not strength claims.
-- CSA v2.2/Floodgate play and USI-vs-USI match tooling.
-- Pure Rust core search and evaluation code with no `unsafe` blocks.
+- Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence, ordering, and a
+  lock-free TT.
+- Optional speculative search, Lazy SMP, NNUE evaluation/training, MCTS, and
+  df-pn. Experimental modes are capabilities, not strength claims.
+- CSA/Floodgate and USI match tooling; core search/evaluation is Pure Rust
+  with no `unsafe`.
 
 Workspace binaries:
 
@@ -75,15 +65,10 @@ Workspace binaries:
 
 ## Engine configuration
 
-The engine reports its complete option list after the USI `usi` command. The
-main options are `Hash`, `Threads`, `MoveOverhead`, `Ponder`, `MultiPV`,
-`EvalFile`, `NnueResidualScalePermille`, `SearchMode`, `SpecTopN`, and the
-opening-book options.
-
-`SearchMode=Speculative` is the default; parallel modes may be
-nondeterministic. Use `Threads=1` and `SpecTopN=0` for deterministic checks.
-Weight validation, model format, and the limited external-SFNN boundary are
-documented in [NNUE weights](docs/nnue_weights.md).
+The `usi` command lists all options. For deterministic diagnostics use
+`Threads=1` and `SpecTopN=0`; speculative parallel modes may vary by schedule.
+Weight validation, format, and the external-SFNN boundary are in
+[NNUE weights](docs/nnue_weights.md).
 
 ## Build and verify
 
@@ -109,12 +94,9 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Each run stores a manifest, kifu, CSA, per-move search data, and deduplication
-metadata below ignored `data/runs/`. Same-engine self-play is training and
-regression data, not an Elo claim. The collector rejects an unspecified
-evaluator or opening source: a normal run requires both `--weights` and
-`--positions`. `--material-only --startpos-smoke` is available only for up to
-two explicit smoke games and is never NNUE or strength evidence.
+Runs save a manifest, kifu, CSA, search data, and deduplication metadata under
+ignored `data/runs/`. Normal collection requires `--weights` and `--positions`.
+Same-engine self-play is training/regression data, not an Elo claim.
 
 `sekirei-csa` provides CSA/Floodgate play. Inject credentials at runtime and
 never commit credentials, game records, generated weights, or training data.
@@ -126,9 +108,9 @@ human rating. Statistical gates distinguish `PASS`, `FAIL`, and
 ## NNUE training
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
-Reproducible recipes, diagnostics, and resume tooling are indexed in
-[scripts/README.md](scripts/README.md); generated training artifacts remain
-outside Git.
+This checkout pins `lineprior 0.12.0`; its external data scripts are verified
+with `shogiesa 0.10.0`. Recipes and resume tooling are indexed in
+[scripts/README.md](scripts/README.md); generated artifacts stay outside Git.
 
 ## Documentation
 
@@ -145,10 +127,8 @@ revalidated.
 
 ## License and attribution
 
-Source code is available under [MIT](LICENSE-MIT) or
-[Apache-2.0](LICENSE-APACHE), at your option. Retain [NOTICE](NOTICE), which
-contains the Sekirei and Kentaro Tanabe attribution. NNUE weight files are
-separate artifacts licensed under CC BY 4.0; see
+Source code is [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE); retain
+[NOTICE](NOTICE). NNUE files are separate CC BY 4.0 artifacts; see
 [NNUE-LICENSE.md](NNUE-LICENSE.md).
 
 Recommended attribution:

@@ -26,16 +26,10 @@ no `ffi`/`bindings`/`jni`/`swift` directory exists in the tree). Embedding
 
 ## Dependency footprint (the part relevant to embedding)
 
-The engine binary's own dependency chain is intentionally small:
-`sekirei-usi` depends only on `sekirei-core`, `rayon`, and `lineprior`
-(this project's own opening-book/related crate); `sekirei-core` depends
-only on `rayon`. Neither pulls in a GUI toolkit, network stack, or
-anything license-heavy. This repo does not independently audit or assert
-the license of `rayon`/`lineprior` themselves here — verify directly
-(`cargo tree`, or each crate's own published license) before relying on a
-"no GPL anywhere in the dependency graph" claim; what's asserted here is
-only that the *direct* dependency list is short and inspectable, not a
-transitive-license audit result.
+The engine binary's direct dependency chain is small: `sekirei-usi` uses
+`sekirei-core`, `rayon`, and `lineprior 0.12.0`; `sekirei-core` uses `rayon`.
+Neither is a GUI or network stack. This is not a transitive-license audit:
+verify the resolved graph and each license before making a license claim.
 
 ## USI options relevant to resource-constrained deployment
 

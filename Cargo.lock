@@ -454,9 +454,9 @@ checksum = "68ab91017fe16c622486840e4c83c9a37afeff978bd239b5293d61ece587de66"
 
 [[package]]
 name = "lineprior"
-version = "0.11.1"
+version = "0.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b951224603075018626cedb92aa55dc18281aea6c049f5bfc56450dedc223efa"
+checksum = "e5f4daee617708a69d324a1f29aff2880db4afda0d00d694e5d284b8cdeec5cc"
 dependencies = [
  "serde",
  "serde_json",
@@ -687,7 +687,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "lineprior",
  "rayon",
@@ -696,7 +696,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-bench"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "criterion",
  "rayon",
@@ -708,14 +708,14 @@ dependencies = [
 
 [[package]]
 name = "sekirei-core"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "rayon",
 ]
 
 [[package]]
 name = "sekirei-csa"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "dotenvy",
  "sekirei-core",
@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-match-runner"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "sekirei-core",
  "serde_json",
@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-train"
-version = "0.3.42"
+version = "0.3.43"
 dependencies = [
  "lineprior",
  "sekirei-core",
