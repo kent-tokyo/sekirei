@@ -1,17 +1,17 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.43-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.43)
+[![Release](https://img.shields.io/badge/release-v0.3.44-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.44)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.43`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.44`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。直接依存の`lineprior`を更新し、data scriptをshogiesa 0.10.0で確認、
-ローカルrecordとdashboardのpath処理を強化しました。新しいcheckpointは採用して
-おらず、棋力向上の主張は行いません。
+含みます。外部HalfKP 256x2-32-32評価fileを任意に読み込めるようにし、秒読みの
+利用と単一worker探索の無駄を改善しました。重みの同梱・採用は行わず、正式な棋力
+向上の主張は行いません。
 
 ## まず動かす
 
@@ -31,8 +31,9 @@ cargo run --release -p sekirei
 ```
 
 生成された`sekirei`をUSI対応GUIのエンジンとして登録します。checkpointなしでは
-material評価を使います。0.3.38用NNUEは、別管理された任意の公開artifactとして
-0.3.43でも引き続き利用でき、
+material評価を使います。`EvalFile`はSekirei重みのほか、対応する外部HalfKP
+256x2-32-32の`nn.bin`を読み込めます。外部fileのlicenseは各fileに従います。
+0.3.38用NNUEは、別管理された任意の公開artifactとして引き続き利用でき、
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin)です。
 
 ```bash
@@ -40,6 +41,8 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
 GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。
+外部HalfKP fileでは`NnueOutput`ではなく`FV_SCALE`（既定16、重みの説明を優先）を
+設定します。
 使用前に[重みartifact card](weights/README.md)でSHA-256とライセンスを検証してください。
 0.3.38のgateは同cardに履歴として残しますが、現行local診断のB対materialは
 1秒/手で1/32、5秒/手で2/32であり、一律の棋力推奨はしません。NNUE重みは

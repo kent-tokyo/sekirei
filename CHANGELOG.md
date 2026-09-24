@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.44] – 2026-09-25
+
 - `EvalFile` now detects and loads external `HalfKP 256x2-32-32` networks
   (`nn.bin`) with incremental Pure Rust inference and a new `FV_SCALE` USI
   option. Static scores matched an external reference implementation exactly
@@ -27,6 +29,9 @@ preserves older per-change notes.
   quiescence no longer generates and plays every legal move to look for
   quiet checks. Local self-play (external HalfKP network): 112-86-2 over 200
   games at 0.1-0.2 s/move against the previous search; not a formal gate.
+- Recursive foreground and speculative search workers now use an explicit
+  8 MiB stack budget. This prevents valid deep ponder searches from aborting
+  with a stack overflow; it is a correctness fix, not a strength claim.
 
 ## [0.3.43] – 2026-09-23
 

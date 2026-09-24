@@ -1,17 +1,17 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.43-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.43)
+[![Release](https://img.shields.io/badge/release-v0.3.44-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.44)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.43`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.44`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. It updates the direct `lineprior` dependency, verifies the data scripts
-with shogiesa 0.10.0, and hardens local record and dashboard path handling. No
-new checkpoint was adopted, and this release makes no playing-strength claim.
+library. It adds optional external HalfKP 256x2-32-32 evaluation-file support,
+uses byoyomi more fully, and reduces single-worker search overhead. No network
+is bundled or adopted, and this release makes no formal playing-strength claim.
 
 ## Quick start
 
@@ -31,7 +31,9 @@ cargo run --release -p sekirei
 ```
 
 Register the resulting `sekirei` executable in a USI-compatible shogi GUI.
-Without a checkpoint the engine uses material evaluation. The 0.3.38
+Without a checkpoint the engine uses material evaluation. `EvalFile` accepts
+Sekirei weights and supported external HalfKP 256x2-32-32 `nn.bin` files; an
+external file remains subject to its own license. The 0.3.38
 checkpoint remains available as a separately versioned optional artifact at
 [`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin):
 
@@ -40,6 +42,8 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
 For a GUI, set `EvalFile` and `NnueOutput=absolute` before `isready`.
+For an external HalfKP file, use `FV_SCALE` (default 16; consult the network's
+documentation) instead of `NnueOutput`.
 Verify the SHA-256 and license in [the weight artifact card](weights/README.md).
 The historical gate is recorded there; a current local B-vs-material diagnostic
 (1/32 at 1 second and 2/32 at 5 seconds) does not support a blanket strength
