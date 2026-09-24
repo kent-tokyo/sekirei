@@ -107,7 +107,8 @@ struct SharedMctsBackend {
 impl SearchBackend {
     fn speculative(hash_mb: usize, spec_top_n: usize) -> Self {
         if spec_top_n == 0 {
-            let diagnostics = Arc::new(SearchDiagnostics::new());
+            // Root-safety counters only; per-move cost timers stay off.
+            let diagnostics = Arc::new(SearchDiagnostics::counters_only());
             return Self::Sequential(Arc::new(SequentialBackend {
                 searcher: Arc::new(Searcher::with_diagnostics(
                     Tt::new(hash_mb),
@@ -764,10 +765,8 @@ fn main() {
                             &mut search_handle,
                             || match load_evaluator(Path::new(path)) {
                                 Ok(format) => {
-                                    println!(
-                                        "info string NNUE weights loaded from {path} ({})",
-                                        format.as_str()
-                                    );
+                                    println!("info string NNUE weights loaded from {path}");
+                                    println!("info string evaluator format {}", format.as_str());
                                     true
                                 }
                                 Err(e) => {

@@ -122,7 +122,7 @@ fn evalfile_loads_halfkp_and_fv_scale_changes_the_divisor() {
     assert!(
         ready
             .iter()
-            .any(|line| line.contains("NNUE weights loaded") && line.contains("HalfKP 256x2-32-32")),
+            .any(|line| line == "info string evaluator format HalfKP 256x2-32-32"),
         "{ready:?}"
     );
     assert_eq!(root_score_depth_one(&rx, &mut stdin), -10);
