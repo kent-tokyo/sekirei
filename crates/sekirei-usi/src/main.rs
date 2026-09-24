@@ -1378,8 +1378,10 @@ fn parse_go(
         let from_byo = byo_ms.saturating_mul(13) / 20;
         // Panic mode: if under 5 s and byoyomi exists, lean on byoyomi only
         let panic = our_time < 5_000 && byo_ms > 0;
+        // Unused byoyomi is lost, so once the main time is (nearly) gone use
+        // all of it except the configured overhead.
         let base = if panic {
-            from_byo
+            byo_ms
         } else {
             from_main.max(from_byo)
         };
@@ -1495,12 +1497,16 @@ mod tests {
     #[test]
     fn parse_go_byoyomi_only() {
         // byoyomi 5000, no main time → panic mode, no soft limit
-        // byo_safe = 5000, base = 3250 - 0 = 3250, hard = min(4875, 5000) = 4875
+        // byo_safe = 5000 and base = 5000: unused byoyomi is lost, so all of
+        // it (minus the zero overhead) is available.
         let cfg = parse_go("byoyomi 5000", Color::Black, 0, false, 1);
         assert!(cfg.time_limit.is_some());
         assert!(cfg.soft_limit.is_none(), "panic mode: no soft limit");
         let hard = cfg.time_limit.unwrap().as_millis();
-        assert!(hard <= 5000, "hard={hard} must not exceed byoyomi");
+        assert_eq!(
+            hard, 5000,
+            "byoyomi-only search should use the full byoyomi"
+        );
     }
 
     #[test]
