@@ -25,8 +25,8 @@ use sekirei_core::{
     movegen::generate_legal_moves,
     nnue::load_evaluator,
     search::{
-        MATE_SCORE, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo,
-        Searcher, SpecSearchInfo, SpeculativeSearcher,
+        MATE_SCORE, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics,
+        SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
     },
     sfen::{
         PositionHistory, RepetitionOutcome, board_to_sfen, move_to_usi,
@@ -46,6 +46,9 @@ const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "Kentaro Tanabe";
 const DEFAULT_HASH_MB: usize = 64;
 const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
+// Keep the USI controller and core speculative pool on one documented stack
+// contract for recursive alpha-beta searches.
+const SEARCH_STACK_BYTES: usize = RECURSIVE_SEARCH_STACK_BYTES;
 // Dedicated speculative-search pool size. Was hardcoded in make_searcher()
 // with no USI option (issue #9); this is that same value now exposed as
 // the SpecTopN option's default, so not setting it changes nothing.
@@ -611,6 +614,31 @@ fn mutate_evaluator_after_join<T>(
     mutate()
 }
 
+/// Initialize Rayon's process-global pool before the first search, with a
+/// stack budget sufficient for the engine's supported recursive search depth.
+/// Rayon permits this only once; later calls intentionally preserve the pool
+/// selected by an earlier `Threads` option.
+fn ensure_search_pool(threads: usize) {
+    let builder = rayon::ThreadPoolBuilder::new().stack_size(SEARCH_STACK_BYTES);
+    let builder = if threads == 0 {
+        builder
+    } else {
+        builder.num_threads(threads)
+    };
+    let _ = builder.build_global();
+}
+
+/// Run a top-level USI search with the same stack guarantee as its Rayon
+/// workers. A failed spawn is unrecoverable because no valid USI response can
+/// be produced without a search controller.
+fn spawn_search_thread(task: impl FnOnce() + Send + 'static) -> JoinHandle<()> {
+    std::thread::Builder::new()
+        .name("sekirei-search".to_owned())
+        .stack_size(SEARCH_STACK_BYTES)
+        .spawn(task)
+        .expect("failed to spawn sekirei search thread")
+}
+
 fn main() {
     if let Some(arg) = std::env::args().nth(1)
         && matches!(arg.as_str(), "--version" | "-V")
@@ -856,9 +884,7 @@ fn main() {
                         } else {
                             threads = n as u32;
                             // ponytail: build_global silently fails if already init'd; that's fine
-                            let _ = rayon::ThreadPoolBuilder::new()
-                                .num_threads(n)
-                                .build_global();
+                            ensure_search_pool(n);
                             if search_mode == SearchMode::LazySmp {
                                 abort_and_join_inflight_search(
                                     &mut search_abort,
@@ -1117,6 +1143,7 @@ fn main() {
                     pondering,
                     multi_pv,
                 );
+                ensure_search_pool(threads as usize);
                 searcher.reset_abort_flag();
                 let abort = searcher.abort_flag();
                 search_abort = Some(abort);
@@ -1137,7 +1164,7 @@ fn main() {
                     accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
                 };
 
-                search_handle = Some(std::thread::spawn(move || {
+                search_handle = Some(spawn_search_thread(move || {
                     let info = searcher2.search(&mut board2, config, &position_history2);
 
                     if pondering {
@@ -1217,6 +1244,7 @@ fn main() {
                 if let Some(ref args) = ponder_go_args.take() {
                     let config =
                         parse_go(args, board.side_to_move, move_overhead_ms, false, multi_pv);
+                    ensure_search_pool(threads as usize);
                     searcher.reset_abort_flag();
                     let abort = searcher.abort_flag();
                     search_abort = Some(abort);
@@ -1235,7 +1263,7 @@ fn main() {
                         board_hash_at_search_start: board.hash(),
                         accumulator_hash_at_search_start: invariant::hash_accumulator(&board.acc),
                     };
-                    search_handle = Some(std::thread::spawn(move || {
+                    search_handle = Some(spawn_search_thread(move || {
                         let info = searcher2.search(&mut board2, config, &position_history2);
                         if search_generation2.load(Ordering::Acquire) != generation
                             || suppress2.load(Ordering::Relaxed)

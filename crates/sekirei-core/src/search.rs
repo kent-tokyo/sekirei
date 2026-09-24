@@ -64,6 +64,13 @@ const RFP_MARGIN: i32 = 120;
 /// Futility Pruning: margin for depth-1 quiet moves.
 const FUTILITY_MARGIN: i32 = 300;
 
+/// Stack budget for workers that execute recursive alpha-beta searches.
+///
+/// A legal depth-50 search can combine alpha-beta, extensions, and
+/// quiescence frames. The platform default can overflow before a `stop`
+/// request is observed, so every dedicated speculative pool uses this budget.
+pub const RECURSIVE_SEARCH_STACK_BYTES: usize = 8 * 1024 * 1024;
+
 /// Late Move Pruning: base quiet-move count before pruning kicks in.
 const LMP_BASE: usize = 5;
 /// Whether quiescence tries quiet checking moves at its first ply. Finding
@@ -2718,9 +2725,14 @@ pub struct SpeculativeSearcher {
 impl SpeculativeSearcher {
     /// Create a speculative searcher that considers the top `top_n` candidate
     /// replies for preemptive background search, backed by the given shared TT.
+    ///
+    /// The dedicated pool includes one foreground worker in addition to the
+    /// at-most-`top_n` background tasks. This gives every recursive search a
+    /// controlled stack budget without reducing speculative capacity.
     pub fn new(tt: Arc<Tt>, top_n: usize) -> Self {
         let spec_pool = rayon::ThreadPoolBuilder::new()
-            .num_threads(top_n.max(1))
+            .num_threads(top_n.saturating_add(1).max(1))
+            .stack_size(RECURSIVE_SEARCH_STACK_BYTES)
             .build()
             .expect("failed to build dedicated speculative-search thread pool");
         SpeculativeSearcher {
@@ -2770,6 +2782,18 @@ impl SpeculativeSearcher {
     /// adjudication; speculative background work remains a cache-only hint and
     /// never supplies a history-dependent score to the foreground result.
     pub fn search_with_history(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> SpecSearchInfo {
+        self.spec_pool
+            .install(|| self.search_with_history_on_worker(board, config, history))
+    }
+
+    /// Foreground implementation, always executed on the dedicated search
+    /// pool so library callers receive the same stack guarantee as USI users.
+    fn search_with_history_on_worker(
         &self,
         board: &mut Board,
         config: SearchConfig,
