@@ -11,6 +11,15 @@ preserves older per-change notes.
   option. Static scores matched an external reference implementation exactly
   on 23,000 positions using self-generated random networks. No external
   evaluation file is bundled, and this adds no playing-strength claim.
+- Search: late non-first moves now use a principal-variation null-window
+  probe, and drops count as quiet moves for late-move pruning and depth-1
+  futility pruning (previously every drop was exempt). In a local 100-game
+  self-play diagnostic at 0.2 s/move with one external HalfKP network this
+  scored 63-35-2 against the previous search; it is not a formal gate.
+- HalfKP inference regroups the hidden-layer weights by input pair so safe
+  Rust vectorizes them; scores remain bit-identical.
+- Production USI searches no longer record per-node diagnostic counters or
+  cost timers; only the reported root mate-safety counters remain.
 
 ## [0.3.43] – 2026-09-23
 

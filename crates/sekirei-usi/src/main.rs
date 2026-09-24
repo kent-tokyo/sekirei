@@ -107,8 +107,9 @@ struct SharedMctsBackend {
 impl SearchBackend {
     fn speculative(hash_mb: usize, spec_top_n: usize) -> Self {
         if spec_top_n == 0 {
-            // Root-safety counters only; per-move cost timers stay off.
-            let diagnostics = Arc::new(SearchDiagnostics::counters_only());
+            // Only the root mate-safety counters are reported; per-node
+            // counters and cost timers stay off in production searches.
+            let diagnostics = Arc::new(SearchDiagnostics::root_safety_only());
             return Self::Sequential(Arc::new(SequentialBackend {
                 searcher: Arc::new(Searcher::with_diagnostics(
                     Tt::new(hash_mb),

@@ -407,8 +407,11 @@ pub struct SearchDiagnostics {
     move_order_score_ns: AtomicU64,
     move_order_sort_ns: AtomicU64,
     /// Whether the `*_ns` timers are recorded. Reading the clock around every
-    /// scored move is expensive, so counter-only observers leave it off.
+    /// scored move is expensive, so root-only observers leave it off.
     timing: bool,
+    /// Whether per-node counters (evaluations, TT, ordering, node calls) are
+    /// recorded. Root mate-safety counters are always recorded.
+    per_node: bool,
     quiescence_inclusive_ns: AtomicU64,
     root_mate_safety_ns: AtomicU64,
 }
@@ -518,11 +521,13 @@ struct RootMateSafetyCache {
 }
 
 impl SearchDiagnostics {
-    /// Create an observer that records event counters but not the `*_ns`
-    /// timers, for production callers that only need the counts.
-    pub fn counters_only() -> Self {
+    /// Create an observer that records only the root mate-safety counters.
+    /// Production USI searches use this: per-node atomic counters and clock
+    /// reads would otherwise cost a large share of search throughput.
+    pub fn root_safety_only() -> Self {
         Self {
             timing: false,
+            per_node: false,
             ..Self::new()
         }
     }
@@ -532,10 +537,16 @@ impl SearchDiagnostics {
         self.timing.then_some(counter)
     }
 
+    #[inline(always)]
+    fn per_node(&self) -> Option<&Self> {
+        self.per_node.then_some(self)
+    }
+
     /// Create an empty observer that also records the `*_ns` cost timers.
     pub fn new() -> Self {
         Self {
             timing: true,
+            per_node: true,
             static_evaluations: AtomicU64::new(0),
             eval_cache_probes: AtomicU64::new(0),
             eval_cache_hits: AtomicU64::new(0),
@@ -717,20 +728,32 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
             .as_deref()
             .and_then(|diagnostics| diagnostics.timed(&diagnostics.static_evaluation_ns)),
     );
-    if let Some(diagnostics) = &state.diagnostics {
+    if let Some(diagnostics) = state
+        .diagnostics
+        .as_deref()
+        .and_then(SearchDiagnostics::per_node)
+    {
         diagnostics
             .static_evaluations
             .fetch_add(1, Ordering::Relaxed);
     }
     if let Some(cache) = &state.eval_cache {
-        if let Some(diagnostics) = &state.diagnostics {
+        if let Some(diagnostics) = state
+            .diagnostics
+            .as_deref()
+            .and_then(SearchDiagnostics::per_node)
+        {
             diagnostics
                 .eval_cache_probes
                 .fetch_add(1, Ordering::Relaxed);
         }
         let key = evaluation_cache_key(board.hash());
         if let Some(score) = cache.probe(key) {
-            if let Some(diagnostics) = &state.diagnostics {
+            if let Some(diagnostics) = state
+                .diagnostics
+                .as_deref()
+                .and_then(SearchDiagnostics::per_node)
+            {
                 diagnostics.eval_cache_hits.fetch_add(1, Ordering::Relaxed);
             }
             return score;
@@ -754,7 +777,11 @@ fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
         );
         state.tt.probe(hash)
     };
-    if let Some(diagnostics) = state.diagnostics.as_deref() {
+    if let Some(diagnostics) = state
+        .diagnostics
+        .as_deref()
+        .and_then(SearchDiagnostics::per_node)
+    {
         diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
         if entry.is_some() {
             diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
@@ -772,7 +799,11 @@ fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
             .and_then(|diagnostics| diagnostics.timed(&diagnostics.tt_store_ns)),
     );
     state.tt.store(hash, entry);
-    if let Some(diagnostics) = state.diagnostics.as_deref() {
+    if let Some(diagnostics) = state
+        .diagnostics
+        .as_deref()
+        .and_then(SearchDiagnostics::per_node)
+    {
         diagnostics.tt_stores.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -1656,7 +1687,11 @@ fn alpha_beta(
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
     history: &PositionHistory,
 ) -> i32 {
-    if let Some(diagnostics) = state.diagnostics.as_deref() {
+    if let Some(diagnostics) = state
+        .diagnostics
+        .as_deref()
+        .and_then(SearchDiagnostics::per_node)
+    {
         diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
     }
     if let Some(outcome) = history.outcome_at_current_position() {
@@ -1876,7 +1911,10 @@ fn alpha_beta(
                 countermove,
                 &state.history,
                 stm,
-                state.diagnostics.as_deref(),
+                state
+                    .diagnostics
+                    .as_deref()
+                    .and_then(SearchDiagnostics::per_node),
             );
         }
         move_buffer
@@ -2140,7 +2178,9 @@ fn alpha_beta(
             }
 
             let is_capture = m.from.is_some() && enemy.contains(m.to);
-            let is_quiet = m.from.is_some() && !is_capture && !m.promote;
+            // Drops are quiet too: they are the majority of shogi moves, and
+            // excluding them exempted most late moves from LMP and futility.
+            let is_quiet = !is_capture && !m.promote;
 
             // Futility Pruning: at depth 1, skip quiet moves that can't reach alpha
             if depth == 1
@@ -2170,12 +2210,14 @@ fn alpha_beta(
             let ext = check_ext(child_in_check, ply + 1);
             let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
 
-            // LMR probe
+            // Principal variation search: a (possibly reduced) null-window
+            // probe first; widen only when the move may improve alpha.
             let probe_depth = depth.saturating_sub(1 + reduce) + ext;
+            let full_depth = (depth - 1) + ext;
             let mut s = -alpha_beta(
                 state,
                 board,
-                -beta,
+                -alpha - 1,
                 -alpha,
                 probe_depth,
                 ply + 1,
@@ -2185,15 +2227,30 @@ fn alpha_beta(
                 Some(child_in_check),
                 &child_history,
             );
-
-            // Re-search at full depth if LMR probe fails high
+            // Reduced probe failed high: verify at full depth, still null-window.
             if reduce > 0 && s > alpha {
+                s = -alpha_beta(
+                    state,
+                    board,
+                    -alpha - 1,
+                    -alpha,
+                    full_depth,
+                    ply + 1,
+                    true,
+                    Some(m),
+                    None,
+                    Some(child_in_check),
+                    &child_history,
+                );
+            }
+            // Inside the window at a PV node: exact full-window search.
+            if s > alpha && s < beta {
                 s = -alpha_beta(
                     state,
                     board,
                     -beta,
                     -alpha,
-                    (depth - 1) + ext,
+                    full_depth,
                     ply + 1,
                     true,
                     Some(m),
@@ -2272,7 +2329,11 @@ fn quiescence(
             .as_deref()
             .and_then(|diagnostics| diagnostics.timed(&diagnostics.quiescence_inclusive_ns)),
     );
-    if let Some(diagnostics) = state.diagnostics.as_deref() {
+    if let Some(diagnostics) = state
+        .diagnostics
+        .as_deref()
+        .and_then(SearchDiagnostics::per_node)
+    {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
     }
     if let Some(outcome) = history.outcome_at_current_position() {
