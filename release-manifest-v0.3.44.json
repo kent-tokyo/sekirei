@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.44",
+  "commit": "360f67b9fd73c78bfda799f5e430838331805666",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.44",
+    "sekirei-core": "0.3.44",
+    "sekirei-bench": "0.3.44",
+    "sekirei-csa": "0.3.44",
+    "sekirei-match-runner": "0.3.44",
+    "sekirei-train": "0.3.44"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "019995c490d1827904f89a3ab4e5e4a706d6b505cfaf9dde4da8ac058ec5b02a"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 360f67b. Workspace tests, lint, formatting, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. This release does not select a new NNUE checkpoint or make a formal playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external engine or GUI result is a release criterion or strength claim."
+  },
+  "known_limitations": [
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference is optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale.",
+    "The new search and time-management changes passed local diagnostics but have not passed an independent playing-strength gate."
+  ]
+}
