@@ -94,6 +94,11 @@ pub fn nnue_residual_scale_permille() -> u16 {
 /// has no effect on its score.
 #[inline]
 pub(crate) fn evaluation_cache_key(board_hash: u64) -> u64 {
+    if crate::halfkp::is_active() {
+        // The output divisor is the only runtime setting that changes a
+        // HalfKP score; keep it in a domain disjoint from SEKIRW01 keys.
+        return board_hash ^ (0b11 << 62) ^ ((crate::halfkp::fv_scale() as u64) << 40);
+    }
     evaluation_cache_key_for(
         board_hash,
         nnue_output_mode(),
@@ -173,6 +178,10 @@ const BOARD_KINDS: [PieceKind; 13] = [
 /// falls back to material counting otherwise.
 #[inline]
 pub fn evaluate(board: &Board) -> i32 {
+    if let Some(net) = crate::halfkp::active_network() {
+        // External HalfKP networks always produce a complete score.
+        return board.evaluate_halfkp(net, crate::halfkp::fv_scale());
+    }
     if crate::nnue::weights_active() {
         match nnue_output_mode() {
             NnueOutputMode::Absolute => board.acc.evaluate(board.side_to_move),

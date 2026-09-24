@@ -18,6 +18,7 @@ dependency.
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
+| `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 
 ## Measurement and rules diagnostics

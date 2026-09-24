@@ -19,10 +19,11 @@ use sekirei_core::{
         NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille,
         validate_nnue_residual_scale_permille,
     },
+    halfkp,
     lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
-    nnue::load_weights,
+    nnue::load_evaluator,
     search::{
         MATE_SCORE, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo,
         Searcher, SpecSearchInfo, SpeculativeSearcher,
@@ -630,9 +631,12 @@ fn main() {
     let mut weight_path = String::new();
     let mut weight_hash: Option<u64> = None;
     if let Some(path) = std::env::args().nth(1) {
-        match load_weights(Path::new(&path)) {
-            Ok(()) => {
-                eprintln!("info string NNUE weights loaded from {path}");
+        match load_evaluator(Path::new(&path)) {
+            Ok(format) => {
+                eprintln!(
+                    "info string NNUE weights loaded from {path} ({})",
+                    format.as_str()
+                );
                 weight_hash = invariant::hash_file(&path);
                 weight_path = path;
             }
@@ -734,6 +738,10 @@ fn main() {
                 println!(
                     "option name NnueResidualScalePermille type spin default 1000 min 0 max 2000"
                 );
+                println!(
+                    "option name FV_SCALE type spin default {} min 1 max 128",
+                    halfkp::DEFAULT_FV_SCALE
+                );
                 println!("option name UseBook type check default true");
                 println!("option name BookMaxPly type spin default 30 min 0 max 200");
                 println!("option name BookMinConfidence type string default 0.20");
@@ -754,9 +762,12 @@ fn main() {
                         let loaded = mutate_evaluator_after_join(
                             &mut search_abort,
                             &mut search_handle,
-                            || match load_weights(Path::new(path)) {
-                                Ok(()) => {
-                                    println!("info string NNUE weights loaded from {path}");
+                            || match load_evaluator(Path::new(path)) {
+                                Ok(format) => {
+                                    println!(
+                                        "info string NNUE weights loaded from {path} ({})",
+                                        format.as_str()
+                                    );
                                     true
                                 }
                                 Err(e) => {
@@ -948,6 +959,28 @@ fn main() {
                         search_mode,
                     );
                     println!("info string NNUE residual scale {scale} permille");
+                } else if parts.get(1) == Some(&"FV_SCALE") {
+                    // Output divisor for external HalfKP networks. Some
+                    // published networks recommend a value other than 16.
+                    let Some(scale) = parts.get(3).and_then(|value| value.parse::<i32>().ok())
+                    else {
+                        println!("info string invalid FV_SCALE; expected 1..=128");
+                        continue;
+                    };
+                    if !(1..=128).contains(&scale) {
+                        println!("info string invalid FV_SCALE; expected 1..=128");
+                        continue;
+                    }
+                    mutate_evaluator_after_join(&mut search_abort, &mut search_handle, || {
+                        halfkp::set_fv_scale(scale).expect("FV_SCALE was validated")
+                    });
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
+                    println!("info string FV_SCALE {scale}");
                 } else if parts.get(1) == Some(&"UseBook") {
                     if let Some(v) = parts.get(3) {
                         use_book = *v == "true";

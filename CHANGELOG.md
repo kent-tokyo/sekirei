@@ -6,6 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- `EvalFile` now detects and loads external `HalfKP 256x2-32-32` networks
+  (`nn.bin`) with incremental Pure Rust inference and a new `FV_SCALE` USI
+  option. Static scores matched an external reference implementation exactly
+  on 23,000 positions using self-generated random networks. No external
+  evaluation file is bundled, and this adds no playing-strength claim.
+
 ## [0.3.43] – 2026-09-23
 
 - Updated the direct `lineprior` dependency to 0.12.0 and verified the

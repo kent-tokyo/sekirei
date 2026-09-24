@@ -663,7 +663,7 @@ impl EvalCache {
 }
 
 fn active_eval_cache() -> Option<Arc<EvalCache>> {
-    weights_active().then(|| Arc::new(EvalCache::new()))
+    (weights_active() || crate::halfkp::is_active()).then(|| Arc::new(EvalCache::new()))
 }
 
 impl Default for SearchDiagnostics {

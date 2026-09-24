@@ -238,6 +238,12 @@ pub fn weights_active() -> bool {
 /// accepted — the size check below also rejects it.)
 pub fn load_weights(path: &Path) -> io::Result<()> {
     let w = read_weights(path)?;
+    if crate::halfkp::is_active() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "a HalfKP network is already loaded for this process",
+        ));
+    }
     if WEIGHTS.set(w).is_ok() {
         NNUE_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
@@ -246,6 +252,39 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
             io::ErrorKind::AlreadyExists,
             "NNUE weights are already loaded for this process",
         ))
+    }
+}
+
+/// Evaluation file formats accepted by [`load_evaluator`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EvalFileFormat {
+    /// Sekirei's own `SEKIRW01` checkpoint.
+    Sekirei,
+    /// External `HalfKP 256x2-32-32` network (`nn.bin`).
+    HalfKp,
+}
+
+impl EvalFileFormat {
+    /// Short label for log lines.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sekirei => "SEKIRW01",
+            Self::HalfKp => "HalfKP 256x2-32-32",
+        }
+    }
+}
+
+/// Detect the file format from its header and activate it process-wide.
+///
+/// This is the loader used by `EvalFile`: a file starting with the HalfKP
+/// version word is read by [`crate::halfkp`], anything else as `SEKIRW01`.
+pub fn load_evaluator(path: &Path) -> io::Result<EvalFileFormat> {
+    if crate::halfkp::is_halfkp_file(path)? {
+        crate::halfkp::load_network(path)?;
+        Ok(EvalFileFormat::HalfKp)
+    } else {
+        load_weights(path)?;
+        Ok(EvalFileFormat::Sekirei)
     }
 }
 

@@ -70,6 +70,13 @@ The `usi` command lists all options. For deterministic diagnostics use
 Weight validation, format, and the external-SFNN boundary are in
 [NNUE weights](docs/nnue_weights.md).
 
+`EvalFile` also accepts external evaluation files in the common
+`HalfKP 256x2-32-32` `nn.bin` format. The format is detected from the file
+header, and `FV_SCALE` (default 16) sets the output divisor. Sekirei does not
+bundle any such file: obtain it yourself and follow that file's license. The
+reader is an independent implementation, not derived from another engine's
+source.
+
 ## Build and verify
 
 ```bash

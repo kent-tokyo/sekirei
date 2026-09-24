@@ -64,6 +64,11 @@ USIの`usi`で全optionを表示します。決定論的な診断は`Threads=1`�
 実行します。投機並列modeはscheduleにより揺れる場合があります。重みの検証、format、
 外部SFNNの範囲は[NNUE重み](docs/nnue_weights.md)を参照してください。
 
+`EvalFile`は、一般的な`HalfKP 256x2-32-32`形式（`nn.bin`）の外部評価関数も読み込めます。
+形式はfile headerから自動判別し、出力の除数は`FV_SCALE`（既定16）で設定します。
+Sekireiはこの種のfileを同梱しません。各自で入手し、そのfileのlicenseに従ってください。
+読み込み部は独自実装で、他engineのsource codeに由来しません。
+
 ## Buildと検証
 
 ```bash

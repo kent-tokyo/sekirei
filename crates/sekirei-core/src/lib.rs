@@ -10,6 +10,7 @@ pub mod color;
 pub mod dfpn;
 pub mod eval;
 pub mod external_eval;
+pub mod halfkp;
 pub mod hand;
 pub mod lazy_smp;
 pub mod mcts;

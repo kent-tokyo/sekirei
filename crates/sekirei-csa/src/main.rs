@@ -45,11 +45,17 @@ fn run() -> i32 {
 
     if config.evaluation == EvaluationMode::Nnue {
         let path = config.weights_path.as_deref().expect("NNUE path validated");
-        if let Err(error) = sekirei_core::nnue::load_weights(path) {
-            eprintln!("[csa] NNUE weight load failed before connect: {error}");
-            std::process::exit(2);
+        match sekirei_core::nnue::load_evaluator(path) {
+            Ok(format) => eprintln!(
+                "[csa] NNUE weights loaded from {} ({})",
+                path.display(),
+                format.as_str()
+            ),
+            Err(error) => {
+                eprintln!("[csa] NNUE weight load failed before connect: {error}");
+                std::process::exit(2);
+            }
         }
-        eprintln!("[csa] NNUE weights loaded from {}", path.display());
     }
     if let Some(path) = config.run_manifest.as_deref()
         && let Err(error) = write_run_manifest(path, &config)
@@ -299,7 +305,7 @@ fn write_run_manifest(
         config,
         binary: &binary,
         binary_bytes: std::fs::metadata(&binary)?.len(),
-        weights_active: sekirei_core::nnue::weights_active(),
+        weights_active: sekirei_core::nnue::weights_active() || sekirei_core::halfkp::is_active(),
     };
     let document = manifest.to_json();
     if let Some(parent) = path.parent()

@@ -47,6 +47,38 @@ The `king_relative_b_small` feature changes the feature layout and requires a
 separately trained file. Width features likewise change the required file
 length even though they retain the flat magic. `JANOSW02` is not supported.
 
+## External HalfKP networks
+
+`EvalFile` (and the first command-line argument) also accepts the common
+external `HalfKP(Friend) 256x2-32-32` format. A file is treated as HalfKP when
+it starts with the version word `0x7AF32F16`; its structural hashes and exact
+byte length must then match, or it is rejected. Only one evaluator can be
+active per process.
+
+- The score is the integer network output divided by `FV_SCALE` (USI option,
+  default 16, range 1..=128), clamped to +/-30,000. Some published networks
+  recommend a different divisor.
+- `NnueOutput` does not apply: HalfKP output is always a complete score.
+- The implementation is written independently from the format description.
+  Sekirei neither bundles nor redistributes any external network; each file's
+  own license governs its use. Record provenance with the
+  [external evaluator manifest](interop/external_sfnn_manifest_v1.md) when a
+  file is used for measurements.
+
+Interoperability is checked with deterministic random networks that anyone can
+regenerate, so no third-party file is needed:
+
+```bash
+cargo run --release -p sekirei-core --example halfkp_oracle -- write-net /tmp/hk/nn.bin 1
+cargo run --release -p sekirei-core --example halfkp_oracle -- dump /tmp/hk/nn.bin 3000 1 > /tmp/hk/sekirei.tsv
+python3 scripts/check_halfkp_oracle.py --engine /path/to/reference-engine \
+  --option EvalDir=/tmp/hk --tsv /tmp/hk/sekirei.tsv
+```
+
+`dump` also asserts that the incremental accumulator equals a full rebuild at
+every visited node. The reference engine must print `eval = <int>` for the
+`eval` command.
+
 ## Evidence boundary
 
 The B-small implementation passed mechanical load/inference checks, but its

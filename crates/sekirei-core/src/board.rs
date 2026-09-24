@@ -3,6 +3,7 @@
 #![allow(clippy::needless_range_loop)] // mailbox/snapshot init loops are clearer with explicit indices
 use crate::bitboard::Bitboard;
 use crate::color::Color;
+use crate::halfkp::{self, HalfKpAcc, HalfKpNetwork};
 use crate::hand::Hand;
 use crate::mv::{Move, MoveToken};
 use crate::nnue;
@@ -81,6 +82,9 @@ pub struct Board {
     hash: u64,
     /// NNUE accumulator — kept in sync with the board position via inverse deltas
     pub acc: NnueAcc,
+    /// `HalfKP` accumulator, maintained instead of `acc` while an external
+    /// `HalfKP` network is the active evaluator.
+    pub hkp: HalfKpAcc,
 }
 
 impl Board {
@@ -105,6 +109,7 @@ impl Board {
             ply: 0,
             hash: 0,
             acc: NnueAcc::new(),
+            hkp: HalfKpAcc::new(),
         }
     }
 
@@ -286,8 +291,12 @@ impl Board {
             }
         }
         let hand_counts = hand_counts_array(&self.hand);
-        self.acc
-            .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.refresh(net, &self.mailbox, &hand_counts);
+        } else {
+            self.acc
+                .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
+        }
 
         // Zobrist: recompute hand contributions from scratch to avoid any
         // hand-count bugs. The mailbox contribution was collected above.
@@ -492,8 +501,140 @@ impl Board {
     /// Rebuild the NNUE accumulator from scratch (call after loading a position).
     pub fn refresh_acc(&mut self) {
         let hand_counts = hand_counts_array(&self.hand);
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.refresh(net, &self.mailbox, &hand_counts);
+            return;
+        }
         self.acc
             .refresh_from_board_with(nnue::weights(), &self.mailbox, &hand_counts);
+    }
+
+    /// Board mailbox, for evaluators that rebuild features from scratch.
+    #[cfg(test)]
+    pub(crate) fn mailbox_for_eval(&self) -> &[Option<Piece>; 81] {
+        &self.mailbox
+    }
+
+    /// Hand counts as `[color][Fu..Hisha]`.
+    #[cfg(test)]
+    pub(crate) fn hand_counts_for_eval(&self) -> [[u8; 7]; 2] {
+        hand_counts_array(&self.hand)
+    }
+
+    /// Rebuild `HalfKP` perspectives invalidated by a king move. Called at
+    /// the end of every NNUE-updating move and undo.
+    #[inline(always)]
+    fn finish_halfkp_update(&mut self) {
+        if self.hkp.needs_refresh()
+            && let Some(net) = halfkp::active_network()
+        {
+            let hand_counts = hand_counts_array(&self.hand);
+            for p in [Color::Black, Color::White] {
+                if self.hkp.dirty[p.index()] {
+                    self.hkp
+                        .refresh_perspective(net, p, &self.mailbox, &hand_counts);
+                }
+            }
+        }
+    }
+
+    /// Static `HalfKP` score from the side to move's perspective.
+    ///
+    /// Uses the incremental accumulator when it is current; otherwise it
+    /// rebuilds a private copy, so the result is always exact.
+    pub fn evaluate_halfkp(&self, net: &HalfKpNetwork, fv_scale: i32) -> i32 {
+        if self.hkp.needs_refresh() {
+            let mut acc = HalfKpAcc::new();
+            acc.refresh(net, &self.mailbox, &hand_counts_array(&self.hand));
+            acc.evaluate(net, self.side_to_move, fv_scale)
+        } else {
+            self.hkp.evaluate(net, self.side_to_move, fv_scale)
+        }
+        .clamp(-halfkp::MAX_EVAL, halfkp::MAX_EVAL)
+    }
+
+    // ---- Evaluator dispatch for incremental updates ----
+
+    #[inline(always)]
+    fn nn_add_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.add_piece(net, sq, kind, color);
+        } else {
+            self.acc.add_piece(sq, kind, color);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_remove_piece(&mut self, sq: Square, kind: PieceKind, color: Color) {
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.remove_piece(net, sq, kind, color);
+        } else {
+            self.acc.remove_piece(sq, kind, color);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_move_piece(&mut self, from: Square, to: Square, kind: PieceKind, color: Color) {
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.move_piece(net, from, to, kind, color);
+        } else {
+            self.acc.move_piece(from, to, kind, color);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_add_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.add_hand(net, kind, count, color);
+        } else {
+            self.acc.add_hand(kind, count, color);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_remove_hand(&mut self, kind: PieceKind, count: u8, color: Color) {
+        if let Some(net) = halfkp::active_network() {
+            self.hkp.remove_hand(net, kind, count, color);
+        } else {
+            self.acc.remove_hand(kind, count, color);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_capture_piece(
+        &mut self,
+        moved: (Square, Square, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        if let Some(net) = halfkp::active_network() {
+            let (from, to, kind, mover) = moved;
+            self.hkp.remove_piece(net, from, kind, mover);
+            self.hkp
+                .remove_piece(net, captured.0, captured.1, captured.2);
+            self.hkp.add_hand(net, hand.0, hand.1, hand.2);
+            self.hkp.add_piece(net, to, kind, mover);
+        } else {
+            self.acc.capture_piece(moved, captured, hand);
+        }
+    }
+
+    #[inline(always)]
+    fn nn_undo_capture_piece(
+        &mut self,
+        moved: (Square, Square, PieceKind, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        if let Some(net) = halfkp::active_network() {
+            let (from, to, original, current, mover) = moved;
+            self.hkp.remove_piece(net, to, current, mover);
+            self.hkp.add_piece(net, from, original, mover);
+            self.hkp.add_piece(net, captured.0, captured.1, captured.2);
+            self.hkp.remove_hand(net, hand.0, hand.1, hand.2);
+        } else {
+            self.acc.undo_capture_piece(moved, captured, hand);
+        }
     }
 
     fn accumulator_with_weights(&self, weights: &NnueWeights) -> NnueAcc {
@@ -621,6 +762,7 @@ impl Board {
     #[inline(always)]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
         let token = self.do_move_impl::<true, true, true>(m);
+        self.finish_halfkp_update();
         #[cfg(feature = "king_relative_b_small")]
         self.refresh_acc();
         token
@@ -632,6 +774,10 @@ impl Board {
     pub fn do_move_for_search(&mut self, m: Move) -> MoveToken {
         let token = if crate::nnue::weights_active() {
             self.do_move_impl::<true, true, true>(m)
+        } else if halfkp::is_active() {
+            let token = self.do_move_impl::<true, true, true>(m);
+            self.finish_halfkp_update();
+            token
         } else {
             self.do_move_impl::<false, true, true>(m)
         };
@@ -717,9 +863,9 @@ impl Board {
 
                 // NNUE: threshold feature for old_count turns off (drop: N → N-1)
                 if UPDATE_NNUE {
-                    self.acc.remove_hand(m.piece_kind, old_count, color);
+                    self.nn_remove_hand(m.piece_kind, old_count, color);
                     // NNUE: piece appears on board
-                    self.acc.add_piece(m.to, m.piece_kind, color);
+                    self.nn_add_piece(m.to, m.piece_kind, color);
                 }
 
                 MoveToken {
@@ -741,7 +887,7 @@ impl Board {
 
                 // NNUE: remove piece from its old square
                 if UPDATE_NNUE {
-                    self.acc.remove_piece(from, moved.kind, color);
+                    self.nn_remove_piece(from, moved.kind, color);
                 }
 
                 let captured = self.take(m.to);
@@ -758,8 +904,8 @@ impl Board {
 
                     // NNUE: captured piece leaves the board; threshold feature for new_count turns on
                     if UPDATE_NNUE {
-                        self.acc.remove_piece(m.to, cap.kind, cap.color);
-                        self.acc.add_hand(base, new_count, color);
+                        self.nn_remove_piece(m.to, cap.kind, cap.color);
+                        self.nn_add_hand(base, new_count, color);
                     }
                 }
 
@@ -774,7 +920,7 @@ impl Board {
 
                 // NNUE: piece arrives at its new square (possibly promoted)
                 if UPDATE_NNUE {
-                    self.acc.add_piece(m.to, moved.kind, color);
+                    self.nn_add_piece(m.to, moved.kind, color);
                 }
 
                 // NNUE: a king move changes this perspective's own-king zone,
@@ -871,7 +1017,7 @@ impl Board {
                 ^ zobrist::piece_key(to, color, kind);
         }
         if UPDATE_NNUE {
-            self.acc.move_piece(from, to, kind, color);
+            self.nn_move_piece(from, to, kind, color);
         }
 
         self.side_to_move = color.flip();
@@ -977,7 +1123,7 @@ impl Board {
                 ^ zobrist::hand_delta(color, base, new_count);
         }
         if UPDATE_NNUE {
-            self.acc.capture_piece(
+            self.nn_capture_piece(
                 (from, to, kind, color),
                 (to, captured_kind, captured.color),
                 (base, new_count, color),
@@ -1003,6 +1149,7 @@ impl Board {
     #[inline(always)]
     pub fn undo_move(&mut self, token: MoveToken) {
         self.undo_move_impl::<true, true, true>(token);
+        self.finish_halfkp_update();
         #[cfg(feature = "king_relative_b_small")]
         self.refresh_acc();
     }
@@ -1014,6 +1161,9 @@ impl Board {
             self.undo_move_impl::<true, true, true>(token);
             #[cfg(feature = "king_relative_b_small")]
             self.refresh_acc();
+        } else if halfkp::is_active() {
+            self.undo_move_impl::<true, true, true>(token);
+            self.finish_halfkp_update();
         } else {
             self.undo_move_impl::<false, true, true>(token)
         }
@@ -1066,9 +1216,9 @@ impl Board {
 
                 // NNUE inverse: piece leaves the board; threshold feature for restored count turns on
                 if UPDATE_NNUE {
-                    self.acc.remove_piece(token.to, token.moved.kind, color);
+                    self.nn_remove_piece(token.to, token.moved.kind, color);
                     let restored = self.hand[color.index()].get(token.moved.kind);
-                    self.acc.add_hand(token.moved.kind, restored, color);
+                    self.nn_add_hand(token.moved.kind, restored, color);
                 }
             }
             Some(from) => {
@@ -1083,14 +1233,14 @@ impl Board {
 
                 // NNUE inverse: remove the piece that was at `to`
                 if UPDATE_NNUE && token.captured.is_none() {
-                    self.acc.remove_piece(token.to, kind_at_to, color);
+                    self.nn_remove_piece(token.to, kind_at_to, color);
                 }
 
                 self.put(from, token.moved); // restore pre-promotion piece
 
                 // NNUE inverse: put back the original piece at `from`
                 if UPDATE_NNUE && token.captured.is_none() {
-                    self.acc.add_piece(from, token.moved.kind, color);
+                    self.nn_add_piece(from, token.moved.kind, color);
                 }
 
                 if let Some(cap) = token.captured {
@@ -1100,7 +1250,7 @@ impl Board {
 
                     // NNUE inverse: captured piece reappears on board; threshold feature for before_remove turns off
                     if UPDATE_NNUE {
-                        self.acc.undo_capture_piece(
+                        self.nn_undo_capture_piece(
                             (from, token.to, token.moved.kind, kind_at_to, color),
                             (token.to, cap.kind, cap.color),
                             (cap.kind.unpromoted(), before_remove, color),
@@ -1175,7 +1325,7 @@ impl Board {
         }
 
         if UPDATE_NNUE {
-            self.acc.move_piece(to, from, kind, color);
+            self.nn_move_piece(to, from, kind, color);
         }
     }
 
