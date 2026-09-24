@@ -66,6 +66,10 @@ const FUTILITY_MARGIN: i32 = 300;
 
 /// Late Move Pruning: base quiet-move count before pruning kicks in.
 const LMP_BASE: usize = 5;
+/// Whether quiescence tries quiet checking moves at its first ply. Finding
+/// them requires generating and playing every legal move at each leaf; in
+/// local self-play, disabling it was clearly stronger.
+const QSEARCH_CHECKS: bool = false;
 
 /// Check Extension: ply cap to prevent runaway check chains.
 const CHECK_EXT_MAX_PLY: u32 = 30;
@@ -2045,7 +2049,9 @@ fn alpha_beta(
     // ---------- Young brothers ----------
     // Returns the index in `rest` where sequential processing should begin:
     // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW).
-    let seq_start = if depth >= MIN_SPLIT_DEPTH {
+    // With a single worker the young-brothers pass only delays cutoffs: it
+    // probes every sibling before looking at any result. Search sequentially.
+    let seq_start = if depth >= MIN_SPLIT_DEPTH && rayon::current_num_threads() > 1 {
         let nw_abort = AtomicBool::new(false);
         let alpha_for_nw = alpha;
 
@@ -2543,7 +2549,7 @@ fn quiescence(
     // Quiet checks: at the shallowest qsearch level, search a handful of
     // non-capture moves that give check and have non-negative SEE.
     // Drops that give check (e.g. 飛打ち王手) are included naturally.
-    if !in_check && qply == 0 {
+    if QSEARCH_CHECKS && !in_check && qply == 0 {
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
         let qchecks = {

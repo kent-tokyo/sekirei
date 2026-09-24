@@ -20,6 +20,13 @@ preserves older per-change notes.
   Rust vectorizes them; scores remain bit-identical.
 - Production USI searches no longer record per-node diagnostic counters or
   cost timers; only the reported root mate-safety counters remain.
+- Byoyomi-only time control now uses the whole byoyomi minus
+  `MoveOverhead`; previously it stopped at about 65-80% of it.
+- Single-worker searches skip the young-brothers probe pass, which searched
+  up to six siblings before checking any of them for a cutoff, and
+  quiescence no longer generates and plays every legal move to look for
+  quiet checks. Local self-play (external HalfKP network): 112-86-2 over 200
+  games at 0.1-0.2 s/move against the previous search; not a formal gate.
 
 ## [0.3.43] – 2026-09-23
 
