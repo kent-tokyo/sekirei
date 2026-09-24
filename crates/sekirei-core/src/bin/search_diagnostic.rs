@@ -9,7 +9,7 @@ use std::time::Duration;
 use sekirei_core::board::Board;
 use sekirei_core::eval::{NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille};
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
-use sekirei_core::nnue::load_weights;
+use sekirei_core::nnue::load_evaluator;
 use sekirei_core::search::{PruningConfig, SearchConfig, SearchDiagnostics, Searcher};
 use sekirei_core::sfen::{PositionHistory, move_from_usi, move_to_usi};
 use sekirei_core::tt::Tt;
@@ -131,7 +131,7 @@ fn main() {
         std::process::exit(2);
     }
     if let Some(path) = weights {
-        load_weights(Path::new(&path)).unwrap_or_else(|error| {
+        load_evaluator(Path::new(&path)).unwrap_or_else(|error| {
             eprintln!("failed to load weights: {error}");
             std::process::exit(1);
         });

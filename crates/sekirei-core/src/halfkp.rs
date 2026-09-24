@@ -180,8 +180,12 @@ pub struct HalfKpNetwork {
     ft_weights: Box<[i16]>,
     l1_bias: [i32; HIDDEN],
     l1_weights: Box<[i8]>,
+    /// `l1_weights` regrouped by input pair for evaluation.
+    l1_pairs: Box<[PairColumn; HALF_DIMS]>,
     l2_bias: [i32; HIDDEN],
     l2_weights: Box<[i8]>,
+    /// `l2_weights` regrouped by input pair.
+    l2_pairs: Box<[PairColumn; HIDDEN / 2]>,
     out_bias: i32,
     out_weights: [i8; HIDDEN],
 }
@@ -310,8 +314,10 @@ impl HalfKpNetwork {
             ft_bias: Box::new(ft_bias),
             ft_weights,
             l1_bias,
+            l1_pairs: pair_columns(&l1_weights),
             l1_weights,
             l2_bias,
+            l2_pairs: pair_columns(&l2_weights),
             l2_weights,
             out_bias,
             out_weights,
@@ -380,8 +386,10 @@ impl HalfKpNetwork {
             ft_bias: Box::new(ft_bias),
             ft_weights,
             l1_bias,
+            l1_pairs: pair_columns(&l1_weights),
             l1_weights,
             l2_bias,
+            l2_pairs: pair_columns(&l2_weights),
             l2_weights,
             out_bias,
             out_weights,
@@ -396,13 +404,21 @@ impl HalfKpNetwork {
     /// Raw integer network output for already-transformed accumulators.
     /// `us` is the side to move's accumulator.
     pub fn forward(&self, us: &[i16; HALF_DIMS], them: &[i16; HALF_DIMS]) -> i32 {
-        let mut input = [0u8; 2 * HALF_DIMS];
-        for (dst, src) in input.iter_mut().zip(us.iter().chain(them.iter())) {
-            *dst = (*src).clamp(0, 127) as u8;
+        // Transformer output, grouped as input pairs: us[0..256] then them.
+        let mut input = [[0u8; 2]; HALF_DIMS];
+        for p in 0..HALF_DIMS / 2 {
+            input[p] = [
+                us[2 * p].clamp(0, 127) as u8,
+                us[2 * p + 1].clamp(0, 127) as u8,
+            ];
+            input[HALF_DIMS / 2 + p] = [
+                them[2 * p].clamp(0, 127) as u8,
+                them[2 * p + 1].clamp(0, 127) as u8,
+            ];
         }
-        let hidden1 = affine_clipped(&self.l1_bias, &self.l1_weights, &input);
-        let hidden2 = affine_clipped(&self.l2_bias, &self.l2_weights, &hidden1);
-        dot(self.out_bias, &self.out_weights, &hidden2)
+        let hidden1 = affine_clipped(&self.l1_bias, &self.l1_pairs, &input);
+        let hidden2 = affine_clipped(&self.l2_bias, &self.l2_pairs, &hidden1);
+        dot(self.out_bias, &self.out_weights, hidden2.as_flattened())
     }
 }
 
@@ -415,13 +431,57 @@ fn dot(bias: i32, weights: &[i8], input: &[u8]) -> i32 {
     sum
 }
 
+/// Weights of one input pair for all outputs, interleaved as
+/// `[w(o, 2p), w(o, 2p + 1)]` for `o` in `0..HIDDEN`.
+type PairColumn = [i16; 2 * HIDDEN];
+
+/// Regroup row-major `[output][input]` weights by input pair.
+fn pair_columns<const PAIRS: usize>(weights: &[i8]) -> Box<[PairColumn; PAIRS]> {
+    let inputs = 2 * PAIRS;
+    debug_assert_eq!(weights.len(), HIDDEN * inputs);
+    let mut out = vec![[0i16; 2 * HIDDEN]; PAIRS];
+    for (p, column) in out.iter_mut().enumerate() {
+        for o in 0..HIDDEN {
+            column[2 * o] = i16::from(weights[o * inputs + 2 * p]);
+            column[2 * o + 1] = i16::from(weights[o * inputs + 2 * p + 1]);
+        }
+    }
+    out.into_boxed_slice().try_into().unwrap()
+}
+
+/// Dense layer followed by `ClippedReLU`, written for safe autovectorization.
+///
+/// Each step multiplies one input pair by its interleaved weight column and
+/// adds the two products per output (the shape of a 16-bit pairwise
+/// multiply-add instruction). Four independent partial sums hide instruction
+/// latency. Integer addition is order independent, so the result is exactly
+/// the row-wise definition `bias + sum(w * x)`.
 #[inline(always)]
-fn affine_clipped(bias: &[i32; HIDDEN], weights: &[i8], input: &[u8]) -> [u8; HIDDEN] {
-    let width = input.len();
-    std::array::from_fn(|o| {
-        let sum = dot(bias[o], &weights[o * width..(o + 1) * width], input);
-        (sum >> WEIGHT_SCALE_BITS).clamp(0, 127) as u8
-    })
+fn affine_clipped<const PAIRS: usize>(
+    bias: &[i32; HIDDEN],
+    columns: &[PairColumn; PAIRS],
+    input: &[[u8; 2]; PAIRS],
+) -> [[u8; 2]; HIDDEN / 2] {
+    const LANES: usize = 4;
+    debug_assert_eq!(PAIRS % LANES, 0);
+    let mut partial = [[0i32; HIDDEN]; LANES];
+    for group in 0..PAIRS / LANES {
+        for (lane, sums) in partial.iter_mut().enumerate() {
+            let p = group * LANES + lane;
+            let x0 = i32::from(input[p][0]);
+            let x1 = i32::from(input[p][1]);
+            let w = &columns[p];
+            for o in 0..HIDDEN {
+                sums[o] += i32::from(w[2 * o]) * x0 + i32::from(w[2 * o + 1]) * x1;
+            }
+        }
+    }
+    let mut out = [[0u8; 2]; HIDDEN / 2];
+    for o in 0..HIDDEN {
+        let sum = bias[o] + partial[0][o] + partial[1][o] + partial[2][o] + partial[3][o];
+        out[o / 2][o % 2] = (sum >> WEIGHT_SCALE_BITS).clamp(0, 127) as u8;
+    }
+    out
 }
 
 // ---- Process-wide state ----
