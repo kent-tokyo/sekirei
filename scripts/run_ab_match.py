@@ -17,6 +17,12 @@ Ladder against a node-limited YaneuraOu build (same evaluation file)::
         --yaneuraou /path/YaneuraOu --evalfile /path/nn.bin --nodes-limit 5000 \\
         --games 20 --byoyomi 500
 
+With ``--sprt ELO0,ELO1`` the match stops as soon as a generalized SPRT on the
+game results (logistic Elo, trinomial model, alpha = beta = 0.05) accepts
+H0 (Elo <= ELO0) or H1 (Elo >= ELO1); ``--games`` is then the upper limit::
+
+    python3 scripts/run_ab_match.py selfplay ... --games 2000 --sprt 0,10
+
 Results are local diagnostics, not playing-strength claims. The script only
 starts the external engine as a separate process.
 """
@@ -79,6 +85,32 @@ def elo(wins: int, losses: int, draws: int) -> tuple[float, float]:
     return to_elo(score), (to_elo(score + margin) - to_elo(score - margin)) / 2
 
 
+def sprt_llr(wins: int, losses: int, draws: int, elo0: float, elo1: float) -> float:
+    """Log-likelihood ratio of H1 (Elo = elo1) against H0 (Elo = elo0).
+
+    Uses the normal approximation of the generalized SPRT on the per-game
+    score (win 1, draw 0.5, loss 0), as in Fishtest's trinomial test.
+    """
+    games = wins + losses + draws
+    if games == 0 or wins + draws == 0 or losses + draws == 0:
+        return 0.0
+    score = (wins + 0.5 * draws) / games
+    variance = (wins * (1 - score) ** 2 + losses * score**2 + draws * (0.5 - score) ** 2) / games
+    if variance <= 0:
+        return 0.0
+
+    def expected(elo_value: float) -> float:
+        return 1 / (1 + 10 ** (-elo_value / 400))
+
+    s0, s1 = expected(elo0), expected(elo1)
+    return games * (s1 - s0) * (2 * score - s0 - s1) / (2 * variance)
+
+
+def sprt_bounds(alpha: float = 0.05, beta: float = 0.05) -> tuple[float, float]:
+    """Lower (accept H0) and upper (accept H1) LLR bounds."""
+    return math.log(beta / (1 - alpha)), math.log((1 - beta) / alpha)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", choices=["selfplay", "yaneuraou"])
@@ -93,6 +125,10 @@ def main() -> int:
     parser.add_argument(
         "--openings", default=str(ROOT / "data/gate/openings_standard.sfen")
     )
+    parser.add_argument(
+        "--sprt",
+        help="ELO0,ELO1: stop early when an SPRT accepts H0 (Elo <= ELO0) or H1 (Elo >= ELO1)",
+    )
     parser.add_argument("--name", default="ab")
     parser.add_argument("--out-dir", default=str(ROOT / "target/ab-match"))
     parser.add_argument(
@@ -104,6 +140,15 @@ def main() -> int:
         parser.error("selfplay needs --engine-b")
     if args.mode == "yaneuraou" and not args.yaneuraou:
         parser.error("yaneuraou mode needs --yaneuraou")
+    sprt = None
+    if args.sprt:
+        try:
+            elo0, elo1 = (float(v) for v in args.sprt.split(","))
+        except ValueError:
+            parser.error("--sprt needs ELO0,ELO1")
+        if elo1 <= elo0:
+            parser.error("--sprt needs ELO0 < ELO1")
+        sprt = (elo0, elo1, *sprt_bounds())
 
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -127,6 +172,7 @@ def main() -> int:
     env = dict(os.environ, RAYON_NUM_THREADS="1")
     log_path = out / f"{args.name}.log"
     wins = losses = draws = 0
+    verdict = ""
     with open(log_path, "w", encoding="utf-8") as log:
         proc = subprocess.Popen(
             command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
@@ -141,14 +187,29 @@ def main() -> int:
             wins += outcome == "Engine1 Win"
             losses += outcome == "Engine2 Win"
             draws += outcome == "Draw"
-            print(f"{wins}-{losses}-{draws}", end="\r", flush=True)
+            status = f"{wins}-{losses}-{draws}"
+            if sprt:
+                llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+                status += f" LLR {llr:+.2f} [{sprt[2]:.2f}, {sprt[3]:.2f}]"
+                if llr <= sprt[2] or llr >= sprt[3]:
+                    verdict = "H1 accepted" if llr >= sprt[3] else "H0 accepted"
+                    proc.terminate()
+                    print(status, flush=True)
+                    break
+            print(status, end="\r", flush=True)
         code = proc.wait()
+        if verdict:
+            code = 0
 
     estimate, margin = elo(wins, losses, draws)
     print(
         f"{args.name}: A {wins} wins, {losses} losses, {draws} draws; "
         f"Elo {estimate:+.0f} ± {margin:.0f} (95%, normal approx.); log {log_path}"
     )
+    if sprt:
+        llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+        outcome = verdict or "inconclusive (game limit reached)"
+        print(f"SPRT Elo [{sprt[0]:g}, {sprt[1]:g}]: LLR {llr:+.2f}, {outcome}")
     return code
 
 

@@ -59,6 +59,8 @@ jobs:
         run: |
           python3 scripts/test_nnue_diagnostics.py
           python3 -m unittest scripts/test_check_candidate_readiness.py
+      - name: A/B match SPRT tests
+        run: python3 scripts/test_run_ab_match.py
       - name: teacher comparison tests
         run: |
           python3 scripts/test_compare_teacher_evals.py

@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- `scripts/run_ab_match.py` gains `--sprt ELO0,ELO1`. The match stops once a
+  generalized SPRT on the game results (logistic Elo, alpha = beta = 0.05)
+  accepts H0 (Elo <= ELO0) or H1 (Elo >= ELO1), and `--games` becomes the
+  upper limit. Unit tests run in CI.
+
 ## [0.3.48] – 2026-09-26
 
 - Added `mate::solve_mate`, a check-only depth-first proof-number (df-pn)
