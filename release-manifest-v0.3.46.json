@@ -18,9 +18,9 @@
     "sha256": "ad85204ea2ab8769db73acd198e7e0f42d26333553eb367d42e413d602316f8b"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "36121576265",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
   },
   "internal_measurement": {
