@@ -6,6 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Root search now uses principal-variation search: after the first move,
+  root moves get a null-window probe and are re-searched with the full window
+  only when they may raise alpha, and late quiet root moves are probed at a
+  reduced depth first. Previously every root move was searched with the full
+  window at full depth, so all of them were treated as PV nodes. Nodes to
+  reach depth 9 on 20 fixed positions fell from 3.25M to 1.39M. Local
+  self-play against 0.3.46 (external HalfKP network, one thread, 200
+  balanced openings): 284-183-9 at 0.1 s/move and 126-95-5 at 0.3 s/move;
+  not a formal gate.
+
 ## [0.3.46] – 2026-09-25
 
 - Reverse futility pruning uses a smaller margin (90 instead of 120 per

@@ -1622,24 +1622,51 @@ fn root_search_inner(
     let mut best_move = None;
     let mut alpha = lo;
 
-    for &m in ordered {
+    for (i, &m) in ordered.iter().enumerate() {
         let mover = board.side_to_move;
+        // Late quiet root moves get a reduced null-window probe first.
+        let quiet = board.piece_at(m.to).is_none() && !m.promote;
+        let reduce = if depth >= 3 && i >= 3 && quiet {
+            lmr_base_reduction(depth, i + 1)
+                .saturating_sub(1)
+                .min(depth - 2)
+        } else {
+            0
+        };
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
         let child_history = history.after_move(board.hash(), mover, child_in_check);
-        let score = -alpha_beta(
-            state,
-            board,
-            -hi,
-            -alpha,
-            depth - 1,
-            1,
-            true,
-            Some(m),
-            None,
-            Some(child_in_check),
-            &child_history,
-        );
+        let search = |board: &mut Board, a: i32, b: i32, d: u32| {
+            -alpha_beta(
+                state,
+                board,
+                -b,
+                -a,
+                d,
+                1,
+                true,
+                Some(m),
+                None,
+                Some(child_in_check),
+                &child_history,
+            )
+        };
+        // Principal variation search at the root: the first move gets the
+        // full window; later moves a null-window probe, widened only when
+        // they may raise alpha.
+        let score = if i == 0 {
+            search(board, alpha, hi, depth - 1)
+        } else {
+            let reduce = if child_in_check { 0 } else { reduce };
+            let mut s = search(board, alpha, alpha + 1, depth - 1 - reduce);
+            if reduce > 0 && s > alpha {
+                s = search(board, alpha, alpha + 1, depth - 1);
+            }
+            if s > alpha && s < hi {
+                s = search(board, alpha, hi, depth - 1);
+            }
+            s
+        };
         board.undo_move(tok);
 
         if state.budget.should_abort() {
