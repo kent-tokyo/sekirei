@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.45",
+  "commit": "68ba70685558df3d74adb2ba7d1132bbd64dc256",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.45",
+    "sekirei-core": "0.3.45",
+    "sekirei-bench": "0.3.45",
+    "sekirei-csa": "0.3.45",
+    "sekirei-match-runner": "0.3.45",
+    "sekirei-train": "0.3.45"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "f23249ba583c5da47df7d8563b595fb10154ec951f52305c52435baea88f3894"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 68ba706. Workspace tests, lint, formatting, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. Local balanced-position diagnostics informed search selection, but their ignored run artifacts are not a formal strength gate or a release strength claim."
+  },
+  "external_opponents": {
+    "status": "local_diagnostic_only",
+    "configuration": "A node-limited YaneuraOu ladder was used for local development diagnostics only; external-engine results are not a release criterion or playing-strength claim."
+  },
+  "known_limitations": [
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The new pruning and ordering changes require a separately reproduced formal gate before any broad playing-strength claim.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
