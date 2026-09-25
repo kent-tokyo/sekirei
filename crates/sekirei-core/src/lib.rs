@@ -13,6 +13,7 @@ pub mod external_eval;
 pub mod halfkp;
 pub mod hand;
 pub mod lazy_smp;
+pub mod mate;
 pub mod mcts;
 pub mod movegen;
 pub mod mv;

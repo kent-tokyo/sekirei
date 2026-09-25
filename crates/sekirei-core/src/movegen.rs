@@ -152,6 +152,49 @@ pub fn move_gives_direct_check(board: &Board, m: Move) -> bool {
     })
 }
 
+/// Squares of the side to move's pieces that are the only blocker between
+/// one of its sliders and the enemy king. Moving such a piece off the line
+/// gives a discovered check.
+pub fn discovered_check_candidates(board: &Board) -> Bitboard {
+    let us = board.side_to_move;
+    let Some(ksq) = board.king_square(us.flip()) else {
+        return Bitboard::EMPTY;
+    };
+    let occupied = board.occ();
+    let ours = board.occ_for(us);
+    // Seen from the enemy king, our lances attack from direction 1 (Black)
+    // or 0 (White), matching `is_attacked_with_occupancy`.
+    let lance_direction = match us {
+        Color::Black => 1,
+        Color::White => 0,
+    };
+    let mut candidates = Bitboard::EMPTY;
+    for direction in 0..8 {
+        let Some(blocker) = first_blocker_on_ray_index(ksq, occupied, direction) else {
+            continue;
+        };
+        let blocker_bb = Bitboard::from_square(blocker);
+        if (blocker_bb & ours).is_empty() {
+            continue;
+        }
+        let Some(behind) = first_blocker_on_ray_index(blocker, occupied, direction) else {
+            continue;
+        };
+        let mut sliders = if direction >= 4 {
+            board.bishop_sliders(us)
+        } else {
+            board.rook_sliders(us)
+        };
+        if direction == lance_direction {
+            sliders |= board.pieces(us, PieceKind::Kyou);
+        }
+        if !(Bitboard::from_square(behind) & sliders).is_empty() {
+            candidates |= blocker_bb;
+        }
+    }
+    candidates
+}
+
 /// Returns true if `color`'s king is in check
 pub fn is_in_check(board: &Board, color: Color) -> bool {
     match board.king_square(color) {

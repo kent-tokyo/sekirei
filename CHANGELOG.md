@@ -6,6 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Added `mate::solve_mate`, a check-only depth-first proof-number (df-pn)
+  mate solver with node, ply and deadline bounds, and
+  `movegen::discovered_check_candidates`. Unlike the exhaustive
+  `dfpn` foundation it expands only checking moves for the attacker and
+  selects the most-proving child under thresholds; it proved mates the
+  search had missed in local games in 1,000-18,000 nodes (under 30 ms).
+  It is not yet called by the search: running it at the root with a small
+  budget did not improve local self-play or node-limited external-engine
+  results.
+
 ## [0.3.47] – 2026-09-25
 
 - Root search now uses principal-variation search: after the first move,
