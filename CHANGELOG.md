@@ -12,6 +12,10 @@ preserves older per-change notes.
   the opponent's previous move) is added to the quiet-move key. Local
   self-play (external HalfKP network, one thread, 0.1 s/move): 113-83-4 over
   200 games against 0.3.44; not a formal gate.
+- Late-move (move-count) pruning is removed. Widening it lost heavily in
+  local self-play, and removing the remaining depth-1/2 limit scored
+  110-87-3 over 200 games at 0.1 s/move (21-18-1 over 40 at 0.3 s/move)
+  against the ordering change above; not a formal gate.
 - Search internals: king-move undo restores the saved HalfKP perspective
   instead of rebuilding it, and branch repetition histories allocate once
   per child with an allocation-free common case. Node counts are unchanged.

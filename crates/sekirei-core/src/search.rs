@@ -71,8 +71,6 @@ const FUTILITY_MARGIN: i32 = 300;
 /// request is observed, so every dedicated speculative pool uses this budget.
 pub const RECURSIVE_SEARCH_STACK_BYTES: usize = 8 * 1024 * 1024;
 
-/// Late Move Pruning: base quiet-move count before pruning kicks in.
-const LMP_BASE: usize = 5;
 /// Whether quiescence tries quiet checking moves at its first ply. Finding
 /// them requires generating and playing every legal move at each leaf; in
 /// local self-play, disabling it was clearly stronger.
@@ -2231,15 +2229,11 @@ fn alpha_beta(
     };
 
     // Sequential pass: remaining siblings (tail beyond YBW limit, or all at shallow depth).
+    //
+    // There is deliberately no late-move (move-count) pruning: shogi has many
+    // quiet moves and drops, and in local self-play every move-count limit
+    // lost strength while removing the last one (depth <= 2) gained.
     {
-        let lmp_limit = if !in_check && depth <= 2 {
-            LMP_BASE + depth as usize * 3 // depth 1: 8 quiet moves, depth 2: 11 quiet moves
-        } else {
-            usize::MAX
-        };
-
-        let mut quiet_count = 0usize;
-
         for (j, &m) in rest[seq_start..].iter().enumerate() {
             let i = seq_start + j;
             if state.budget.should_abort() {
@@ -2248,7 +2242,7 @@ fn alpha_beta(
 
             let is_capture = m.from.is_some() && enemy.contains(m.to);
             // Drops are quiet too: they are the majority of shogi moves, and
-            // excluding them exempted most late moves from LMP and futility.
+            // excluding them exempted most late moves from futility pruning.
             let is_quiet = !is_capture && !m.promote;
 
             // Futility Pruning: at depth 1, skip quiet moves that can't reach alpha
@@ -2258,14 +2252,6 @@ fn alpha_beta(
                 && se + FUTILITY_MARGIN < alpha
             {
                 continue;
-            }
-
-            // Late Move Pruning: cut off remaining quiet moves beyond threshold
-            if is_quiet {
-                quiet_count += 1;
-                if quiet_count > lmp_limit {
-                    break;
-                }
             }
 
             let reduce = if state.pruning.late_move_reduction {
