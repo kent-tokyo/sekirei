@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.46",
+  "commit": "676a665fd4306af756a22efc92b372b1efe4f70a",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.46",
+    "sekirei-core": "0.3.46",
+    "sekirei-bench": "0.3.46",
+    "sekirei-csa": "0.3.46",
+    "sekirei-match-runner": "0.3.46",
+    "sekirei-train": "0.3.46"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "ad85204ea2ab8769db73acd198e7e0f42d26333553eb367d42e413d602316f8b"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 676a665. Workspace tests, lint, formatting, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. Improving-aware reverse futility pruning was selected by local balanced-position diagnostics at 0.1 and 0.3 seconds per move; ignored run artifacts are not a formal strength gate or a release strength claim."
+  },
+  "external_opponents": {
+    "status": "local_diagnostic_only",
+    "configuration": "A node-limited YaneuraOu ladder was used for local development diagnostics only; external-engine results are not a release criterion or playing-strength claim."
+  },
+  "known_limitations": [
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The improving-aware RFP change requires a separately reproduced formal gate before any broad playing-strength claim.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
