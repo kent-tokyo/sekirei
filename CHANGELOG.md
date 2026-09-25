@@ -16,6 +16,14 @@ preserves older per-change notes.
   local self-play, and removing the remaining depth-1/2 limit scored
   110-87-3 over 200 games at 0.1 s/move (21-18-1 over 40 at 0.3 s/move)
   against the ordering change above; not a formal gate.
+- Shallow pruning package: razoring at depth ≤ 2, non-PV move-count and
+  static-eval futility pruning of quiet moves up to depth 6 that skips moves
+  giving direct check (new `movegen::move_gives_direct_check`), and checks
+  are no longer extended (only protected from reductions beyond one ply).
+  Local self-play against the ordering and late-move changes above (external
+  HalfKP network, one thread): 125-68-3 over 196 games at 0.1 s/move and
+  50-20 over 70 at 0.3 s/move; not a formal gate. Razoring alone scored
+  110-85-1 at 0.1 s/move.
 - Search internals: king-move undo restores the saved HalfKP perspective
   instead of rebuilding it, and branch repetition histories allocate once
   per child with an allocation-free common case. Node counts are unchanged.

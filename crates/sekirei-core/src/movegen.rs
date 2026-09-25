@@ -97,6 +97,61 @@ fn first_slider_attacker(
     }
 }
 
+/// Whether `m` (not yet played, `board.side_to_move` moving) attacks the
+/// enemy king directly from its destination. Discovered checks are not
+/// detected. Cheap enough to call on every pruning candidate.
+pub fn move_gives_direct_check(board: &Board, m: Move) -> bool {
+    let us = board.side_to_move;
+    let them = us.flip();
+    let Some(ksq) = board.king_square(them) else {
+        return false;
+    };
+    let kind = if m.promote {
+        m.piece_kind.promoted()
+    } else {
+        m.piece_kind
+    };
+    let ki = ksq.index() as usize;
+    let rc = them.index();
+    let to = Bitboard::from_square(m.to);
+    let step = match kind {
+        PieceKind::Fu => PAWN_ATTACKS[rc][ki],
+        PieceKind::Kei => KNIGHT_ATTACKS[rc][ki],
+        PieceKind::Gin => SILVER_ATTACKS[rc][ki],
+        PieceKind::Kin
+        | PieceKind::Tokin
+        | PieceKind::Narikyo
+        | PieceKind::Narikei
+        | PieceKind::Narigin => GOLD_ATTACKS[rc][ki],
+        PieceKind::Uma => ORTHOGONAL_STEP_ATTACKS[ki],
+        PieceKind::Ryu => DIAGONAL_STEP_ATTACKS[ki],
+        PieceKind::Ou | PieceKind::Kyou | PieceKind::Kaku | PieceKind::Hisha => Bitboard::EMPTY,
+    };
+    if !(step & to).is_empty() {
+        return true;
+    }
+    let dirs: &[usize] = match kind {
+        PieceKind::Kyou => {
+            if us == Color::Black {
+                &[0]
+            } else {
+                &[1]
+            }
+        }
+        PieceKind::Kaku | PieceKind::Uma => &[4, 5, 6, 7],
+        PieceKind::Hisha | PieceKind::Ryu => &[0, 1, 2, 3],
+        _ => return false,
+    };
+    let mut occupied = board.occ();
+    if let Some(from) = m.from {
+        occupied &= !Bitboard::from_square(from);
+    }
+    dirs.iter().any(|&d| {
+        !(RAY_ATTACKS[d][m.to.index() as usize] & Bitboard::from_square(ksq)).is_empty()
+            && first_blocker_on_ray_index(m.to, occupied, d) == Some(ksq)
+    })
+}
+
 /// Returns true if `color`'s king is in check
 pub fn is_in_check(board: &Board, color: Color) -> bool {
     match board.king_square(color) {

@@ -33,7 +33,7 @@ use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
 #[cfg(test)]
 use crate::movegen::generate_legal_moves;
-use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check};
+use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check, move_gives_direct_check};
 use crate::mv::Move;
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
@@ -76,8 +76,15 @@ pub const RECURSIVE_SEARCH_STACK_BYTES: usize = 8 * 1024 * 1024;
 /// local self-play, disabling it was clearly stronger.
 const QSEARCH_CHECKS: bool = false;
 
-/// Check Extension: ply cap to prevent runaway check chains.
-const CHECK_EXT_MAX_PLY: u32 = 30;
+/// Razoring margin at depth `d` (1..=2): `BASE + PER_DEPTH * d`.
+const RAZOR_MARGIN_BASE: i32 = 500;
+const RAZOR_MARGIN_PER_DEPTH: i32 = 250;
+
+/// Shallow non-PV quiet-move pruning (move count and futility) applies up to
+/// this depth; futility margin at depth `d` is `BASE + PER_DEPTH * d`.
+const SHALLOW_PRUNE_MAX_DEPTH: u32 = 6;
+const SHALLOW_FUTILITY_BASE: i32 = 100;
+const SHALLOW_FUTILITY_PER_DEPTH: i32 = 150;
 
 /// Singular Extension: minimum depth to consider extending the TT move.
 const SE_MIN_DEPTH: u32 = 8;
@@ -1826,10 +1833,10 @@ fn alpha_beta(
     // Countermove: best quiet response to the opponent's previous move
     let countermove = prev_mv.and_then(|pm| state.countermoves.get(stm.flip(), pm));
 
-    // Static eval — computed once per node for RFP and Futility Pruning.
-    // Skipped when in check (position is not "quiet") or depth > 5 (overhead not justified).
+    // Static eval — computed once per node for RFP, razoring and futility.
+    // Skipped when in check (position is not "quiet") or depth > 7 (unused there).
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
-    let static_eval: Option<i32> = if !in_check && depth <= 5 {
+    let static_eval: Option<i32> = if !in_check && depth <= 7 {
         Some(evaluate_for_search(state, board))
     } else {
         None
@@ -1842,6 +1849,28 @@ fn alpha_beta(
         && se - RFP_MARGIN * depth as i32 >= beta
     {
         return se;
+    }
+
+    // Razoring: far below alpha at shallow non-PV depth, trust quiescence.
+    if let Some(se) = static_eval
+        && depth <= 2
+        && beta - alpha == 1
+        && alpha.abs() < MATE_SCORE - 1000
+        && se + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth as i32 <= alpha
+    {
+        let v = quiescence(
+            state,
+            board,
+            alpha,
+            alpha + 1,
+            ply,
+            0,
+            Some(in_check),
+            history,
+        );
+        if v <= alpha {
+            return v;
+        }
     }
 
     // ProbCut: if a shallow (depth-4) search with an inflated beta suggests this node
@@ -2032,14 +2061,12 @@ fn alpha_beta(
     let tok = board.do_move_for_search(first_move);
     let child_in_check = is_in_check(board, board.side_to_move);
     let first_history = history.after_move(board.hash(), stm, child_in_check);
-    let ext0 = check_ext(child_in_check, ply + 1);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
-    let first_ext = ext0
-        + if tt_mv.is_some_and(|t| t == first_move) {
-            sing_ext
-        } else {
-            0
-        };
+    let first_ext = if tt_mv.is_some_and(|t| t == first_move) {
+        sing_ext
+    } else {
+        0
+    };
     let score0 = -alpha_beta(
         state,
         board,
@@ -2141,9 +2168,12 @@ fn alpha_beta(
                 let tok = b.do_move_for_search(m);
                 let child_in_check = is_in_check(&b, b.side_to_move);
                 let child_history = history.after_move(b.hash(), stm, child_in_check);
-                let ext = check_ext(child_in_check, ply + 1);
-                let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
-                let probe_depth = depth.saturating_sub(1 + reduce) + ext;
+                let reduce = if child_in_check {
+                    reduce.min(1)
+                } else {
+                    reduce
+                };
+                let probe_depth = depth.saturating_sub(1 + reduce);
                 let s = -alpha_beta(
                     state,
                     &mut b,
@@ -2175,13 +2205,12 @@ fn alpha_beta(
                 let tok = board.do_move_for_search(m);
                 let child_in_check = is_in_check(board, board.side_to_move);
                 let child_history = history.after_move(board.hash(), stm, child_in_check);
-                let ext = check_ext(child_in_check, ply + 1);
                 let full = -alpha_beta(
                     state,
                     board,
                     -beta,
                     -alpha,
-                    (depth - 1) + ext,
+                    depth - 1,
                     ply + 1,
                     true,
                     Some(m),
@@ -2254,6 +2283,25 @@ fn alpha_beta(
                 continue;
             }
 
+            // Shallow non-PV pruning of quiet moves that do not give direct
+            // check: move-count pruning and static-eval futility. Checks
+            // (mostly drops) stay: they are shogi's main tactical resource.
+            if beta - alpha == 1
+                && !in_check
+                && is_quiet
+                && depth <= SHALLOW_PRUNE_MAX_DEPTH
+                && best_score > -(MATE_SCORE - 1000)
+                && ((i + 1) as u32 >= 4 + depth * depth
+                    || (depth >= 2
+                        && static_eval.is_some_and(|se| {
+                            se + SHALLOW_FUTILITY_BASE + SHALLOW_FUTILITY_PER_DEPTH * depth as i32
+                                <= alpha
+                        })))
+                && !move_gives_direct_check(board, m)
+            {
+                continue;
+            }
+
             let reduce = if state.pruning.late_move_reduction {
                 lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm)
             } else {
@@ -2262,13 +2310,19 @@ fn alpha_beta(
             let tok = board.do_move_for_search(m);
             let child_in_check = is_in_check(board, board.side_to_move);
             let child_history = history.after_move(board.hash(), stm, child_in_check);
-            let ext = check_ext(child_in_check, ply + 1);
-            let reduce = if ext > 0 { 0 } else { reduce }; // never reduce a checking move
+            // Checks are not extended (every check extension variant lost
+            // depth for nothing in shogi's check-rich trees); they are only
+            // protected from reductions beyond one ply.
+            let reduce = if child_in_check {
+                reduce.min(1)
+            } else {
+                reduce
+            };
 
             // Principal variation search: a (possibly reduced) null-window
             // probe first; widen only when the move may improve alpha.
-            let probe_depth = depth.saturating_sub(1 + reduce) + ext;
-            let full_depth = (depth - 1) + ext;
+            let probe_depth = depth.saturating_sub(1 + reduce);
+            let full_depth = depth - 1;
             let mut s = -alpha_beta(
                 state,
                 board,
@@ -3187,17 +3241,6 @@ fn see_recapture(board: &mut Board, sq: Square, depth: u32) -> i32 {
     let score = (victim_val - see_recapture(board, sq, depth + 1)).max(0);
     board.undo_move_for_search(tok);
     score
-}
-
-/// Returns 1 if the move just played (reflected in `board`) gives check, 0 otherwise.
-/// Capped at `CHECK_EXT_MAX_PLY` to prevent infinite extension chains in perpetual check.
-#[inline]
-fn check_ext(in_check: bool, ply: u32) -> u32 {
-    if ply < CHECK_EXT_MAX_PLY && in_check {
-        1
-    } else {
-        0
-    }
 }
 
 /// Compute Late Move Reduction amount for a move.
