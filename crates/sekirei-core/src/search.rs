@@ -60,6 +60,8 @@ const ASP_DELTA: i32 = 50;
 
 /// Reverse Futility Pruning: margin per depth level in centipawns.
 const RFP_MARGIN: i32 = 120;
+/// Per-depth RFP margin removed when the static eval is improving.
+const RFP_IMPROVING_BONUS: i32 = 30;
 
 /// Futility Pruning: margin for depth-1 quiet moves.
 const FUTILITY_MARGIN: i32 = 300;
@@ -1744,6 +1746,15 @@ fn repetition_score(outcome: RepetitionOutcome, side_to_move: Color, ply: u32) -
     }
 }
 
+/// Static evaluations by ply for the `improving` test. Per thread: in a
+/// young-brothers split the worker's entries above the split ply are stale,
+/// which only affects the pruning heuristic, never correctness.
+const EVAL_STACK_LEN: usize = 256;
+thread_local! {
+    static EVAL_STACK: std::cell::RefCell<[i32; EVAL_STACK_LEN]> =
+        const { std::cell::RefCell::new([i32::MIN; EVAL_STACK_LEN]) };
+}
+
 #[allow(clippy::too_many_arguments)]
 fn alpha_beta(
     state: &Arc<SearchState>,
@@ -1841,12 +1852,24 @@ fn alpha_beta(
     } else {
         None
     };
+    // Improving: the static eval beats the one two plies earlier (same side
+    // to move). Unknown evals (in check, or not computed) count as improving.
+    let improving = EVAL_STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let p = (ply as usize).min(EVAL_STACK_LEN - 1);
+        stack[p] = static_eval.unwrap_or(i32::MIN);
+        match static_eval {
+            Some(se) if p >= 2 && stack[p - 2] != i32::MIN => se > stack[p - 2],
+            _ => true,
+        }
+    });
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
     if let Some(se) = static_eval
         && depth <= 3
         && beta.abs() < MATE_SCORE - 1000
-        && se - RFP_MARGIN * depth as i32 >= beta
+        && se - (RFP_MARGIN - if improving { RFP_IMPROVING_BONUS } else { 0 }) * depth as i32
+            >= beta
     {
         return se;
     }
