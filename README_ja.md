@@ -1,16 +1,17 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.47-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.47)
+[![Release](https://img.shields.io/badge/release-v0.3.48-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.48)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.47`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.48`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。rootでもPVSと遅い手の削減を使い、各root手を全幅・全深さで探索する無駄を
-避けます。重みの同梱・採用は行わず、local診断を正式な棋力向上の主張としては扱いません。
+含みます。node・ply・期限を制限できる王手のみのdf-pn詰み探索APIとprobe例を追加します。
+通常のengine探索はまだこのAPIを呼びません。重みの同梱・採用は行わず、local診断を正式な
+棋力向上の主張としては扱いません。
 
 ## まず動かす
 

@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.48] – 2026-09-26
+
 - Added `mate::solve_mate`, a check-only depth-first proof-number (df-pn)
   mate solver with node, ply and deadline bounds, and
   `movegen::discovered_check_candidates`. Unlike the exhaustive
