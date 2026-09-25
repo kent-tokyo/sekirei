@@ -6,10 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.46] – 2026-09-25
+
 - Reverse futility pruning uses a smaller margin (90 instead of 120 per
   ply) when the static evaluation improved on the one two plies earlier.
   Local self-play against 0.3.45 (external HalfKP network, one thread, 200
-  balanced openings): 168-96-4 at 0.1 s/move and 92-73-4 at 0.3 s/move; not
+  balanced openings): 168-96-4 at 0.1 s/move and 128-108-5 at 0.3 s/move; not
   a formal gate. Tightening the late-move and futility limits on
   non-improving nodes as well won at 0.1 s/move but not at 0.3 s/move.
 
