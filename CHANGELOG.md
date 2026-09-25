@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.47] – 2026-09-25
+
 - Root search now uses principal-variation search: after the first move,
   root moves get a null-window probe and are re-searched with the full window
   only when they may raise alpha, and late quiet root moves are probed at a
