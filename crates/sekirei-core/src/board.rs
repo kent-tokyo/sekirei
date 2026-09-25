@@ -85,7 +85,13 @@ pub struct Board {
     /// `HalfKP` accumulator, maintained instead of `acc` while an external
     /// `HalfKP` network is the active evaluator.
     pub hkp: HalfKpAcc,
+    /// Mover's `HalfKP` perspective saved before each king move, restored by
+    /// the matching undo instead of a full rebuild. `None` if it was stale.
+    hkp_saved: Vec<Option<HalfKpPerspective>>,
 }
+
+/// One saved `HalfKP` perspective: accumulator values and own-king square.
+type HalfKpPerspective = ([i16; halfkp::HALF_DIMS], Square);
 
 impl Board {
     pub(crate) fn empty() -> Self {
@@ -110,6 +116,7 @@ impl Board {
             hash: 0,
             acc: NnueAcc::new(),
             hkp: HalfKpAcc::new(),
+            hkp_saved: Vec::new(),
         }
     }
 
@@ -521,6 +528,32 @@ impl Board {
         hand_counts_array(&self.hand)
     }
 
+    /// Save the mover's `HalfKP` perspective before a king move so that the
+    /// matching undo can restore it instead of rebuilding it.
+    #[inline(always)]
+    fn save_halfkp_before_king_move(&mut self, m: Move) {
+        if m.piece_kind == PieceKind::Ou && halfkp::is_active() {
+            let c = self.side_to_move.index();
+            let saved = (!self.hkp.dirty[c]).then(|| (self.hkp.values[c], self.hkp.king[c]));
+            self.hkp_saved.push(saved);
+        }
+    }
+
+    /// Counterpart of [`Self::save_halfkp_before_king_move`], called after the
+    /// board itself has been restored (the mover is back to move).
+    #[inline(always)]
+    fn restore_halfkp_after_king_undo(&mut self, token: &MoveToken) {
+        if token.moved.kind == PieceKind::Ou
+            && halfkp::is_active()
+            && let Some(Some((values, king))) = self.hkp_saved.pop()
+        {
+            let c = self.side_to_move.index();
+            self.hkp.values[c] = values;
+            self.hkp.king[c] = king;
+            self.hkp.dirty[c] = false;
+        }
+    }
+
     /// Rebuild `HalfKP` perspectives invalidated by a king move. Called at
     /// the end of every NNUE-updating move and undo.
     #[inline(always)]
@@ -761,6 +794,7 @@ impl Board {
     /// Updates Zobrist hash and NNUE accumulator incrementally.
     #[inline(always)]
     pub fn do_move(&mut self, m: Move) -> MoveToken {
+        self.save_halfkp_before_king_move(m);
         let token = self.do_move_impl::<true, true, true>(m);
         self.finish_halfkp_update();
         #[cfg(feature = "king_relative_b_small")]
@@ -775,6 +809,7 @@ impl Board {
         let token = if crate::nnue::weights_active() {
             self.do_move_impl::<true, true, true>(m)
         } else if halfkp::is_active() {
+            self.save_halfkp_before_king_move(m);
             let token = self.do_move_impl::<true, true, true>(m);
             self.finish_halfkp_update();
             token
@@ -1149,6 +1184,7 @@ impl Board {
     #[inline(always)]
     pub fn undo_move(&mut self, token: MoveToken) {
         self.undo_move_impl::<true, true, true>(token);
+        self.restore_halfkp_after_king_undo(&token);
         self.finish_halfkp_update();
         #[cfg(feature = "king_relative_b_small")]
         self.refresh_acc();
@@ -1163,6 +1199,7 @@ impl Board {
             self.refresh_acc();
         } else if halfkp::is_active() {
             self.undo_move_impl::<true, true, true>(token);
+            self.restore_halfkp_after_king_undo(&token);
             self.finish_halfkp_update();
         } else {
             self.undo_move_impl::<false, true, true>(token)

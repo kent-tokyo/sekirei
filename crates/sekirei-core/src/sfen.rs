@@ -323,15 +323,31 @@ impl PositionHistory {
     /// operation here makes that ownership boundary explicit at every
     /// alpha-beta and quiescence child.
     pub fn after_move(&self, hash: u64, mover: Color, gave_check: bool) -> Self {
-        let mut next = self.clone();
-        next.push_after_move(hash, mover, gave_check);
-        next
+        // One exact-size allocation; `clone()` then `push` reallocated.
+        let mut entries = Vec::with_capacity(self.entries.len() + 1);
+        entries.extend_from_slice(&self.entries);
+        entries.push(PositionHistoryEntry {
+            hash,
+            mover: Some(mover),
+            gave_check,
+        });
+        Self { entries }
     }
 
     /// Return an outcome only when the current position has appeared four
     /// times. The inspected cycle begins at the fourth-most-recent occurrence.
     pub fn outcome_at_current_position(&self) -> Option<RepetitionOutcome> {
         let current = self.entries.last()?.hash;
+        // Fast path for search: nearly every node occurs fewer than four times.
+        if self
+            .entries
+            .iter()
+            .filter(|entry| entry.hash == current)
+            .count()
+            < 4
+        {
+            return None;
+        }
         let occurrences: Vec<usize> = self
             .entries
             .iter()
