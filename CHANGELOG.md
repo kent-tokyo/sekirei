@@ -6,6 +6,18 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Quiet-move ordering: history scores now use a gravity update instead of
+  saturating at ±9,000; drops get their own history slots and now earn
+  history, killer, and countermove credit; a continuation history (reply to
+  the opponent's previous move) is added to the quiet-move key. Local
+  self-play (external HalfKP network, one thread, 0.1 s/move): 113-83-4 over
+  200 games against 0.3.44; not a formal gate.
+- Search internals: king-move undo restores the saved HalfKP perspective
+  instead of rebuilding it, and branch repetition histories allocate once
+  per child with an allocation-free common case. Node counts are unchanged.
+- Added `scripts/run_ab_match.py` for fixed-protocol A/B self-play and
+  node-limited YaneuraOu ladders.
+
 ## [0.3.44] – 2026-09-25
 
 - `EvalFile` now detects and loads external `HalfKP 256x2-32-32` networks

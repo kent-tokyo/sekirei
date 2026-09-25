@@ -23,7 +23,7 @@
 //!   - Delta Pruning in Quiescence Search
 
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI16, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -226,44 +226,95 @@ impl CountermoveTable {
 // ============================================================
 
 struct HistoryTable {
-    // Indexed by color × PieceKind::COUNT × Square::NUM
+    // Indexed by color × move slot × Square::NUM, where board moves use
+    // `PieceKind::index()` and drops a separate slot per hand kind.
     data: Vec<AtomicI32>,
+    // Continuation history: how well a move answered the opponent's previous
+    // move, indexed by color × previous (slot, to) × current (slot, to).
+    cont: Vec<AtomicI16>,
 }
+
+/// Board-move slots plus one slot per droppable kind.
+const HISTORY_SLOTS: usize = PieceKind::COUNT + 7;
 
 impl HistoryTable {
     fn new() -> Self {
-        let len = 2 * PieceKind::COUNT * Square::NUM;
+        let len = 2 * HISTORY_SLOTS * Square::NUM;
+        let keys = HISTORY_SLOTS * Square::NUM;
         HistoryTable {
             data: (0..len).map(|_| AtomicI32::new(0)).collect(),
+            cont: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
         }
     }
 
     #[inline]
-    fn idx(color: Color, kind: PieceKind, to: Square) -> usize {
-        color.index() * PieceKind::COUNT * Square::NUM
-            + kind.index() * Square::NUM
-            + to.index() as usize
+    fn key(m: Move) -> usize {
+        let slot = if m.from.is_some() {
+            m.piece_kind.index()
+        } else {
+            PieceKind::COUNT + m.piece_kind.index()
+        };
+        slot * Square::NUM + m.to.index() as usize
+    }
+
+    #[inline]
+    fn cont_idx(color: Color, prev: Move, m: Move) -> usize {
+        const KEYS: usize = HISTORY_SLOTS * Square::NUM;
+        (color.index() * KEYS + Self::key(prev)) * KEYS + Self::key(m)
+    }
+
+    fn cont_get(&self, color: Color, prev: Option<Move>, m: Move) -> i32 {
+        prev.map_or(0, |prev| {
+            i32::from(self.cont[Self::cont_idx(color, prev, m)].load(Ordering::Relaxed))
+        })
+    }
+
+    /// Gravity update of the continuation entry (same rule as `apply`).
+    fn cont_add(&self, color: Color, prev: Option<Move>, m: Move, delta: i32) {
+        const CONT_MAX: i32 = 9_000;
+        if let Some(prev) = prev {
+            let cell = &self.cont[Self::cont_idx(color, prev, m)];
+            let old = i32::from(cell.load(Ordering::Relaxed));
+            let new = (old + delta - old * delta.abs() / CONT_MAX).clamp(-CONT_MAX, CONT_MAX);
+            cell.store(new as i16, Ordering::Relaxed);
+        }
+    }
+
+    #[inline]
+    fn idx(color: Color, m: Move) -> usize {
+        let slot = if m.from.is_some() {
+            m.piece_kind.index()
+        } else {
+            PieceKind::COUNT + m.piece_kind.index()
+        };
+        color.index() * HISTORY_SLOTS * Square::NUM + slot * Square::NUM + m.to.index() as usize
     }
 
     /// Reward a move that caused a beta cutoff; bonus scales with depth².
-    fn update(&self, color: Color, kind: PieceKind, to: Square, depth: u32) {
+    fn update(&self, color: Color, m: Move, depth: u32) {
         let bonus = (depth * depth).min(400) as i32;
-        let i = Self::idx(color, kind, to);
-        let old = self.data[i].load(Ordering::Relaxed);
-        // Clamp below captures (10_000) and promotions to keep band separation clean
-        self.data[i].store((old + bonus).min(9_000), Ordering::Relaxed);
+        self.apply(Self::idx(color, m), bonus);
     }
 
-    fn get(&self, color: Color, kind: PieceKind, to: Square) -> i32 {
-        self.data[Self::idx(color, kind, to)].load(Ordering::Relaxed)
+    fn get(&self, color: Color, m: Move) -> i32 {
+        self.data[Self::idx(color, m)].load(Ordering::Relaxed)
     }
 
     /// Penalise a quiet move that was tried but failed to produce a cutoff.
-    fn malus(&self, color: Color, kind: PieceKind, to: Square, depth: u32) {
+    fn malus(&self, color: Color, m: Move, depth: u32) {
         let penalty = (depth * depth).min(400) as i32;
-        let i = Self::idx(color, kind, to);
+        self.apply(Self::idx(color, m), -penalty);
+    }
+
+    /// History gravity: move toward `delta`'s sign while decaying the old
+    /// value in proportion to the update size, so entries stay within
+    /// ±`HISTORY_MAX` and keep ranking recent evidence instead of saturating.
+    #[inline]
+    fn apply(&self, i: usize, delta: i32) {
+        const HISTORY_MAX: i32 = 9_000;
         let old = self.data[i].load(Ordering::Relaxed);
-        self.data[i].store((old - penalty).max(-9_000), Ordering::Relaxed);
+        let new = old + delta - old * delta.abs() / HISTORY_MAX;
+        self.data[i].store(new.clamp(-HISTORY_MAX, HISTORY_MAX), Ordering::Relaxed);
     }
 }
 
@@ -1367,6 +1418,7 @@ fn root_search(
             tt_mv,
             killers,
             None,
+            None,
             &state.history,
             board.side_to_move,
             state.diagnostics.as_deref(),
@@ -1644,7 +1696,10 @@ fn beta_cutoff(
     prev_mv: Option<Move>,
 ) -> i32 {
     for &qm in tried_quiet {
-        state.history.malus(stm, qm.piece_kind, qm.to, depth);
+        state.history.malus(stm, qm, depth);
+        state
+            .history
+            .cont_add(stm, prev_mv, qm, -((depth * depth).min(400) as i32));
     }
     update_quiet_heuristics(
         &state.killers,
@@ -1920,6 +1975,7 @@ fn alpha_beta(
                 tt_mv,
                 killers,
                 countermove,
+                prev_mv,
                 &state.history,
                 stm,
                 state
@@ -2036,7 +2092,7 @@ fn alpha_beta(
         alpha = score0;
     }
     // Track first_move for malus if it didn't cut off
-    if first_move.from.is_some() && !enemy.contains(first_move.to) && !first_move.promote {
+    if !enemy.contains(first_move.to) && !first_move.promote {
         tried_quiet.push(first_move);
     }
 
@@ -2114,7 +2170,7 @@ fn alpha_beta(
                 break;
             }
 
-            let is_quiet_ybw = m.from.is_some() && !enemy.contains(m.to) && !m.promote;
+            let is_quiet_ybw = !enemy.contains(m.to) && !m.promote;
 
             let s = if nw_score > alpha {
                 // Fail-high: re-search at full depth with full window
@@ -3052,9 +3108,11 @@ fn update_quiet_heuristics(
     board: &Board,
     prev_mv: Option<Move>,
 ) {
-    if m.from.is_some() && board.piece_at(m.to).is_none() && !m.promote {
+    // Quiet = neither capture nor promotion; drops included.
+    if board.piece_at(m.to).is_none() && !m.promote {
         killers.add(ply as usize, m);
-        history.update(stm, m.piece_kind, m.to, depth);
+        history.update(stm, m, depth);
+        history.cont_add(stm, prev_mv, m, (depth * depth).min(400) as i32);
         if let Some(pm) = prev_mv {
             countermoves.update(stm.flip(), pm, m);
         }
@@ -3195,7 +3253,7 @@ fn lmr_reduce(
     }
     let mut r = lmr_base_reduction(depth, move_idx);
     // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
-    let hist = history.get(stm, m.piece_kind, m.to);
+    let hist = history.get(stm, m);
     if hist > 3_000 {
         r = r.saturating_sub(1);
     } else if hist < -3_000 && depth >= 5 {
@@ -3232,6 +3290,7 @@ fn order_moves_in_place(
     tt_mv: Option<Move>,
     killers: [Option<Move>; 2],
     countermove: Option<Move>,
+    prev_mv: Option<Move>,
     history: &HistoryTable,
     stm: Color,
     diagnostics: Option<&SearchDiagnostics>,
@@ -3285,7 +3344,8 @@ fn order_moves_in_place(
         if let Some(d) = diagnostics {
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
-        -(-8_000 + history.get(stm, m.piece_kind, m.to))
+        let score = (history.get(stm, m) + history.cont_get(stm, prev_mv, m)).clamp(-9_000, 9_000);
+        -(-8_000 + score)
     };
     let _sort_timer = ProfileTimer::new(
         diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_sort_ns)),
@@ -3547,7 +3607,7 @@ mod see_tests {
         let killers = KillerTable::new();
         killers.add(0, killer_move);
         let history = HistoryTable::new();
-        history.update(Color::Black, history_move.piece_kind, history_move.to, 20);
+        history.update(Color::Black, history_move, 20);
         let mut ordered = vec![history_move, countermove, killer_move, tt_move];
         order_moves_in_place(
             &mut board,
@@ -3555,6 +3615,7 @@ mod see_tests {
             Some(tt_move),
             killers.get(0),
             Some(countermove),
+            None,
             &history,
             Color::Black,
             None,

@@ -19,6 +19,7 @@ dependency.
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
+| `run_ab_match.py` | Fixed-protocol A/B self-play or node-limited YaneuraOu ladder with one external HalfKP network (one thread, `SpecTopN=0`, no book). Local diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 
 ## Measurement and rules diagnostics
