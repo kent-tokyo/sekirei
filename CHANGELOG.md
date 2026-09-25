@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.45] – 2026-09-25
+
 - Quiet-move ordering: history scores now use a gravity update instead of
   saturating at ±9,000; drops get their own history slots and now earn
   history, killer, and countermove credit; a continuation history (reply to
