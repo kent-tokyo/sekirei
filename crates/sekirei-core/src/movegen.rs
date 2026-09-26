@@ -239,22 +239,32 @@ fn attackers_to_square(board: &Board, sq: Square, by: Color, occupied: Bitboard)
 /// playing the exchange out. Pins and promotions after the first move are
 /// ignored; a king recaptures only when no attacker would remain.
 pub(crate) fn see_swap(board: &Board, m: Move) -> i32 {
-    use crate::eval::PIECE_VALUE;
-    let Some(from) = m.from else { return 0 };
-    let Some(victim) = board.piece_at(m.to) else {
+    if m.from.is_none() || board.piece_at(m.to).is_none() {
         return 0;
-    };
+    }
+    see_exchange(board, m)
+}
+
+/// Static exchange evaluation of any move, including quiet moves and drops:
+/// the moved or dropped piece stands on `m.to` and the opponent may start
+/// capturing it. A quiet move that cannot be won scores 0 (or its promotion
+/// gain); one that hangs material scores negative.
+pub(crate) fn see_exchange(board: &Board, m: Move) -> i32 {
+    use crate::eval::PIECE_VALUE;
     let value = |kind: PieceKind| PIECE_VALUE[kind.index()];
     let to = m.to;
     let mut gain = [0i32; 40];
     let mut on_square = value(m.piece_kind);
-    gain[0] = value(victim.kind);
+    gain[0] = board.piece_at(to).map_or(0, |victim| value(victim.kind));
     if m.promote {
         let promoted = value(m.piece_kind.promoted());
         gain[0] += promoted - on_square;
         on_square = promoted;
     }
-    let mut occupied = board.occ().and_not(Bitboard::from_square(from));
+    let mut occupied = match m.from {
+        Some(from) => board.occ().and_not(Bitboard::from_square(from)),
+        None => board.occ(),
+    };
     let mut side = board.side_to_move.flip();
     let mut depth = 0;
     loop {
