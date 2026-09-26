@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.50",
+  "commit": "6f045e1cfcf81b8f225d314d006225a0ebc01645",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.50",
+    "sekirei-core": "0.3.50",
+    "sekirei-bench": "0.3.50",
+    "sekirei-csa": "0.3.50",
+    "sekirei-match-runner": "0.3.50",
+    "sekirei-train": "0.3.50"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "86817df324cb88d2921ecf452d67a4b02827b4a46cb2c04257b212812f18f9b2"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "scoped_sprt_diagnostic",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 6f045e1. Workspace tests, lint, formatting, the stdlib A/B-runner early-stop test, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. S13 accepted H1 at 206 wins, 108 losses, and 7 draws (LLR +3.04; bounds +/-2.94) for search/qfast versus v0.3.49 under a pre-fixed local protocol: one thread, SpecTopN=0, external HalfKP, 0.5 seconds per move, 200 balanced openings, H0=0 Elo, H1=+10 Elo, alpha=beta=0.05, and a 2,000-game cap. This scoped diagnostic is not a general playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "local_diagnostic_only",
+    "configuration": "A local node-limited YaneuraOu ladder was diagnostic only and is not a release criterion or external-engine superiority claim."
+  },
+  "known_limitations": [
+    "The S13 result applies only to its fixed external HalfKP file, opening corpus, one-thread configuration, and 0.5-second budget; it does not establish general strength or external-engine superiority.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
