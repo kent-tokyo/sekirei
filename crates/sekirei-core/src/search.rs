@@ -33,7 +33,10 @@ use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
 #[cfg(test)]
 use crate::movegen::generate_legal_moves;
-use crate::movegen::{MoveBuffer, generate_legal_captures, is_in_check, move_gives_direct_check};
+use crate::movegen::{
+    MoveBuffer, discovered_check_candidates, generate_legal_captures, is_in_check,
+    move_gives_direct_check,
+};
 use crate::mv::Move;
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
@@ -1544,11 +1547,22 @@ fn root_search(
     }
 }
 
+/// Whether `m` can give check: a direct check, or a move of a piece that
+/// may uncover a slider. Only such moves can mate, so the root mate filters
+/// skip the rest without playing them.
+fn may_give_check(board: &Board, m: Move, discoverers: crate::bitboard::Bitboard) -> bool {
+    move_gives_direct_check(board, m) || m.from.is_some_and(|from| discoverers.contains(from))
+}
+
 /// Return an immediate mating move without changing the caller's board.
 fn root_mate_in_one(state: &SearchState, board: &mut Board, ordered: &[Move]) -> Option<Move> {
+    let discoverers = discovered_check_candidates(board);
     for &m in ordered {
         if state.budget.tick() {
             return None;
+        }
+        if !may_give_check(board, m, discoverers) {
+            continue;
         }
         let tok = board.do_move(m);
         let mated = MoveBuffer::legal(board).is_empty() && is_in_check(board, board.side_to_move);
@@ -1575,10 +1589,14 @@ fn root_mate_blunders(
         }
         let tok = board.do_move(m);
         let mut opponent_can_mate = false;
+        let discoverers = discovered_check_candidates(board);
         for &opp_m in MoveBuffer::legal(board).as_slice() {
             if state.budget.tick() {
                 board.undo_move(tok);
                 return None;
+            }
+            if !may_give_check(board, opp_m, discoverers) {
+                continue;
             }
             let tok2 = board.do_move(opp_m);
             let is_mate =
@@ -3727,6 +3745,40 @@ mod see_tests {
 
         assert_eq!(calls, 4);
         assert_eq!(moves, expected);
+    }
+
+    #[test]
+    fn root_mate_filter_prefilter_keeps_every_checking_move() {
+        // The root mate filters skip moves `may_give_check` rejects; a skipped
+        // move must never give check, or a mate could be missed.
+        let mut state = 0x1234_5678_9ABC_DEF1u64;
+        let mut rand = move |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % n as u64) as usize
+        };
+        let mut checks = 0;
+        for _ in 0..60 {
+            let mut board = Board::startpos();
+            for _ in 0..(20 + rand(150)) {
+                let moves = generate_legal_moves(&mut board);
+                if moves.is_empty() {
+                    break;
+                }
+                let discoverers = discovered_check_candidates(&board);
+                for &m in &moves {
+                    let mut after = board.clone();
+                    after.do_move(m);
+                    if is_in_check(&after, after.side_to_move) {
+                        checks += 1;
+                        assert!(may_give_check(&board, m, discoverers), "{m:?}");
+                    }
+                }
+                board.do_move(moves[rand(moves.len())]);
+            }
+        }
+        assert!(checks > 500);
     }
 
     #[test]

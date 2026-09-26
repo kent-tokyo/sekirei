@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Fixed the root mate-safety filters running out of time in positions with
+  many legal moves. To reject root moves that allow a mate in one, they played
+  every legal reply to every root move. With large hands, about 400 moves by
+  350 replies, this used a whole 100 ms move before depth 1 finished, and the
+  engine then played its first legal move. Found in a won position that was
+  drawn by repetition.
+  - Both filters now play only moves that can give check: direct checks, or
+    moves of a piece that may uncover a slider. The result is unchanged,
+    since only a check can mate.
+  - In the reported position the search now reaches depth 4 and finds a mate
+    in 5 instead of stopping at depth 0.
 - `scripts/run_ab_match.py` gains `--sprt ELO0,ELO1`. The match stops once a
   generalized SPRT on the game results (logistic Elo, alpha = beta = 0.05)
   accepts H0 (Elo <= ELO0) or H1 (Elo >= ELO1), and `--games` becomes the
