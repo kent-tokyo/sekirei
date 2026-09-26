@@ -31,12 +31,11 @@ use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
-#[cfg(test)]
-use crate::movegen::generate_legal_moves;
 use crate::movegen::{
-    MoveBuffer, discovered_check_candidates, generate_legal_captures, is_in_check,
-    move_gives_direct_check,
+    MoveBuffer, discovered_check_candidates, is_in_check, move_gives_direct_check,
 };
+#[cfg(test)]
+use crate::movegen::{generate_legal_captures, generate_legal_moves};
 use crate::mv::Move;
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
@@ -1950,9 +1949,9 @@ fn alpha_beta(
         let pc_beta = beta + PC_MARGIN;
         let mut caps = MoveBuffer::captures(board);
         caps.as_mut_list()
-            .retain(|m| see_score(board, *m) >= PC_MARGIN);
+            .retain(|m| crate::movegen::see_swap(board, *m) >= PC_MARGIN);
         let cap_list = caps.as_mut_list().as_mut_slice();
-        let mut cap_key = |m: &Move| -see_score(board, *m);
+        let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
         if cap_list.len() <= 64 {
             sort_by_cached_i32_key_small(cap_list, &mut cap_key);
         } else {
@@ -2630,7 +2629,7 @@ fn quiescence(
                     MoveBuffer::captures_with_in_check(board, false)
                 }
             };
-        // Order by a cheap MVV-LVA-style key. Recursive see_score here is too costly
+        // Order by a cheap MVV-LVA-style key. A full SEE here is too costly
         // per node (qsearch is the hottest path); the coarse capture ordering is
         // plenty for quiescence and keeps each node fast enough to respect the clock.
         {
@@ -3253,73 +3252,6 @@ fn qsearch_order_key(board: &Board, m: Move) -> i32 {
     victim + promo - PIECE_VALUE[m.piece_kind.index()]
 }
 
-/// Static Exchange Evaluation — net material gain from a capture sequence on m.to.
-///
-/// Fast path: when the raw trade (victim − base attacker) is non-losing, the
-/// capture is at worst an equal trade, so we return that lower bound without
-/// touching the board — this keeps the hot move-ordering path cheap.
-///
-/// Slow path: only losing-looking captures (victim < attacker) run the full
-/// recursive exchange. `do_move`/`undo_move` keep the board exact, so pins,
-/// legality, and X-rays unblocked by a vacating piece are handled correctly.
-/// The opponent may decline to recapture (modelled by `max(0, ..)` in
-/// `see_recapture`); the initial move is never clamped so ordering still sees
-/// that a sac is losing.
-fn see_score(board: &mut Board, m: Move) -> i32 {
-    // Only board moves can be captures; drops never are
-    if m.from.is_none() {
-        return 0;
-    }
-    let Some(cap) = board.piece_at(m.to) else {
-        return 0;
-    };
-
-    let victim_val = PIECE_VALUE[cap.kind.index()];
-    let base_attacker_val = PIECE_VALUE[m.piece_kind.index()];
-    let promo_gain = if m.promote {
-        PIECE_VALUE[m.piece_kind.promoted().index()] - base_attacker_val
-    } else {
-        0
-    };
-
-    // Fast path: if recaptured, the promotion increment cancels (we'd lose the
-    // promoted piece), so the worst case is victim − base_attacker. When that is
-    // ≥ 0 the capture cannot lose material, so skip the simulation.
-    if victim_val >= base_attacker_val {
-        return victim_val + promo_gain - base_attacker_val;
-    }
-
-    // Losing-looking: simulate the full exchange to see if it is actually losing.
-    let tok = board.do_move_for_search(m);
-    let score = victim_val + promo_gain - see_recapture(board, m.to, 0);
-    board.undo_move_for_search(tok);
-    score
-}
-
-/// Value of the best capture sequence on `sq` for the side to move (clamped at 0:
-/// the side may decline to recapture). `depth` guards against pathological recursion.
-fn see_recapture(board: &mut Board, sq: Square, depth: u32) -> i32 {
-    if depth >= 32 {
-        return 0;
-    }
-    // Least-valuable attacker that can capture on `sq`.
-    let lva = generate_legal_captures(board)
-        .into_iter()
-        .filter(|c| c.to == sq)
-        .min_by_key(|c| PIECE_VALUE[c.piece_kind.index()]);
-    let Some(m) = lva else { return 0 };
-
-    let victim_val = match board.piece_at(sq) {
-        Some(p) => PIECE_VALUE[p.kind.index()],
-        None => return 0, // sq empty: nothing to recapture
-    };
-    let tok = board.do_move_for_search(m);
-    // Decline the recapture if it loses material (stand-pat option).
-    let score = (victim_val - see_recapture(board, sq, depth + 1)).max(0);
-    board.undo_move_for_search(tok);
-    score
-}
-
 /// Compute Late Move Reduction amount for a move.
 /// Returns 0 if the move should not be reduced.
 #[inline]
@@ -3419,7 +3351,7 @@ fn order_moves_in_place(
         //    Winning/equal (see >= 0): searched before killers
         //    Losing (see < 0): searched after quiet moves
         if m.from.is_some() && board.piece_at(m.to).is_some() {
-            let see = see_score(board, m);
+            let see = crate::movegen::see_swap(board, m);
             return if see >= 0 {
                 -(10_000 + see) // range: -11_300 to -10_000 (best captures first)
             } else {
@@ -4065,31 +3997,6 @@ mod see_tests {
         assert_eq!(board.hash(), hash);
         assert_eq!(board.acc, acc);
         assert!(generate_legal_moves(&mut board).contains(&drop));
-    }
-
-    // Black rook on 5g captures a white pawn on 5e defended by a white pawn on 5d.
-    // RxP wins a pawn (100) but loses the rook (1040) to PxR → SEE = 100 - 1040 = -940.
-    #[test]
-    fn see_losing_capture_defended() {
-        let mut b = Board::from_sfen("k8/9/9/4p4/4p4/9/4R4/9/8K b - 1").unwrap();
-        let target = Square::from_shogi(5, 5);
-        let m = generate_legal_captures(&mut b)
-            .into_iter()
-            .find(|m| m.to == target)
-            .expect("rook capture on 5e");
-        assert_eq!(see_score(&mut b, m), -940);
-    }
-
-    // Same but no defender: the pawn is free → SEE = +100.
-    #[test]
-    fn see_free_capture_undefended() {
-        let mut b = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
-        let target = Square::from_shogi(5, 5);
-        let m = generate_legal_captures(&mut b)
-            .into_iter()
-            .find(|m| m.to == target)
-            .expect("rook capture on 5e");
-        assert_eq!(see_score(&mut b, m), 100);
     }
 
     // Regression: a search with a tiny hard time limit and a huge max_depth must
