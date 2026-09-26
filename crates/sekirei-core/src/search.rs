@@ -32,7 +32,7 @@ use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
 use crate::movegen::{
-    MoveBuffer, discovered_check_candidates, is_in_check, move_gives_direct_check,
+    MoveBuffer, discovered_check_candidates, is_in_check, mate_in_one, move_gives_direct_check,
 };
 #[cfg(test)]
 use crate::movegen::{generate_legal_captures, generate_legal_moves};
@@ -1966,6 +1966,11 @@ fn alpha_beta(
     // Static eval — computed once per node for RFP, razoring and futility.
     // Skipped when in check (position is not "quiet") or depth > 7 (unused there).
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
+    // A mate in one for the side to move ends the node. Checking it here also
+    // makes null-move and reduced searches see the opponent's mating threats.
+    if !in_check && skip_move.is_none() && mate_in_one(board).is_some() {
+        return MATE_SCORE - (ply as i32 + 1);
+    }
     let static_eval: Option<i32> = if !in_check && depth <= 7 {
         Some(evaluate_for_search(state, board))
     } else {
@@ -2488,6 +2493,10 @@ fn quiescence(
     // Stand-pat and delta pruning only apply when not in check.
     // In check the side to move has no quiet option, so stand-pat is invalid.
     if !in_check {
+        // Standing pat must not hide a mate in one at the horizon.
+        if qply == 0 && mate_in_one(board).is_some() {
+            return MATE_SCORE - (ply as i32 + 1);
+        }
         let stand_pat = evaluate_for_search(state, board);
         if stand_pat >= beta {
             if qply == 0 && !state.budget.should_abort() {

@@ -3858,3 +3858,198 @@ mod legality_probe_tests {
         }
     }
 }
+
+/// Find a mate in one by the side to move among checks that land next to
+/// the enemy king or on a knight-check square. Contact checks are tried
+/// only on squares the side to move already attacks, since the king would
+/// otherwise capture the checker. Pawn drops are skipped (a pawn-drop mate
+/// is illegal), and distant slider checks and discovered checks are not
+/// tried, so `None` does not prove that no mate in one exists.
+pub fn mate_in_one(board: &mut Board) -> Option<Move> {
+    let us = board.side_to_move;
+    let them = us.flip();
+    let ksq = board.king_square(them)?;
+    let ki = ksq.index() as usize;
+    let occ = board.occ();
+    let not_ours = !board.occ_for(us);
+    let hand = *board.hand(us);
+    let drops_possible = hand.iter().any(|kind| kind != PieceKind::Fu);
+
+    // Contact squares a checker could survive on. A board move there also
+    // needs a second attacker, or a slider behind the mover.
+    let mut drop_squares = Bitboard::EMPTY;
+    let mut move_squares = Bitboard::EMPTY;
+    let mut adjacent = KING_ATTACKS[ki] & not_ours;
+    while let Some(sq) = adjacent.pop_lsb() {
+        if !is_attacked_with_occupancy(board, sq, us, occ) {
+            continue;
+        }
+        if drops_possible && !occ.contains(sq) {
+            drop_squares.set(sq);
+        }
+        let attackers = attackers_to_square(board, sq, us, occ);
+        let supported = attackers.popcount() >= 2
+            || !(attackers_to_square(board, sq, us, occ & !attackers) & !attackers).is_empty();
+        if supported {
+            move_squares.set(sq);
+        }
+    }
+    // Knight checks: from hand onto an empty square, or by a knight that
+    // reaches the square (a knight on `s` is reached from the squares a
+    // `them`-coloured knight on `s` would attack).
+    let hand_knight = hand.get(PieceKind::Kei) > 0;
+    let our_knights = board.pieces(us, PieceKind::Kei);
+    let mut knight_squares = KNIGHT_ATTACKS[them.index()][ki] & not_ours;
+    while let Some(sq) = knight_squares.pop_lsb() {
+        if hand_knight && !occ.contains(sq) {
+            drop_squares.set(sq);
+        }
+        if !(KNIGHT_ATTACKS[them.index()][sq.index() as usize] & our_knights).is_empty() {
+            move_squares.set(sq);
+        }
+    }
+    if drop_squares.is_empty() && move_squares.is_empty() {
+        return None;
+    }
+
+    MATE_IN_ONE_LISTS.with(|lists| {
+        let (candidates, replies) = &mut *lists.borrow_mut();
+        candidates.clear();
+        for kind in hand.iter() {
+            if kind == PieceKind::Fu {
+                continue;
+            }
+            let mut squares = drop_squares;
+            while let Some(sq) = squares.pop_lsb() {
+                let m = Move::drop(sq, kind);
+                if move_gives_direct_check(board, m) {
+                    candidates.push(m);
+                }
+            }
+        }
+        if !move_squares.is_empty() {
+            generate_moves_into_fixed(board, replies);
+            for &m in replies.as_slice() {
+                if m.from.is_some()
+                    && move_squares.contains(m.to)
+                    && move_gives_direct_check(board, m)
+                {
+                    candidates.push(m);
+                }
+            }
+        }
+        for i in 0..candidates.len() {
+            let m = candidates.as_slice()[i];
+            let tok = board.do_move_for_perft(m);
+            let mate = !is_in_check(board, us) && !king_can_step_away(board, them, ksq) && {
+                replies.clear();
+                generate_legal_moves_into_fixed(board, replies);
+                replies.is_empty()
+            };
+            board.undo_move_for_perft(tok);
+            if mate {
+                return Some(m);
+            }
+        }
+        None
+    })
+}
+
+/// Whether the `color` king on `ksq` has a neighbouring square (including a
+/// capture) that the opponent does not attack once the king has left.
+fn king_can_step_away(board: &Board, color: Color, ksq: Square) -> bool {
+    let occupied = board.occ() & !Bitboard::from_square(ksq);
+    let mut escapes = KING_ATTACKS[ksq.index() as usize] & !board.occ_for(color);
+    while let Some(sq) = escapes.pop_lsb() {
+        if !is_attacked_with_occupancy(board, sq, color.flip(), occupied) {
+            return true;
+        }
+    }
+    false
+}
+
+thread_local! {
+    static MATE_IN_ONE_LISTS: RefCell<(FixedMoveList, FixedMoveList)> =
+        RefCell::new((FixedMoveList::new(), FixedMoveList::new()));
+}
+
+#[cfg(test)]
+mod mate_in_one_tests {
+    use super::*;
+
+    #[test]
+    fn finds_head_gold_drop_mate() {
+        let mut board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+        let m = mate_in_one(&mut board).expect("gold drop mate");
+        assert_eq!(m, Move::drop(Square::from_shogi(5, 2), PieceKind::Kin));
+        let mut start = Board::startpos();
+        assert_eq!(mate_in_one(&mut start), None);
+    }
+
+    #[test]
+    fn ignores_pawn_drop_mate() {
+        // Pawn drop on 1b would mate, which is illegal; nothing else mates.
+        let mut board = Board::from_sfen("8k/9/7GK/9/9/9/9/9/9 b P 1").unwrap();
+        let found = mate_in_one(&mut board);
+        assert!(found.is_none_or(|m| m.piece_kind != PieceKind::Fu || !m.is_drop()));
+    }
+
+    /// Every reported mate is a legal mating move, and every mate by a
+    /// non-pawn-drop direct check next to the king or from a knight square
+    /// is found, on positions from random play.
+    #[test]
+    fn matches_brute_force_on_contact_and_knight_mates() {
+        let mut state = 0x9E37_79B9_7F4A_7C15u64;
+        let mut rand = move |n: usize| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            (state % n as u64) as usize
+        };
+        let mut positions = 0;
+        let mut mates = 0;
+        for _ in 0..300 {
+            let mut board = Board::startpos();
+            for _ in 0..(10 + rand(200)) {
+                let moves = generate_legal_moves(&mut board);
+                if moves.is_empty() {
+                    break;
+                }
+                if !is_in_check(&board, board.side_to_move) {
+                    let us = board.side_to_move;
+                    let ksq = board.king_square(us.flip()).unwrap();
+                    let near = KING_ATTACKS[ksq.index() as usize]
+                        | KNIGHT_ATTACKS[us.flip().index()][ksq.index() as usize];
+                    let mut expected = false;
+                    let mut mating = Vec::new();
+                    for &m in &moves {
+                        let mut after = board.clone();
+                        after.do_move(m);
+                        if generate_legal_moves(&mut after).is_empty() {
+                            mating.push(m);
+                            let pawn_drop = m.is_drop() && m.piece_kind == PieceKind::Fu;
+                            if !pawn_drop
+                                && near.contains(m.to)
+                                && move_gives_direct_check(&board, m)
+                            {
+                                expected = true;
+                            }
+                        }
+                    }
+                    let before = board.hash();
+                    let found = mate_in_one(&mut board);
+                    assert_eq!(board.hash(), before);
+                    if let Some(m) = found {
+                        assert!(mating.contains(&m), "unsound mate {m:?}");
+                        mates += 1;
+                    }
+                    assert!(found.is_some() || !expected, "missed a contact mate");
+                    positions += 1;
+                }
+                board.do_move(moves[rand(moves.len())]);
+            }
+        }
+        assert!(positions > 10_000);
+        assert!(mates > 20, "only {mates} mates in {positions} positions");
+    }
+}
