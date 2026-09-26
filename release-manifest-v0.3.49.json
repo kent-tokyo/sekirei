@@ -1,0 +1,43 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.49",
+  "commit": "53cc137129e59006a0210b35b5fa7f4a127ebe5f",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.49",
+    "sekirei-core": "0.3.49",
+    "sekirei-bench": "0.3.49",
+    "sekirei-csa": "0.3.49",
+    "sekirei-match-runner": "0.3.49",
+    "sekirei-train": "0.3.49"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "948898c8d7d9851e904a9a2431f02c03ace08a2cdee866412059bb5651701b2b"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "diagnostic_only",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 53cc137. Workspace tests, lint, formatting, the stdlib A/B-runner early-stop test, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. This release fixes root mate-safety filtering before depth 1 in high-legal-move positions and adds bounded early-stop SPRT support to the local A/B runner. No local diagnostic is a formal strength gate or release strength claim."
+  },
+  "external_opponents": {
+    "status": "not_run",
+    "configuration": "No external-engine result is a release criterion or playing-strength claim for this maintenance and measurement release."
+  },
+  "known_limitations": [
+    "The mate-in-one-at-every-node candidate is intentionally excluded pending an independent long SPRT; it remains outside this release.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
