@@ -2043,6 +2043,9 @@ fn alpha_beta(
     }
 
     let killers = state.killers.get(ply as usize);
+    // With a TT move, only that move is put first; the rest is ordered after
+    // it fails to cut, since most cutoffs come from the first move.
+    let mut deferred_order = false;
     let mut move_buffer = {
         let _timer = ProfileTimer::new(
             state
@@ -2069,20 +2072,29 @@ fn alpha_beta(
                     .as_deref()
                     .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
             );
-            order_moves_in_place(
-                board,
-                move_buffer.as_mut_list().as_mut_slice(),
-                tt_mv,
-                killers,
-                countermove,
-                prev_mv,
-                &state.history,
-                stm,
-                state
-                    .diagnostics
-                    .as_deref()
-                    .and_then(SearchDiagnostics::per_node),
-            );
+            let list = move_buffer.as_mut_list().as_mut_slice();
+            let tt_pos = tt_mv
+                .filter(|_| skip_move.is_none())
+                .and_then(|t| list.iter().position(|&m| m == t));
+            if let Some(k) = tt_pos {
+                list[..=k].rotate_right(1);
+                deferred_order = true;
+            } else {
+                order_moves_in_place(
+                    board,
+                    list,
+                    tt_mv,
+                    killers,
+                    countermove,
+                    prev_mv,
+                    &state.history,
+                    stm,
+                    state
+                        .diagnostics
+                        .as_deref()
+                        .and_then(SearchDiagnostics::per_node),
+                );
+            }
         }
         move_buffer
     };
@@ -2194,6 +2206,23 @@ fn alpha_beta(
         tried_quiet.push(first_move);
     }
 
+    if deferred_order {
+        order_moves_in_place(
+            board,
+            &mut move_buffer.as_mut_list().as_mut_slice()[1..],
+            None,
+            killers,
+            countermove,
+            prev_mv,
+            &state.history,
+            stm,
+            state
+                .diagnostics
+                .as_deref()
+                .and_then(SearchDiagnostics::per_node),
+        );
+    }
+    let ordered = move_buffer.as_slice();
     let rest = &ordered[1..];
     if rest.is_empty() {
         let bound = if best_score > orig_alpha {
