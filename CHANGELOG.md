@@ -6,9 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.50] – 2026-09-26
+
 - Quiescence search skips captures that lose material in the exchange, using
   a new bitboard static exchange evaluation (`movegen::see_swap`) that does
-  not change the board. Candidate for an SPRT against v0.3.49.
+  not change the board. Main-search capture ordering and ProbCut use the same
+  evaluator; shallow non-PV nodes also prune clearly losing non-check captures.
+  A pre-registered local SPRT against v0.3.49, with a pinned external HalfKP
+  file, one thread, 0.5 s/move, 200 balanced openings, H0=0 Elo, H1=+10 Elo,
+  and alpha=beta=0.05, accepted H1 at 206-108-7 (LLR +3.04). This is not a
+  general playing-strength or external-engine superiority claim.
 
 ## [0.3.49] – 2026-09-26
 
