@@ -1222,6 +1222,12 @@ impl Searcher {
             );
 
             if state.budget.should_abort() {
+                // The interrupted iteration only reports a move whose search
+                // at this depth completed inside the window (the previous
+                // best failed low or was beaten), so it is the better choice.
+                if depth > 1 && m.is_some() {
+                    best_move = m;
+                }
                 break;
             }
 
