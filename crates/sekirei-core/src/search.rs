@@ -1518,6 +1518,9 @@ fn root_search(
         (NEG_INF, POS_INF)
     };
 
+    // The window grows geometrically around the score that fell outside it,
+    // so a large swing costs a few re-searches instead of one per step.
+    let mut delta = ASP_DELTA;
     loop {
         let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi, history);
 
@@ -1525,16 +1528,19 @@ fn root_search(
             return (m, score, SearchBound::Unknown);
         }
 
+        delta = delta.saturating_mul(2);
         if score <= lo {
-            lo -= ASP_DELTA * 2;
-            if lo < NEG_INF {
-                lo = NEG_INF;
-            }
+            lo = if score.abs() >= MATE_SCORE - 1000 {
+                NEG_INF
+            } else {
+                (score - delta).max(NEG_INF)
+            };
         } else if score >= hi {
-            hi += ASP_DELTA * 2;
-            if hi > POS_INF {
-                hi = POS_INF;
-            }
+            hi = if score.abs() >= MATE_SCORE - 1000 {
+                POS_INF
+            } else {
+                (score + delta).min(POS_INF)
+            };
         } else {
             return (m, score, SearchBound::Exact);
         }
