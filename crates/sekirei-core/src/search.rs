@@ -2369,6 +2369,20 @@ fn alpha_beta(
                 continue;
             }
 
+            // Shallow non-PV pruning of clearly losing captures (bitboard SEE).
+            if beta - alpha == 1
+                && !in_check
+                && !is_quiet
+                && depth <= SHALLOW_PRUNE_MAX_DEPTH
+                && best_score > -(MATE_SCORE - 1000)
+                && m.from.is_some()
+                && board.piece_at(m.to).is_some()
+                && crate::movegen::see_swap(board, m) < -120 * depth as i32
+                && !move_gives_direct_check(board, m)
+            {
+                continue;
+            }
+
             let reduce = if state.pruning.late_move_reduction {
                 lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm)
             } else {
