@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.49] – 2026-09-26
+
 - Fixed the root mate-safety filters running out of time in positions with
   many legal moves. To reject root moves that allow a mate in one, they played
   every legal reply to every root move. With large hands, about 400 moves by
