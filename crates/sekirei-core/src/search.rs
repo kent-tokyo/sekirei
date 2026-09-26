@@ -2677,6 +2677,15 @@ fn quiescence(
 
     let mut best_move = None;
     for &m in move_buffer.as_slice() {
+        // Skip captures that lose material in the exchange (bitboard SEE).
+        if !in_check
+            && board.piece_at(m.to).is_some_and(|victim| {
+                PIECE_VALUE[victim.kind.index()] < PIECE_VALUE[m.piece_kind.index()]
+            })
+            && crate::movegen::see_swap(board, m) < 0
+        {
+            continue;
+        }
         let mover = board.side_to_move;
         let tok = board.do_move_for_search(m);
         let child_in_check = is_in_check(board, board.side_to_move);

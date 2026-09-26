@@ -233,9 +233,95 @@ fn attackers_to_square(board: &Board, sq: Square, by: Color, occupied: Bitboard)
     attackers
 }
 
+/// Static exchange evaluation on bitboards: the material result of the capture
+/// `m` followed by the best sequence of recaptures on its square, each side
+/// free to stop. The board is not changed, so this is much cheaper than
+/// playing the exchange out. Pins and promotions after the first move are
+/// ignored; a king recaptures only when no attacker would remain.
+pub(crate) fn see_swap(board: &Board, m: Move) -> i32 {
+    use crate::eval::PIECE_VALUE;
+    let Some(from) = m.from else { return 0 };
+    let Some(victim) = board.piece_at(m.to) else {
+        return 0;
+    };
+    let value = |kind: PieceKind| PIECE_VALUE[kind.index()];
+    let to = m.to;
+    let mut gain = [0i32; 40];
+    let mut on_square = value(m.piece_kind);
+    gain[0] = value(victim.kind);
+    if m.promote {
+        let promoted = value(m.piece_kind.promoted());
+        gain[0] += promoted - on_square;
+        on_square = promoted;
+    }
+    let mut occupied = board.occ().and_not(Bitboard::from_square(from));
+    let mut side = board.side_to_move.flip();
+    let mut depth = 0;
+    loop {
+        let attackers = attackers_to_square(board, to, side, occupied) & occupied;
+        let mut remaining = attackers;
+        let mut least: Option<(Square, i32, PieceKind)> = None;
+        while let Some(sq) = remaining.pop_lsb() {
+            let Some(piece) = board.piece_at(sq) else {
+                continue;
+            };
+            let v = value(piece.kind);
+            if least.is_none_or(|(_, best, _)| v < best) {
+                least = Some((sq, v, piece.kind));
+            }
+        }
+        let Some((sq, v, kind)) = least else { break };
+        let after = occupied.and_not(Bitboard::from_square(sq));
+        if kind == PieceKind::Ou
+            && !(attackers_to_square(board, to, side.flip(), after) & after).is_empty()
+        {
+            break;
+        }
+        depth += 1;
+        if depth == gain.len() {
+            break;
+        }
+        gain[depth] = on_square - gain[depth - 1];
+        on_square = v;
+        occupied = after;
+        side = side.flip();
+    }
+    while depth > 0 {
+        gain[depth - 1] = -(-gain[depth - 1]).max(gain[depth]);
+        depth -= 1;
+    }
+    gain[0]
+}
+
 #[cfg(test)]
 mod attack_union_tests {
     use super::*;
+
+    #[test]
+    fn see_swap_matches_known_exchanges() {
+        // Rook takes a pawn defended by a pawn: 100 - 1040.
+        let mut b = Board::from_sfen("k8/9/9/4p4/4p4/9/4R4/9/8K b - 1").unwrap();
+        let m = generate_legal_captures(&mut b)
+            .into_iter()
+            .find(|m| m.to == Square::from_shogi(5, 5))
+            .unwrap();
+        assert_eq!(see_swap(&b, m), -940);
+        // Undefended pawn.
+        let mut b = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        let m = generate_legal_captures(&mut b)
+            .into_iter()
+            .find(|m| m.to == Square::from_shogi(5, 5))
+            .unwrap();
+        assert_eq!(see_swap(&b, m), 100);
+        // Pawn takes a pawn defended by a rook, which a lance behind the pawn
+        // backs up (x-ray): the exchange ends a pawn up.
+        let mut b = Board::from_sfen("k3r4/9/9/9/4p4/4P4/4L4/9/8K b - 1").unwrap();
+        let m = generate_legal_captures(&mut b)
+            .into_iter()
+            .find(|m| m.to == Square::from_shogi(5, 5))
+            .unwrap();
+        assert!(see_swap(&b, m) >= 100, "{}", see_swap(&b, m));
+    }
     use crate::piece::Piece;
 
     fn board_with_attacker(color: Color, kind: PieceKind, from: Square) -> Board {

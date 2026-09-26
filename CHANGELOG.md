@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Quiescence search skips captures that lose material in the exchange, using
+  a new bitboard static exchange evaluation (`movegen::see_swap`) that does
+  not change the board. Candidate for an SPRT against v0.3.49.
+
 ## [0.3.49] – 2026-09-26
 
 - Fixed the root mate-safety filters running out of time in positions with
