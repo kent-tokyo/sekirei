@@ -1238,6 +1238,7 @@ fn probcut(
         if state.budget.should_abort() {
             break;
         }
+        set_current_move(ply, Some(cap));
         let (tok, child_in_check, child_history) = play(board, cap, history);
         let pc_score = -alpha_beta(
             state,
@@ -1273,6 +1274,7 @@ fn null_move_pruning(
     prev_mv: Option<Move>,
     history: &SearchHistory<'_>,
 ) -> Option<i32> {
+    set_current_move(ply, None);
     let null_tok = board.do_null_move();
     let null_score = -alpha_beta(
         state,
@@ -1510,6 +1512,7 @@ fn root_search(
     if move_buffer.len() == 1 && root_move.is_none() {
         let only_move = move_buffer.as_slice()[0];
         let mover = board.side_to_move;
+        set_current_move(0, Some(only_move));
         let tok = board.do_move(only_move);
         let child_in_check = is_in_check(board, board.side_to_move);
         let child_history = history.after_move(board.hash(), mover, child_in_check);
@@ -1706,6 +1709,7 @@ fn root_search_inner(
         } else {
             0
         };
+        set_current_move(0, Some(m));
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
         let child_history = history.after_move(board.hash(), mover, child_in_check);
@@ -1861,13 +1865,72 @@ fn repetition_score(outcome: RepetitionOutcome, side_to_move: Color, ply: u32) -
     }
 }
 
-/// Static evaluations by ply for the `improving` test. Per thread: in a
-/// young-brothers split the worker's entries above the split ply are stale,
-/// which only affects the pruning heuristic, never correctness.
-const EVAL_STACK_LEN: usize = 256;
+/// One ply of the current search path.
+#[derive(Clone, Copy)]
+struct Frame {
+    /// Static evaluation of the node at this ply; `i32::MIN` when it was not
+    /// computed (in check, or deeper than the pruning that uses it).
+    static_eval: i32,
+    /// Move played from this ply into the child being searched; `None` for a
+    /// null move.
+    current_move: Option<Move>,
+}
+
+impl Frame {
+    const EMPTY: Frame = Frame {
+        static_eval: i32::MIN,
+        current_move: None,
+    };
+}
+
+/// Per-thread search stack indexed by ply. A young-brothers worker copies
+/// the frames up to the split ply from the thread that split (see
+/// `stack_path`/`restore_stack_path`), so the frames above it describe the
+/// same path.
+const STACK_LEN: usize = 256;
 thread_local! {
-    static EVAL_STACK: std::cell::RefCell<[i32; EVAL_STACK_LEN]> =
-        const { std::cell::RefCell::new([i32::MIN; EVAL_STACK_LEN]) };
+    static STACK: std::cell::RefCell<[Frame; STACK_LEN]> =
+        const { std::cell::RefCell::new([Frame::EMPTY; STACK_LEN]) };
+}
+
+#[inline]
+fn stack_index(ply: u32) -> usize {
+    (ply as usize).min(STACK_LEN - 1)
+}
+
+/// Record the move searched next from `ply` (`None`: a null move).
+#[inline]
+fn set_current_move(ply: u32, m: Option<Move>) {
+    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].current_move = m);
+}
+
+/// Record the static evaluation at `ply` and report whether it improves on
+/// the one two plies earlier (same side to move). Unknown evaluations (in
+/// check, or not computed) count as improving.
+#[inline]
+fn record_static_eval(ply: u32, static_eval: Option<i32>) -> bool {
+    STACK.with(|stack| {
+        let mut stack = stack.borrow_mut();
+        let p = stack_index(ply);
+        stack[p].static_eval = static_eval.unwrap_or(i32::MIN);
+        match static_eval {
+            Some(se) if p >= 2 && stack[p - 2].static_eval != i32::MIN => {
+                se > stack[p - 2].static_eval
+            }
+            _ => true,
+        }
+    })
+}
+
+/// The frames from the root to `ply`, for a worker thread that continues
+/// this path.
+fn stack_path(ply: u32) -> Vec<Frame> {
+    STACK.with(|stack| stack.borrow()[..=stack_index(ply)].to_vec())
+}
+
+/// Install a path taken with `stack_path` on this thread.
+fn restore_stack_path(path: &[Frame]) {
+    STACK.with(|stack| stack.borrow_mut()[..path.len()].copy_from_slice(path));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1952,15 +2015,7 @@ fn alpha_beta(
     };
     // Improving: the static eval beats the one two plies earlier (same side
     // to move). Unknown evals (in check, or not computed) count as improving.
-    let improving = EVAL_STACK.with(|stack| {
-        let mut stack = stack.borrow_mut();
-        let p = (ply as usize).min(EVAL_STACK_LEN - 1);
-        stack[p] = static_eval.unwrap_or(i32::MIN);
-        match static_eval {
-            Some(se) if p >= 2 && stack[p - 2] != i32::MIN => se > stack[p - 2],
-            _ => true,
-        }
-    });
+    let improving = record_static_eval(ply, static_eval);
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
     if let Some(se) = static_eval
@@ -2106,6 +2161,7 @@ fn alpha_beta(
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
+    set_current_move(ply, Some(first_move));
     let (tok, child_in_check, first_history) = play(board, first_move, history);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
     let first_ext = if tt_mv.is_some_and(|t| t == first_move) {
@@ -2200,6 +2256,7 @@ fn alpha_beta(
         // Rayon joins before returning, so the closure can borrow state and the
         // abort flag directly. Clone only the worker's private Board; the old
         // staging Vec also cloned every Arc and allocated once per split.
+        let path = stack_path(ply);
         let nw_results: Vec<(Move, i32, usize)> = rest[..ybw_end]
             .par_iter()
             .enumerate()
@@ -2214,6 +2271,8 @@ fn alpha_beta(
                 } else {
                     0
                 };
+                restore_stack_path(&path);
+                set_current_move(ply, Some(m));
                 let (tok, child_in_check, child_history) = play(&mut b, m, history);
                 let reduce = if child_in_check {
                     reduce.min(1)
@@ -2249,6 +2308,7 @@ fn alpha_beta(
 
             let s = if nw_score > alpha {
                 // Fail-high: re-search at full depth with full window
+                set_current_move(ply, Some(m));
                 let (tok, child_in_check, child_history) = play(board, m, history);
                 let full = -alpha_beta(
                     state,
@@ -2332,6 +2392,7 @@ fn alpha_beta(
             } else {
                 0
             };
+            set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
             // Checks are not extended (every check extension variant lost
             // depth for nothing in shogi's check-rich trees); they are only
