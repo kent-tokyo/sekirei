@@ -36,7 +36,7 @@ use crate::movegen::{
 };
 #[cfg(test)]
 use crate::movegen::{generate_legal_captures, generate_legal_moves};
-use crate::mv::Move;
+use crate::mv::{Move, MoveToken};
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
 use crate::sfen::{PositionHistory, PositionHistoryEntry, RepetitionOutcome};
@@ -1394,6 +1394,21 @@ impl<'a> SearchHistory<'a> {
     }
 }
 
+/// Play `m` for the search: the undo token, whether the child is in check,
+/// and the child's history frame.
+#[inline(always)]
+fn play<'a>(
+    board: &mut Board,
+    m: Move,
+    history: &'a SearchHistory<'a>,
+) -> (MoveToken, bool, SearchHistory<'a>) {
+    let mover = board.side_to_move;
+    let tok = board.do_move_for_search(m);
+    let in_check = is_in_check(board, board.side_to_move);
+    let child = history.after_move(board.hash(), mover, in_check);
+    (tok, in_check, child)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn root_search(
     state: &Arc<SearchState>,
@@ -2007,9 +2022,7 @@ fn alpha_beta(
             if state.budget.should_abort() {
                 break;
             }
-            let tok = board.do_move_for_search(cap);
-            let child_in_check = is_in_check(board, board.side_to_move);
-            let child_history = history.after_move(board.hash(), stm, child_in_check);
+            let (tok, child_in_check, child_history) = play(board, cap, history);
             let pc_score = -alpha_beta(
                 state,
                 board,
@@ -2165,9 +2178,7 @@ fn alpha_beta(
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
-    let tok = board.do_move_for_search(first_move);
-    let child_in_check = is_in_check(board, board.side_to_move);
-    let first_history = history.after_move(board.hash(), stm, child_in_check);
+    let (tok, child_in_check, first_history) = play(board, first_move, history);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
     let first_ext = if tt_mv.is_some_and(|t| t == first_move) {
         sing_ext
@@ -2286,9 +2297,7 @@ fn alpha_beta(
                 } else {
                     0
                 };
-                let tok = b.do_move_for_search(m);
-                let child_in_check = is_in_check(&b, b.side_to_move);
-                let child_history = history.after_move(b.hash(), stm, child_in_check);
+                let (tok, child_in_check, child_history) = play(&mut b, m, history);
                 let reduce = if child_in_check {
                     reduce.min(1)
                 } else {
@@ -2323,9 +2332,7 @@ fn alpha_beta(
 
             let s = if nw_score > alpha {
                 // Fail-high: re-search at full depth with full window
-                let tok = board.do_move_for_search(m);
-                let child_in_check = is_in_check(board, board.side_to_move);
-                let child_history = history.after_move(board.hash(), stm, child_in_check);
+                let (tok, child_in_check, child_history) = play(board, m, history);
                 let full = -alpha_beta(
                     state,
                     board,
@@ -2442,9 +2449,7 @@ fn alpha_beta(
             } else {
                 0
             };
-            let tok = board.do_move_for_search(m);
-            let child_in_check = is_in_check(board, board.side_to_move);
-            let child_history = history.after_move(board.hash(), stm, child_in_check);
+            let (tok, child_in_check, child_history) = play(board, m, history);
             // Checks are not extended (every check extension variant lost
             // depth for nothing in shogi's check-rich trees); they are only
             // protected from reductions beyond one ply.
@@ -2739,10 +2744,7 @@ fn quiescence(
         {
             continue;
         }
-        let mover = board.side_to_move;
-        let tok = board.do_move_for_search(m);
-        let child_in_check = is_in_check(board, board.side_to_move);
-        let child_history = history.after_move(board.hash(), mover, child_in_check);
+        let (tok, child_in_check, child_history) = play(board, m, history);
         let score = -quiescence(
             state,
             board,
