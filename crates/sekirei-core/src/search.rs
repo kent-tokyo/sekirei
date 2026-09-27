@@ -54,20 +54,6 @@ pub const POS_INF: i32 = 1_000_000;
 /// Minimum remaining depth to activate parallel young-brother search.
 const MIN_SPLIT_DEPTH: u32 = 3;
 
-/// Null Move Pruning reduction constant.
-const NMP_R: u32 = 3;
-
-/// Initial aspiration window half-width in centipawns.
-const ASP_DELTA: i32 = 50;
-
-/// Reverse Futility Pruning: margin per depth level in centipawns.
-const RFP_MARGIN: i32 = 120;
-/// Per-depth RFP margin removed when the static eval is improving.
-const RFP_IMPROVING_BONUS: i32 = 30;
-
-/// Futility Pruning: margin for depth-1 quiet moves.
-const FUTILITY_MARGIN: i32 = 300;
-
 /// Stack budget for workers that execute recursive alpha-beta searches.
 ///
 /// A legal depth-50 search can combine alpha-beta, extensions, and
@@ -80,26 +66,6 @@ pub const RECURSIVE_SEARCH_STACK_BYTES: usize = 8 * 1024 * 1024;
 /// local self-play, disabling it was clearly stronger.
 const QSEARCH_CHECKS: bool = false;
 
-/// Razoring margin at depth `d` (1..=2): `BASE + PER_DEPTH * d`.
-const RAZOR_MARGIN_BASE: i32 = 500;
-const RAZOR_MARGIN_PER_DEPTH: i32 = 250;
-
-/// Shallow non-PV quiet-move pruning (move count and futility) applies up to
-/// this depth; futility margin at depth `d` is `BASE + PER_DEPTH * d`.
-const SHALLOW_PRUNE_MAX_DEPTH: u32 = 6;
-const SHALLOW_FUTILITY_BASE: i32 = 100;
-const SHALLOW_FUTILITY_PER_DEPTH: i32 = 150;
-
-/// Singular Extension: minimum depth to consider extending the TT move.
-const SE_MIN_DEPTH: u32 = 8;
-/// Singular Extension: margin in centipawns (flat; empirically calibrated).
-const SE_MARGIN: i32 = 64;
-
-/// ProbCut: minimum depth to attempt a probabilistic shallow refutation search.
-const PC_MIN_DEPTH: u32 = 8;
-/// ProbCut: how far above beta a capture must score (shallow) to prune the node.
-const PC_MARGIN: i32 = 200;
-
 /// Exact cache of the existing floating-point LMR formula for all representable
 /// TT depths and the practical maximum shogi move count. This removes two
 /// transcendental `ln` calls from every late-move probe without changing the
@@ -107,7 +73,9 @@ const PC_MARGIN: i32 = 200;
 static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod heuristics;
+pub mod params;
 use heuristics::{CountermoveTable, HistoryTable, KillerTable};
+use params as p;
 
 // ============================================================
 // Public API
@@ -1258,10 +1226,10 @@ fn probcut(
     ply: u32,
     history: &SearchHistory<'_>,
 ) -> Option<i32> {
-    let pc_beta = beta + PC_MARGIN;
+    let pc_beta = beta + p::PC_MARGIN();
     let mut caps = MoveBuffer::captures(board);
     caps.as_mut_list()
-        .retain(|m| crate::movegen::see_swap(board, *m) >= PC_MARGIN);
+        .retain(|m| crate::movegen::see_swap(board, *m) >= p::PC_MARGIN());
     let cap_list = caps.as_mut_list().as_mut_slice();
     let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
     sort_moves_by_cached_key(cap_list, &mut cap_key);
@@ -1311,7 +1279,7 @@ fn null_move_pruning(
         board,
         -beta,
         -beta + 1,
-        depth - 1 - NMP_R,
+        depth - 1 - p::NMP_R() as u32,
         ply + 1,
         false,
         None,
@@ -1331,7 +1299,7 @@ fn null_move_pruning(
         board,
         beta - 1,
         beta,
-        depth - 1 - NMP_R,
+        depth - 1 - p::NMP_R() as u32,
         ply,
         false,
         prev_mv,
@@ -1595,14 +1563,14 @@ fn root_search(
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let (mut lo, mut hi) = if use_asp {
-        (prev_score - ASP_DELTA, prev_score + ASP_DELTA)
+        (prev_score - p::ASP_DELTA(), prev_score + p::ASP_DELTA())
     } else {
         (NEG_INF, POS_INF)
     };
 
     // The window grows geometrically around the score that fell outside it,
     // so a large swing costs a few re-searches instead of one per step.
-    let mut delta = ASP_DELTA;
+    let mut delta = p::ASP_DELTA();
     loop {
         let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi, history);
 
@@ -1996,9 +1964,16 @@ fn alpha_beta(
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
     if let Some(se) = static_eval
-        && depth <= 3
+        && depth <= p::RFP_MAX_DEPTH() as u32
         && beta.abs() < MATE_SCORE - 1000
-        && se - (RFP_MARGIN - if improving { RFP_IMPROVING_BONUS } else { 0 }) * depth as i32
+        && se
+            - (p::RFP_MARGIN()
+                - if improving {
+                    p::RFP_IMPROVING_BONUS()
+                } else {
+                    0
+                })
+                * depth as i32
             >= beta
     {
         return se;
@@ -2009,7 +1984,7 @@ fn alpha_beta(
         && depth <= 2
         && beta - alpha == 1
         && alpha.abs() < MATE_SCORE - 1000
-        && se + RAZOR_MARGIN_BASE + RAZOR_MARGIN_PER_DEPTH * depth as i32 <= alpha
+        && se + p::RAZOR_MARGIN_BASE() + p::RAZOR_MARGIN_PER_DEPTH() * depth as i32 <= alpha
     {
         let v = quiescence(
             state,
@@ -2027,7 +2002,7 @@ fn alpha_beta(
     }
 
     // ProbCut (not inside a singular search).
-    if depth >= PC_MIN_DEPTH
+    if depth >= p::PC_MIN_DEPTH() as u32
         && !in_check
         && beta.abs() < MATE_SCORE - 1000
         && skip_move.is_none()
@@ -2039,7 +2014,7 @@ fn alpha_beta(
     // Null move pruning.
     if state.pruning.null_move
         && can_null
-        && depth > NMP_R
+        && depth > p::NMP_R() as u32
         && beta.abs() < MATE_SCORE - 1000
         && !in_check
         && let Some(score) = null_move_pruning(state, board, beta, depth, ply, prev_mv, history)
@@ -2101,12 +2076,12 @@ fn alpha_beta(
     // we extend its search by one ply.
     let sing_ext = if let Some(se_score) = tt_se_score.filter(|_| {
         skip_move.is_none()
-            && depth >= SE_MIN_DEPTH
+            && depth >= p::SE_MIN_DEPTH() as u32
             && !in_check
             && tt_mv.is_some()
             && tt_se_depth >= (depth as u8).saturating_sub(3)
     }) {
-        let se_beta = (se_score - SE_MARGIN).max(alpha);
+        let se_beta = (se_score - p::SE_MARGIN()).max(alpha);
         let sval = alpha_beta(
             state,
             board,
@@ -3156,13 +3131,13 @@ impl LateMoveNode {
         if depth == 1
             && let Some(se) = self.static_eval
             && is_quiet
-            && se + FUTILITY_MARGIN < self.alpha
+            && se + p::FUTILITY_MARGIN() < self.alpha
         {
             return true;
         }
         let shallow_non_pv = self.beta - self.alpha == 1
             && !self.in_check
-            && depth <= SHALLOW_PRUNE_MAX_DEPTH
+            && depth <= p::SHALLOW_PRUNE_MAX_DEPTH() as u32
             && self.best_score > -(MATE_SCORE - 1000);
         if !shallow_non_pv {
             return false;
@@ -3171,7 +3146,8 @@ impl LateMoveNode {
             (move_number as u32 >= 4 + depth * depth
                 || (depth >= 2
                     && self.static_eval.is_some_and(|se| {
-                        se + SHALLOW_FUTILITY_BASE + SHALLOW_FUTILITY_PER_DEPTH * depth as i32
+                        se + p::SHALLOW_FUTILITY_BASE()
+                            + p::SHALLOW_FUTILITY_PER_DEPTH() * depth as i32
                             <= self.alpha
                     })))
                 && !move_gives_direct_check(board, m)
@@ -3271,9 +3247,9 @@ fn lmr_reduce(
     let mut r = lmr_base_reduction(depth, move_idx);
     // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
     let hist = history.get(stm, m);
-    if hist > 3_000 {
+    if hist > p::LMR_HIST() {
         r = r.saturating_sub(1);
-    } else if hist < -3_000 && depth >= 5 {
+    } else if hist < -p::LMR_HIST() && depth >= 5 {
         r += 1;
     }
     r

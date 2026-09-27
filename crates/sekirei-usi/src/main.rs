@@ -776,6 +776,13 @@ fn main() {
                 println!("option name BookMaxPly type spin default 30 min 0 max 200");
                 println!("option name BookMinConfidence type string default 0.20");
                 println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
+                #[cfg(feature = "tune")]
+                for spec in sekirei_core::search::params::ALL {
+                    println!(
+                        "option name T_{} type spin default {} min {} max {}",
+                        spec.name, spec.default, spec.min, spec.max
+                    );
+                }
                 println!("usiok");
                 stdout.lock().flush().ok();
             }
@@ -856,6 +863,15 @@ fn main() {
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
+                } else if let Some(name) = parts.get(1).and_then(|n| n.strip_prefix("T_")) {
+                    // Search constants for self-play tuning (builds with the
+                    // `tune` feature only).
+                    let value = parts.get(3).and_then(|v| v.parse::<i32>().ok());
+                    if !value.is_some_and(|v| sekirei_core::search::params::set(name, v)) {
+                        println!(
+                            "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
+                        );
+                    }
                 } else if parts.get(1) == Some(&"SpecTopN")
                     && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
                 {

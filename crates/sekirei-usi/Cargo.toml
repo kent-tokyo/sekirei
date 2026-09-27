@@ -16,6 +16,7 @@ rayon = "1"
 lineprior = "0.12.0"
 
 [features]
+tune = ["sekirei-core/tune"]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
 nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
 nnue_l1_128 = ["sekirei-core/nnue_l1_128"]

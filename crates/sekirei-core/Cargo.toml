@@ -10,6 +10,9 @@ repository = "https://github.com/kent-tokyo/sekirei"
 rayon = "1"
 
 [features]
+# Search constants become run-time settable (USI options T_<NAME>) for
+# self-play tuning. Never enabled in release builds.
+tune = []
 king_relative_b_small = []
 nnue_l1_384 = []
 nnue_l1_128 = []
