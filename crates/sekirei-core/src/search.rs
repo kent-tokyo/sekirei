@@ -2402,45 +2402,15 @@ fn alpha_beta(
             // excluding them exempted most late moves from futility pruning.
             let is_quiet = !is_capture && !m.promote;
 
-            // Futility Pruning: at depth 1, skip quiet moves that can't reach alpha
-            if depth == 1
-                && let Some(se) = static_eval
-                && is_quiet
-                && se + FUTILITY_MARGIN < alpha
-            {
-                continue;
-            }
-
-            // Shallow non-PV pruning of quiet moves that do not give direct
-            // check: move-count pruning and static-eval futility. Checks
-            // (mostly drops) stay: they are shogi's main tactical resource.
-            if beta - alpha == 1
-                && !in_check
-                && is_quiet
-                && depth <= SHALLOW_PRUNE_MAX_DEPTH
-                && best_score > -(MATE_SCORE - 1000)
-                && ((i + 1) as u32 >= 4 + depth * depth
-                    || (depth >= 2
-                        && static_eval.is_some_and(|se| {
-                            se + SHALLOW_FUTILITY_BASE + SHALLOW_FUTILITY_PER_DEPTH * depth as i32
-                                <= alpha
-                        })))
-                && !move_gives_direct_check(board, m)
-            {
-                continue;
-            }
-
-            // Shallow non-PV pruning of clearly losing captures (bitboard SEE).
-            if beta - alpha == 1
-                && !in_check
-                && !is_quiet
-                && depth <= SHALLOW_PRUNE_MAX_DEPTH
-                && best_score > -(MATE_SCORE - 1000)
-                && m.from.is_some()
-                && board.piece_at(m.to).is_some()
-                && crate::movegen::see_swap(board, m) < -120 * depth as i32
-                && !move_gives_direct_check(board, m)
-            {
+            let node = LateMoveNode {
+                depth,
+                alpha,
+                beta,
+                in_check,
+                static_eval,
+                best_score,
+            };
+            if node.prunes(board, m, is_quiet, i + 1) {
                 continue;
             }
 
@@ -3258,6 +3228,62 @@ fn store_tt(
             mv,
         },
     );
+}
+
+/// The parent's state that decides whether a late move is skipped.
+#[derive(Clone, Copy)]
+struct LateMoveNode {
+    depth: u32,
+    alpha: i32,
+    beta: i32,
+    in_check: bool,
+    static_eval: Option<i32>,
+    best_score: i32,
+}
+
+impl LateMoveNode {
+    /// Whether `m`, the `move_number`-th move of the node (1-based), is
+    /// pruned before it is searched.
+    ///
+    /// - Depth 1: quiet moves whose static eval plus a margin stays below
+    ///   alpha (futility).
+    /// - Shallow non-PV nodes, quiet moves that do not give direct check:
+    ///   move-count pruning and static-eval futility. Checks (mostly drops)
+    ///   stay: they are shogi's main tactical resource.
+    /// - Shallow non-PV nodes, captures that do not give direct check and
+    ///   clearly lose material by SEE.
+    #[inline]
+    fn prunes(&self, board: &Board, m: Move, is_quiet: bool, move_number: usize) -> bool {
+        let depth = self.depth;
+        if depth == 1
+            && let Some(se) = self.static_eval
+            && is_quiet
+            && se + FUTILITY_MARGIN < self.alpha
+        {
+            return true;
+        }
+        let shallow_non_pv = self.beta - self.alpha == 1
+            && !self.in_check
+            && depth <= SHALLOW_PRUNE_MAX_DEPTH
+            && self.best_score > -(MATE_SCORE - 1000);
+        if !shallow_non_pv {
+            return false;
+        }
+        if is_quiet {
+            (move_number as u32 >= 4 + depth * depth
+                || (depth >= 2
+                    && self.static_eval.is_some_and(|se| {
+                        se + SHALLOW_FUTILITY_BASE + SHALLOW_FUTILITY_PER_DEPTH * depth as i32
+                            <= self.alpha
+                    })))
+                && !move_gives_direct_check(board, m)
+        } else {
+            m.from.is_some()
+                && board.piece_at(m.to).is_some()
+                && crate::movegen::see_swap(board, m) < -120 * depth as i32
+                && !move_gives_direct_check(board, m)
+        }
+    }
 }
 
 /// Update killer, history, and countermove tables when a quiet move causes a beta cutoff.
