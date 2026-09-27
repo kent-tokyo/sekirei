@@ -150,6 +150,8 @@ pub(super) struct HistoryTable {
     // Follow-up history: the same for the side's own move two or four plies
     // earlier (shared by both distances).
     follow: Vec<AtomicI16>,
+    // Capture history: color × moving kind × to × captured kind.
+    capture: Vec<AtomicI16>,
 }
 
 /// Board-move slots plus one slot per droppable kind.
@@ -163,6 +165,9 @@ impl HistoryTable {
             data: (0..len).map(|_| AtomicI32::new(0)).collect(),
             cont: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
             follow: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
+            capture: (0..2 * PieceKind::COUNT * Square::NUM * PieceKind::COUNT)
+                .map(|_| AtomicI16::new(0))
+                .collect(),
         }
     }
 
@@ -208,6 +213,26 @@ impl HistoryTable {
             && delta != 0
         {
             Self::gravity16(&self.follow[Self::cont_idx(color, prev, m)], delta);
+        }
+    }
+
+    #[inline]
+    fn capture_idx(color: Color, m: Move, captured: PieceKind) -> usize {
+        ((color.index() * PieceKind::COUNT + m.piece_kind.index()) * Square::NUM
+            + m.to.index() as usize)
+            * PieceKind::COUNT
+            + captured.index()
+    }
+
+    /// Capture history of `m` taking a piece of kind `captured`.
+    pub(super) fn capture_get(&self, color: Color, m: Move, captured: PieceKind) -> i32 {
+        i32::from(self.capture[Self::capture_idx(color, m, captured)].load(Ordering::Relaxed))
+    }
+
+    /// Gravity update of the capture entry (same rule as `apply`).
+    pub(super) fn capture_add(&self, color: Color, m: Move, captured: PieceKind, delta: i32) {
+        if delta != 0 {
+            Self::gravity16(&self.capture[Self::capture_idx(color, m, captured)], delta);
         }
     }
 

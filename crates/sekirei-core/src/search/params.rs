@@ -142,6 +142,12 @@ search_params! {
     /// Ordering bonus for a quiet move that gives check without losing
     /// material by SEE (0 disables the test).
     SAFE_CHECK_BONUS = 2000, 0, 8000;
+    /// Weight (1/128) of the capture history when ordering captures that do
+    /// not lose material by SEE; 0 orders them by SEE alone as before.
+    CAPT_ORDER_WEIGHT = 16, 0, 64;
+    /// Share (sixteenths) of the history bonus and malus applied to the
+    /// capture history.
+    CAPT_UPDATE = 16, 0, 48;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

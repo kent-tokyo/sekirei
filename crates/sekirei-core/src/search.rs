@@ -1823,6 +1823,7 @@ impl NodeKey {
         best_score: i32,
         best_move: Option<Move>,
         tried_quiet: &[Move],
+        tried_captures: &[Move],
         cutoff_move: Move,
         stm: Color,
         board: &Board,
@@ -1834,6 +1835,15 @@ impl NodeKey {
             state.history.malus(stm, qm, depth);
             cont.update(&state.history, stm, qm, -history_malus(depth));
         }
+        let capture_malus = -history_malus(depth) * p::CAPT_UPDATE() / 16;
+        for &cm in tried_captures {
+            if let Some(victim) = board.piece_at(cm.to) {
+                state
+                    .history
+                    .capture_add(stm, cm, victim.kind, capture_malus);
+            }
+        }
+        reward_capture(&state.history, board, stm, cutoff_move, depth);
         update_quiet_heuristics(
             &state.killers,
             &state.history,
@@ -2198,6 +2208,7 @@ fn alpha_beta(
     // Quiet moves tried so far — used to apply history malus on beta cutoff.
     let enemy = board.occ_for(stm.flip());
     let mut tried_quiet: Vec<Move> = Vec::new();
+    let mut tried_captures: Vec<Move> = Vec::new();
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
@@ -2232,6 +2243,7 @@ fn alpha_beta(
     let mut best_move = Some(first_move);
 
     if score0 >= beta {
+        reward_capture(&state.history, board, stm, first_move, depth);
         update_quiet_heuristics(
             &state.killers,
             &state.history,
@@ -2252,6 +2264,8 @@ fn alpha_beta(
     // Track first_move for malus if it didn't cut off
     if !enemy.contains(first_move.to) && !first_move.promote {
         tried_quiet.push(first_move);
+    } else if enemy.contains(first_move.to) {
+        tried_captures.push(first_move);
     }
 
     if deferred_order {
@@ -2380,6 +2394,7 @@ fn alpha_beta(
                     best_score,
                     best_move,
                     &tried_quiet,
+                    &tried_captures,
                     m,
                     stm,
                     board,
@@ -2391,6 +2406,8 @@ fn alpha_beta(
             }
             if is_quiet_ybw {
                 tried_quiet.push(m);
+            } else if enemy.contains(m.to) {
+                tried_captures.push(m);
             }
         }
         ybw_end
@@ -2466,6 +2483,7 @@ fn alpha_beta(
                     best_score,
                     best_move,
                     &tried_quiet,
+                    &tried_captures,
                     m,
                     stm,
                     board,
@@ -2477,6 +2495,8 @@ fn alpha_beta(
             }
             if is_quiet {
                 tried_quiet.push(m);
+            } else if is_capture {
+                tried_captures.push(m);
             }
         }
     }
@@ -3263,6 +3283,21 @@ impl LateMoveNode {
 
 /// Update killer, history, and countermove tables when a quiet move causes a beta cutoff.
 /// Must be called with `board` in the state BEFORE `do_move(m)` (so side_to_move is correct).
+/// Capture-history bonus for a capture that caused a cutoff.
+#[inline]
+fn reward_capture(history: &HistoryTable, board: &Board, stm: Color, m: Move, depth: u32) {
+    if m.from.is_some()
+        && let Some(victim) = board.piece_at(m.to)
+    {
+        history.capture_add(
+            stm,
+            m,
+            victim.kind,
+            history_bonus(depth) * p::CAPT_UPDATE() / 16,
+        );
+    }
+}
+
 #[inline]
 #[allow(clippy::too_many_arguments)]
 fn update_quiet_heuristics(
@@ -3406,10 +3441,15 @@ fn order_moves_in_place(
         // 2. Captures ordered by SEE (2-ply Static Exchange Evaluation)
         //    Winning/equal (see >= 0): searched before killers
         //    Losing (see < 0): searched after quiet moves
-        if m.from.is_some() && board.piece_at(m.to).is_some() {
+        if m.from.is_some()
+            && let Some(victim) = board.piece_at(m.to)
+        {
             let see = crate::movegen::see_swap(board, m);
             return if see >= 0 {
-                -(10_000 + see) // range: -11_300 to -10_000 (best captures first)
+                // Best captures first; the capture history reorders them
+                // inside the band above the killers.
+                let hist = history.capture_get(stm, m, victim.kind) * p::CAPT_ORDER_WEIGHT() / 128;
+                -(10_000 + (see + hist).clamp(0, 1_999))
             } else {
                 10_000 - see // range: 10_001 to 11_300 (losing captures last)
             };
