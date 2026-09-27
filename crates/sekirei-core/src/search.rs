@@ -2039,11 +2039,7 @@ fn alpha_beta(
             .retain(|m| crate::movegen::see_swap(board, *m) >= PC_MARGIN);
         let cap_list = caps.as_mut_list().as_mut_slice();
         let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
-        if cap_list.len() <= 64 {
-            sort_by_cached_i32_key_small(cap_list, &mut cap_key);
-        } else {
-            cap_list.sort_by_cached_key(cap_key);
-        }
+        sort_moves_by_cached_key(cap_list, &mut cap_key);
         let pc_depth = (depth - 4).min(3); // cap at 3 to keep the probe cheap
         for &cap in caps.as_slice() {
             if state.budget.should_abort() {
@@ -2783,11 +2779,7 @@ fn quiescence(
                 }
             };
             let list = move_buffer.as_mut_list().as_mut_slice();
-            if list.len() <= 64 {
-                sort_by_cached_i32_key_small(list, &mut qkey);
-            } else {
-                list.sort_by_cached_key(qkey);
-            }
+            sort_moves_by_cached_key(list, &mut qkey);
         }
         move_buffer
     };
@@ -2897,11 +2889,7 @@ fn quiescence(
                 );
                 let mut tt_first = |m: &Move| i32::from(Some(*m) != tt_mv);
                 let list = qchecks.as_mut_list().as_mut_slice();
-                if list.len() <= 64 {
-                    sort_by_cached_i32_key_small(list, &mut tt_first);
-                } else {
-                    list.sort_by_cached_key(tt_first);
-                }
+                sort_moves_by_cached_key(list, &mut tt_first);
             }
             qchecks
         };
@@ -3547,11 +3535,51 @@ fn order_moves_in_place(
     let _sort_timer = ProfileTimer::new(
         diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_sort_ns)),
     );
-    if moves.len() <= 64 {
-        sort_by_cached_i32_key_small(moves, &mut key);
-    } else {
-        moves.sort_by_cached_key(key);
+    sort_moves_by_cached_key(moves, &mut key);
+}
+
+thread_local! {
+    /// Reused key and move scratch for `sort_moves_by_cached_key`.
+    static ORDER_SCRATCH: std::cell::RefCell<(Vec<i64>, Vec<Move>)> =
+        const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
+}
+
+/// Stable ordering by an i32 key computed once per move, as
+/// `slice::sort_by_cached_key` would order it, without its per-call heap
+/// allocation. Short lists use an insertion sort; longer ones sort packed
+/// `(key, index)` values in reused per-thread scratch, where the index keeps
+/// equal keys in their original order.
+#[inline]
+fn sort_moves_by_cached_key<F>(moves: &mut [Move], key: &mut F)
+where
+    F: FnMut(&Move) -> i32,
+{
+    const INSERTION_MAX: usize = 16;
+    if moves.len() < 2 {
+        return;
     }
+    if moves.len() <= INSERTION_MAX {
+        sort_by_cached_i32_key_small(moves, key);
+        return;
+    }
+    debug_assert!(moves.len() <= usize::from(u16::MAX));
+    ORDER_SCRATCH.with(|scratch| {
+        let mut scratch = scratch.borrow_mut();
+        let (keys, copy) = &mut *scratch;
+        keys.clear();
+        keys.extend(
+            moves
+                .iter()
+                .enumerate()
+                .map(|(index, m)| (i64::from(key(m)) << 16) | index as i64),
+        );
+        keys.sort_unstable();
+        copy.clear();
+        copy.extend_from_slice(moves);
+        for (slot, &packed) in moves.iter_mut().zip(keys.iter()) {
+            *slot = copy[(packed & 0xFFFF) as usize];
+        }
+    });
 }
 
 /// Stable cached-key ordering without a temporary heap allocation for the
