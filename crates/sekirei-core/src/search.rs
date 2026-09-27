@@ -1476,6 +1476,98 @@ fn play<'a>(
     (tok, in_check, child)
 }
 
+/// Outcome of the root mate-safety filters.
+enum RootSafety {
+    /// A move mates at once; the search is over.
+    Mate(Move),
+    /// The budget ran out inside the filters.
+    Aborted,
+    /// The root moves to search: `None` keeps the ordered list as it is.
+    Filtered(Option<Vec<Move>>),
+}
+
+/// Root mate filters: play a mate in one when there is one, and at shallow
+/// depths drop moves that allow an immediate mate. They are production
+/// move-selection guards, not search nodes, but they count against the
+/// caller's hard budget so a bounded search cannot spend unbounded time here.
+fn root_mate_safety_filter(
+    state: &SearchState,
+    board: &mut Board,
+    ordered: &[Move],
+    depth: u32,
+    mut root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
+) -> RootSafety {
+    let _timer = ProfileTimer::new(
+        state
+            .diagnostics
+            .as_deref()
+            .map(|diagnostics| &diagnostics.root_mate_safety_ns),
+    );
+    // Root mate filters are production move-selection guards, not search
+    // nodes. They must nevertheless count against the caller's hard
+    // budget so a bounded search cannot spend unbounded time here.
+    let mate_in_one_checked = root_mate_safety_cache
+        .as_ref()
+        .is_some_and(|cache| cache.mate_in_one_checked);
+    if !mate_in_one_checked {
+        let before_mate_in_one = state.budget.nodes();
+        let mate_in_one = root_mate_in_one(state, board, ordered);
+        if let Some(diagnostics) = state.diagnostics.as_deref() {
+            diagnostics.root_mate_in_one_nodes.fetch_add(
+                state.budget.nodes().saturating_sub(before_mate_in_one),
+                Ordering::Relaxed,
+            );
+        }
+        if let Some(m) = mate_in_one {
+            return RootSafety::Mate(m);
+        }
+        if !state.budget.should_abort()
+            && let Some(cache) = root_mate_safety_cache.as_deref_mut()
+        {
+            cache.mate_in_one_checked = true;
+        }
+    } else if let Some(diagnostics) = state.diagnostics.as_deref() {
+        diagnostics
+            .root_mate_in_one_cache_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if state.budget.should_abort() {
+        return RootSafety::Aborted;
+    }
+    RootSafety::Filtered(if depth <= 2 {
+        let unsafe_moves = root_mate_safety_cache
+            .as_ref()
+            .and_then(|cache| cache.unsafe_moves.as_deref());
+        let unsafe_moves = if let Some(unsafe_moves) = unsafe_moves {
+            if let Some(diagnostics) = state.diagnostics.as_deref() {
+                diagnostics
+                    .root_mate_blunder_cache_hits
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            unsafe_moves.to_vec()
+        } else {
+            let before_blunder_filter = state.budget.nodes();
+            let unsafe_moves = root_mate_blunders(state, board, ordered);
+            if let Some(diagnostics) = state.diagnostics.as_deref() {
+                diagnostics.root_mate_blunder_nodes.fetch_add(
+                    state.budget.nodes().saturating_sub(before_blunder_filter),
+                    Ordering::Relaxed,
+                );
+            }
+            let Some(unsafe_moves) = unsafe_moves else {
+                return RootSafety::Aborted;
+            };
+            if let Some(cache) = root_mate_safety_cache {
+                cache.unsafe_moves = Some(unsafe_moves.clone());
+            }
+            unsafe_moves
+        };
+        safe_root_moves(ordered, &unsafe_moves)
+    } else {
+        None
+    })
+}
+
 #[allow(clippy::too_many_arguments)]
 fn root_search(
     state: &Arc<SearchState>,
@@ -1486,7 +1578,7 @@ fn root_search(
     root_move: Option<Move>,
     root_mate_safety: bool,
     history: &SearchHistory<'_>,
-    mut root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
+    root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
@@ -1565,74 +1657,10 @@ fn root_search(
     let ordered = move_buffer.as_slice();
 
     let safe_moves = if root_mate_safety {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .map(|diagnostics| &diagnostics.root_mate_safety_ns),
-        );
-        // Root mate filters are production move-selection guards, not search
-        // nodes. They must nevertheless count against the caller's hard
-        // budget so a bounded search cannot spend unbounded time here.
-        let mate_in_one_checked = root_mate_safety_cache
-            .as_ref()
-            .is_some_and(|cache| cache.mate_in_one_checked);
-        if !mate_in_one_checked {
-            let before_mate_in_one = state.budget.nodes();
-            let mate_in_one = root_mate_in_one(state, board, ordered);
-            if let Some(diagnostics) = state.diagnostics.as_deref() {
-                diagnostics.root_mate_in_one_nodes.fetch_add(
-                    state.budget.nodes().saturating_sub(before_mate_in_one),
-                    Ordering::Relaxed,
-                );
-            }
-            if let Some(m) = mate_in_one {
-                return (Some(m), MATE_SCORE - 1, SearchBound::Exact);
-            }
-            if !state.budget.should_abort()
-                && let Some(cache) = root_mate_safety_cache.as_deref_mut()
-            {
-                cache.mate_in_one_checked = true;
-            }
-        } else if let Some(diagnostics) = state.diagnostics.as_deref() {
-            diagnostics
-                .root_mate_in_one_cache_hits
-                .fetch_add(1, Ordering::Relaxed);
-        }
-        if state.budget.should_abort() {
-            return (None, 0, SearchBound::Unknown);
-        }
-        if depth <= 2 {
-            let unsafe_moves = root_mate_safety_cache
-                .as_ref()
-                .and_then(|cache| cache.unsafe_moves.as_deref());
-            let unsafe_moves = if let Some(unsafe_moves) = unsafe_moves {
-                if let Some(diagnostics) = state.diagnostics.as_deref() {
-                    diagnostics
-                        .root_mate_blunder_cache_hits
-                        .fetch_add(1, Ordering::Relaxed);
-                }
-                unsafe_moves.to_vec()
-            } else {
-                let before_blunder_filter = state.budget.nodes();
-                let unsafe_moves = root_mate_blunders(state, board, ordered);
-                if let Some(diagnostics) = state.diagnostics.as_deref() {
-                    diagnostics.root_mate_blunder_nodes.fetch_add(
-                        state.budget.nodes().saturating_sub(before_blunder_filter),
-                        Ordering::Relaxed,
-                    );
-                }
-                let Some(unsafe_moves) = unsafe_moves else {
-                    return (None, 0, SearchBound::Unknown);
-                };
-                if let Some(cache) = root_mate_safety_cache {
-                    cache.unsafe_moves = Some(unsafe_moves.clone());
-                }
-                unsafe_moves
-            };
-            safe_root_moves(ordered, &unsafe_moves)
-        } else {
-            None
+        match root_mate_safety_filter(state, board, ordered, depth, root_mate_safety_cache) {
+            RootSafety::Mate(m) => return (Some(m), MATE_SCORE - 1, SearchBound::Exact),
+            RootSafety::Aborted => return (None, 0, SearchBound::Unknown),
+            RootSafety::Filtered(moves) => moves,
         }
     } else {
         None
