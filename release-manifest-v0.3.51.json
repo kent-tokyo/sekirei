@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.51",
+  "commit": "be30e7d0791dc583754249071a55af66e97c60b7",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.51",
+    "sekirei-core": "0.3.51",
+    "sekirei-bench": "0.3.51",
+    "sekirei-csa": "0.3.51",
+    "sekirei-match-runner": "0.3.51",
+    "sekirei-train": "0.3.51"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "1e349b2d61600a8f1d908f3402a9c12727f9014d9ebde8c72adde3d5dcfc89ce"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "scoped_sprt_diagnostic",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit be30e7d. Workspace tests, lint, formatting, the stdlib A/B-runner early-stop test, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. S16 accepted H1 at 524 wins, 410 losses, and 23 draws (LLR +3.00; bounds +/-2.94) for dev/next versus v0.3.50 under a pre-fixed local protocol: one thread, SpecTopN=0, external HalfKP, 0.5 seconds per move, balanced openings, H0=0 Elo, H1=+10 Elo, alpha=beta=0.05. S17 first crossed H1 at 462 wins, 354 losses, and 48 draws (LLR +2.96), but ten in-flight games drained during shutdown moved the final aggregate below the boundary (LLR +2.83); S17 alone is inconclusive. Recorded 100k-node probes on 40 midgame and 10 opening positions preserved best move, score, depth, and node count on x86 and arm. These scoped diagnostics are not general playing-strength claims."
+  },
+  "external_opponents": {
+    "status": "local_diagnostic_only",
+    "configuration": "No external-engine result is a release criterion or an external-engine superiority claim."
+  },
+  "known_limitations": [
+    "The S16 result applies only to its fixed external HalfKP file, balanced-opening corpus, one-thread configuration, SpecTopN=0, and 0.5-second budget; it does not establish general strength or external-engine superiority.",
+    "S17 crossed the early-stop boundary before shutdown but its finalized aggregate fell below it after in-flight games completed; a future gate needs a predeclared drain policy before S17 can be treated as decisive.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}

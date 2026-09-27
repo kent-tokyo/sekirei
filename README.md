@@ -7,7 +7,7 @@
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release 0.3.51
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.51`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
 library. It improves search recovery, repetition-history handling, and
 allocation-free move ordering while preserving fixed-node search outputs in

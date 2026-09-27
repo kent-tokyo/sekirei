@@ -7,7 +7,7 @@
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース0.3.51は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.51`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
 含みます。探索windowの回復、千日手履歴の扱い、メモリ確保を減らす指し手整列を改善し、
 記録した固定node probeでは探索出力を維持します。重みの同梱・採用は行わず、local診断を
