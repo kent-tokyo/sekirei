@@ -532,8 +532,8 @@ struct SearchState {
     tt: Arc<Tt>,
     budget: Arc<Budget>,
     killers: KillerTable,
-    history: HistoryTable,
-    countermoves: CountermoveTable,
+    history: Arc<HistoryTable>,
+    countermoves: Arc<CountermoveTable>,
     diagnostics: Option<Arc<SearchDiagnostics>>,
     eval_cache: Option<Arc<EvalCache>>,
     pruning: PruningConfig,
@@ -646,6 +646,11 @@ pub struct Searcher {
     diagnostics: Option<Arc<SearchDiagnostics>>,
     eval_cache: Option<Arc<EvalCache>>,
     pruning: PruningConfig,
+    /// Move-ordering history, countermoves and eval correction, kept from
+    /// one search to the next within a game and cleared with the TT
+    /// (`clear_tt`, on a new game). Killers stay per search.
+    history: Arc<HistoryTable>,
+    countermoves: Arc<CountermoveTable>,
 }
 
 impl Searcher {
@@ -663,6 +668,8 @@ impl Searcher {
             diagnostics: None,
             eval_cache: active_eval_cache(),
             pruning: PruningConfig::default(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
         }
     }
 
@@ -675,6 +682,8 @@ impl Searcher {
             diagnostics: None,
             eval_cache: active_eval_cache(),
             pruning,
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
         }
     }
 
@@ -690,6 +699,8 @@ impl Searcher {
             diagnostics: Some(diagnostics),
             eval_cache: active_eval_cache(),
             pruning,
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
         }
     }
 
@@ -701,6 +712,8 @@ impl Searcher {
             diagnostics: Some(diagnostics),
             eval_cache: active_eval_cache(),
             pruning: PruningConfig::default(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
         }
     }
 
@@ -725,6 +738,8 @@ impl Searcher {
         if let Some(cache) = &self.eval_cache {
             cache.clear();
         }
+        self.history.clear();
+        self.countermoves.clear();
     }
 
     /// Run iterative-deepening search from the current position up to `config.max_depth`
@@ -931,8 +946,8 @@ impl Searcher {
                 self.external_abort.clone(),
             )),
             killers: KillerTable::new(),
-            history: HistoryTable::new(),
-            countermoves: CountermoveTable::new(),
+            history: self.history.clone(),
+            countermoves: self.countermoves.clone(),
             diagnostics: self.diagnostics.clone(),
             eval_cache: self.eval_cache.clone(),
             pruning: self.pruning,
@@ -2937,6 +2952,10 @@ pub struct SpeculativeSearcher {
     eval_cache: Option<Arc<EvalCache>>,
     top_n: usize,
     external_abort: Arc<AtomicBool>,
+    /// Move-ordering history, countermoves and eval correction kept across
+    /// searches in a game (see `Searcher`).
+    history: Arc<HistoryTable>,
+    countermoves: Arc<CountermoveTable>,
     // Dedicated pool for SpecGroup's background tasks, isolated from rayon's
     // global pool so they can never starve alpha_beta's own YBW dispatch
     // (`work.into_par_iter()...collect()`) of a worker. See SpecState::pool.
@@ -2961,6 +2980,8 @@ impl SpeculativeSearcher {
             eval_cache: active_eval_cache(),
             top_n,
             external_abort: Arc::new(AtomicBool::new(false)),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
             spec_pool: Arc::new(spec_pool),
         }
     }
@@ -2987,6 +3008,8 @@ impl SpeculativeSearcher {
         if let Some(cache) = &self.eval_cache {
             cache.clear();
         }
+        self.history.clear();
+        self.countermoves.clear();
     }
 
     /// Run iterative-deepening search with preemptive speculative parallelism on
@@ -3032,8 +3055,8 @@ impl SpeculativeSearcher {
                 self.external_abort.clone(),
             )),
             killers: KillerTable::new(),
-            history: HistoryTable::new(),
-            countermoves: CountermoveTable::new(),
+            history: self.history.clone(),
+            countermoves: self.countermoves.clone(),
             diagnostics: None,
             eval_cache: self.eval_cache.clone(),
             pruning: PruningConfig::default(),
@@ -3770,8 +3793,8 @@ mod see_tests {
                 tt,
                 budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
                 killers: KillerTable::new(),
-                history: HistoryTable::new(),
-                countermoves: CountermoveTable::new(),
+                history: Arc::new(HistoryTable::new()),
+                countermoves: Arc::new(CountermoveTable::new()),
                 diagnostics: None,
                 eval_cache: None,
                 pruning: PruningConfig::default(),
@@ -4392,8 +4415,8 @@ mod regression_tests {
             tt,
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
             killers: KillerTable::new(),
-            history: HistoryTable::new(),
-            countermoves: CountermoveTable::new(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
             diagnostics: None,
             eval_cache: None,
             pruning: PruningConfig::default(),
@@ -4641,8 +4664,8 @@ mod regression_tests {
             tt: tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(true)))),
             killers: KillerTable::new(),
-            history: HistoryTable::new(),
-            countermoves: CountermoveTable::new(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
             diagnostics: None,
             eval_cache: None,
             pruning: PruningConfig::default(),
@@ -4742,8 +4765,8 @@ mod regression_tests {
             tt: aborted_tt.clone(),
             budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(true)))),
             killers: KillerTable::new(),
-            history: HistoryTable::new(),
-            countermoves: CountermoveTable::new(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
             diagnostics: None,
             eval_cache: None,
             pruning: PruningConfig::default(),

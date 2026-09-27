@@ -118,6 +118,13 @@ impl CountermoveTable {
         }
     }
 
+    /// Forget every countermove (a new game).
+    pub(super) fn clear(&self) {
+        for cell in &self.data {
+            cell.store(0, Ordering::Relaxed);
+        }
+    }
+
     #[inline]
     pub(super) fn idx(color: Color, kind: PieceKind, to: Square) -> usize {
         color.index() * PieceKind::COUNT * Square::NUM
@@ -214,6 +221,25 @@ impl HistoryTable {
             corr_king: (0..2 * Square::NUM * Square::NUM)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
+        }
+    }
+
+    /// Forget everything learned (a new game).
+    pub(super) fn clear(&self) {
+        for cell in &self.data {
+            cell.store(0, Ordering::Relaxed);
+        }
+        for table in [
+            &self.cont,
+            &self.follow,
+            &self.capture,
+            &self.corr_pawn,
+            &self.corr_hand,
+            &self.corr_king,
+        ] {
+            for cell in table {
+                cell.store(0, Ordering::Relaxed);
+            }
         }
     }
 
