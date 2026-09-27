@@ -10,6 +10,8 @@ use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::square::Square;
 
+use super::params as p;
+
 // ============================================================
 // Killer Move Table
 // ============================================================
@@ -145,6 +147,9 @@ pub(super) struct HistoryTable {
     // Continuation history: how well a move answered the opponent's previous
     // move, indexed by color × previous (slot, to) × current (slot, to).
     cont: Vec<AtomicI16>,
+    // Follow-up history: the same for the side's own move two or four plies
+    // earlier (shared by both distances).
+    follow: Vec<AtomicI16>,
 }
 
 /// Board-move slots plus one slot per droppable kind.
@@ -157,6 +162,7 @@ impl HistoryTable {
         HistoryTable {
             data: (0..len).map(|_| AtomicI32::new(0)).collect(),
             cont: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
+            follow: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
         }
     }
 
@@ -184,13 +190,33 @@ impl HistoryTable {
 
     /// Gravity update of the continuation entry (same rule as `apply`).
     pub(super) fn cont_add(&self, color: Color, prev: Option<Move>, m: Move, delta: i32) {
-        const CONT_MAX: i32 = 9_000;
         if let Some(prev) = prev {
-            let cell = &self.cont[Self::cont_idx(color, prev, m)];
-            let old = i32::from(cell.load(Ordering::Relaxed));
-            let new = (old + delta - old * delta.abs() / CONT_MAX).clamp(-CONT_MAX, CONT_MAX);
-            cell.store(new as i16, Ordering::Relaxed);
+            Self::gravity16(&self.cont[Self::cont_idx(color, prev, m)], delta);
         }
+    }
+
+    /// Follow-up history of `m` after the side's own earlier move `prev`.
+    pub(super) fn follow_get(&self, color: Color, prev: Option<Move>, m: Move) -> i32 {
+        prev.map_or(0, |prev| {
+            i32::from(self.follow[Self::cont_idx(color, prev, m)].load(Ordering::Relaxed))
+        })
+    }
+
+    /// Gravity update of the follow-up entry (same rule as `apply`).
+    pub(super) fn follow_add(&self, color: Color, prev: Option<Move>, m: Move, delta: i32) {
+        if let Some(prev) = prev
+            && delta != 0
+        {
+            Self::gravity16(&self.follow[Self::cont_idx(color, prev, m)], delta);
+        }
+    }
+
+    #[inline]
+    fn gravity16(cell: &AtomicI16, delta: i32) {
+        const CONT_MAX: i32 = 9_000;
+        let old = i32::from(cell.load(Ordering::Relaxed));
+        let new = (old + delta - old * delta.abs() / CONT_MAX).clamp(-CONT_MAX, CONT_MAX);
+        cell.store(new as i16, Ordering::Relaxed);
     }
 
     #[inline]
@@ -203,20 +229,19 @@ impl HistoryTable {
         color.index() * HISTORY_SLOTS * Square::NUM + slot * Square::NUM + m.to.index() as usize
     }
 
-    /// Reward a move that caused a beta cutoff; bonus scales with depth².
+    /// Reward a move that caused a beta cutoff (`history_bonus`).
     pub(super) fn update(&self, color: Color, m: Move, depth: u32) {
-        let bonus = (depth * depth).min(400) as i32;
-        self.apply(Self::idx(color, m), bonus);
+        self.apply(Self::idx(color, m), history_bonus(depth));
     }
 
     pub(super) fn get(&self, color: Color, m: Move) -> i32 {
         self.data[Self::idx(color, m)].load(Ordering::Relaxed)
     }
 
-    /// Penalise a quiet move that was tried but failed to produce a cutoff.
+    /// Penalise a quiet move that was tried but failed to produce a cutoff
+    /// (`history_malus`).
     pub(super) fn malus(&self, color: Color, m: Move, depth: u32) {
-        let penalty = (depth * depth).min(400) as i32;
-        self.apply(Self::idx(color, m), -penalty);
+        self.apply(Self::idx(color, m), -history_malus(depth));
     }
 
     /// History gravity: move toward `delta`'s sign while decaying the old
@@ -229,4 +254,18 @@ impl HistoryTable {
         let new = old + delta - old * delta.abs() / HISTORY_MAX;
         self.data[i].store(new.clamp(-HISTORY_MAX, HISTORY_MAX), Ordering::Relaxed);
     }
+}
+
+/// History bonus for a quiet move that cuts at `depth`.
+#[inline]
+pub(super) fn history_bonus(depth: u32) -> i32 {
+    let d = depth as i32;
+    (p::HIST_BONUS_QUAD() * d * d + p::HIST_BONUS_LIN() * d).min(p::HIST_BONUS_MAX())
+}
+
+/// History malus for a quiet move searched before the cutting move.
+#[inline]
+pub(super) fn history_malus(depth: u32) -> i32 {
+    let d = depth as i32;
+    (p::HIST_MALUS_QUAD() * d * d + p::HIST_MALUS_LIN() * d).min(p::HIST_MALUS_MAX())
 }

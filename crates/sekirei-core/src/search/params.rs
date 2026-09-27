@@ -113,6 +113,35 @@ search_params! {
     /// Late move reductions: history beyond +/- this value changes the
     /// reduction by one ply.
     LMR_HIST = 3000, 500, 9000;
+    /// History bonus for a quiet move that cuts at depth `d`:
+    /// `min(QUAD * d^2 + LIN * d, MAX)`.
+    HIST_BONUS_QUAD = 1, 0, 16;
+    /// See `HIST_BONUS_QUAD`.
+    HIST_BONUS_LIN = 0, 0, 400;
+    /// See `HIST_BONUS_QUAD`.
+    HIST_BONUS_MAX = 400, 50, 4000;
+    /// History malus for quiet moves searched before the cutting move, with
+    /// the same shape as the bonus.
+    HIST_MALUS_QUAD = 1, 0, 16;
+    /// See `HIST_MALUS_QUAD`.
+    HIST_MALUS_LIN = 0, 0, 400;
+    /// See `HIST_MALUS_QUAD`.
+    HIST_MALUS_MAX = 400, 50, 4000;
+    /// Ordering weight (sixteenths) of the continuation history with the
+    /// side's own move two plies earlier.
+    CONT2_WEIGHT = 16, 0, 48;
+    /// Ordering weight (sixteenths) of the continuation history with the
+    /// side's own move four plies earlier.
+    CONT4_WEIGHT = 8, 0, 48;
+    /// Share (sixteenths) of a history update applied to the two-ply
+    /// continuation entry.
+    CONT2_UPDATE = 16, 0, 48;
+    /// Share (sixteenths) of a history update applied to the four-ply
+    /// continuation entry.
+    CONT4_UPDATE = 8, 0, 48;
+    /// Ordering bonus for a quiet move that gives check without losing
+    /// material by SEE (0 disables the test).
+    SAFE_CHECK_BONUS = 2000, 0, 8000;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

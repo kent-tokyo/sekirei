@@ -74,7 +74,7 @@ static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod heuristics;
 pub mod params;
-use heuristics::{CountermoveTable, HistoryTable, KillerTable};
+use heuristics::{CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus};
 use params as p;
 
 // ============================================================
@@ -1544,7 +1544,7 @@ fn root_search(
             tt_mv,
             killers,
             None,
-            None,
+            ContMoves::default(),
             &state.history,
             board.side_to_move,
             state.diagnostics.as_deref(),
@@ -1829,11 +1829,10 @@ impl NodeKey {
         prev_mv: Option<Move>,
     ) -> i32 {
         let depth = self.depth;
+        let cont = ContMoves::at(self.ply, prev_mv);
         for &qm in tried_quiet {
             state.history.malus(stm, qm, depth);
-            state
-                .history
-                .cont_add(stm, prev_mv, qm, -((depth * depth).min(400) as i32));
+            cont.update(&state.history, stm, qm, -history_malus(depth));
         }
         update_quiet_heuristics(
             &state.killers,
@@ -1931,6 +1930,47 @@ fn stack_path(ply: u32) -> Vec<Frame> {
 /// Install a path taken with `stack_path` on this thread.
 fn restore_stack_path(path: &[Frame]) {
     STACK.with(|stack| stack.borrow_mut()[..path.len()].copy_from_slice(path));
+}
+
+/// The earlier moves a node's history lookups are keyed on: the opponent's
+/// last move and the side's own moves two and four plies back.
+#[derive(Clone, Copy, Default)]
+struct ContMoves {
+    prev: Option<Move>,
+    own2: Option<Move>,
+    own4: Option<Move>,
+}
+
+impl ContMoves {
+    /// The moves before the node at `ply`; `prev` is its parent's move.
+    #[inline]
+    fn at(ply: u32, prev: Option<Move>) -> Self {
+        let back = |n: u32| {
+            ply.checked_sub(n)
+                .and_then(|q| STACK.with(|stack| stack.borrow()[stack_index(q)].current_move))
+        };
+        ContMoves {
+            prev,
+            own2: back(2),
+            own4: back(4),
+        }
+    }
+
+    /// Continuation part of a quiet move's ordering score.
+    #[inline]
+    fn score(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
+        history.cont_get(stm, self.prev, m)
+            + history.follow_get(stm, self.own2, m) * p::CONT2_WEIGHT() / 16
+            + history.follow_get(stm, self.own4, m) * p::CONT4_WEIGHT() / 16
+    }
+
+    /// Add `delta` to the continuation entries of `m`.
+    #[inline]
+    fn update(&self, history: &HistoryTable, stm: Color, m: Move, delta: i32) {
+        history.cont_add(stm, self.prev, m, delta);
+        history.follow_add(stm, self.own2, m, delta * p::CONT2_UPDATE() / 16);
+        history.follow_add(stm, self.own4, m, delta * p::CONT4_UPDATE() / 16);
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -2107,7 +2147,7 @@ fn alpha_beta(
                     tt_mv,
                     killers,
                     countermove,
-                    prev_mv,
+                    ContMoves::at(ply, prev_mv),
                     &state.history,
                     stm,
                     state.counters(),
@@ -2221,7 +2261,7 @@ fn alpha_beta(
             None,
             killers,
             countermove,
-            prev_mv,
+            ContMoves::at(ply, prev_mv),
             &state.history,
             stm,
             state.counters(),
@@ -3240,7 +3280,7 @@ fn update_quiet_heuristics(
     if board.piece_at(m.to).is_none() && !m.promote {
         killers.add(ply as usize, m);
         history.update(stm, m, depth);
-        history.cont_add(stm, prev_mv, m, (depth * depth).min(400) as i32);
+        ContMoves::at(ply, prev_mv).update(history, stm, m, history_bonus(depth));
         if let Some(pm) = prev_mv {
             countermoves.update(stm.flip(), pm, m);
         }
@@ -3344,7 +3384,7 @@ fn order_moves_in_place(
     tt_mv: Option<Move>,
     killers: [Option<Move>; 2],
     countermove: Option<Move>,
-    prev_mv: Option<Move>,
+    cont: ContMoves,
     history: &HistoryTable,
     stm: Color,
     diagnostics: Option<&SearchDiagnostics>,
@@ -3398,7 +3438,14 @@ fn order_moves_in_place(
         if let Some(d) = diagnostics {
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
-        let score = (history.get(stm, m) + history.cont_get(stm, prev_mv, m)).clamp(-9_000, 9_000);
+        let mut score = history.get(stm, m) + cont.score(history, stm, m);
+        if p::SAFE_CHECK_BONUS() > 0
+            && move_gives_direct_check(board, m)
+            && crate::movegen::see_swap(board, m) >= -75
+        {
+            score += p::SAFE_CHECK_BONUS();
+        }
+        let score = score.clamp(-9_000, 9_000);
         -(-8_000 + score)
     };
     let _sort_timer = ProfileTimer::new(
@@ -3709,7 +3756,7 @@ mod see_tests {
             Some(tt_move),
             killers.get(0),
             Some(countermove),
-            None,
+            ContMoves::default(),
             &history,
             Color::Black,
             None,
