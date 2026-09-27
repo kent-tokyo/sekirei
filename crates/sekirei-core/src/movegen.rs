@@ -3870,24 +3870,93 @@ pub fn mate_in_one(board: &mut Board) -> Option<Move> {
     let them = us.flip();
     let ksq = board.king_square(them)?;
     let ki = ksq.index() as usize;
-    let occ = board.occ();
-    let not_ours = !board.occ_for(us);
+    let ours = board.occ_for(us);
+    let not_ours = !ours;
     let hand = *board.hand(us);
     let drops_possible = hand.iter().any(|kind| kind != PieceKind::Fu);
+    let zone = KING_ATTACKS[ki] & not_ours;
+    // Squares the king could move to: empty ones and captures of our pieces.
+    let adjacent_all = KING_ATTACKS[ki].and_not(board.occ_for(them));
+    // Rays are computed without the king, as a king that steps along a
+    // slider's line stays attacked.
+    let occ = board.occ().and_not(Bitboard::from_square(ksq));
+
+    // Our attacks on the squares next to the king: step pieces through the
+    // reverse attack tables, and each slider's rays computed once, instead
+    // of a full attacker scan per square.
+    let reverse = them.index();
+    let mut sliders: [(Square, Bitboard); 8] = [(Square::from_index(0), Bitboard::EMPTY); 8];
+    let mut slider_count = 0;
+    {
+        let lance_dir = match us {
+            Color::Black => 0,
+            Color::White => 1,
+        };
+        let mut push = |from: Square, attacks: Bitboard| {
+            if slider_count < 8 && !(attacks & KING_ATTACKS[ki]).is_empty() {
+                sliders[slider_count] = (from, attacks);
+                slider_count += 1;
+            }
+        };
+        let mut lances = board.pieces(us, PieceKind::Kyou);
+        while let Some(from) = lances.pop_lsb() {
+            push(from, sliding_attacks_index(from, occ, lance_dir));
+        }
+        let mut bishops = board.bishop_sliders(us);
+        while let Some(from) = bishops.pop_lsb() {
+            let attacks = (4..8).fold(Bitboard::EMPTY, |acc, d| {
+                acc | sliding_attacks_index(from, occ, d)
+            });
+            push(from, attacks);
+        }
+        let mut rooks = board.rook_sliders(us);
+        while let Some(from) = rooks.pop_lsb() {
+            let attacks = (0..4).fold(Bitboard::EMPTY, |acc, d| {
+                acc | sliding_attacks_index(from, occ, d)
+            });
+            push(from, attacks);
+        }
+    }
+    let sliders = &sliders[..slider_count];
+    let step_attackers = |sq: Square| {
+        let i = sq.index() as usize;
+        (PAWN_ATTACKS[reverse][i] & board.pieces(us, PieceKind::Fu))
+            | (KNIGHT_ATTACKS[reverse][i] & board.pieces(us, PieceKind::Kei))
+            | (SILVER_ATTACKS[reverse][i] & board.pieces(us, PieceKind::Gin))
+            | (GOLD_ATTACKS[reverse][i] & board.gold_like(us))
+            | (ORTHOGONAL_STEP_ATTACKS[i] & board.pieces(us, PieceKind::Uma))
+            | (DIAGONAL_STEP_ATTACKS[i] & board.pieces(us, PieceKind::Ryu))
+            | (KING_ATTACKS[i] & board.pieces(us, PieceKind::Ou))
+    };
 
     // Contact squares a checker could survive on. A board move there also
-    // needs a second attacker, or a slider behind the mover.
+    // needs a second attacker, or a slider behind the mover. `escapes` are
+    // the king's flights that no piece of ours covers.
     let mut drop_squares = Bitboard::EMPTY;
     let mut move_squares = Bitboard::EMPTY;
-    let mut adjacent = KING_ATTACKS[ki] & not_ours;
+    let mut escapes = Bitboard::EMPTY;
+    let mut adjacent = KING_ATTACKS[ki];
     while let Some(sq) = adjacent.pop_lsb() {
-        if !is_attacked_with_occupancy(board, sq, us, occ) {
+        let mut attackers = step_attackers(sq);
+        for &(from, attacks) in sliders {
+            if attacks.contains(sq) {
+                attackers.set(from);
+            }
+        }
+        if attackers.is_empty() {
+            // An unattacked empty square, or an unprotected piece of ours,
+            // is a flight; a checker there would simply be taken.
+            if adjacent_all.contains(sq) {
+                escapes.set(sq);
+            }
+            continue;
+        }
+        if !zone.contains(sq) {
             continue;
         }
         if drops_possible && !occ.contains(sq) {
             drop_squares.set(sq);
         }
-        let attackers = attackers_to_square(board, sq, us, occ);
         let supported = attackers.popcount() >= 2
             || !(attackers_to_square(board, sq, us, occ & !attackers) & !attackers).is_empty();
         if supported {
@@ -3922,18 +3991,35 @@ pub fn mate_in_one(board: &mut Board) -> Option<Move> {
             let mut squares = drop_squares;
             while let Some(sq) = squares.pop_lsb() {
                 let m = Move::drop(sq, kind);
-                if move_gives_direct_check(board, m) {
+                // The dropped piece must check and cover every flight the
+                // king still has; otherwise the drop cannot mate.
+                if move_gives_direct_check(board, m)
+                    && escapes
+                        .and_not(dropped_attacks(kind, us, sq, occ))
+                        .is_empty()
+                {
                     candidates.push(m);
                 }
             }
         }
         if !move_squares.is_empty() {
-            generate_moves_into_fixed(board, replies);
+            // Pseudo-legal board moves onto the candidate squares only;
+            // legality is part of the mate verification below.
+            replies.clear();
+            generate_non_king_moves_into::<false>(
+                board,
+                us,
+                MoveRestrictions {
+                    allowed: move_squares,
+                    pinned: Bitboard::EMPTY,
+                    king: None,
+                    unrestricted: false,
+                },
+                Bitboard::EMPTY,
+                replies,
+            );
             for &m in replies.as_slice() {
-                if m.from.is_some()
-                    && move_squares.contains(m.to)
-                    && move_gives_direct_check(board, m)
-                {
+                if move_gives_direct_check(board, m) {
                     candidates.push(m);
                 }
             }
@@ -3953,6 +4039,35 @@ pub fn mate_in_one(board: &mut Board) -> Option<Move> {
         }
         None
     })
+}
+
+/// Squares a piece of `kind` and `color` dropped on `sq` attacks, with
+/// `occupied` as the blockers (the piece itself blocks nothing).
+fn dropped_attacks(kind: PieceKind, color: Color, sq: Square, occupied: Bitboard) -> Bitboard {
+    let i = sq.index() as usize;
+    let c = color.index();
+    match kind {
+        PieceKind::Fu => PAWN_ATTACKS[c][i],
+        PieceKind::Kei => KNIGHT_ATTACKS[c][i],
+        PieceKind::Gin => SILVER_ATTACKS[c][i],
+        PieceKind::Kin => GOLD_ATTACKS[c][i],
+        PieceKind::Kyou => sliding_attacks_index(
+            sq,
+            occupied,
+            match color {
+                Color::Black => 0,
+                Color::White => 1,
+            },
+        ),
+        PieceKind::Kaku => (4..8).fold(Bitboard::EMPTY, |acc, d| {
+            acc | sliding_attacks_index(sq, occupied, d)
+        }),
+        PieceKind::Hisha => (0..4).fold(Bitboard::EMPTY, |acc, d| {
+            acc | sliding_attacks_index(sq, occupied, d)
+        }),
+        // Promoted pieces and the king are never in hand.
+        _ => Bitboard::FULL,
+    }
 }
 
 /// Whether the `color` king on `ksq` has a neighbouring square (including a
@@ -4043,7 +4158,12 @@ mod mate_in_one_tests {
                         assert!(mating.contains(&m), "unsound mate {m:?}");
                         mates += 1;
                     }
-                    assert!(found.is_some() || !expected, "missed a contact mate");
+                    assert!(
+                        found.is_some() || !expected,
+                        "missed a contact mate {} {:?}",
+                        crate::sfen::board_to_sfen(&board),
+                        mating
+                    );
                     positions += 1;
                 }
                 board.do_move(moves[rand(moves.len())]);
