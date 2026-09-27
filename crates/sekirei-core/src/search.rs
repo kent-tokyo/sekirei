@@ -3378,14 +3378,14 @@ fn update_quiet_heuristics(
     }
 }
 
-/// Cheap MVV-LVA-style ordering key for quiescence: victim (+ promotion gain)
-/// minus the attacker value. No board mutation, no recursion — fast enough to
-/// call on every move at every qsearch node. Non-captures score by promotion
-/// gain alone (0 for plain quiet moves).
 /// Offset that places every non-TT move after the TT move in the qsearch
 /// order key; `qsearch_order_key` stays far below it.
 const QSEARCH_TT_ORDER_OFFSET: i32 = 1_000_000;
 
+/// Cheap MVV-LVA-style ordering key for quiescence: victim (+ promotion gain)
+/// minus the attacker value. No board mutation, no recursion — fast enough to
+/// call on every move at every qsearch node. Non-captures score by promotion
+/// gain alone (0 for plain quiet moves).
 #[inline]
 fn qsearch_order_key(board: &Board, m: Move) -> i32 {
     let victim = board
