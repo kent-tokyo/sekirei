@@ -1461,6 +1461,101 @@ impl TtProbe {
     }
 }
 
+/// ProbCut: when a shallow search of a clearly winning capture (SEE at least
+/// `PC_MARGIN`) beats `beta + PC_MARGIN`, the node is assumed to fail high.
+/// Returns that score.
+fn probcut(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    beta: i32,
+    depth: u32,
+    ply: u32,
+    history: &SearchHistory<'_>,
+) -> Option<i32> {
+    let pc_beta = beta + PC_MARGIN;
+    let mut caps = MoveBuffer::captures(board);
+    caps.as_mut_list()
+        .retain(|m| crate::movegen::see_swap(board, *m) >= PC_MARGIN);
+    let cap_list = caps.as_mut_list().as_mut_slice();
+    let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
+    sort_moves_by_cached_key(cap_list, &mut cap_key);
+    let pc_depth = (depth - 4).min(3); // cap at 3 to keep the probe cheap
+    for &cap in caps.as_slice() {
+        if state.budget.should_abort() {
+            break;
+        }
+        let (tok, child_in_check, child_history) = play(board, cap, history);
+        let pc_score = -alpha_beta(
+            state,
+            board,
+            -pc_beta,
+            -pc_beta + 1,
+            pc_depth,
+            ply + 1,
+            false,
+            Some(cap),
+            None,
+            Some(child_in_check),
+            &child_history,
+        );
+        board.undo_move_for_search(tok);
+        if pc_score >= pc_beta {
+            return Some(pc_score);
+        }
+    }
+    None
+}
+
+/// Null move pruning: a reduced search after passing the move. A fail-high
+/// at depth 6 or more is confirmed by a real shallow search first, against
+/// zugzwang-like horizon effects common in shogi. Returns the null-move score
+/// when the node is cut.
+fn null_move_pruning(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    beta: i32,
+    depth: u32,
+    ply: u32,
+    prev_mv: Option<Move>,
+    history: &SearchHistory<'_>,
+) -> Option<i32> {
+    let null_tok = board.do_null_move();
+    let null_score = -alpha_beta(
+        state,
+        board,
+        -beta,
+        -beta + 1,
+        depth - 1 - NMP_R,
+        ply + 1,
+        false,
+        None,
+        None,
+        None,
+        history,
+    );
+    board.undo_null_move(null_tok);
+    if null_score < beta {
+        return None;
+    }
+    if depth < 6 {
+        return Some(null_score);
+    }
+    let verify = alpha_beta(
+        state,
+        board,
+        beta - 1,
+        beta,
+        depth - 1 - NMP_R,
+        ply,
+        false,
+        prev_mv,
+        None,
+        Some(false),
+        history,
+    );
+    (verify >= beta).then_some(null_score)
+}
+
 /// Play `m` for the search: the undo token, whether the child is in check,
 /// and the child's history frame.
 #[inline(always)]
@@ -2073,94 +2168,25 @@ fn alpha_beta(
         }
     }
 
-    // ProbCut: if a shallow (depth-4) search with an inflated beta suggests this node
-    // will fail high by more than PC_MARGIN, prune without a full search.
-    // Only try captures with SEE >= PC_MARGIN (already winning material gain).
-    if depth >= PC_MIN_DEPTH && !in_check && beta.abs() < MATE_SCORE - 1000 && skip_move.is_none()
-    // not inside a singular search
+    // ProbCut (not inside a singular search).
+    if depth >= PC_MIN_DEPTH
+        && !in_check
+        && beta.abs() < MATE_SCORE - 1000
+        && skip_move.is_none()
+        && let Some(score) = probcut(state, board, beta, depth, ply, history)
     {
-        let pc_beta = beta + PC_MARGIN;
-        let mut caps = MoveBuffer::captures(board);
-        caps.as_mut_list()
-            .retain(|m| crate::movegen::see_swap(board, *m) >= PC_MARGIN);
-        let cap_list = caps.as_mut_list().as_mut_slice();
-        let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
-        sort_moves_by_cached_key(cap_list, &mut cap_key);
-        let pc_depth = (depth - 4).min(3); // cap at 3 to keep the probe cheap
-        for &cap in caps.as_slice() {
-            if state.budget.should_abort() {
-                break;
-            }
-            let (tok, child_in_check, child_history) = play(board, cap, history);
-            let pc_score = -alpha_beta(
-                state,
-                board,
-                -pc_beta,
-                -pc_beta + 1,
-                pc_depth,
-                ply + 1,
-                false,
-                Some(cap),
-                None,
-                Some(child_in_check),
-                &child_history,
-            );
-            board.undo_move_for_search(tok);
-            if pc_score >= pc_beta {
-                return pc_score;
-            }
-        }
+        return score;
     }
 
-    // Null Move Pruning
+    // Null move pruning.
     if state.pruning.null_move
         && can_null
         && depth > NMP_R
         && beta.abs() < MATE_SCORE - 1000
         && !in_check
-    // reuse the is_in_check result computed above
+        && let Some(score) = null_move_pruning(state, board, beta, depth, ply, prev_mv, history)
     {
-        let null_tok = board.do_null_move();
-        let null_score = -alpha_beta(
-            state,
-            board,
-            -beta,
-            -beta + 1,
-            depth - 1 - NMP_R,
-            ply + 1,
-            false,
-            None,
-            None,
-            None,
-            history,
-        );
-        board.undo_null_move(null_tok);
-
-        if null_score >= beta {
-            if depth >= 6 {
-                // Verification search: confirm with a real (non-null) shallow search.
-                // Guards against zugzwang-like horizon effects common in shogi.
-                let verify = alpha_beta(
-                    state,
-                    board,
-                    beta - 1,
-                    beta,
-                    depth - 1 - NMP_R,
-                    ply,
-                    false,
-                    prev_mv,
-                    None,
-                    Some(in_check),
-                    history,
-                );
-                if verify >= beta {
-                    return null_score;
-                }
-                // verification failed — fall through to normal search
-            } else {
-                return null_score;
-            }
-        }
+        return score;
     }
 
     let killers = state.killers.get(ply as usize);
