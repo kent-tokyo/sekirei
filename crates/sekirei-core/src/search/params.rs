@@ -148,6 +148,18 @@ search_params! {
     /// Share (sixteenths) of the history bonus and malus applied to the
     /// capture history.
     CAPT_UPDATE = 16, 0, 48;
+    /// Static-eval correction: weight (1/64) of the entry for the pawn
+    /// structure (0 disables it).
+    CORR_W_PAWN = 21, 0, 128;
+    /// Static-eval correction: weight (1/64) of the entry for both hands.
+    CORR_W_HAND = 21, 0, 128;
+    /// Static-eval correction: weight (1/64) of the entry for both king
+    /// squares.
+    CORR_W_KING = 21, 0, 128;
+    /// Static-eval correction learning rate: an entry moves by
+    /// `(score - corrected eval) * depth / CORR_RATE_DIV`, limited to a
+    /// quarter of its range.
+    CORR_RATE_DIV = 8, 2, 64;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

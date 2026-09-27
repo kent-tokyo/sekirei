@@ -152,6 +152,47 @@ pub(super) struct HistoryTable {
     follow: Vec<AtomicI16>,
     // Capture history: color × moving kind × to × captured kind.
     capture: Vec<AtomicI16>,
+    // Static-eval correction by side to move and a key of the pawn
+    // structure, of both hands, and of both king squares.
+    corr_pawn: Vec<AtomicI16>,
+    corr_hand: Vec<AtomicI16>,
+    corr_king: Vec<AtomicI16>,
+}
+
+/// Buckets of the pawn and hand correction tables per side to move.
+const CORR_BUCKETS: usize = 1 << 14;
+/// Entries are corrections in centipawns within +/- this limit.
+const CORR_LIMIT: i32 = 1024;
+
+/// Indices of a position in the correction tables.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(super) struct CorrKeys {
+    pawn: usize,
+    hand: usize,
+    king: usize,
+}
+
+impl CorrKeys {
+    /// Keys of the position on `board` with `stm` to move.
+    pub(super) fn of(board: &crate::board::Board, stm: Color) -> Self {
+        fn fold(x: u128) -> u64 {
+            (x as u64) ^ ((x >> 64) as u64).rotate_left(29)
+        }
+        fn bucket(x: u64) -> usize {
+            (x.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - 14)) as usize
+        }
+        let side = stm.index();
+        let pawns = fold(board.pieces(Color::Black, PieceKind::Fu).0)
+            ^ fold(board.pieces(Color::White, PieceKind::Fu).0).rotate_left(17);
+        let hands = u64::from(board.hand(Color::Black).packed())
+            | (u64::from(board.hand(Color::White).packed()) << 32);
+        let king = |c: Color| board.king_square(c).map_or(0, |sq| sq.index() as usize);
+        CorrKeys {
+            pawn: side * CORR_BUCKETS + bucket(pawns),
+            hand: side * CORR_BUCKETS + bucket(hands ^ 0x5bd1_e995),
+            king: (side * Square::NUM + king(Color::Black)) * Square::NUM + king(Color::White),
+        }
+    }
 }
 
 /// Board-move slots plus one slot per droppable kind.
@@ -166,6 +207,11 @@ impl HistoryTable {
             cont: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
             follow: (0..2 * keys * keys).map(|_| AtomicI16::new(0)).collect(),
             capture: (0..2 * PieceKind::COUNT * Square::NUM * PieceKind::COUNT)
+                .map(|_| AtomicI16::new(0))
+                .collect(),
+            corr_pawn: (0..2 * CORR_BUCKETS).map(|_| AtomicI16::new(0)).collect(),
+            corr_hand: (0..2 * CORR_BUCKETS).map(|_| AtomicI16::new(0)).collect(),
+            corr_king: (0..2 * Square::NUM * Square::NUM)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
         }
@@ -233,6 +279,36 @@ impl HistoryTable {
     pub(super) fn capture_add(&self, color: Color, m: Move, captured: PieceKind, delta: i32) {
         if delta != 0 {
             Self::gravity16(&self.capture[Self::capture_idx(color, m, captured)], delta);
+        }
+    }
+
+    /// Correction to add to the static evaluation of a position.
+    #[inline]
+    pub(super) fn correction(&self, keys: CorrKeys) -> i32 {
+        let get = |t: &[AtomicI16], i: usize| i32::from(t[i].load(Ordering::Relaxed));
+        (get(&self.corr_pawn, keys.pawn) * p::CORR_W_PAWN()
+            + get(&self.corr_hand, keys.hand) * p::CORR_W_HAND()
+            + get(&self.corr_king, keys.king) * p::CORR_W_KING())
+            / 64
+    }
+
+    /// Move the correction entries of a position toward a search result
+    /// that differs from the corrected static evaluation by `error`.
+    pub(super) fn learn_correction(&self, keys: CorrKeys, error: i32, depth: u32) {
+        let bonus =
+            (error * depth as i32 / p::CORR_RATE_DIV()).clamp(-CORR_LIMIT / 4, CORR_LIMIT / 4);
+        if bonus == 0 {
+            return;
+        }
+        for (t, i) in [
+            (&self.corr_pawn, keys.pawn),
+            (&self.corr_hand, keys.hand),
+            (&self.corr_king, keys.king),
+        ] {
+            let cell = &t[i];
+            let old = i32::from(cell.load(Ordering::Relaxed));
+            let new = (old + bonus - old * bonus.abs() / CORR_LIMIT).clamp(-CORR_LIMIT, CORR_LIMIT);
+            cell.store(new as i16, Ordering::Relaxed);
         }
     }
 

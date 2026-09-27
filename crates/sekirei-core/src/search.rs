@@ -74,7 +74,9 @@ static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod heuristics;
 pub mod params;
-use heuristics::{CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus};
+use heuristics::{
+    CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
+};
 use params as p;
 
 // ============================================================
@@ -1797,6 +1799,11 @@ struct NodeKey {
     depth: u32,
     ply: u32,
     skip_move: Option<Move>,
+    /// The node's correction keys and corrected static evaluation, when it
+    /// has one (not in check, shallow enough to evaluate).
+    corr: Option<(CorrKeys, i32)>,
+    /// Opponent pieces at the node, to tell captures apart.
+    enemy: crate::bitboard::Bitboard,
 }
 
 impl NodeKey {
@@ -1812,6 +1819,31 @@ impl NodeKey {
             self.ply,
             self.skip_move,
         );
+        self.learn_correction(state, score, bound, mv);
+    }
+
+    /// Teach the static-eval correction the result of this node when it
+    /// says something about the evaluation: not for captures or promotions
+    /// (the evaluation of the position does not see them), mate scores,
+    /// singular verification searches, or bounds on the wrong side of the
+    /// corrected evaluation.
+    #[inline]
+    fn learn_correction(&self, state: &SearchState, score: i32, bound: Bound, mv: Option<Move>) {
+        let Some((keys, eval)) = self.corr else {
+            return;
+        };
+        if self.skip_move.is_some()
+            || state.budget.should_abort()
+            || score.abs() >= MATE_SCORE - 1000
+            || mv.is_some_and(|m| m.promote || self.enemy.contains(m.to))
+            || (bound == Bound::Lower && score <= eval)
+            || (bound == Bound::Upper && score >= eval)
+        {
+            return;
+        }
+        state
+            .history
+            .learn_correction(keys, score - eval, self.depth);
     }
 
     /// A beta cutoff on `cutoff_move`: penalise the quiet moves tried before
@@ -2036,14 +2068,15 @@ fn alpha_beta(
     } else {
         depth
     };
-    let node = NodeKey {
+    let stm = board.side_to_move;
+    let mut node = NodeKey {
         hash,
         depth,
         ply,
         skip_move,
+        corr: None,
+        enemy: board.occ_for(stm.flip()),
     };
-
-    let stm = board.side_to_move;
 
     // Countermove: best quiet response to the opponent's previous move
     let countermove = prev_mv.and_then(|pm| state.countermoves.get(stm.flip(), pm));
@@ -2058,11 +2091,20 @@ fn alpha_beta(
     if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
         return MATE_SCORE - (ply as i32 + 1);
     }
-    let static_eval: Option<i32> = if !in_check && depth <= 7 {
+    let raw_eval: Option<i32> = if !in_check && depth <= 7 {
         Some(evaluate_for_search(state, board))
     } else {
         None
     };
+    // The static evaluation corrected by what earlier searches found in
+    // positions with the same pawns, hands or king squares.
+    let static_eval = raw_eval.map(|se| {
+        let keys = CorrKeys::of(board, stm);
+        let corrected =
+            (se + state.history.correction(keys)).clamp(-(MATE_SCORE - 2000), MATE_SCORE - 2000);
+        node.corr = Some((keys, corrected));
+        corrected
+    });
     // Improving: the static eval beats the one two plies earlier (same side
     // to move). Unknown evals (in check, or not computed) count as improving.
     let improving = record_static_eval(ply, static_eval);

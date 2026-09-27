@@ -48,6 +48,12 @@ impl Hand {
         }
     }
 
+    /// All piece counts packed in one word (equal hands give equal words).
+    #[inline(always)]
+    pub const fn packed(&self) -> u32 {
+        self.counts
+    }
+
     /// Whether no pieces are currently available for drops.
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
