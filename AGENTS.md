@@ -88,3 +88,19 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * **Memory Safety:** Compiles successfully without a single `unsafe` block in the parallel search and task-control logic.
 * **Contention Check:** Thread synchronization overhead must remain below 5% even when running on 64+ cores.
 * **Correctness:** Passes 10,000,000 random Perft/Mated-search validations.
+
+---
+
+## User Instruction Record
+
+* Record operational instructions explicitly given by the user in this `AGENTS.md`, keeping them concise, scoped, and consistent with higher-priority instructions.
+* 2026-09-27: Release v0.3.52 as a behavior-preserving search refactor after version, test, manifest, registry, and GitHub Release verification.
+* When writing newsletter articles, use natural, concrete prose and avoid formulaic or promotional AI-sounding language. State the actual observations and their limits plainly; avoid stock disclaimer phrasing and abstract caveats.
+* Where practical, support article claims with relevant data and links to their sources. Make clear which statements are verified facts and which are estimates or interpretation.
+* Always fact-check articles before delivery. Verify factual claims, especially figures, dates, quotations, and rules, against reliable sources; correct or remove claims that cannot be verified.
+* For Japan condominium market articles, check public discussion by the condominium community on X and note for topics and questions. Do not cite those posts as data sources in the article; verify factual claims against primary sources.
+* For weekly condominium market articles, lead with information from the current reporting week. Clearly label the observation period and publication date of lagging monthly statistics; do not present a prior month's figures as this week's market conditions.
+* For condominium market analysis, consider current financing costs. Distinguish policy rates from actual mortgage offers and their effective dates; label repayment calculations as hypothetical scenarios, not lender quotes or forecasts.
+* Format Substack articles for easy scanning with restrained headings, emphasis, and lists. Use only formatting the editor reliably supports, and avoid emoji except where genuinely necessary.
+* Write Japan Condo Markets for non-Japanese readers in English. Briefly explain Japan-specific geography, price units, market terms, and financing eligibility where they matter; do not assume readers know the Japanese housing market.
+* Treat Tokyo as a set of distinct condominium submarkets, not one uniform price trend. Separate waterfront areas, central districts, and residential areas such as Setagaya; compare like-for-like properties and do not generalize a small sample across areas, building types, or price bands.

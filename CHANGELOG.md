@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.52] – 2026-09-27
+
+- Refactored alpha-beta search into focused helpers for move application, late
+  move pruning, TT probing and storage, root mate safety, null move, ProbCut,
+  and PVS child search.
+- Moved move-ordering heuristic tables into `search::heuristics`, reducing the
+  size of `alpha_beta` without changing its search contract.
+- Fixed-node probes on 50 positions and depth-12 node counts on 20 positions
+  were identical on x86 and Arm. This is a behavior-preservation check, not a
+  speed or playing-strength result.
+
 ## [0.3.51] – 2026-09-27
 
 - Search: use geometric root aspiration-window recovery, defer full move ordering
