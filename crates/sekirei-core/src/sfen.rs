@@ -280,6 +280,10 @@ pub struct PositionHistoryEntry {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PositionHistory {
     entries: Vec<PositionHistoryEntry>,
+    /// Presence filter of the recorded hashes (1,024 bits). A clear bit means
+    /// the hash is not in `entries`, so the search can skip the scan for
+    /// almost every node.
+    filter: [u64; 16],
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -294,13 +298,41 @@ pub enum RepetitionOutcome {
 impl PositionHistory {
     /// Begin a history at the supplied initial position hash.
     pub fn initial(hash: u64) -> Self {
-        Self {
-            entries: vec![PositionHistoryEntry {
-                hash,
-                mover: None,
-                gave_check: false,
-            }],
+        let mut history = Self {
+            entries: Vec::new(),
+            filter: [0; 16],
+        };
+        history.push_entry(PositionHistoryEntry {
+            hash,
+            mover: None,
+            gave_check: false,
+        });
+        history
+    }
+
+    #[inline]
+    fn filter_bit(hash: u64) -> (usize, u64) {
+        let bit = (hash >> 54) as usize;
+        (bit / 64, 1u64 << (bit % 64))
+    }
+
+    fn push_entry(&mut self, entry: PositionHistoryEntry) {
+        let (word, mask) = Self::filter_bit(entry.hash);
+        self.filter[word] |= mask;
+        self.entries.push(entry);
+    }
+
+    /// Number of recorded positions with this hash.
+    #[inline]
+    pub(crate) fn count_hash(&self, hash: u64) -> usize {
+        let (word, mask) = Self::filter_bit(hash);
+        if self.filter[word] & mask == 0 {
+            return 0;
         }
+        self.entries
+            .iter()
+            .filter(|entry| entry.hash == hash)
+            .count()
     }
 
     /// Ordered positions from the initial state through the current state.
@@ -310,7 +342,7 @@ impl PositionHistory {
 
     /// Record a legal move that produced a new position hash.
     pub fn push_after_move(&mut self, hash: u64, mover: Color, gave_check: bool) {
-        self.entries.push(PositionHistoryEntry {
+        self.push_entry(PositionHistoryEntry {
             hash,
             mover: Some(mover),
             gave_check,
@@ -326,12 +358,16 @@ impl PositionHistory {
         // One exact-size allocation; `clone()` then `push` reallocated.
         let mut entries = Vec::with_capacity(self.entries.len() + 1);
         entries.extend_from_slice(&self.entries);
-        entries.push(PositionHistoryEntry {
+        let mut history = Self {
+            entries,
+            filter: self.filter,
+        };
+        history.push_entry(PositionHistoryEntry {
             hash,
             mover: Some(mover),
             gave_check,
         });
-        Self { entries }
+        history
     }
 
     /// Return an outcome only when the current position has appeared four

@@ -39,7 +39,7 @@ use crate::movegen::{generate_legal_captures, generate_legal_moves};
 use crate::mv::Move;
 use crate::nnue::weights_active;
 use crate::piece::PieceKind;
-use crate::sfen::{PositionHistory, RepetitionOutcome};
+use crate::sfen::{PositionHistory, PositionHistoryEntry, RepetitionOutcome};
 use crate::speculative::{SpecGroup, SpecState};
 use crate::square::Square;
 use crate::tt::{Bound, Tt, TtEntry};
@@ -1207,6 +1207,7 @@ impl Searcher {
         let mut prev_best: Option<Move> = None;
         let mut bound = SearchBound::Unknown;
         let mut root_mate_safety_cache = RootMateSafetyCache::default();
+        let history = &SearchHistory::root(history);
 
         for depth in 1..=config.max_depth {
             let (m, score, root_bound) = root_search(
@@ -1334,6 +1335,80 @@ fn extract_pv(tt: &Tt, board: &mut Board, first: Option<Move>, depth: u32) -> Ve
 // Root search with Aspiration Window
 // ============================================================
 
+/// Repetition history as seen from one search node: the game history
+/// supplied with the position, followed by the moves of the current line.
+///
+/// Each frame lives on the stack of the node that made the move and points to
+/// its parent, so a move neither allocates nor copies the game history (the
+/// owned `PositionHistory::after_move` did both at every node, and its cost
+/// grew with the game length). The entry sequence, and so every repetition
+/// verdict, is the same as with the owned history.
+#[derive(Clone, Copy)]
+struct SearchHistory<'a> {
+    game: &'a PositionHistory,
+    parent: Option<&'a SearchHistory<'a>>,
+    /// The move that produced this node; `None` for the root, whose position
+    /// is the last game entry.
+    entry: Option<PositionHistoryEntry>,
+}
+
+impl<'a> SearchHistory<'a> {
+    fn root(game: &'a PositionHistory) -> Self {
+        SearchHistory {
+            game,
+            parent: None,
+            entry: None,
+        }
+    }
+
+    #[inline]
+    fn after_move(&'a self, hash: u64, mover: Color, gave_check: bool) -> SearchHistory<'a> {
+        SearchHistory {
+            game: self.game,
+            parent: Some(self),
+            entry: Some(PositionHistoryEntry {
+                hash,
+                mover: Some(mover),
+                gave_check,
+            }),
+        }
+    }
+
+    /// Same verdict as `PositionHistory::outcome_at_current_position` on the
+    /// game history extended by the line.
+    fn outcome_at_current_position(&self) -> Option<RepetitionOutcome> {
+        let Some(current) = self.entry else {
+            return self.game.outcome_at_current_position();
+        };
+        let mut count = self.game.count_hash(current.hash);
+        let mut frame = Some(self);
+        while let Some(f) = frame {
+            if f.entry.is_some_and(|e| e.hash == current.hash) {
+                count += 1;
+            }
+            frame = f.parent;
+        }
+        if count < 4 {
+            return None;
+        }
+        let mut line = Vec::new();
+        let mut frame = Some(self);
+        while let Some(f) = frame {
+            line.extend(f.entry);
+            frame = f.parent;
+        }
+        let mut full = self.game.clone();
+        for e in line.into_iter().rev() {
+            full.push_after_move(
+                e.hash,
+                e.mover.expect("search moves record their mover"),
+                e.gave_check,
+            );
+        }
+        full.outcome_at_current_position()
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn root_search(
     state: &Arc<SearchState>,
@@ -1343,7 +1418,7 @@ fn root_search(
     excluded: &[Move],
     root_move: Option<Move>,
     root_mate_safety: bool,
-    history: &PositionHistory,
+    history: &SearchHistory<'_>,
     mut root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
@@ -1646,7 +1721,7 @@ fn root_search_inner(
     ordered: &[Move],
     lo: i32,
     hi: i32,
-    history: &PositionHistory,
+    history: &SearchHistory<'_>,
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
@@ -1823,7 +1898,7 @@ fn alpha_beta(
     prev_mv: Option<Move>, // the move that led to this position (for countermove heuristic)
     skip_move: Option<Move>, // excluded move for singular extension search (None normally)
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
-    history: &PositionHistory,
+    history: &SearchHistory<'_>,
 ) -> i32 {
     if let Some(diagnostics) = state
         .diagnostics
@@ -2552,7 +2627,7 @@ fn quiescence(
     ply: u32,
     qply: u32,
     known_in_check: Option<bool>,
-    history: &PositionHistory,
+    history: &SearchHistory<'_>,
 ) -> i32 {
     let _quiescence_timer = ProfileTimer::new(
         state
@@ -3092,7 +3167,15 @@ impl SpeculativeSearcher {
             let mut excluded: Vec<Move> = Vec::new();
             for _ in 0..config.multi_pv {
                 let (m, score, _) = root_search(
-                    &state, board, depth, best_score, &excluded, None, true, history, None,
+                    &state,
+                    board,
+                    depth,
+                    best_score,
+                    &excluded,
+                    None,
+                    true,
+                    &SearchHistory::root(history),
+                    None,
                 );
                 if state.budget.should_abort() {
                     break;
@@ -3662,7 +3745,7 @@ mod see_tests {
             None,
             None,
             Some(false),
-            &pruned_history,
+            &SearchHistory::root(&pruned_history),
         );
         let pruned_nodes = pruned_state.budget.nodes();
 
@@ -3680,7 +3763,7 @@ mod see_tests {
             None,
             None,
             Some(false),
-            &full_history,
+            &SearchHistory::root(&full_history),
         );
         assert!(pruned_nodes < full_state.budget.nodes());
         assert_eq!(pruned_board.hash(), pruned_hash);
@@ -4286,7 +4369,15 @@ mod regression_tests {
         let hash = board.hash();
         let history = PositionHistory::initial(hash);
 
-        root_search_inner(&state, &mut board, 1, &moves, NEG_INF, -500_000, &history);
+        root_search_inner(
+            &state,
+            &mut board,
+            1,
+            &moves,
+            NEG_INF,
+            -500_000,
+            &SearchHistory::root(&history),
+        );
 
         let entry = tt
             .probe(hash)
@@ -4316,7 +4407,17 @@ mod regression_tests {
         let state = fresh_state(tt.clone());
 
         let score = alpha_beta(
-            &state, &mut board, NEG_INF, POS_INF, 4, 0, true, None, None, None, &history,
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            4,
+            0,
+            true,
+            None,
+            None,
+            None,
+            &SearchHistory::root(&history),
         );
 
         assert_eq!(score, 0);
@@ -4368,7 +4469,7 @@ mod regression_tests {
             &[],
             Some(forced_root),
             false,
-            &history,
+            &SearchHistory::root(&history),
             None,
         );
 
@@ -4445,7 +4546,7 @@ mod regression_tests {
             None,
             Some(tt_move),
             None,
-            &history,
+            &SearchHistory::root(&history),
         );
 
         assert!(
@@ -4481,7 +4582,7 @@ mod regression_tests {
             &moves,
             NEG_INF,
             POS_INF,
-            &history,
+            &SearchHistory::root(&history),
         );
         let genuine = tt
             .probe(hash)
@@ -4506,7 +4607,7 @@ mod regression_tests {
             &moves,
             NEG_INF,
             POS_INF,
-            &history,
+            &SearchHistory::root(&history),
         );
 
         let after = tt
@@ -4530,7 +4631,16 @@ mod regression_tests {
         let mut board = Board::startpos();
         let hash = board.hash();
         let history = PositionHistory::initial(hash);
-        let first = quiescence(&state, &mut board, NEG_INF, POS_INF, 3, 0, None, &history);
+        let first = quiescence(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            3,
+            0,
+            None,
+            &SearchHistory::root(&history),
+        );
         let entry = tt
             .probe(hash)
             .expect("top-level qsearch should store depth zero");
@@ -4547,7 +4657,7 @@ mod regression_tests {
             3,
             0,
             None,
-            &history,
+            &SearchHistory::root(&history),
         );
         assert_eq!(second, first);
     }
@@ -4568,7 +4678,16 @@ mod regression_tests {
                 mv: None,
             },
         );
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
+        let _ = quiescence(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            0,
+            0,
+            None,
+            &SearchHistory::root(&history),
+        );
         assert_eq!(tt.probe(hash).expect("deeper entry must remain").depth, 4);
 
         let aborted_tt = Tt::new(1);
@@ -4590,7 +4709,7 @@ mod regression_tests {
             0,
             0,
             None,
-            &history,
+            &SearchHistory::root(&history),
         );
         assert!(
             aborted_tt.probe(hash).is_none(),
@@ -4610,7 +4729,16 @@ mod regression_tests {
         let tt = Tt::new(1);
         let state = fresh_state(tt.clone());
 
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
+        let _ = quiescence(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            0,
+            0,
+            None,
+            &SearchHistory::root(&history),
+        );
 
         assert_eq!(board.hash(), hash, "qsearch must undo every capture");
         assert_eq!(
@@ -4629,7 +4757,16 @@ mod regression_tests {
         let alpha = 100_000;
         let history = PositionHistory::initial(hash);
 
-        let score = quiescence(&state, &mut board, alpha, alpha + 1, 0, 0, None, &history);
+        let score = quiescence(
+            &state,
+            &mut board,
+            alpha,
+            alpha + 1,
+            0,
+            0,
+            None,
+            &SearchHistory::root(&history),
+        );
 
         assert_eq!(score, alpha, "delta pruning should return the raised alpha");
         assert_eq!(
@@ -4665,7 +4802,16 @@ mod regression_tests {
 
         let state = fresh_state(Tt::new(1));
         let history = PositionHistory::initial(hash);
-        let _ = quiescence(&state, &mut board, NEG_INF, POS_INF, 0, 0, None, &history);
+        let _ = quiescence(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            0,
+            0,
+            None,
+            &SearchHistory::root(&history),
+        );
         assert_eq!(
             board.hash(),
             hash,
@@ -4690,7 +4836,7 @@ mod regression_tests {
                 None,
                 None,
                 None,
-                &recomputed_history,
+                &SearchHistory::root(&recomputed_history),
             );
 
             let mut supplied_board = Board::from_sfen(sfen).unwrap();
@@ -4708,7 +4854,7 @@ mod regression_tests {
                 None,
                 None,
                 Some(supplied_check),
-                &supplied_history,
+                &SearchHistory::root(&supplied_history),
             );
             assert_eq!(
                 supplied, recomputed,
@@ -4757,7 +4903,7 @@ mod regression_tests {
             None,
             None,
             None,
-            &history_a,
+            &SearchHistory::root(&history_a),
         );
 
         let mut board_b = Board::from_sfen(MATE_IN_1_SFEN).unwrap();
@@ -4774,7 +4920,7 @@ mod regression_tests {
             None,
             None,
             None,
-            &history_b,
+            &SearchHistory::root(&history_b),
         );
 
         assert!(
