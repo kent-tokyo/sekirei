@@ -6,6 +6,20 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.51] – 2026-09-27
+
+- Search: use geometric root aspiration-window recovery, defer full move ordering
+  until a transposition-table move fails to cut, and retain a completed move
+  from an interrupted iteration.
+- Search: represent repetition history as parent-linked search frames rather
+  than copying the whole game history at every node; preserve adjudication.
+- Performance: reuse qsearch and move-ordering scratch storage, replace a
+  quadratic large-list ordering path, and skip zero HalfKP input pairs.
+- A pre-fixed local S16 SPRT against v0.3.50 accepted H1 at 524-410-23
+  (LLR +3.00). S17 crossed H1 at 462-354-48 (LLR +2.96), but ten in-flight
+  games completed during shutdown moved it back below the boundary. These
+  are local, scoped diagnostics, not general strength claims.
+
 ## [0.3.50] – 2026-09-26
 
 - Quiescence search skips captures that lose material in the exchange, using
