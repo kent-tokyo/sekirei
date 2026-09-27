@@ -1556,6 +1556,50 @@ fn null_move_pruning(
     (verify >= beta).then_some(null_score)
 }
 
+/// Principal variation search of a child already played on `board`: a
+/// null-window probe reduced by `reduce`, a full-depth null-window search
+/// when a reduced probe fails high, and an exact full-window search when the
+/// score lands inside the window. Returns the child's score for the parent.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn pvs_child(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    depth: u32,
+    reduce: u32,
+    ply: u32,
+    m: Move,
+    child_in_check: bool,
+    child_history: &SearchHistory<'_>,
+) -> i32 {
+    let full_depth = depth - 1;
+    let mut search = |lo: i32, hi: i32, d: u32| {
+        -alpha_beta(
+            state,
+            board,
+            -hi,
+            -lo,
+            d,
+            ply + 1,
+            true,
+            Some(m),
+            None,
+            Some(child_in_check),
+            child_history,
+        )
+    };
+    let mut s = search(alpha, alpha + 1, depth.saturating_sub(1 + reduce));
+    if reduce > 0 && s > alpha {
+        s = search(alpha, alpha + 1, full_depth);
+    }
+    if s > alpha && s < beta {
+        s = search(alpha, beta, full_depth);
+    }
+    s
+}
+
 /// Play `m` for the search: the undo token, whether the child is in check,
 /// and the child's history frame.
 #[inline(always)]
@@ -2523,56 +2567,18 @@ fn alpha_beta(
             } else {
                 reduce
             };
-
-            // Principal variation search: a (possibly reduced) null-window
-            // probe first; widen only when the move may improve alpha.
-            let probe_depth = depth.saturating_sub(1 + reduce);
-            let full_depth = depth - 1;
-            let mut s = -alpha_beta(
+            let s = pvs_child(
                 state,
                 board,
-                -alpha - 1,
-                -alpha,
-                probe_depth,
-                ply + 1,
-                true,
-                Some(m),
-                None,
-                Some(child_in_check),
+                alpha,
+                beta,
+                depth,
+                reduce,
+                ply,
+                m,
+                child_in_check,
                 &child_history,
             );
-            // Reduced probe failed high: verify at full depth, still null-window.
-            if reduce > 0 && s > alpha {
-                s = -alpha_beta(
-                    state,
-                    board,
-                    -alpha - 1,
-                    -alpha,
-                    full_depth,
-                    ply + 1,
-                    true,
-                    Some(m),
-                    None,
-                    Some(child_in_check),
-                    &child_history,
-                );
-            }
-            // Inside the window at a PV node: exact full-window search.
-            if s > alpha && s < beta {
-                s = -alpha_beta(
-                    state,
-                    board,
-                    -beta,
-                    -alpha,
-                    full_depth,
-                    ply + 1,
-                    true,
-                    Some(m),
-                    None,
-                    Some(child_in_check),
-                    &child_history,
-                );
-            }
             board.undo_move_for_search(tok);
 
             if s > best_score {
