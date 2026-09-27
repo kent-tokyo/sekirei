@@ -2769,12 +2769,25 @@ fn quiescence(
                     .as_deref()
                     .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
             );
-            move_buffer.as_mut_list().sort_by_cached_key(|&m| {
-                (
-                    if Some(m) == tt_mv { 0 } else { 1 },
-                    -qsearch_order_key(board, m),
-                )
-            });
+            // TT move first, then by the MVV-LVA key. One i32 carries both
+            // (the key is far below the TT offset), so the order equals that
+            // of the (flag, key) pair, and short lists sort without a heap
+            // allocation (the std cached-key sort allocates on every call).
+            let mut qkey = |m: &Move| {
+                let key = qsearch_order_key(board, *m);
+                debug_assert!(key.abs() < QSEARCH_TT_ORDER_OFFSET);
+                if Some(*m) == tt_mv {
+                    -key
+                } else {
+                    QSEARCH_TT_ORDER_OFFSET - key
+                }
+            };
+            let list = move_buffer.as_mut_list().as_mut_slice();
+            if list.len() <= 64 {
+                sort_by_cached_i32_key_small(list, &mut qkey);
+            } else {
+                list.sort_by_cached_key(qkey);
+            }
         }
         move_buffer
     };
@@ -2882,9 +2895,13 @@ fn quiescence(
                         .as_deref()
                         .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
                 );
-                qchecks
-                    .as_mut_list()
-                    .sort_by_cached_key(|&m| if Some(m) == tt_mv { 0 } else { 1 });
+                let mut tt_first = |m: &Move| i32::from(Some(*m) != tt_mv);
+                let list = qchecks.as_mut_list().as_mut_slice();
+                if list.len() <= 64 {
+                    sort_by_cached_i32_key_small(list, &mut tt_first);
+                } else {
+                    list.sort_by_cached_key(tt_first);
+                }
             }
             qchecks
         };
@@ -3377,6 +3394,10 @@ fn update_quiet_heuristics(
 /// minus the attacker value. No board mutation, no recursion — fast enough to
 /// call on every move at every qsearch node. Non-captures score by promotion
 /// gain alone (0 for plain quiet moves).
+/// Offset that places every non-TT move after the TT move in the qsearch
+/// order key; `qsearch_order_key` stays far below it.
+const QSEARCH_TT_ORDER_OFFSET: i32 = 1_000_000;
+
 #[inline]
 fn qsearch_order_key(board: &Board, m: Move) -> i32 {
     let victim = board
