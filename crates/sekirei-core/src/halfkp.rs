@@ -416,7 +416,7 @@ impl HalfKpNetwork {
                 them[2 * p + 1].clamp(0, 127) as u8,
             ];
         }
-        let hidden1 = affine_clipped(&self.l1_bias, &self.l1_pairs, &input);
+        let hidden1 = affine_clipped_sparse(&self.l1_bias, &self.l1_pairs, &input);
         let hidden2 = affine_clipped(&self.l2_bias, &self.l2_pairs, &hidden1);
         dot(self.out_bias, &self.out_weights, hidden2.as_flattened())
     }
@@ -447,6 +447,54 @@ fn pair_columns<const PAIRS: usize>(weights: &[i8]) -> Box<[PairColumn; PAIRS]> 
         }
     }
     out.into_boxed_slice().try_into().unwrap()
+}
+
+/// `affine_clipped` for a mostly-zero input (the clipped feature transformer
+/// output): input pairs that are both zero add nothing, so only the nonzero
+/// pairs are gathered and accumulated (Stockfish's `find_nnz` idea). The sum
+/// is the same integer sum, so the output is identical.
+#[inline(always)]
+fn affine_clipped_sparse<const PAIRS: usize>(
+    bias: &[i32; HIDDEN],
+    columns: &[PairColumn; PAIRS],
+    input: &[[u8; 2]; PAIRS],
+) -> [[u8; 2]; HIDDEN / 2] {
+    const LANES: usize = 4;
+    let mut nonzero = [0u16; PAIRS];
+    let mut count = 0;
+    for (p, pair) in input.iter().enumerate() {
+        nonzero[count] = p as u16;
+        count += usize::from(pair[0] | pair[1] != 0);
+    }
+    let nonzero = &nonzero[..count];
+    let mut partial = [[0i32; HIDDEN]; LANES];
+    let mut groups = nonzero.chunks_exact(LANES);
+    for group in &mut groups {
+        for (sums, &p) in partial.iter_mut().zip(group) {
+            let p = usize::from(p);
+            let x0 = i32::from(input[p][0]);
+            let x1 = i32::from(input[p][1]);
+            let w = &columns[p];
+            for o in 0..HIDDEN {
+                sums[o] += i32::from(w[2 * o]) * x0 + i32::from(w[2 * o + 1]) * x1;
+            }
+        }
+    }
+    for (sums, &p) in partial.iter_mut().zip(groups.remainder()) {
+        let p = usize::from(p);
+        let x0 = i32::from(input[p][0]);
+        let x1 = i32::from(input[p][1]);
+        let w = &columns[p];
+        for o in 0..HIDDEN {
+            sums[o] += i32::from(w[2 * o]) * x0 + i32::from(w[2 * o + 1]) * x1;
+        }
+    }
+    let mut out = [[0u8; 2]; HIDDEN / 2];
+    for o in 0..HIDDEN {
+        let sum = bias[o] + partial[0][o] + partial[1][o] + partial[2][o] + partial[3][o];
+        out[o / 2][o % 2] = (sum >> WEIGHT_SCALE_BITS).clamp(0, 127) as u8;
+    }
+    out
 }
 
 /// Dense layer followed by `ClippedReLU`, written for safe autovectorization.
