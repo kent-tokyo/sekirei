@@ -787,44 +787,47 @@ struct SearchState {
     pruning: PruningConfig,
 }
 
+impl SearchState {
+    /// Timer for one cost counter, live only when a timing observer is attached.
+    #[inline(always)]
+    fn timer(&self, counter: fn(&SearchDiagnostics) -> &AtomicU64) -> ProfileTimer<'_> {
+        ProfileTimer::new(
+            self.diagnostics
+                .as_deref()
+                .and_then(|diagnostics| diagnostics.timed(counter(diagnostics))),
+        )
+    }
+
+    /// The per-node counters, when an observer records them.
+    #[inline(always)]
+    fn counters(&self) -> Option<&SearchDiagnostics> {
+        self.diagnostics
+            .as_deref()
+            .and_then(SearchDiagnostics::per_node)
+    }
+}
+
 /// Call the static evaluator while accounting for it in an opt-in diagnostic.
 ///
 /// The observer is absent from production searches, so no atomic operation is
 /// performed outside an explicitly requested cost profile.
 #[inline]
 fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
-    let _timer = ProfileTimer::new(
-        state
-            .diagnostics
-            .as_deref()
-            .and_then(|diagnostics| diagnostics.timed(&diagnostics.static_evaluation_ns)),
-    );
-    if let Some(diagnostics) = state
-        .diagnostics
-        .as_deref()
-        .and_then(SearchDiagnostics::per_node)
-    {
+    let _timer = state.timer(|d| &d.static_evaluation_ns);
+    if let Some(diagnostics) = state.counters() {
         diagnostics
             .static_evaluations
             .fetch_add(1, Ordering::Relaxed);
     }
     if let Some(cache) = &state.eval_cache {
-        if let Some(diagnostics) = state
-            .diagnostics
-            .as_deref()
-            .and_then(SearchDiagnostics::per_node)
-        {
+        if let Some(diagnostics) = state.counters() {
             diagnostics
                 .eval_cache_probes
                 .fetch_add(1, Ordering::Relaxed);
         }
         let key = evaluation_cache_key(board.hash());
         if let Some(score) = cache.probe(key) {
-            if let Some(diagnostics) = state
-                .diagnostics
-                .as_deref()
-                .and_then(SearchDiagnostics::per_node)
-            {
+            if let Some(diagnostics) = state.counters() {
                 diagnostics.eval_cache_hits.fetch_add(1, Ordering::Relaxed);
             }
             return score;
@@ -840,19 +843,10 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
 #[inline]
 fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
     let entry = {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.tt_probe_ns)),
-        );
+        let _timer = state.timer(|d| &d.tt_probe_ns);
         state.tt.probe(hash)
     };
-    if let Some(diagnostics) = state
-        .diagnostics
-        .as_deref()
-        .and_then(SearchDiagnostics::per_node)
-    {
+    if let Some(diagnostics) = state.counters() {
         diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
         if entry.is_some() {
             diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
@@ -863,18 +857,9 @@ fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
 
 #[inline]
 fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
-    let _timer = ProfileTimer::new(
-        state
-            .diagnostics
-            .as_deref()
-            .and_then(|diagnostics| diagnostics.timed(&diagnostics.tt_store_ns)),
-    );
+    let _timer = state.timer(|d| &d.tt_store_ns);
     state.tt.store(hash, entry);
-    if let Some(diagnostics) = state
-        .diagnostics
-        .as_deref()
-        .and_then(SearchDiagnostics::per_node)
-    {
+    if let Some(diagnostics) = state.counters() {
         diagnostics.tt_stores.fetch_add(1, Ordering::Relaxed);
     }
 }
@@ -1429,20 +1414,11 @@ fn root_search(
         );
     }
     let mut move_buffer = {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.movegen_order_ns)),
-        );
-        let mut move_buffer =
-            {
-                let _generate_timer =
-                    ProfileTimer::new(state.diagnostics.as_deref().and_then(|diagnostics| {
-                        diagnostics.timed(&diagnostics.movegen_generate_ns)
-                    }));
-                MoveBuffer::legal(board)
-            };
+        let _timer = state.timer(|d| &d.movegen_order_ns);
+        let mut move_buffer = {
+            let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
+            MoveBuffer::legal(board)
+        };
         let moves = move_buffer.as_mut_list();
         if !excluded.is_empty() {
             moves.retain(|m| !excluded.contains(m));
@@ -1490,18 +1466,8 @@ fn root_search(
     let tt_mv = probe_tt_for_search(state, board.hash()).and_then(|e| e.mv);
     let killers = state.killers.get(0);
     {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.movegen_order_ns)),
-        );
-        let _order_timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
-        );
+        let _timer = state.timer(|d| &d.movegen_order_ns);
+        let _order_timer = state.timer(|d| &d.move_order_ns);
         order_moves_in_place(
             board,
             move_buffer.as_mut_list().as_mut_slice(),
@@ -1900,11 +1866,7 @@ fn alpha_beta(
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
     history: &SearchHistory<'_>,
 ) -> i32 {
-    if let Some(diagnostics) = state
-        .diagnostics
-        .as_deref()
-        .and_then(SearchDiagnostics::per_node)
-    {
+    if let Some(diagnostics) = state.counters() {
         diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
     }
     if let Some(outcome) = history.outcome_at_current_position() {
@@ -2124,31 +2086,17 @@ fn alpha_beta(
     // it fails to cut, since most cutoffs come from the first move.
     let mut deferred_order = false;
     let mut move_buffer = {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.movegen_order_ns)),
-        );
-        let mut move_buffer =
-            {
-                let _generate_timer =
-                    ProfileTimer::new(state.diagnostics.as_deref().and_then(|diagnostics| {
-                        diagnostics.timed(&diagnostics.movegen_generate_ns)
-                    }));
-                MoveBuffer::legal_with_in_check(board, in_check)
-            };
+        let _timer = state.timer(|d| &d.movegen_order_ns);
+        let mut move_buffer = {
+            let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
+            MoveBuffer::legal_with_in_check(board, in_check)
+        };
         if move_buffer.is_empty() {
             return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
         }
 
         {
-            let _order_timer = ProfileTimer::new(
-                state
-                    .diagnostics
-                    .as_deref()
-                    .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
-            );
+            let _order_timer = state.timer(|d| &d.move_order_ns);
             let list = move_buffer.as_mut_list().as_mut_slice();
             let tt_pos = tt_mv
                 .filter(|_| skip_move.is_none())
@@ -2166,10 +2114,7 @@ fn alpha_beta(
                     prev_mv,
                     &state.history,
                     stm,
-                    state
-                        .diagnostics
-                        .as_deref()
-                        .and_then(SearchDiagnostics::per_node),
+                    state.counters(),
                 );
             }
         }
@@ -2293,10 +2238,7 @@ fn alpha_beta(
             prev_mv,
             &state.history,
             stm,
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(SearchDiagnostics::per_node),
+            state.counters(),
         );
     }
     let ordered = move_buffer.as_slice();
@@ -2625,17 +2567,8 @@ fn quiescence(
     known_in_check: Option<bool>,
     history: &SearchHistory<'_>,
 ) -> i32 {
-    let _quiescence_timer = ProfileTimer::new(
-        state
-            .diagnostics
-            .as_deref()
-            .and_then(|diagnostics| diagnostics.timed(&diagnostics.quiescence_inclusive_ns)),
-    );
-    if let Some(diagnostics) = state
-        .diagnostics
-        .as_deref()
-        .and_then(SearchDiagnostics::per_node)
-    {
+    let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
+    if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
     }
     if let Some(outcome) = history.outcome_at_current_position() {
@@ -2737,34 +2670,20 @@ fn quiescence(
     }
 
     let move_buffer = {
-        let _timer = ProfileTimer::new(
-            state
-                .diagnostics
-                .as_deref()
-                .and_then(|diagnostics| diagnostics.timed(&diagnostics.movegen_order_ns)),
-        );
-        let mut move_buffer =
-            {
-                let _generate_timer =
-                    ProfileTimer::new(state.diagnostics.as_deref().and_then(|diagnostics| {
-                        diagnostics.timed(&diagnostics.movegen_generate_ns)
-                    }));
-                if in_check {
-                    MoveBuffer::legal_with_in_check(board, true) // must escape check; all legal moves required
-                } else {
-                    MoveBuffer::captures_with_in_check(board, false)
-                }
-            };
+        let _timer = state.timer(|d| &d.movegen_order_ns);
+        let mut move_buffer = {
+            let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
+            if in_check {
+                MoveBuffer::legal_with_in_check(board, true) // must escape check; all legal moves required
+            } else {
+                MoveBuffer::captures_with_in_check(board, false)
+            }
+        };
         // Order by a cheap MVV-LVA-style key. A full SEE here is too costly
         // per node (qsearch is the hottest path); the coarse capture ordering is
         // plenty for quiescence and keeps each node fast enough to respect the clock.
         {
-            let _order_timer = ProfileTimer::new(
-                state
-                    .diagnostics
-                    .as_deref()
-                    .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
-            );
+            let _order_timer = state.timer(|d| &d.move_order_ns);
             // TT move first, then by the MVV-LVA key. One i32 carries both
             // (the key is far below the TT offset), so the order equals that
             // of the (flag, key) pair, and short lists sort without a heap
@@ -2867,26 +2786,13 @@ fn quiescence(
         const MAX_QCHECKS: usize = 4;
         let mut qcheck_count = 0;
         let qchecks = {
-            let _timer = ProfileTimer::new(
-                state
-                    .diagnostics
-                    .as_deref()
-                    .and_then(|diagnostics| diagnostics.timed(&diagnostics.movegen_order_ns)),
-            );
+            let _timer = state.timer(|d| &d.movegen_order_ns);
             let mut qchecks = {
-                let _generate_timer =
-                    ProfileTimer::new(state.diagnostics.as_deref().and_then(|diagnostics| {
-                        diagnostics.timed(&diagnostics.movegen_generate_ns)
-                    }));
+                let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
                 MoveBuffer::legal_with_in_check(board, false)
             };
             {
-                let _order_timer = ProfileTimer::new(
-                    state
-                        .diagnostics
-                        .as_deref()
-                        .and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_ns)),
-                );
+                let _order_timer = state.timer(|d| &d.move_order_ns);
                 let mut tt_first = |m: &Move| i32::from(Some(*m) != tt_mv);
                 let list = qchecks.as_mut_list().as_mut_slice();
                 sort_moves_by_cached_key(list, &mut tt_first);
