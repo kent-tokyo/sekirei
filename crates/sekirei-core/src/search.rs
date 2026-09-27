@@ -1188,6 +1188,8 @@ struct TtProbe {
     se_score: Option<i32>,
     /// The entry's depth (singular extension eligibility).
     se_depth: u8,
+    /// Whether the table held an entry for this position at all.
+    hit: bool,
 }
 
 impl TtProbe {
@@ -1211,10 +1213,12 @@ impl TtProbe {
             mv: None,
             se_score: None,
             se_depth: 0,
+            hit: false,
         };
         let Some(entry) = probe_tt_for_search(state, hash) else {
             return probe;
         };
+        probe.hit = true;
         let adj = score_from_tt(entry.score, ply);
         probe.mv = entry.mv;
         probe.se_depth = entry.depth;
@@ -1968,7 +1972,9 @@ fn alpha_beta(
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     // A mate in one for the side to move ends the node. Checking it here also
     // makes null-move and reduced searches see the opponent's mating threats.
-    if !in_check && skip_move.is_none() && mate_in_one(board).is_some() {
+    // A position with a TT entry was scanned when that entry was stored (a
+    // mate in one returns before storing), so the scan is skipped there.
+    if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
         return MATE_SCORE - (ply as i32 + 1);
     }
     let static_eval: Option<i32> = if !in_check && depth <= 7 {
