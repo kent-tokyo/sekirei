@@ -1394,6 +1394,73 @@ impl<'a> SearchHistory<'a> {
     }
 }
 
+/// What a main-search node takes from its transposition-table entry.
+struct TtProbe {
+    /// A score the node can return at once.
+    cutoff: Option<i32>,
+    /// Alpha after a lower bound that did not cut.
+    alpha: i32,
+    /// The entry's move, for ordering.
+    mv: Option<Move>,
+    /// The entry's score when it is a lower or exact bound (singular extension).
+    se_score: Option<i32>,
+    /// The entry's depth (singular extension eligibility).
+    se_depth: u8,
+}
+
+impl TtProbe {
+    /// Probe the entry of `hash` for a node at `depth` with window
+    /// `(alpha, beta)`. In a singular verification search (`excluded`) the
+    /// entry only supplies the move and the singular data: the node's move set
+    /// lacks the candidate that produced the entry, so its bounds do not apply.
+    #[inline]
+    fn at(
+        state: &SearchState,
+        hash: u64,
+        depth: u32,
+        ply: u32,
+        mut alpha: i32,
+        beta: i32,
+        excluded: bool,
+    ) -> Self {
+        let mut probe = TtProbe {
+            cutoff: None,
+            alpha,
+            mv: None,
+            se_score: None,
+            se_depth: 0,
+        };
+        let Some(entry) = probe_tt_for_search(state, hash) else {
+            return probe;
+        };
+        let adj = score_from_tt(entry.score, ply);
+        probe.mv = entry.mv;
+        probe.se_depth = entry.depth;
+        if !matches!(entry.bound, Bound::Upper) {
+            probe.se_score = Some(adj);
+        }
+        if entry.depth >= depth as u8 && !excluded {
+            match entry.bound {
+                Bound::Exact => probe.cutoff = Some(adj),
+                Bound::Lower => {
+                    if adj >= beta {
+                        probe.cutoff = Some(adj);
+                    } else if adj > alpha {
+                        alpha = adj;
+                    }
+                }
+                Bound::Upper => {
+                    if adj <= alpha {
+                        probe.cutoff = Some(adj);
+                    }
+                }
+            }
+        }
+        probe.alpha = alpha;
+        probe
+    }
+}
+
 /// Play `m` for the search: the undo token, whether the child is in check,
 /// and the child's history frame.
 #[inline(always)]
@@ -1905,40 +1972,14 @@ fn alpha_beta(
     // TT probe
     let hash = board.hash();
     let orig_alpha = alpha;
-    let mut tt_mv = None;
-    let mut tt_se_score = None::<i32>; // TT score for singular extension (lower/exact bound only)
-    let mut tt_se_depth = 0u8; // TT entry depth for SE eligibility check
-
-    if let Some(entry) = probe_tt_for_search(state, hash) {
-        let adj = score_from_tt(entry.score, ply);
-        tt_mv = entry.mv;
-        tt_se_depth = entry.depth;
-        if !matches!(entry.bound, Bound::Upper) {
-            tt_se_score = Some(adj); // lower or exact bound is usable for SE
-        }
-        // A singular-extension verification search re-enters this hash before
-        // making a move, with one candidate excluded.  Its partial move set
-        // must not be short-circuited by the unrestricted entry that selected
-        // the candidate in the first place.
-        if entry.depth >= depth as u8 && skip_move.is_none() {
-            match entry.bound {
-                Bound::Exact => return adj,
-                Bound::Lower => {
-                    if adj >= beta {
-                        return adj;
-                    }
-                    if adj > alpha {
-                        alpha = adj;
-                    }
-                }
-                Bound::Upper => {
-                    if adj <= alpha {
-                        return adj;
-                    }
-                }
-            }
-        }
+    let tt = TtProbe::at(state, hash, depth, ply, alpha, beta, skip_move.is_some());
+    if let Some(score) = tt.cutoff {
+        return score;
     }
+    alpha = tt.alpha;
+    let tt_mv = tt.mv;
+    let tt_se_score = tt.se_score;
+    let tt_se_depth = tt.se_depth;
 
     // Internal Iterative Reduction: no TT move → move ordering is poor, search shallower
     let depth = if tt_mv.is_none() && depth >= 4 {
