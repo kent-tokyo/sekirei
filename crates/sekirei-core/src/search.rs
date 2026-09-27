@@ -2030,52 +2030,67 @@ fn root_search_inner(
 // Core Alpha-Beta with YBW parallelism
 // ============================================================
 
-/// Apply the common beta-cutoff bookkeeping for both YBW and sequential
-/// sibling passes. Keeping it in one place prevents the heuristic/TT paths
-/// from drifting apart when one cutoff path changes.
-#[allow(clippy::too_many_arguments)]
-fn beta_cutoff(
-    state: &Arc<SearchState>,
+/// What identifies a main-search node in the transposition table: its hash,
+/// the (possibly reduced) depth it is searched to, the ply, and the move a
+/// singular verification search excludes.
+#[derive(Clone, Copy)]
+struct NodeKey {
     hash: u64,
-    best_score: i32,
-    best_move: Option<Move>,
     depth: u32,
     ply: u32,
     skip_move: Option<Move>,
-    tried_quiet: &[Move],
-    cutoff_move: Move,
-    stm: Color,
-    board: &Board,
-    prev_mv: Option<Move>,
-) -> i32 {
-    for &qm in tried_quiet {
-        state.history.malus(stm, qm, depth);
-        state
-            .history
-            .cont_add(stm, prev_mv, qm, -((depth * depth).min(400) as i32));
+}
+
+impl NodeKey {
+    #[inline]
+    fn store(&self, state: &SearchState, score: i32, bound: Bound, mv: Option<Move>) {
+        store_tt(
+            state,
+            self.hash,
+            score,
+            self.depth,
+            bound,
+            mv,
+            self.ply,
+            self.skip_move,
+        );
     }
-    update_quiet_heuristics(
-        &state.killers,
-        &state.history,
-        &state.countermoves,
-        cutoff_move,
-        stm,
-        ply,
-        depth,
-        board,
-        prev_mv,
-    );
-    store_tt(
-        state,
-        hash,
-        best_score,
-        depth,
-        Bound::Lower,
-        best_move,
-        ply,
-        skip_move,
-    );
-    best_score
+
+    /// A beta cutoff on `cutoff_move`: penalise the quiet moves tried before
+    /// it, reward it, store the lower bound and return the score.
+    #[allow(clippy::too_many_arguments)]
+    fn beta_cutoff(
+        &self,
+        state: &SearchState,
+        best_score: i32,
+        best_move: Option<Move>,
+        tried_quiet: &[Move],
+        cutoff_move: Move,
+        stm: Color,
+        board: &Board,
+        prev_mv: Option<Move>,
+    ) -> i32 {
+        let depth = self.depth;
+        for &qm in tried_quiet {
+            state.history.malus(stm, qm, depth);
+            state
+                .history
+                .cont_add(stm, prev_mv, qm, -((depth * depth).min(400) as i32));
+        }
+        update_quiet_heuristics(
+            &state.killers,
+            &state.history,
+            &state.countermoves,
+            cutoff_move,
+            stm,
+            self.ply,
+            depth,
+            board,
+            prev_mv,
+        );
+        self.store(state, best_score, Bound::Lower, best_move);
+        best_score
+    }
 }
 
 /// Convert a history-dependent fourfold repetition into a score from the
@@ -2153,6 +2168,12 @@ fn alpha_beta(
         depth - 1
     } else {
         depth
+    };
+    let node = NodeKey {
+        hash,
+        depth,
+        ply,
+        skip_move,
     };
 
     let stm = board.side_to_move;
@@ -2358,16 +2379,7 @@ fn alpha_beta(
             board,
             prev_mv,
         );
-        store_tt(
-            state,
-            hash,
-            score0,
-            depth,
-            Bound::Lower,
-            best_move,
-            ply,
-            skip_move,
-        );
+        node.store(state, score0, Bound::Lower, best_move);
         return score0;
     }
     if score0 > alpha {
@@ -2399,9 +2411,7 @@ fn alpha_beta(
         } else {
             Bound::Upper
         };
-        store_tt(
-            state, hash, best_score, depth, bound, best_move, ply, skip_move,
-        );
+        node.store(state, best_score, bound, best_move);
         return best_score;
     }
 
@@ -2497,14 +2507,10 @@ fn alpha_beta(
             }
             if s >= beta {
                 nw_abort.store(true, Ordering::Relaxed);
-                return beta_cutoff(
+                return node.beta_cutoff(
                     state,
-                    hash,
                     best_score,
                     best_move,
-                    depth,
-                    ply,
-                    skip_move,
                     &tried_quiet,
                     m,
                     stm,
@@ -2541,7 +2547,7 @@ fn alpha_beta(
             // excluding them exempted most late moves from futility pruning.
             let is_quiet = !is_capture && !m.promote;
 
-            let node = LateMoveNode {
+            let late = LateMoveNode {
                 depth,
                 alpha,
                 beta,
@@ -2549,7 +2555,7 @@ fn alpha_beta(
                 static_eval,
                 best_score,
             };
-            if node.prunes(board, m, is_quiet, i + 1) {
+            if late.prunes(board, m, is_quiet, i + 1) {
                 continue;
             }
 
@@ -2586,14 +2592,10 @@ fn alpha_beta(
                 best_move = Some(m);
             }
             if s >= beta {
-                return beta_cutoff(
+                return node.beta_cutoff(
                     state,
-                    hash,
                     best_score,
                     best_move,
-                    depth,
-                    ply,
-                    skip_move,
                     &tried_quiet,
                     m,
                     stm,
@@ -2618,9 +2620,7 @@ fn alpha_beta(
     if state.budget.should_abort() {
         return 0;
     }
-    store_tt(
-        state, hash, best_score, depth, bound, best_move, ply, skip_move,
-    );
+    node.store(state, best_score, bound, best_move);
     best_score
 }
 
