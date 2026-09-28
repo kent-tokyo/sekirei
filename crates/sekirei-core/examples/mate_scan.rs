@@ -28,23 +28,45 @@ fn main() {
     let mut total_nodes = 0u64;
     for path in &args[2..] {
         let text = std::fs::read_to_string(path).expect("game file");
-        let mut sekirei_black = true;
+        let mut sekirei_black = None;
+        let mut sekirei_is_engine1 = None;
         let mut result = "";
         let mut position = None;
         for line in text.lines() {
             if let Some(rest) = line.strip_prefix("# Engine1: ") {
-                sekirei_black = rest.contains("Sekirei") == rest.contains("(Black)");
+                if rest.contains("Sekirei") {
+                    sekirei_black = Some(rest.contains("(Black)"));
+                    sekirei_is_engine1 = Some(true);
+                }
+            } else if let Some(rest) = line.strip_prefix("# Engine2: ") {
+                if rest.contains("Sekirei") {
+                    sekirei_black = Some(rest.contains("(Black)"));
+                    sekirei_is_engine1 = Some(false);
+                }
             } else if let Some(rest) = line.strip_prefix("# Result: ") {
                 result = rest;
             } else if let Some(body) = line.strip_prefix("position ") {
                 position = Some(body.to_string());
             }
         }
-        let Some(body) = position else { continue };
+        let (Some(body), Some(sekirei_black), Some(sekirei_is_engine1)) =
+            (position, sekirei_black, sekirei_is_engine1)
+        else {
+            eprintln!("SKIP {path}: expected one Sekirei engine with a color");
+            continue;
+        };
         let engine1_win = result.starts_with("Engine1 Win");
         let engine2_win = result.starts_with("Engine2 Win");
-        let sekirei_won = engine1_win;
-        let sekirei_lost = engine2_win;
+        let sekirei_won = if sekirei_is_engine1 {
+            engine1_win
+        } else {
+            engine2_win
+        };
+        let sekirei_lost = if sekirei_is_engine1 {
+            engine2_win
+        } else {
+            engine1_win
+        };
         games += 1;
         if sekirei_lost {
             sekirei_losses += 1;

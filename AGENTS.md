@@ -95,6 +95,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 * Record operational instructions explicitly given by the user in this `AGENTS.md`, keeping them concise, scoped, and consistent with higher-priority instructions.
 * 2026-09-27: Release v0.3.52 as a behavior-preserving search refactor after version, test, manifest, registry, and GitHub Release verification.
+* 2026-09-29: Release v0.3.53 after verifying the mate-in-one search change, six-crate publication, manifest, and GitHub Release.
+* 2026-09-27: Do not use Suisho5 executables, nn.bin files, evaluation outputs, or derived labels for Sekirei training, candidate selection, or public artifacts unless the user later reverses this instruction.
 * When writing newsletter articles, use natural, concrete prose and avoid formulaic or promotional AI-sounding language. State the actual observations and their limits plainly; avoid stock disclaimer phrasing and abstract caveats.
 * Where practical, support article claims with relevant data and links to their sources. Make clear which statements are verified facts and which are estimates or interpretation.
 * Always fact-check articles before delivery. Verify factual claims, especially figures, dates, quotations, and rules, against reliable sources; correct or remove claims that cannot be verified.

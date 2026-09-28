@@ -1,17 +1,18 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.52-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.52)
+[![Release](https://img.shields.io/badge/release-v0.3.53-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.53)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.52`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.53`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。alpha-beta探索と指し手整列の内部をリファクタリングし、記録した固定node
-probeの探索出力を維持します。重みの同梱・採用は行わず、この同一性確認を速度や一般的な
-棋力向上の主張としては扱いません。
+含みます。選択した探索・静止探索の入口で、枝刈りに隠れる前に1手詰みを検出します。
+詰みsolverのコストと保存棋譜を調べるローカル診断例も追加しました。固定条件のS29
+ローカル診断はCHANGELOGに記録しますが、一般的な棋力向上や外部engine優位の主張では
+ありません。
 
 ## まず動かす
 

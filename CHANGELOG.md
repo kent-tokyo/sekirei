@@ -6,6 +6,19 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.53] – 2026-09-29
+
+- Search: detect an immediate mating move before pruning can hide it at eligible
+  main-search nodes and the quiescence entry. Positions already represented in
+  the transposition table skip the scan.
+- Move generation: add a lower-cost direct-check mate-in-one scan, plus
+  `mate_bench` and `mate_scan` examples for local solver-cost and game-record
+  diagnostics.
+- A pre-registered local S29 SPRT against v0.3.52, using 0.5 s per move, 200
+  balanced openings with colours swapped, one thread, and a pinned external
+  HalfKP evaluation, accepted H1 at 793-672-59 over 1,524 games (LLR +2.99).
+  This is a local, scoped diagnostic, not a general strength claim.
+
 ## [0.3.52] – 2026-09-27
 
 - Refactored alpha-beta search into focused helpers for move application, late
