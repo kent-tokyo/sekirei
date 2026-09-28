@@ -84,9 +84,9 @@ search_params! {
     RFP_MARGIN = 120, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.
     RFP_IMPROVING_BONUS = 30, 0, 150;
-    /// Reverse futility pruning applies up to this depth (static eval is only
-    /// computed up to depth 7).
-    RFP_MAX_DEPTH = 3, 1, 7;
+    /// Reverse futility pruning applies up to this depth (and never beyond
+    /// STATIC_EVAL_MAX_DEPTH).
+    RFP_MAX_DEPTH = 3, 1, 16;
     /// Futility pruning of depth-1 quiet moves.
     FUTILITY_MARGIN = 300, 50, 800;
     /// Razoring margin at depth `d` (1..=2): `BASE + PER_DEPTH * d`.
@@ -186,6 +186,24 @@ search_params! {
     /// The move-count limit is scaled by this (sixteenths) when the static
     /// eval is improving.
     LMP_IMPROVING_MUL = 16, 8, 48;
+    /// The static evaluation is computed at nodes up to this depth (it feeds
+    /// RFP, razoring, futility, the null-move condition and `improving`).
+    STATIC_EVAL_MAX_DEPTH = 7, 7, 16;
+    /// Null move only when the static eval is at least `beta - MARGIN`
+    /// (5000 disables the condition; nodes without a static eval are not
+    /// affected).
+    NMP_EVAL_MARGIN = 5000, 0, 5000;
+    /// History pruning: at shallow non-PV nodes up to this depth (0 disables
+    /// it), quiet moves that do not give check are skipped when their history
+    /// (butterfly + continuation + two-ply follow-up) is below
+    /// `-HP_MARGIN * depth`.
+    HP_MAX_DEPTH = 0, 0, 8;
+    /// See `HP_MAX_DEPTH`.
+    HP_MARGIN = 4000, 500, 16000;
+    /// Multi-cut: when the singular verification search at a non-PV node
+    /// fails high against a bound that is itself at least beta, return that
+    /// bound (1) instead of searching on (0).
+    MULTICUT = 0, 0, 1;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

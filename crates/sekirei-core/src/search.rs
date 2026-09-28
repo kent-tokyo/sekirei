@@ -1329,6 +1329,13 @@ fn null_move_pruning(
     (verify >= beta).then_some(null_score)
 }
 
+/// Whether the static eval permits a null move against `beta`.
+#[inline]
+fn nmp_eval_allows(static_eval: Option<i32>, beta: i32) -> bool {
+    let margin = p::NMP_EVAL_MARGIN();
+    margin >= 5000 || static_eval.is_none_or(|se| se >= beta - margin)
+}
+
 /// Null move depth reduction at `depth`.
 #[inline]
 fn nmp_reduction(depth: u32) -> u32 {
@@ -2128,7 +2135,8 @@ fn alpha_beta(
     let countermove = prev_mv.and_then(|pm| state.countermoves.get(stm.flip(), pm));
 
     // Static eval — computed once per node for RFP, razoring and futility.
-    // Skipped when in check (position is not "quiet") or depth > 7 (unused there).
+    // Skipped when in check (position is not "quiet") or deeper than
+    // STATIC_EVAL_MAX_DEPTH (7 by default; unused there).
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     // A mate in one for the side to move ends the node. Checking it here also
     // makes null-move and reduced searches see the opponent's mating threats.
@@ -2137,7 +2145,7 @@ fn alpha_beta(
     if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
         return MATE_SCORE - (ply as i32 + 1);
     }
-    let raw_eval: Option<i32> = if !in_check && depth <= 7 {
+    let raw_eval: Option<i32> = if !in_check && depth <= p::STATIC_EVAL_MAX_DEPTH() as u32 {
         Some(evaluate_for_search(state, board))
     } else {
         None
@@ -2212,6 +2220,7 @@ fn alpha_beta(
         && depth > p::NMP_R() as u32
         && beta.abs() < MATE_SCORE - 1000
         && !in_check
+        && nmp_eval_allows(static_eval, beta)
         && let Some(score) = null_move_pruning(state, board, beta, depth, ply, prev_mv, history)
     {
         return score;
@@ -2294,6 +2303,9 @@ fn alpha_beta(
             history,
         );
         // 1 if the TT move is singular; 2 when clearly so at a non-PV node.
+        if !is_pv && p::MULTICUT() != 0 && sval >= se_beta && se_beta >= beta {
+            return se_beta;
+        }
         if sval < se_beta {
             let double = p::SE_DOUBLE_MARGIN();
             1 + u32::from(
@@ -2554,6 +2566,11 @@ fn alpha_beta(
                 static_eval,
                 best_score,
                 improving,
+                history: if is_quiet && p::HP_MAX_DEPTH() > 0 {
+                    lmr_ctx.history_of(&state.history, stm, m)
+                } else {
+                    0
+                },
             };
             if late.prunes(board, m, is_quiet, i + 1) {
                 continue;
@@ -3363,6 +3380,9 @@ struct LateMoveNode {
     static_eval: Option<i32>,
     best_score: i32,
     improving: bool,
+    /// History of the move (butterfly + continuation + follow-up), computed
+    /// only when history pruning is enabled.
+    history: i32,
 }
 
 impl LateMoveNode {
@@ -3402,6 +3422,9 @@ impl LateMoveNode {
                             <= self.alpha
                     })))
                 && !move_gives_direct_check(board, m)
+                || (depth <= p::HP_MAX_DEPTH() as u32
+                    && self.history < -p::HP_MARGIN() * depth as i32
+                    && !move_gives_direct_check(board, m))
         } else {
             m.from.is_some()
                 && board.piece_at(m.to).is_some()
@@ -3540,6 +3563,17 @@ struct LmrContext {
     cont: ContMoves,
 }
 
+impl LmrContext {
+    /// History of `m` at this node: butterfly + continuation + two-ply
+    /// follow-up.
+    #[inline]
+    fn history_of(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
+        history.get(stm, m)
+            + history.cont_get(stm, self.cont.prev, m)
+            + history.follow_get(stm, self.cont.own2, m)
+    }
+}
+
 /// Adjust the base reduction `r` of a reducible move (0 stays 0). The
 /// adjustments are summed in sixteenths of a ply and rounded, so that the
 /// tuner can move them in small steps.
@@ -3551,10 +3585,7 @@ fn lmr_adjust(r: u32, ctx: &LmrContext, history: &HistoryTable, stm: Color, m: M
     let mut r16 = r as i32 * 16;
     let scale = p::LMR_STAT_SCALE();
     if scale != 0 {
-        let stat = history.get(stm, m)
-            + history.cont_get(stm, ctx.cont.prev, m)
-            + history.follow_get(stm, ctx.cont.own2, m);
-        r16 -= stat * scale / (1 << 13);
+        r16 -= ctx.history_of(history, stm, m) * scale / (1 << 13);
     }
     if ctx.pv {
         r16 -= p::LMR_PV_LESS16();
