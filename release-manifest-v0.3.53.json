@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.53",
+  "commit": "571e27fcfbc5b7dcc0ce1e49fba628f9dad66f9d",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.53",
+    "sekirei-core": "0.3.53",
+    "sekirei-bench": "0.3.53",
+    "sekirei-csa": "0.3.53",
+    "sekirei-match-runner": "0.3.53",
+    "sekirei-train": "0.3.53"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "0a64361b547460e51a26cb25fe4082cc898c03b095f48fa99edf01f2567fdf52"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "scoped_sprt_diagnostic",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 571e27f. Workspace tests, release core tests, lint, formatting, the stdlib A/B-runner early-stop test, documentation-reference, public-surface, release-manifest, and cargo-publish-workflow checks passed. The USI smoke transcript reached usiok and readyok. A pre-registered local S29 SPRT against v0.3.52, at 0.5 s per move on 200 balanced colour-swapped openings with one thread and pinned external HalfKP evaluation, accepted H1 at 793-672-59 over 1,524 games (LLR +2.99). This is a scoped local diagnostic only."
+  },
+  "external_opponents": {
+    "status": "not_measured",
+    "configuration": "No external-engine comparison was run for v0.3.53."
+  },
+  "known_limitations": [
+    "The mate-in-one scan only considers direct contact and knight checks; None does not prove that no mate in one exists.",
+    "S29 applies only to its pre-registered local configuration and is not a general playing-strength or external-engine superiority claim.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
