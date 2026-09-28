@@ -161,6 +161,31 @@ search_params! {
     /// `(score - corrected eval) * depth / CORR_RATE_DIV`, limited to a
     /// quarter of its range.
     CORR_RATE_DIV = 8, 2, 64;
+    /// Late move reductions never take the child below this depth (0: a
+    /// reduced child may drop straight into quiescence, as before).
+    LMR_MIN_CHILD_DEPTH = 0, 0, 2;
+    /// Continuous history term of late move reductions: the reduction falls
+    /// by `stat * SCALE / 2^17` plies, where `stat` sums the butterfly,
+    /// continuation and two-ply follow-up histories (0 disables it).
+    LMR_STAT_SCALE = 0, 0, 64;
+    /// Reduction removed at PV nodes, in sixteenths of a ply.
+    LMR_PV_LESS16 = 0, 0, 32;
+    /// Reduction added when the static eval is not improving, in sixteenths
+    /// of a ply.
+    LMR_NOT_IMPROVING16 = 0, 0, 32;
+    /// Null move reduction grows by this many sixty-fourths of a ply per
+    /// ply of depth (0: a fixed NMP_R).
+    NMP_R_PER_DEPTH = 0, 0, 32;
+    /// Singular extension margin added per ply of depth.
+    SE_MARGIN_PER_DEPTH = 0, 0, 16;
+    /// A singular TT move whose verification falls this far below the
+    /// singular bound is extended by two plies at non-PV nodes (0 disables).
+    SE_DOUBLE_MARGIN = 0, 0, 200;
+    /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
+    LMP_BASE = 4, 1, 12;
+    /// The move-count limit is scaled by this (sixteenths) when the static
+    /// eval is improving.
+    LMP_IMPROVING_MUL = 16, 8, 48;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

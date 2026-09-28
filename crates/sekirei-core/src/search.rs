@@ -1298,7 +1298,7 @@ fn null_move_pruning(
         board,
         -beta,
         -beta + 1,
-        depth - 1 - p::NMP_R() as u32,
+        depth.saturating_sub(1 + nmp_reduction(depth)),
         ply + 1,
         false,
         None,
@@ -1318,7 +1318,7 @@ fn null_move_pruning(
         board,
         beta - 1,
         beta,
-        depth - 1 - p::NMP_R() as u32,
+        depth.saturating_sub(1 + nmp_reduction(depth)),
         ply,
         false,
         prev_mv,
@@ -1327,6 +1327,12 @@ fn null_move_pruning(
         history,
     );
     (verify >= beta).then_some(null_score)
+}
+
+/// Null move depth reduction at `depth`.
+#[inline]
+fn nmp_reduction(depth: u32) -> u32 {
+    p::NMP_R() as u32 + depth * p::NMP_R_PER_DEPTH() as u32 / 64
 }
 
 /// Principal variation search of a child already played on `board`: a
@@ -1363,7 +1369,12 @@ fn pvs_child(
             child_history,
         )
     };
-    let mut s = search(alpha, alpha + 1, depth.saturating_sub(1 + reduce));
+    let floor = (p::LMR_MIN_CHILD_DEPTH() as u32).min(full_depth);
+    let mut s = search(
+        alpha,
+        alpha + 1,
+        depth.saturating_sub(1 + reduce).max(floor),
+    );
     if reduce > 0 && s > alpha {
         s = search(alpha, alpha + 1, full_depth);
     }
@@ -1930,13 +1941,33 @@ struct Frame {
     /// Move played from this ply into the child being searched; `None` for a
     /// null move.
     current_move: Option<Move>,
+    /// Double singular extensions on the path from the root to this ply.
+    doubles: u8,
 }
 
 impl Frame {
     const EMPTY: Frame = Frame {
         static_eval: i32::MIN,
         current_move: None,
+        doubles: 0,
     };
+}
+
+/// Most double singular extensions allowed on one path, so that they cannot
+/// feed each other without bound.
+const MAX_DOUBLE_EXTENSIONS: u8 = 4;
+
+/// Double extensions on the path to `ply`.
+#[inline]
+fn doubles_at(ply: u32) -> u8 {
+    STACK.with(|stack| stack.borrow()[stack_index(ply)].doubles)
+}
+
+/// Set the double-extension count the children of the node at `ply - 1`
+/// start from.
+#[inline]
+fn set_doubles(ply: u32, n: u8) {
+    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].doubles = n);
 }
 
 /// Per-thread search stack indexed by ply. A young-brothers worker copies
@@ -2123,6 +2154,8 @@ fn alpha_beta(
     // Improving: the static eval beats the one two plies earlier (same side
     // to move). Unknown evals (in check, or not computed) count as improving.
     let improving = record_static_eval(ply, static_eval);
+    let doubles = doubles_at(ply);
+    set_doubles(ply + 1, doubles);
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
     if let Some(se) = static_eval
@@ -2233,6 +2266,8 @@ fn alpha_beta(
         return alpha;
     } // all moves excluded (shouldn't happen in practice)
 
+    let is_pv = beta - alpha > 1;
+
     // Singular Extension: check whether the TT move is clearly the best in this position.
     // If all other moves fail below (tt_score - SE_MARGIN), the TT move is "singular" and
     // we extend its search by one ply.
@@ -2243,7 +2278,8 @@ fn alpha_beta(
             && tt_mv.is_some()
             && tt_se_depth >= (depth as u8).saturating_sub(3)
     }) {
-        let se_beta = (se_score - p::SE_MARGIN()).max(alpha);
+        let se_beta =
+            (se_score - p::SE_MARGIN() - p::SE_MARGIN_PER_DEPTH() * depth as i32).max(alpha);
         let sval = alpha_beta(
             state,
             board,
@@ -2257,7 +2293,15 @@ fn alpha_beta(
             Some(in_check),
             history,
         );
-        u32::from(sval < se_beta) // 1 if TT move is singular, else 0
+        // 1 if the TT move is singular; 2 when clearly so at a non-PV node.
+        if sval < se_beta {
+            let double = p::SE_DOUBLE_MARGIN();
+            1 + u32::from(
+                double > 0 && !is_pv && doubles < MAX_DOUBLE_EXTENSIONS && sval < se_beta - double,
+            )
+        } else {
+            0
+        }
     } else {
         0
     };
@@ -2266,6 +2310,11 @@ fn alpha_beta(
     let enemy = board.occ_for(stm.flip());
     let mut tried_quiet: Vec<Move> = Vec::new();
     let mut tried_captures: Vec<Move> = Vec::new();
+    let lmr_ctx = LmrContext {
+        pv: is_pv,
+        improving,
+        cont: ContMoves::at(ply, prev_mv),
+    };
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
@@ -2277,6 +2326,7 @@ fn alpha_beta(
     } else {
         0
     };
+    set_doubles(ply + 1, doubles + u8::from(first_ext == 2));
     let score0 = -alpha_beta(
         state,
         board,
@@ -2291,6 +2341,7 @@ fn alpha_beta(
         &first_history,
     );
     board.undo_move_for_search(tok);
+    set_doubles(ply + 1, doubles);
 
     if state.budget.should_abort() {
         return 0;
@@ -2367,7 +2418,7 @@ fn alpha_beta(
         // Rayon joins before returning, so the closure can borrow state and the
         // abort flag directly. Clone only the worker's private Board; the old
         // staging Vec also cloned every Arc and allocated once per split.
-        let path = stack_path(ply);
+        let path = stack_path(ply + 1);
         let nw_results: Vec<(Move, i32, usize)> = rest[..ybw_end]
             .par_iter()
             .enumerate()
@@ -2378,7 +2429,13 @@ fn alpha_beta(
                 let idx = i + 1;
                 let mut b = board.clone();
                 let reduce = if state.pruning.late_move_reduction {
-                    lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm)
+                    lmr_adjust(
+                        lmr_reduce(&b, m, idx, depth, &killers, tt_mv, &state.history, stm),
+                        &lmr_ctx,
+                        &state.history,
+                        stm,
+                        m,
+                    )
                 } else {
                     0
                 };
@@ -2496,13 +2553,20 @@ fn alpha_beta(
                 in_check,
                 static_eval,
                 best_score,
+                improving,
             };
             if late.prunes(board, m, is_quiet, i + 1) {
                 continue;
             }
 
             let reduce = if state.pruning.late_move_reduction {
-                lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm)
+                lmr_adjust(
+                    lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm),
+                    &lmr_ctx,
+                    &state.history,
+                    stm,
+                    m,
+                )
             } else {
                 0
             };
@@ -3298,6 +3362,7 @@ struct LateMoveNode {
     in_check: bool,
     static_eval: Option<i32>,
     best_score: i32,
+    improving: bool,
 }
 
 impl LateMoveNode {
@@ -3329,7 +3394,7 @@ impl LateMoveNode {
             return false;
         }
         if is_quiet {
-            (move_number as u32 >= 4 + depth * depth
+            (move_number as u32 >= lmp_limit(depth, self.improving)
                 || (depth >= 2
                     && self.static_eval.is_some_and(|se| {
                         se + p::SHALLOW_FUTILITY_BASE()
@@ -3454,6 +3519,50 @@ fn lmr_reduce(
         r += 1;
     }
     r
+}
+
+/// Shallow move-count pruning: quiet moves from this number on are pruned.
+#[inline]
+fn lmp_limit(depth: u32, improving: bool) -> u32 {
+    let base = p::LMP_BASE() as u32 + depth * depth;
+    if improving {
+        base * p::LMP_IMPROVING_MUL() as u32 / 16
+    } else {
+        base
+    }
+}
+
+/// What late move reductions know about the node beyond the move itself.
+#[derive(Clone, Copy)]
+struct LmrContext {
+    pv: bool,
+    improving: bool,
+    cont: ContMoves,
+}
+
+/// Adjust the base reduction `r` of a reducible move (0 stays 0). The
+/// adjustments are summed in sixteenths of a ply and rounded, so that the
+/// tuner can move them in small steps.
+#[inline]
+fn lmr_adjust(r: u32, ctx: &LmrContext, history: &HistoryTable, stm: Color, m: Move) -> u32 {
+    if r == 0 {
+        return 0;
+    }
+    let mut r16 = r as i32 * 16;
+    let scale = p::LMR_STAT_SCALE();
+    if scale != 0 {
+        let stat = history.get(stm, m)
+            + history.cont_get(stm, ctx.cont.prev, m)
+            + history.follow_get(stm, ctx.cont.own2, m);
+        r16 -= stat * scale / (1 << 13);
+    }
+    if ctx.pv {
+        r16 -= p::LMR_PV_LESS16();
+    }
+    if !ctx.improving {
+        r16 += p::LMR_NOT_IMPROVING16();
+    }
+    ((r16 + 8) / 16).max(0) as u32
 }
 
 #[inline]
