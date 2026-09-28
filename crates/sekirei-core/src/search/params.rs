@@ -140,8 +140,9 @@ search_params! {
     /// continuation entry.
     CONT4_UPDATE = 8, 0, 48;
     /// Ordering bonus for a quiet move that gives check without losing
-    /// material by SEE (0 disables the test).
-    SAFE_CHECK_BONUS = 2000, 0, 8000;
+    /// material by SEE (0 disables the test). At 2000 it lost about 100 Elo
+    /// at 0.1 s per move against the same build without it, so it is off.
+    SAFE_CHECK_BONUS = 0, 0, 8000;
     /// Weight (1/128) of the capture history when ordering captures that do
     /// not lose material by SEE; 0 orders them by SEE alone as before.
     CAPT_ORDER_WEIGHT = 16, 0, 64;
