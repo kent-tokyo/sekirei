@@ -938,6 +938,10 @@ impl Searcher {
         history: &PositionHistory,
         mut iteration_trace: Option<&mut Vec<SearchIteration>>,
     ) -> SearchInfo {
+        if p::HIST_KEEP() == 0 {
+            self.history.clear();
+            self.countermoves.clear();
+        }
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(
@@ -3128,6 +3132,10 @@ impl SpeculativeSearcher {
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
         );
+        if p::HIST_KEEP() == 0 {
+            self.history.clear();
+            self.countermoves.clear();
+        }
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),
             budget: Arc::new(Budget::new(

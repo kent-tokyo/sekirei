@@ -204,6 +204,10 @@ search_params! {
     /// fails high against a bound that is itself at least beta, return that
     /// bound (1) instead of searching on (0).
     MULTICUT = 0, 0, 1;
+    /// Keep the history, countermove and correction tables from one search
+    /// to the next within a game (1), or clear them when a search starts (0,
+    /// as before they were kept).
+    HIST_KEEP = 1, 0, 1;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
