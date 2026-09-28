@@ -3614,15 +3614,24 @@ fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
             (0..DEPTHS)
                 .map(|d| {
                     let depth_ln = (d.max(1) as f32).ln();
-                    std::array::from_fn(|index| (1.0 + depth_ln * move_lns[index] / 2.0) as u8)
+                    std::array::from_fn(|index| lmr_formula(depth_ln, move_lns[index]) as u8)
                 })
                 .collect::<Vec<_>>()
                 .into_boxed_slice()
         });
         table[depth as usize][move_idx] as u32
     } else {
-        (1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0) as u32
+        lmr_formula((depth as f32).ln(), (move_idx as f32).ln()) as u32
     }
+}
+
+/// Base late move reduction from the logarithms of depth and move number:
+/// `BASE + ln(depth) * ln(move) / DIV` (1 + ... / 2 by default). The table
+/// above is built on first use, so tuning options must be set before the
+/// first search.
+#[inline]
+fn lmr_formula(depth_ln: f32, move_ln: f32) -> f32 {
+    p::LMR_BASE16() as f32 / 16.0 + depth_ln * move_ln / (p::LMR_DIV100() as f32 / 100.0)
 }
 
 #[allow(clippy::too_many_arguments)]

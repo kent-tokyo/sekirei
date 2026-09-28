@@ -208,6 +208,11 @@ search_params! {
     /// to the next within a game (1), or clear them when a search starts (0,
     /// as before they were kept).
     HIST_KEEP = 1, 0, 1;
+    /// Base late move reduction `BASE16 / 16 + ln(depth) * ln(move) /
+    /// (DIV100 / 100)`, fixed at the first search.
+    LMR_BASE16 = 16, 0, 40;
+    /// See `LMR_BASE16`.
+    LMR_DIV100 = 200, 100, 400;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
