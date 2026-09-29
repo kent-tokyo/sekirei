@@ -249,6 +249,15 @@ search_params! {
     /// Extra late move reduction at expected cut nodes, in sixteenths of a
     /// ply.
     CUT_LMR16 = 0, 0, 48;
+    /// Null-move cutoffs from this depth on are confirmed by a verification
+    /// search without the null move (64: never).
+    NMP_VERIFY_DEPTH = 6, 1, 64;
+    /// Store a ProbCut cutoff in the transposition table as a lower bound
+    /// at the probe depth (1), or not (0).
+    PC_STORE = 0, 0, 1;
+    /// Move-count pruning of quiet moves at non-PV nodes also above
+    /// `SHALLOW_PRUNE_MAX_DEPTH`, up to this depth (0: no further).
+    LMP_MAX_DEPTH = 0, 0, 16;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

@@ -1309,6 +1309,18 @@ fn probcut(
         );
         board.undo_move_for_search(tok);
         if pc_score >= pc_beta {
+            if p::PC_STORE() != 0 && !state.budget.should_abort() {
+                store_tt_for_search(
+                    state,
+                    board.hash(),
+                    TtEntry {
+                        score: score_to_tt(pc_score, ply),
+                        depth: (pc_depth + 1) as u8,
+                        bound: Bound::Lower,
+                        mv: Some(cap),
+                    },
+                );
+            }
             return Some(pc_score);
         }
     }
@@ -1350,7 +1362,7 @@ fn null_move_pruning(
     if null_score < beta {
         return None;
     }
-    if depth < 6 {
+    if depth < p::NMP_VERIFY_DEPTH() as u32 {
         return Some(null_score);
     }
     let verify = alpha_beta(
@@ -3513,14 +3525,22 @@ impl LateMoveNode {
         {
             return true;
         }
-        let shallow_non_pv = self.beta - self.alpha == 1
+        let non_pv = self.beta - self.alpha == 1
             && !self.in_check
-            && depth <= p::SHALLOW_PRUNE_MAX_DEPTH() as u32
             && self.best_score > -(MATE_SCORE - 1000);
+        let exempt_check = || check_exempt_from_pruning(board, m);
+        if non_pv
+            && depth > p::SHALLOW_PRUNE_MAX_DEPTH() as u32
+            && depth <= p::LMP_MAX_DEPTH() as u32
+        {
+            return is_quiet
+                && move_number as u32 >= lmp_limit(depth, self.improving)
+                && !exempt_check();
+        }
+        let shallow_non_pv = non_pv && depth <= p::SHALLOW_PRUNE_MAX_DEPTH() as u32;
         if !shallow_non_pv {
             return false;
         }
-        let exempt_check = || check_exempt_from_pruning(board, m);
         if is_quiet {
             (move_number as u32 >= lmp_limit(depth, self.improving)
                 || (depth >= 2
