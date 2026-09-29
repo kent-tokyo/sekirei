@@ -246,6 +246,9 @@ search_params! {
     /// when their static exchange is below `-QSEE_MARGIN * depth^2` (0
     /// disables it; checks follow `CHECK_PRUNE`).
     QSEE_MARGIN = 0, 0, 200;
+    /// Extra late move reduction at expected cut nodes, in sixteenths of a
+    /// ply.
+    CUT_LMR16 = 0, 0, 48;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

@@ -1266,12 +1266,14 @@ impl TtProbe {
 /// ProbCut: when a shallow search of a clearly winning capture (SEE at least
 /// `PC_MARGIN`) beats `beta + PC_MARGIN`, the node is assumed to fail high.
 /// Returns that score.
+#[allow(clippy::too_many_arguments)]
 fn probcut(
     state: &Arc<SearchState>,
     board: &mut Board,
     beta: i32,
     depth: u32,
     ply: u32,
+    cut_node: bool,
     history: &SearchHistory<'_>,
 ) -> Option<i32> {
     let pc_beta = beta + p::PC_MARGIN();
@@ -1291,6 +1293,7 @@ fn probcut(
         }
         set_current_move(ply, Some(cap));
         let (tok, child_in_check, child_history) = play(board, cap, history);
+        set_cut(ply + 1, !cut_node);
         let pc_score = -alpha_beta(
             state,
             board,
@@ -1316,6 +1319,7 @@ fn probcut(
 /// at depth 6 or more is confirmed by a real shallow search first, against
 /// zugzwang-like horizon effects common in shogi. Returns the null-move score
 /// when the node is cut.
+#[allow(clippy::too_many_arguments)]
 fn null_move_pruning(
     state: &Arc<SearchState>,
     board: &mut Board,
@@ -1323,10 +1327,12 @@ fn null_move_pruning(
     depth: u32,
     ply: u32,
     prev_mv: Option<Move>,
+    cut_node: bool,
     history: &SearchHistory<'_>,
 ) -> Option<i32> {
     set_current_move(ply, None);
     let null_tok = board.do_null_move();
+    set_cut(ply + 1, !cut_node);
     let null_score = -alpha_beta(
         state,
         board,
@@ -1385,17 +1391,21 @@ fn nmp_reduction(depth: u32) -> u32 {
 fn pvs_child(
     state: &Arc<SearchState>,
     board: &mut Board,
-    alpha: i32,
-    beta: i32,
+    (alpha, beta): (i32, i32),
     depth: u32,
     reduce: u32,
     ply: u32,
     m: Move,
+    cut_node: bool,
     child_in_check: bool,
     child_history: &SearchHistory<'_>,
 ) -> i32 {
     let full_depth = depth - 1;
-    let mut search = |lo: i32, hi: i32, d: u32| {
+    // Reduced probes expect to fail high in the child (a cut node there);
+    // an unreduced null-window search alternates the node type; the
+    // full-window search is a PV node.
+    let mut search = |lo: i32, hi: i32, d: u32, cut: bool| {
+        set_cut(ply + 1, cut);
         -alpha_beta(
             state,
             board,
@@ -1415,12 +1425,13 @@ fn pvs_child(
         alpha,
         alpha + 1,
         depth.saturating_sub(1 + reduce).max(floor),
+        reduce > 0 || !cut_node,
     );
     if reduce > 0 && s > alpha {
-        s = search(alpha, alpha + 1, full_depth);
+        s = search(alpha, alpha + 1, full_depth, !cut_node);
     }
     if s > alpha && s < beta {
-        s = search(alpha, beta, full_depth);
+        s = search(alpha, beta, full_depth, false);
     }
     s
 }
@@ -1585,6 +1596,7 @@ fn root_search(
         let tok = board.do_move(only_move);
         let child_in_check = is_in_check(board, board.side_to_move);
         let child_history = history.after_move(board.hash(), mover, child_in_check);
+        set_cut(1, false);
         let score = -alpha_beta(
             state,
             board,
@@ -1783,6 +1795,8 @@ fn root_search_inner(
         let child_in_check = is_in_check(board, board.side_to_move);
         let child_history = history.after_move(board.hash(), mover, child_in_check);
         let search = |board: &mut Board, a: i32, b: i32, d: u32| {
+            // Null-window root children are expected cut nodes.
+            set_cut(1, b - a == 1);
             -alpha_beta(
                 state,
                 board,
@@ -1984,6 +1998,8 @@ struct Frame {
     current_move: Option<Move>,
     /// Double singular extensions on the path from the root to this ply.
     doubles: u8,
+    /// The node at this ply is an expected cut node (set by the parent).
+    cut: bool,
 }
 
 impl Frame {
@@ -1991,6 +2007,7 @@ impl Frame {
         static_eval: i32::MIN,
         current_move: None,
         doubles: 0,
+        cut: false,
     };
 }
 
@@ -2009,6 +2026,19 @@ fn doubles_at(ply: u32) -> u8 {
 #[inline]
 fn set_doubles(ply: u32, n: u8) {
     STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].doubles = n);
+}
+
+/// Whether the parent marked the node at `ply` as an expected cut node.
+#[inline]
+fn cut_at(ply: u32) -> bool {
+    STACK.with(|stack| stack.borrow()[stack_index(ply)].cut)
+}
+
+/// Mark the node the parent at `ply - 1` searches next as an expected cut
+/// node (or not).
+#[inline]
+fn set_cut(ply: u32, cut: bool) {
+    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].cut = cut);
 }
 
 /// Per-thread search stack indexed by ply. A young-brothers worker copies
@@ -2125,6 +2155,8 @@ fn alpha_beta(
     if state.budget.tick() {
         return 0;
     }
+    // Expected cut node: a null-window node its parent expects to fail high.
+    let cut_node = beta - alpha == 1 && cut_at(ply);
 
     // Mate distance pruning: tighten window — we can't improve beyond the nearest mate
     alpha = alpha.max(-(MATE_SCORE - ply as i32));
@@ -2243,7 +2275,7 @@ fn alpha_beta(
         && !in_check
         && beta.abs() < MATE_SCORE - 1000
         && skip_move.is_none()
-        && let Some(score) = probcut(state, board, beta, depth, ply, history)
+        && let Some(score) = probcut(state, board, beta, depth, ply, cut_node, history)
     {
         return score;
     }
@@ -2255,7 +2287,8 @@ fn alpha_beta(
         && beta.abs() < MATE_SCORE - 1000
         && !in_check
         && nmp_eval_allows(static_eval, beta)
-        && let Some(score) = null_move_pruning(state, board, beta, depth, ply, prev_mv, history)
+        && let Some(score) =
+            null_move_pruning(state, board, beta, depth, ply, prev_mv, cut_node, history)
     {
         return score;
     }
@@ -2365,6 +2398,7 @@ fn alpha_beta(
     let mut tried_captures: Vec<Move> = Vec::new();
     let lmr_ctx = LmrContext {
         pv: is_pv,
+        cut: cut_node,
         improving,
         cont: ContMoves::at(ply, prev_mv),
     };
@@ -2380,6 +2414,7 @@ fn alpha_beta(
         0
     };
     set_doubles(ply + 1, doubles + u8::from(first_ext == 2));
+    set_cut(ply + 1, !is_pv && !cut_node);
     let score0 = -alpha_beta(
         state,
         board,
@@ -2504,6 +2539,7 @@ fn alpha_beta(
                 } else {
                     reduce
                 };
+                set_cut(ply + 1, reduce > 0 || !cut_node);
                 let probe_depth = depth.saturating_sub(1 + reduce);
                 let s = -alpha_beta(
                     state,
@@ -2535,6 +2571,7 @@ fn alpha_beta(
                 // Fail-high: re-search at full depth with full window
                 set_current_move(ply, Some(m));
                 let (tok, child_in_check, child_history) = play(board, m, history);
+                set_cut(ply + 1, false);
                 let full = -alpha_beta(
                     state,
                     board,
@@ -2646,12 +2683,12 @@ fn alpha_beta(
             let s = pvs_child(
                 state,
                 board,
-                alpha,
-                beta,
+                (alpha, beta),
                 depth,
                 reduce,
                 ply,
                 m,
+                cut_node,
                 child_in_check,
                 &child_history,
             );
@@ -3722,6 +3759,8 @@ fn lmp_limit(depth: u32, improving: bool) -> u32 {
 #[derive(Clone, Copy)]
 struct LmrContext {
     pv: bool,
+    /// Expected cut node.
+    cut: bool,
     improving: bool,
     cont: ContMoves,
 }
@@ -3752,6 +3791,9 @@ fn lmr_adjust(r: u32, ctx: &LmrContext, history: &HistoryTable, stm: Color, m: M
     }
     if ctx.pv {
         r16 -= p::LMR_PV_LESS16();
+    }
+    if ctx.cut {
+        r16 += p::CUT_LMR16();
     }
     if !ctx.improving {
         r16 += p::LMR_NOT_IMPROVING16();
