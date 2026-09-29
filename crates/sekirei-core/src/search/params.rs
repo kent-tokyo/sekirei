@@ -235,6 +235,13 @@ search_params! {
     /// non-capture evasions (1), and also capture evasions that lose material
     /// (2), or search every evasion (0).
     QS_EVASION_PRUNE = 0, 0, 2;
+    /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
+    /// ply less than other quiet moves, 2 reduced like other quiet moves.
+    KILLER_LMR = 0, 0, 2;
+    /// Late move reductions of captures: 0 never, 1 captures that lose
+    /// material (SEE < 0) like quiet moves, 2 also other captures, one ply
+    /// less than quiet moves.
+    CAPTURE_LMR = 0, 0, 2;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

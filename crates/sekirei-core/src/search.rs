@@ -3659,24 +3659,40 @@ fn lmr_reduce(
     if move_idx < 2 {
         return 0;
     }
-    // Don't reduce captures or promotions
-    if m.from.is_some_and(|_| board.piece_at(m.to).is_some()) {
-        return 0;
-    }
-    if m.promote && !promotion_counts_as_quiet(m) {
-        return 0;
-    }
-    // Don't reduce TT move or killers
+    // Don't reduce the TT move.
     if tt_mv.is_some_and(|t| t == m) {
         return 0;
     }
-    if killers[0].is_some_and(|k| k == m) {
+    // Captures: not reduced, or (CAPTURE_LMR) reduced when they lose
+    // material, and other captures one ply less.
+    let mut less = 0;
+    if m.from.is_some_and(|_| board.piece_at(m.to).is_some()) {
+        match p::CAPTURE_LMR() {
+            0 => return 0,
+            1 if crate::movegen::see_swap(board, m) >= 0 => return 0,
+            1 => {}
+            _ => {
+                if crate::movegen::see_swap(board, m) >= 0 {
+                    less = 1;
+                }
+            }
+        }
+    } else if m.promote && !promotion_counts_as_quiet(m) {
         return 0;
     }
-    if killers[1].is_some_and(|k| k == m) {
-        return 0;
+    // Killers: not reduced, or (KILLER_LMR) reduced like other quiet moves,
+    // optionally one ply less.
+    if killers.contains(&Some(m)) {
+        match p::KILLER_LMR() {
+            0 => return 0,
+            1 => less = 1,
+            _ => {}
+        }
     }
-    let mut r = lmr_base_reduction(depth, move_idx);
+    let mut r = lmr_base_reduction(depth, move_idx).saturating_sub(less);
+    if board.piece_at(m.to).is_some() {
+        return r;
+    }
     // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
     let hist = history.get(stm, m);
     if hist > p::LMR_HIST() {
