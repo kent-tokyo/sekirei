@@ -2652,6 +2652,17 @@ fn alpha_beta(
             // excluding them exempted most late moves from futility pruning.
             let is_quiet = !is_capture && (!m.promote || promotion_counts_as_quiet(m));
 
+            let reduce = if state.pruning.late_move_reduction {
+                lmr_adjust(
+                    lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm),
+                    &lmr_ctx,
+                    &state.history,
+                    stm,
+                    m,
+                )
+            } else {
+                0
+            };
             let late = LateMoveNode {
                 depth,
                 alpha,
@@ -2665,22 +2676,11 @@ fn alpha_beta(
                 } else {
                     0
                 },
+                lmr_depth: depth.saturating_sub(1 + reduce),
             };
             if late.prunes(board, m, is_quiet, i + 1) {
                 continue;
             }
-
-            let reduce = if state.pruning.late_move_reduction {
-                lmr_adjust(
-                    lmr_reduce(board, m, i + 1, depth, &killers, tt_mv, &state.history, stm),
-                    &lmr_ctx,
-                    &state.history,
-                    stm,
-                    m,
-                )
-            } else {
-                0
-            };
             let check_cap = check_reduction_cap(board, m, reduce);
             set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
@@ -3502,6 +3502,8 @@ struct LateMoveNode {
     /// History of the move (butterfly + continuation + follow-up), computed
     /// only when history pruning is enabled.
     history: i32,
+    /// Depth the move would be searched to after its late move reduction.
+    lmr_depth: u32,
 }
 
 impl LateMoveNode {
@@ -3529,6 +3531,22 @@ impl LateMoveNode {
             && !self.in_check
             && self.best_score > -(MATE_SCORE - 1000);
         let exempt_check = || check_exempt_from_pruning(board, m);
+        // Futility on the reduced depth: a late quiet move whose reduced
+        // search would be shallow is skipped when the static eval is far
+        // below alpha, at any node depth that has a static eval.
+        let lmr_depth = self.lmr_depth.max(1);
+        if non_pv
+            && is_quiet
+            && p::LMR_FUT_MAX_DEPTH() > 0
+            && self.lmr_depth <= p::LMR_FUT_MAX_DEPTH() as u32
+            && self.static_eval.is_some_and(|se| {
+                se + p::SHALLOW_FUTILITY_BASE() + p::SHALLOW_FUTILITY_PER_DEPTH() * lmr_depth as i32
+                    <= self.alpha
+            })
+            && !exempt_check()
+        {
+            return true;
+        }
         if non_pv
             && depth > p::SHALLOW_PRUNE_MAX_DEPTH() as u32
             && depth <= p::LMP_MAX_DEPTH() as u32

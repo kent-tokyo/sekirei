@@ -258,6 +258,11 @@ search_params! {
     /// Move-count pruning of quiet moves at non-PV nodes also above
     /// `SHALLOW_PRUNE_MAX_DEPTH`, up to this depth (0: no further).
     LMP_MAX_DEPTH = 0, 0, 16;
+    /// Futility pruning of late quiet moves by their reduced depth: at
+    /// non-PV nodes a quiet move whose reduced search depth is at most this
+    /// is skipped when the static eval plus the shallow futility margin at
+    /// that depth does not reach alpha (0 disables it).
+    LMR_FUT_MAX_DEPTH = 0, 0, 12;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
