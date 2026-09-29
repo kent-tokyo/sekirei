@@ -242,6 +242,10 @@ search_params! {
     /// material (SEE < 0) like quiet moves, 2 also other captures, one ply
     /// less than quiet moves.
     CAPTURE_LMR = 0, 0, 2;
+    /// Shallow pruning of quiet moves and drops that hang material: skipped
+    /// when their static exchange is below `-QSEE_MARGIN * depth^2` (0
+    /// disables it; checks follow `CHECK_PRUNE`).
+    QSEE_MARGIN = 0, 0, 200;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

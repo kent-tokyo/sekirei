@@ -3496,6 +3496,10 @@ impl LateMoveNode {
                 || (depth <= p::HP_MAX_DEPTH() as u32
                     && self.history < -p::HP_MARGIN() * depth as i32
                     && !exempt_check())
+                || (p::QSEE_MARGIN() > 0
+                    && crate::movegen::see_exchange(board, m)
+                        < -p::QSEE_MARGIN() * (depth * depth) as i32
+                    && !exempt_check())
         } else {
             m.from.is_some()
                 && board.piece_at(m.to).is_some()
