@@ -1249,8 +1249,11 @@ fn probcut(
 ) -> Option<i32> {
     let pc_beta = beta + p::PC_MARGIN();
     let mut caps = MoveBuffer::captures(board);
-    caps.as_mut_list()
-        .retain(|m| crate::movegen::see_swap(board, *m) >= p::PC_MARGIN());
+    let stm = board.side_to_move;
+    caps.as_mut_list().retain(|m| {
+        crate::movegen::see_swap(board, *m) >= p::PC_MARGIN()
+            && (p::SKIP_NONPROMO() == 0 || !useless_non_promotion(*m, stm))
+    });
     let cap_list = caps.as_mut_list().as_mut_slice();
     let mut cap_key = |m: &Move| -crate::movegen::see_swap(board, *m);
     sort_moves_by_cached_key(cap_list, &mut cap_key);
@@ -2243,6 +2246,13 @@ fn alpha_beta(
         if move_buffer.is_empty() {
             return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
         }
+        // The promoting twin of a skipped move is always in the list, so the
+        // list cannot become empty here.
+        if p::SKIP_NONPROMO() != 0 {
+            move_buffer
+                .as_mut_list()
+                .retain(|m| !useless_non_promotion(*m, stm));
+        }
 
         {
             let _order_timer = state.timer(|d| &d.move_order_ns);
@@ -2455,11 +2465,12 @@ fn alpha_beta(
                 } else {
                     0
                 };
+                let check_cap = check_reduction_cap(&b, m, reduce);
                 restore_stack_path(&path);
                 set_current_move(ply, Some(m));
                 let (tok, child_in_check, child_history) = play(&mut b, m, history);
                 let reduce = if child_in_check {
-                    reduce.min(1)
+                    reduce.min(check_cap)
                 } else {
                     reduce
                 };
@@ -2591,13 +2602,14 @@ fn alpha_beta(
             } else {
                 0
             };
+            let check_cap = check_reduction_cap(board, m, reduce);
             set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
             // Checks are not extended (every check extension variant lost
             // depth for nothing in shogi's check-rich trees); they are only
-            // protected from reductions beyond one ply.
+            // protected from reductions beyond `CHECK_R_MAX` plies.
             let reduce = if child_in_check {
-                reduce.min(1)
+                reduce.min(check_cap)
             } else {
                 reduce
             };
@@ -2840,7 +2852,11 @@ fn quiescence(
     }
 
     let mut best_move = None;
+    let stm = board.side_to_move;
     for &m in move_buffer.as_slice() {
+        if p::SKIP_NONPROMO() != 0 && useless_non_promotion(m, stm) {
+            continue;
+        }
         // Skip captures that lose material in the exchange (bitboard SEE).
         if !in_check
             && board.piece_at(m.to).is_some_and(|victim| {
@@ -3421,6 +3437,7 @@ impl LateMoveNode {
         if !shallow_non_pv {
             return false;
         }
+        let exempt_check = || check_exempt_from_pruning(board, m);
         if is_quiet {
             (move_number as u32 >= lmp_limit(depth, self.improving)
                 || (depth >= 2
@@ -3429,17 +3446,68 @@ impl LateMoveNode {
                             + p::SHALLOW_FUTILITY_PER_DEPTH() * depth as i32
                             <= self.alpha
                     })))
-                && !move_gives_direct_check(board, m)
+                && !exempt_check()
                 || (depth <= p::HP_MAX_DEPTH() as u32
                     && self.history < -p::HP_MARGIN() * depth as i32
-                    && !move_gives_direct_check(board, m))
+                    && !exempt_check())
         } else {
             m.from.is_some()
                 && board.piece_at(m.to).is_some()
                 && crate::movegen::see_swap(board, m) < -120 * depth as i32
-                && !move_gives_direct_check(board, m)
+                && !exempt_check()
         }
     }
+}
+
+/// Whether shallow pruning must keep `m` because it gives check: never
+/// (`CHECK_PRUNE` 2), only when the checking piece is not hung (1), or
+/// always (0, the historical behaviour).
+#[inline]
+fn check_exempt_from_pruning(board: &Board, m: Move) -> bool {
+    match p::CHECK_PRUNE() {
+        0 => move_gives_direct_check(board, m),
+        1 => move_gives_direct_check(board, m) && crate::movegen::see_exchange(board, m) >= 0,
+        _ => false,
+    }
+}
+
+/// The late move reduction cap of a move that turns out to give check,
+/// decided on the board before the move: `CHECK_R_MAX`, or
+/// `CHECK_R_MAX_BAD` when the move hangs the moved piece.
+#[inline]
+fn check_reduction_cap(board: &Board, m: Move, reduce: u32) -> u32 {
+    let (good, bad) = (p::CHECK_R_MAX() as u32, p::CHECK_R_MAX_BAD() as u32);
+    if reduce <= good.min(bad) || good == bad {
+        return good;
+    }
+    if crate::movegen::see_exchange(board, m) < 0 {
+        bad
+    } else {
+        good
+    }
+}
+
+/// A non-promotion of a pawn, bishop or rook that could have promoted. The
+/// promoted piece moves like the original and more, so these moves are
+/// skipped below the root when `SKIP_NONPROMO` is set.
+#[inline]
+fn useless_non_promotion(m: Move, stm: Color) -> bool {
+    if m.promote
+        || !matches!(
+            m.piece_kind,
+            PieceKind::Fu | PieceKind::Kaku | PieceKind::Hisha
+        )
+    {
+        return false;
+    }
+    let Some(from) = m.from else {
+        return false;
+    };
+    let zone = match stm {
+        Color::Black => crate::bitboard::Bitboard::PROMOTE_BLACK,
+        Color::White => crate::bitboard::Bitboard::PROMOTE_WHITE,
+    };
+    zone.contains(from) || zone.contains(m.to)
 }
 
 /// Update killer, history, and countermove tables when a quiet move causes a beta cutoff.
