@@ -3917,7 +3917,9 @@ mod see_tests {
     fn lmr_table_is_bit_exact_with_previous_formula() {
         for depth in 3..128u32 {
             for move_idx in 2..600usize {
-                let expected = (1.0 + (depth as f32).ln() * (move_idx as f32).ln() / 2.0) as u32;
+                let expected = (p::LMR_BASE16() as f32 / 16.0
+                    + (depth as f32).ln() * (move_idx as f32).ln()
+                        / (p::LMR_DIV100() as f32 / 100.0)) as u32;
                 assert_eq!(lmr_base_reduction(depth, move_idx), expected);
             }
         }

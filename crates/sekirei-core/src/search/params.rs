@@ -264,6 +264,7 @@ mod tests {
     #[test]
     fn normal_builds_ignore_set() {
         assert!(!set("RFP_MARGIN", 1));
-        assert_eq!(RFP_MARGIN(), 120);
+        let spec = ALL.iter().find(|spec| spec.name == "RFP_MARGIN").unwrap();
+        assert_eq!(RFP_MARGIN(), spec.default);
     }
 }
