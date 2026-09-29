@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.54] – 2026-09-29
+
+- Search: skip selected non-promotions below the root, and distinguish safe
+  checks from hanging checks when applying shallow pruning and reductions.
+- Search: add capture, continuation, follow-up, and correction histories, a
+  per-ply search stack, and depth-aware pruning and extension controls.
+- Tuning: centralize search constants in `search::params`; the optional
+  `tune` feature exposes bounded `T_<NAME>` USI options, and `scripts/spsa.py`
+  drives reproducible local parameter searches.
+- The release has no general strength or external-engine superiority claim.
+
 ## [0.3.53] – 2026-09-29
 
 - Search: detect an immediate mating move before pruning can hide it at eligible

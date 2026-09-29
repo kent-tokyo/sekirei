@@ -1,18 +1,18 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.53-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.53)
+[![Release](https://img.shields.io/badge/release-v0.3.54-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.54)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.53`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.54`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. It adds an immediate-mate scan before selected search pruning points,
-and local tools for analysing mate-solver cost and saved game records. A fixed,
-local S29 diagnostic is recorded in the changelog; it is not a general
-playing-strength or external-engine claim.
+library. It adds deeper move-ordering and pruning infrastructure, plus bounded
+USI controls for reproducible local search tuning. These are implementation and
+measurement capabilities, not a general playing-strength or external-engine
+claim.
 
 ## Quick start
 
