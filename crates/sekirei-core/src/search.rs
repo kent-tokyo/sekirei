@@ -3487,27 +3487,37 @@ fn check_reduction_cap(board: &Board, m: Move, reduce: u32) -> u32 {
     }
 }
 
-/// A non-promotion of a pawn, bishop or rook that could have promoted. The
-/// promoted piece moves like the original and more, so these moves are
+/// A non-promotion of a pawn, bishop or rook that could have promoted (and,
+/// with `SKIP_NONPROMO` 2, of a lance to the second rank). The promoted
+/// piece moves like the original and more (a lance on the second rank can
+/// only step to the last rank, where it must promote), so these moves are
 /// skipped below the root when `SKIP_NONPROMO` is set.
 #[inline]
 fn useless_non_promotion(m: Move, stm: Color) -> bool {
-    if m.promote
-        || !matches!(
-            m.piece_kind,
-            PieceKind::Fu | PieceKind::Kaku | PieceKind::Hisha
-        )
-    {
+    if m.promote {
         return false;
     }
     let Some(from) = m.from else {
         return false;
     };
-    let zone = match stm {
-        Color::Black => crate::bitboard::Bitboard::PROMOTE_BLACK,
-        Color::White => crate::bitboard::Bitboard::PROMOTE_WHITE,
-    };
-    zone.contains(from) || zone.contains(m.to)
+    match m.piece_kind {
+        PieceKind::Fu | PieceKind::Kaku | PieceKind::Hisha => {
+            let zone = match stm {
+                Color::Black => crate::bitboard::Bitboard::PROMOTE_BLACK,
+                Color::White => crate::bitboard::Bitboard::PROMOTE_WHITE,
+            };
+            zone.contains(from) || zone.contains(m.to)
+        }
+        PieceKind::Kyou => {
+            p::SKIP_NONPROMO() >= 2
+                && m.to.rank()
+                    == match stm {
+                        Color::Black => 2,
+                        Color::White => 8,
+                    }
+        }
+        _ => false,
+    }
 }
 
 /// Update killer, history, and countermove tables when a quiet move causes a beta cutoff.

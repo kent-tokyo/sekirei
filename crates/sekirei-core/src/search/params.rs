@@ -224,8 +224,9 @@ search_params! {
     /// 2 prunes every check like other quiet moves.
     CHECK_PRUNE = 0, 0, 2;
     /// Skip non-promotions of pawns, bishops and rooks that could promote
-    /// (1) below the root, or search them like any other move (0).
-    SKIP_NONPROMO = 0, 0, 1;
+    /// below the root (1; 2 also skips lance non-promotions to the second
+    /// rank), or search them like any other move (0).
+    SKIP_NONPROMO = 0, 0, 2;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
