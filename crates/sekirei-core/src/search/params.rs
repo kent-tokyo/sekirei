@@ -227,6 +227,14 @@ search_params! {
     /// below the root (1; 2 also skips lance non-promotions to the second
     /// rank), or search them like any other move (0).
     SKIP_NONPROMO = 1, 0, 2;
+    /// Non-capture promotions count as quiet moves for late move reductions
+    /// and shallow pruning: 0 never (they are neither reduced nor pruned),
+    /// 1 all but pawn promotions, 2 all.
+    QUIET_PROMO = 0, 0, 2;
+    /// Quiescence in check: once one evasion avoids mate, skip the remaining
+    /// non-capture evasions (1), and also capture evasions that lose material
+    /// (2), or search every evasion (0).
+    QS_EVASION_PRUNE = 0, 0, 2;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

@@ -2601,7 +2601,7 @@ fn alpha_beta(
             let is_capture = m.from.is_some() && enemy.contains(m.to);
             // Drops are quiet too: they are the majority of shogi moves, and
             // excluding them exempted most late moves from futility pruning.
-            let is_quiet = !is_capture && !m.promote;
+            let is_quiet = !is_capture && (!m.promote || promotion_counts_as_quiet(m));
 
             let late = LateMoveNode {
                 depth,
@@ -2883,9 +2883,22 @@ fn quiescence(
 
     let mut best_move = None;
     let stm = board.side_to_move;
+    // In check: whether some evasion has already been found not to be mated.
+    let mut escaped = false;
     for &m in move_buffer.as_slice() {
         if p::SKIP_NONPROMO() != 0 && useless_non_promotion(m, stm) {
             continue;
+        }
+        if escaped {
+            let capture = m.from.is_some() && board.piece_at(m.to).is_some();
+            let skip = match p::QS_EVASION_PRUNE() {
+                0 => false,
+                1 => !capture,
+                _ => !capture || crate::movegen::see_swap(board, m) < 0,
+            };
+            if skip {
+                continue;
+            }
         }
         // Skip captures that lose material in the exchange (bitboard SEE).
         if !in_check
@@ -2930,6 +2943,9 @@ fn quiescence(
         if score > alpha {
             alpha = score;
             best_move = Some(m);
+        }
+        if in_check && score > -(MATE_SCORE - 1000) {
+            escaped = true;
         }
     }
 
@@ -3517,6 +3533,17 @@ fn check_reduction_cap(board: &Board, m: Move, reduce: u32) -> u32 {
     }
 }
 
+/// Whether a non-capture promotion is reduced and pruned like a quiet move
+/// (`QUIET_PROMO`).
+#[inline]
+fn promotion_counts_as_quiet(m: Move) -> bool {
+    match p::QUIET_PROMO() {
+        0 => false,
+        1 => m.piece_kind != PieceKind::Fu,
+        _ => true,
+    }
+}
+
 /// A non-promotion of a pawn, bishop or rook that could have promoted (and,
 /// with `SKIP_NONPROMO` 2, of a lance to the second rank). The promoted
 /// piece moves like the original and more (a lance on the second rank can
@@ -3636,7 +3663,7 @@ fn lmr_reduce(
     if m.from.is_some_and(|_| board.piece_at(m.to).is_some()) {
         return 0;
     }
-    if m.promote {
+    if m.promote && !promotion_counts_as_quiet(m) {
         return 0;
     }
     // Don't reduce TT move or killers
