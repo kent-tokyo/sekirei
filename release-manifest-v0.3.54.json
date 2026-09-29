@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.54",
+  "commit": "3c3799785846ded6e6841cd15ee109cf739e0686",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.54",
+    "sekirei-core": "0.3.54",
+    "sekirei-bench": "0.3.54",
+    "sekirei-csa": "0.3.54",
+    "sekirei-match-runner": "0.3.54",
+    "sekirei-train": "0.3.54"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "8a6bcf10298fffd378893f093a09fb9be3ffbb80515a01e1b4c6be9329dc8d7e"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "implementation_and_tuning_infrastructure",
+    "strength_claim": false,
+    "results": "Release-mode USI binary was rebuilt from commit 3c37997. Workspace tests for the normal and tune-feature builds, release core tests, lint, formatting, the stdlib A/B-runner early-stop test, documentation-reference, public-surface, release-manifest, cargo-publish-workflow, and SPSA CLI checks passed. The USI smoke transcript reached usiok and readyok. This records implementation and measurement capability only; no external-evaluator result is used as a public strength claim."
+  },
+  "external_opponents": {
+    "status": "not_measured",
+    "configuration": "No external-engine comparison is asserted for v0.3.54."
+  },
+  "known_limitations": [
+    "The optional tune feature is for bounded local parameter experiments; each candidate still requires an independently fixed evaluation contract before adoption.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
