@@ -81,14 +81,14 @@ search_params! {
     /// Initial aspiration window half-width in centipawns.
     ASP_DELTA = 50, 10, 200;
     /// Reverse futility pruning: margin per depth in centipawns.
-    RFP_MARGIN = 120, 20, 400;
+    RFP_MARGIN = 152, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.
-    RFP_IMPROVING_BONUS = 30, 0, 150;
+    RFP_IMPROVING_BONUS = 24, 0, 150;
     /// Reverse futility pruning applies up to this depth (and never beyond
     /// STATIC_EVAL_MAX_DEPTH).
-    RFP_MAX_DEPTH = 3, 1, 16;
+    RFP_MAX_DEPTH = 4, 1, 16;
     /// Futility pruning of depth-1 quiet moves.
-    FUTILITY_MARGIN = 300, 50, 800;
+    FUTILITY_MARGIN = 256, 50, 800;
     /// Razoring margin at depth `d` (1..=2): `BASE + PER_DEPTH * d`.
     RAZOR_MARGIN_BASE = 500, 100, 1500;
     /// See `RAZOR_MARGIN_BASE`.
@@ -99,20 +99,20 @@ search_params! {
     /// Shallow futility margin at depth `d`: `BASE + PER_DEPTH * d`.
     SHALLOW_FUTILITY_BASE = 100, 0, 500;
     /// See `SHALLOW_FUTILITY_BASE`.
-    SHALLOW_FUTILITY_PER_DEPTH = 150, 20, 500;
+    SHALLOW_FUTILITY_PER_DEPTH = 145, 20, 500;
     /// Singular extension: minimum depth to consider extending the TT move.
     SE_MIN_DEPTH = 8, 4, 16;
     /// Singular extension: margin below the TT score in centipawns.
-    SE_MARGIN = 64, 8, 256;
+    SE_MARGIN = 63, 8, 256;
     /// ProbCut: minimum depth to attempt a shallow refutation search.
     PC_MIN_DEPTH = 8, 4, 16;
     /// ProbCut: how far above beta a capture must score to prune the node.
-    PC_MARGIN = 200, 50, 600;
+    PC_MARGIN = 217, 50, 600;
     /// Null move pruning depth reduction.
     NMP_R = 3, 1, 6;
     /// Late move reductions: history beyond +/- this value changes the
     /// reduction by one ply.
-    LMR_HIST = 3000, 500, 9000;
+    LMR_HIST = 2888, 500, 9000;
     /// History bonus for a quiet move that cuts at depth `d`:
     /// `min(QUAD * d^2 + LIN * d, MAX)`.
     HIST_BONUS_QUAD = 1, 0, 16;
@@ -167,7 +167,7 @@ search_params! {
     /// Continuous history term of late move reductions: the reduction falls
     /// by `stat * SCALE / 2^17` plies, where `stat` sums the butterfly,
     /// continuation and two-ply follow-up histories (0 disables it).
-    LMR_STAT_SCALE = 0, 0, 64;
+    LMR_STAT_SCALE = 8, 0, 64;
     /// Reduction removed at PV nodes, in sixteenths of a ply.
     LMR_PV_LESS16 = 0, 0, 32;
     /// Reduction added when the static eval is not improving, in sixteenths
@@ -175,20 +175,20 @@ search_params! {
     LMR_NOT_IMPROVING16 = 0, 0, 32;
     /// Null move reduction grows by this many sixty-fourths of a ply per
     /// ply of depth (0: a fixed NMP_R).
-    NMP_R_PER_DEPTH = 0, 0, 32;
+    NMP_R_PER_DEPTH = 9, 0, 32;
     /// Singular extension margin added per ply of depth.
     SE_MARGIN_PER_DEPTH = 0, 0, 16;
     /// A singular TT move whose verification falls this far below the
     /// singular bound is extended by two plies at non-PV nodes (0 disables).
     SE_DOUBLE_MARGIN = 0, 0, 200;
     /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
-    LMP_BASE = 4, 1, 12;
+    LMP_BASE = 5, 1, 12;
     /// The move-count limit is scaled by this (sixteenths) when the static
     /// eval is improving.
     LMP_IMPROVING_MUL = 16, 8, 48;
     /// The static evaluation is computed at nodes up to this depth (it feeds
     /// RFP, razoring, futility, the null-move condition and `improving`).
-    STATIC_EVAL_MAX_DEPTH = 7, 7, 16;
+    STATIC_EVAL_MAX_DEPTH = 10, 7, 16;
     /// Null move only when the static eval is at least `beta - MARGIN`
     /// (5000 disables the condition; nodes without a static eval are not
     /// affected).
@@ -210,9 +210,9 @@ search_params! {
     HIST_KEEP = 1, 0, 1;
     /// Base late move reduction `BASE16 / 16 + ln(depth) * ln(move) /
     /// (DIV100 / 100)`, fixed at the first search.
-    LMR_BASE16 = 16, 0, 40;
+    LMR_BASE16 = 17, 0, 40;
     /// See `LMR_BASE16`.
-    LMR_DIV100 = 200, 100, 400;
+    LMR_DIV100 = 211, 100, 400;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
