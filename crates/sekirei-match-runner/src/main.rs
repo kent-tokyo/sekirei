@@ -49,6 +49,8 @@ struct Args {
     args2: Vec<String>,
     games: usize,
     byoyomi_ms: u64,
+    /// Fischer clock: initial time per side and increment per move (ms).
+    fischer: Option<(u64, u64)>,
     output_dir: Option<PathBuf>,
     csa_output_dir: Option<PathBuf>,
     max_moves: usize,
@@ -68,6 +70,8 @@ fn parse_args() -> Result<Args, String> {
     let mut args2 = Vec::new();
     let mut games = 100usize;
     let mut byoyomi = 10_000u64;
+    let mut time_ms: Option<u64> = None;
+    let mut inc_ms = 0u64;
     let mut output = None;
     let mut csa_output = None;
     let mut max_mv = 512usize;
@@ -114,6 +118,14 @@ fn parse_args() -> Result<Args, String> {
                 byoyomi = get(&argv, i)?
                     .parse()
                     .map_err(|e| format!("--byoyomi: {e}"))?;
+            }
+            "--time" => {
+                i += 1;
+                time_ms = Some(get(&argv, i)?.parse().map_err(|e| format!("--time: {e}"))?);
+            }
+            "--inc" => {
+                i += 1;
+                inc_ms = get(&argv, i)?.parse().map_err(|e| format!("--inc: {e}"))?;
             }
             "--output" => {
                 i += 1;
@@ -169,6 +181,7 @@ fn parse_args() -> Result<Args, String> {
         args2,
         games,
         byoyomi_ms: byoyomi,
+        fischer: time_ms.map(|t| (t, inc_ms)),
         output_dir: output,
         csa_output_dir: csa_output,
         max_moves: max_mv,
@@ -196,6 +209,8 @@ fn print_usage() {
     eprintln!("  --args2 <str>        extra args for engine2");
     eprintln!("  --games <n>          number of games (default: 100)");
     eprintln!("  --byoyomi <ms>       byoyomi per move in ms (default: 10000)");
+    eprintln!("  --time <ms>          Fischer clock: initial time per side (replaces --byoyomi)");
+    eprintln!("  --inc <ms>           Fischer increment per move (with --time, default: 0)");
     eprintln!("  --output <dir>       write USI game records to this directory");
     eprintln!("  --csa-output <dir>   write replay-validated CSA games for training");
     eprintln!("  --max-moves <n>      max moves before declaring draw (default: 512)");
@@ -232,6 +247,8 @@ enum EndReason {
     MaxMoves,
     EngineError,
     TimeForfeit,
+    /// The side to move used more than its remaining Fischer clock.
+    ClockLoss,
 }
 
 /// Converts a clean game into CSA. Arbitrary SFEN starts are retained in a
@@ -250,7 +267,10 @@ fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<S
                 "max-moves draw is not a CSA game result suitable for training".to_string(),
             );
         }
-        EndReason::IllegalMove | EndReason::EngineError | EndReason::TimeForfeit => {
+        EndReason::IllegalMove
+        | EndReason::EngineError
+        | EndReason::TimeForfeit
+        | EndReason::ClockLoss => {
             return Err(format!("{reason:?} is not suitable for self-play training"));
         }
     };
@@ -503,12 +523,17 @@ fn run_game(
     e2: &mut UsiEngine,
     e1_is_black: bool,
     byoyomi_ms: u64,
+    fischer: Option<(u64, u64)>,
     max_moves: usize,
     start_pos: &str, // "startpos" or SFEN string
     game_num: usize,
     transcript: &mut Transcript,
 ) -> (Outcome, Vec<String>, EndReason) {
-    let go_cmd = format!("go byoyomi {byoyomi_ms}");
+    let byoyomi_cmd = format!("go byoyomi {byoyomi_ms}");
+    // Remaining Fischer clock of Black and White (ms).
+    let mut clocks = fischer.map(|(t, _)| [t, t]);
+    // Allowance for pipe and scheduling latency before a move counts as late.
+    const CLOCK_MARGIN_MS: u64 = 100;
     let mut moves: Vec<String> = Vec::new();
 
     // Game-boundary barrier (usinewgame -> isready -> readyok on each side)
@@ -561,6 +586,14 @@ fn run_game(
             format!("{} moves {}", pos_prefix, moves.join(" "))
         };
         let sfen_before = board_to_sfen(&board);
+        let side_idx = usize::from(board.side_to_move != Color::Black);
+        let go_cmd = match (clocks, fischer) {
+            (Some([b, w]), Some((_, inc))) => {
+                format!("go btime {b} wtime {w} binc {inc} winc {inc}")
+            }
+            _ => byoyomi_cmd.clone(),
+        };
+        let started = std::time::Instant::now();
 
         let go_result = match mover.go(&pos_cmd, &go_cmd) {
             Ok(result) => result,
@@ -591,6 +624,29 @@ fn run_game(
         };
         let mv_str = go_result.bestmove;
         let search_info = go_result.info;
+        if let (Some(c), Some((_, inc))) = (clocks.as_mut(), fischer) {
+            let used = started.elapsed().as_millis() as u64;
+            if used > c[side_idx] + CLOCK_MARGIN_MS {
+                transcript.log_move(
+                    game_num,
+                    ply,
+                    mover_pid,
+                    &mover_name,
+                    &sfen_before,
+                    0,
+                    &mv_str,
+                    "time-loss",
+                    Some(&search_info),
+                );
+                let outcome = if e1_turn {
+                    Outcome::E2Win
+                } else {
+                    Outcome::E1Win
+                };
+                return (outcome, moves, EndReason::ClockLoss);
+            }
+            c[side_idx] = c[side_idx].saturating_sub(used) + inc;
+        }
 
         if mv_str == "resign" {
             transcript.log_move(
@@ -1908,6 +1964,7 @@ fn main() {
             &mut e2,
             e1_is_black,
             args.byoyomi_ms,
+            args.fischer,
             args.max_moves,
             start_pos,
             game_num,
@@ -2008,6 +2065,7 @@ fn main() {
             EndReason::MaxMoves => " (max moves)",
             EndReason::EngineError => " (engine error)",
             EndReason::TimeForfeit => " (time forfeit)",
+            EndReason::ClockLoss => " (time loss)",
         };
 
         println!(
