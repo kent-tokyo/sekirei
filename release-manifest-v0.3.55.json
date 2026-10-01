@@ -1,0 +1,44 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.55",
+  "commit": "f5e5263f655a63cebc1ace723eab6443926b25be",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.55",
+    "sekirei-core": "0.3.55",
+    "sekirei-bench": "0.3.55",
+    "sekirei-csa": "0.3.55",
+    "sekirei-match-runner": "0.3.55",
+    "sekirei-train": "0.3.55"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "98d782b5b8a9c12b5cda55c891d125b844604e5fd5e257fe74d86160f4333ffe"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "implementation_and_operational_hardening",
+    "strength_claim": false,
+    "results": "The release-mode USI binary was rebuilt from commit f5e5263. Normal and king-relative-feature workspace tests, release tests, Clippy, formatting, documentation-reference, public-surface, public-contract, release-manifest, and metadata checks passed. The USI smoke transcript reached usiok, readyok, and a legal bestmove. This records search-mode selection and bounded CSA operation only; no external-evaluator result is used as a public strength claim."
+  },
+  "external_opponents": {
+    "status": "not_measured",
+    "configuration": "No external-engine comparison is asserted for v0.3.55."
+  },
+  "known_limitations": [
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
