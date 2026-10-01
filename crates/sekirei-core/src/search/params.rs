@@ -243,6 +243,14 @@ search_params! {
     CAPT_FUT_BASE = 200, 0, 800;
     /// See `CAPT_FUT_MAX_DEPTH`.
     CAPT_FUT_PER_DEPTH = 200, 0, 600;
+    /// Killer moves in the quiet ordering: 0 fixed slots above the history
+    /// quiets, 1 their history score plus `KILLER_BONUS`, 2 no special
+    /// treatment.
+    ORDER_KILLER = 0, 0, 2;
+    /// The countermove in the quiet ordering, with the same meaning.
+    ORDER_CM = 0, 0, 2;
+    /// See `ORDER_KILLER`.
+    KILLER_BONUS = 3000, 0, 16000;
     /// Ordering bonus of a quiet drop within two squares of the enemy king
     /// (twice as much when adjacent); 0 disables it.
     DROP_KING_BONUS = 0, 0, 4000;

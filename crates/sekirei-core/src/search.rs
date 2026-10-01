@@ -4045,30 +4045,44 @@ fn order_moves_in_place(
             };
         }
 
+        // ORDER_KILLER: 0 fixed slots above the history quiets (killers,
+        // then the countermove); 1 history score plus KILLER_BONUS; 2 ignored.
+        let order_killer = p::ORDER_KILLER();
+        let mut slot_bonus = 0;
         if killers[0].is_some_and(|k| k == m) {
             if let Some(d) = diagnostics {
                 d.order_killer.fetch_add(1, Ordering::Relaxed);
             }
-            return -9_100;
-        } // 3. Killer 0
-        if killers[1].is_some_and(|k| k == m) {
+            match order_killer {
+                0 => return -9_100,
+                1 => slot_bonus = p::KILLER_BONUS(),
+                _ => {}
+            }
+        } else if killers[1].is_some_and(|k| k == m) {
             if let Some(d) = diagnostics {
                 d.order_killer.fetch_add(1, Ordering::Relaxed);
             }
-            return -9_050;
-        } // 4. Killer 1
-        if countermove.is_some_and(|cm| cm == m) {
+            match order_killer {
+                0 => return -9_050,
+                1 => slot_bonus = p::KILLER_BONUS(),
+                _ => {}
+            }
+        } else if countermove.is_some_and(|cm| cm == m) {
             if let Some(d) = diagnostics {
                 d.order_countermove.fetch_add(1, Ordering::Relaxed);
             }
-            return -9_000;
-        } // 5. Countermove
+            match p::ORDER_CM() {
+                0 => return -9_000,
+                1 => slot_bonus = p::KILLER_BONUS(),
+                _ => {}
+            }
+        }
 
         // 6. Remaining quiet moves by history score
         if let Some(d) = diagnostics {
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
-        let mut score = history.get(stm, m) + cont.score(history, stm, m);
+        let mut score = history.get(stm, m) + cont.score(history, stm, m) + slot_bonus;
         if p::FT_WEIGHT() > 0 {
             score += history.ft_get(stm, m) * p::FT_WEIGHT() / 16;
         }
