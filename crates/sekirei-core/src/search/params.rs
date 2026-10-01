@@ -224,6 +224,14 @@ search_params! {
     /// Quiescence outside check: a capture whose static exchange loses more
     /// than this is skipped (0 disables; recaptures and checks are exempt).
     QS_SEE_MIN = 0, 0, 1000;
+    /// The move-count pruning limit is scaled by this (sixteenths) when the
+    /// static eval is not improving.
+    LMP_NONIMP_MUL = 16, 4, 16;
+    /// Move-count pruning also skips quiet checks that do not hang the
+    /// checking piece (1), or exempts them (0).
+    LMP_CHECKS = 0, 0, 1;
+    /// Move-count pruning also at PV nodes (1) or only at non-PV nodes (0).
+    LMP_PV = 0, 0, 1;
     /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
     LMP_BASE = 5, 1, 12;
     /// The move-count limit is scaled by this (sixteenths) when the static

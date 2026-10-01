@@ -3617,27 +3617,39 @@ impl LateMoveNode {
         {
             return true;
         }
+        let lmp_checks = p::LMP_CHECKS() != 0;
+        // Move-count pruning also at PV nodes (LMP_PV), once a move has
+        // been searched and the node is not lost.
+        let lmp_node = non_pv
+            || (p::LMP_PV() != 0 && !self.in_check && self.best_score > -(MATE_SCORE - 1000));
+        if lmp_node
+            && is_quiet
+            && depth <= p::LMP_MAX_DEPTH().max(p::SHALLOW_PRUNE_MAX_DEPTH()) as u32
+            && move_number as u32 >= lmp_limit(depth, self.improving)
+            && (lmp_checks || !exempt_check())
+        {
+            return true;
+        }
         if non_pv
             && depth > p::SHALLOW_PRUNE_MAX_DEPTH() as u32
             && depth <= p::LMP_MAX_DEPTH() as u32
         {
-            return is_quiet
-                && move_number as u32 >= lmp_limit(depth, self.improving)
-                && !exempt_check();
+            return false;
         }
         let shallow_non_pv = non_pv && depth <= p::SHALLOW_PRUNE_MAX_DEPTH() as u32;
         if !shallow_non_pv {
             return false;
         }
         if is_quiet {
-            (move_number as u32 >= lmp_limit(depth, self.improving)
-                || (depth >= 2
-                    && self.static_eval.is_some_and(|se| {
-                        se + p::SHALLOW_FUTILITY_BASE()
-                            + p::SHALLOW_FUTILITY_PER_DEPTH() * depth as i32
-                            <= self.alpha
-                    })))
-                && !exempt_check()
+            (lmp_checks && move_number as u32 >= lmp_limit(depth, self.improving))
+                || (move_number as u32 >= lmp_limit(depth, self.improving)
+                    || (depth >= 2
+                        && self.static_eval.is_some_and(|se| {
+                            se + p::SHALLOW_FUTILITY_BASE()
+                                + p::SHALLOW_FUTILITY_PER_DEPTH() * depth as i32
+                                <= self.alpha
+                        })))
+                    && !exempt_check()
                 || (depth <= p::HP_MAX_DEPTH() as u32
                     && self.history < -p::HP_MARGIN() * depth as i32
                     && !exempt_check())
@@ -3859,7 +3871,7 @@ fn lmp_limit(depth: u32, improving: bool) -> u32 {
     if improving {
         base * p::LMP_IMPROVING_MUL() as u32 / 16
     } else {
-        base
+        base * p::LMP_NONIMP_MUL() as u32 / 16
     }
 }
 
