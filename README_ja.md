@@ -1,17 +1,17 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.54-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.54)
+[![Release](https://img.shields.io/badge/release-v0.3.55-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.55)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.54`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.55`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。探索の手順序・枝刈りの基盤を拡張し、再現可能なローカル探索調整のための
-範囲付きUSI設定を追加しました。これらは実装・測定の能力であり、一般的な棋力向上や
-外部engine優位の主張ではありません。
+含みます。`SearchMode=Auto`は1 threadで逐次探索、複数threadでLazy SMP、
+MultiPVではroot候補backendを選びます。無人CSA対局も局数上限と記録を持つように
+しました。これらは実装・運用上の変更であり、一般的な棋力向上の主張ではありません。
 
 ## まず動かす
 
@@ -63,8 +63,9 @@ CC BY 4.0の別artifactです。
 
 ## エンジン設定
 
-USIの`usi`で全optionを表示します。決定論的な診断は`Threads=1`、`SpecTopN=0`で
-実行します。投機並列modeはscheduleにより揺れる場合があります。重みの検証、format、
+USIの`usi`で全optionを表示します。`SearchMode=Auto`は1 threadで逐次探索、複数threadで
+Lazy SMP、`MultiPV>1`ではroot候補backendを使います。決定論的な診断は`Threads=1`、
+`SpecTopN=0`で実行します。並列modeはscheduleにより揺れる場合があります。重みの検証、format、
 外部SFNNの範囲は[NNUE重み](docs/nnue_weights.md)を参照してください。
 
 `EvalFile`は、一般的な`HalfKP 256x2-32-32`形式（`nn.bin`）の外部評価関数も読み込めます。

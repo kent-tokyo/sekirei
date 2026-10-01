@@ -1,18 +1,18 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.54-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.54)
+[![Release](https://img.shields.io/badge/release-v0.3.55-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.55)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.54`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.55`
 provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. It adds deeper move-ordering and pruning infrastructure, plus bounded
-USI controls for reproducible local search tuning. These are implementation and
-measurement capabilities, not a general playing-strength or external-engine
-claim.
+library. It makes `SearchMode=Auto` select sequential search for one thread,
+Lazy SMP for multiple threads, and the root-candidate backend for MultiPV. It
+also makes unattended CSA runs bounded and auditable. These are implementation
+and operational changes, not a general playing-strength claim.
 
 ## Quick start
 
@@ -70,8 +70,10 @@ Workspace binaries:
 
 ## Engine configuration
 
-The `usi` command lists all options. For deterministic diagnostics use
-`Threads=1` and `SpecTopN=0`; speculative parallel modes may vary by schedule.
+The `usi` command lists all options. `SearchMode=Auto` uses sequential search
+with one thread, Lazy SMP with multiple threads, and the root-candidate backend
+when `MultiPV>1`. For deterministic diagnostics use `Threads=1` and
+`SpecTopN=0`; parallel modes may vary by schedule.
 Weight validation, format, and the external-SFNN boundary are in
 [NNUE weights](docs/nnue_weights.md).
 

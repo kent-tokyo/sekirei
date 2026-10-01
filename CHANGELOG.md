@@ -6,6 +6,22 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.55] – 2026-10-01
+
+- USI: make `SearchMode=Auto` select sequential search for one thread, Lazy
+  SMP for multiple threads, and the root-candidate backend for `MultiPV>1`;
+  default `SpecTopN` to zero.
+- Parallel search: keep Lazy SMP workers on their sequential inner search path
+  to avoid nested YBW pool contention.
+- CSA: parse standard `,T<seconds>` move suffixes, reject malformed server
+  moves, and add bounded `--max-games` operation with durable attempt and stop
+  reason records that exclude credentials.
+- Diagnostics: complete the bounded shared-TT write-topology and Lazy SMP
+  provenance audits; reject evaluator replacement before reading another
+  weights file.
+- The release has no new NNUE weights and no general playing-strength or
+  external-engine superiority claim.
+
 ## [0.3.54] – 2026-09-29
 
 - Search: skip selected non-promotions below the root, and distinguish safe
