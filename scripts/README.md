@@ -78,6 +78,20 @@ Useful shared entry points include `gate_orchestrator.py`,
   Supply credentials only at runtime; never store `FLOODGATE_TRIP` in Git,
   manifests, plist files, commands, or logs.
 
+For an unattended bounded Floodgate run, let the client own the game limit;
+do not use an external launcher that restarts a successful batch:
+
+```bash
+sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
+  --record-dir data/floodgate/run --analysis-dir data/floodgate/run/analysis \
+  --run-manifest data/floodgate/run/manifest.json \
+  --status-file data/floodgate/run/status.json
+```
+
+`--max-games` is process-wide across reconnects. Protocol errors stop the
+client instead of requesting another game; the status and manifest retain the
+completed-attempt count and terminal reason without credentials.
+
 Same-engine self-play supports training and regression work. It does not show
 that either revision is stronger.
 

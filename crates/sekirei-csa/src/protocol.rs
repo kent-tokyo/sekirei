@@ -38,6 +38,8 @@ pub struct Config {
     pub hash_mb: usize,
     pub resign_score: i32, // centipawns (negative threshold)
     pub keep_alive: bool,  // reconnect after each game
+    /// Optional process-wide ceiling for completed game attempts.
+    pub max_games: Option<u32>,
     pub max_depth: u32,
     pub record_dir: PathBuf,
     /// Optional directory for one JSONL search summary per game.
@@ -80,6 +82,7 @@ impl Default for Config {
             hash_mb: 256,
             resign_score: -2000,
             keep_alive: false,
+            max_games: None,
             max_depth: 50,
             record_dir: PathBuf::from("data/floodgate"),
             analysis_dir: None,
@@ -111,8 +114,27 @@ fn game_result_name(result: GameResult) -> &'static str {
     }
 }
 
-pub fn write_runtime_status(config: &Config, state: &str, event: Option<&str>) {
-    write_runtime_status_snapshot(config, state, event, &RuntimeStatusDetails::default());
+/// Write supervisor-visible progress when no authenticated client exists.
+///
+/// Reconnect failures happen outside [`CsaClient`], so the caller must carry
+/// the process-wide attempt count explicitly instead of resetting it to zero.
+pub fn write_runtime_status_progress(
+    config: &Config,
+    state: &str,
+    event: Option<&str>,
+    completed_attempts: u32,
+    terminal_stop_reason: Option<&str>,
+) {
+    write_runtime_status_snapshot(
+        config,
+        state,
+        event,
+        &RuntimeStatusDetails {
+            completed_attempts,
+            terminal_stop_reason: terminal_stop_reason.map(str::to_owned),
+            ..RuntimeStatusDetails::default()
+        },
+    );
 }
 
 fn current_timestamp_ms() -> u128 {
@@ -129,6 +151,8 @@ struct RuntimeStatusDetails {
     last_our_move_sent_ms: Option<u128>,
     last_opponent_move_ms: Option<u128>,
     session_id: Option<String>,
+    completed_attempts: u32,
+    terminal_stop_reason: Option<String>,
 }
 
 fn write_runtime_status_snapshot(
@@ -152,6 +176,9 @@ fn write_runtime_status_snapshot(
         "last_server_received_ms": details.last_server_received_ms,
         "last_our_move_sent_ms": details.last_our_move_sent_ms,
         "last_opponent_move_ms": details.last_opponent_move_ms,
+        "max_games": config.max_games,
+        "completed_attempts": details.completed_attempts,
+        "terminal_stop_reason": &details.terminal_stop_reason,
     });
     let result = (|| -> io::Result<()> {
         if let Some(parent) = path.parent()
@@ -230,6 +257,36 @@ fn update_run_manifest_game(path: &Path, game: RunManifestGame<'_>) -> io::Resul
     fs::rename(temporary, path)
 }
 
+fn update_run_manifest_progress(
+    path: &Path,
+    max_games: Option<u32>,
+    completed_attempts: u32,
+    terminal_stop_reason: Option<&str>,
+) -> io::Result<()> {
+    let source = fs::read_to_string(path)?;
+    let mut document: serde_json::Value = serde_json::from_str(&source)
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?;
+    let object = document.as_object_mut().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidData, "run manifest is not an object")
+    })?;
+    object.insert("max_games".into(), serde_json::json!(max_games));
+    object.insert(
+        "completed_attempts".into(),
+        serde_json::json!(completed_attempts),
+    );
+    object.insert(
+        "terminal_stop_reason".into(),
+        serde_json::json!(terminal_stop_reason),
+    );
+    let temporary = path.with_extension("json.tmp");
+    fs::write(
+        &temporary,
+        serde_json::to_vec_pretty(&document)
+            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error.to_string()))?,
+    )?;
+    fs::rename(temporary, path)
+}
+
 // ---- Client ----
 
 pub struct CsaClient {
@@ -238,15 +295,17 @@ pub struct CsaClient {
     searcher: Searcher,
     config: Config,
     status_state: &'static str,
+    status_event: Option<String>,
     status_details: RuntimeStatusDetails,
 }
 
 impl CsaClient {
-    /// Connect and authenticate.
-    pub fn connect(config: Config) -> io::Result<Self> {
+    /// Connect while preserving the process-wide completed-attempt count in
+    /// the durable runtime status across reconnects.
+    pub fn connect_with_progress(config: Config, completed_attempts: u32) -> io::Result<Self> {
         let addr = format!("{}:{}", config.server, config.port);
         eprintln!("[csa] connecting to {addr}");
-        write_runtime_status(&config, "connecting", None);
+        write_runtime_status_progress(&config, "connecting", None, completed_attempts, None);
         let stream = TcpStream::connect(&addr)?;
         // 40-min timeout catches dead TCP connections; longer than the 30-min between-game wait.
         stream.set_read_timeout(Some(Duration::from_secs(40 * 60)))?;
@@ -264,8 +323,10 @@ impl CsaClient {
             searcher,
             config,
             status_state: "connected",
+            status_event: None,
             status_details: RuntimeStatusDetails {
                 session_id: Some(format!("{}-{}", std::process::id(), current_timestamp_ms())),
+                completed_attempts,
                 ..RuntimeStatusDetails::default()
             },
         };
@@ -275,11 +336,18 @@ impl CsaClient {
     }
 
     /// Main loop: request a game and play; repeat if `keep_alive`.
-    pub fn run(&mut self) -> io::Result<()> {
+    pub fn run(&mut self, completed_attempts: &mut u32) -> io::Result<()> {
+        self.status_details.completed_attempts = *completed_attempts;
         loop {
+            if self.limit_reached(*completed_attempts) {
+                self.stop_for_limit(*completed_attempts)?;
+                break;
+            }
             self.set_status("waiting_for_game", None);
             self.request_game()?;
             let result = self.play_game()?;
+            *completed_attempts = completed_attempts.saturating_add(1);
+            self.status_details.completed_attempts = *completed_attempts;
             eprintln!("[csa] game over: {result:?}");
             // Preserve a precise recording/operational error set by play_game.
             // Replacing it with `game_finished/aborted` would hide the reason
@@ -291,11 +359,24 @@ impl CsaClient {
                 // supervisor. Clear it before publishing `game_finished`.
                 self.status_details.active_game_id = None;
                 self.set_status("game_finished", Some(game_result_name(result)));
+            } else {
+                // Publish the incremented attempt count without losing the
+                // machine-readable protocol-error state set by play_game.
+                self.write_status(self.status_state, self.status_event.as_deref());
             }
+            let stop_reason = terminal_client_error
+                .then_some(self.status_details.terminal_stop_reason.as_deref())
+                .flatten()
+                .map(str::to_owned);
+            self.update_progress(*completed_attempts, stop_reason.as_deref())?;
             // A recording/configuration failure is not retryable. In loop mode,
             // requesting another game would repeat the same failure and could
             // create an unbounded stream of rejected sessions.
             if !self.config.keep_alive || terminal_client_error {
+                break;
+            }
+            if self.limit_reached(*completed_attempts) {
+                self.stop_for_limit(*completed_attempts)?;
                 break;
             }
             eprintln!("[csa] waiting for next game…");
@@ -317,11 +398,46 @@ impl CsaClient {
 
     fn set_status(&mut self, state: &'static str, event: Option<&str>) {
         self.status_state = state;
+        self.status_event = event.map(str::to_owned);
         self.write_status(state, event);
     }
 
     fn emit_status(&self, event: Option<&str>) {
         self.write_status(self.status_state, event);
+    }
+
+    fn limit_reached(&self, completed_attempts: u32) -> bool {
+        self.config
+            .max_games
+            .is_some_and(|limit| completed_attempts >= limit)
+    }
+
+    fn update_progress(
+        &mut self,
+        completed_attempts: u32,
+        terminal_stop_reason: Option<&str>,
+    ) -> io::Result<()> {
+        if let Some(path) = self.config.run_manifest.as_deref() {
+            update_run_manifest_progress(
+                path,
+                self.config.max_games,
+                completed_attempts,
+                terminal_stop_reason,
+            )?;
+        }
+        Ok(())
+    }
+
+    fn stop_for_limit(&mut self, completed_attempts: u32) -> io::Result<()> {
+        self.status_details.active_game_id = None;
+        self.status_details.terminal_stop_reason = Some("max_games_reached".into());
+        self.set_status("stopped", Some("max_games_reached"));
+        self.update_progress(completed_attempts, Some("max_games_reached"))
+    }
+
+    fn stop_for_protocol_error(&mut self, reason: &str) {
+        self.status_details.terminal_stop_reason = Some(reason.into());
+        self.set_status("client_error", Some("protocol_error"));
     }
 
     fn send(&mut self, msg: &str) -> io::Result<()> {
@@ -670,8 +786,21 @@ impl CsaClient {
                         }
                         ServerLine::Move(move_line) if !resigned => {
                             // Opponent's move
+                            let bare_move = match bare_server_move(move_line) {
+                                Some(token) => token,
+                                None => {
+                                    eprintln!("[csa] malformed opponent move: {line}");
+                                    self.stop_for_protocol_error("unparseable_server_move");
+                                    return Ok(GameResult::Aborted);
+                                }
+                            };
+                            let Some(m) = csa_to_move(&mut board, bare_move) else {
+                                eprintln!("[csa] illegal opponent move: {line}");
+                                self.stop_for_protocol_error("illegal_server_move");
+                                return Ok(GameResult::Aborted);
+                            };
                             if let Some(record) = record.as_mut() {
-                                record.append(move_line.split(',').next().unwrap_or(move_line));
+                                record.append(bare_move);
                                 if !record.healthy() {
                                     eprintln!(
                                         "[csa] aborting game: opponent move record write failed"
@@ -679,14 +808,10 @@ impl CsaClient {
                                     return Ok(GameResult::Aborted);
                                 }
                             }
-                            if let Some(m) = csa_to_move(&mut board, move_line) {
-                                board.do_move(m);
-                                self.status_details.last_opponent_move_ms =
-                                    Some(current_timestamp_ms());
-                                self.emit_status(Some("opponent_move"));
-                            } else {
-                                eprintln!("[csa] unparseable opponent move: {line}");
-                            }
+                            board.do_move(m);
+                            self.status_details.last_opponent_move_ms =
+                                Some(current_timestamp_ms());
+                            self.emit_status(Some("opponent_move"));
                             break;
                         }
                         ServerLine::Time | ServerLine::Other | ServerLine::Move(_) => {
@@ -1339,6 +1464,24 @@ fn classify_server_line(line: &str) -> ServerLine<'_> {
     }
 }
 
+/// Return a validated bare CSA move from a server line with an optional
+/// `,T<seconds>` suffix. Extra fields and malformed time suffixes are protocol
+/// errors rather than ignorable noise.
+fn bare_server_move(line: &str) -> Option<&str> {
+    let mut parts = line.split(',');
+    let token = parts.next()?;
+    if !is_csa_move_token(token) {
+        return None;
+    }
+    if let Some(time) = parts.next() {
+        time.strip_prefix('T')?.parse::<u64>().ok()?;
+    }
+    if parts.next().is_some() {
+        return None;
+    }
+    Some(token)
+}
+
 /// Parse seconds from a CSA time echo: "T18" or "+9796FU,T18" → Some(18).
 fn parse_time_from_echo(line: &str) -> Option<u64> {
     let t_part = line.rsplit(',').next().unwrap_or(line);
@@ -1349,7 +1492,7 @@ fn parse_time_from_echo(line: &str) -> Option<u64> {
 mod tests {
     use super::{
         Color, Config, CsaClient, EvaluationMode, GameRecord, GameResult, RecordMetadata,
-        ServerLine, classify_server_line, parse_game_end, parse_time_from_echo,
+        ServerLine, bare_server_move, classify_server_line, parse_game_end, parse_time_from_echo,
     };
     use std::fs;
     use std::io::{BufRead, BufReader, Write};
@@ -1377,6 +1520,15 @@ mod tests {
         assert_eq!(parse_time_from_echo("+9796FU,T18"), Some(18));
         assert_eq!(parse_time_from_echo("+9796FU,Tbad"), None);
         assert_eq!(parse_time_from_echo("+9796FU"), None);
+    }
+
+    #[test]
+    fn time_suffixed_moves_are_reduced_to_bare_csa_tokens() {
+        assert_eq!(bare_server_move("+2726FU,T9"), Some("+2726FU"));
+        assert_eq!(bare_server_move("-1112KY,T0"), Some("-1112KY"));
+        assert_eq!(bare_server_move("+2726FU"), Some("+2726FU"));
+        assert_eq!(bare_server_move("+2726FU,Tbad"), None);
+        assert_eq!(bare_server_move("+2726FU,T1,extra"), None);
     }
 
     #[test]
@@ -1422,7 +1574,7 @@ mod tests {
             status_file: Some(status_dir.join("client-status.json")),
             ..Config::default()
         };
-        let mut client = CsaClient::connect(config).unwrap();
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
         let error = client.recv().unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
         let status = fs::read_to_string(status_dir.join("client-status.json")).unwrap();
@@ -1466,7 +1618,7 @@ mod tests {
             // The client is White in this fixture, so exercise the opponent
             // move branch before its first search.
             // A standalone time line must not be interpreted as an opponent move.
-            writer.write_all(b"T3\n+7776FU\n").unwrap();
+            writer.write_all(b"T3\n+7776FU,T3\n").unwrap();
             writer.flush().unwrap();
             line.clear();
             reader.read_line(&mut line).unwrap();
@@ -1501,8 +1653,10 @@ mod tests {
             run_manifest: Some(run_manifest.clone()),
             ..Config::default()
         };
-        let mut client = CsaClient::connect(config).unwrap();
-        client.run().unwrap();
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        client.run(&mut completed_attempts).unwrap();
+        assert_eq!(completed_attempts, 1);
         server.join().unwrap();
 
         let records: Vec<PathBuf> = fs::read_dir(&record_dir)
@@ -1571,6 +1725,172 @@ mod tests {
     }
 
     #[test]
+    fn malformed_server_move_is_terminal_and_not_recorded() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+
+            reader.read_line(&mut line).unwrap();
+            writer.write_all(b"LOGIN: test OK\n").unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("%%GAME malformed-game"));
+            writer
+                .write_all(
+                    b"Game_ID:malformed-game\nYour_Turn:-\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:malformed-game\n",
+                )
+                .unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("AGREE:malformed-game"));
+            writer.write_all(b"+2726ZZ,T9\n").unwrap();
+            writer.flush().unwrap();
+        });
+
+        let root = unique_test_directory("protocol-malformed-move");
+        let record_dir = root.join("records");
+        fs::create_dir_all(&record_dir).unwrap();
+        let status_file = root.join("status.json");
+        let run_manifest = root.join("run-manifest.json");
+        fs::write(&run_manifest, b"{}\n").unwrap();
+        let config = Config {
+            server: "127.0.0.1".into(),
+            port,
+            user: "test".into(),
+            password: "secret".into(),
+            game_id: "malformed-game".into(),
+            keep_alive: true,
+            max_games: Some(5),
+            max_depth: 1,
+            record_dir: record_dir.clone(),
+            status_file: Some(status_file.clone()),
+            run_manifest: Some(run_manifest.clone()),
+            ..Config::default()
+        };
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        client.run(&mut completed_attempts).unwrap();
+        assert!(client.has_terminal_client_error());
+        assert_eq!(completed_attempts, 1);
+        drop(client);
+        server.join().unwrap();
+
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(status["state"], "client_error");
+        assert_eq!(status["event"], "protocol_error");
+        assert_eq!(status["completed_attempts"], 1);
+        assert_eq!(status["terminal_stop_reason"], "unparseable_server_move");
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(run_manifest).unwrap()).unwrap();
+        assert_eq!(manifest["completed_attempts"], 1);
+        assert_eq!(manifest["terminal_stop_reason"], "unparseable_server_move");
+        let record = fs::read_to_string(
+            fs::read_dir(record_dir)
+                .unwrap()
+                .next()
+                .unwrap()
+                .unwrap()
+                .path(),
+        )
+        .unwrap();
+        assert!(!record.contains("2726ZZ"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn max_games_stops_before_a_sixth_request() {
+        const LIMIT: u32 = 5;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            writer.write_all(b"LOGIN: test OK\n").unwrap();
+            writer.flush().unwrap();
+
+            for index in 1..=LIMIT {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with("%%GAME bounded-game"));
+                let summary = format!(
+                    "Game_ID:bounded-{index}\nYour_Turn:+\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:bounded-{index}\n"
+                );
+                writer.write_all(summary.as_bytes()).unwrap();
+                writer.flush().unwrap();
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with(&format!("AGREE:bounded-{index}")));
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with('+'));
+                let echo = format!("{},T0\n#WIN\n", line.trim());
+                writer.write_all(echo.as_bytes()).unwrap();
+                writer.flush().unwrap();
+            }
+            line.clear();
+            assert_eq!(reader.read_line(&mut line).unwrap(), 0);
+        });
+
+        let root = unique_test_directory("protocol-max-games");
+        let record_dir = root.join("records");
+        fs::create_dir_all(&record_dir).unwrap();
+        let status_file = root.join("status.json");
+        let run_manifest = root.join("run-manifest.json");
+        fs::write(&run_manifest, b"{}\n").unwrap();
+        let config = Config {
+            server: "127.0.0.1".into(),
+            port,
+            user: "test".into(),
+            password: "secret".into(),
+            game_id: "bounded-game".into(),
+            keep_alive: true,
+            max_games: Some(LIMIT),
+            max_depth: 1,
+            resign_score: -sekirei_core::search::MATE_SCORE,
+            record_dir: record_dir.clone(),
+            status_file: Some(status_file.clone()),
+            run_manifest: Some(run_manifest.clone()),
+            ..Config::default()
+        };
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        client.run(&mut completed_attempts).unwrap();
+        assert_eq!(completed_attempts, LIMIT);
+        drop(client);
+        server.join().unwrap();
+
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(status["state"], "stopped");
+        assert_eq!(status["event"], "max_games_reached");
+        assert_eq!(status["max_games"], LIMIT);
+        assert_eq!(status["completed_attempts"], LIMIT);
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(run_manifest).unwrap()).unwrap();
+        assert_eq!(manifest["max_games"], LIMIT);
+        assert_eq!(manifest["completed_attempts"], LIMIT);
+        assert_eq!(manifest["terminal_stop_reason"], "max_games_reached");
+        assert_eq!(fs::read_dir(record_dir).unwrap().count(), LIMIT as usize);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn record_initialization_failure_is_exposed_in_runtime_status() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
@@ -1611,7 +1931,7 @@ mod tests {
             status_file: Some(status_dir.join("client-status.json")),
             ..Config::default()
         };
-        let mut client = CsaClient::connect(config).unwrap();
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
         client.request_game().unwrap();
         assert_eq!(client.play_game().unwrap(), GameResult::Aborted);
         server.join().unwrap();
@@ -1678,7 +1998,7 @@ mod tests {
             record_dir: record_dir.clone(),
             ..Config::default()
         };
-        let mut client = CsaClient::connect(config).unwrap();
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
         client.request_game().unwrap();
         assert_eq!(client.play_game().unwrap(), GameResult::Win);
         client.request_game().unwrap();
@@ -1761,7 +2081,7 @@ mod tests {
             record_dir: record_dir.clone(),
             ..Config::default()
         };
-        let mut client = CsaClient::connect(config).unwrap();
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
         client.request_game().unwrap();
         assert_eq!(client.play_game().unwrap(), GameResult::Win);
         server.join().unwrap();

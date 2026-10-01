@@ -18,6 +18,13 @@ def base(evaluation="material", active=False):
 
 
 assert validate(base()) == []
+bounded = base()
+bounded.update({"keep_alive": True, "max_games": 5, "completed_attempts": 5,
+                "terminal_stop_reason": "max_games_reached"})
+assert validate(bounded) == []
+invalid_limit = base()
+invalid_limit["max_games"] = 0
+assert "max_games" in validate(invalid_limit)
 assert "weights.nnue_active" in validate(base("nnue"))
 assert "weights.material_active" in validate(base("material", True))
 finalized = base()
