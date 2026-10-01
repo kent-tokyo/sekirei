@@ -72,7 +72,9 @@ fn main() {
         for (count, &zero) in zero_count.iter_mut().zip(&input) {
             *count += usize::from(zero);
         }
-        both_zero_pairs += input.chunks_exact(2).filter(|p| p[0] && p[1]).count();
+        let (pairs, remainder) = input.as_chunks::<2>();
+        debug_assert!(remainder.is_empty());
+        both_zero_pairs += pairs.iter().filter(|p| p[0] && p[1]).count();
     }
     let always_zero = zero_count.iter().filter(|&&c| c == boards.len()).count();
     let mostly_zero = zero_count
