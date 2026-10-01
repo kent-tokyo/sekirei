@@ -55,6 +55,11 @@ const SEARCH_STACK_BYTES: usize = RECURSIVE_SEARCH_STACK_BYTES;
 const DEFAULT_SPEC_TOP_N: usize = 0;
 // Lazy SMP behaviour switches (USI option LazyFlags, `lazy_smp::LAZY_*`).
 static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
+// MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
+// MultiPV > 1 (only the speculative searcher reports several root lines).
+static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
+// SpecTopN used by `Auto` for MultiPV analysis (the former default).
+const AUTO_MULTI_PV_SPEC_TOP_N: usize = 3;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SearchMode {
@@ -963,6 +968,16 @@ fn main() {
                 } else if parts.get(1) == Some(&"MultiPV") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok()) {
                         multi_pv = n.max(1);
+                        let before = AUTO_MULTI_PV.swap(multi_pv, Ordering::Relaxed);
+                        if search_mode == SearchMode::Auto && (before > 1) != (multi_pv > 1) {
+                            abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                            searcher = make_searcher(
+                                hash_mb,
+                                spec_top_n,
+                                threads_for_lazy_smp(threads),
+                                search_mode,
+                            );
+                        }
                     }
                 } else if parts.get(1) == Some(&"EvalFile") {
                     // value may contain spaces (e.g. paths with spaces)
@@ -1341,6 +1356,9 @@ fn make_searcher(
     mode: SearchMode,
 ) -> Arc<SearchBackend> {
     Arc::new(match mode {
+        SearchMode::Auto if AUTO_MULTI_PV.load(Ordering::Relaxed) > 1 => {
+            SearchBackend::speculative(hash_mb, AUTO_MULTI_PV_SPEC_TOP_N)
+        }
         SearchMode::Auto if threads <= 1 => SearchBackend::speculative(hash_mb, 0),
         SearchMode::Auto => SearchBackend::lazy_smp(hash_mb, threads),
         SearchMode::Speculative => SearchBackend::speculative(hash_mb, spec_top_n),
