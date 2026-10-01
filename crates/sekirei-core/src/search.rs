@@ -623,6 +623,9 @@ pub struct PruningConfig {
     pub null_move: bool,
     /// Enable late-move reductions for quiet, late-ordered moves.
     pub late_move_reduction: bool,
+    /// Search young brothers in parallel on the Rayon pool (YBW). Lazy SMP
+    /// workers already occupy the pool and search sequentially.
+    pub ybw_split: bool,
 }
 
 impl Default for PruningConfig {
@@ -630,6 +633,7 @@ impl Default for PruningConfig {
         Self {
             null_move: true,
             late_move_reduction: true,
+            ybw_split: true,
         }
     }
 }
@@ -651,6 +655,9 @@ pub struct Searcher {
     /// (`clear_tt`, on a new game). Killers stay per search.
     history: Arc<HistoryTable>,
     countermoves: Arc<CountermoveTable>,
+    /// Plies added to every iterative-deepening iteration (Lazy SMP helper
+    /// workers use 1 so that they search one ply ahead of the main worker).
+    depth_skew: u32,
 }
 
 impl Searcher {
@@ -670,6 +677,7 @@ impl Searcher {
             pruning: PruningConfig::default(),
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -684,6 +692,7 @@ impl Searcher {
             pruning,
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -701,6 +710,7 @@ impl Searcher {
             pruning,
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -714,6 +724,7 @@ impl Searcher {
             pruning: PruningConfig::default(),
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -740,6 +751,17 @@ impl Searcher {
         }
         self.history.clear();
         self.countermoves.clear();
+    }
+
+    /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
+    pub fn set_depth_skew(&mut self, skew: u32) {
+        self.depth_skew = skew;
+    }
+
+    /// Enable or disable parallel young-brothers splitting (Lazy SMP workers
+    /// search sequentially).
+    pub fn set_ybw_split(&mut self, enabled: bool) {
+        self.pruning.ybw_split = enabled;
     }
 
     /// Run iterative-deepening search from the current position up to `config.max_depth`
@@ -965,7 +987,11 @@ impl Searcher {
         let mut root_mate_safety_cache = RootMateSafetyCache::default();
         let history = &SearchHistory::root(history);
 
-        for depth in 1..=config.max_depth {
+        for iteration in 1..=config.max_depth {
+            let depth = iteration + self.depth_skew;
+            if depth > config.max_depth {
+                break;
+            }
             let (m, score, root_bound) = root_search(
                 &state,
                 board,
@@ -2432,7 +2458,10 @@ fn alpha_beta(
     // ybw_end after the parallel YBW pass, or 0 at shallow depths (no YBW).
     // With a single worker the young-brothers pass only delays cutoffs: it
     // probes every sibling before looking at any result. Search sequentially.
-    let seq_start = if depth >= MIN_SPLIT_DEPTH && rayon::current_num_threads() > 1 {
+    let seq_start = if state.pruning.ybw_split
+        && depth >= MIN_SPLIT_DEPTH
+        && rayon::current_num_threads() > 1
+    {
         let nw_abort = AtomicBool::new(false);
         let alpha_for_nw = alpha;
 

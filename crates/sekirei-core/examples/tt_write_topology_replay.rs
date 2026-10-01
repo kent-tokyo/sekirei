@@ -10,11 +10,19 @@ use sekirei_core::board::Board;
 use sekirei_core::search::{SearchConfig, SpeculativeSearcher};
 use sekirei_core::tt::{Tt, TtWriteSnapshot, TtWriteStats};
 
-fn run(top_n: usize) -> TtWriteSnapshot {
+struct ReplayResult {
+    writes: TtWriteSnapshot,
+    best_move_raw: u32,
+    score: i32,
+    depth: u32,
+    nodes: u64,
+}
+
+fn run(top_n: usize) -> ReplayResult {
     let stats = Arc::new(TtWriteStats::default());
     let searcher = SpeculativeSearcher::new(Tt::new_with_stats(4, Some(stats.clone())), top_n);
     let mut board = Board::startpos();
-    let _ = searcher.search(
+    let result = searcher.search(
         &mut board,
         SearchConfig {
             max_depth: 2,
@@ -24,14 +32,26 @@ fn run(top_n: usize) -> TtWriteSnapshot {
             multi_pv: 1,
         },
     );
-    stats.snapshot()
+    ReplayResult {
+        writes: stats.snapshot(),
+        best_move_raw: result.best_move.map_or(0, |mv| mv.raw()),
+        score: result.score,
+        depth: result.depth,
+        nodes: result.nodes,
+    }
 }
 
-fn print_snapshot(label: &str, snapshot: TtWriteSnapshot) {
+fn print_snapshot(label: &str, result: ReplayResult) {
+    let snapshot = result.writes;
     println!(
-        "{{\"mode\":\"{label}\",\"attempted\":{},\"committed\":{},\
+        "{{\"mode\":\"{label}\",\"best_move_raw\":{},\"score\":{},\
+         \"depth\":{},\"nodes\":{},\"attempted\":{},\"committed\":{},\
          \"same_hash\":{},\"equal_depth_overwrites\":{},\
          \"shallower_rejections\":{},\"collision_overwrites\":{}}}",
+        result.best_move_raw,
+        result.score,
+        result.depth,
+        result.nodes,
         snapshot.attempted,
         snapshot.committed,
         snapshot.same_hash,

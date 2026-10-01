@@ -36,8 +36,9 @@ verify the resolved graph and each license before making a license claim.
 | Option | Type | Default | Notes |
 |---|---|---|---|
 | `Hash` | spin | 64 (MB) | TT size |
-| `Threads` | spin | 0 (unset → rayon's own default, `num_cpus`) | Sizes the global search thread pool. **If never explicitly set, silently uses `num_cpus` threads** — set this explicitly on a mobile device rather than relying on the default. |
-| `SpecTopN` | spin | 3 | Sizes a *separate*, dedicated speculative-search thread pool. **Real concurrent compute-thread demand is `Threads + SpecTopN`, not `Threads` alone** (`docs/design/pr5_pool_isolation_static_audit.md`) — account for this in capacity planning, especially on a phone/tablet's more limited core count. Setting `SpecTopN` to `0` disables speculative search entirely if you need the lowest possible thread footprint. |
+| `Threads` | spin | 0 (one effective worker until explicitly set) | With `SearchMode=Auto`, one effective worker uses sequential search and values above one use Lazy SMP. Set this explicitly on a mobile device. |
+| `SearchMode` | combo | `Auto` | Selects sequential search for one worker, Lazy SMP for multiple workers, and the existing speculative backend when `MultiPV > 1`. Explicit `Speculative`, `LazySMP`, `Dfpn`, and `SharedMcts` modes remain available. |
+| `SpecTopN` | spin | 0 | Sizes the separate speculative-search pool only in explicit `SearchMode=Speculative`. Non-zero values add concurrent compute demand and may vary by schedule. |
 | `MultiPV` | spin | 1 | For "best/second-best move" display (per issue #44's own stated use case) |
 | `EvalFile` | string | (empty) | Path to a trained NNUE weight file — see `docs/nnue_weights.md`. **Without one set, evaluation is a real material-count fallback, not NNUE** (`crates/sekirei-core/src/eval.rs`) — this is functionally correct shogi, but not what an "evaluation graph and blunder detection" feature needs. |
 | `MoveOverhead` | spin | 50 (ms) | Standard time-management safety margin |

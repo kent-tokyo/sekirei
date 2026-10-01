@@ -237,16 +237,20 @@ impl<'a> Reader<'a> {
     fn i32s<const N: usize>(&mut self) -> io::Result<[i32; N]> {
         let raw = self.take(N * 4)?;
         let mut out = [0i32; N];
-        for (value, chunk) in out.iter_mut().zip(raw.chunks_exact(4)) {
-            *value = i32::from_le_bytes(chunk.try_into().unwrap());
+        let (chunks, remainder) = raw.as_chunks::<4>();
+        debug_assert!(remainder.is_empty());
+        for (value, chunk) in out.iter_mut().zip(chunks) {
+            *value = i32::from_le_bytes(*chunk);
         }
         Ok(out)
     }
 
     fn i16s(&mut self, n: usize) -> io::Result<Vec<i16>> {
         let raw = self.take(n * 2)?;
-        Ok(raw
-            .chunks_exact(2)
+        let (chunks, remainder) = raw.as_chunks::<2>();
+        debug_assert!(remainder.is_empty());
+        Ok(chunks
+            .iter()
             .map(|chunk| i16::from_le_bytes([chunk[0], chunk[1]]))
             .collect())
     }
@@ -468,8 +472,8 @@ fn affine_clipped_sparse<const PAIRS: usize>(
     }
     let nonzero = &nonzero[..count];
     let mut partial = [[0i32; HIDDEN]; LANES];
-    let mut groups = nonzero.chunks_exact(LANES);
-    for group in &mut groups {
+    let (groups, remainder) = nonzero.as_chunks::<LANES>();
+    for group in groups {
         for (sums, &p) in partial.iter_mut().zip(group) {
             let p = usize::from(p);
             let x0 = i32::from(input[p][0]);
@@ -480,7 +484,7 @@ fn affine_clipped_sparse<const PAIRS: usize>(
             }
         }
     }
-    for (sums, &p) in partial.iter_mut().zip(groups.remainder()) {
+    for (sums, &p) in partial.iter_mut().zip(remainder) {
         let p = usize::from(p);
         let x0 = i32::from(input[p][0]);
         let x1 = i32::from(input[p][1]);

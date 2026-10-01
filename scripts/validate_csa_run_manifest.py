@@ -35,6 +35,15 @@ def validate(document: dict, finalized: bool = False) -> list[str]:
         errors.append("analysis_record_schema")
     if "keep_alive" in document and not isinstance(document["keep_alive"], bool):
         errors.append("keep_alive")
+    if "max_games" in document and document["max_games"] is not None \
+            and (not isinstance(document["max_games"], int) or document["max_games"] < 1):
+        errors.append("max_games")
+    if "completed_attempts" in document and (not isinstance(document["completed_attempts"], int)
+                                                or document["completed_attempts"] < 0):
+        errors.append("completed_attempts")
+    if "terminal_stop_reason" in document and document["terminal_stop_reason"] is not None \
+            and not isinstance(document["terminal_stop_reason"], str):
+        errors.append("terminal_stop_reason")
     if "games" in document:
         games = document["games"]
         if not isinstance(games, list) or not games:

@@ -19,6 +19,7 @@
 //!   --resign <cp>      resign threshold centipawns (default: 2000)
 //!   --depth <n>        max search depth (default: 50)
 //!   --loop             reconnect after each game for continuous play
+//!   --max-games <n>    stop after n completed game attempts (requires --loop)
 //! ```
 
 mod moves;
@@ -26,7 +27,7 @@ mod protocol;
 
 use std::time::Duration;
 
-use protocol::{Config, CsaClient, EvaluationMode, write_runtime_status};
+use protocol::{Config, CsaClient, EvaluationMode, write_runtime_status_progress};
 
 fn main() {
     let exit_code = run();
@@ -65,20 +66,37 @@ fn run() -> i32 {
     }
 
     let mut attempts = 0u32;
+    let mut completed_attempts = 0u32;
     loop {
-        match CsaClient::connect(config.clone()) {
-            Ok(mut client) => match client.run() {
+        match CsaClient::connect_with_progress(config.clone(), completed_attempts) {
+            Ok(mut client) => match client.run(&mut completed_attempts) {
                 Ok(()) => {
                     if client.has_terminal_client_error() {
                         // Do not let the outer keep-alive loop reconnect after
                         // a permanent recording/configuration failure.
                         return 3;
                     }
+                    if config
+                        .max_games
+                        .is_some_and(|limit| completed_attempts >= limit)
+                    {
+                        return 0;
+                    }
                     attempts = 0;
                 }
                 Err(e) => {
+                    if client.has_terminal_client_error() {
+                        eprintln!("[csa] terminal client error: {e}");
+                        return 3;
+                    }
                     attempts += 1;
-                    write_runtime_status(&config, "client_error", Some("run_error"));
+                    write_runtime_status_progress(
+                        &config,
+                        "client_error",
+                        Some("run_error"),
+                        completed_attempts,
+                        None,
+                    );
                     eprintln!("[csa] connection error: {e}");
                     if !config.keep_alive {
                         return 1;
@@ -87,7 +105,13 @@ fn run() -> i32 {
             },
             Err(e) => {
                 attempts += 1;
-                write_runtime_status(&config, "connection_error", Some("connect_error"));
+                write_runtime_status_progress(
+                    &config,
+                    "connection_error",
+                    Some("connect_error"),
+                    completed_attempts,
+                    None,
+                );
                 eprintln!("[csa] connect failed (attempt {attempts}): {e}");
                 if !config.keep_alive {
                     return 1;
@@ -210,6 +234,16 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
             "--loop" => {
                 cfg.keep_alive = true;
             }
+            "--max-games" => {
+                i += 1;
+                let value = arg(&argv, i)?
+                    .parse::<u32>()
+                    .map_err(|error| format!("--max-games: {error}"))?;
+                if value == 0 {
+                    return Err("--max-games must be at least 1".into());
+                }
+                cfg.max_games = Some(value);
+            }
             "--help" | "-h" => {
                 print_usage();
                 std::process::exit(0);
@@ -240,6 +274,9 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
         return Err(
             "--loop requires explicit --eval material|nnue (and --weights for nnue)".into(),
         );
+    }
+    if cfg.max_games.is_some() && !cfg.keep_alive {
+        return Err("--max-games requires --loop".into());
     }
     match cfg.evaluation {
         EvaluationMode::Material if cfg.weights_path.is_some() => {
@@ -287,6 +324,9 @@ impl RunManifest<'_> {
             "ponder": "disabled",
             "analysis_record_schema": "sekirei.analysis-record.v3",
             "keep_alive": config.keep_alive,
+            "max_games": config.max_games,
+            "completed_attempts": 0,
+            "terminal_stop_reason": null,
             "game_id": config.game_id,
             "server": config.server,
             "port": config.port,
@@ -346,6 +386,7 @@ fn print_usage() {
     eprintln!("  --resign <cp>      resign threshold in centipawns (default: 2000)");
     eprintln!("  --depth <n>        max search depth (default: 50)");
     eprintln!("  --loop             reconnect after each game");
+    eprintln!("  --max-games <n>    stop after n game attempts (requires --loop)");
 }
 
 #[cfg(test)]
@@ -395,6 +436,18 @@ mod tests {
         let config = parse_args_from(["--loop", "--eval", "material"]).unwrap();
         assert!(config.keep_alive);
         assert_eq!(config.evaluation, EvaluationMode::Material);
+    }
+
+    #[test]
+    fn bounded_loop_requires_a_positive_limit_and_explicit_loop() {
+        let config = parse_args_from(["--loop", "--max-games", "5", "--eval", "material"]).unwrap();
+        assert_eq!(config.max_games, Some(5));
+
+        let zero = parse_args_from(["--loop", "--max-games", "0", "--eval", "material"]);
+        assert!(matches!(zero, Err(message) if message.contains("at least 1")));
+
+        let missing_loop = parse_args_from(["--max-games", "5"]);
+        assert!(matches!(missing_loop, Err(message) if message.contains("requires --loop")));
     }
 
     #[test]

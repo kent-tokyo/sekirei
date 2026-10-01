@@ -1,9 +1,39 @@
 # Shared-TT write topology audit
 
-Status: **historical static audit for issue #32 (2026-08-11)**. Source line
+Status: **closed diagnostic audit for issue #32 (updated 2026-10-01)**. Source line
 numbers and branch SHAs in the original report aged quickly, so this condensed
 record keeps the verified control-flow conclusions and their evidence class.
 It is not proof that an untraced race occurred in a particular game.
+
+## Resolution replay (2026-10-01)
+
+The release example `tt_write_topology_replay` now emits both the TT counters
+and a compact search-result signature (`best_move_raw`, score, depth, nodes).
+It was built in release mode and run 500 times per mode from startpos at depth
+2 with a 3,000-node ceiling.
+
+| Mode | Stable result signature | Nodes | Equal-depth rewrites | Shallower rejects |
+|---|---:|---:|---:|---:|
+| `SpecTopN=0` | 500/500 | 2,128 in every run | 0 | 0 |
+| `SpecTopN=2` | 500/500 | 2,066–2,128 | 1 total | 943 total |
+
+The speculative mode therefore does have schedule-dependent TT traffic, and
+the observer caught one same-key/equal-depth rewrite. It did **not** change the
+selected move, score, or completed depth in this replay. The deterministic
+control was stable in every measured field. This closes the requested bounded
+replay without changing the hot TT replacement policy: the evidence shows
+mechanism-level nondeterminism, not a result-changing correctness failure.
+`SpecTopN>0` remains an explicitly concurrent diagnostic/experimental mode;
+deterministic measurements use `SpecTopN=0`.
+
+Reproduction:
+
+```bash
+cargo build --release -p sekirei-core --example tt_write_topology_replay
+for i in {1..500}; do
+  target/release/examples/tt_write_topology_replay
+done
+```
 
 ## Why the audit was opened
 
@@ -100,7 +130,7 @@ The audit did not implement these speculative fixes because none of the
 remaining race-shaped findings had a trace. PR #37 addressed the separate,
 proven abort bug only.
 
-## Reproduction standard for future work
+## Reproduction standard for a future replacement-policy change
 
 Before changing replacement policy, capture debug-only events containing at
 least `(hash, depth, bound, producer, thread, sequence)` during a repeatable
