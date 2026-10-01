@@ -201,6 +201,7 @@ fn main() {
     let pruning = PruningConfig {
         null_move: !disable_nmp,
         late_move_reduction: !disable_lmr,
+        ..PruningConfig::default()
     };
     let diagnostics = (iteration_trace || profile_cost).then(|| Arc::new(SearchDiagnostics::new()));
     let searcher = if let Some(diagnostics) = diagnostics.as_ref() {

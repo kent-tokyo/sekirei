@@ -66,8 +66,12 @@ pub const LAZY_PERSISTENT: u32 = 1;
 pub const LAZY_MAIN_STOPS: u32 = 2;
 /// Odd-numbered helper workers search every iteration one ply deeper.
 pub const LAZY_DEPTH_SKEW: u32 = 4;
+/// Workers search sequentially instead of splitting young brothers on the
+/// shared Rayon pool (which the workers themselves already occupy).
+pub const LAZY_NO_YBW: u32 = 8;
 /// Default behaviour switches.
-pub const LAZY_DEFAULT_FLAGS: u32 = LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW;
+pub const LAZY_DEFAULT_FLAGS: u32 =
+    LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
 
 impl LazySmpSearcher {
     /// Create a Lazy SMP searcher. `workers == 0` is normalized to one worker.
@@ -86,6 +90,7 @@ impl LazySmpSearcher {
                     let mut searcher =
                         Searcher::with_abort_flag(tt.clone(), external_abort.clone());
                     searcher.set_depth_skew(Self::skew(flags, index));
+                    searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
                     searcher
                 })
                 .collect()
@@ -180,6 +185,7 @@ impl LazySmpSearcher {
                     let mut searcher =
                         Searcher::with_abort_flag(worker_tt, self.external_abort.clone());
                     searcher.set_depth_skew(Self::skew(self.flags, index));
+                    searcher.set_ybw_split(self.flags & LAZY_NO_YBW == 0);
                     searcher.search_with_history(&mut worker_board, config, history)
                 };
                 if index == 0 && self.workers > 1 && self.flags & LAZY_MAIN_STOPS != 0 {
