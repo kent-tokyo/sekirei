@@ -651,6 +651,9 @@ pub struct Searcher {
     /// (`clear_tt`, on a new game). Killers stay per search.
     history: Arc<HistoryTable>,
     countermoves: Arc<CountermoveTable>,
+    /// Plies added to every iterative-deepening iteration (Lazy SMP helper
+    /// workers use 1 so that they search one ply ahead of the main worker).
+    depth_skew: u32,
 }
 
 impl Searcher {
@@ -670,6 +673,7 @@ impl Searcher {
             pruning: PruningConfig::default(),
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -684,6 +688,7 @@ impl Searcher {
             pruning,
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -701,6 +706,7 @@ impl Searcher {
             pruning,
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -714,6 +720,7 @@ impl Searcher {
             pruning: PruningConfig::default(),
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
         }
     }
 
@@ -740,6 +747,11 @@ impl Searcher {
         }
         self.history.clear();
         self.countermoves.clear();
+    }
+
+    /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
+    pub fn set_depth_skew(&mut self, skew: u32) {
+        self.depth_skew = skew;
     }
 
     /// Run iterative-deepening search from the current position up to `config.max_depth`
@@ -965,7 +977,11 @@ impl Searcher {
         let mut root_mate_safety_cache = RootMateSafetyCache::default();
         let history = &SearchHistory::root(history);
 
-        for depth in 1..=config.max_depth {
+        for iteration in 1..=config.max_depth {
+            let depth = iteration + self.depth_skew;
+            if depth > config.max_depth {
+                break;
+            }
             let (m, score, root_bound) = root_search(
                 &state,
                 board,

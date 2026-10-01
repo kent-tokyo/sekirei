@@ -50,18 +50,61 @@ pub struct LazySmpSearcher {
     share_tt: bool,
     hash_mb: usize,
     external_abort: Arc<std::sync::atomic::AtomicBool>,
+    /// Behaviour switches, see [`LAZY_PERSISTENT`], [`LAZY_MAIN_STOPS`] and
+    /// [`LAZY_DEPTH_SKEW`].
+    flags: u32,
+    /// Persistent shared-TT workers (with [`LAZY_PERSISTENT`]): move-ordering
+    /// history carries over from one search to the next, as in the
+    /// single-worker searcher.
+    persistent: Vec<Searcher>,
 }
+
+/// Keep one searcher per worker across searches (history tables persist
+/// within a game and are cleared with the TT).
+pub const LAZY_PERSISTENT: u32 = 1;
+/// When worker 0 finishes its search, stop the helper workers.
+pub const LAZY_MAIN_STOPS: u32 = 2;
+/// Odd-numbered helper workers search every iteration one ply deeper.
+pub const LAZY_DEPTH_SKEW: u32 = 4;
+/// Default behaviour switches.
+pub const LAZY_DEFAULT_FLAGS: u32 = LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW;
 
 impl LazySmpSearcher {
     /// Create a Lazy SMP searcher. `workers == 0` is normalized to one worker.
     pub fn new(tt: Arc<Tt>, workers: usize) -> Self {
+        Self::with_flags(tt, workers, LAZY_DEFAULT_FLAGS)
+    }
+
+    /// Create a Lazy SMP searcher with explicit behaviour switches
+    /// (`LAZY_*` constants; 0 is the original independent-worker scheme).
+    pub fn with_flags(tt: Arc<Tt>, workers: usize, flags: u32) -> Self {
+        let workers = workers.max(1);
+        let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let persistent = if flags & LAZY_PERSISTENT != 0 {
+            (0..workers)
+                .map(|index| {
+                    let mut searcher =
+                        Searcher::with_abort_flag(tt.clone(), external_abort.clone());
+                    searcher.set_depth_skew(Self::skew(flags, index));
+                    searcher
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
         Self {
             tt,
-            workers: workers.max(1),
+            workers,
             share_tt: true,
             hash_mb: 16,
-            external_abort: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            external_abort,
+            flags,
+            persistent,
         }
+    }
+
+    fn skew(flags: u32, index: usize) -> u32 {
+        u32::from(flags & LAZY_DEPTH_SKEW != 0 && index % 2 == 1)
     }
 
     /// Create a diagnostic searcher whose workers use isolated TT instances.
@@ -72,7 +115,7 @@ impl LazySmpSearcher {
 
     /// Isolated-TT diagnostic constructor with an explicit table size.
     pub fn new_isolated_with_hash_mb(tt: Arc<Tt>, workers: usize, hash_mb: usize) -> Self {
-        let mut searcher = Self::new(tt, workers);
+        let mut searcher = Self::with_flags(tt, workers, 0);
         searcher.share_tt = false;
         searcher.hash_mb = hash_mb;
         searcher
@@ -92,6 +135,9 @@ impl LazySmpSearcher {
     /// Reset the shared TT between games, matching the regular searcher API.
     pub fn clear_tt(&self) {
         self.tt.clear();
+        for searcher in &self.persistent {
+            searcher.clear_tt();
+        }
     }
 
     /// Probe the shared TT for a ponder move after the selected move.
@@ -121,15 +167,27 @@ impl LazySmpSearcher {
         let started = Instant::now();
         let results: Vec<SearchInfo> = (0..self.workers)
             .into_par_iter()
-            .map(|_| {
+            .map(|index| {
                 let mut worker_board = board.clone();
-                let worker_tt = if self.share_tt {
-                    self.tt.clone()
+                let info = if let Some(searcher) = self.persistent.get(index) {
+                    searcher.search_with_history(&mut worker_board, config, history)
                 } else {
-                    Tt::new(self.hash_mb)
+                    let worker_tt = if self.share_tt {
+                        self.tt.clone()
+                    } else {
+                        Tt::new(self.hash_mb)
+                    };
+                    let mut searcher =
+                        Searcher::with_abort_flag(worker_tt, self.external_abort.clone());
+                    searcher.set_depth_skew(Self::skew(self.flags, index));
+                    searcher.search_with_history(&mut worker_board, config, history)
                 };
-                Searcher::with_abort_flag(worker_tt, self.external_abort.clone())
-                    .search_with_history(&mut worker_board, config, history)
+                if index == 0 && self.workers > 1 && self.flags & LAZY_MAIN_STOPS != 0 {
+                    // The main worker owns time management; helpers stop with it.
+                    self.external_abort
+                        .store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                info
             })
             .collect();
 

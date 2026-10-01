@@ -5,7 +5,7 @@
 
 use std::io::{self, BufRead, Write};
 use std::path::Path;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -20,7 +20,7 @@ use sekirei_core::{
         validate_nnue_residual_scale_permille,
     },
     halfkp,
-    lazy_smp::{LazySmpSearcher, LazySmpWorkerInfo},
+    lazy_smp::{LAZY_DEFAULT_FLAGS, LazySmpSearcher, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
     nnue::load_evaluator,
@@ -52,10 +52,14 @@ const SEARCH_STACK_BYTES: usize = RECURSIVE_SEARCH_STACK_BYTES;
 // Dedicated speculative-search pool size. Was hardcoded in make_searcher()
 // with no USI option (issue #9); this is that same value now exposed as
 // the SpecTopN option's default, so not setting it changes nothing.
-const DEFAULT_SPEC_TOP_N: usize = 3;
+const DEFAULT_SPEC_TOP_N: usize = 0;
+// Lazy SMP behaviour switches (USI option LazyFlags, `lazy_smp::LAZY_*`).
+static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SearchMode {
+    /// One thread: the sequential searcher; more threads: Lazy SMP.
+    Auto,
     Speculative,
     LazySmp,
     Dfpn,
@@ -128,7 +132,11 @@ impl SearchBackend {
     }
 
     fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
-        Self::LazySmp(Arc::new(LazySmpSearcher::new(Tt::new(hash_mb), workers)))
+        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags(
+            Tt::new(hash_mb),
+            workers,
+            LAZY_FLAGS.load(Ordering::Relaxed),
+        )))
     }
 
     fn dfpn() -> Self {
@@ -684,7 +692,7 @@ fn main() {
     let mut spec_top_n = DEFAULT_SPEC_TOP_N;
     // Mirrors the USI Threads option; zero means one Lazy SMP worker.
     let mut threads: u32 = 0;
-    let mut search_mode = SearchMode::Speculative;
+    let mut search_mode = SearchMode::Auto;
     let mut searcher = make_searcher(hash_mb, spec_top_n, threads_for_lazy_smp(0), search_mode);
     let mut eval_file: Option<String> = None;
     // NNUE is intentionally a process-global OnceLock.  Remember the path
@@ -753,10 +761,13 @@ fn main() {
                 println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
                 println!("option name Threads type spin default 0 min 0 max 512");
                 println!(
-                    "option name SearchMode type combo default Speculative var Speculative var LazySMP var Dfpn var SharedMcts"
+                    "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts"
                 );
                 println!(
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
+                );
+                println!(
+                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 7"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
                 println!("option name Ponder type check default false");
@@ -872,6 +883,17 @@ fn main() {
                             "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
                         );
                     }
+                } else if parts.get(1) == Some(&"LazyFlags")
+                    && let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok())
+                {
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    LAZY_FLAGS.store(n.min(7), Ordering::Relaxed);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
                 } else if parts.get(1) == Some(&"SpecTopN")
                     && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
                 {
@@ -901,7 +923,7 @@ fn main() {
                             threads = n as u32;
                             // ponytail: build_global silently fails if already init'd; that's fine
                             ensure_search_pool(n);
-                            if search_mode == SearchMode::LazySmp {
+                            if matches!(search_mode, SearchMode::LazySmp | SearchMode::Auto) {
                                 abort_and_join_inflight_search(
                                     &mut search_abort,
                                     &mut search_handle,
@@ -919,6 +941,7 @@ fn main() {
                     && let Some(mode) = parts.get(3)
                 {
                     let new_mode = match *mode {
+                        "Auto" => SearchMode::Auto,
                         "LazySMP" => SearchMode::LazySmp,
                         "Speculative" => SearchMode::Speculative,
                         "Dfpn" => SearchMode::Dfpn,
@@ -1318,6 +1341,8 @@ fn make_searcher(
     mode: SearchMode,
 ) -> Arc<SearchBackend> {
     Arc::new(match mode {
+        SearchMode::Auto if threads <= 1 => SearchBackend::speculative(hash_mb, 0),
+        SearchMode::Auto => SearchBackend::lazy_smp(hash_mb, threads),
         SearchMode::Speculative => SearchBackend::speculative(hash_mb, spec_top_n),
         SearchMode::LazySmp => SearchBackend::lazy_smp(hash_mb, threads),
         SearchMode::Dfpn => SearchBackend::dfpn(),
