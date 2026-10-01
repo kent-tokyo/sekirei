@@ -164,7 +164,17 @@ pub(super) struct HistoryTable {
     corr_pawn: Vec<AtomicI16>,
     corr_hand: Vec<AtomicI16>,
     corr_king: Vec<AtomicI16>,
+    // From-to history: color × from (square, or drop kind) × to.
+    ft: Vec<AtomicI16>,
+    // Pawn-structure history: pawn bucket × color × move slot × to.
+    pawnh: Vec<AtomicI16>,
 }
+
+/// From-square slots of the from-to history: the 81 squares, then one per
+/// piece kind for drops.
+const FT_FROM: usize = Square::NUM + PieceKind::COUNT;
+/// Pawn-structure buckets of the pawn history.
+pub(super) const PAWN_HIST_BUCKETS: usize = 512;
 
 /// Buckets of the pawn and hand correction tables per side to move.
 const CORR_BUCKETS: usize = 1 << 14;
@@ -221,6 +231,50 @@ impl HistoryTable {
             corr_king: (0..2 * Square::NUM * Square::NUM)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
+            ft: (0..2 * FT_FROM * Square::NUM)
+                .map(|_| AtomicI16::new(0))
+                .collect(),
+            pawnh: (0..PAWN_HIST_BUCKETS * 2 * keys)
+                .map(|_| AtomicI16::new(0))
+                .collect(),
+        }
+    }
+
+    #[inline]
+    fn ft_idx(color: Color, m: Move) -> usize {
+        let from = m
+            .from
+            .map_or(Square::NUM + m.piece_kind.index(), |f| f.index() as usize);
+        (color.index() * FT_FROM + from) * Square::NUM + m.to.index() as usize
+    }
+
+    /// From-to history of `m`.
+    pub(super) fn ft_get(&self, color: Color, m: Move) -> i32 {
+        i32::from(self.ft[Self::ft_idx(color, m)].load(Ordering::Relaxed))
+    }
+
+    /// Pawn-structure bucket of `board` for the pawn history.
+    pub(super) fn pawn_bucket(board: &crate::board::Board) -> usize {
+        let fold = |x: u128| (x as u64) ^ ((x >> 64) as u64).rotate_left(29);
+        let pawns = fold(board.pieces(Color::Black, PieceKind::Fu).0)
+            ^ fold(board.pieces(Color::White, PieceKind::Fu).0).rotate_left(17);
+        (pawns.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> (64 - 9)) as usize
+    }
+
+    #[inline]
+    fn pawnh_idx(bucket: usize, color: Color, m: Move) -> usize {
+        (bucket * 2 + color.index()) * HISTORY_SLOTS * Square::NUM + Self::key(m)
+    }
+
+    /// Pawn-structure history of `m` in pawn bucket `bucket`.
+    pub(super) fn pawnh_get(&self, bucket: usize, color: Color, m: Move) -> i32 {
+        i32::from(self.pawnh[Self::pawnh_idx(bucket, color, m)].load(Ordering::Relaxed))
+    }
+
+    /// Gravity update of the pawn-structure entry.
+    pub(super) fn pawnh_add(&self, bucket: usize, color: Color, m: Move, delta: i32) {
+        if delta != 0 {
+            Self::gravity16(&self.pawnh[Self::pawnh_idx(bucket, color, m)], delta);
         }
     }
 
@@ -236,6 +290,8 @@ impl HistoryTable {
             &self.corr_pawn,
             &self.corr_hand,
             &self.corr_king,
+            &self.ft,
+            &self.pawnh,
         ] {
             for cell in table {
                 cell.store(0, Ordering::Relaxed);
@@ -245,7 +301,7 @@ impl HistoryTable {
 
     #[inline]
     pub(super) fn key(m: Move) -> usize {
-        let slot = if m.from.is_some() {
+        let slot = if m.from.is_some() || p::CONT_MERGE_DROPS() != 0 {
             m.piece_kind.index()
         } else {
             PieceKind::COUNT + m.piece_kind.index()
@@ -359,6 +415,9 @@ impl HistoryTable {
     /// Reward a move that caused a beta cutoff (`history_bonus`).
     pub(super) fn update(&self, color: Color, m: Move, depth: u32) {
         self.apply(Self::idx(color, m), history_bonus(depth));
+        if p::FT_WEIGHT() > 0 {
+            Self::gravity16(&self.ft[Self::ft_idx(color, m)], history_bonus(depth));
+        }
     }
 
     pub(super) fn get(&self, color: Color, m: Move) -> i32 {
@@ -369,6 +428,9 @@ impl HistoryTable {
     /// (`history_malus`).
     pub(super) fn malus(&self, color: Color, m: Move, depth: u32) {
         self.apply(Self::idx(color, m), -history_malus(depth));
+        if p::FT_WEIGHT() > 0 {
+            Self::gravity16(&self.ft[Self::ft_idx(color, m)], -history_malus(depth));
+        }
     }
 
     /// History gravity: move toward `delta`'s sign while decaying the old

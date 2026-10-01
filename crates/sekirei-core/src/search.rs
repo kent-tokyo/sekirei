@@ -1956,9 +1956,13 @@ impl NodeKey {
     ) -> i32 {
         let depth = self.depth;
         let cont = ContMoves::at(self.ply, prev_mv);
+        let pawn_bucket = (p::PAWN_HIST_WEIGHT() > 0).then(|| HistoryTable::pawn_bucket(board));
         for &qm in tried_quiet {
             state.history.malus(stm, qm, depth);
             cont.update(&state.history, stm, qm, -history_malus(depth));
+            if let Some(b) = pawn_bucket {
+                state.history.pawnh_add(b, stm, qm, -history_malus(depth));
+            }
         }
         let capture_malus = -history_malus(depth) * p::CAPT_UPDATE() / 16;
         for &cm in tried_captures {
@@ -2246,9 +2250,15 @@ fn alpha_beta(
     set_doubles(ply + 1, doubles);
 
     // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
+    // RFP_GUARD: only at non-PV nodes whose TT move (if any) is a capture,
+    // returning a score between beta and the static eval.
+    let rfp_guard = p::RFP_GUARD() != 0;
     if let Some(se) = static_eval
         && depth <= p::RFP_MAX_DEPTH() as u32
         && beta.abs() < MATE_SCORE - 1000
+        && (!rfp_guard
+            || (beta - alpha == 1
+                && tt_mv.is_none_or(|t| t.from.is_some() && board.piece_at(t.to).is_some())))
         && se
             - (p::RFP_MARGIN()
                 - if improving {
@@ -2259,7 +2269,7 @@ fn alpha_beta(
                 * depth as i32
             >= beta
     {
-        return se;
+        return if rfp_guard { (2 * beta + se) / 3 } else { se };
     }
 
     // Razoring: far below alpha at shallow non-PV depth, trust quiescence.
@@ -3772,6 +3782,14 @@ fn update_quiet_heuristics(
     if board.piece_at(m.to).is_none() && !m.promote {
         killers.add(ply as usize, m);
         history.update(stm, m, depth);
+        if p::PAWN_HIST_WEIGHT() > 0 {
+            history.pawnh_add(
+                HistoryTable::pawn_bucket(board),
+                stm,
+                m,
+                history_bonus(depth),
+            );
+        }
         ContMoves::at(ply, prev_mv).update(history, stm, m, history_bonus(depth));
         if let Some(pm) = prev_mv {
             countermoves.update(stm.flip(), pm, m);
@@ -3965,6 +3983,7 @@ fn order_moves_in_place(
 ) {
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
+    let pawn_bucket = (p::PAWN_HIST_WEIGHT() > 0).then(|| HistoryTable::pawn_bucket(board));
     let mut key = |m: &Move| {
         let _score_timer = ProfileTimer::new(
             diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_score_ns)),
@@ -4018,6 +4037,38 @@ fn order_moves_in_place(
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
         let mut score = history.get(stm, m) + cont.score(history, stm, m);
+        if p::FT_WEIGHT() > 0 {
+            score += history.ft_get(stm, m) * p::FT_WEIGHT() / 16;
+        }
+        if let Some(b) = pawn_bucket {
+            score += history.pawnh_get(b, stm, m) * p::PAWN_HIST_WEIGHT() / 16;
+        }
+        // Drops near a king: attacking drops by the enemy king (DROP_KING_BONUS,
+        // times 2 when adjacent) and defending drops next to our own king
+        // (DROP_DEF_BONUS) rank ahead of other drops with the same history.
+        if m.from.is_none() && (p::DROP_KING_BONUS() > 0 || p::DROP_DEF_BONUS() > 0) {
+            let dist = |k: Square| {
+                (i32::from(m.to.file_0()) - i32::from(k.file_0()))
+                    .abs()
+                    .max((i32::from(m.to.rank_0()) - i32::from(k.rank_0())).abs())
+            };
+            if let Some(k) = board.king_square(stm.flip()) {
+                let d = dist(k);
+                if d <= 2 {
+                    score += p::DROP_KING_BONUS() * (3 - d);
+                }
+            }
+            if let Some(k) = board.king_square(stm)
+                && dist(k) <= 1
+            {
+                score += p::DROP_DEF_BONUS();
+            }
+        }
+        // Quiet moves and drops that hang the moved piece rank last among
+        // quiet moves (QUIET_SEE_ORDER).
+        if p::QUIET_SEE_ORDER() > 0 && crate::movegen::see_exchange(board, m) < 0 {
+            score -= p::QUIET_SEE_ORDER();
+        }
         if p::SAFE_CHECK_BONUS() > 0
             && move_gives_direct_check(board, m)
             && crate::movegen::see_swap(board, m) >= -75

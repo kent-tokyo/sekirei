@@ -232,6 +232,27 @@ search_params! {
     LMP_CHECKS = 0, 0, 1;
     /// Move-count pruning also at PV nodes (1) or only at non-PV nodes (0).
     LMP_PV = 0, 0, 1;
+    /// Ordering bonus of a quiet drop within two squares of the enemy king
+    /// (twice as much when adjacent); 0 disables it.
+    DROP_KING_BONUS = 0, 0, 4000;
+    /// Ordering bonus of a quiet drop next to our own king; 0 disables it.
+    DROP_DEF_BONUS = 0, 0, 4000;
+    /// Continuation histories key a drop like a board move of the same
+    /// piece to the same square (1), or apart from it (0).
+    CONT_MERGE_DROPS = 0, 0, 1;
+    /// Ordering penalty of a quiet move or drop whose static exchange loses
+    /// the moved piece; 0 disables it.
+    QUIET_SEE_ORDER = 0, 0, 16000;
+    /// Ordering weight (sixteenths) of the from-to history of quiet moves
+    /// (0 disables the table).
+    FT_WEIGHT = 0, 0, 64;
+    /// Ordering weight (sixteenths) of the pawn-structure history of quiet
+    /// moves (0 disables the table).
+    PAWN_HIST_WEIGHT = 0, 0, 64;
+    /// Reverse futility pruning only at non-PV nodes whose TT move is absent
+    /// or a capture, returning (2 beta + eval) / 3 (1); or everywhere,
+    /// returning the eval (0).
+    RFP_GUARD = 0, 0, 1;
     /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
     LMP_BASE = 5, 1, 12;
     /// The move-count limit is scaled by this (sixteenths) when the static
