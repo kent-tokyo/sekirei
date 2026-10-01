@@ -237,13 +237,13 @@ pub fn weights_active() -> bool {
 /// load and evaluate identically. (Older `JANOSW02` differs in layout and is not
 /// accepted — the size check below also rejects it.)
 pub fn load_weights(path: &Path) -> io::Result<()> {
-    let w = read_weights(path)?;
     if crate::halfkp::is_active() {
         return Err(io::Error::new(
             io::ErrorKind::AlreadyExists,
             "a HalfKP network is already loaded for this process",
         ));
     }
+    let w = read_weights(path)?;
     if WEIGHTS.set(w).is_ok() {
         NNUE_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
