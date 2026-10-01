@@ -234,6 +234,15 @@ search_params! {
     LMP_PV = 0, 0, 1;
     /// Move-count pruning at PV nodes (LMP_PV) only up to this depth.
     LMP_PV_MAX_DEPTH = 16, 1, 16;
+    /// Futility pruning of captures and promotions at non-PV nodes whose
+    /// reduced depth is at most this (0 disables): skipped when the static
+    /// eval plus `CAPT_FUT_BASE + CAPT_FUT_PER_DEPTH * reduced depth` plus
+    /// the material gain does not reach alpha and the move gives no check.
+    CAPT_FUT_MAX_DEPTH = 0, 0, 12;
+    /// See `CAPT_FUT_MAX_DEPTH`.
+    CAPT_FUT_BASE = 200, 0, 800;
+    /// See `CAPT_FUT_MAX_DEPTH`.
+    CAPT_FUT_PER_DEPTH = 200, 0, 600;
     /// Ordering bonus of a quiet drop within two squares of the enemy king
     /// (twice as much when adjacent); 0 disables it.
     DROP_KING_BONUS = 0, 0, 4000;

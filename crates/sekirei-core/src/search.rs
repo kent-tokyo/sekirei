@@ -3611,6 +3611,35 @@ impl LateMoveNode {
         let non_pv =
             self.beta - self.alpha == 1 && !self.in_check && self.best_score > -(MATE_SCORE - 1000);
         let exempt_check = || check_exempt_from_pruning(board, m);
+        // Futility pruning of captures and promotions (CAPT_FUT_MAX_DEPTH): at
+        // non-PV nodes, a tactical move whose material gain plus a margin that
+        // grows with its reduced depth cannot lift the static eval to alpha is
+        // skipped, unless it gives check.
+        if non_pv
+            && !is_quiet
+            && p::CAPT_FUT_MAX_DEPTH() > 0
+            && self.lmr_depth <= p::CAPT_FUT_MAX_DEPTH() as u32
+            && let Some(se) = self.static_eval
+        {
+            let victim = board
+                .piece_at(m.to)
+                .map_or(0, |v| PIECE_VALUE[v.kind.index()]);
+            let promo = if m.promote {
+                PIECE_VALUE[m.piece_kind.promoted().index()] - PIECE_VALUE[m.piece_kind.index()]
+            } else {
+                0
+            };
+            if se
+                + p::CAPT_FUT_BASE()
+                + p::CAPT_FUT_PER_DEPTH() * self.lmr_depth as i32
+                + victim
+                + promo
+                <= self.alpha
+                && !move_gives_direct_check(board, m)
+            {
+                return true;
+            }
+        }
         // Futility on the reduced depth: a late quiet move whose reduced
         // search would be shallow is skipped when the static eval is far
         // below alpha, at any node depth that has a static eval.
