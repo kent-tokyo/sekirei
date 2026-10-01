@@ -232,6 +232,8 @@ search_params! {
     LMP_CHECKS = 0, 0, 1;
     /// Move-count pruning also at PV nodes (1) or only at non-PV nodes (0).
     LMP_PV = 0, 0, 1;
+    /// Move-count pruning at PV nodes (LMP_PV) only up to this depth.
+    LMP_PV_MAX_DEPTH = 16, 1, 16;
     /// Ordering bonus of a quiet drop within two squares of the enemy king
     /// (twice as much when adjacent); 0 disables it.
     DROP_KING_BONUS = 0, 0, 4000;

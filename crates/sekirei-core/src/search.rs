@@ -3631,7 +3631,10 @@ impl LateMoveNode {
         // Move-count pruning also at PV nodes (LMP_PV), once a move has
         // been searched and the node is not lost.
         let lmp_node = non_pv
-            || (p::LMP_PV() != 0 && !self.in_check && self.best_score > -(MATE_SCORE - 1000));
+            || (p::LMP_PV() != 0
+                && depth <= p::LMP_PV_MAX_DEPTH() as u32
+                && !self.in_check
+                && self.best_score > -(MATE_SCORE - 1000));
         if lmp_node
             && is_quiet
             && depth <= p::LMP_MAX_DEPTH().max(p::SHALLOW_PRUNE_MAX_DEPTH()) as u32
