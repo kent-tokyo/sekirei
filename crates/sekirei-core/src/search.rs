@@ -2023,10 +2023,6 @@ impl Frame {
     };
 }
 
-/// Most double singular extensions allowed on one path, so that they cannot
-/// feed each other without bound.
-const MAX_DOUBLE_EXTENSIONS: u8 = 4;
-
 /// Double extensions on the path to `ply`.
 #[inline]
 fn doubles_at(ply: u32) -> u8 {
@@ -2072,6 +2068,12 @@ fn stack_index(ply: u32) -> usize {
 #[inline]
 fn set_current_move(ply: u32, m: Option<Move>) {
     STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].current_move = m);
+}
+
+/// The move being searched from `ply` (`None`: none recorded, or a null move).
+#[inline]
+fn current_move_at(ply: u32) -> Option<Move> {
+    STACK.with(|stack| stack.borrow()[stack_index(ply)].current_move)
 }
 
 /// Record the static evaluation at `ply` and report whether it improves on
@@ -2369,7 +2371,7 @@ fn alpha_beta(
     let sing_ext = if let Some(se_score) = tt_se_score.filter(|_| {
         skip_move.is_none()
             && depth >= p::SE_MIN_DEPTH() as u32
-            && !in_check
+            && (!in_check || p::SE_IN_CHECK() != 0)
             && tt_mv.is_some()
             && tt_se_depth >= (depth as u8).saturating_sub(3)
     }) {
@@ -2388,15 +2390,49 @@ fn alpha_beta(
             Some(in_check),
             history,
         );
-        // 1 if the TT move is singular; 2 when clearly so at a non-PV node.
-        if !is_pv && p::MULTICUT() != 0 && sval >= se_beta && se_beta >= beta {
+        if !is_pv && p::MULTICUT() == 1 && sval >= se_beta && se_beta >= beta {
             return se_beta;
         }
-        if sval < se_beta {
+        // Not singular, and even without the TT move the reduced search
+        // reaches beta: several moves cut, so the node is assumed to cut.
+        if !is_pv
+            && p::MULTICUT() == 2
+            && sval >= se_beta
+            && sval >= beta
+            && sval.abs() < MATE_SCORE - 1000
+        {
+            return sval;
+        }
+        let ext_max = p::SE_EXT_MAX();
+        if sval < se_beta && ext_max == 0 {
+            // 1 if the TT move is singular; 2 when clearly so at a non-PV node.
             let double = p::SE_DOUBLE_MARGIN();
-            1 + u32::from(
-                double > 0 && !is_pv && doubles < MAX_DOUBLE_EXTENSIONS && sval < se_beta - double,
+            1 + i32::from(
+                double > 0
+                    && !is_pv
+                    && doubles < p::SE_MAX_DOUBLES() as u8
+                    && sval < se_beta - double,
             )
+        } else if sval < se_beta {
+            let quiet = tt_mv.is_some_and(|m| !m.promote && board.piece_at(m.to).is_none());
+            let margin = |base: i32, pv: i32, q: i32| {
+                base + if is_pv { pv } else { 0 } - if quiet { q } else { 0 }
+            };
+            let m2 = margin(p::SE_M2_BASE(), p::SE_M2_PV(), p::SE_M2_QUIET());
+            let m3 = margin(p::SE_M3_BASE(), p::SE_M3_PV(), p::SE_M3_QUIET());
+            let multi = doubles < p::SE_MAX_DOUBLES() as u8;
+            let mut ext = 1;
+            if multi && ext_max >= 2 && sval < se_beta - m2 {
+                ext += 1;
+                if ext_max >= 3 && sval < se_beta - m3 {
+                    ext += 1;
+                }
+            }
+            ext
+        } else if se_score >= beta {
+            -p::SE_NEG_TT()
+        } else if cut_node {
+            -p::SE_NEG_CUT()
         } else {
             0
         }
@@ -2425,14 +2461,14 @@ fn alpha_beta(
     } else {
         0
     };
-    set_doubles(ply + 1, doubles + u8::from(first_ext == 2));
+    set_doubles(ply + 1, doubles + u8::from(first_ext >= 2));
     set_cut(ply + 1, !is_pv && !cut_node);
     let score0 = -alpha_beta(
         state,
         board,
         -beta,
         -alpha,
-        (depth - 1) + first_ext,
+        (depth as i32 - 1 + first_ext).max(0) as u32,
         ply + 1,
         true,
         Some(first_move),
@@ -2469,6 +2505,13 @@ fn alpha_beta(
     if score0 > alpha {
         alpha = score0;
     }
+    // The remaining moves of a node whose TT move is singular are searched
+    // one ply deeper (SE_DEPTH_BUMP).
+    let depth = if sing_ext > 0 && p::SE_DEPTH_BUMP() != 0 {
+        depth + 1
+    } else {
+        depth
+    };
     // Track first_move for malus if it didn't cut off
     if !enemy.contains(first_move.to) && !first_move.promote {
         tried_quiet.push(first_move);
@@ -2824,6 +2867,7 @@ fn quiescence(
     let orig_alpha = alpha;
 
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, board.side_to_move));
+    let mut stand_pat_value: Option<i32> = None;
 
     // Stand-pat and delta pruning only apply when not in check.
     // In check the side to move has no quiet option, so stand-pat is invalid.
@@ -2833,6 +2877,7 @@ fn quiescence(
             return MATE_SCORE - (ply as i32 + 1);
         }
         let stand_pat = evaluate_for_search(state, board);
+        stand_pat_value = Some(stand_pat);
         if stand_pat >= beta {
             if qply == 0 && !state.budget.should_abort() {
                 store_tt_for_search(
@@ -2934,6 +2979,15 @@ fn quiescence(
     let stm = board.side_to_move;
     // In check: whether some evasion has already been found not to be mated.
     let mut escaped = false;
+    // Capture pruning outside check (QS_MOVE_LIMIT, QS_FUT_MARGIN,
+    // QS_SEE_MIN): recaptures on the square just moved to and captures that
+    // give check are never pruned.
+    let prev_to = ply.checked_sub(1).and_then(current_move_at).map(|pm| pm.to);
+    let qs_limit = p::QS_MOVE_LIMIT() as u32;
+    let qs_fut = p::QS_FUT_MARGIN();
+    let qs_see = p::QS_SEE_MIN();
+    let qs_on = qs_limit > 0 || qs_fut > 0 || qs_see > 0;
+    let mut qs_count = 0u32;
     for &m in move_buffer.as_slice() {
         if p::SKIP_NONPROMO() != 0 && useless_non_promotion(m, stm) {
             continue;
@@ -2958,7 +3012,24 @@ fn quiescence(
         {
             continue;
         }
+        let prunable = qs_on && stand_pat_value.is_some() && prev_to != Some(m.to);
+        let victim_value = board
+            .piece_at(m.to)
+            .map_or(0, |v| PIECE_VALUE[v.kind.index()]);
+        let see_bad = prunable && qs_see > 0 && crate::movegen::see_swap(board, m) < -qs_see;
+        if qs_on {
+            set_current_move(ply, Some(m));
+        }
         let (tok, child_in_check, child_history) = play(board, m, history);
+        if prunable && !child_in_check {
+            qs_count += 1;
+            let futile =
+                qs_fut > 0 && stand_pat_value.is_some_and(|sp| sp + qs_fut + victim_value <= alpha);
+            if futile || see_bad || (qs_limit > 0 && qs_count > qs_limit) {
+                board.undo_move_for_search(tok);
+                continue;
+            }
+        }
         let score = -quiescence(
             state,
             board,
@@ -3527,9 +3598,8 @@ impl LateMoveNode {
         {
             return true;
         }
-        let non_pv = self.beta - self.alpha == 1
-            && !self.in_check
-            && self.best_score > -(MATE_SCORE - 1000);
+        let non_pv =
+            self.beta - self.alpha == 1 && !self.in_check && self.best_score > -(MATE_SCORE - 1000);
         let exempt_check = || check_exempt_from_pruning(board, m);
         // Futility on the reduced depth: a late quiet move whose reduced
         // search would be shallow is skipped when the static eval is far
@@ -3732,7 +3802,7 @@ fn lmr_reduce(
     history: &HistoryTable,
     stm: Color,
 ) -> u32 {
-    if depth < 3 {
+    if depth < p::LMR_MIN_DEPTH() as u32 {
         return 0;
     }
     if move_idx < 2 {

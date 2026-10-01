@@ -152,7 +152,11 @@ fn play_game(args: &Args, rng: &mut Rng, lines: &mut Vec<(String, i32, bool, u32
         match history.outcome_at_current_position() {
             Some(RepetitionOutcome::Draw) => return 0,
             Some(RepetitionOutcome::PerpetualCheck(loser)) => {
-                return if loser == sekirei_core::color::Color::Black { -1 } else { 1 };
+                return if loser == sekirei_core::color::Color::Black {
+                    -1
+                } else {
+                    1
+                };
             }
             None => {}
         }
@@ -163,7 +167,8 @@ fn main() {
     let args = parse_args();
     if let Some(path) = &args.eval {
         sekirei_core::halfkp::set_fv_scale(args.fv_scale).expect("fv scale");
-        let format = sekirei_core::nnue::load_evaluator(std::path::Path::new(path)).expect("eval file");
+        let format =
+            sekirei_core::nnue::load_evaluator(std::path::Path::new(path)).expect("eval file");
         eprintln!("eval {path} ({format:?})");
     } else {
         eprintln!("eval material");

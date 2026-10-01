@@ -181,6 +181,49 @@ search_params! {
     /// A singular TT move whose verification falls this far below the
     /// singular bound is extended by two plies at non-PV nodes (0 disables).
     SE_DOUBLE_MARGIN = 0, 0, 200;
+    /// Graded singular extension: 0 keeps the one-ply extension with the
+    /// optional `SE_DOUBLE_MARGIN` double; 1..=3 is the largest extension of
+    /// a singular TT move, which gets one ply, a second one when the
+    /// verification falls `M2` below the singular bound and a third when it
+    /// falls `M3` below it.
+    SE_EXT_MAX = 0, 0, 3;
+    /// `M2 = SE_M2_BASE + SE_M2_PV (PV node) - SE_M2_QUIET (quiet TT move)`.
+    SE_M2_BASE = 0, -400, 400;
+    /// See `SE_M2_BASE`.
+    SE_M2_PV = 200, 0, 600;
+    /// See `SE_M2_BASE`.
+    SE_M2_QUIET = 150, 0, 600;
+    /// `M3 = SE_M3_BASE + SE_M3_PV (PV node) - SE_M3_QUIET (quiet TT move)`.
+    SE_M3_BASE = 80, -400, 600;
+    /// See `SE_M3_BASE`.
+    SE_M3_PV = 300, 0, 800;
+    /// See `SE_M3_BASE`.
+    SE_M3_QUIET = 200, 0, 600;
+    /// Most multi-ply singular extensions on one path from the root.
+    SE_MAX_DOUBLES = 4, 0, 32;
+    /// Negative extension: a TT move that is not singular while its TT score
+    /// is at least beta is searched this many plies shallower (0 disables).
+    SE_NEG_TT = 0, 0, 3;
+    /// Negative extension at expected cut nodes when the TT move is not
+    /// singular (0 disables).
+    SE_NEG_CUT = 0, 0, 3;
+    /// Late move reductions apply from this depth on.
+    LMR_MIN_DEPTH = 3, 2, 3;
+    /// After a singular TT move, search the node's other moves one ply
+    /// deeper (1) or not (0).
+    SE_DEPTH_BUMP = 0, 0, 1;
+    /// Singular extension also at nodes in check (1) or not (0).
+    SE_IN_CHECK = 0, 0, 1;
+    /// Quiescence outside check: at most this many captures are searched
+    /// besides recaptures and captures that give check (0: no limit).
+    QS_MOVE_LIMIT = 0, 0, 16;
+    /// Quiescence outside check: a capture is skipped when the stand-pat
+    /// score plus the captured piece's value plus this margin does not reach
+    /// alpha (0 disables; recaptures and checks are exempt).
+    QS_FUT_MARGIN = 0, 0, 1000;
+    /// Quiescence outside check: a capture whose static exchange loses more
+    /// than this is skipped (0 disables; recaptures and checks are exempt).
+    QS_SEE_MIN = 0, 0, 1000;
     /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
     LMP_BASE = 5, 1, 12;
     /// The move-count limit is scaled by this (sixteenths) when the static
@@ -202,8 +245,9 @@ search_params! {
     HP_MARGIN = 4000, 500, 16000;
     /// Multi-cut: when the singular verification search at a non-PV node
     /// fails high against a bound that is itself at least beta, return that
-    /// bound (1) instead of searching on (0).
-    MULTICUT = 0, 0, 1;
+    /// bound (1); or, when the verification score itself reaches beta, return
+    /// that score (2); 0 searches on.
+    MULTICUT = 0, 0, 2;
     /// Keep the history, countermove and correction tables from one search
     /// to the next within a game (1), or clear them when a search starts (0,
     /// as before they were kept).
