@@ -20,6 +20,7 @@ runs `wasm-pack` with the locked Cargo graph and adds `LICENSE-MIT`,
 import init, {
   startSfen,
   legalMoves,
+  analyzeMateInOne,
   applyMove,
   computerMove,
   searchCapabilities,
@@ -34,10 +35,29 @@ sfen = applyMove(sfen, "7g7f");
 const reply = computerMove(sfen, 4, 50_000);
 console.log(reply.effectiveWorkers); // 1
 sfen = applyMove(sfen, reply.bestMove);
+
+const problem = analyzeMateInOne(
+  "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1",
+);
+console.log(problem.validPosition, problem.solutions, problem.uniqueSolution);
 ```
 
 Rejected input throws an object with stable `code` and human-readable
 `message` fields.
+
+## Mate-in-one validation
+
+`analyzeMateInOne(sfen)` treats the SFEN side to move as the attacker and uses
+the same complete legal-move rules as `sekirei-core`. It checks that each side
+has exactly one king and that the defender is not already in check, then tests
+every legal attack and every legal reply. This includes distant and discovered
+checks, promotion choices, drops, nifu, dead-rank restrictions, and
+uchifuzume.
+
+The result exposes `validPosition`, `defenderAlreadyInCheck`, `invalidReason`,
+the sorted USI `solutions`, and `uniqueSolution`. A parseable but invalid
+problem returns `validPosition = false`; malformed SFEN throws the structured
+`invalid_sfen` error.
 
 ## Browser search contract
 

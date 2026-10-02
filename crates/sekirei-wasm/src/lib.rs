@@ -8,6 +8,7 @@
 
 use js_sys::{Array, Object, Reflect};
 use sekirei_core::board::Board;
+use sekirei_core::mate::{MateInOneInvalidReason, analyze_mate_in_one as analyze_core_mate_in_one};
 use sekirei_core::movegen::generate_legal_moves;
 use sekirei_core::search::{SearchConfig, Searcher};
 use sekirei_core::sfen::{STARTPOS_SFEN, board_to_sfen, move_from_usi, move_to_usi};
@@ -20,6 +21,10 @@ const MAX_SEARCH_DEPTH: u32 = 8;
 const MAX_SEARCH_NODES: u32 = 100_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
+#[cfg(test)]
+const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
+#[cfg(test)]
+const VALID_MATE_SFEN: &str = "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ApiError {
@@ -60,6 +65,14 @@ struct SearchResult {
     used_fallback: bool,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MateInOneResult {
+    valid_position: bool,
+    defender_already_in_check: bool,
+    invalid_reason: Option<&'static str>,
+    solutions: Vec<String>,
+}
+
 fn parse_board(sfen: &str) -> Result<Board, ApiError> {
     if sfen.len() > MAX_SFEN_BYTES {
         return Err(ApiError::new(
@@ -78,6 +91,26 @@ fn legal_move_strings(sfen: &str) -> Result<Vec<String>, ApiError> {
         .collect::<Vec<_>>();
     moves.sort_unstable();
     Ok(moves)
+}
+
+fn analyze_mate_in_one_impl(sfen: &str) -> Result<MateInOneResult, ApiError> {
+    let board = parse_board(sfen)?;
+    let analysis = analyze_core_mate_in_one(&board);
+    let valid_position = analysis.valid_position();
+    let defender_already_in_check = analysis.defender_already_in_check();
+    let invalid_reason = analysis.invalid_reason.map(MateInOneInvalidReason::code);
+    let mut solutions = analysis
+        .solutions
+        .into_iter()
+        .map(move_to_usi)
+        .collect::<Vec<_>>();
+    solutions.sort_unstable();
+    Ok(MateInOneResult {
+        valid_position,
+        defender_already_in_check,
+        invalid_reason,
+        solutions,
+    })
 }
 
 fn apply_move_impl(sfen: &str, usi_move: &str) -> Result<String, ApiError> {
@@ -234,6 +267,49 @@ impl SearchCapabilities {
     }
 }
 
+/// Complete mate-in-one analysis for a browser-supplied SFEN position.
+#[wasm_bindgen]
+pub struct MateInOneAnalysis {
+    result: MateInOneResult,
+}
+
+#[wasm_bindgen]
+impl MateInOneAnalysis {
+    /// Whether the initial position satisfies the mate-problem contract.
+    #[wasm_bindgen(getter, js_name = validPosition)]
+    pub fn valid_position(&self) -> bool {
+        self.result.valid_position
+    }
+
+    /// Whether the defending king was already in check in the initial position.
+    #[wasm_bindgen(getter, js_name = defenderAlreadyInCheck)]
+    pub fn defender_already_in_check(&self) -> bool {
+        self.result.defender_already_in_check
+    }
+
+    /// Stable reason code when `validPosition` is false.
+    #[wasm_bindgen(getter, js_name = invalidReason)]
+    pub fn invalid_reason(&self) -> Option<String> {
+        self.result.invalid_reason.map(str::to_owned)
+    }
+
+    /// Every legal mate-in-one move, sorted in USI notation.
+    #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
+    pub fn solutions(&self) -> Array {
+        let array = Array::new();
+        for solution in &self.result.solutions {
+            array.push(&JsValue::from_str(solution));
+        }
+        array
+    }
+
+    /// Whether exactly one solution exists.
+    #[wasm_bindgen(getter, js_name = uniqueSolution)]
+    pub fn unique_solution(&self) -> bool {
+        self.result.solutions.len() == 1
+    }
+}
+
 /// Return the fixed browser-search worker contract for this package build.
 #[wasm_bindgen(js_name = searchCapabilities)]
 pub fn search_capabilities() -> SearchCapabilities {
@@ -254,6 +330,18 @@ pub fn legal_moves(sfen: &str) -> Result<Array, JsValue> {
         array.push(&JsValue::from_str(&mv));
     }
     Ok(array)
+}
+
+/// Validate a mate-in-one problem and return all complete legal solutions.
+///
+/// The SFEN side to move is the attacker. A malformed SFEN is returned as an
+/// `invalid_sfen` error; a structurally invalid problem position is represented
+/// by `validPosition = false` and `invalidReason` in the result.
+#[wasm_bindgen(js_name = analyzeMateInOne)]
+pub fn analyze_mate_in_one(sfen: &str) -> Result<MateInOneAnalysis, JsValue> {
+    analyze_mate_in_one_impl(sfen)
+        .map(|result| MateInOneAnalysis { result })
+        .map_err(ApiError::into_js)
 }
 
 /// Validate and apply one USI move, returning the resulting SFEN.
@@ -350,6 +438,31 @@ mod tests {
         assert_eq!(result.depth(), repeated.depth());
         assert_eq!(result.nodes(), repeated.nodes());
     }
+
+    #[test]
+    fn mate_in_one_adapter_matches_the_core_analysis() {
+        let invalid = analyze_mate_in_one_impl(ALREADY_CHECKED_MATE_SFEN).unwrap();
+        assert!(!invalid.valid_position);
+        assert!(invalid.defender_already_in_check);
+        assert_eq!(invalid.invalid_reason, Some("defender_already_in_check"));
+        assert!(invalid.solutions.is_empty());
+
+        let result = analyze_mate_in_one_impl(VALID_MATE_SFEN).unwrap();
+        let board = Board::from_sfen(VALID_MATE_SFEN).unwrap();
+        let mut expected = analyze_core_mate_in_one(&board)
+            .solutions
+            .into_iter()
+            .map(move_to_usi)
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+        assert_eq!(result.solutions, expected);
+        assert!(result.solutions.contains(&"5e5c".to_owned()));
+
+        assert_eq!(
+            analyze_mate_in_one_impl("not sfen").unwrap_err().code,
+            "invalid_sfen"
+        );
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -380,9 +493,39 @@ mod browser_tests {
         assert!(!capabilities.worker_threads_supported());
         assert!(!capabilities.shared_array_buffer_required());
 
+        let invalid = analyze_mate_in_one(ALREADY_CHECKED_MATE_SFEN)
+            .expect("parseable invalid problem must return an analysis");
+        assert!(!invalid.valid_position());
+        assert!(invalid.defender_already_in_check());
+        assert_eq!(
+            invalid.invalid_reason().as_deref(),
+            Some("defender_already_in_check")
+        );
+        assert_eq!(invalid.solutions().length(), 0);
+
+        let mate = analyze_mate_in_one(VALID_MATE_SFEN).expect("mate fixture must be valid");
+        assert!(mate.valid_position());
+        assert!(
+            mate.solutions()
+                .iter()
+                .any(|solution| solution.as_string().as_deref() == Some("5e5c"))
+        );
+
         let error = legal_moves("not sfen").expect_err("malformed SFEN must fail");
         assert_eq!(
             Reflect::get(&error, &JsValue::from_str("code"))
+                .expect("error must expose code")
+                .as_string()
+                .as_deref(),
+            Some("invalid_sfen")
+        );
+
+        let mate_error = match analyze_mate_in_one("not sfen") {
+            Ok(_) => panic!("malformed mate SFEN must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            Reflect::get(&mate_error, &JsValue::from_str("code"))
                 .expect("error must expose code")
                 .as_string()
                 .as_deref(),

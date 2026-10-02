@@ -46,6 +46,8 @@ jobs:
           test -f crates/sekirei-wasm/pkg/LICENSE-MIT
           test -f crates/sekirei-wasm/pkg/LICENSE-APACHE
           test -f crates/sekirei-wasm/pkg/NOTICE
+          grep -Fq 'export function analyzeMateInOne' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
 
   test:
     runs-on: ubuntu-latest
