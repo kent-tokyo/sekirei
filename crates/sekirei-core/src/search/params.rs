@@ -359,6 +359,16 @@ search_params! {
     /// move that led to it, by this many sixteenths of the history bonus (0:
     /// off).
     HIST_PRIOR = 0, 0, 32;
+    /// Ordering weight (sixteenths) of the continuation history with the
+    /// opponent's move three plies earlier (0: not used).
+    CONT3_WEIGHT = 0, 0, 48;
+    /// Update weight (sixteenths) of that continuation history.
+    CONT3_UPDATE = 0, 0, 48;
+    /// Ordering weight (sixteenths) of the continuation history with the
+    /// side's own move six plies earlier (0: not used).
+    CONT6_WEIGHT = 0, 0, 48;
+    /// Update weight (sixteenths) of that continuation history.
+    CONT6_UPDATE = 0, 0, 48;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;

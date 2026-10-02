@@ -2128,6 +2128,10 @@ struct ContMoves {
     prev: Option<Move>,
     own2: Option<Move>,
     own4: Option<Move>,
+    /// The opponent's move three plies earlier (`CONT3_*`).
+    opp3: Option<Move>,
+    /// The side's own move six plies earlier (`CONT6_*`).
+    own6: Option<Move>,
 }
 
 impl ContMoves {
@@ -2142,15 +2146,32 @@ impl ContMoves {
             prev,
             own2: back(2),
             own4: back(4),
+            opp3: if p::CONT3_WEIGHT() + p::CONT3_UPDATE() > 0 {
+                back(3)
+            } else {
+                None
+            },
+            own6: if p::CONT6_WEIGHT() + p::CONT6_UPDATE() > 0 {
+                back(6)
+            } else {
+                None
+            },
         }
     }
 
     /// Continuation part of a quiet move's ordering score.
     #[inline]
     fn score(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
-        history.cont_get(stm, self.prev, m)
+        let mut s = history.cont_get(stm, self.prev, m)
             + history.follow_get(stm, self.own2, m) * p::CONT2_WEIGHT() / 16
-            + history.follow_get(stm, self.own4, m) * p::CONT4_WEIGHT() / 16
+            + history.follow_get(stm, self.own4, m) * p::CONT4_WEIGHT() / 16;
+        if self.opp3.is_some() {
+            s += history.cont_get(stm, self.opp3, m) * p::CONT3_WEIGHT() / 16;
+        }
+        if self.own6.is_some() {
+            s += history.follow_get(stm, self.own6, m) * p::CONT6_WEIGHT() / 16;
+        }
+        s
     }
 
     /// Add `delta` to the continuation entries of `m`.
@@ -2159,6 +2180,12 @@ impl ContMoves {
         history.cont_add(stm, self.prev, m, delta);
         history.follow_add(stm, self.own2, m, delta * p::CONT2_UPDATE() / 16);
         history.follow_add(stm, self.own4, m, delta * p::CONT4_UPDATE() / 16);
+        if self.opp3.is_some() && p::CONT3_UPDATE() > 0 {
+            history.cont_add(stm, self.opp3, m, delta * p::CONT3_UPDATE() / 16);
+        }
+        if self.own6.is_some() && p::CONT6_UPDATE() > 0 {
+            history.follow_add(stm, self.own6, m, delta * p::CONT6_UPDATE() / 16);
+        }
     }
 }
 
