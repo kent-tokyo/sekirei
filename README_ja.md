@@ -68,6 +68,10 @@ CC BY 4.0の別artifactです。
 1手詰め判定を提供します。駒得評価と逐次探索だけを使い、外部重みは読み込みません。
 ネイティブUSIバイナリもブラウザ依存を持ちません。
 
+ビルド済みのv0.3.56 ES module packageは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.56/sekirei-wasm-0.3.56.tgz)
+から取得できます。
+
 ## エンジン設定
 
 USIの`usi`で全optionを表示します。`SearchMode=Auto`は1 threadで逐次探索、複数threadで

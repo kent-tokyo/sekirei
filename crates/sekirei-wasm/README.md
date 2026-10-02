@@ -3,6 +3,14 @@
 This crate packages Sekirei's rules and a bounded computer-move search for a
 static browser client. It is separate from the native USI binary.
 
+## Install
+
+The prebuilt v0.3.56 ES-module package is published with the GitHub Release:
+
+```sh
+npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.56/sekirei-wasm-0.3.56.tgz
+```
+
 ## Build
 
 ```sh
