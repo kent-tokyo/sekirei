@@ -343,6 +343,9 @@ search_params! {
     /// the true value lies beyond the eval on that side (1), or the static
     /// eval alone (0).
     EVAL_TT = 0, 0, 1;
+    /// Move pruning (move count, futility, SEE, history) also at PV nodes
+    /// once a move has been searched (1), or only at non-PV nodes (0).
+    PRUNE_PV = 0, 0, 1;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;

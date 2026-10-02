@@ -3671,8 +3671,9 @@ impl LateMoveNode {
         {
             return true;
         }
-        let non_pv =
-            self.beta - self.alpha == 1 && !self.in_check && self.best_score > -(MATE_SCORE - 1000);
+        let non_pv = (self.beta - self.alpha == 1 || p::PRUNE_PV() != 0)
+            && !self.in_check
+            && self.best_score > -(MATE_SCORE - 1000);
         let exempt_check = || check_exempt_from_pruning(board, m);
         // Futility pruning of captures and promotions (CAPT_FUT_MAX_DEPTH): at
         // non-PV nodes, a tactical move whose material gain plus a margin that
