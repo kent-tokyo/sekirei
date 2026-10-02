@@ -251,6 +251,12 @@ search_params! {
     ORDER_CM = 0, 0, 2;
     /// See `ORDER_KILLER`.
     KILLER_BONUS = 3000, 0, 16000;
+    /// At PV nodes, search the null-window probe of every late move one ply
+    /// deeper (1) or not (0).
+    LMR_PV_PLUS = 0, 0, 1;
+    /// Extend the probe of a quiet late move by one ply when its history
+    /// (butterfly + continuation + follow-up) exceeds this (0 disables).
+    LMR_EXT_HIST = 0, 0, 30000;
     /// Ordering bonus of a quiet drop within two squares of the enemy king
     /// (twice as much when adjacent); 0 disables it.
     DROP_KING_BONUS = 0, 0, 4000;

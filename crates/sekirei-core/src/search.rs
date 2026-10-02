@@ -1406,6 +1406,7 @@ fn pvs_child(
     (alpha, beta): (i32, i32),
     depth: u32,
     reduce: u32,
+    ext: u32,
     ply: u32,
     m: Move,
     cut_node: bool,
@@ -1433,13 +1434,20 @@ fn pvs_child(
         )
     };
     let floor = (p::LMR_MIN_CHILD_DEPTH() as u32).min(full_depth);
-    let mut s = search(
-        alpha,
-        alpha + 1,
-        depth.saturating_sub(1 + reduce).max(floor),
-        reduce > 0 || !cut_node,
-    );
-    if reduce > 0 && s > alpha {
+    // LMR_PV_PLUS: at PV nodes the null-window probe of a late move is one
+    // ply deeper; `ext` extends it further (LMR_EXT_HIST). A probe at or
+    // beyond the full depth is not repeated at the full depth.
+    let plus = u32::from(p::LMR_PV_PLUS() != 0 && beta - alpha > 1);
+    let probe = if plus + ext == 0 {
+        depth.saturating_sub(1 + reduce).max(floor)
+    } else {
+        (depth + plus + ext)
+            .saturating_sub(1 + reduce)
+            .max(floor)
+            .min(depth + 1)
+    };
+    let mut s = search(alpha, alpha + 1, probe, reduce > 0 || !cut_node);
+    if probe < full_depth && reduce > 0 && s > alpha {
         s = search(alpha, alpha + 1, full_depth, !cut_node);
     }
     if s > alpha && s < beta {
@@ -2745,12 +2753,19 @@ fn alpha_beta(
             } else {
                 reduce
             };
+            let ext = u32::from(
+                p::LMR_EXT_HIST() > 0
+                    && is_quiet
+                    && depth >= 3
+                    && lmr_ctx.history_of(&state.history, stm, m) > p::LMR_EXT_HIST(),
+            );
             let s = pvs_child(
                 state,
                 board,
                 (alpha, beta),
                 depth,
                 reduce,
+                ext,
                 ply,
                 m,
                 cut_node,
