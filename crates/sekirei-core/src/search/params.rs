@@ -117,16 +117,16 @@ search_params! {
     /// `min(QUAD * d^2 + LIN * d, MAX)`.
     HIST_BONUS_QUAD = 1, 0, 16;
     /// See `HIST_BONUS_QUAD`.
-    HIST_BONUS_LIN = 0, 0, 400;
+    HIST_BONUS_LIN = 120, 0, 400;
     /// See `HIST_BONUS_QUAD`.
-    HIST_BONUS_MAX = 400, 50, 4000;
+    HIST_BONUS_MAX = 1500, 50, 4000;
     /// History malus for quiet moves searched before the cutting move, with
     /// the same shape as the bonus.
     HIST_MALUS_QUAD = 1, 0, 16;
     /// See `HIST_MALUS_QUAD`.
-    HIST_MALUS_LIN = 0, 0, 400;
+    HIST_MALUS_LIN = 120, 0, 400;
     /// See `HIST_MALUS_QUAD`.
-    HIST_MALUS_MAX = 400, 50, 4000;
+    HIST_MALUS_MAX = 1500, 50, 4000;
     /// Ordering weight (sixteenths) of the continuation history with the
     /// side's own move two plies earlier.
     CONT2_WEIGHT = 16, 0, 48;
@@ -167,7 +167,7 @@ search_params! {
     /// Continuous history term of late move reductions: the reduction falls
     /// by `stat * SCALE / 2^17` plies, where `stat` sums the butterfly,
     /// continuation and two-ply follow-up histories (0 disables it).
-    LMR_STAT_SCALE = 8, 0, 64;
+    LMR_STAT_SCALE = 32, 0, 64;
     /// Reduction removed at PV nodes, in sixteenths of a ply.
     LMR_PV_LESS16 = 0, 0, 32;
     /// Reduction added when the static eval is not improving, in sixteenths
@@ -349,7 +349,7 @@ search_params! {
     /// The reduced depth that futility pruning of quiet moves
     /// (`LMR_FUT_MAX_DEPTH`) looks at moves by the move's history divided by
     /// this: good history deepens it, bad history makes it shallower (0: off).
-    PRUNE_HIST_DIV = 0, 0, 16000;
+    PRUNE_HIST_DIV = 500, 0, 16000;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;
@@ -377,7 +377,7 @@ search_params! {
     /// non-PV nodes a quiet move whose reduced search depth is at most this
     /// is skipped when the static eval plus the shallow futility margin at
     /// that depth does not reach alpha (0 disables it).
-    LMR_FUT_MAX_DEPTH = 0, 0, 12;
+    LMR_FUT_MAX_DEPTH = 8, 0, 12;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.
