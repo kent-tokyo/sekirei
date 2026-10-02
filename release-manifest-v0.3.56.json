@@ -23,6 +23,16 @@
     "status": "verified",
     "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
   },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.56",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.56.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.56/sekirei-wasm-0.3.56.tgz",
+    "sha256": "da70ec8ec574f61c28519eeceadbcf1b5204e687fa5bfb583a06ca2e52587915",
+    "size": 324214,
+    "npm_registry_status": "not_published"
+  },
   "internal_measurement": {
     "spec_top_n": 0,
     "threads": 1,

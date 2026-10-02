@@ -57,6 +57,9 @@ capabilities, and complete legal mate-in-one validation. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
+The prebuilt v0.3.56 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.56/sekirei-wasm-0.3.56.tgz).
+
 ## What is included
 
 - Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence, ordering, and a
