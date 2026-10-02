@@ -346,6 +346,10 @@ search_params! {
     /// Move pruning (move count, futility, SEE, history) also at PV nodes
     /// once a move has been searched (1), or only at non-PV nodes (0).
     PRUNE_PV = 0, 0, 1;
+    /// The reduced depth that futility pruning of quiet moves
+    /// (`LMR_FUT_MAX_DEPTH`) looks at moves by the move's history divided by
+    /// this: good history deepens it, bad history makes it shallower (0: off).
+    PRUNE_HIST_DIV = 0, 0, 16000;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;

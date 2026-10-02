@@ -2754,7 +2754,7 @@ fn alpha_beta(
                 static_eval,
                 best_score,
                 improving,
-                history: if is_quiet && p::HP_MAX_DEPTH() > 0 {
+                history: if is_quiet && (p::HP_MAX_DEPTH() > 0 || p::PRUNE_HIST_DIV() > 0) {
                     lmr_ctx.history_of(&state.history, stm, m)
                 } else {
                     0
@@ -3707,11 +3707,16 @@ impl LateMoveNode {
         // Futility on the reduced depth: a late quiet move whose reduced
         // search would be shallow is skipped when the static eval is far
         // below alpha, at any node depth that has a static eval.
-        let lmr_depth = self.lmr_depth.max(1);
+        let (lmr_depth, fut_depth) = if p::PRUNE_HIST_DIV() > 0 && is_quiet {
+            let d = (self.lmr_depth as i32 + self.history / p::PRUNE_HIST_DIV()).max(0) as u32;
+            (d.max(1), d)
+        } else {
+            (self.lmr_depth.max(1), self.lmr_depth)
+        };
         if non_pv
             && is_quiet
             && p::LMR_FUT_MAX_DEPTH() > 0
-            && self.lmr_depth <= p::LMR_FUT_MAX_DEPTH() as u32
+            && fut_depth <= p::LMR_FUT_MAX_DEPTH() as u32
             && self.static_eval.is_some_and(|se| {
                 se + p::SHALLOW_FUTILITY_BASE() + p::SHALLOW_FUTILITY_PER_DEPTH() * lmr_depth as i32
                     <= self.alpha
