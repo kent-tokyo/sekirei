@@ -2863,12 +2863,27 @@ fn quiescence(
     // score semantics from this qsearch node.
     let hash = board.hash();
     let mut tt_mv = None;
-    if qply == 0
-        && let Some(entry) = probe_tt_for_search(state, hash)
-        && entry.depth == 0
+    let qs_tt = p::QS_TT();
+    let tt_here = qply == 0 || qs_tt & 1 != 0;
+    let mut tt_bound: Option<(Bound, i32)> = None;
+    let tt_entry = if tt_here || qs_tt & 4 != 0 {
+        probe_tt_for_search(state, hash)
+    } else {
+        None
+    };
+    if qs_tt & 4 != 0
+        && let Some(entry) = tt_entry
+        && entry.depth > 0
+    {
+        tt_mv = entry.mv;
+    }
+    if tt_here
+        && let Some(entry) = tt_entry
+        && (entry.depth == 0 || qs_tt & 2 != 0)
     {
         let adj = score_from_tt(entry.score, ply);
         tt_mv = entry.mv;
+        tt_bound = Some((entry.bound, adj));
         match entry.bound {
             Bound::Exact => return adj,
             Bound::Lower => {
@@ -2901,10 +2916,21 @@ fn quiescence(
         if qply == 0 && mate_in_one(board).is_some() {
             return MATE_SCORE - (ply as i32 + 1);
         }
-        let stand_pat = evaluate_for_search(state, board);
+        let mut stand_pat = evaluate_for_search(state, board);
+        if qs_tt & 8 != 0
+            && let Some((bound, adj)) = tt_bound
+            && adj.abs() < MATE_SCORE - 1000
+            && match bound {
+                Bound::Lower => adj > stand_pat,
+                Bound::Upper => adj < stand_pat,
+                Bound::Exact => true,
+            }
+        {
+            stand_pat = adj;
+        }
         stand_pat_value = Some(stand_pat);
         if stand_pat >= beta {
-            if qply == 0 && !state.budget.should_abort() {
+            if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
                     hash,
@@ -2925,7 +2951,7 @@ fn quiescence(
         // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
         const DELTA_MARGIN: i32 = 1_800;
         if stand_pat + DELTA_MARGIN < alpha {
-            if qply == 0 && !state.budget.should_abort() {
+            if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
                     hash,
@@ -2981,7 +3007,7 @@ fn quiescence(
         } else {
             alpha
         };
-        if qply == 0 && !state.budget.should_abort() {
+        if tt_here && !state.budget.should_abort() {
             store_tt_for_search(
                 state,
                 hash,
@@ -3071,7 +3097,7 @@ fn quiescence(
             return 0;
         }
         if score >= beta {
-            if qply == 0 && !state.budget.should_abort() {
+            if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
                     hash,
@@ -3184,7 +3210,7 @@ fn quiescence(
         }
     }
 
-    if qply == 0 && !state.budget.should_abort() {
+    if tt_here && !state.budget.should_abort() {
         store_tt_for_search(
             state,
             hash,

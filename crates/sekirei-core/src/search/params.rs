@@ -333,6 +333,11 @@ search_params! {
     /// non-capture evasions (1), and also capture evasions that lose material
     /// (2), or search every evasion (0).
     QS_EVASION_PRUNE = 0, 0, 2;
+    /// Quiescence TT use (bit mask; 0 = top-level qsearch entries only):
+    /// 1 probes and stores at every qsearch ply, 2 also cuts on main-search
+    /// entries (depth >= 1), 4 orders by a main-search entry's move, 8 lets a
+    /// usable entry bound tighten the stand-pat value.
+    QS_TT = 0, 0, 15;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;
