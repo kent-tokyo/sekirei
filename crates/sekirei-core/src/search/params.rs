@@ -338,6 +338,11 @@ search_params! {
     /// entries (depth >= 1), 4 orders by a main-search entry's move, 8 lets a
     /// usable entry bound tighten the stand-pat value.
     QS_TT = 0, 0, 15;
+    /// Pruning decisions (RFP, razoring, the null-move gate, futility) use
+    /// the TT score in place of the static eval when the entry's bound says
+    /// the true value lies beyond the eval on that side (1), or the static
+    /// eval alone (0).
+    EVAL_TT = 0, 0, 1;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;

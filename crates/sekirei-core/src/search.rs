@@ -1206,6 +1206,8 @@ struct TtProbe {
     se_depth: u8,
     /// Whether the table held an entry for this position at all.
     hit: bool,
+    /// The entry's bound and score, whatever its depth.
+    bound_score: Option<(Bound, i32)>,
 }
 
 impl TtProbe {
@@ -1230,12 +1232,14 @@ impl TtProbe {
             se_score: None,
             se_depth: 0,
             hit: false,
+            bound_score: None,
         };
         let Some(entry) = probe_tt_for_search(state, hash) else {
             return probe;
         };
         probe.hit = true;
         let adj = score_from_tt(entry.score, ply);
+        probe.bound_score = Some((entry.bound, adj));
         probe.mv = entry.mv;
         probe.se_depth = entry.depth;
         if !matches!(entry.bound, Bound::Upper) {
@@ -2254,6 +2258,24 @@ fn alpha_beta(
     // Improving: the static eval beats the one two plies earlier (same side
     // to move). Unknown evals (in check, or not computed) count as improving.
     let improving = record_static_eval(ply, static_eval);
+    // EVAL_TT: a TT bound beyond the static eval refines it for pruning.
+    let static_eval = if p::EVAL_TT() != 0 {
+        static_eval.map(|se| match tt.bound_score {
+            Some((bound, v))
+                if v.abs() < MATE_SCORE - 2000
+                    && match bound {
+                        Bound::Exact => true,
+                        Bound::Lower => v > se,
+                        Bound::Upper => v < se,
+                    } =>
+            {
+                v
+            }
+            _ => se,
+        })
+    } else {
+        static_eval
+    };
     let doubles = doubles_at(ply);
     set_doubles(ply + 1, doubles);
 
