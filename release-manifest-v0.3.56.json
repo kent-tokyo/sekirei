@@ -1,0 +1,45 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.56",
+  "commit": "c3e61dedb00ce78864bb2565ffd52d671edb5ab9",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.56",
+    "sekirei-core": "0.3.56",
+    "sekirei-bench": "0.3.56",
+    "sekirei-csa": "0.3.56",
+    "sekirei-match-runner": "0.3.56",
+    "sekirei-train": "0.3.56"
+  },
+  "dependencies": { "lineprior": "0.12.0" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "6b9eb22debf62d3146a0d2374392c7730792ca237877cf4ac931b54129c45cf1"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 6,
+    "status": "pre_fixed_local_search_gate",
+    "strength_claim": false,
+    "results": "The release-mode USI binary was rebuilt from commit c3e61de. Release tests, Clippy, formatting, documentation, release metadata, and a deterministic USI smoke passed locally. A pre-fixed local self-play SPRT against the previous search defaults used 0.5 seconds per move, one thread, six parallel games, balanced openings, Elo0=0, Elo1=10, and alpha=beta=0.05; it accepted H1 at 239-139-16 over 394 games with LLR +3.03. This is scoped local evidence, not a general strength claim."
+  },
+  "external_opponents": {
+    "status": "diagnostic_only",
+    "configuration": "Independent local one-thread and fixed-node comparisons against YaneuraOu moved in the same direction as self-play, but they are not used as a general external-engine superiority claim. Four-thread evidence remains inconclusive."
+  },
+  "known_limitations": [
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The adopted history defaults passed the one-thread local gate; four-thread evidence remains inconclusive.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "External HalfKP 256x2-32-32 inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
