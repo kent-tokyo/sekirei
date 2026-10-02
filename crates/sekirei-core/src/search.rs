@@ -2832,8 +2832,79 @@ fn alpha_beta(
     if state.budget.should_abort() {
         return 0;
     }
+    if skip_move.is_none() {
+        learn_at_node_exit(
+            state,
+            board,
+            bound,
+            best_move,
+            &tried_quiet,
+            stm,
+            ply,
+            depth,
+            prev_mv,
+        );
+    }
     node.store(state, best_score, bound, best_move);
     best_score
+}
+
+/// History learning when a node ends without a cutoff (`HIST_EXACT`,
+/// `HIST_PRIOR`).
+#[allow(clippy::too_many_arguments)]
+#[inline]
+fn learn_at_node_exit(
+    state: &SearchState,
+    board: &Board,
+    bound: Bound,
+    best_move: Option<Move>,
+    tried_quiet: &[Move],
+    stm: Color,
+    ply: u32,
+    depth: u32,
+    prev_mv: Option<Move>,
+) {
+    if bound == Bound::Exact
+        && p::HIST_EXACT() != 0
+        && let Some(bm) = best_move
+        && board.piece_at(bm.to).is_none()
+        && !bm.promote
+    {
+        let cont = ContMoves::at(ply, prev_mv);
+        for &qm in tried_quiet.iter().filter(|&&qm| qm != bm) {
+            state.history.malus(stm, qm, depth);
+            cont.update(&state.history, stm, qm, -history_malus(depth));
+        }
+        update_quiet_heuristics(
+            &state.killers,
+            &state.history,
+            &state.countermoves,
+            bm,
+            stm,
+            ply,
+            depth,
+            board,
+            prev_mv,
+        );
+    }
+    let prior = p::HIST_PRIOR();
+    if bound == Bound::Upper
+        && prior > 0
+        && depth >= 2
+        && ply >= 1
+        && let Some(pm) = prev_mv
+        && !pm.promote
+    {
+        let bonus = history_bonus(depth) * prior / 16;
+        state
+            .history
+            .apply(HistoryTable::idx(stm.flip(), pm), bonus);
+        ContMoves::at(
+            ply - 1,
+            current_move_at(ply.saturating_sub(2)).filter(|_| ply >= 2),
+        )
+        .update(&state.history, stm.flip(), pm, bonus);
+    }
 }
 
 // ============================================================

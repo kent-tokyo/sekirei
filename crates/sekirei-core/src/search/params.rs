@@ -351,6 +351,14 @@ search_params! {
     /// (`LMR_FUT_MAX_DEPTH`) looks at moves by the move's history divided by
     /// this: good history deepens it, bad history makes it shallower (0: off).
     PRUNE_HIST_DIV = 500, 0, 16000;
+    /// History learning beyond beta cutoffs: a node that ends with an exact
+    /// score rewards its quiet best move and penalises the other quiet moves
+    /// it tried (1), or only cutoffs teach the history (0).
+    HIST_EXACT = 0, 0, 1;
+    /// A node that fails low at depth 2 or more rewards the opponent's quiet
+    /// move that led to it, by this many sixteenths of the history bonus (0:
+    /// off).
+    HIST_PRIOR = 0, 0, 32;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;
