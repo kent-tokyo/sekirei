@@ -11,10 +11,13 @@ use std::collections::HashMap;
 use web_time::Instant;
 
 use crate::board::Board;
+use crate::color::Color;
 use crate::movegen::{
-    MoveBuffer, discovered_check_candidates, is_in_check, move_gives_direct_check,
+    MoveBuffer, discovered_check_candidates, generate_legal_moves, is_in_check,
+    move_gives_direct_check,
 };
 use crate::mv::Move;
+use crate::piece::PieceKind;
 
 const INF: u64 = 1 << 40;
 
@@ -25,6 +28,120 @@ pub struct MateResult {
     pub mate_move: Option<Move>,
     /// Number of expanded nodes.
     pub nodes: u64,
+}
+
+/// Why a position cannot be treated as a mate-in-one problem.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MateInOneInvalidReason {
+    /// The attacking side (the side to move) has no king.
+    MissingAttackerKing,
+    /// The defending side has no king.
+    MissingDefenderKing,
+    /// The attacking side has more than one king.
+    MultipleAttackerKings,
+    /// The defending side has more than one king.
+    MultipleDefenderKings,
+    /// The defending king is already in check in the initial position.
+    DefenderAlreadyInCheck,
+}
+
+impl MateInOneInvalidReason {
+    /// Stable machine-readable reason used by non-Rust adapters.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::MissingAttackerKing => "missing_attacker_king",
+            Self::MissingDefenderKing => "missing_defender_king",
+            Self::MultipleAttackerKings => "multiple_attacker_kings",
+            Self::MultipleDefenderKings => "multiple_defender_kings",
+            Self::DefenderAlreadyInCheck => "defender_already_in_check",
+        }
+    }
+}
+
+/// Complete mate-in-one analysis for a problem position.
+///
+/// The side to move is always the attacker. Unlike the search-oriented
+/// [`crate::movegen::mate_in_one`], this result checks every legal attacking
+/// move and every legal defending reply, so it also covers distant slider
+/// checks and discovered checks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MateInOneAnalysis {
+    /// Side treated as the attacker.
+    pub attacker: Color,
+    /// Why the initial position is not a valid mate-in-one problem.
+    pub invalid_reason: Option<MateInOneInvalidReason>,
+    /// Every legal move that checkmates immediately.
+    pub solutions: Vec<Move>,
+}
+
+impl MateInOneAnalysis {
+    /// Whether the initial position satisfies the problem-position contract.
+    pub fn valid_position(&self) -> bool {
+        self.invalid_reason.is_none()
+    }
+
+    /// Whether the defender was already in check before the attacking move.
+    pub fn defender_already_in_check(&self) -> bool {
+        self.invalid_reason == Some(MateInOneInvalidReason::DefenderAlreadyInCheck)
+    }
+
+    /// Whether exactly one mate-in-one solution exists.
+    pub fn unique_solution(&self) -> bool {
+        self.solutions.len() == 1
+    }
+}
+
+/// Analyze a position as a complete mate-in-one problem.
+///
+/// The board's side to move is the attacker. Invalid problem positions return
+/// an empty solution list with an [`MateInOneInvalidReason`] instead of
+/// panicking.
+pub fn analyze_mate_in_one(board: &Board) -> MateInOneAnalysis {
+    let attacker = board.side_to_move;
+    let defender = attacker.flip();
+    let attacker_kings = board.pieces(attacker, PieceKind::Ou).popcount();
+    let defender_kings = board.pieces(defender, PieceKind::Ou).popcount();
+    let invalid_reason = if attacker_kings == 0 {
+        Some(MateInOneInvalidReason::MissingAttackerKing)
+    } else if defender_kings == 0 {
+        Some(MateInOneInvalidReason::MissingDefenderKing)
+    } else if attacker_kings > 1 {
+        Some(MateInOneInvalidReason::MultipleAttackerKings)
+    } else if defender_kings > 1 {
+        Some(MateInOneInvalidReason::MultipleDefenderKings)
+    } else if is_in_check(board, defender) {
+        Some(MateInOneInvalidReason::DefenderAlreadyInCheck)
+    } else {
+        None
+    };
+
+    if invalid_reason.is_some() {
+        return MateInOneAnalysis {
+            attacker,
+            invalid_reason,
+            solutions: Vec::new(),
+        };
+    }
+
+    let mut position = board.clone();
+    let legal = generate_legal_moves(&mut position);
+    let mut solutions = Vec::new();
+    for mv in legal {
+        let token = position.do_move_for_search(mv);
+        let mates =
+            is_in_check(&position, defender) && generate_legal_moves(&mut position).is_empty();
+        position.undo_move_for_search(token);
+        if mates {
+            solutions.push(mv);
+        }
+    }
+    solutions.sort_unstable_by_key(|mv| mv.raw());
+
+    MateInOneAnalysis {
+        attacker,
+        invalid_reason: None,
+        solutions,
+    }
 }
 
 struct Solver {
@@ -178,7 +295,19 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::movegen::generate_legal_moves;
+    use crate::sfen::move_to_usi;
+
+    const ALREADY_CHECKED_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
+    const DISTANT_ROOK_MATE_SFEN: &str = "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1";
+
+    fn solution_strings(sfen: &str) -> Vec<String> {
+        let board = Board::from_sfen(sfen).expect("fixture must parse");
+        analyze_mate_in_one(&board)
+            .solutions
+            .into_iter()
+            .map(move_to_usi)
+            .collect()
+    }
 
     fn assert_mates(sfen: &str) {
         let board = Board::from_sfen(sfen).unwrap();
@@ -274,5 +403,97 @@ mod tests {
         assert_eq!(result.mate_move, None);
         let mut b = board.clone();
         assert!(!generate_legal_moves(&mut b).is_empty());
+    }
+
+    #[test]
+    fn complete_mate_in_one_rejects_an_initial_check() {
+        let board = Board::from_sfen(ALREADY_CHECKED_SFEN).unwrap();
+        let analysis = analyze_mate_in_one(&board);
+        assert!(!analysis.valid_position());
+        assert!(analysis.defender_already_in_check());
+        assert_eq!(
+            analysis.invalid_reason,
+            Some(MateInOneInvalidReason::DefenderAlreadyInCheck)
+        );
+        assert!(analysis.solutions.is_empty());
+    }
+
+    #[test]
+    fn complete_mate_in_one_finds_distant_promotion_and_non_promotion() {
+        let solutions = solution_strings(DISTANT_ROOK_MATE_SFEN);
+        assert!(solutions.contains(&"5e5c".to_owned()));
+        assert!(solutions.contains(&"5e5c+".to_owned()));
+    }
+
+    #[test]
+    fn complete_mate_in_one_finds_discovered_checks() {
+        // Moving the silver away from the fifth file opens the rook's line to
+        // the white king. The silver itself does not give check from 4d/6d.
+        let solutions = solution_strings("4k4/2S3S2/2SGSGS2/9/4R4/9/9/9/4K4 b - 1");
+        assert!(
+            solutions.contains(&"5c4d".to_owned()) || solutions.contains(&"5c6d".to_owned()),
+            "expected a discovered mate, got {solutions:?}"
+        );
+    }
+
+    #[test]
+    fn complete_mate_in_one_finds_a_drop() {
+        let board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+        let analysis = analyze_mate_in_one(&board);
+        assert!(analysis.valid_position());
+        assert_eq!(
+            analysis.solutions,
+            vec![Move::drop(
+                crate::square::Square::from_shogi(5, 2),
+                PieceKind::Kin
+            )]
+        );
+        assert!(analysis.unique_solution());
+    }
+
+    #[test]
+    fn complete_mate_in_one_keeps_pawn_drop_mate_illegal() {
+        // P*1b would geometrically mate, but uchifuzume makes it illegal.
+        let board = Board::from_sfen("8k/9/7GK/9/9/9/9/9/9 b P 1").unwrap();
+        let analysis = analyze_mate_in_one(&board);
+        assert!(analysis.valid_position());
+        assert!(
+            analysis
+                .solutions
+                .iter()
+                .all(|mv| !(mv.is_drop() && mv.piece_kind == PieceKind::Fu))
+        );
+    }
+
+    #[test]
+    fn complete_mate_in_one_distinguishes_zero_one_and_multiple_solutions() {
+        let none = analyze_mate_in_one(&Board::startpos());
+        assert!(none.valid_position());
+        assert!(none.solutions.is_empty());
+        assert!(!none.unique_solution());
+
+        let one = analyze_mate_in_one(&Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap());
+        assert_eq!(one.solutions.len(), 1);
+        assert!(one.unique_solution());
+
+        let multiple = analyze_mate_in_one(&Board::from_sfen(DISTANT_ROOK_MATE_SFEN).unwrap());
+        assert!(multiple.solutions.len() > 1);
+        assert!(!multiple.unique_solution());
+    }
+
+    #[test]
+    fn complete_mate_in_one_reports_missing_and_duplicate_kings() {
+        let missing = analyze_mate_in_one(&Board::from_sfen("4k4/9/9/9/9/9/9/9/9 b - 1").unwrap());
+        assert_eq!(
+            missing.invalid_reason,
+            Some(MateInOneInvalidReason::MissingAttackerKing)
+        );
+
+        let duplicate =
+            analyze_mate_in_one(&Board::from_sfen("3kk4/9/9/9/9/9/9/9/4K4 b - 1").unwrap());
+        assert_eq!(
+            duplicate.invalid_reason,
+            Some(MateInOneInvalidReason::MultipleDefenderKings)
+        );
     }
 }
