@@ -21,6 +21,32 @@ env:
   RUSTFLAGS: ""
 
 jobs:
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-pack@0.15.0
+      - name: Native API tests
+        run: cargo test -p sekirei-wasm
+      - name: Browser API tests
+        run: wasm-pack test --headless --chrome crates/sekirei-wasm
+      - name: Browser package
+        run: python3 scripts/build_wasm_package.py
+      - name: Package contract
+        run: |
+          test -f crates/sekirei-wasm/pkg/sekirei_wasm_bg.wasm
+          test -f crates/sekirei-wasm/pkg/sekirei_wasm.js
+          test -f crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          test -f crates/sekirei-wasm/pkg/LICENSE-MIT
+          test -f crates/sekirei-wasm/pkg/LICENSE-APACHE
+          test -f crates/sekirei-wasm/pkg/NOTICE
+
   test:
     runs-on: ubuntu-latest
     steps:

@@ -25,7 +25,8 @@
 use rayon::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};

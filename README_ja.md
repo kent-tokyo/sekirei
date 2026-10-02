@@ -61,6 +61,13 @@ CC BY 4.0の別artifactです。
 | `sekirei-match` | `sekirei-match-runner` | USI対局runner |
 | `train` | `sekirei-train` | NNUE学習 |
 
+## ブラウザ / WebAssembly
+
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) は、初期局面SFEN、合法なUSI
+指し手、検証付きの着手適用、上限付きのブラウザ内思考を提供します。駒得評価と
+逐次探索だけを使い、外部重みは読み込みません。ネイティブUSIバイナリも
+ブラウザ依存を持ちません。
+
 ## エンジン設定
 
 USIの`usi`で全optionを表示します。`SearchMode=Auto`は1 threadで逐次探索、複数threadで

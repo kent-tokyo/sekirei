@@ -8,7 +8,7 @@
 //! bounded by a node limit and a ply limit and returns a proven first move.
 
 use std::collections::HashMap;
-use std::time::Instant;
+use web_time::Instant;
 
 use crate::board::Board;
 use crate::movegen::{
