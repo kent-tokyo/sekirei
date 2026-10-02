@@ -724,7 +724,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "lineprior",
  "rayon",
@@ -733,7 +733,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-bench"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "criterion",
  "rayon",
@@ -745,7 +745,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-core"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "rayon",
  "web-time",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-csa"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "dotenvy",
  "sekirei-core",
@@ -762,7 +762,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-match-runner"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "sekirei-core",
  "serde_json",
@@ -771,7 +771,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-train"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "lineprior",
  "sekirei-core",
@@ -782,7 +782,7 @@ dependencies = [
 
 [[package]]
 name = "sekirei-wasm"
-version = "0.3.55"
+version = "0.3.56"
 dependencies = [
  "js-sys",
  "sekirei-core",

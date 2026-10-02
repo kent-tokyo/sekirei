@@ -117,16 +117,16 @@ search_params! {
     /// `min(QUAD * d^2 + LIN * d, MAX)`.
     HIST_BONUS_QUAD = 1, 0, 16;
     /// See `HIST_BONUS_QUAD`.
-    HIST_BONUS_LIN = 0, 0, 400;
+    HIST_BONUS_LIN = 120, 0, 400;
     /// See `HIST_BONUS_QUAD`.
-    HIST_BONUS_MAX = 400, 50, 4000;
+    HIST_BONUS_MAX = 1500, 50, 4000;
     /// History malus for quiet moves searched before the cutting move, with
     /// the same shape as the bonus.
     HIST_MALUS_QUAD = 1, 0, 16;
     /// See `HIST_MALUS_QUAD`.
-    HIST_MALUS_LIN = 0, 0, 400;
+    HIST_MALUS_LIN = 120, 0, 400;
     /// See `HIST_MALUS_QUAD`.
-    HIST_MALUS_MAX = 400, 50, 4000;
+    HIST_MALUS_MAX = 1500, 50, 4000;
     /// Ordering weight (sixteenths) of the continuation history with the
     /// side's own move two plies earlier.
     CONT2_WEIGHT = 16, 0, 48;
@@ -167,7 +167,7 @@ search_params! {
     /// Continuous history term of late move reductions: the reduction falls
     /// by `stat * SCALE / 2^17` plies, where `stat` sums the butterfly,
     /// continuation and two-ply follow-up histories (0 disables it).
-    LMR_STAT_SCALE = 8, 0, 64;
+    LMR_STAT_SCALE = 32, 0, 64;
     /// Reduction removed at PV nodes, in sixteenths of a ply.
     LMR_PV_LESS16 = 0, 0, 32;
     /// Reduction added when the static eval is not improving, in sixteenths
@@ -181,6 +181,103 @@ search_params! {
     /// A singular TT move whose verification falls this far below the
     /// singular bound is extended by two plies at non-PV nodes (0 disables).
     SE_DOUBLE_MARGIN = 0, 0, 200;
+    /// Graded singular extension: 0 keeps the one-ply extension with the
+    /// optional `SE_DOUBLE_MARGIN` double; 1..=3 is the largest extension of
+    /// a singular TT move, which gets one ply, a second one when the
+    /// verification falls `M2` below the singular bound and a third when it
+    /// falls `M3` below it.
+    SE_EXT_MAX = 0, 0, 3;
+    /// `M2 = SE_M2_BASE + SE_M2_PV (PV node) - SE_M2_QUIET (quiet TT move)`.
+    SE_M2_BASE = 0, -400, 400;
+    /// See `SE_M2_BASE`.
+    SE_M2_PV = 200, 0, 600;
+    /// See `SE_M2_BASE`.
+    SE_M2_QUIET = 150, 0, 600;
+    /// `M3 = SE_M3_BASE + SE_M3_PV (PV node) - SE_M3_QUIET (quiet TT move)`.
+    SE_M3_BASE = 80, -400, 600;
+    /// See `SE_M3_BASE`.
+    SE_M3_PV = 300, 0, 800;
+    /// See `SE_M3_BASE`.
+    SE_M3_QUIET = 200, 0, 600;
+    /// Most multi-ply singular extensions on one path from the root.
+    SE_MAX_DOUBLES = 4, 0, 32;
+    /// Negative extension: a TT move that is not singular while its TT score
+    /// is at least beta is searched this many plies shallower (0 disables).
+    SE_NEG_TT = 0, 0, 3;
+    /// Negative extension at expected cut nodes when the TT move is not
+    /// singular (0 disables).
+    SE_NEG_CUT = 0, 0, 3;
+    /// Late move reductions apply from this depth on.
+    LMR_MIN_DEPTH = 3, 2, 3;
+    /// After a singular TT move, search the node's other moves one ply
+    /// deeper (1) or not (0).
+    SE_DEPTH_BUMP = 0, 0, 1;
+    /// Singular extension also at nodes in check (1) or not (0).
+    SE_IN_CHECK = 0, 0, 1;
+    /// Quiescence outside check: at most this many captures are searched
+    /// besides recaptures and captures that give check (0: no limit).
+    QS_MOVE_LIMIT = 0, 0, 16;
+    /// Quiescence outside check: a capture is skipped when the stand-pat
+    /// score plus the captured piece's value plus this margin does not reach
+    /// alpha (0 disables; recaptures and checks are exempt).
+    QS_FUT_MARGIN = 0, 0, 1000;
+    /// Quiescence outside check: a capture whose static exchange loses more
+    /// than this is skipped (0 disables; recaptures and checks are exempt).
+    QS_SEE_MIN = 0, 0, 1000;
+    /// The move-count pruning limit is scaled by this (sixteenths) when the
+    /// static eval is not improving.
+    LMP_NONIMP_MUL = 16, 4, 16;
+    /// Move-count pruning also skips quiet checks that do not hang the
+    /// checking piece (1), or exempts them (0).
+    LMP_CHECKS = 0, 0, 1;
+    /// Move-count pruning also at PV nodes (1) or only at non-PV nodes (0).
+    LMP_PV = 0, 0, 1;
+    /// Move-count pruning at PV nodes (LMP_PV) only up to this depth.
+    LMP_PV_MAX_DEPTH = 16, 1, 16;
+    /// Futility pruning of captures and promotions at non-PV nodes whose
+    /// reduced depth is at most this (0 disables): skipped when the static
+    /// eval plus `CAPT_FUT_BASE + CAPT_FUT_PER_DEPTH * reduced depth` plus
+    /// the material gain does not reach alpha and the move gives no check.
+    CAPT_FUT_MAX_DEPTH = 0, 0, 12;
+    /// See `CAPT_FUT_MAX_DEPTH`.
+    CAPT_FUT_BASE = 200, 0, 800;
+    /// See `CAPT_FUT_MAX_DEPTH`.
+    CAPT_FUT_PER_DEPTH = 200, 0, 600;
+    /// Killer moves in the quiet ordering: 0 fixed slots above the history
+    /// quiets, 1 their history score plus `KILLER_BONUS`, 2 no special
+    /// treatment.
+    ORDER_KILLER = 0, 0, 2;
+    /// The countermove in the quiet ordering, with the same meaning.
+    ORDER_CM = 0, 0, 2;
+    /// See `ORDER_KILLER`.
+    KILLER_BONUS = 3000, 0, 16000;
+    /// At PV nodes, search the null-window probe of every late move one ply
+    /// deeper (1) or not (0).
+    LMR_PV_PLUS = 0, 0, 1;
+    /// Extend the probe of a quiet late move by one ply when its history
+    /// (butterfly + continuation + follow-up) exceeds this (0 disables).
+    LMR_EXT_HIST = 0, 0, 30000;
+    /// Ordering bonus of a quiet drop within two squares of the enemy king
+    /// (twice as much when adjacent); 0 disables it.
+    DROP_KING_BONUS = 0, 0, 4000;
+    /// Ordering bonus of a quiet drop next to our own king; 0 disables it.
+    DROP_DEF_BONUS = 0, 0, 4000;
+    /// Continuation histories key a drop like a board move of the same
+    /// piece to the same square (1), or apart from it (0).
+    CONT_MERGE_DROPS = 0, 0, 1;
+    /// Ordering penalty of a quiet move or drop whose static exchange loses
+    /// the moved piece; 0 disables it.
+    QUIET_SEE_ORDER = 0, 0, 16000;
+    /// Ordering weight (sixteenths) of the from-to history of quiet moves
+    /// (0 disables the table).
+    FT_WEIGHT = 0, 0, 64;
+    /// Ordering weight (sixteenths) of the pawn-structure history of quiet
+    /// moves (0 disables the table).
+    PAWN_HIST_WEIGHT = 0, 0, 64;
+    /// Reverse futility pruning only at non-PV nodes whose TT move is absent
+    /// or a capture, returning (2 beta + eval) / 3 (1); or everywhere,
+    /// returning the eval (0).
+    RFP_GUARD = 0, 0, 1;
     /// Shallow move-count pruning limit: `LMP_BASE + depth^2` quiet moves.
     LMP_BASE = 5, 1, 12;
     /// The move-count limit is scaled by this (sixteenths) when the static
@@ -202,8 +299,9 @@ search_params! {
     HP_MARGIN = 4000, 500, 16000;
     /// Multi-cut: when the singular verification search at a non-PV node
     /// fails high against a bound that is itself at least beta, return that
-    /// bound (1) instead of searching on (0).
-    MULTICUT = 0, 0, 1;
+    /// bound (1); or, when the verification score itself reaches beta, return
+    /// that score (2); 0 searches on.
+    MULTICUT = 0, 0, 2;
     /// Keep the history, countermove and correction tables from one search
     /// to the next within a game (1), or clear them when a search starts (0,
     /// as before they were kept).
@@ -227,6 +325,59 @@ search_params! {
     /// below the root (1; 2 also skips lance non-promotions to the second
     /// rank), or search them like any other move (0).
     SKIP_NONPROMO = 1, 0, 2;
+    /// Non-capture promotions count as quiet moves for late move reductions
+    /// and shallow pruning: 0 never (they are neither reduced nor pruned),
+    /// 1 all but pawn promotions, 2 all.
+    QUIET_PROMO = 0, 0, 2;
+    /// Quiescence in check: once one evasion avoids mate, skip the remaining
+    /// non-capture evasions (1), and also capture evasions that lose material
+    /// (2), or search every evasion (0).
+    QS_EVASION_PRUNE = 0, 0, 2;
+    /// Quiescence TT use (bit mask; 0 = top-level qsearch entries only):
+    /// 1 probes and stores at every qsearch ply, 2 also cuts on main-search
+    /// entries (depth >= 1), 4 orders by a main-search entry's move, 8 lets a
+    /// usable entry bound tighten the stand-pat value.
+    QS_TT = 0, 0, 15;
+    /// Pruning decisions (RFP, razoring, the null-move gate, futility) use
+    /// the TT score in place of the static eval when the entry's bound says
+    /// the true value lies beyond the eval on that side (1), or the static
+    /// eval alone (0).
+    EVAL_TT = 0, 0, 1;
+    /// Move pruning (move count, futility, SEE, history) also at PV nodes
+    /// once a move has been searched (1), or only at non-PV nodes (0).
+    PRUNE_PV = 0, 0, 1;
+    /// The reduced depth that futility pruning of quiet moves
+    /// (`LMR_FUT_MAX_DEPTH`) looks at moves by the move's history divided by
+    /// this: good history deepens it, bad history makes it shallower (0: off).
+    PRUNE_HIST_DIV = 500, 0, 16000;
+    /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
+    /// ply less than other quiet moves, 2 reduced like other quiet moves.
+    KILLER_LMR = 0, 0, 2;
+    /// Late move reductions of captures: 0 never, 1 captures that lose
+    /// material (SEE < 0) like quiet moves, 2 also other captures, one ply
+    /// less than quiet moves.
+    CAPTURE_LMR = 0, 0, 2;
+    /// Shallow pruning of quiet moves and drops that hang material: skipped
+    /// when their static exchange is below `-QSEE_MARGIN * depth^2` (0
+    /// disables it; checks follow `CHECK_PRUNE`).
+    QSEE_MARGIN = 0, 0, 200;
+    /// Extra late move reduction at expected cut nodes, in sixteenths of a
+    /// ply.
+    CUT_LMR16 = 0, 0, 48;
+    /// Null-move cutoffs from this depth on are confirmed by a verification
+    /// search without the null move (64: never).
+    NMP_VERIFY_DEPTH = 6, 1, 64;
+    /// Store a ProbCut cutoff in the transposition table as a lower bound
+    /// at the probe depth (1), or not (0).
+    PC_STORE = 0, 0, 1;
+    /// Move-count pruning of quiet moves at non-PV nodes also above
+    /// `SHALLOW_PRUNE_MAX_DEPTH`, up to this depth (0: no further).
+    LMP_MAX_DEPTH = 0, 0, 16;
+    /// Futility pruning of late quiet moves by their reduced depth: at
+    /// non-PV nodes a quiet move whose reduced search depth is at most this
+    /// is skipped when the static eval plus the shallow futility margin at
+    /// that depth does not reach alpha (0 disables it).
+    LMR_FUT_MAX_DEPTH = 8, 0, 12;
 }
 
 /// Set parameter `name` (without the `T_` prefix), clamped to its range.

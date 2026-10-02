@@ -1,17 +1,17 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.55-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.55)
+[![Release](https://img.shields.io/badge/release-v0.3.56-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.56)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.55`は、
-USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore libraryを
-含みます。`SearchMode=Auto`は1 threadで逐次探索、複数threadでLazy SMP、
-MultiPVではroot候補backendを選びます。無人CSA対局も局数上限と記録を持つように
-しました。これらは実装・運用上の変更であり、一般的な棋力向上の主張ではありません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.56`は、
+USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore library、
+browser APIを含みます。履歴に連動したLMRとfutility pruningを既定で有効にし、
+Fischer時計の対局とWASM APIも拡張しました。記録したlocal gateは限定的な根拠であり、
+一般的な棋力向上の主張ではありません。
 
 ## まず動かす
 
@@ -63,10 +63,10 @@ CC BY 4.0の別artifactです。
 
 ## ブラウザ / WebAssembly
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) は、初期局面SFEN、合法なUSI
-指し手、検証付きの着手適用、上限付きのブラウザ内思考を提供します。駒得評価と
-逐次探索だけを使い、外部重みは読み込みません。ネイティブUSIバイナリも
-ブラウザ依存を持ちません。
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) は、SFEN解析、合法なUSI指し手、
+検証付きの着手適用、決定論的な上限付き探索、固定worker能力、完全合法手による
+1手詰め判定を提供します。駒得評価と逐次探索だけを使い、外部重みは読み込みません。
+ネイティブUSIバイナリもブラウザ依存を持ちません。
 
 ## エンジン設定
 

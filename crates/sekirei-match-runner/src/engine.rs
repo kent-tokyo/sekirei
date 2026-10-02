@@ -312,6 +312,7 @@ impl UsiEngine {
         self.send(go_cmd)?;
 
         let deadline = parse_byoyomi_ms(go_cmd)
+            .or_else(|| parse_clock_ms(go_cmd))
             .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
             .unwrap_or(MOVE_FALLBACK);
 
@@ -452,6 +453,20 @@ fn map_recv_result(r: Result<String, mpsc::RecvTimeoutError>) -> io::Result<Stri
     })
 }
 
+/// The longest a Fischer `go btime B wtime W binc I winc J` command can
+/// legitimately take: the larger clock plus the larger increment.
+fn parse_clock_ms(go_cmd: &str) -> Option<u64> {
+    let toks: Vec<&str> = go_cmd.split_whitespace().collect();
+    let get = |key: &str| {
+        toks.iter()
+            .position(|t| *t == key)
+            .and_then(|i| toks.get(i + 1))
+            .and_then(|v| v.parse::<u64>().ok())
+    };
+    let clock = get("btime").max(get("wtime"))?;
+    Some(clock + get("binc").max(get("winc")).unwrap_or(0))
+}
+
 /// Extract the byoyomi value (ms) from a `go ... byoyomi N ...` command.
 fn parse_byoyomi_ms(go_cmd: &str) -> Option<u64> {
     let mut it = go_cmd.split_whitespace();
@@ -514,6 +529,20 @@ impl Drop for UsiEngine {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn clock_deadline_is_the_larger_clock_plus_increment() {
+        assert_eq!(
+            super::parse_clock_ms("go btime 3000 wtime 5000 binc 100 winc 100"),
+            Some(5100)
+        );
+        assert_eq!(
+            super::parse_clock_ms("go btime 3000 wtime 2000"),
+            Some(3000)
+        );
+        assert_eq!(super::parse_clock_ms("go byoyomi 500"), None);
+    }
+
     use super::*;
 
     #[test]

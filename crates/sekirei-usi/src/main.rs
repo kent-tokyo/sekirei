@@ -58,6 +58,10 @@ static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 // MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
 // MultiPV > 1 (only the speculative searcher reports several root lines).
 static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
+// Share (percent) of the Fischer increment added to each move's base time
+// (USI option IncrementUsePercent). 0 keeps the historical rule, which
+// spreads the increment over the remaining-moves estimate.
+static INC_USE_PCT: AtomicU32 = AtomicU32::new(0);
 // SpecTopN used by `Auto` for MultiPV analysis (the former default).
 const AUTO_MULTI_PV_SPEC_TOP_N: usize = 3;
 
@@ -775,6 +779,7 @@ fn main() {
                     "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 15"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
+                println!("option name IncrementUsePercent type spin default 0 min 0 max 100");
                 println!("option name Ponder type check default false");
                 println!("option name MultiPV type spin default 1 min 1 max 256");
                 println!("option name EvalFile type string default ");
@@ -961,6 +966,10 @@ fn main() {
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
+                } else if parts.get(1) == Some(&"IncrementUsePercent") {
+                    if let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok()) {
+                        INC_USE_PCT.store(n.min(100), Ordering::Relaxed);
+                    }
                 } else if parts.get(1) == Some(&"MoveOverhead") {
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
                         move_overhead_ms = n;
@@ -1461,7 +1470,12 @@ fn parse_go(
         let byo_ms = byoyomi.unwrap_or(0);
         let effective_time = our_time.saturating_add(increment);
         let moves_left = movestogo.unwrap_or(30).max(1);
-        let from_main = effective_time / moves_left;
+        let inc_pct = u64::from(INC_USE_PCT.load(Ordering::Relaxed));
+        let from_main = if inc_pct > 0 {
+            our_time / moves_left + increment * inc_pct / 100
+        } else {
+            effective_time / moves_left
+        };
         let from_byo = byo_ms.saturating_mul(13) / 20;
         // Panic mode: if under 5 s and byoyomi exists, lean on byoyomi only
         let panic = our_time < 5_000 && byo_ms > 0;
@@ -1481,6 +1495,12 @@ fn parse_go(
             base.saturating_mul(3) / 2
         }
         .max(50);
+        // With the increment counted in full, never plan past the clock.
+        let hard_ms = if inc_pct > 0 && byo_ms == 0 {
+            hard_ms.min(effective_time.saturating_sub(overhead_ms).max(20))
+        } else {
+            hard_ms
+        };
         let soft_ms = base.saturating_mul(4) / 5;
         let hard = Some(Duration::from_millis(hard_ms));
         let soft = if !panic {

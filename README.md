@@ -1,18 +1,17 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.55-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.55)
+[![Release](https://img.shields.io/badge/release-v0.3.56-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.56)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.55`
-provides a USI engine, CSA client, match runner, NNUE trainer, and reusable core
-library. It makes `SearchMode=Auto` select sequential search for one thread,
-Lazy SMP for multiple threads, and the root-candidate backend for MultiPV. It
-also makes unattended CSA runs bounded and auditable. These are implementation
-and operational changes, not a general playing-strength claim.
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.56`
+provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
+library, and browser API. It enables history-driven reductions and futility
+pruning by default, adds Fischer-clock match support, and expands the WebAssembly
+API. The recorded local gate is scoped evidence, not a general strength claim.
 
 ## Quick start
 
@@ -52,11 +51,11 @@ recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
 
 ### Browser / WebAssembly
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes start-position SFEN,
-legal USI moves, validated move application, and a bounded browser-local
-computer move. It uses material evaluation and sequential search only; it does
-not load external weights or make the native USI binary depend on browser
-bindings.
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes SFEN parsing, legal USI
+moves, validated move application, deterministic bounded search, fixed worker
+capabilities, and complete legal mate-in-one validation. It uses material
+evaluation and sequential search only; it does not load external weights or
+make the native USI binary depend on browser bindings.
 
 ## What is included
 
