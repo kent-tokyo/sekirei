@@ -2,8 +2,9 @@
 //!
 //! The exported API accepts complete SFEN strings and returns either ordinary
 //! JavaScript values or an error object with `code` and `message` fields. It
-//! deliberately exposes no filesystem, external-weight, or parallel-search
-//! controls.
+//! deliberately exposes no filesystem or external-weight controls. Browser
+//! search is currently fixed to one worker; callers can inspect that contract
+//! through [`search_capabilities`] and each [`ComputerMove`] result.
 
 use js_sys::{Array, Object, Reflect};
 use sekirei_core::board::Board;
@@ -18,6 +19,7 @@ const MAX_MOVE_BYTES: usize = 8;
 const MAX_SEARCH_DEPTH: u32 = 8;
 const MAX_SEARCH_NODES: u32 = 100_000;
 const SEARCH_TT_MIB: usize = 4;
+const BROWSER_SEARCH_WORKERS: u32 = 1;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ApiError {
@@ -186,6 +188,56 @@ impl ComputerMove {
     pub fn used_fallback(&self) -> bool {
         self.result.used_fallback
     }
+
+    /// Workers that actually participated in this search.
+    ///
+    /// Browser search is currently deterministic and sequential, so this is
+    /// always one even when the host has more logical processors.
+    #[wasm_bindgen(getter, js_name = effectiveWorkers)]
+    pub fn effective_workers(&self) -> u32 {
+        BROWSER_SEARCH_WORKERS
+    }
+}
+
+/// Browser-search worker capabilities for this package build.
+///
+/// The current implementation intentionally has no worker-thread or
+/// `SharedArrayBuffer` dependency. Clients must use these values instead of
+/// inferring usable cores from `navigator.hardwareConcurrency`.
+#[wasm_bindgen]
+pub struct SearchCapabilities;
+
+#[wasm_bindgen]
+impl SearchCapabilities {
+    /// Maximum worker count accepted by browser search.
+    #[wasm_bindgen(getter, js_name = maxWorkers)]
+    pub fn max_workers(&self) -> u32 {
+        BROWSER_SEARCH_WORKERS
+    }
+
+    /// Worker count that browser search will actually use.
+    #[wasm_bindgen(getter, js_name = effectiveWorkers)]
+    pub fn effective_workers(&self) -> u32 {
+        BROWSER_SEARCH_WORKERS
+    }
+
+    /// Whether this package can start additional browser worker threads.
+    #[wasm_bindgen(getter, js_name = workerThreadsSupported)]
+    pub fn worker_threads_supported(&self) -> bool {
+        false
+    }
+
+    /// Whether browser search requires `SharedArrayBuffer`.
+    #[wasm_bindgen(getter, js_name = sharedArrayBufferRequired)]
+    pub fn shared_array_buffer_required(&self) -> bool {
+        false
+    }
+}
+
+/// Return the fixed browser-search worker contract for this package build.
+#[wasm_bindgen(js_name = searchCapabilities)]
+pub fn search_capabilities() -> SearchCapabilities {
+    SearchCapabilities
 }
 
 /// Return the standard shogi starting position as SFEN.
@@ -213,8 +265,9 @@ pub fn apply_move(sfen: &str, usi_move: &str) -> Result<String, JsValue> {
 /// Select one legal move using material evaluation and bounded sequential search.
 ///
 /// `max_depth` must be in `1..=8`; `max_nodes` must be in `1..=100000`.
-/// No external evaluation weights, filesystem access, or worker threads are
-/// exposed by this package.
+/// No external evaluation weights or filesystem access are exposed. Search is
+/// fixed to one worker; inspect [`search_capabilities`] before presenting any
+/// worker-count UI and read `effectiveWorkers` from the returned result.
 #[wasm_bindgen(js_name = computerMove)]
 pub fn computer_move(sfen: &str, max_depth: u32, max_nodes: u32) -> Result<ComputerMove, JsValue> {
     computer_move_impl(sfen, max_depth, max_nodes)
@@ -280,6 +333,23 @@ mod tests {
         );
         assert!(result.nodes <= 10_000);
     }
+
+    #[test]
+    fn browser_worker_contract_is_single_threaded_and_shared_memory_free() {
+        let capabilities = search_capabilities();
+        assert_eq!(capabilities.max_workers(), 1);
+        assert_eq!(capabilities.effective_workers(), 1);
+        assert!(!capabilities.worker_threads_supported());
+        assert!(!capabilities.shared_array_buffer_required());
+
+        let result = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
+        let repeated = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
+        assert_eq!(result.effective_workers(), 1);
+        assert_eq!(result.best_move(), repeated.best_move());
+        assert_eq!(result.score(), repeated.score());
+        assert_eq!(result.depth(), repeated.depth());
+        assert_eq!(result.nodes(), repeated.nodes());
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -302,6 +372,13 @@ mod browser_tests {
                 .any(|candidate| candidate.as_string().as_deref() == Some(&reply.best_move()))
         );
         assert!(reply.nodes() <= 10_000);
+        assert_eq!(reply.effective_workers(), 1);
+
+        let capabilities = search_capabilities();
+        assert_eq!(capabilities.max_workers(), 1);
+        assert_eq!(capabilities.effective_workers(), 1);
+        assert!(!capabilities.worker_threads_supported());
+        assert!(!capabilities.shared_array_buffer_required());
 
         let error = legal_moves("not sfen").expect_err("malformed SFEN must fail");
         assert_eq!(

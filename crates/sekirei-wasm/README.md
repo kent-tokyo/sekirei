@@ -22,13 +22,17 @@ import init, {
   legalMoves,
   applyMove,
   computerMove,
+  searchCapabilities,
 } from "./pkg/sekirei_wasm.js";
 
 await init();
+const capabilities = searchCapabilities();
+console.log(capabilities.effectiveWorkers); // 1
 let sfen = startSfen();
 console.log(legalMoves(sfen));
 sfen = applyMove(sfen, "7g7f");
 const reply = computerMove(sfen, 4, 50_000);
+console.log(reply.effectiveWorkers); // 1
 sfen = applyMove(sfen, reply.bestMove);
 ```
 
@@ -38,7 +42,12 @@ Rejected input throws an object with stable `code` and human-readable
 ## Browser search contract
 
 - Built-in material evaluation only; no external weights are loaded.
-- Sequential search only; no web workers or shared-memory requirement.
+- Sequential search only. `searchCapabilities()` reports `maxWorkers = 1`,
+  `effectiveWorkers = 1`, `workerThreadsSupported = false`, and
+  `sharedArrayBufferRequired = false`.
+- Every `computerMove` result repeats the actual `effectiveWorkers` value. Do
+  not derive a core selector from `navigator.hardwareConcurrency`; this build
+  accepts no worker-count setting and always falls back to one worker.
 - `maxDepth`: 1 through 8.
 - `maxNodes`: 1 through 100,000.
 - A 4 MiB transposition table is created for each `computerMove` call.
