@@ -6,9 +6,25 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.56] – 2026-10-03
+
+- Search: add independently switchable ordering, reduction, extension,
+  transposition-table, and pruning controls. Seven history-driven defaults now
+  strengthen quiet-move history, late-move reductions, and reduced-depth
+  futility pruning; the remaining experimental controls stay disabled.
+- Validation: a pre-fixed local self-play SPRT against the previous defaults,
+  at 0.5 seconds per move, one thread, six parallel games, balanced openings,
+  H0=0 Elo, H1=+10 Elo, and alpha=beta=0.05, accepted H1 at 239-139-16 over
+  394 games (LLR +3.03). Four-thread evidence remains inconclusive, so this is
+  not a general playing-strength claim.
+- Match tooling: support Fischer base time and increment. USI adds the optional
+  `IncrementUsePercent` control, which remains disabled by default.
+- Training diagnostics: add self-play SFEN generation and HalfKP record packing
+  examples for Sekirei's own evaluator pipeline.
 - WebAssembly: add the browser-only `sekirei-wasm` package with stateless SFEN
   parsing, legal USI moves, validated move application, structured errors, and
-  deterministic material-only search bounded to depth 8 and 100,000 nodes.
+  deterministic material-only search bounded to depth 8 and 100,000 nodes;
+  expose fixed worker capabilities and complete legal mate-in-one validation.
 - CI: run the API in headless Chrome and build a reproducible `wasm-pack`
   package containing the MIT, Apache-2.0, and NOTICE files.
 

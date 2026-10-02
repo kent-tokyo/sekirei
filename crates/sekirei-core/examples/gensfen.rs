@@ -127,7 +127,7 @@ fn play_game(args: &Args, rng: &mut Rng, lines: &mut Vec<(String, i32, bool, u32
         let m = if ply < args.random_plies {
             legal[rng.below(legal.len())]
         } else {
-            let info = searcher.search_with_history(&mut board, config.clone(), &history);
+            let info = searcher.search_with_history(&mut board, config, &history);
             let Some(best) = info.best_move else {
                 return -sign;
             };
