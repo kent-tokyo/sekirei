@@ -6,6 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- WebAssembly: add the browser-only `sekirei-wasm` package with stateless SFEN
+  parsing, legal USI moves, validated move application, structured errors, and
+  deterministic material-only search bounded to depth 8 and 100,000 nodes.
+- CI: run the API in headless Chrome and build a reproducible `wasm-pack`
+  package containing the MIT, Apache-2.0, and NOTICE files.
+
 ## [0.3.55] – 2026-10-01
 
 - USI: make `SearchMode=Auto` select sequential search for one thread, Lazy

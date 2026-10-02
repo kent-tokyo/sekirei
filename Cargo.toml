@@ -6,6 +6,7 @@ members = [
     "crates/sekirei-train",
     "crates/sekirei-csa",
     "crates/sekirei-match-runner",
+    "crates/sekirei-wasm",
 ]
 resolver = "2"
 

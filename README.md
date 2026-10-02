@@ -50,6 +50,14 @@ The historical gate is recorded there; a current local B-vs-material diagnostic
 (1/32 at 1 second and 2/32 at 5 seconds) does not support a blanket strength
 recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
 
+### Browser / WebAssembly
+
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes start-position SFEN,
+legal USI moves, validated move application, and a bounded browser-local
+computer move. It uses material evaluation and sequential search only; it does
+not load external weights or make the native USI binary depend on browser
+bindings.
+
 ## What is included
 
 - Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence, ordering, and a

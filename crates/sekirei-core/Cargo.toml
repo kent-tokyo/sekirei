@@ -8,6 +8,7 @@ repository = "https://github.com/kent-tokyo/sekirei"
 
 [dependencies]
 rayon = "1"
+web-time = "1.1"
 
 [features]
 # Search constants become run-time settable (USI options T_<NAME>) for

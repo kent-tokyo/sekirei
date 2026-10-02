@@ -12,7 +12,8 @@
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 pub(crate) struct Budget {
     nodes: AtomicU64,
