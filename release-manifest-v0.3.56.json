@@ -18,9 +18,9 @@
     "sha256": "6b9eb22debf62d3146a0d2374392c7730792ca237877cf4ac931b54129c45cf1"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "37071955897",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
   },
   "internal_measurement": {
@@ -29,7 +29,7 @@
     "parallel": 6,
     "status": "pre_fixed_local_search_gate",
     "strength_claim": false,
-    "results": "The release-mode USI binary was rebuilt from commit c3e61de. Release tests, Clippy, formatting, documentation, release metadata, and a deterministic USI smoke passed locally. A pre-fixed local self-play SPRT against the previous search defaults used 0.5 seconds per move, one thread, six parallel games, balanced openings, Elo0=0, Elo1=10, and alpha=beta=0.05; it accepted H1 at 239-139-16 over 394 games with LLR +3.03. This is scoped local evidence, not a general strength claim."
+    "results": "The release-mode USI binary was rebuilt from commit c3e61de. Release tests, Clippy, formatting, documentation, release metadata, deterministic USI smoke, WebAssembly browser tests, king-relative feature tests, CodeQL, and the shared-MCTS artifact audit passed. A pre-fixed local self-play SPRT against the previous search defaults used 0.5 seconds per move, one thread, six parallel games, balanced openings, Elo0=0, Elo1=10, and alpha=beta=0.05; it accepted H1 at 239-139-16 over 394 games with LLR +3.03. This is scoped local evidence, not a general strength claim."
   },
   "external_opponents": {
     "status": "diagnostic_only",
