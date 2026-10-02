@@ -3671,9 +3671,12 @@ impl LateMoveNode {
         {
             return true;
         }
-        let non_pv = (self.beta - self.alpha == 1 || p::PRUNE_PV() != 0)
+        let non_pv = (self.beta - self.alpha == 1 || p::PRUNE_PV() == 1)
             && !self.in_check
             && self.best_score > -(MATE_SCORE - 1000);
+        // PRUNE_PV 2: at PV nodes only the history-adjusted futility applies.
+        let fut_node = non_pv
+            || (p::PRUNE_PV() == 2 && !self.in_check && self.best_score > -(MATE_SCORE - 1000));
         let exempt_check = || check_exempt_from_pruning(board, m);
         // Futility pruning of captures and promotions (CAPT_FUT_MAX_DEPTH): at
         // non-PV nodes, a tactical move whose material gain plus a margin that
@@ -3713,7 +3716,7 @@ impl LateMoveNode {
         } else {
             (self.lmr_depth.max(1), self.lmr_depth)
         };
-        if non_pv
+        if fut_node
             && is_quiet
             && p::LMR_FUT_MAX_DEPTH() > 0
             && fut_depth <= p::LMR_FUT_MAX_DEPTH() as u32

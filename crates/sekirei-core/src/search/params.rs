@@ -344,8 +344,9 @@ search_params! {
     /// eval alone (0).
     EVAL_TT = 0, 0, 1;
     /// Move pruning (move count, futility, SEE, history) also at PV nodes
-    /// once a move has been searched (1), or only at non-PV nodes (0).
-    PRUNE_PV = 0, 0, 1;
+    /// once a move has been searched (1), only the futility of
+    /// `LMR_FUT_MAX_DEPTH` there (2), or only at non-PV nodes (0).
+    PRUNE_PV = 0, 0, 2;
     /// The reduced depth that futility pruning of quiet moves
     /// (`LMR_FUT_MAX_DEPTH`) looks at moves by the move's history divided by
     /// this: good history deepens it, bad history makes it shallower (0: off).
