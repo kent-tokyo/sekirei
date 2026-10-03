@@ -61,9 +61,9 @@ static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 // MultiPV > 1 (only the speculative searcher reports several root lines).
 static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
 // Share (percent) of the Fischer increment added to each move's base time
-// (USI option IncrementUsePercent). 0 keeps the historical rule, which
-// spreads the increment over the remaining-moves estimate.
-static INC_USE_PCT: AtomicU32 = AtomicU32::new(0);
+// (USI option IncrementUsePercent, default 75). 0 keeps the rule before
+// 0.3.58, which spreads the increment over the remaining-moves estimate.
+static INC_USE_PCT: AtomicU32 = AtomicU32::new(75);
 // SpecTopN used by `Auto` for MultiPV analysis (the former default).
 const AUTO_MULTI_PV_SPEC_TOP_N: usize = 3;
 
@@ -793,7 +793,7 @@ fn main() {
                     "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 15"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
-                println!("option name IncrementUsePercent type spin default 0 min 0 max 100");
+                println!("option name IncrementUsePercent type spin default 75 min 0 max 100");
                 println!("option name Ponder type check default false");
                 println!("option name MultiPV type spin default 1 min 1 max 256");
                 println!("option name EvalFile type string default ");

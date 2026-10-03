@@ -378,12 +378,12 @@ search_params! {
     RFP_DAMP = 0, 0, 2;
     /// Transposition table layout, bit flags (0: direct-mapped, a colliding
     /// store always replaces, a shallower store of the same position is
-    /// rejected). Bit 0: four-slot buckets; a new position replaces the slot
+    /// rejected; the layout before 0.3.58). Bit 0: four-slot buckets; a new position replaces the slot
     /// with the least depth minus `TT_AGE_WEIGHT` per search of age. Bit 1: a
     /// store of the same position replaces it when it is exact, from a newer
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
-    TT_BUCKET = 0, 0, 3;
+    TT_BUCKET = 3, 0, 3;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
