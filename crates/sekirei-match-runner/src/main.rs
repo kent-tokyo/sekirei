@@ -1313,6 +1313,11 @@ fn veridict_decide(
 /// behavior), and `require_complete_pairs`/`min_paired_ids`/`max_paired_ids`
 /// (pinned to `false`/`None`/`None` -- these only have an effect under
 /// `SprtVariant::Pentanomial`, which this function doesn't use).
+///
+/// Since veridict 0.19.1, Wald and trinomial reports retain their first
+/// sequential boundary crossing. Callers must use `decision_llr` with the
+/// verdict; the legacy `llr` field remains the full-input aggregate and can
+/// drift back inside the bounds after a valid early decision.
 fn sprt_decide(
     records: &[(usize, veridict::input::Record)],
     elo0: f64,
@@ -1556,8 +1561,14 @@ fn run_gate(argv: &[String]) {
             }
         };
         println!(
-            "veridict: sprt  H0(elo<={elo0:+.1}) vs H1(elo>={elo1:+.1})  alpha={alpha}  beta={beta}  llr={:.3} (bounds [{:.3}, {:.3}])  {}",
-            report.llr, report.lower_bound, report.upper_bound, report.reason
+            "veridict: sprt  H0(elo<={elo0:+.1}) vs H1(elo>={elo1:+.1})  alpha={alpha}  beta={beta}  llr={:.3} (bounds [{:.3}, {:.3}])  {}  full_input_llr={:.3}  observations={}/{}",
+            report.decision_llr,
+            report.lower_bound,
+            report.upper_bound,
+            report.reason,
+            report.llr,
+            report.analyzed_observation_count,
+            report.available_observation_count,
         );
         let label = match report.verdict {
             veridict::Verdict::Pass => "PASS",
@@ -1574,15 +1585,23 @@ fn run_gate(argv: &[String]) {
   "method": "sprt",
   "verdict": {label:?},
   "llr": {:.6},
+  "full_input_llr": {:.6},
   "bound_lo": {:.6},
   "bound_hi": {:.6},
+  "analyzed_observations": {},
+  "available_observations": {},
   "elo0": {elo0},
   "elo1": {elo1},
   "alpha": {alpha},
   "beta": {beta}
 }}
 "#,
-                report.llr, report.lower_bound, report.upper_bound
+                report.decision_llr,
+                report.llr,
+                report.lower_bound,
+                report.upper_bound,
+                report.analyzed_observation_count,
+                report.available_observation_count,
             ),
         );
         std::process::exit(match report.verdict {
@@ -2652,6 +2671,30 @@ mod tests {
         )
         .unwrap();
         assert_eq!(report.verdict, veridict::Verdict::Pass);
+    }
+
+    #[test]
+    fn sprt_decide_retains_first_boundary_crossing_after_reversion() {
+        let mut records: Vec<_> = (0..60)
+            .map(|i| rec(&format!("candidate-{i}"), "candidate_win"))
+            .collect();
+        records.extend((0..60).map(|i| rec(&format!("baseline-{i}"), "baseline_win")));
+
+        let report = sprt_decide(
+            &records,
+            0.0,
+            20.0,
+            0.05,
+            0.05,
+            veridict::sprt::SprtVariant::Wald,
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(report.verdict, veridict::Verdict::Pass);
+        assert!(report.decision_llr >= report.upper_bound);
+        assert!(report.llr < report.upper_bound);
+        assert!(report.analyzed_observation_count < report.available_observation_count);
     }
 
     #[test]
