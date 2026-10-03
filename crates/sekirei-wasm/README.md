@@ -20,6 +20,7 @@ runs `wasm-pack` with the locked Cargo graph and adds `LICENSE-MIT`,
 import init, {
   startSfen,
   legalMoves,
+  analyzeMate,
   analyzeMateInOne,
   applyMove,
   computerMove,
@@ -40,6 +41,13 @@ const problem = analyzeMateInOne(
   "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1",
 );
 console.log(problem.validPosition, problem.solutions, problem.uniqueSolution);
+
+const longerProblem = analyzeMate(
+  "4k4/9/2G3S2/5R3/2GG5/9/9/9/4K4 b - 1",
+  5,
+  1_000_000,
+);
+console.log(longerProblem.outcome, longerProblem.shortestMatePly); // mate, 3
 ```
 
 Rejected input throws an object with stable `code` and human-readable
@@ -58,6 +66,20 @@ The result exposes `validPosition`, `defenderAlreadyInCheck`, `invalidReason`,
 the sorted USI `solutions`, and `uniqueSolution`. A parseable but invalid
 problem returns `validPosition = false`; malformed SFEN throws the structured
 `invalid_sfen` error.
+
+## Bounded shortest-mate validation
+
+`analyzeMate(sfen, maxPly, nodeLimit)` searches odd depths in increasing order.
+The attacker plays checking moves only and the defender may choose every legal
+reply. A completed `mate` result contains the shortest mate length and all
+first moves that force mate at that length. `no_mate` means the full requested
+bound was searched. If the node budget expires, the result is `unknown`,
+`aborted` is true, `reason` is `node_limit`, and partial solutions are omitted.
+
+The result exposes `validPosition`, `outcome`, `shortestMatePly`, `solutions`,
+`uniqueSolution`, `nodes`, `aborted`, and `reason`. `maxPly` is limited to 1
+through 15 and `nodeLimit` to 1 through 1,000,000. Callers can pass an
+intermediate SFEN to inspect later attacking turns with the same contract.
 
 ## Browser search contract
 
