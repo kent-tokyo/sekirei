@@ -1442,6 +1442,7 @@ fn pvs_child(
     cut_node: bool,
     child_in_check: bool,
     child_history: &SearchHistory<'_>,
+    best_score: i32,
 ) -> i32 {
     let full_depth = depth - 1;
     // Reduced probes expect to fail high in the child (a cut node there);
@@ -1478,7 +1479,25 @@ fn pvs_child(
     };
     let mut s = search(alpha, alpha + 1, probe, reduce > 0 || !cut_node);
     if probe < full_depth && reduce > 0 && s > alpha {
-        s = search(alpha, alpha + 1, full_depth, !cut_node);
+        // LMR_DEEPER / LMR_SHALLOWER: a reduced probe that beat the best
+        // score by a wide margin is re-searched one ply deeper, one that
+        // barely beat it one ply shallower (never below the probe).
+        let deeper = p::LMR_DEEPER_MARGIN() > 0
+            && best_score.abs() < MATE_SCORE - 1000
+            && s > best_score + p::LMR_DEEPER_MARGIN();
+        let shallower = p::LMR_SHALLOWER_MARGIN() > 0
+            && best_score.abs() < MATE_SCORE - 1000
+            && s < best_score + p::LMR_SHALLOWER_MARGIN();
+        let d = if deeper {
+            full_depth + 1
+        } else if shallower {
+            (full_depth - 1).max(probe)
+        } else {
+            full_depth
+        };
+        if d > probe {
+            s = search(alpha, alpha + 1, d, !cut_node);
+        }
     }
     if s > alpha && s < beta {
         s = search(alpha, beta, full_depth, false);
@@ -2879,6 +2898,7 @@ fn alpha_beta(
                 cut_node,
                 child_in_check,
                 &child_history,
+                best_score,
             );
             board.undo_move_for_search(tok);
 

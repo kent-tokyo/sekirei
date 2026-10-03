@@ -384,6 +384,12 @@ search_params! {
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
     TT_BUCKET = 0, 0, 3;
+    /// A late move whose reduced probe beats the node's best score by more
+    /// than this is re-searched one ply deeper than normal (0: off).
+    LMR_DEEPER_MARGIN = 0, 0, 400;
+    /// A late move whose reduced probe beats the node's best score by less
+    /// than this is re-searched one ply shallower than normal (0: off).
+    LMR_SHALLOWER_MARGIN = 0, 0, 100;
     /// TT entries at most this many plies too shallow still cut a null-window
     /// node when their bound clears the window by `TT_SLACK_MARGIN` per
     /// missing ply (0: off).
