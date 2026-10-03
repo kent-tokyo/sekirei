@@ -1,0 +1,55 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.57",
+  "commit": "608b06769cfafb4728e6e5b3d2528313e6fd72ee",
+  "branch_at_release": "main",
+  "packages": {
+    "sekirei": "0.3.57",
+    "sekirei-core": "0.3.57",
+    "sekirei-bench": "0.3.57",
+    "sekirei-csa": "0.3.57",
+    "sekirei-match-runner": "0.3.57",
+    "sekirei-train": "0.3.57"
+  },
+  "dependencies": { "lineprior": "0.12.1" },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "1032666e9519bdcd24930182acafc9c692ad29cb9ae4fc8ba941ecd758cf0f7a"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": ["sekirei", "sekirei-core", "sekirei-bench", "sekirei-csa", "sekirei-match-runner", "sekirei-train"]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.57",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.57.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.57/sekirei-wasm-0.3.57.tgz",
+    "sha256": "3533eb6b34aa3f6b4fe62e43233b5274b5b259fe6e3042fba41e90d6416e8dee",
+    "size": 390341,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "results": "Workspace tests, Clippy with warnings denied, rustfmt, public-contract checks, deterministic USI smoke, WebAssembly Chrome tests, package generation, material-only SPSA contract tests, A/B runner tests, and a crates.io dry run passed. This release adds measurement and data-pipeline safeguards and makes no new playing-strength claim."
+  },
+  "external_opponents": {
+    "status": "none_for_this_release",
+    "configuration": "No external-engine result is used as release evidence for v0.3.57."
+  },
+  "known_limitations": [
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No new NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}

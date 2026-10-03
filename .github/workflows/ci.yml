@@ -92,6 +92,8 @@ jobs:
           python3 -m unittest scripts/test_check_candidate_readiness.py
       - name: A/B match SPRT tests
         run: python3 scripts/test_run_ab_match.py
+      - name: material-only SPSA contract
+        run: python3 -m unittest scripts/test_spsa.py
       - name: teacher comparison tests
         run: |
           python3 scripts/test_compare_teacher_evals.py

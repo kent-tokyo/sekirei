@@ -14,7 +14,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from run_ab_match import main, sprt_bounds, sprt_llr  # noqa: E402
+from run_ab_match import (  # noqa: E402
+    main,
+    sekirei_options,
+    sprt_bounds,
+    sprt_llr,
+    yaneuraou_options,
+)
 
 
 class _FakeMatchProcess:
@@ -42,6 +48,20 @@ class _FakeMatchProcess:
 
 
 class SprtTest(unittest.TestCase):
+    def test_parallel_options_are_explicit_for_both_engines(self):
+        sekirei = sekirei_options(
+            "--engine-option1", "weights.nnue", 24, 4, "LazySMP", 0, 128
+        )
+        self.assertIn("Threads=4", sekirei)
+        self.assertIn("SearchMode=LazySMP", sekirei)
+        self.assertIn("SpecTopN=0", sekirei)
+        self.assertIn("Hash=128", sekirei)
+
+        yaneuraou = yaneuraou_options("weights.nnue", 24, 20_000, 3, 256)
+        self.assertIn("Threads=3", yaneuraou)
+        self.assertIn("USI_Hash=256", yaneuraou)
+        self.assertIn("NodesLimit=20000", yaneuraou)
+
     def test_bounds_match_wald_for_five_percent_errors(self):
         lower, upper = sprt_bounds()
         self.assertAlmostEqual(lower, math.log(0.05 / 0.95))
@@ -86,14 +106,19 @@ class SprtTest(unittest.TestCase):
                 "--sprt", "0,10",
                 "--out-dir", directory,
             ]
+            argv.extend(["--threads-a", "4", "--threads-b", "2"])
             with patch.object(sys, "argv", argv), patch(
                 "run_ab_match.subprocess.Popen", return_value=process
-            ), patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            ) as popen, patch("sys.stdout", new_callable=io.StringIO) as stdout:
                 self.assertEqual(main(), 0)
 
         self.assertTrue(process.terminated)
         self.assertLess(process.lines_read, len(lines))
         self.assertIn("H1 accepted", stdout.getvalue())
+        self.assertEqual(popen.call_args.kwargs["env"]["RAYON_NUM_THREADS"], "4")
+        command = popen.call_args.args[0]
+        self.assertIn("Threads=4", command)
+        self.assertIn("Threads=2", command)
 
 
 if __name__ == "__main__":

@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Fixed-protocol A/B match for search changes and external-engine ladders.
 
-Wraps ``sekirei-match`` with the settings used for local search diagnostics:
-one search thread per engine (``Threads=1``, ``RAYON_NUM_THREADS=1``),
-sequential Sekirei search (``SpecTopN=0``), no opening book, the same external
-HalfKP evaluation file for both sides, and colour-paired opening positions.
+Wraps ``sekirei-match`` with the settings used for local search diagnostics.
+The defaults are one search thread per engine, ``SpecTopN=0``, no opening
+book, the same external HalfKP evaluation file for both sides, and
+colour-paired opening positions. Explicit options can study parallel modes.
 
 Self-play A/B (engine A is reported)::
 
@@ -41,24 +41,41 @@ ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 
 
-def sekirei_options(prefix: str, evalfile: str, fv_scale: int) -> list[str]:
+def sekirei_options(
+    prefix: str,
+    evalfile: str,
+    fv_scale: int,
+    threads: int = 1,
+    search_mode: str = "Speculative",
+    spec_top_n: int = 0,
+    hash_mb: int = 64,
+) -> list[str]:
+    """USI options for one Sekirei side.
+
+    The defaults reproduce the 1-thread diagnostic protocol. Multi-thread
+    runs set ``threads`` and choose ``search_mode`` (``Speculative`` with a
+    positive ``spec_top_n``, or ``LazySMP``).
+    """
     options = [
         f"EvalFile={evalfile}",
         f"FV_SCALE={fv_scale}",
-        "Threads=1",
-        "SpecTopN=0",
+        f"Threads={threads}",
+        f"SearchMode={search_mode}",
+        f"SpecTopN={spec_top_n}",
         "UseBook=false",
-        "Hash=64",
+        f"Hash={hash_mb}",
     ]
     return [arg for option in options for arg in (prefix, option)]
 
 
-def yaneuraou_options(evalfile: str, fv_scale: int, nodes_limit: int) -> list[str]:
+def yaneuraou_options(
+    evalfile: str, fv_scale: int, nodes_limit: int, threads: int = 1, hash_mb: int = 64
+) -> list[str]:
     options = [
         f"EvalDir={Path(evalfile).resolve().parent}",
         f"FV_SCALE={fv_scale}",
-        "Threads=1",
-        "USI_Hash=64",
+        f"Threads={threads}",
+        f"USI_Hash={hash_mb}",
         "USI_OwnBook=false",
         "BookFile=no_book",
         "NetworkDelay=0",
@@ -129,6 +146,21 @@ def main() -> int:
         "--sprt",
         help="ELO0,ELO1: stop early when an SPRT accepts H0 (Elo <= ELO0) or H1 (Elo >= ELO1)",
     )
+    parser.add_argument(
+        "--threads-a", type=int, default=1, help="search threads for engine A (default 1)"
+    )
+    parser.add_argument(
+        "--threads-b", type=int, default=1, help="search threads for engine B / YaneuraOu"
+    )
+    parser.add_argument(
+        "--search-mode-a", default="Speculative", choices=["Speculative", "LazySMP"]
+    )
+    parser.add_argument(
+        "--search-mode-b", default="Speculative", choices=["Speculative", "LazySMP"]
+    )
+    parser.add_argument("--spec-top-n-a", type=int, default=0)
+    parser.add_argument("--spec-top-n-b", type=int, default=0)
+    parser.add_argument("--hash", type=int, default=64, help="hash MB for every engine")
     parser.add_argument("--name", default="ab")
     parser.add_argument("--out-dir", default=str(ROOT / "target/ab-match"))
     parser.add_argument(
@@ -140,6 +172,20 @@ def main() -> int:
         parser.error("selfplay needs --engine-b")
     if args.mode == "yaneuraou" and not args.yaneuraou:
         parser.error("yaneuraou mode needs --yaneuraou")
+    if args.games <= 0:
+        parser.error("--games must be positive")
+    if args.byoyomi <= 0:
+        parser.error("--byoyomi must be positive")
+    if args.fv_scale <= 0:
+        parser.error("--fv-scale must be positive")
+    if args.hash <= 0:
+        parser.error("--hash must be positive")
+    if args.threads_a <= 0 or args.threads_b <= 0:
+        parser.error("--threads-a and --threads-b must be positive")
+    if args.spec_top_n_a < 0 or args.spec_top_n_b < 0:
+        parser.error("--spec-top-n-a and --spec-top-n-b must be non-negative")
+    if args.nodes_limit < 0:
+        parser.error("--nodes-limit must be non-negative")
     sprt = None
     if args.sprt:
         try:
@@ -163,13 +209,33 @@ def main() -> int:
         "--json", str(out / f"{args.name}.json"),
         "--output", str(out / f"kifu_{args.name}"),
     ]
-    command += sekirei_options("--engine-option1", args.evalfile, args.fv_scale)
+    command += sekirei_options(
+        "--engine-option1",
+        args.evalfile,
+        args.fv_scale,
+        args.threads_a,
+        args.search_mode_a,
+        args.spec_top_n_a,
+        args.hash,
+    )
     if args.mode == "selfplay":
-        command += sekirei_options("--engine-option2", args.evalfile, args.fv_scale)
+        command += sekirei_options(
+            "--engine-option2",
+            args.evalfile,
+            args.fv_scale,
+            args.threads_b,
+            args.search_mode_b,
+            args.spec_top_n_b,
+            args.hash,
+        )
     else:
-        command += yaneuraou_options(args.evalfile, args.fv_scale, args.nodes_limit)
+        command += yaneuraou_options(
+            args.evalfile, args.fv_scale, args.nodes_limit, args.threads_b, args.hash
+        )
 
-    env = dict(os.environ, RAYON_NUM_THREADS="1")
+    # Rayon sizes its pool at startup. A later USI Threads option cannot grow
+    # a pool that this process environment already capped at one.
+    env = dict(os.environ, RAYON_NUM_THREADS=str(max(args.threads_a, args.threads_b, 1)))
     log_path = out / f"{args.name}.log"
     wins = losses = draws = 0
     verdict = ""

@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.57] – 2026-10-03
+
 - Dependencies: update `lineprior` to 0.12.1. Newly generated opening books
   now include the schema-v1 producer version and complete build configuration;
   headerless and legacy books remain readable.
@@ -18,6 +20,13 @@ preserves older per-change notes.
   `shogiesa-core 0.11.0` typed schema, streams records line by line, reports
   rejected metadata explicitly, and supports known `game_result` values for
   `--positions --wdl-lambda`; engine/runtime crates remain independent.
+- WebAssembly: add bounded shortest-mate analysis for odd depths through 15
+  plies with explicit node limits and deterministic incomplete-result handling.
+- Measurement tooling: require an explicit material-only evaluator contract
+  for SPSA, preserve it across resume, add per-side thread/search-mode controls
+  to A/B matches, and add a thread-scaling NPS diagnostic.
+- This release has no new NNUE weights and makes no general playing-strength
+  or external-engine superiority claim.
 
 ## [0.3.56] – 2026-10-03
 

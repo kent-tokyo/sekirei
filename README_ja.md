@@ -1,17 +1,16 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.56-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.56)
+[![Release](https://img.shields.io/badge/release-v0.3.57-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.57)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.56`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.57`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore library、
-browser APIを含みます。履歴に連動したLMRとfutility pruningを既定で有効にし、
-Fischer時計の対局とWASM APIも拡張しました。記録したlocal gateは限定的な根拠であり、
-一般的な棋力向上の主張ではありません。
+browser APIを含みます。上限付き最短詰み解析、typed shogiesa学習dataのstream処理、
+再現可能な調整・並列測定の契約を追加しました。新しい一般的な棋力向上は主張しません。
 
 ## まず動かす
 
@@ -69,8 +68,8 @@ CC BY 4.0の別artifactです。
 逐次探索だけを使い、外部重みは読み込みません。
 ネイティブUSIバイナリもブラウザ依存を持ちません。
 
-ビルド済みのv0.3.56 ES module packageは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.56/sekirei-wasm-0.3.56.tgz)
+ビルド済みのv0.3.57 ES module packageは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.57/sekirei-wasm-0.3.57.tgz)
 から取得できます。
 
 ## エンジン設定
