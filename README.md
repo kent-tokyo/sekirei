@@ -53,7 +53,8 @@ recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes SFEN parsing, legal USI
 moves, validated move application, deterministic bounded search, fixed worker
-capabilities, and complete legal mate-in-one validation. It uses material
+capabilities, and complete shortest-mate validation through 1/3/5 plies and
+beyond under explicit node limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 

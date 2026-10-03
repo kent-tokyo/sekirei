@@ -74,6 +74,81 @@ pub struct MateInOneAnalysis {
     pub solutions: Vec<Move>,
 }
 
+/// Result category for a complete bounded tsume analysis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MateAnalysisOutcome {
+    /// A forced mate was completely proven within the requested ply bound.
+    Mate,
+    /// The complete search proved that no forced mate exists within the bound.
+    NoMate,
+    /// The node budget expired before the requested bound was completely searched.
+    Unknown,
+}
+
+impl MateAnalysisOutcome {
+    /// Stable machine-readable value used by non-Rust adapters.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Mate => "mate",
+            Self::NoMate => "no_mate",
+            Self::Unknown => "unknown",
+        }
+    }
+}
+
+/// Why a bounded tsume analysis stopped before completion.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MateAnalysisAbortReason {
+    /// The configured node limit was reached.
+    NodeLimit,
+}
+
+impl MateAnalysisAbortReason {
+    /// Stable machine-readable value used by non-Rust adapters.
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::NodeLimit => "node_limit",
+        }
+    }
+}
+
+/// Complete shortest-mate analysis under explicit ply and node limits.
+///
+/// The side to move is the attacker. The attacker may play only checking
+/// moves, while the defender may choose any legal reply. `solutions` contains
+/// every legal first move that forces mate in exactly `shortest_mate_ply`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MateAnalysis {
+    /// Side treated as the attacker.
+    pub attacker: Color,
+    /// Why the initial position is not a valid tsume problem.
+    pub invalid_reason: Option<MateInOneInvalidReason>,
+    /// Complete result under the requested limits.
+    pub outcome: MateAnalysisOutcome,
+    /// Shortest proven mate length, in plies.
+    pub shortest_mate_ply: Option<u32>,
+    /// Every first move that forces mate at the shortest proven length.
+    pub solutions: Vec<Move>,
+    /// Number of positions visited across all iterative-deepening passes.
+    pub nodes: u64,
+    /// Whether a resource limit stopped the analysis.
+    pub aborted: bool,
+    /// Resource limit that stopped the analysis, when `aborted` is true.
+    pub abort_reason: Option<MateAnalysisAbortReason>,
+}
+
+impl MateAnalysis {
+    /// Whether the initial position satisfies the problem-position contract.
+    pub fn valid_position(&self) -> bool {
+        self.invalid_reason.is_none()
+    }
+
+    /// Whether the completed shortest-depth search found exactly one first move.
+    pub fn unique_solution(&self) -> bool {
+        self.outcome == MateAnalysisOutcome::Mate && !self.aborted && self.solutions.len() == 1
+    }
+}
+
 impl MateInOneAnalysis {
     /// Whether the initial position satisfies the problem-position contract.
     pub fn valid_position(&self) -> bool {
@@ -99,21 +174,7 @@ impl MateInOneAnalysis {
 pub fn analyze_mate_in_one(board: &Board) -> MateInOneAnalysis {
     let attacker = board.side_to_move;
     let defender = attacker.flip();
-    let attacker_kings = board.pieces(attacker, PieceKind::Ou).popcount();
-    let defender_kings = board.pieces(defender, PieceKind::Ou).popcount();
-    let invalid_reason = if attacker_kings == 0 {
-        Some(MateInOneInvalidReason::MissingAttackerKing)
-    } else if defender_kings == 0 {
-        Some(MateInOneInvalidReason::MissingDefenderKing)
-    } else if attacker_kings > 1 {
-        Some(MateInOneInvalidReason::MultipleAttackerKings)
-    } else if defender_kings > 1 {
-        Some(MateInOneInvalidReason::MultipleDefenderKings)
-    } else if is_in_check(board, defender) {
-        Some(MateInOneInvalidReason::DefenderAlreadyInCheck)
-    } else {
-        None
-    };
+    let invalid_reason = validate_problem_position(board);
 
     if invalid_reason.is_some() {
         return MateInOneAnalysis {
@@ -141,6 +202,232 @@ pub fn analyze_mate_in_one(board: &Board) -> MateInOneAnalysis {
         attacker,
         invalid_reason: None,
         solutions,
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Proof {
+    Mate,
+    NoMate,
+    Unknown,
+}
+
+struct CompleteMateSearch {
+    attacker: Color,
+    nodes: u64,
+    node_limit: u64,
+    aborted: bool,
+    path: Vec<u64>,
+}
+
+impl CompleteMateSearch {
+    fn visit(&mut self) -> bool {
+        if self.nodes >= self.node_limit {
+            self.aborted = true;
+            return false;
+        }
+        self.nodes += 1;
+        true
+    }
+
+    fn checking_moves(&mut self, board: &mut Board) -> Vec<Move> {
+        let defender = self.attacker.flip();
+        let legal = generate_legal_moves(board);
+        let mut checks = Vec::new();
+        for mv in legal {
+            let token = board.do_move_for_search(mv);
+            let gives_check = is_in_check(board, defender);
+            board.undo_move_for_search(token);
+            if gives_check {
+                checks.push(mv);
+            }
+        }
+        checks.sort_unstable_by_key(|mv| mv.raw());
+        checks
+    }
+
+    fn repeated(&self, board: &Board) -> bool {
+        self.path.contains(&board.hash())
+    }
+
+    fn with_child(
+        &mut self,
+        board: &mut Board,
+        mv: Move,
+        search: impl FnOnce(&mut Self, &mut Board) -> Proof,
+    ) -> Proof {
+        let token = board.do_move_for_search(mv);
+        let proof = if self.repeated(board) {
+            Proof::NoMate
+        } else {
+            self.path.push(board.hash());
+            let proof = search(self, board);
+            self.path.pop();
+            proof
+        };
+        board.undo_move_for_search(token);
+        proof
+    }
+
+    fn attacker(&mut self, board: &mut Board, plies_left: u32) -> Proof {
+        if !self.visit() {
+            return Proof::Unknown;
+        }
+        if plies_left == 0 {
+            return Proof::NoMate;
+        }
+        for mv in self.checking_moves(board) {
+            let proof = self.with_child(board, mv, |state, child| {
+                state.defender(child, plies_left - 1)
+            });
+            match proof {
+                Proof::Mate => return Proof::Mate,
+                Proof::Unknown => return Proof::Unknown,
+                Proof::NoMate => {}
+            }
+        }
+        Proof::NoMate
+    }
+
+    fn defender(&mut self, board: &mut Board, plies_left: u32) -> Proof {
+        if !self.visit() {
+            return Proof::Unknown;
+        }
+        let mut replies = generate_legal_moves(board);
+        replies.sort_unstable_by_key(|mv| mv.raw());
+        if replies.is_empty() {
+            return if is_in_check(board, board.side_to_move) {
+                Proof::Mate
+            } else {
+                Proof::NoMate
+            };
+        }
+        if plies_left == 0 {
+            return Proof::NoMate;
+        }
+        for mv in replies {
+            let proof = self.with_child(board, mv, |state, child| {
+                state.attacker(child, plies_left - 1)
+            });
+            match proof {
+                Proof::NoMate => return Proof::NoMate,
+                Proof::Unknown => return Proof::Unknown,
+                Proof::Mate => {}
+            }
+        }
+        Proof::Mate
+    }
+
+    fn root_solutions(&mut self, board: &mut Board, plies: u32) -> Result<Vec<Move>, ()> {
+        if !self.visit() {
+            return Err(());
+        }
+        let mut solutions = Vec::new();
+        for mv in self.checking_moves(board) {
+            let proof = self.with_child(board, mv, |state, child| state.defender(child, plies - 1));
+            match proof {
+                Proof::Mate => solutions.push(mv),
+                Proof::NoMate => {}
+                Proof::Unknown => return Err(()),
+            }
+        }
+        Ok(solutions)
+    }
+}
+
+fn validate_problem_position(board: &Board) -> Option<MateInOneInvalidReason> {
+    let attacker = board.side_to_move;
+    let defender = attacker.flip();
+    let attacker_kings = board.pieces(attacker, PieceKind::Ou).popcount();
+    let defender_kings = board.pieces(defender, PieceKind::Ou).popcount();
+    if attacker_kings == 0 {
+        Some(MateInOneInvalidReason::MissingAttackerKing)
+    } else if defender_kings == 0 {
+        Some(MateInOneInvalidReason::MissingDefenderKing)
+    } else if attacker_kings > 1 {
+        Some(MateInOneInvalidReason::MultipleAttackerKings)
+    } else if defender_kings > 1 {
+        Some(MateInOneInvalidReason::MultipleDefenderKings)
+    } else if is_in_check(board, defender) {
+        Some(MateInOneInvalidReason::DefenderAlreadyInCheck)
+    } else {
+        None
+    }
+}
+
+/// Analyze the shortest forced mate up to `max_ply`, under `node_limit`.
+///
+/// Odd depths are searched in increasing order. A completed result therefore
+/// proves both the shortest mate length and the complete set of first moves at
+/// that length. If the node budget expires, the result is `Unknown`; partial
+/// solutions are discarded so callers never mistake an incomplete set for a
+/// unique solution. Repetition on the current line is treated as a failed
+/// attack, matching shogi perpetual-check rules.
+pub fn analyze_mate(board: &Board, max_ply: u32, node_limit: u64) -> MateAnalysis {
+    let attacker = board.side_to_move;
+    let invalid_reason = validate_problem_position(board);
+    if invalid_reason.is_some() {
+        return MateAnalysis {
+            attacker,
+            invalid_reason,
+            outcome: MateAnalysisOutcome::Unknown,
+            shortest_mate_ply: None,
+            solutions: Vec::new(),
+            nodes: 0,
+            aborted: false,
+            abort_reason: None,
+        };
+    }
+
+    let mut position = board.clone();
+    let mut search = CompleteMateSearch {
+        attacker,
+        nodes: 0,
+        node_limit,
+        aborted: false,
+        path: vec![board.hash()],
+    };
+
+    for plies in (1..=max_ply).step_by(2) {
+        match search.root_solutions(&mut position, plies) {
+            Ok(mut solutions) if !solutions.is_empty() => {
+                solutions.sort_unstable_by_key(|mv| mv.raw());
+                return MateAnalysis {
+                    attacker,
+                    invalid_reason: None,
+                    outcome: MateAnalysisOutcome::Mate,
+                    shortest_mate_ply: Some(plies),
+                    solutions,
+                    nodes: search.nodes,
+                    aborted: false,
+                    abort_reason: None,
+                };
+            }
+            Ok(_) => {}
+            Err(()) => {
+                return MateAnalysis {
+                    attacker,
+                    invalid_reason: None,
+                    outcome: MateAnalysisOutcome::Unknown,
+                    shortest_mate_ply: None,
+                    solutions: Vec::new(),
+                    nodes: search.nodes,
+                    aborted: true,
+                    abort_reason: Some(MateAnalysisAbortReason::NodeLimit),
+                };
+            }
+        }
+    }
+
+    MateAnalysis {
+        attacker,
+        invalid_reason: None,
+        outcome: MateAnalysisOutcome::NoMate,
+        shortest_mate_ply: None,
+        solutions: Vec::new(),
+        nodes: search.nodes,
+        aborted: false,
+        abort_reason: None,
     }
 }
 
@@ -295,10 +582,16 @@ impl Solver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sfen::move_to_usi;
+    use crate::sfen::{move_from_usi, move_to_usi};
 
     const ALREADY_CHECKED_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
     const DISTANT_ROOK_MATE_SFEN: &str = "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1";
+    const SHORTEST_THREE_SFEN: &str = "4k4/9/2G3S2/5R3/2GG5/9/9/9/4K4 b - 1";
+    // This position was generated by a deterministic legal playout and then
+    // independently verified by the complete analyzer below.
+    const UNIQUE_FIVE_SFEN: &str =
+        "lnS1k2nl/3sr1G2/2p+Pb3p/p3Sp1p1/PpP2P1P1/5Gp2/LPN2gP1P/2+p+pr1G1L/Kb2S2N1 w P 110";
+    const MISLABELLED_FIVE_SFEN: &str = "2S1k4/2G6/5R3/9/2RG5/9/9/9/4K4 b - 1";
 
     fn solution_strings(sfen: &str) -> Vec<String> {
         let board = Board::from_sfen(sfen).expect("fixture must parse");
@@ -495,5 +788,118 @@ mod tests {
             duplicate.invalid_reason,
             Some(MateInOneInvalidReason::MultipleDefenderKings)
         );
+    }
+
+    #[test]
+    fn complete_bounded_analysis_finds_all_shortest_mate_in_one_moves() {
+        let board = Board::from_sfen(DISTANT_ROOK_MATE_SFEN).unwrap();
+        let analysis = analyze_mate(&board, 5, 100_000);
+        let solutions = analysis
+            .solutions
+            .iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>();
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(analysis.shortest_mate_ply, Some(1));
+        assert!(solutions.contains(&"5e5c".to_owned()));
+        assert!(solutions.contains(&"5e5c+".to_owned()));
+        assert!(!analysis.unique_solution());
+        assert!(!analysis.aborted);
+    }
+
+    #[test]
+    fn complete_bounded_analysis_reports_three_instead_of_requested_five() {
+        let board = Board::from_sfen(SHORTEST_THREE_SFEN).unwrap();
+        let analysis = analyze_mate(&board, 5, 1_000_000);
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(analysis.shortest_mate_ply, Some(3));
+        assert!(!analysis.solutions.is_empty());
+        assert!(!analysis.aborted);
+    }
+
+    #[test]
+    fn complete_bounded_analysis_distinguishes_completed_no_mate() {
+        let analysis = analyze_mate(&Board::startpos(), 5, 100_000);
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::NoMate);
+        assert_eq!(analysis.shortest_mate_ply, None);
+        assert!(analysis.solutions.is_empty());
+        assert!(!analysis.unique_solution());
+        assert!(!analysis.aborted);
+        assert_eq!(analysis.abort_reason, None);
+    }
+
+    #[test]
+    fn complete_bounded_analysis_finds_unique_five_and_reuses_intermediate_position() {
+        let board = Board::from_sfen(UNIQUE_FIVE_SFEN).unwrap();
+        let analysis = analyze_mate(&board, 5, 1_000_000);
+        let solutions = analysis
+            .solutions
+            .iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>();
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(
+            analysis.shortest_mate_ply,
+            Some(5),
+            "unexpected solutions: {solutions:?}"
+        );
+        assert_eq!(solutions, vec!["7h8h"]);
+        assert!(analysis.unique_solution());
+
+        let mut intermediate = board.clone();
+        for usi in ["7h8h", "9i8h"] {
+            let mv = move_from_usi(usi, &intermediate).unwrap();
+            intermediate.do_move(mv);
+        }
+        let continuation = analyze_mate(&intermediate, 3, 1_000_000);
+        assert_eq!(continuation.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(continuation.shortest_mate_ply, Some(3));
+        assert!(continuation.unique_solution());
+        assert_eq!(
+            continuation
+                .solutions
+                .iter()
+                .copied()
+                .map(move_to_usi)
+                .collect::<Vec<_>>(),
+            vec!["6h7h"]
+        );
+    }
+
+    #[test]
+    fn complete_bounded_analysis_corrects_the_mislabelled_issue_fixture() {
+        // Issue #85 originally described this as a unique mate in five. A
+        // complete search proves two mate-in-one moves instead, including the
+        // promoted variant of the proposed first move.
+        let board = Board::from_sfen(MISLABELLED_FIVE_SFEN).unwrap();
+        let analysis = analyze_mate(&board, 5, 1_000_000);
+        let solutions = analysis
+            .solutions
+            .iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>();
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::Mate);
+        assert_eq!(analysis.shortest_mate_ply, Some(1));
+        assert_eq!(solutions, vec!["7a6b+", "7b6b"]);
+        assert!(!analysis.unique_solution());
+    }
+
+    #[test]
+    fn complete_bounded_analysis_never_promotes_a_partial_result() {
+        let board = Board::from_sfen(UNIQUE_FIVE_SFEN).unwrap();
+        let analysis = analyze_mate(&board, 5, 1);
+        assert_eq!(analysis.outcome, MateAnalysisOutcome::Unknown);
+        assert_eq!(analysis.shortest_mate_ply, None);
+        assert!(analysis.solutions.is_empty());
+        assert!(!analysis.unique_solution());
+        assert!(analysis.aborted);
+        assert_eq!(
+            analysis.abort_reason,
+            Some(MateAnalysisAbortReason::NodeLimit)
+        );
+        assert_eq!(analysis.nodes, 1);
     }
 }

@@ -46,7 +46,10 @@ jobs:
           test -f crates/sekirei-wasm/pkg/LICENSE-MIT
           test -f crates/sekirei-wasm/pkg/LICENSE-APACHE
           test -f crates/sekirei-wasm/pkg/NOTICE
+          grep -Fq 'export function analyzeMate' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export function analyzeMateInOne' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly shortestMatePly:' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly uniqueSolution: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
 
   test:

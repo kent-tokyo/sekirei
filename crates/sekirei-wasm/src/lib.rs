@@ -8,7 +8,10 @@
 
 use js_sys::{Array, Object, Reflect};
 use sekirei_core::board::Board;
-use sekirei_core::mate::{MateInOneInvalidReason, analyze_mate_in_one as analyze_core_mate_in_one};
+use sekirei_core::mate::{
+    MateAnalysisAbortReason, MateInOneInvalidReason, analyze_mate as analyze_core_mate,
+    analyze_mate_in_one as analyze_core_mate_in_one,
+};
 use sekirei_core::movegen::generate_legal_moves;
 use sekirei_core::search::{SearchConfig, Searcher};
 use sekirei_core::sfen::{STARTPOS_SFEN, board_to_sfen, move_from_usi, move_to_usi};
@@ -19,12 +22,19 @@ const MAX_SFEN_BYTES: usize = 512;
 const MAX_MOVE_BYTES: usize = 8;
 const MAX_SEARCH_DEPTH: u32 = 8;
 const MAX_SEARCH_NODES: u32 = 100_000;
+const MAX_MATE_PLY: u32 = 15;
+const MAX_MATE_NODES: u32 = 1_000_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
 #[cfg(test)]
 const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
 #[cfg(test)]
 const VALID_MATE_SFEN: &str = "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1";
+#[cfg(test)]
+const SHORTEST_THREE_SFEN: &str = "4k4/9/2G3S2/5R3/2GG5/9/9/9/4K4 b - 1";
+#[cfg(test)]
+const UNIQUE_FIVE_SFEN: &str =
+    "lnS1k2nl/3sr1G2/2p+Pb3p/p3Sp1p1/PpP2P1P1/5Gp2/LPN2gP1P/2+p+pr1G1L/Kb2S2N1 w P 110";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ApiError {
@@ -73,6 +83,18 @@ struct MateInOneResult {
     solutions: Vec<String>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MateResult {
+    valid_position: bool,
+    outcome: &'static str,
+    shortest_mate_ply: Option<u32>,
+    solutions: Vec<String>,
+    unique_solution: bool,
+    nodes: u32,
+    aborted: bool,
+    reason: Option<&'static str>,
+}
+
 fn parse_board(sfen: &str) -> Result<Board, ApiError> {
     if sfen.len() > MAX_SFEN_BYTES {
         return Err(ApiError::new(
@@ -110,6 +132,52 @@ fn analyze_mate_in_one_impl(sfen: &str) -> Result<MateInOneResult, ApiError> {
         defender_already_in_check,
         invalid_reason,
         solutions,
+    })
+}
+
+fn validate_mate_limits(max_ply: u32, node_limit: u32) -> Result<(), ApiError> {
+    if !(1..=MAX_MATE_PLY).contains(&max_ply) {
+        return Err(ApiError::new(
+            "invalid_mate_limit",
+            format!("maxPly must be in 1..={MAX_MATE_PLY}"),
+        ));
+    }
+    if !(1..=MAX_MATE_NODES).contains(&node_limit) {
+        return Err(ApiError::new(
+            "invalid_mate_limit",
+            format!("nodeLimit must be in 1..={MAX_MATE_NODES}"),
+        ));
+    }
+    Ok(())
+}
+
+fn analyze_mate_impl(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateResult, ApiError> {
+    validate_mate_limits(max_ply, node_limit)?;
+    let board = parse_board(sfen)?;
+    let analysis = analyze_core_mate(&board, max_ply, u64::from(node_limit));
+    let valid_position = analysis.valid_position();
+    let outcome = analysis.outcome.code();
+    let shortest_mate_ply = analysis.shortest_mate_ply;
+    let unique_solution = analysis.unique_solution();
+    let mut solutions = analysis
+        .solutions
+        .into_iter()
+        .map(move_to_usi)
+        .collect::<Vec<_>>();
+    solutions.sort_unstable();
+    let reason = analysis
+        .invalid_reason
+        .map(MateInOneInvalidReason::code)
+        .or_else(|| analysis.abort_reason.map(MateAnalysisAbortReason::code));
+    Ok(MateResult {
+        valid_position,
+        outcome,
+        shortest_mate_ply,
+        solutions,
+        unique_solution,
+        nodes: analysis.nodes.min(u64::from(u32::MAX)) as u32,
+        aborted: analysis.aborted,
+        reason,
     })
 }
 
@@ -273,6 +341,67 @@ pub struct MateInOneAnalysis {
     result: MateInOneResult,
 }
 
+/// Complete shortest-mate analysis for a browser-supplied SFEN position.
+#[wasm_bindgen]
+pub struct MateAnalysis {
+    result: MateResult,
+}
+
+#[wasm_bindgen]
+impl MateAnalysis {
+    /// Whether the initial position satisfies the mate-problem contract.
+    #[wasm_bindgen(getter, js_name = validPosition)]
+    pub fn valid_position(&self) -> bool {
+        self.result.valid_position
+    }
+
+    /// `mate`, `no_mate`, or `unknown`.
+    #[wasm_bindgen(getter)]
+    pub fn outcome(&self) -> String {
+        self.result.outcome.to_owned()
+    }
+
+    /// Shortest proven mate length in plies, when `outcome` is `mate`.
+    #[wasm_bindgen(getter, js_name = shortestMatePly)]
+    pub fn shortest_mate_ply(&self) -> Option<u32> {
+        self.result.shortest_mate_ply
+    }
+
+    /// Every first move that forces mate at the shortest proven length.
+    #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
+    pub fn solutions(&self) -> Array {
+        let array = Array::new();
+        for solution in &self.result.solutions {
+            array.push(&JsValue::from_str(solution));
+        }
+        array
+    }
+
+    /// Whether the completed shortest-depth search found exactly one first move.
+    #[wasm_bindgen(getter, js_name = uniqueSolution)]
+    pub fn unique_solution(&self) -> bool {
+        self.result.unique_solution
+    }
+
+    /// Positions visited across all completed and partial depth passes.
+    #[wasm_bindgen(getter)]
+    pub fn nodes(&self) -> u32 {
+        self.result.nodes
+    }
+
+    /// Whether the node budget stopped the complete search.
+    #[wasm_bindgen(getter)]
+    pub fn aborted(&self) -> bool {
+        self.result.aborted
+    }
+
+    /// Stable invalid-position or abort reason code.
+    #[wasm_bindgen(getter)]
+    pub fn reason(&self) -> Option<String> {
+        self.result.reason.map(str::to_owned)
+    }
+}
+
 #[wasm_bindgen]
 impl MateInOneAnalysis {
     /// Whether the initial position satisfies the mate-problem contract.
@@ -341,6 +470,19 @@ pub fn legal_moves(sfen: &str) -> Result<Array, JsValue> {
 pub fn analyze_mate_in_one(sfen: &str) -> Result<MateInOneAnalysis, JsValue> {
     analyze_mate_in_one_impl(sfen)
         .map(|result| MateInOneAnalysis { result })
+        .map_err(ApiError::into_js)
+}
+
+/// Find the shortest forced mate up to `maxPly` and return all first moves.
+///
+/// The attacker may play checking moves only; the defender may play every
+/// legal reply. `maxPly` must be in `1..=15` and `nodeLimit` in
+/// `1..=1000000`. An exhausted node budget returns `outcome = "unknown"`
+/// with no partial solutions.
+#[wasm_bindgen(js_name = analyzeMate)]
+pub fn analyze_mate(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateAnalysis, JsValue> {
+    analyze_mate_impl(sfen, max_ply, node_limit)
+        .map(|result| MateAnalysis { result })
         .map_err(ApiError::into_js)
 }
 
@@ -463,6 +605,56 @@ mod tests {
             "invalid_sfen"
         );
     }
+
+    #[test]
+    fn bounded_mate_adapter_reports_shortest_unique_and_unknown_results() {
+        let multiple = analyze_mate_impl(VALID_MATE_SFEN, 5, MAX_MATE_NODES).unwrap();
+        assert_eq!(multiple.outcome, "mate");
+        assert_eq!(multiple.shortest_mate_ply, Some(1));
+        assert!(!multiple.unique_solution);
+        assert!(multiple.solutions.contains(&"5e5c".to_owned()));
+        assert!(multiple.solutions.contains(&"5e5c+".to_owned()));
+
+        let shorter = analyze_mate_impl(SHORTEST_THREE_SFEN, 5, MAX_MATE_NODES).unwrap();
+        assert_eq!(shorter.outcome, "mate");
+        assert_eq!(shorter.shortest_mate_ply, Some(3));
+
+        let no_mate = analyze_mate_impl(STARTPOS_SFEN, 5, MAX_MATE_NODES).unwrap();
+        assert_eq!(no_mate.outcome, "no_mate");
+        assert!(no_mate.shortest_mate_ply.is_none());
+        assert!(no_mate.solutions.is_empty());
+        assert!(!no_mate.aborted);
+
+        let unique = analyze_mate_impl(UNIQUE_FIVE_SFEN, 5, MAX_MATE_NODES).unwrap();
+        assert_eq!(unique.outcome, "mate");
+        assert_eq!(unique.shortest_mate_ply, Some(5));
+        assert_eq!(unique.solutions, vec!["7h8h"]);
+        assert!(unique.unique_solution);
+
+        let cutoff = analyze_mate_impl(UNIQUE_FIVE_SFEN, 5, 1).unwrap();
+        assert_eq!(cutoff.outcome, "unknown");
+        assert!(cutoff.shortest_mate_ply.is_none());
+        assert!(cutoff.solutions.is_empty());
+        assert!(!cutoff.unique_solution);
+        assert!(cutoff.aborted);
+        assert_eq!(cutoff.reason, Some("node_limit"));
+    }
+
+    #[test]
+    fn bounded_mate_limits_are_enforced() {
+        assert_eq!(
+            analyze_mate_impl(VALID_MATE_SFEN, 0, 1_000)
+                .unwrap_err()
+                .code,
+            "invalid_mate_limit"
+        );
+        assert_eq!(
+            analyze_mate_impl(VALID_MATE_SFEN, 5, MAX_MATE_NODES + 1)
+                .unwrap_err()
+                .code,
+            "invalid_mate_limit"
+        );
+    }
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -510,6 +702,27 @@ mod browser_tests {
                 .iter()
                 .any(|solution| solution.as_string().as_deref() == Some("5e5c"))
         );
+
+        let shortest = analyze_mate(SHORTEST_THREE_SFEN, 5, MAX_MATE_NODES)
+            .expect("bounded mate fixture must be valid");
+        assert_eq!(shortest.outcome(), "mate");
+        assert_eq!(shortest.shortest_mate_ply(), Some(3));
+        assert!(!shortest.aborted());
+
+        let unique = analyze_mate(UNIQUE_FIVE_SFEN, 5, MAX_MATE_NODES)
+            .expect("unique mate-in-five fixture must be valid");
+        assert_eq!(unique.shortest_mate_ply(), Some(5));
+        assert!(unique.unique_solution());
+        assert_eq!(unique.solutions().length(), 1);
+
+        let cutoff = analyze_mate(UNIQUE_FIVE_SFEN, 5, 1)
+            .expect("resource exhaustion must be represented in the result");
+        assert_eq!(cutoff.outcome(), "unknown");
+        assert!(cutoff.shortest_mate_ply().is_none());
+        assert_eq!(cutoff.solutions().length(), 0);
+        assert!(!cutoff.unique_solution());
+        assert!(cutoff.aborted());
+        assert_eq!(cutoff.reason().as_deref(), Some("node_limit"));
 
         let error = legal_moves("not sfen").expect_err("malformed SFEN must fail");
         assert_eq!(
