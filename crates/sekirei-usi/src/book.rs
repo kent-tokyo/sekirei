@@ -107,4 +107,21 @@ mod tests {
                 .is_none()
         );
     }
+
+    #[test]
+    fn loads_lineprior_schema_v1_book() {
+        let book = load_from(&format!(
+            concat!(
+                r#"{{"prior_book_schema_version":1,"producer_version":"0.12.1","build_config":{{}},"build_config_fingerprint":0}}"#,
+                "\n",
+                r#"{{"state":{:?},"actions":[{{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.5,"confidence":0.5}}]}}"#
+            ),
+            STARTPOS_SFEN
+        ));
+        assert_eq!(book.len(), 1);
+        assert!(
+            book.lookup(STARTPOS_SFEN, &Board::startpos(), 0.0)
+                .is_some()
+        );
+    }
 }

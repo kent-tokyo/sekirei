@@ -93,7 +93,7 @@ pub fn build_book(
     };
 
     let kept = book.entries.len();
-    if let Err(e) = lineprior::save_prior_book(&book, &mut *out) {
+    if let Err(e) = lineprior::save_prior_book_with_config(&book, &config, &mut *out) {
         eprintln!("book: failed to write prior book: {e}");
         return Err(io::Error::other(e.to_string()));
     }
@@ -101,4 +101,28 @@ pub fn build_book(
         "book: {kept} positions kept (of {seen} observations, min_count={min_count}, max_ply={max_ply})"
     );
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::csa::parse_csa;
+
+    #[test]
+    fn generated_book_records_lineprior_schema_and_build_config() {
+        let game = parse_csa("V2.2\nPI\n+7776FU\n%TORYO\n").expect("valid CSA");
+        let mut output = Vec::new();
+        build_book(&[game], 1, 1, &mut output).expect("build book");
+
+        let text = String::from_utf8(output).expect("UTF-8 JSONL");
+        let header: serde_json::Value =
+            serde_json::from_str(text.lines().next().expect("metadata header"))
+                .expect("valid metadata JSON");
+        assert_eq!(header["prior_book_schema_version"], 1);
+        assert_eq!(header["producer_version"], "0.12.1");
+        assert_eq!(header["build_config"]["min_count"], 1);
+
+        let loaded = lineprior::load_prior_book(text.as_bytes()).expect("reload generated book");
+        assert_eq!(loaded.entries.len(), 1);
+    }
 }
