@@ -6,6 +6,9 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Dependencies: update `veridict` to 0.19.1. SPRT output and verdict sidecars
+  now report the retained first-boundary-crossing LLR while preserving the
+  full-input aggregate separately.
 - Data pipeline: verify the external `shogiesa 0.10.1` CLI contract end to end
   with CSA extraction, Sekirei labeling, and quietset-input flattening. Sekirei
   does not link `shogiesa` as a Cargo dependency.
