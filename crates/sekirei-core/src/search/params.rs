@@ -384,6 +384,8 @@ search_params! {
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
     TT_BUCKET = 0, 0, 3;
+    /// TT cutoffs at PV nodes too (0), or only at null-window nodes (1).
+    TT_PV_CUT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

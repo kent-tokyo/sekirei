@@ -1250,7 +1250,9 @@ impl TtProbe {
         if !matches!(entry.bound, Bound::Upper) {
             probe.se_score = Some(adj);
         }
-        if entry.depth >= depth as u8 && !excluded {
+        // TT_PV_CUT 1: no TT cutoffs at PV nodes (the bounds still raise alpha).
+        let pv_cut = p::TT_PV_CUT() == 0 || beta - alpha == 1;
+        if entry.depth >= depth as u8 && !excluded && pv_cut {
             match entry.bound {
                 Bound::Exact => probe.cutoff = Some(adj),
                 Bound::Lower => {
