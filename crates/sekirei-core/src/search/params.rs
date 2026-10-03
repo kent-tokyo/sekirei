@@ -384,6 +384,19 @@ search_params! {
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
     TT_BUCKET = 0, 0, 3;
+    /// Time management after a completed iteration: stop at the soft limit
+    /// once the best move repeats (0), or at a soft limit scaled by the best
+    /// move's stability and the score's fall (1, see `TM_STAB_*`).
+    TM_MODE = 0, 0, 1;
+    /// Soft limit (percent) right after the best move changed (TM_MODE 1).
+    TM_STAB_MAX = 130, 50, 300;
+    /// Percent less per further iteration with the same best move.
+    TM_STAB_STEP = 10, 0, 50;
+    /// Lowest soft limit percent for a long-stable best move.
+    TM_STAB_MIN = 60, 10, 100;
+    /// A score fall of this many centipawns raises the limit by 100%
+    /// (capped at +50%).
+    TM_DROP_DIV = 200, 20, 2000;
     /// TT cutoffs at PV nodes too (0), or only at null-window nodes (1).
     TT_PV_CUT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more

@@ -617,6 +617,31 @@ fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
     }
 }
 
+/// TM_MODE 1: whether to stop after a completed iteration. The soft limit
+/// is scaled by the best move's stability (`TM_STAB_MAX` percent after a
+/// change, `TM_STAB_STEP` less per further unchanged iteration, at least
+/// `TM_STAB_MIN`) and raised by a falling score (`drop / TM_DROP_DIV`, at
+/// most half again).
+fn tm_scaled_soft_expired(
+    elapsed: std::time::Duration,
+    soft_limit: Option<std::time::Duration>,
+    depth: u32,
+    stable_iters: u32,
+    drop: i32,
+) -> bool {
+    let Some(soft) = soft_limit else {
+        return false;
+    };
+    if depth < 4 {
+        return false;
+    }
+    let stab = (p::TM_STAB_MAX() - p::TM_STAB_STEP() * stable_iters.min(64) as i32)
+        .max(p::TM_STAB_MIN());
+    let drop_pct = 100 + (drop.max(0) * 100 / p::TM_DROP_DIV().max(1)).min(50);
+    let limit_ms = soft.as_millis() as u64 * stab.max(1) as u64 / 100 * drop_pct as u64 / 100;
+    elapsed.as_millis() as u64 >= limit_ms
+}
+
 /// Search pruning switches used by diagnostic ablations.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PruningConfig {
@@ -992,6 +1017,10 @@ impl Searcher {
         let mut bound = SearchBound::Unknown;
         let mut root_mate_safety_cache = RootMateSafetyCache::default();
         let history = &SearchHistory::root(history);
+        // TM_MODE 1: completed iterations with an unchanged best move, and
+        // the previous iteration's score.
+        let mut stable_iters = 0u32;
+        let mut prev_score: Option<i32> = None;
 
         for iteration in 1..=config.max_depth {
             let depth = iteration + self.depth_skew;
@@ -1047,15 +1076,32 @@ impl Searcher {
                 break;
             }
 
-            if soft_limit_expired(
-                &state.budget,
-                config.soft_limit,
-                depth,
-                best_move == prev_best,
-            ) {
+            if best_move == prev_best {
+                stable_iters += 1;
+            } else {
+                stable_iters = 0;
+            }
+            let stop = if p::TM_MODE() == 0 {
+                soft_limit_expired(
+                    &state.budget,
+                    config.soft_limit,
+                    depth,
+                    best_move == prev_best,
+                )
+            } else {
+                tm_scaled_soft_expired(
+                    state.budget.elapsed(),
+                    config.soft_limit,
+                    depth,
+                    stable_iters,
+                    prev_score.map_or(0, |ps| ps - score),
+                )
+            };
+            if stop {
                 break;
             }
             prev_best = best_move;
+            prev_score = Some(score);
         }
 
         // Even if the hard deadline fires before depth 1 completes, return a
