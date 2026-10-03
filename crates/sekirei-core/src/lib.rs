@@ -1159,7 +1159,7 @@ mod tests {
         use tt::{Bound, Tt, TtEntry, TtWriteStats};
 
         let stats = Arc::new(TtWriteStats::default());
-        let tt = Tt::new_with_stats(1, Some(stats.clone()));
+        let tt = Tt::new_with_layout(1, Some(stats.clone()), 0);
         let hash = 0x1234_5678_9abc_def0;
         let entry = TtEntry {
             score: 10,
@@ -1220,7 +1220,7 @@ mod tests {
         use tt::{Bound, Tt, TtEntry, TtWriteStats};
 
         let stats = Arc::new(TtWriteStats::default());
-        let tt = Tt::new_with_stats(1, Some(stats.clone()));
+        let tt = Tt::new_with_layout(1, Some(stats.clone()), 0);
         let first_hash = 1;
         let colliding_hash = first_hash + (1 << 16);
         let entry = TtEntry {

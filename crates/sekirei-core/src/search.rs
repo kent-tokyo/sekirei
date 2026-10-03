@@ -5559,7 +5559,7 @@ mod regression_tests {
         let mut board = Board::startpos();
         let hash = board.hash();
         let history = PositionHistory::initial(hash);
-        let tt = Tt::new(1);
+        let tt = Tt::new_with_layout(1, None, 0);
         let state = fresh_state(tt.clone());
         tt.store(
             hash,

@@ -192,6 +192,9 @@ pub struct Tt {
     /// Search counter (low four bits are stored in each entry when
     /// `TT_BUCKET` is non-zero), advanced by [`Tt::new_search`].
     generation: AtomicU8,
+    /// Fixed `TT_BUCKET` layout for this table (tests and diagnostics), or
+    /// `None` to follow the search parameter.
+    layout: Option<i32>,
 }
 
 impl Tt {
@@ -204,6 +207,26 @@ impl Tt {
     /// Create a table with an optional write-topology observer.
     pub fn new_with_stats(size_mb: usize, stats: Option<Arc<TtWriteStats>>) -> Arc<Self> {
         Self::new_with_stats_and_domain(size_mb, stats, 0)
+    }
+
+    /// Create a table with a fixed `TT_BUCKET` layout instead of the search
+    /// parameter's (0: direct-mapped; see `TT_BUCKET`).
+    pub fn new_with_layout(
+        size_mb: usize,
+        stats: Option<Arc<TtWriteStats>>,
+        layout: i32,
+    ) -> Arc<Self> {
+        let mut tt = Self::new_with_stats_and_domain(size_mb, stats, 0);
+        Arc::get_mut(&mut tt)
+            .expect("a new table has a single owner")
+            .layout = Some(layout);
+        tt
+    }
+
+    #[inline]
+    fn layout(&self) -> i32 {
+        self.layout
+            .unwrap_or_else(crate::search::params::TT_BUCKET)
     }
 
     /// Create a table whose key space is isolated for one evaluator domain.
@@ -240,6 +263,7 @@ impl Tt {
             write_stats: stats,
             domain,
             generation: AtomicU8::new(0),
+            layout: None,
         })
     }
 
@@ -267,7 +291,7 @@ impl Tt {
     /// Probe the table. Returns `Some(entry)` on a hit, `None` on a miss or torn read.
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
         let key_hash = self.key_hash(hash);
-        if crate::search::params::TT_BUCKET() & 1 != 0 {
+        if self.layout() & 1 != 0 {
             let base = key_hash as usize & self.mask & !(BUCKET - 1);
             for slot in &self.table[base..base + BUCKET.min(self.table.len())] {
                 let data = slot.data.load(Ordering::Relaxed);
@@ -372,7 +396,7 @@ impl Tt {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
         let key_hash = self.key_hash(hash);
-        let mode = crate::search::params::TT_BUCKET();
+        let mode = self.layout();
         if mode & 1 != 0 {
             self.store_bucket(key_hash, &entry, mode);
             return;
@@ -483,6 +507,82 @@ mod tests {
     fn new_does_not_halve_power_of_two_capacity() {
         let tt = Tt::new(64);
         assert_eq!(tt.len(), 1 << 22);
+    }
+
+    fn entry(depth: u8, bound: Bound, mv: Option<Move>) -> TtEntry {
+        TtEntry {
+            score: 0,
+            depth,
+            bound,
+            mv,
+        }
+    }
+
+    #[test]
+    fn bucket_layout_keeps_four_positions_of_one_bucket() {
+        let tt = Tt::new_with_layout(1, None, 3);
+        let hashes: Vec<u64> = (0..4).map(|i| 0x40 + (i << 24)).collect();
+        for (i, &h) in hashes.iter().enumerate() {
+            tt.store(h, entry(i as u8 + 1, Bound::Exact, None));
+        }
+        for (i, &h) in hashes.iter().enumerate() {
+            assert_eq!(tt.probe(h).map(|e| e.depth), Some(i as u8 + 1));
+        }
+        // A fifth position replaces the shallowest entry of the bucket.
+        let fifth = 0x40 + (4 << 24);
+        tt.store(fifth, entry(9, Bound::Exact, None));
+        assert!(tt.probe(hashes[0]).is_none());
+        assert_eq!(tt.probe(fifth).map(|e| e.depth), Some(9));
+        for &h in &hashes[1..] {
+            assert!(tt.probe(h).is_some());
+        }
+    }
+
+    #[test]
+    fn bucket_layout_replaces_an_entry_of_an_older_search_first() {
+        let tt = Tt::new_with_layout(1, None, 3);
+        let hashes: Vec<u64> = (0..5).map(|i| 0x80 + (i << 24)).collect();
+        tt.store(hashes[0], entry(20, Bound::Exact, None));
+        tt.new_search();
+        tt.new_search();
+        tt.new_search();
+        tt.new_search();
+        for &h in &hashes[1..4] {
+            tt.store(h, entry(2, Bound::Exact, None));
+        }
+        // Depth 20 aged by four searches ranks below depth 2 from this one.
+        tt.store(hashes[4], entry(2, Bound::Exact, None));
+        assert!(tt.probe(hashes[0]).is_none());
+    }
+
+    #[test]
+    fn bucket_layout_keeps_a_much_deeper_bound_of_the_same_position() {
+        let tt = Tt::new_with_layout(1, None, 3);
+        let h = 0x1234_5678;
+        tt.store(h, entry(8, Bound::Lower, None));
+        tt.store(h, entry(1, Bound::Upper, None));
+        assert_eq!(tt.probe(h).map(|e| e.depth), Some(8));
+        // A store at most TT_KEEP_DEPTH plies shallower replaces it.
+        let keep = crate::search::params::TT_KEEP_DEPTH() as u8;
+        tt.store(h, entry(8 - keep, Bound::Upper, None));
+        assert_eq!(tt.probe(h).map(|e| e.depth), Some(8 - keep));
+    }
+
+    #[test]
+    fn bucket_layout_keeps_the_stored_move_when_a_new_entry_has_none() {
+        use crate::square::Square;
+        let tt = Tt::new_with_layout(1, None, 3);
+        let h = 0x9999;
+        let m = Move {
+            from: Some(Square::from_index(10)),
+            to: Square::from_index(11),
+            piece_kind: PieceKind::Fu,
+            promote: false,
+        };
+        tt.store(h, entry(3, Bound::Lower, Some(m)));
+        tt.store(h, entry(4, Bound::Upper, None));
+        let e = tt.probe(h).expect("entry");
+        assert_eq!((e.depth, e.mv), (4, Some(m)));
     }
 
     #[test]
