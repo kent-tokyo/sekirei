@@ -2326,7 +2326,15 @@ fn alpha_beta(
                 * depth as i32
             >= beta
     {
-        return if rfp_guard { (2 * beta + se) / 3 } else { se };
+        return if rfp_guard {
+            (2 * beta + se) / 3
+        } else {
+            match p::RFP_DAMP() {
+                0 => se,
+                1 => (se + beta) / 2,
+                _ => (se + 2 * beta) / 3,
+            }
+        };
     }
 
     // Razoring: far below alpha at shallow non-PV depth, trust quiescence.
@@ -2789,6 +2797,24 @@ fn alpha_beta(
                 lmr_depth: depth.saturating_sub(1 + reduce),
             };
             if late.prunes(board, m, is_quiet, i + 1) {
+                // FUT_SOFT: a pruned quiet move still bounds the node from
+                // above by its futility estimate, so the fail-low value
+                // returned (and stored) is not lower than the pruned moves
+                // could have scored.
+                if p::FUT_SOFT() != 0
+                    && is_quiet
+                    && let Some(se) = static_eval
+                    && best_score > -(MATE_SCORE - 1000)
+                    && best_score < MATE_SCORE - 1000
+                {
+                    let est = if depth == 1 {
+                        se + p::FUTILITY_MARGIN()
+                    } else {
+                        se + p::SHALLOW_FUTILITY_BASE()
+                            + p::SHALLOW_FUTILITY_PER_DEPTH() * late.lmr_depth.max(1) as i32
+                    };
+                    best_score = best_score.max(est.min(alpha));
+                }
                 continue;
             }
             let check_cap = check_reduction_cap(board, m, reduce);

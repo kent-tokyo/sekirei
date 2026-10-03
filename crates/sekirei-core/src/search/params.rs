@@ -369,6 +369,13 @@ search_params! {
     CONT6_WEIGHT = 0, 0, 48;
     /// Update weight (sixteenths) of that continuation history.
     CONT6_UPDATE = 0, 0, 48;
+    /// A quiet move skipped by pruning raises the node's best score to its
+    /// futility estimate (capped at alpha), so fail-low bounds stay sound (1),
+    /// or pruned moves leave the best score unchanged (0).
+    FUT_SOFT = 0, 0, 1;
+    /// Value returned by reverse futility pruning: the static eval (0), its
+    /// mean with beta (1), or one third of the way from beta (2).
+    RFP_DAMP = 0, 0, 2;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;
