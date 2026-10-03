@@ -384,6 +384,11 @@ search_params! {
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
     TT_BUCKET = 0, 0, 3;
+    /// Internal iterative reduction (one ply less without a TT move) at all
+    /// nodes (0), PV and expected cut nodes (1), PV nodes (2), or never (3).
+    IIR_MODE = 0, 0, 3;
+    /// Smallest depth internal iterative reduction applies at.
+    IIR_MIN_DEPTH = 4, 2, 12;
     /// Depth one search of age is worth when choosing the slot to replace.
     TT_AGE_WEIGHT = 6, 0, 32;
     /// How much shallower a store of the same position may be and still

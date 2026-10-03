@@ -2243,12 +2243,19 @@ fn alpha_beta(
     let tt_se_score = tt.se_score;
     let tt_se_depth = tt.se_depth;
 
-    // Internal Iterative Reduction: no TT move → move ordering is poor, search shallower
-    let depth = if tt_mv.is_none() && depth >= 4 {
-        depth - 1
-    } else {
-        depth
-    };
+    // Internal Iterative Reduction: no TT move → move ordering is poor, search shallower.
+    // IIR_MODE limits it to PV and expected cut nodes (1), PV nodes (2) or
+    // turns it off (3): a reduced node stores a shallower entry, which a
+    // revisit at the full depth cannot cut on.
+    let iir = tt_mv.is_none()
+        && depth >= p::IIR_MIN_DEPTH() as u32
+        && match p::IIR_MODE() {
+            0 => true,
+            1 => beta - alpha > 1 || cut_node,
+            2 => beta - alpha > 1,
+            _ => false,
+        };
+    let depth = if iir { depth - 1 } else { depth };
     let stm = board.side_to_move;
     let mut node = NodeKey {
         hash,
