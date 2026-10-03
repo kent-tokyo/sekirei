@@ -14,13 +14,11 @@
 # schema_version 11), quietset-cli 0.16.0 -- same convention as
 # scripts/train_with_shogiesa_quietset.sh.
 #
-# Label depth is deliberately NOT --engine-option Threads=1: self-play games
-# played at Threads=1/1000ms byoyomi reach only ~depth 2-4 effectively, so
-# labeling at that same shallow depth would just be training the engine on
-# its own blind spot, not correcting it. Full multicore per position lets
-# more positions actually reach a meaningfully deeper depth before timeout.
-# Measured directly (2026-07-07): depth 6, 15s timeout, jobs=1 (sequential,
-# full multicore) -> ~70% of positions label successfully; the ~30% that
+# Diagnostic labeling is serialized (`jobs=1`) and fixes the engine at one
+# thread. Its depths 4,6 are used only for Quietset stability; the internal
+# teacher stays at LABEL_DEPTH=4 to preserve the historical training factor.
+# Measured directly (2026-07-07): depth 6, 15s timeout, jobs=1 -> ~70% of
+# positions label successfully; the ~30% that
 # don't skew toward higher ply (harder, more complex late-game positions) --
 # an accepted, known limitation of this run, not solved here.
 #
@@ -37,6 +35,9 @@
 #   EVERY_N_PLIES=4      sample every N plies from a lost game (default: 4)
 #   RUN_DIR=data/runs/X  intermediate file directory (default: data/runs/loss_mine_<timestamp>)
 #   SHOGIESA=path        path to shogiesa binary (default: auto-detect, see below)
+#   DEPTH_MISMATCH_REASON=text
+#                        recorded explanation for MINE_DEPTHS versus LABEL_DEPTH
+#                        (default documents the intended historical-control split).
 #
 # Deliberately does NOT run a gate at the end -- run
 # scripts/sprint_gate.sh <OUTPUT> <BASELINE> <n_sprints> as an explicit,
@@ -49,6 +50,7 @@ OUTPUT=${1:-data/weights_v012_loss_mined.bin}
 BASELINE=${2:-data/weights_v010_10k_full.bin}
 MINE_DEPTHS=${MINE_DEPTHS:-4,6}
 LABEL_DEPTH=${LABEL_DEPTH:-4}
+DEPTH_MISMATCH_REASON=${DEPTH_MISMATCH_REASON:-"diagnostic depths 4,6 measure Quietset stability; internal depth 4 preserves the historical teacher control"}
 MIN_PLY=${MIN_PLY:-10}
 EVERY_N_PLIES=${EVERY_N_PLIES:-4}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -95,12 +97,16 @@ command -v cargo    >/dev/null || { echo "error: cargo not found";    exit 127; 
 [ -f "$BASE_POSITIONS" ] || { echo "error: v010 baseline positions not found: $BASE_POSITIONS"; exit 1; }
 [ -f "$BASE_SCORED" ]    || { echo "error: v010 baseline scored not found: $BASE_SCORED"; exit 1; }
 [ -f "$BASELINE" ]       || { echo "error: baseline weights not found: $BASELINE"; exit 1; }
+python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" --version-only >/dev/null
 
 echo "=== loss-position mining + train ==="
 echo "  output    : $OUTPUT"
 echo "  baseline  : $BASELINE"
 echo "  mine depths: $MINE_DEPTHS"
 echo "  label depth: $LABEL_DEPTH"
+echo "  teacher source: sekirei_internal_search"
+echo "  shogiesa mode: diagnostic-weighting only (never a teacher target)"
 echo "  run dir   : $RUN_DIR"
 echo ""
 
@@ -126,17 +132,32 @@ rm -f "$RUN_DIR/stage1/tmp.jsonl"
 echo "  -> $RUN_DIR/stage1/mined_positions.jsonl ($(wc -l < "$RUN_DIR/stage1/mined_positions.jsonl") positions)"
 
 # ---- Stage 2: label mined positions at depth, full multicore --------------
-echo "[2/4] shogiesa label  (depths=$MINE_DEPTHS, full multicore per position)"
+echo "[2/4] shogiesa label  (depths=$MINE_DEPTHS, jobs=1, Threads=1)"
+LABEL_STARTED=$(date +%s)
 "$SHOGIESA" label \
   --input "$RUN_DIR/stage1/mined_positions.jsonl" \
   --engine "./target/release/sekirei" \
   --depths "$MINE_DEPTHS" \
   --timeout-ms 15000 \
   --jobs 1 \
+  --engine-option "Threads=1" \
+  --engine-option "UseBook=false" \
   --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
+LABEL_ELAPSED_SECONDS=$(( $(date +%s) - LABEL_STARTED ))
 echo "  -> $RUN_DIR/stage2/observations.jsonl ($(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations)"
+
+DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
+DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" \
+  --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --observations "$RUN_DIR/stage2/observations.jsonl" \
+  --depths "$MINE_DEPTHS" \
+  --label-depth "$LABEL_DEPTH" \
+  --depth-mismatch-reason "$DEPTH_MISMATCH_REASON" \
+  --label-elapsed-seconds "$LABEL_ELAPSED_SECONDS" \
+  --output "$DIAGNOSTIC_CONTRACT")
 
 # ---- Stage 3: flatten + score with quietset --------------------------------
 echo "[3/4] flatten label -> quietset, then score  (profile=game-ai-single-engine)"
@@ -162,8 +183,11 @@ echo "  -> $(wc -l < "$RUN_DIR/stage3/positions_combined.jsonl") combined positi
 # are inherently less stable -- that's what makes them worth mining), so
 # omitting this would mean ~92% of the new data never reaches training. See
 # tasks/lessons.md.
+TRAIN_STARTED=$(date +%s)
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage3/positions_combined.jsonl" \
+  --diagnostic-manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --diagnostic-manifest-sha256 "$DIAGNOSTIC_MANIFEST_SHA" \
   --scored "$RUN_DIR/stage3/scored_combined.jsonl" \
   --stability-weighted \
   --min-stability 0 \
@@ -172,10 +196,11 @@ cargo run --release -q -p sekirei-train -- \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints" \
   --output "$OUTPUT"
+TRAIN_ELAPSED_SECONDS=$(( $(date +%s) - TRAIN_STARTED ))
 echo "  -> $OUTPUT"
 
 cat > "$RUN_DIR/manifest.json" <<EOF
-{"timestamp":"$TIMESTAMP","output":"$OUTPUT","baseline":"$BASELINE","mine_depths":"$MINE_DEPTHS","label_depth":"$LABEL_DEPTH","min_ply":"$MIN_PLY","every_n_plies":"$EVERY_N_PLIES"}
+{"timestamp":"$TIMESTAMP","output":"$OUTPUT","baseline":"$BASELINE","diagnostic_mode":"diagnostic-weighting","teacher_source":"sekirei_internal_search","diagnostic_observations_used_as_teacher":false,"mine_depths":"$MINE_DEPTHS","label_depth":"$LABEL_DEPTH","depth_mismatch_reason":"$DEPTH_MISMATCH_REASON","shogiesa_manifest":"$RUN_DIR/stage2/label_manifest.json","shogiesa_manifest_sha256":"$DIAGNOSTIC_MANIFEST_SHA","diagnostic_contract":"$DIAGNOSTIC_CONTRACT","shogiesa_label_elapsed_seconds":$LABEL_ELAPSED_SECONDS,"sekirei_internal_training_elapsed_seconds":$TRAIN_ELAPSED_SECONDS,"min_ply":"$MIN_PLY","every_n_plies":"$EVERY_N_PLIES"}
 EOF
 echo "  -> manifest: $RUN_DIR/manifest.json"
 

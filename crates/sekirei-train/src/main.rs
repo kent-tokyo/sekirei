@@ -27,7 +27,7 @@ mod trainer;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Write};
+use std::io::{self, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -39,6 +39,7 @@ use sekirei_core::{
     sfen::{board_to_sfen, move_from_usi, move_to_usi},
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 
 use csa::{CsaGame, parse_csa};
 use exporter::export_game;
@@ -165,10 +166,15 @@ impl TeacherEval {
 struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
+    // Optional shogiesa diagnostic provenance. These observations remain
+    // diagnostics/weights only; Sekirei's own --label-* search produces the
+    // training target.
+    diagnostic_manifest: Option<PathBuf>,
+    diagnostic_manifest_sha256: Option<String>,
     validation_positions_path: Option<PathBuf>, // --validation-positions: frozen hold-out JSONL
     ranking_pairs_path: Option<PathBuf>, // --ranking-pairs: strict diagnostic root-ranking JSON
-    ranking_epochs: usize,           // --ranking-epochs (ranking-pairs mode only)
-    ranking_max_pairs: usize,        // --ranking-max-pairs (0 = every input pair)
+    ranking_epochs: usize,               // --ranking-epochs (ranking-pairs mode only)
+    ranking_max_pairs: usize,            // --ranking-max-pairs (0 = every input pair)
     ranking_batch_pairs: usize, // --ranking-batch-pairs (default 1 preserves pair-step semantics)
     ranking_parent_balanced: bool, // --ranking-parent-balanced (one averaged update per parent)
     ranking_objective: RankingObjective,
@@ -676,6 +682,8 @@ fn parse_args() -> Result<Args, String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut games_dir = None;
     let mut positions_path: Option<PathBuf> = None;
+    let mut diagnostic_manifest: Option<PathBuf> = None;
+    let mut diagnostic_manifest_sha256: Option<String> = None;
     let mut validation_positions_path: Option<PathBuf> = None;
     let mut ranking_pairs_path: Option<PathBuf> = None;
     let mut ranking_epochs = 1usize;
@@ -777,6 +785,14 @@ fn parse_args() -> Result<Args, String> {
             "--positions" => {
                 i += 1;
                 positions_path = argv.get(i).map(PathBuf::from);
+            }
+            "--diagnostic-manifest" => {
+                i += 1;
+                diagnostic_manifest = argv.get(i).map(PathBuf::from);
+            }
+            "--diagnostic-manifest-sha256" => {
+                diagnostic_manifest_sha256 =
+                    Some(next_value(&argv, &mut i, "--diagnostic-manifest-sha256")?);
             }
             "--validation-positions" => {
                 i += 1;
@@ -1194,6 +1210,25 @@ fn parse_args() -> Result<Args, String> {
     if validation_positions_path.is_some() && positions_path.is_none() {
         return Err("--validation-positions requires --positions <jsonl>".to_string());
     }
+    if diagnostic_manifest.is_some() != diagnostic_manifest_sha256.is_some() {
+        return Err(
+            "--diagnostic-manifest and --diagnostic-manifest-sha256 must be supplied together"
+                .to_string(),
+        );
+    }
+    if diagnostic_manifest.is_some() && positions_path.is_none() {
+        return Err("--diagnostic-manifest requires --positions <jsonl>".to_string());
+    }
+    if let Some(hash) = &diagnostic_manifest_sha256
+        && (hash.len() != 64
+            || !hash
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+    {
+        return Err(
+            "--diagnostic-manifest-sha256 must be 64 lowercase hexadecimal characters".to_string(),
+        );
+    }
     if validation_positions_path.is_some() && validation_ratio > 0.0 {
         return Err(
             "--validation-positions and --validation-ratio are mutually exclusive".to_string(),
@@ -1286,6 +1321,14 @@ fn parse_args() -> Result<Args, String> {
                 .to_string(),
         );
     }
+    if let (Some(path), Some(expected_hash)) = (&diagnostic_manifest, &diagnostic_manifest_sha256) {
+        let actual_hash = file_sha256(path)?;
+        if &actual_hash != expected_hash {
+            return Err(format!(
+                "--diagnostic-manifest-sha256 mismatch for {path:?}: expected {expected_hash}, got {actual_hash}"
+            ));
+        }
+    }
     if init_weights.is_some() && (resume_adam.is_some() || resume_checkpoint.is_some()) {
         return Err(
             "--init-weights is mutually exclusive with --resume-adam and --resume-checkpoint"
@@ -1343,6 +1386,8 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         games_dir,
         positions_path,
+        diagnostic_manifest,
+        diagnostic_manifest_sha256,
         validation_positions_path,
         ranking_pairs_path,
         ranking_epochs,
@@ -1466,6 +1511,22 @@ fn dataset_hash(paths: &[PathBuf]) -> u64 {
         })
         .collect();
     positions::sfen_hash(&joined, 0)
+}
+
+fn file_sha256(path: &Path) -> Result<String, String> {
+    let mut file = File::open(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 64 * 1024];
+    loop {
+        let count = file
+            .read(&mut buffer)
+            .map_err(|error| format!("cannot hash {path:?}: {error}"))?;
+        if count == 0 {
+            break;
+        }
+        digest.update(&buffer[..count]);
+    }
+    Ok(format!("{:x}", digest.finalize()))
 }
 
 /// Order-independent fingerprint of which positions/games landed in the
@@ -2198,6 +2259,10 @@ fn save_checkpoint_meta(
     let meta = serde_json::json!({
         "epoch": epoch,
         "positions": args.positions_path,
+        "teacher_source": "sekirei_internal_search",
+        "diagnostic_observations_used_as_teacher": false,
+        "diagnostic_manifest": args.diagnostic_manifest,
+        "diagnostic_manifest_sha256": args.diagnostic_manifest_sha256,
         "validation_positions": args.validation_positions_path,
         "games_dir": args.games_dir,
         "min_rate": args.min_rate,
@@ -2463,6 +2528,12 @@ fn print_usage() {
     eprintln!();
     eprintln!("  --games <dir>       Directory containing .csa game files");
     eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
+    eprintln!(
+        "  --diagnostic-manifest <json>  Validated shogiesa diagnostic manifest; observations never become teacher targets"
+    );
+    eprintln!(
+        "  --diagnostic-manifest-sha256 <hex>  SHA-256 of --diagnostic-manifest (required together)"
+    );
     eprintln!(
         "  --ranking-pairs <json>  Audited root-ranking corpus (alternative to --games/--positions)"
     );
@@ -4572,6 +4643,22 @@ mod tests {
         fs::write(&a, "hello, much longer content now").unwrap();
         let after = dataset_hash(&[a]);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn diagnostic_manifest_sha256_uses_file_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let manifest = dir.path().join("label_manifest.json");
+        fs::write(&manifest, b"abc").unwrap();
+        assert_eq!(
+            file_sha256(&manifest).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        fs::write(&manifest, b"abd").unwrap();
+        assert_ne!(
+            file_sha256(&manifest).unwrap(),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
     }
 
     #[test]

@@ -6,6 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- USI: make opening books an explicit `opening-book` Cargo feature and runtime
+  opt-in. The default engine no longer depends on `lineprior`, advertises book
+  options, or probes a working-directory-relative file; enabled books report
+  versioned provenance and fall back to normal search on load failure.
+- Training: define shogiesa/Quietset runs as diagnostic-weighting pipelines.
+  They validate shogiesa 0.11.0/schema 11 provenance and achieved depths,
+  retain Sekirei internal search as the sole teacher, link the label manifest
+  by verified SHA-256, and account for external labeling and internal training
+  time separately. This is a reproducibility change, not a strength claim.
+
 ## [0.3.57] – 2026-10-03
 
 - Dependencies: update `lineprior` to 0.12.1. Newly generated opening books

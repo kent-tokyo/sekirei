@@ -26,8 +26,10 @@ no `ffi`/`bindings`/`jni`/`swift` directory exists in the tree). Embedding
 
 ## Dependency footprint (the part relevant to embedding)
 
-The engine binary's direct dependency chain is small: `sekirei-usi` uses
-`sekirei-core`, `rayon`, and `lineprior 0.12.0`; `sekirei-core` uses `rayon`.
+The default engine binary's direct dependency chain is small: `sekirei-usi`
+uses `sekirei-core` and `rayon`; `sekirei-core` uses `rayon`. `lineprior
+0.12.1` is included only when building `sekirei` with the optional
+`opening-book` feature.
 Neither is a GUI or network stack. This is not a transitive-license audit:
 verify the resolved graph and each license before making a license claim.
 
@@ -42,7 +44,7 @@ verify the resolved graph and each license before making a license claim.
 | `MultiPV` | spin | 1 | For "best/second-best move" display (per issue #44's own stated use case) |
 | `EvalFile` | string | (empty) | Path to a trained NNUE weight file — see `docs/nnue_weights.md`. **Without one set, evaluation is a real material-count fallback, not NNUE** (`crates/sekirei-core/src/eval.rs`) — this is functionally correct shogi, but not what an "evaluation graph and blunder detection" feature needs. |
 | `MoveOverhead` | spin | 50 (ms) | Standard time-management safety margin |
-| `UseBook` / `BookFile` / `BookMaxPly` / `BookMinConfidence` | — | book on, `data/opening_book.jsonl`, 30, 0.20 | Opening book — the default `BookFile` path won't exist in a mobile app bundle; set an app-bundled path or `UseBook=false` |
+| `UseBook` / `BookFile` / `BookMaxPly` / `BookMinConfidence` | — | absent in the default build; with `opening-book`: off, `data/opening_book.jsonl`, 30, 0.20 | Opening book is compile-time and runtime opt-in. Package the artifact yourself, record its SHA-256, set its app-bundled path, then enable `UseBook`. |
 
 ## Memory footprint for fully-on-device analysis
 

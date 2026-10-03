@@ -5,10 +5,23 @@ CLI. Normal engine use should go through the Cargo binaries. Most tools write
 only under ignored `data/` or `results/`; inspect `--help`, use a new run
 directory, and retain the produced manifest with the result.
 
-The workspace pins `lineprior 0.12.1`. The data-pipeline wrappers have been
-checked with the external `shogiesa 0.11.0` CLI. `sekirei-train` alone depends
-on `shogiesa-core 0.11.0` for the typed JSONL contract; the USI engine, search
-core, CSA client, and match runner do not.
+The workspace pins `lineprior 0.12.1`. The default USI runtime excludes it;
+only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
+use it. The data-pipeline wrappers have been checked with the external
+`shogiesa 0.11.0` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.0`
+for the typed JSONL contract; the default USI engine, search core, CSA client,
+and match runner do not.
+
+`train_with_shogiesa_quietset.sh`, `redo_quietset_bc.sh`, and
+`train_with_loss_mining.sh` implement one explicit teacher contract:
+shogiesa observations are diagnostic inputs to Quietset only, while Sekirei's
+internal `--label-*` search is the sole teacher target. Before training,
+`validate_shogiesa_diagnostic_contract.py` checks the supported CLI/schema,
+requested versus achieved depth, score provenance, cache accounting, and the
+label manifest. The trainer metadata links that manifest by SHA-256, and the
+run manifest records shogiesa labeling and internal training wall time
+separately. A diagnostic/teacher depth mismatch is rejected unless the run
+records a reason.
 
 ## Release and public boundary
 

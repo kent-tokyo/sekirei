@@ -33,6 +33,7 @@
 #                       Must be passed explicitly: sekirei-train's teacher score is
 #                       its own --label-depth re-search, NOT shogiesa's label depth
 #                       (see tasks/lessons.md "shogiesa/quietset teacher-depth bug").
+#   DEPTH_MISMATCH_REASON=text  required if LABEL_DEPTH differs from 4.
 #
 # Exit: 0 if both B and C pass the Elo gate, non-zero otherwise
 set -e
@@ -49,6 +50,7 @@ MAX_PLY=${MAX_PLY:-160}
 EVERY_N_PLIES=${EVERY_N_PLIES:-16}
 MAX_POSITIONS=${MAX_POSITIONS:-200000}
 LABEL_DEPTH=${LABEL_DEPTH:-4}
+DEPTH_MISMATCH_REASON=${DEPTH_MISMATCH_REASON:-}
 # Parallel label workers — labeling is throughput-bound at ~3 pos/sec regardless,
 # so size to logical cores - 2 (min 1). The real speed knob is MAX_POSITIONS.
 JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
@@ -77,6 +79,8 @@ command -v quietset >/dev/null 2>&1 || { echo "error: quietset not found"; exit 
 command -v cargo    >/dev/null 2>&1 || { echo "error: cargo not found";    exit 127; }
 [ -d "$CSA_DIR"  ] || { echo "error: CSA dir not found: $CSA_DIR";   exit 1; }
 [ -f "$BASELINE" ] || { echo "error: baseline not found: $BASELINE"; exit 1; }
+python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" --version-only >/dev/null
 
 echo "=== quietset B/C redo (depths 2,4, full coverage) ==="
 echo "  CSA dir  : $CSA_DIR"
@@ -84,6 +88,8 @@ echo "  baseline : $BASELINE"
 echo "  out B    : $OUT_B"
 echo "  out C    : $OUT_C"
 echo "  run dir  : $RUN_DIR"
+echo "  teacher  : sekirei_internal_search depth=$LABEL_DEPTH"
+echo "  shogiesa : diagnostic-weighting only (never a teacher target)"
 echo ""
 
 mkdir -p "$RUN_DIR"/{stage1,stage2,stage3,checkpoints_b,checkpoints_c} results
@@ -113,6 +119,7 @@ echo "  -> $(wc -l < "$RUN_DIR/stage1/positions.jsonl") positions"
 
 # ---- Stage 2: label at depths 2,4 -------------------------------------------
 echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
+LABEL_STARTED=$(date +%s)
 "$SHOGIESA" label \
   --input "$RUN_DIR/stage1/positions.jsonl" \
   --engine "./target/release/sekirei" \
@@ -120,11 +127,28 @@ echo "[2/5] shogiesa label  (depths 2,4, jobs=$JOBS)"
   --timeout-ms 10000 \
   --jobs "$JOBS" \
   --engine-option "Threads=1" \
+  --engine-option "UseBook=false" \
   --skip-existing \
   --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
+LABEL_ELAPSED_SECONDS=$(( $(date +%s) - LABEL_STARTED ))
 echo "  -> $(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations"
+
+DEPTH_MISMATCH_ARGS=()
+if [ -n "$DEPTH_MISMATCH_REASON" ]; then
+  DEPTH_MISMATCH_ARGS=(--depth-mismatch-reason "$DEPTH_MISMATCH_REASON")
+fi
+DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
+DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" \
+  --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --observations "$RUN_DIR/stage2/observations.jsonl" \
+  --depths 2,4 \
+  --label-depth "$LABEL_DEPTH" \
+  --label-elapsed-seconds "$LABEL_ELAPSED_SECONDS" \
+  --output "$DIAGNOSTIC_CONTRACT" \
+  "${DEPTH_MISMATCH_ARGS[@]}")
 
 # ---- Stage 3: flatten + score -----------------------------------------------
 # shogiesa `label` emits nested per-position records; quietset `score` wants
@@ -146,8 +170,11 @@ echo "  -> $(wc -l < "$RUN_DIR/stage3/scored_d4.jsonl") scored positions"
 
 # ---- Train B ----------------------------------------------------------------
 echo "[4a/5] train B  (--min-stability 0.85)"
+TRAIN_B_STARTED=$(date +%s)
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
+  --diagnostic-manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --diagnostic-manifest-sha256 "$DIAGNOSTIC_MANIFEST_SHA" \
   --scored "$RUN_DIR/stage3/scored_d4.jsonl" \
   --min-stability 0.85 \
   --label-depth "$LABEL_DEPTH" \
@@ -155,6 +182,7 @@ cargo run --release -q -p sekirei-train -- \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_b" \
   --output "$OUT_B"
+TRAIN_B_ELAPSED_SECONDS=$(( $(date +%s) - TRAIN_B_STARTED ))
 echo "  -> $OUT_B"
 
 # ---- Train C ----------------------------------------------------------------
@@ -162,8 +190,11 @@ echo "[4b/5] train C  (--stability-weighted)"
 # --min-stability 0: keep every scored position and weight its loss by
 # stability_score; otherwise the 0.85 default drops the same positions as B,
 # collapsing C into B and making the comparison meaningless.
+TRAIN_C_STARTED=$(date +%s)
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
+  --diagnostic-manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --diagnostic-manifest-sha256 "$DIAGNOSTIC_MANIFEST_SHA" \
   --scored "$RUN_DIR/stage3/scored_d4.jsonl" \
   --stability-weighted \
   --min-stability 0 \
@@ -172,6 +203,7 @@ cargo run --release -q -p sekirei-train -- \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints_c" \
   --output "$OUT_C"
+TRAIN_C_ELAPSED_SECONDS=$(( $(date +%s) - TRAIN_C_STARTED ))
 echo "  -> $OUT_C"
 
 # ---- Gate B and C -----------------------------------------------------------
@@ -215,7 +247,7 @@ cargo run --release -q -p sekirei-match-runner -- \
   "${POSITION_ARGS[@]}" --byoyomi 1000 --json "$RESULT_C"
 
 cat > "$RUN_DIR/manifest.json" <<EOF
-{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","baseline":"$BASELINE","depths":"2,4","label_depth":"$LABEL_DEPTH","out_b":"$OUT_B","out_c":"$OUT_C","result_b":"$RESULT_B","result_c":"$RESULT_C"}
+{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","baseline":"$BASELINE","diagnostic_mode":"diagnostic-weighting","teacher_source":"sekirei_internal_search","diagnostic_observations_used_as_teacher":false,"depths":"2,4","label_depth":"$LABEL_DEPTH","depth_mismatch_reason":"$DEPTH_MISMATCH_REASON","shogiesa_manifest":"$RUN_DIR/stage2/label_manifest.json","shogiesa_manifest_sha256":"$DIAGNOSTIC_MANIFEST_SHA","diagnostic_contract":"$DIAGNOSTIC_CONTRACT","shogiesa_label_elapsed_seconds":$LABEL_ELAPSED_SECONDS,"sekirei_internal_train_b_elapsed_seconds":$TRAIN_B_ELAPSED_SECONDS,"sekirei_internal_train_c_elapsed_seconds":$TRAIN_C_ELAPSED_SECONDS,"out_b":"$OUT_B","out_c":"$OUT_C","result_b":"$RESULT_B","result_c":"$RESULT_C"}
 EOF
 
 echo ""
