@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Data pipeline: verify the external `shogiesa 0.10.1` CLI contract end to end
+  with CSA extraction, Sekirei labeling, and quietset-input flattening. Sekirei
+  does not link `shogiesa` as a Cargo dependency.
+
 ## [0.3.56] – 2026-10-03
 
 - Search: add independently switchable ordering, reduction, extension,

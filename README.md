@@ -134,7 +134,7 @@ human rating. Statistical gates distinguish `PASS`, `FAIL`, and
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
 This checkout pins `lineprior 0.12.0`; its external data scripts are verified
-with `shogiesa 0.10.0`. Recipes and resume tooling are indexed in
+with `shogiesa 0.10.1`. Recipes and resume tooling are indexed in
 [scripts/README.md](scripts/README.md); generated artifacts stay outside Git.
 
 ## Documentation
