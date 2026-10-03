@@ -384,6 +384,14 @@ search_params! {
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
     TT_BUCKET = 0, 0, 3;
+    /// TT entries at most this many plies too shallow still cut a null-window
+    /// node when their bound clears the window by `TT_SLACK_MARGIN` per
+    /// missing ply (0: off).
+    TT_SLACK_DEPTH = 0, 0, 4;
+    /// See `TT_SLACK_DEPTH`.
+    TT_SLACK_MARGIN = 100, 20, 400;
+    /// Whether `TT_SLACK_DEPTH` also applies to upper bounds (fail-low).
+    TT_SLACK_UPPER = 0, 0, 1;
     /// Internal iterative reduction (one ply less without a TT move) at all
     /// nodes (0), PV and expected cut nodes (1), PV nodes (2), or never (3).
     IIR_MODE = 0, 0, 3;

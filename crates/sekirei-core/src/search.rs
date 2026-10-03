@@ -1266,6 +1266,27 @@ impl TtProbe {
                     }
                 }
             }
+        } else if !excluded
+            && beta - alpha == 1
+            && adj.abs() < MATE_SCORE - 1000
+            && let short = depth as i32 - i32::from(entry.depth)
+            && short <= p::TT_SLACK_DEPTH()
+        {
+            // TT_SLACK: an entry a few plies too shallow still decides a
+            // null-window node when its bound clears the window by
+            // TT_SLACK_MARGIN per missing ply.
+            let margin = p::TT_SLACK_MARGIN() * short;
+            match entry.bound {
+                Bound::Lower | Bound::Exact if adj >= beta + margin => {
+                    probe.cutoff = Some(beta + margin);
+                }
+                Bound::Upper | Bound::Exact
+                    if p::TT_SLACK_UPPER() != 0 && adj <= alpha - margin =>
+                {
+                    probe.cutoff = Some(alpha - margin);
+                }
+                _ => {}
+            }
         }
         probe.alpha = alpha;
         probe
