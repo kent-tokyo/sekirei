@@ -180,12 +180,17 @@ struct TtSlot {
     data: AtomicU64,
 }
 
+/// Four slots on one 64-byte cache line: the `TT_BUCKET` bucket, and four
+/// independent slots of the direct-mapped layout.
+#[repr(align(64))]
+struct Bucket([TtSlot; BUCKET]);
+
 // ---- Public API ----
 
 /// Shared, lock-free transposition table.
 /// Wrap in `Arc` to share across search threads.
 pub struct Tt {
-    table: Box<[TtSlot]>,
+    table: Box<[Bucket]>,
     mask: usize, // len - 1, for fast power-of-2 indexing
     write_stats: Option<Arc<TtWriteStats>>,
     domain: u64,
@@ -249,10 +254,13 @@ impl Tt {
     ) -> Arc<Self> {
         let bytes = size_mb.max(1) * 1024 * 1024;
         let count = floor_pow2((bytes / 16).max(1));
-        let table: Box<[TtSlot]> = (0..count)
-            .map(|_| TtSlot {
-                key: AtomicU64::new(0),
-                data: AtomicU64::new(0),
+        let count = count.max(BUCKET);
+        let table: Box<[Bucket]> = (0..count / BUCKET)
+            .map(|_| {
+                Bucket(std::array::from_fn(|_| TtSlot {
+                    key: AtomicU64::new(0),
+                    data: AtomicU64::new(0),
+                }))
             })
             .collect::<Vec<_>>()
             .into_boxed_slice();
@@ -268,7 +276,8 @@ impl Tt {
 
     #[inline]
     fn slot(&self, hash: u64) -> &TtSlot {
-        &self.table[self.key_hash(hash) as usize & self.mask]
+        let i = self.key_hash(hash) as usize & self.mask;
+        &self.table[i / BUCKET].0[i % BUCKET]
     }
 
     #[inline]
@@ -291,8 +300,8 @@ impl Tt {
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
         let key_hash = self.key_hash(hash);
         if self.layout() & 1 != 0 {
-            let base = key_hash as usize & self.mask & !(BUCKET - 1);
-            for slot in &self.table[base..base + BUCKET.min(self.table.len())] {
+            let bucket = &self.table[(key_hash as usize & self.mask) / BUCKET];
+            for slot in &bucket.0 {
                 let data = slot.data.load(Ordering::Relaxed);
                 let key = slot.key.load(Ordering::Relaxed);
                 if key ^ data == key_hash {
@@ -315,8 +324,7 @@ impl Tt {
     /// Store into the four-slot bucket of `hash` (`TT_BUCKET` bit 0).
     fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32) {
         let generation = self.generation_bits();
-        let base = key_hash as usize & self.mask & !(BUCKET - 1);
-        let slots = &self.table[base..base + BUCKET.min(self.table.len())];
+        let slots = &self.table[(key_hash as usize & self.mask) / BUCKET].0;
         let mut victim = 0;
         let mut victim_value = i32::MAX;
         for (i, slot) in slots.iter().enumerate() {
@@ -450,7 +458,7 @@ impl Tt {
 
     /// Number of slots in the table.
     pub fn len(&self) -> usize {
-        self.table.len()
+        self.table.len() * BUCKET
     }
 
     /// True if the table has zero slots.
@@ -460,9 +468,12 @@ impl Tt {
 
     /// Approximate fill rate in permille (0-1000). Samples first 1000 slots.
     pub fn hashfull(&self) -> u32 {
-        let sample = self.table.len().min(1000);
-        let used = self.table[..sample]
+        let sample = self.len().min(1000);
+        let used = self
+            .table
             .iter()
+            .flat_map(|bucket| bucket.0.iter())
+            .take(sample)
             .filter(|s| s.data.load(Ordering::Relaxed) != 0)
             .count();
         (used * 1000 / sample) as u32
@@ -475,7 +486,7 @@ impl Tt {
     /// breaks reproducibility between match runs and lets one game's search
     /// state leak into another's result.
     pub fn clear(&self) {
-        for slot in self.table.iter() {
+        for slot in self.table.iter().flat_map(|bucket| bucket.0.iter()) {
             slot.data.store(0, Ordering::Relaxed);
             slot.key.store(0, Ordering::Relaxed);
         }
