@@ -28,23 +28,25 @@ use sekirei_core::{
         MATE_SCORE, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics,
         SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
     },
-    sfen::{
-        PositionHistory, RepetitionOutcome, board_to_sfen, move_to_usi,
-        parse_position_cmd_with_history,
-    },
+    sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::Tt,
 };
 
+#[cfg(feature = "opening-book")]
 mod book;
 mod invariant;
-use book::Book;
+#[cfg(feature = "opening-book")]
+use book::{Book, BookProvenance};
 use invariant::DiagCtx;
+#[cfg(feature = "opening-book")]
+use sekirei_core::sfen::board_to_sfen;
 
 // ---- Engine identity ----
 
 const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "Kentaro Tanabe";
 const DEFAULT_HASH_MB: usize = 64;
+#[cfg(feature = "opening-book")]
 const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 // Keep the USI controller and core speculative pool on one documented stack
 // contract for recursive alpha-beta searches.
@@ -710,11 +712,17 @@ fn main() {
     let mut loaded_eval_file = (!weight_path.is_empty()).then(|| weight_path.clone());
     let mut move_overhead_ms: u64 = 50;
     let mut multi_pv: u32 = 1;
-    let mut use_book = true;
+    #[cfg(feature = "opening-book")]
+    let mut use_book = false;
+    #[cfg(feature = "opening-book")]
     let mut book_max_ply: usize = 30;
+    #[cfg(feature = "opening-book")]
     let mut book_min_confidence: f64 = 0.20;
+    #[cfg(feature = "opening-book")]
     let mut book_file = DEFAULT_BOOK_FILE.to_string();
+    #[cfg(feature = "opening-book")]
     let mut book: Option<Book> = None;
+    #[cfg(feature = "opening-book")]
     let mut book_loaded_path: Option<String> = None;
 
     // Current board position (updated by "position" commands)
@@ -722,6 +730,7 @@ fn main() {
     let mut position_history = PositionHistory::initial(board.hash());
     // Ply reached by the last "position" command's move list (0 = startpos) --
     // used only to gate book lookups to the opening phase (BookMaxPly).
+    #[cfg(feature = "opening-book")]
     let mut current_ply: usize = 0;
 
     // ---- invariant-check bookkeeping (crates/sekirei-usi/src/invariant.rs) ----
@@ -793,10 +802,13 @@ fn main() {
                     "option name FV_SCALE type spin default {} min 1 max 128",
                     halfkp::DEFAULT_FV_SCALE
                 );
-                println!("option name UseBook type check default true");
-                println!("option name BookMaxPly type spin default 30 min 0 max 200");
-                println!("option name BookMinConfidence type string default 0.20");
-                println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
+                #[cfg(feature = "opening-book")]
+                {
+                    println!("option name UseBook type check default false");
+                    println!("option name BookMaxPly type spin default 30 min 0 max 200");
+                    println!("option name BookMinConfidence type string default 0.20");
+                    println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
+                }
                 #[cfg(feature = "tune")]
                 for spec in sekirei_core::search::params::ALL {
                     println!(
@@ -850,12 +862,27 @@ fn main() {
                         }
                     }
                 }
+                #[cfg(feature = "opening-book")]
                 if use_book && book_loaded_path.as_deref() != Some(book_file.as_str()) {
                     match Book::load(&book_file) {
                         Ok(b) => {
+                            let provenance = match b.provenance() {
+                                BookProvenance::Versioned {
+                                    schema_version,
+                                    producer_version,
+                                    build_config,
+                                    build_config_fingerprint,
+                                } => format!(
+                                    "schema={schema_version} producer={producer_version} build_config={build_config} build_config_fingerprint={build_config_fingerprint}"
+                                ),
+                                BookProvenance::LegacyFingerprint => {
+                                    "legacy-fingerprint".to_string()
+                                }
+                                BookProvenance::Headerless => "headerless".to_string(),
+                            };
                             println!(
-                                "info string opening book loaded from {book_file} ({} positions)",
-                                b.len()
+                                "info string opening book loaded from {book_file} ({} positions; {provenance})",
+                                b.len(),
                             );
                             book = Some(b);
                             book_loaded_path = Some(book_file.clone());
@@ -1070,23 +1097,32 @@ fn main() {
                         search_mode,
                     );
                     println!("info string FV_SCALE {scale}");
-                } else if parts.get(1) == Some(&"UseBook") {
+                } else if cfg!(feature = "opening-book") && parts.get(1) == Some(&"UseBook") {
+                    #[cfg(feature = "opening-book")]
                     if let Some(v) = parts.get(3) {
                         use_book = *v == "true";
                     }
-                } else if parts.get(1) == Some(&"BookMaxPly") {
+                } else if cfg!(feature = "opening-book") && parts.get(1) == Some(&"BookMaxPly") {
+                    #[cfg(feature = "opening-book")]
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
                         book_max_ply = n;
                     }
-                } else if parts.get(1) == Some(&"BookMinConfidence") {
+                } else if cfg!(feature = "opening-book")
+                    && parts.get(1) == Some(&"BookMinConfidence")
+                {
+                    #[cfg(feature = "opening-book")]
                     if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
                         book_min_confidence = n;
                     }
-                } else if parts.get(1) == Some(&"BookFile")
+                } else if cfg!(feature = "opening-book")
+                    && parts.get(1) == Some(&"BookFile")
                     && let Some(val) = rest.split_once("value ").map(|(_, v)| v.trim())
                     && !val.is_empty()
                 {
-                    book_file = val.to_string();
+                    #[cfg(feature = "opening-book")]
+                    {
+                        book_file = val.to_string();
+                    }
                 }
             }
 
@@ -1094,7 +1130,10 @@ fn main() {
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                 board = Board::startpos();
                 position_history = PositionHistory::initial(board.hash());
-                current_ply = 0;
+                #[cfg(feature = "opening-book")]
+                {
+                    current_ply = 0;
+                }
                 last_position_cmd = String::from("startpos");
                 searcher.clear_tt();
                 game_counter += 1;
@@ -1121,11 +1160,14 @@ fn main() {
                     // handle every conceivable "position" form, just the
                     // "startpos moves ..." shape this project's own tooling
                     // always sends.
-                    current_ply = rest
-                        .split_whitespace()
-                        .skip_while(|&t| t != "moves")
-                        .skip(1)
-                        .count();
+                    #[cfg(feature = "opening-book")]
+                    {
+                        current_ply = rest
+                            .split_whitespace()
+                            .skip_while(|&t| t != "moves")
+                            .skip(1)
+                            .count();
+                    }
                     last_position_cmd = rest.to_string();
                     // Must run before any search on this position -- an
                     // already-desynced board must never be allowed to
@@ -1172,6 +1214,7 @@ fn main() {
                 // position, within BookMaxPly. Not applied while pondering --
                 // that has its own ponderhit/new-position protocol flow that
                 // an instant book bestmove would short-circuit incorrectly.
+                #[cfg(feature = "opening-book")]
                 if !pondering
                     && use_book
                     && current_ply < book_max_ply

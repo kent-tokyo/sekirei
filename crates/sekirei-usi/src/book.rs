@@ -8,24 +8,56 @@
 use std::fs::File;
 use std::io::BufReader;
 
-use lineprior::PriorBook;
+use lineprior::{PriorBook, PriorBookMetadata};
 use sekirei_core::board::Board;
 use sekirei_core::mv::Move;
 use sekirei_core::sfen::move_from_usi;
 
 pub struct Book {
     inner: PriorBook,
+    provenance: BookProvenance,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BookProvenance {
+    Versioned {
+        schema_version: u32,
+        producer_version: String,
+        build_config: String,
+        build_config_fingerprint: u64,
+    },
+    LegacyFingerprint,
+    Headerless,
 }
 
 impl Book {
     pub fn load(path: &str) -> Result<Book, String> {
         let file = File::open(path).map_err(|e| format!("{path}: {e}"))?;
-        let inner = lineprior::load_prior_book(BufReader::new(file)).map_err(|e| e.to_string())?;
-        Ok(Book { inner })
+        let loaded = lineprior::load_prior_book_with_metadata(BufReader::new(file))
+            .map_err(|e| e.to_string())?;
+        let provenance = match loaded.metadata {
+            Some(PriorBookMetadata::Versioned(metadata)) => BookProvenance::Versioned {
+                schema_version: metadata.schema_version,
+                producer_version: metadata.producer_version,
+                build_config: metadata.build_config.to_string(),
+                build_config_fingerprint: metadata.build_config_fingerprint,
+            },
+            Some(PriorBookMetadata::LegacyFingerprint { .. }) => BookProvenance::LegacyFingerprint,
+            Some(_) => return Err("unsupported opening-book metadata variant".to_string()),
+            None => BookProvenance::Headerless,
+        };
+        Ok(Book {
+            inner: loaded.book,
+            provenance,
+        })
     }
 
     pub fn len(&self) -> usize {
         self.inner.entries.len()
+    }
+
+    pub fn provenance(&self) -> &BookProvenance {
+        &self.provenance
     }
 
     /// Walks `sfen`'s candidates in lineprior's own ranked (descending
@@ -119,9 +151,45 @@ mod tests {
             STARTPOS_SFEN
         ));
         assert_eq!(book.len(), 1);
+        assert_eq!(
+            book.provenance(),
+            &BookProvenance::Versioned {
+                schema_version: 1,
+                producer_version: "0.12.1".to_string(),
+                build_config: "{}".to_string(),
+                build_config_fingerprint: 0,
+            }
+        );
         assert!(
             book.lookup(STARTPOS_SFEN, &Board::startpos(), 0.0)
                 .is_some()
         );
+    }
+
+    #[test]
+    fn distinguishes_headerless_legacy_books() {
+        let book = load_from(&format!(
+            r#"{{"state":{STARTPOS_SFEN:?},"actions":[{{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.5,"confidence":0.5}}]}}"#
+        ));
+        assert_eq!(book.provenance(), &BookProvenance::Headerless);
+    }
+
+    #[test]
+    fn rejects_unsupported_metadata_schema() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_book_bad_schema_{}_{:?}.jsonl",
+            std::process::id(),
+            std::thread::current().id()
+        ));
+        std::fs::write(
+            &path,
+            r#"{"prior_book_schema_version":99,"producer_version":"future","build_config":{},"build_config_fingerprint":0}"#,
+        )
+        .unwrap();
+        let error = Book::load(path.to_str().unwrap())
+            .err()
+            .expect("future schema must be rejected");
+        std::fs::remove_file(path).ok();
+        assert!(error.contains("unsupported prior-book schema version"));
     }
 }

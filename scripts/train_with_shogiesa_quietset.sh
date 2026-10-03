@@ -17,6 +17,9 @@
 #                        --label-depth re-search, NOT shogiesa's --depths label (see
 #                        tasks/lessons.md "shogiesa/quietset teacher-depth bug").
 #                        Keep it aligned with (typically the deepest of) DEPTHS.
+#   DEPTH_MISMATCH_REASON=text
+#                        required when LABEL_DEPTH differs from max(DEPTHS);
+#                        records why the diagnostic and teacher budgets differ.
 #   GAMES_PER_POSITION=4 games per opening (default: 4; matches
 #                        scripts/strength_regression.sh, needs data/gate/openings_standard.sfen)
 #   ALLOW_STARTPOS_GATE=1  skip opening diversity, use startpos only -- debug
@@ -53,6 +56,7 @@ OUTPUT=${2:-data/weights_new.bin}
 BASELINE=${3:-data/weights_v007.bin}
 DEPTHS=${DEPTHS:-2,4}
 LABEL_DEPTH=${LABEL_DEPTH:-4}
+DEPTH_MISMATCH_REASON=${DEPTH_MISMATCH_REASON:-}
 GAMES=${GAMES:-400}
 OPENINGS=data/gate/openings_standard.sfen
 GAMES_PER_POSITION=${GAMES_PER_POSITION:-4}
@@ -101,12 +105,16 @@ command -v quietset >/dev/null || { echo "error: quietset not found";          e
 command -v cargo    >/dev/null || { echo "error: cargo not found";             exit 127; }
 [ -d "$CSA_DIR"  ]             || { echo "error: CSA dir not found: $CSA_DIR"; exit 1;   }
 [ -f "$BASELINE" ]             || { echo "error: baseline weights not found: $BASELINE"; exit 1; }
+python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" --version-only >/dev/null
 
 echo "=== shogiesa + quietset + sekirei pipeline ==="
 echo "  CSA dir   : $CSA_DIR"
 echo "  output    : $OUTPUT"
 echo "  baseline  : $BASELINE"
 echo "  depths    : $DEPTHS"
+echo "  teacher   : sekirei_internal_search depth=$LABEL_DEPTH"
+echo "  shogiesa  : diagnostic-weighting only (never a teacher target)"
 echo "  games     : $GAMES"
 echo "  run dir   : $RUN_DIR"
 echo "  training  : epochs=$TRAIN_EPOCHS schedule=$LR_SCHEDULE horizon=$LR_SCHEDULE_EPOCHS warmup=$WARMUP_EPOCHS min_lr=$MIN_LR best_every=$BEST_EVERY"
@@ -129,6 +137,7 @@ echo "  -> $RUN_DIR/stage1/positions.jsonl ($(wc -l < "$RUN_DIR/stage1/positions
 # ---- Stage 2: label with sekirei ----------------------------------------
 echo "[2/5] shogiesa label  (engine=sekirei depths=$DEPTHS jobs=$JOBS)"
 cargo build --release -q -p sekirei
+LABEL_STARTED=$(date +%s)
 "$SHOGIESA" label \
   --input "$RUN_DIR/stage1/positions.jsonl" \
   --engine "./target/release/sekirei" \
@@ -136,11 +145,29 @@ cargo build --release -q -p sekirei
   --timeout-ms 10000 \
   --jobs "$JOBS" \
   --engine-option "Threads=1" \
+  --engine-option "UseBook=false" \
   --skip-existing \
   --cache-dir "data/shogiesa_label_cache" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
   --out "$RUN_DIR/stage2/observations.jsonl"
+LABEL_ELAPSED_SECONDS=$(( $(date +%s) - LABEL_STARTED ))
 echo "  -> $RUN_DIR/stage2/observations.jsonl ($(wc -l < "$RUN_DIR/stage2/observations.jsonl") observations)"
+
+DEPTH_MISMATCH_ARGS=()
+if [ -n "$DEPTH_MISMATCH_REASON" ]; then
+  DEPTH_MISMATCH_ARGS=(--depth-mismatch-reason "$DEPTH_MISMATCH_REASON")
+fi
+DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
+DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
+  --shogiesa "$SHOGIESA" \
+  --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --observations "$RUN_DIR/stage2/observations.jsonl" \
+  --depths "$DEPTHS" \
+  --label-depth "$LABEL_DEPTH" \
+  --label-elapsed-seconds "$LABEL_ELAPSED_SECONDS" \
+  --output "$DIAGNOSTIC_CONTRACT" \
+  "${DEPTH_MISMATCH_ARGS[@]}")
+echo "  -> diagnostic contract: $DIAGNOSTIC_CONTRACT"
 
 # ---- Stage 3: flatten + score with quietset -------------------------------
 # shogiesa's `label` emits one nested record per position (observations: [...]);
@@ -179,8 +206,11 @@ echo "[4/5] sekirei-train  (stability-weighted validation-ratio=0.1)"
 # tasks/lessons.md (found missing here, 2026-07-07 -- this script's runs
 # to date likely trained on fewer positions than their positions_combined.jsonl
 # line count suggests).
+TRAIN_STARTED=$(date +%s)
 cargo run --release -q -p sekirei-train -- \
   --positions "$RUN_DIR/stage1/positions.jsonl" \
+  --diagnostic-manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --diagnostic-manifest-sha256 "$DIAGNOSTIC_MANIFEST_SHA" \
   --scored "$SCORED" \
   --stability-weighted \
   --min-stability 0 \
@@ -195,6 +225,7 @@ cargo run --release -q -p sekirei-train -- \
   --seed 42 \
   --checkpoint-dir "$RUN_DIR/checkpoints" \
   --output "$OUTPUT"
+TRAIN_ELAPSED_SECONDS=$(( $(date +%s) - TRAIN_STARTED ))
 echo "  -> $OUTPUT"
 
 # ---- Elo comparison -------------------------------------------------------
@@ -233,7 +264,7 @@ cargo run --release -q -p sekirei-match-runner -- \
 
 # ---- Manifest ------------------------------------------------------------
 cat > "$RUN_DIR/manifest.json" <<EOF
-{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","output":"$OUTPUT","baseline":"$BASELINE","depths":"$DEPTHS","label_depth":"$LABEL_DEPTH","games":"$GAMES","extra_scored":"$EXTRA_SCORED","result":"$OUT_JSON"}
+{"timestamp":"$TIMESTAMP","csa_dir":"$CSA_DIR","output":"$OUTPUT","baseline":"$BASELINE","diagnostic_mode":"diagnostic-weighting","teacher_source":"sekirei_internal_search","diagnostic_observations_used_as_teacher":false,"depths":"$DEPTHS","label_depth":"$LABEL_DEPTH","depth_mismatch_reason":"$DEPTH_MISMATCH_REASON","shogiesa_manifest":"$RUN_DIR/stage2/label_manifest.json","shogiesa_manifest_sha256":"$DIAGNOSTIC_MANIFEST_SHA","diagnostic_contract":"$DIAGNOSTIC_CONTRACT","shogiesa_label_elapsed_seconds":$LABEL_ELAPSED_SECONDS,"sekirei_internal_training_elapsed_seconds":$TRAIN_ELAPSED_SECONDS,"games":"$GAMES","extra_scored":"$EXTRA_SCORED","result":"$OUT_JSON"}
 EOF
 echo "  -> manifest: $RUN_DIR/manifest.json"
 

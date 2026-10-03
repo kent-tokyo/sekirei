@@ -106,6 +106,72 @@ fn spawn_engine_with_args(args: &[&std::path::Path]) -> (Child, Receiver<String>
     (child, rx, stdin)
 }
 
+#[cfg(not(feature = "opening-book"))]
+#[test]
+fn default_binary_has_no_opening_book_surface_or_path_probe() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let lines = recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    assert!(lines.iter().all(|line| !line.contains("UseBook")));
+    assert!(lines.iter().all(|line| !line.contains("BookFile")));
+
+    send(&mut stdin, "isready");
+    let ready = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(ready.iter().all(|line| !line.contains("opening book")));
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
+#[cfg(feature = "opening-book")]
+#[test]
+fn opening_book_feature_is_opt_in_and_missing_file_falls_back_to_search() {
+    let missing = std::env::temp_dir().join(format!(
+        "sekirei_missing_book_{}-{}.jsonl",
+        std::process::id(),
+        TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
+    let _ = std::fs::remove_file(&missing);
+
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let lines = recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line == "option name UseBook type check default false")
+    );
+    send(
+        &mut stdin,
+        &format!("setoption name BookFile value {}", missing.display()),
+    );
+
+    // Merely configuring a path must not probe it. UseBook is still false.
+    send(&mut stdin, "isready");
+    let ready = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(ready.iter().all(|line| !line.contains("opening book")));
+
+    // Explicit activation reports the missing artifact, then normal search remains usable.
+    send(&mut stdin, "setoption name UseBook value true");
+    send(&mut stdin, "isready");
+    let failed = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        failed
+            .iter()
+            .any(|line| line.contains("opening book load failed"))
+    );
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let searched = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(searched.iter().any(|line| line.starts_with("bestmove ")));
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
 fn send(stdin: &mut ChildStdin, line: &str) {
     writeln!(stdin, "{line}").unwrap();
     stdin.flush().unwrap();
@@ -729,6 +795,7 @@ fn multipv_emits_numbered_info_lines() {
     let _ = child.wait();
 }
 
+#[cfg(feature = "opening-book")]
 #[test]
 fn usinewgame_resets_book_ply_tracking() {
     let book_path = std::env::temp_dir().join(format!(
@@ -747,6 +814,7 @@ fn usinewgame_resets_book_ply_tracking() {
         &format!("setoption name BookFile value {}", book_path.display()),
     );
     send(&mut stdin, "setoption name BookMaxPly value 1");
+    send(&mut stdin, "setoption name UseBook value true");
     send(&mut stdin, "isready");
     recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
 
@@ -769,6 +837,7 @@ fn usinewgame_resets_book_ply_tracking() {
     let _ = std::fs::remove_file(book_path);
 }
 
+#[cfg(feature = "opening-book")]
 #[test]
 fn bookfile_path_with_spaces_is_loaded_after_setoption() {
     let book_path = std::env::temp_dir().join(format!(
@@ -786,6 +855,7 @@ fn bookfile_path_with_spaces_is_loaded_after_setoption() {
         &mut stdin,
         &format!("setoption name BookFile value {}", book_path.display()),
     );
+    send(&mut stdin, "setoption name UseBook value true");
     send(&mut stdin, "isready");
     let ready = recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));
     assert!(

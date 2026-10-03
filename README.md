@@ -133,13 +133,26 @@ human rating. Statistical gates distinguish `PASS`, `FAIL`, and
 ## NNUE training
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
-This checkout pins `lineprior 0.12.1`; its external data scripts are verified
-with `shogiesa 0.11.0`. `sekirei-train` uses the training-only
+This checkout pins `lineprior 0.12.1` for training and the optional
+`sekirei/opening-book` feature; the default USI runtime does not include it or
+probe any book path. The external data scripts are verified with
+`shogiesa 0.11.0`. `sekirei-train` uses the training-only
 `shogiesa-core 0.11.0` schema to stream typed position JSONL; it does not use
 embedded engine observations as labels implicitly. Known game results may be
 used explicitly with `--positions --wdl-lambda`, while unknown or missing
 results are counted and skipped. Recipes and resume tooling are indexed in
 [scripts/README.md](scripts/README.md); generated artifacts stay outside Git.
+
+Opening-book support is an explicit build and runtime choice:
+
+```bash
+cargo build --release -p sekirei --features opening-book
+# Then set BookFile to the shipped artifact and UseBook=true.
+```
+
+Sekirei does not ship a default opening-book artifact. Record the book file's
+SHA-256 and the four book options with any release or match that enables it;
+formal strength gates keep `UseBook=false`.
 
 ## Documentation
 
