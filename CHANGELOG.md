@@ -6,10 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Dependencies: update `lineprior` to 0.12.1. Newly generated opening books
+  now include the schema-v1 producer version and complete build configuration;
+  headerless and legacy books remain readable.
 - Dependencies: update `veridict` to 0.19.1. SPRT output and verdict sidecars
   now report the retained first-boundary-crossing LLR while preserving the
   full-input aggregate separately.
-- Data pipeline: verify the external `shogiesa 0.10.1` CLI contract end to end
+- Data pipeline: verify the external `shogiesa 0.11.0` CLI contract end to end
   with CSA extraction, Sekirei labeling, and quietset-input flattening. Sekirei
   does not link `shogiesa` as a Cargo dependency.
 

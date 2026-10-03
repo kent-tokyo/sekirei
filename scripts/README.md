@@ -5,8 +5,8 @@ CLI. Normal engine use should go through the Cargo binaries. Most tools write
 only under ignored `data/` or `results/`; inspect `--help`, use a new run
 directory, and retain the produced manifest with the result.
 
-The workspace pins `lineprior 0.12.0`. The data-pipeline wrappers have been
-checked with the external `shogiesa 0.10.1` CLI; it is not a runtime crate
+The workspace pins `lineprior 0.12.1`. The data-pipeline wrappers have been
+checked with the external `shogiesa 0.11.0` CLI; it is not a runtime crate
 dependency.
 
 ## Release and public boundary

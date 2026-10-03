@@ -122,7 +122,7 @@ Elo測定ではありません。
 ## NNUE学習
 
 学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。このcheckoutは
-`lineprior 0.12.0`を固定し、外部data scriptは`shogiesa 0.10.1`で確認しています。
+`lineprior 0.12.1`を固定し、外部data scriptは`shogiesa 0.11.0`で確認しています。
 recipeとresume toolingは[scripts索引](scripts/README.md)を参照し、生成artifactはGit外に保持します。
 
 ## 文書
