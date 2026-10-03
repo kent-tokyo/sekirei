@@ -6,8 +6,9 @@ only under ignored `data/` or `results/`; inspect `--help`, use a new run
 directory, and retain the produced manifest with the result.
 
 The workspace pins `lineprior 0.12.1`. The data-pipeline wrappers have been
-checked with the external `shogiesa 0.11.0` CLI; it is not a runtime crate
-dependency.
+checked with the external `shogiesa 0.11.0` CLI. `sekirei-train` alone depends
+on `shogiesa-core 0.11.0` for the typed JSONL contract; the USI engine, search
+core, CSA client, and match runner do not.
 
 ## Release and public boundary
 

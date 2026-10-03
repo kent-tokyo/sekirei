@@ -777,6 +777,7 @@ dependencies = [
  "sekirei-core",
  "serde",
  "serde_json",
+ "shogiesa-core",
  "tempfile",
 ]
 
@@ -853,6 +854,17 @@ name = "shogi_core"
 version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d0a7de4ff7c66bf0b6346bda1d530c94a496f8aa3317938923886c58191aa14"
+
+[[package]]
+name = "shogiesa-core"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8627624bb76353da35342d8402bd4432fa07cc11ccd2bffea4af7e7a095d98b"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
 
 [[package]]
 name = "slab"

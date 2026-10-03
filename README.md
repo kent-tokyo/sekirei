@@ -134,7 +134,11 @@ human rating. Statistical gates distinguish `PASS`, `FAIL`, and
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
 This checkout pins `lineprior 0.12.1`; its external data scripts are verified
-with `shogiesa 0.11.0`. Recipes and resume tooling are indexed in
+with `shogiesa 0.11.0`. `sekirei-train` uses the training-only
+`shogiesa-core 0.11.0` schema to stream typed position JSONL; it does not use
+embedded engine observations as labels implicitly. Known game results may be
+used explicitly with `--positions --wdl-lambda`, while unknown or missing
+results are counted and skipped. Recipes and resume tooling are indexed in
 [scripts/README.md](scripts/README.md); generated artifacts stay outside Git.
 
 ## Documentation

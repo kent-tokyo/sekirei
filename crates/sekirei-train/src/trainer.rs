@@ -1,5 +1,5 @@
 //! NNUE training loop — supervised learning from search-eval labels, with an
-//! optional WDL (game-result) term for the CSA path.
+//! optional WDL (game-result) term for CSA games or typed shogiesa records.
 #![allow(clippy::needless_range_loop)] // index-based loops match matrix layout; don't change
 //!
 //! # Architecture
@@ -8,11 +8,12 @@
 //! # Algorithm
 //!   eval_teacher = clamp(search_score_cp, ±600)
 //!   teacher      = eval_teacher                                  (wdl_lambda = None, default)
-//!              or  λ·eval_teacher + (1-λ)·wdl_target              (wdl_lambda = Some(λ), CSA path only)
+//!              or  λ·eval_teacher + (1-λ)·wdl_target              (wdl_lambda = Some(λ))
 //!     where wdl_target = (game_result_from_stm_perspective − 0.5) × 1200,
 //!     mapping loss/draw/win to ∓600/0/±600 on the same scale as eval_teacher.
-//!     `GameResult::Unknown` games (see `csa.rs`) fall back to pure
-//!     eval_teacher for that position -- there's no result signal to mix in.
+//!     `GameResult::Unknown` CSA games (see `csa.rs`) fall back to pure
+//!     eval_teacher. Typed positions records are skipped instead when WDL
+//!     blending is requested, so missing provenance cannot become a default.
 //!   loss = (score − teacher)²   where score = output / 64.0
 //!   gradients backpropagated through ClippedReLU layers
 //!   weights updated with Adam
@@ -815,6 +816,9 @@ pub struct Trainer {
     pub exclude_mate_labels: bool,
     /// Number of positions skipped under `exclude_mate_labels` this epoch.
     pub dropped_mate_labels: u64,
+    /// Positions-mode records skipped because `--wdl-lambda` was requested
+    /// but shogiesa reported an unknown or missing game result.
+    pub dropped_unknown_wdl: u64,
     /// Weight given to the searched teacher target.  The remaining weight is
     /// the fixed teacher's static evaluation, which is useful when fine-
     /// tuning an imported NNUE must retain its root move ordering.
@@ -1343,6 +1347,7 @@ impl Trainer {
             teacher_score_cap: 600.0,
             exclude_mate_labels: false,
             dropped_mate_labels: 0,
+            dropped_unknown_wdl: 0,
             search_target_weight: 1.0,
             residual_material_target: false,
             grad_clip_norm: None,
@@ -1548,8 +1553,19 @@ impl Trainer {
         side_weights: &HashMap<String, f32>,
         teacher_cache: &HashMap<String, i32>,
         new_entries: &mut Vec<(String, i32)>,
+        wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
     ) {
         for sample in samples {
+            let absolute_wdl_target = wdl_target_cp(
+                sample.game_result,
+                sample.board.side_to_move,
+                wdl_target_scale,
+            );
+            if wdl_lambda.is_some() && absolute_wdl_target.is_none() {
+                self.dropped_unknown_wdl += 1;
+                continue;
+            }
             let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
             let stability = if scored.is_empty() {
                 1.0f32
@@ -1603,33 +1619,38 @@ impl Trainer {
                 continue;
             }
             let absolute_teacher = self.capped_teacher_score(score_cp);
-            let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
-            // No WDL signal on the positions path (positions.jsonl carries
-            // no game_result) -- eval_teacher == teacher, no wdl_target.
-            // game_id/game_result are meaningless sentinels here too (see
-            // `train_position`'s doc comment).
+            let eval_teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
+            let wdl_target =
+                absolute_wdl_target.map(|target| self.target_from_absolute(&sample.board, target));
+            let teacher = match (wdl_lambda, wdl_target) {
+                (Some(lambda), Some(wdl_target)) => {
+                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
+                }
+                _ => eval_teacher,
+            };
             self.train_position(
                 &sample.board,
                 teacher,
                 weight,
-                teacher,
-                None,
+                eval_teacher,
+                wdl_target,
                 0,
-                GameResult::Unknown,
+                sample.game_result,
             );
         }
     }
 
     /// Forward-only pass for validation loss (no weight updates).
-    /// Returns the raw and weighted losses plus the same output/CP statistics
-    /// used by CSA validation.  Positions mode has no WDL labels, so its
-    /// returned `ValidStats` intentionally leaves WDL fields empty.
+    /// Returns the raw and weighted losses plus the same output/CP/WDL
+    /// statistics used by CSA validation. Unknown or missing shogiesa game
+    /// outcomes are excluded when WDL blending is enabled.
     /// `loss_raw` = plain MSE; `loss_weighted` = MSE weighted by phase/side multipliers.
     /// Teacher scores are looked up in `teacher_cache` first, same as
     /// `train_positions` — without this, validation re-ran a real
     /// label-depth search on every sample on every epoch, even when the
     /// cache already had every score (this was the actual cause of a
     /// training run taking ~15 min/epoch on a fully-cached 10k dataset).
+    #[allow(clippy::too_many_arguments)]
     pub fn eval_positions(
         &mut self,
         samples: &[crate::positions::PositionSample],
@@ -1638,12 +1659,23 @@ impl Trainer {
         side_weights: &HashMap<String, f32>,
         teacher_cache: &HashMap<String, i32>,
         new_entries: &mut Vec<(String, i32)>,
+        wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
     ) -> (f64, f64, ValidStats) {
         let mut loss_raw = 0.0f64;
         let mut loss_weighted = 0.0f64;
         let mut total_w = 0.0f64;
         let mut stats = ValidStats::default();
         for sample in samples {
+            let absolute_wdl_target = wdl_target_cp(
+                sample.game_result,
+                sample.board.side_to_move,
+                wdl_target_scale,
+            );
+            if wdl_lambda.is_some() && absolute_wdl_target.is_none() {
+                self.dropped_unknown_wdl += 1;
+                continue;
+            }
             let sfen = sekirei_core::sfen::board_to_sfen(&sample.board);
             let teacher_cp = if let Some(&cp) = teacher_cache.get(&sfen) {
                 cp
@@ -1671,12 +1703,33 @@ impl Trainer {
                 continue;
             }
             let absolute_teacher = self.capped_teacher_score(teacher_cp);
-            let teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
+            let eval_teacher = self.target_from_search_teacher(&sample.board, absolute_teacher);
+            let wdl_target =
+                absolute_wdl_target.map(|target| self.target_from_absolute(&sample.board, target));
+            let teacher = match (wdl_lambda, wdl_target) {
+                (Some(lambda), Some(wdl_target)) => {
+                    lambda * eval_teacher + (1.0 - lambda) * wdl_target
+                }
+                _ => eval_teacher,
+            };
             let score = self.forward(&sample.board);
             let err2 = ((score - teacher) * (score - teacher)) as f64;
             loss_raw += err2;
             stats.loss_sum += err2;
-            stats.cp_mse_sum += err2;
+            let cp_error = score - eval_teacher;
+            stats.cp_mse_sum += (cp_error * cp_error) as f64;
+            if let Some(wdl_target) = wdl_target {
+                let wdl_error = score - wdl_target;
+                stats.wdl_loss_sum += (wdl_error * wdl_error) as f64;
+                stats.wdl_count += 1;
+                let predicted = ((score / wdl_target_scale) as f64 + 0.5).clamp(0.0, 1.0);
+                let actual = ((wdl_target / wdl_target_scale) as f64 + 0.5).clamp(0.0, 1.0);
+                let bucket = ((predicted * CALIBRATION_BUCKETS as f64) as usize)
+                    .min(CALIBRATION_BUCKETS - 1);
+                stats.calibration_bucket_count[bucket] += 1;
+                stats.calibration_bucket_predicted_sum[bucket] += predicted;
+                stats.calibration_bucket_actual_sum[bucket] += actual;
+            }
             stats.output_sum += score as f64;
             stats.output_sum_sq += (score * score) as f64;
             stats.output_min = stats.output_min.min(score);
@@ -3259,6 +3312,7 @@ impl Trainer {
         self.total_weight = 0.0;
         self.dropped_missing = 0;
         self.dropped_mate_labels = 0;
+        self.dropped_unknown_wdl = 0;
         self.ft_ever_active.iter_mut().for_each(|b| *b = false);
         self.ft_ever_saturated.iter_mut().for_each(|b| *b = false);
         self.l2_ever_active.iter_mut().for_each(|b| *b = false);
@@ -5173,6 +5227,14 @@ mod tests {
             side_to_move: "black".to_string(),
             ply: 0,
             source: "fixture".to_string(),
+            source_kind: "test".to_string(),
+            root_id: None,
+            variation_id: None,
+            branch_from_ply: None,
+            observations: Vec::new(),
+            stability: None,
+            game_result: GameResult::Unknown,
+            game_result_source: None,
         }];
         let mut cache = HashMap::new();
         cache.insert(sfen, 300);
@@ -5185,6 +5247,8 @@ mod tests {
             &HashMap::new(),
             &cache,
             entries,
+            None,
+            1200.0,
         );
 
         assert_eq!(stats.count, 1);
@@ -5194,6 +5258,54 @@ mod tests {
         assert!(stats.output_min.is_finite());
         assert_eq!(stats.output_min, stats.output_max);
         assert_eq!(stats.wdl_count, 0);
+    }
+
+    #[test]
+    fn eval_positions_blends_known_wdl_and_skips_unknown() {
+        fn sample(result: GameResult) -> crate::positions::PositionSample {
+            crate::positions::PositionSample {
+                board: Board::startpos(),
+                phase: "opening".to_string(),
+                side_to_move: "black".to_string(),
+                ply: 1,
+                source: "fixture".to_string(),
+                source_kind: "test".to_string(),
+                root_id: None,
+                variation_id: None,
+                branch_from_ply: None,
+                observations: Vec::new(),
+                stability: None,
+                game_result: result,
+                game_result_source: Some("fixture".to_string()),
+            }
+        }
+
+        let samples = vec![
+            sample(GameResult::BlackWin),
+            sample(GameResult::WhiteWin),
+            sample(GameResult::Draw),
+            sample(GameResult::Unknown),
+        ];
+        let sfen = board_to_sfen(&samples[0].board);
+        let mut cache = HashMap::new();
+        cache.insert(sfen, 100);
+        let mut trainer = Trainer::new(42, 0.5);
+        let (raw, weighted, stats) = trainer.eval_positions(
+            &samples,
+            1,
+            &HashMap::new(),
+            &HashMap::new(),
+            &cache,
+            &mut Vec::new(),
+            Some(0.5),
+            1200.0,
+        );
+
+        assert!(raw.is_finite());
+        assert!(weighted.is_finite());
+        assert_eq!(stats.count, 3);
+        assert_eq!(stats.wdl_count, 3);
+        assert_eq!(trainer.dropped_unknown_wdl, 1);
     }
 
     #[test]

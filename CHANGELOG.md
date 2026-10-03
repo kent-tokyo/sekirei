@@ -13,8 +13,11 @@ preserves older per-change notes.
   now report the retained first-boundary-crossing LLR while preserving the
   full-input aggregate separately.
 - Data pipeline: verify the external `shogiesa 0.11.0` CLI contract end to end
-  with CSA extraction, Sekirei labeling, and quietset-input flattening. Sekirei
-  does not link `shogiesa` as a Cargo dependency.
+  with CSA extraction, Sekirei labeling, and quietset-input flattening. The
+  training crate now consumes its versioned JSONL through the training-only
+  `shogiesa-core 0.11.0` typed schema, streams records line by line, reports
+  rejected metadata explicitly, and supports known `game_result` values for
+  `--positions --wdl-lambda`; engine/runtime crates remain independent.
 
 ## [0.3.56] – 2026-10-03
 

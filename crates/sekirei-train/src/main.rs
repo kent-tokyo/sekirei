@@ -323,7 +323,7 @@ struct Args {
     cache_only: bool,       // --cache-only: never search for a missing teacher label
     strict_positions: bool, // --strict-positions: reject invalid JSONL rows
     exclude_mate_labels: bool, // --exclude-mate-labels: positions mode diagnostic
-    wdl_lambda: Option<f32>, // --wdl-lambda (CSA path only; None = eval-only, default)
+    wdl_lambda: Option<f32>, // --wdl-lambda (CSA or typed positions WDL; None = eval-only)
     lr: f32,                // --lr (base learning rate, default 0.001)
     lr_schedule: LrSchedule, // --lr-schedule (default: step-half, today's original behavior)
     min_lr: f32,            // --min-lr (floor applied to every schedule, default 0.0)
@@ -1197,11 +1197,6 @@ fn parse_args() -> Result<Args, String> {
     if validation_positions_path.is_some() && validation_ratio > 0.0 {
         return Err(
             "--validation-positions and --validation-ratio are mutually exclusive".to_string(),
-        );
-    }
-    if wdl_lambda.is_some() && positions_path.is_some() {
-        return Err(
-            "--wdl-lambda requires --games (CSA path) -- shogiesa positions.jsonl carries no game_result yet".to_string(),
         );
     }
     if exclude_mate_labels && positions_path.is_none() {
@@ -2528,7 +2523,7 @@ fn print_usage() {
         "  --label-threshold-cp <n>  Score threshold for adv/equal/disadv label (default: 120)"
     );
     eprintln!(
-        "  --wdl-lambda <f>    Blend in game result (CSA path only): teacher = λ·eval + (1-λ)·wdl (default: unset = eval-only)"
+        "  --wdl-lambda <f>    Blend in typed game results from CSA or shogiesa JSONL: teacher = λ·eval + (1-λ)·wdl; unknown/missing outcomes are skipped (default: unset = eval-only)"
     );
     eprintln!("  --lr <f>                Base learning rate (default: 0.001)");
     eprintln!(
@@ -2956,18 +2951,17 @@ fn main() {
     // ---- positions mode (shogiesa JSONL) ----
     if let Some(pos_path) = &args.positions_path {
         eprintln!("Positions mode: loading {:?}", pos_path);
-        if args.strict_positions {
-            positions::validate_positions(pos_path).unwrap_or_else(|error| {
-                eprintln!("strict positions validation failed: {error}");
-                std::process::exit(1);
-            });
-        }
         let mut dataset_paths = vec![pos_path.clone()];
         if let Some(path) = &args.validation_positions_path {
             dataset_paths.push(path.clone());
         }
         let ds_hash = dataset_hash(&dataset_paths);
-        let raw_samples = load_positions(pos_path);
+        let raw_samples = load_positions(pos_path, args.strict_positions)
+            .unwrap_or_else(|error| {
+                eprintln!("positions load failed: {error}");
+                std::process::exit(1);
+            })
+            .samples;
         if raw_samples.is_empty() {
             eprintln!("No valid positions loaded");
             std::process::exit(1);
@@ -2992,13 +2986,12 @@ fn main() {
         // hash split remains supported for older experiment recipes.
         let (mut train_samples, mut valid_samples): (Vec<_>, Vec<_>) =
             if let Some(validation_path) = &args.validation_positions_path {
-                if args.strict_positions {
-                    positions::validate_positions(validation_path).unwrap_or_else(|error| {
-                        eprintln!("strict validation positions validation failed: {error}");
+                let validation = load_positions(validation_path, args.strict_positions)
+                    .unwrap_or_else(|error| {
+                        eprintln!("validation positions load failed: {error}");
                         std::process::exit(1);
-                    });
-                }
-                let validation = load_positions(validation_path);
+                    })
+                    .samples;
                 if validation.is_empty() {
                     eprintln!("No valid explicit validation positions loaded");
                     std::process::exit(1);
@@ -3024,6 +3017,27 @@ fn main() {
             args.validation_positions_path.is_some(),
             args.split_seed
         );
+        if args.wdl_lambda.is_some() {
+            let train_known = train_samples
+                .iter()
+                .filter(|sample| sample.game_result != csa::GameResult::Unknown)
+                .count();
+            let valid_known = valid_samples
+                .iter()
+                .filter(|sample| sample.game_result != csa::GameResult::Unknown)
+                .count();
+            eprintln!(
+                "  positions WDL: train_known={train_known} train_unknown={} valid_known={valid_known} valid_unknown={}",
+                train_samples.len() - train_known,
+                valid_samples.len() - valid_known,
+            );
+            if train_known == 0 {
+                eprintln!(
+                    "error: --wdl-lambda requires at least one training position with a known shogiesa game_result"
+                );
+                std::process::exit(1);
+            }
+        }
 
         let scored: HashMap<String, f32> = match &args.scored_path {
             Some(p) => load_scored(p, args.min_stability),
@@ -3289,6 +3303,8 @@ fn main() {
                         &side_weights,
                         &combined_cache,
                         &mut chunk_entries,
+                        args.wdl_lambda,
+                        args.wdl_target_scale,
                     );
                     for (sfen, cp) in &chunk_entries {
                         combined_cache.entry(sfen.clone()).or_insert(*cp);
@@ -3325,6 +3341,8 @@ fn main() {
                     &side_weights,
                     &combined_cache,
                     &mut new_entries,
+                    args.wdl_lambda,
+                    args.wdl_target_scale,
                 );
             }
 
@@ -3339,13 +3357,15 @@ fn main() {
                     &side_weights,
                     &combined_cache,
                     &mut new_val_entries,
+                    args.wdl_lambda,
+                    args.wdl_target_scale,
                 )
             };
             let vcount = valid_stats.count;
             new_entries.extend(new_val_entries);
             let cache_misses_epoch = new_entries.len() as u64;
-            let cache_hits_epoch =
-                (train_samples.len() + valid_samples.len()) as u64 - cache_misses_epoch;
+            let processed_positions = trainer.total_count + valid_stats.count;
+            let cache_hits_epoch = processed_positions.saturating_sub(cache_misses_epoch);
 
             // After epoch 1: merge new entries into cache so later epochs skip search
             if epoch == 1 && !new_entries.is_empty() {
@@ -3418,14 +3438,15 @@ fn main() {
                 1.0
             };
             eprintln!(
-                "  train: avg_loss={:.4}  samples={}  dropped_mate_labels={}  avg_final_weight={:.3}",
+                "  train: avg_loss={:.4}  samples={}  dropped_mate_labels={}  dropped_unknown_wdl={}  avg_final_weight={:.3}",
                 trainer.avg_loss(),
                 trainer.total_count,
                 trainer.dropped_mate_labels,
+                trainer.dropped_unknown_wdl,
                 avg_final_weight,
             );
 
-            let valid_count = valid_samples.len() as u64;
+            let valid_count = valid_stats.count;
             if !valid_samples.is_empty() {
                 eprintln!(
                     "  valid: loss_raw={:.4}  loss_weighted={:.4}  samples={}",
