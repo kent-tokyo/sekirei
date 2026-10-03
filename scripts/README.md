@@ -20,7 +20,8 @@ core, CSA client, and match runner do not.
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
-| `run_ab_match.py` | Fixed-protocol A/B self-play or node-limited YaneuraOu ladder with one external HalfKP network (one thread, `SpecTopN=0`, no book). Local diagnostic only. |
+| `run_ab_match.py` | Fixed-protocol A/B self-play or node-limited YaneuraOu ladder with one external HalfKP network. One thread and `SpecTopN=0` remain the diagnostic defaults; explicit per-side thread and search-mode options support parallel studies. Local diagnostic only. |
+| `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 
 ## Measurement and rules diagnostics
@@ -66,6 +67,10 @@ Useful shared entry points include `gate_orchestrator.py`,
 
 ## Local self-play and CSA
 
+- `spsa.py` tunes search parameters with paired self-play. It requires the
+  explicit `--baseline material` contract, starts both Sekirei arms without
+  evaluator files, and fixes `Threads=1`, `SpecTopN=0`, and `UseBook=false`.
+  External evaluators are deliberately unsupported by this entry point.
 - `run_local_selfplay.py` collects offline same-engine games. A normal run
   requires both `--weights` and `--positions`; it records weight SHA-256,
   evaluator mode, fixed USI options, kifu/CSA, primary-PV per-move data, and

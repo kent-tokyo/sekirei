@@ -2,8 +2,9 @@
 """SPSA tuning of Sekirei search constants by self-play.
 
 usage:
-  spsa.py --engine bin-mac/sek_tune --params spsa_params.txt --games 30000 \
-          --workers 4 --byoyomi 100 --state spsa_state.json
+  spsa.py --engine target/release/sekirei --match target/release/sekirei-match \
+          --baseline material --params spsa_params.txt --openings openings.sfen \
+          --games 30000 --workers 4 --byoyomi 100 --state spsa_state.json
 
 The engine must be a build with the `tune` feature: it exposes each tunable
 constant as a USI spin option `T_<NAME>` with its range. The params file
@@ -26,6 +27,11 @@ results as they finish (asynchronous SPSA, as fishtest does).
 The state file is rewritten after every pair, so a stopped run resumes
 where it left off. Stop with Ctrl-C or by creating the file named by
 --stop-file (default res/STOP).
+
+This tool intentionally supports only Sekirei's built-in material evaluator.
+Both arms start the engine without positional arguments and never send
+EvalFile, NnueOutput, or FV_SCALE. ``--baseline material`` is mandatory so a
+tuning run cannot silently inherit an external evaluator from an old default.
 """
 import argparse
 import json
@@ -40,6 +46,7 @@ import threading
 import time
 
 GAMMA, ALPHA = 0.101, 0.602
+FIXED_OPTIONS = ("Threads=1", "SpecTopN=0", "UseBook=false", "Hash=64")
 
 
 def engine_ranges(engine):
@@ -53,17 +60,18 @@ def engine_ranges(engine):
 
 def read_params(path, ranges):
     params = []
-    for line in open(path):
-        line = line.split("#", 1)[0].split()
-        if not line:
-            continue
-        name, start, c_end = line[0], float(line[1]), float(line[2])
-        r_end = float(line[3]) if len(line) > 3 else 0.002
-        if name not in ranges:
-            sys.exit(f"{name}: not a T_ option of this engine (tune build?)")
-        _, lo, hi = ranges[name]
-        params.append({"name": name, "start": start, "c_end": c_end, "r_end": r_end,
-                       "min": lo, "max": hi})
+    with open(path, encoding="utf-8") as params_file:
+        for line in params_file:
+            line = line.split("#", 1)[0].split()
+            if not line:
+                continue
+            name, start, c_end = line[0], float(line[1]), float(line[2])
+            r_end = float(line[3]) if len(line) > 3 else 0.002
+            if name not in ranges:
+                sys.exit(f"{name}: not a T_ option of this engine (tune build?)")
+            _, lo, hi = ranges[name]
+            params.append({"name": name, "start": start, "c_end": c_end, "r_end": r_end,
+                           "min": lo, "max": hi})
     return params
 
 
@@ -74,18 +82,27 @@ class Spsa:
         self.n_iter = args.games // 2
         self.big_a = 0.1 * self.n_iter
         self.lock = threading.Lock()
+        contract = {"evaluator": args.baseline, "fixed_options": list(FIXED_OPTIONS)}
         self.state = {"iter": 0, "done": 0, "theta": {p["name"]: p["start"] for p in params},
-                      "wins": 0, "losses": 0, "draws": 0, "history": []}
+                      "wins": 0, "losses": 0, "draws": 0, "history": [],
+                      "contract": contract}
         if os.path.exists(args.state):
-            saved = json.load(open(args.state))
-            if saved.get("n_iter") == self.n_iter and set(saved["theta"]) == set(self.state["theta"]):
+            with open(args.state, encoding="utf-8") as state_file:
+                saved = json.load(state_file)
+            if (saved.get("n_iter") == self.n_iter
+                    and saved.get("contract") == contract
+                    and set(saved["theta"]) == set(self.state["theta"])):
                 self.state.update(saved)
                 self.state["iter"] = self.state["done"]
                 print(f"resuming at pair {self.state['done']}", flush=True)
             else:
-                sys.exit(f"{args.state} belongs to a different run; move it away first")
-        self.openings = [l.strip() for l in open(args.openings)
-                         if l.strip() and not l.startswith("#")]
+                sys.exit(
+                    f"{args.state} belongs to a different run or evaluator contract; "
+                    "move it away first"
+                )
+        with open(args.openings, encoding="utf-8") as openings_file:
+            self.openings = [l.strip() for l in openings_file
+                             if l.strip() and not l.startswith("#")]
 
     def schedule(self, p, k):
         c = p["c_end"] * self.n_iter ** GAMMA
@@ -116,8 +133,7 @@ class Spsa:
 
     def play(self, job):
         a = self.args
-        base = [f"EvalFile={a.eval_file}", "FV_SCALE=24", "Threads=1", "SpecTopN=0",
-                "UseBook=false", "Hash=64"]
+        base = list(FIXED_OPTIONS)
         cmd = [a.match, "--engine1", a.engine, "--engine2", a.engine,
                "--games-per-position", "2", "--byoyomi", str(a.byoyomi)]
         for side, values in ((1, job["plus"]), (2, job["minus"])):
@@ -127,10 +143,15 @@ class Spsa:
             f.write(job["opening"] + "\n")
             pos = f.name
         try:
-            out = subprocess.run(cmd + ["--positions", pos], capture_output=True, text=True,
-                                 env=dict(os.environ, RAYON_NUM_THREADS="1")).stdout
+            completed = subprocess.run(
+                cmd + ["--positions", pos], capture_output=True, text=True,
+                env=dict(os.environ, RAYON_NUM_THREADS="1"),
+            )
         finally:
             os.unlink(pos)
+        out = completed.stdout
+        if completed.returncode != 0:
+            raise RuntimeError("match failed:\n" + (out + completed.stderr)[-2000:])
         if "Results after" not in out:
             raise RuntimeError("match failed:\n" + out[-2000:])
         return out.count("Engine1 Win"), out.count("Engine2 Win"), out.count("→ Draw")
@@ -152,7 +173,8 @@ class Spsa:
                 print(f"{time.strftime('%F %T')} pair {st['done']}/{self.n_iter} {shown}", flush=True)
             st["n_iter"] = self.n_iter
             tmp = self.args.state + ".tmp"
-            json.dump(st, open(tmp, "w"), indent=1)
+            with open(tmp, "w", encoding="utf-8") as state_file:
+                json.dump(st, state_file, indent=1)
             os.replace(tmp, self.args.state)
 
     def worker(self):
@@ -168,20 +190,36 @@ class Spsa:
             self.apply(job, w, l, d)
 
 
-def main():
+def parse_args(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--engine", required=True)
     ap.add_argument("--params", required=True)
     ap.add_argument("--games", type=int, required=True)
     ap.add_argument("--workers", type=int, default=2)
     ap.add_argument("--byoyomi", type=int, default=100)
-    ap.add_argument("--openings", default="openings_clean.sfen")
-    ap.add_argument("--eval-file", default=os.path.abspath("eval/suisho5/nn.bin"))
-    ap.add_argument("--match", default="bin-mac/sekirei-match")
+    ap.add_argument("--openings", required=True)
+    ap.add_argument(
+        "--baseline",
+        required=True,
+        choices=("material",),
+        help="explicit evaluator contract; only Sekirei built-in material is allowed",
+    )
+    ap.add_argument("--match", default="target/release/sekirei-match")
     ap.add_argument("--state", default="spsa_state.json")
     ap.add_argument("--stop-file", default="res/STOP")
     ap.add_argument("--seed", type=int, default=None)
-    args = ap.parse_args()
+    args = ap.parse_args(argv)
+    if args.games <= 0 or args.games % 2:
+        ap.error("--games must be a positive even number (one color-swapped pair per iteration)")
+    if args.workers <= 0:
+        ap.error("--workers must be positive")
+    if args.byoyomi <= 0:
+        ap.error("--byoyomi must be positive")
+    return args
+
+
+def main(argv=None):
+    args = parse_args(argv)
     random.seed(args.seed)
     params = read_params(args.params, engine_ranges(args.engine))
     spsa = Spsa(args, params)
