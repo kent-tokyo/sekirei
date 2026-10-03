@@ -754,6 +754,11 @@ impl Searcher {
         self.countermoves.clear();
     }
 
+    /// Age the TT entries of earlier searches (call once per `go`).
+    pub fn new_search(&self) {
+        self.tt.new_search();
+    }
+
     /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
     pub fn set_depth_skew(&mut self, skew: u32) {
         self.depth_skew = skew;

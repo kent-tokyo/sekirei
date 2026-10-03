@@ -233,6 +233,11 @@ impl SearchBackend {
             };
         }
         match self {
+            Self::Sequential(s) => s.searcher.new_search(),
+            Self::LazySmp(s) => s.new_search(),
+            _ => {}
+        }
+        match self {
             Self::Sequential(s) => {
                 let before = s.diagnostics.snapshot();
                 let info = s

@@ -145,6 +145,11 @@ impl LazySmpSearcher {
         }
     }
 
+    /// Age the shared TT entries of earlier searches (call once per `go`).
+    pub fn new_search(&self) {
+        self.tt.new_search();
+    }
+
     /// Probe the shared TT for a ponder move after the selected move.
     pub fn probe_tt(&self, hash: u64) -> Option<crate::mv::Move> {
         self.tt.probe(hash).and_then(|entry| entry.mv)

@@ -376,6 +376,19 @@ search_params! {
     /// Value returned by reverse futility pruning: the static eval (0), its
     /// mean with beta (1), or one third of the way from beta (2).
     RFP_DAMP = 0, 0, 2;
+    /// Transposition table layout, bit flags (0: direct-mapped, a colliding
+    /// store always replaces, a shallower store of the same position is
+    /// rejected). Bit 0: four-slot buckets; a new position replaces the slot
+    /// with the least depth minus `TT_AGE_WEIGHT` per search of age. Bit 1: a
+    /// store of the same position replaces it when it is exact, from a newer
+    /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
+    /// stored move when it has none.
+    TT_BUCKET = 0, 0, 3;
+    /// Depth one search of age is worth when choosing the slot to replace.
+    TT_AGE_WEIGHT = 6, 0, 32;
+    /// How much shallower a store of the same position may be and still
+    /// replace it (`TT_BUCKET` bit 1).
+    TT_KEEP_DEPTH = 2, 0, 8;
     /// Late move reductions of killer moves: 0 never reduced, 1 reduced one
     /// ply less than other quiet moves, 2 reduced like other quiet moves.
     KILLER_LMR = 0, 0, 2;

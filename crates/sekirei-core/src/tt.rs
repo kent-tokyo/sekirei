@@ -23,7 +23,7 @@
 //! ```
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
 
 use crate::mv::Move;
 use crate::piece::PieceKind;
@@ -104,6 +104,13 @@ impl TtWriteStats {
 // ---- Packing / unpacking ----
 
 const FROM_DROP: u64 = 81;
+/// Slots per bucket in the `TT_BUCKET` layout (four 16-byte slots, one cache line).
+const BUCKET: usize = 4;
+/// Generation bits [3:0] of the data word.
+const GEN_MASK: u8 = 0xF;
+const GEN_MASK_U64: u64 = 0xF;
+/// Move bits [22:4] of the data word.
+const MOVE_BITS: u64 = 0x7F_FFF0;
 
 fn pack(entry: &TtEntry) -> u64 {
     let score = (entry.score as u32 as u64) << 32;
@@ -182,6 +189,9 @@ pub struct Tt {
     mask: usize, // len - 1, for fast power-of-2 indexing
     write_stats: Option<Arc<TtWriteStats>>,
     domain: u64,
+    /// Search counter (low four bits are stored in each entry when
+    /// `TT_BUCKET` is non-zero), advanced by [`Tt::new_search`].
+    generation: AtomicU8,
 }
 
 impl Tt {
@@ -229,6 +239,7 @@ impl Tt {
             mask: count - 1,
             write_stats: stats,
             domain,
+            generation: AtomicU8::new(0),
         })
     }
 
@@ -242,10 +253,32 @@ impl Tt {
         hash ^ self.domain
     }
 
+    /// Start a new search: entries written before it age by one step. Only
+    /// the four-slot bucket layout (`TT_BUCKET`) reads the age.
+    pub fn new_search(&self) {
+        self.generation.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn generation_bits(&self) -> u64 {
+        u64::from(self.generation.load(Ordering::Relaxed) & GEN_MASK)
+    }
+
     /// Probe the table. Returns `Some(entry)` on a hit, `None` on a miss or torn read.
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
-        let slot = self.slot(hash);
         let key_hash = self.key_hash(hash);
+        if crate::search::params::TT_BUCKET() & 1 != 0 {
+            let base = key_hash as usize & self.mask & !(BUCKET - 1);
+            for slot in &self.table[base..base + BUCKET.min(self.table.len())] {
+                let data = slot.data.load(Ordering::Relaxed);
+                let key = slot.key.load(Ordering::Relaxed);
+                if key ^ data == key_hash {
+                    return Some(unpack(data));
+                }
+            }
+            return None;
+        }
+        let slot = self.slot(hash);
         // Load data first, then key. With the XOR trick, a torn write makes key ^ data != hash.
         let data = slot.data.load(Ordering::Relaxed);
         let key = slot.key.load(Ordering::Relaxed);
@@ -256,13 +289,109 @@ impl Tt {
         }
     }
 
+    /// Store into the four-slot bucket of `hash` (`TT_BUCKET` bit 0).
+    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32) {
+        let generation = self.generation_bits();
+        let base = key_hash as usize & self.mask & !(BUCKET - 1);
+        let slots = &self.table[base..base + BUCKET.min(self.table.len())];
+        let mut victim = 0;
+        let mut victim_value = i32::MAX;
+        for (i, slot) in slots.iter().enumerate() {
+            let data = slot.data.load(Ordering::Relaxed);
+            let key = slot.key.load(Ordering::Relaxed);
+            if key ^ data == key_hash {
+                if let Some(data) = self.same_position_data(data, entry, mode, generation) {
+                    self.write(slot, key_hash, data);
+                }
+                return;
+            }
+            let value = if data == 0 {
+                i32::MIN
+            } else {
+                let age = (generation.wrapping_sub(data & GEN_MASK_U64) & GEN_MASK_U64) as i32;
+                ((data >> 25) & 0x7F) as i32 - crate::search::params::TT_AGE_WEIGHT() * age
+            };
+            if value < victim_value {
+                victim_value = value;
+                victim = i;
+            }
+        }
+        if let Some(stats) = &self.write_stats
+            && slots[victim].data.load(Ordering::Relaxed) != 0
+        {
+            stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
+        }
+        self.write(&slots[victim], key_hash, pack(entry) | generation);
+    }
+
+    /// Data to write over an entry of the same position, or `None` to keep it.
+    fn same_position_data(
+        &self,
+        existing: u64,
+        entry: &TtEntry,
+        mode: i32,
+        generation: u64,
+    ) -> Option<u64> {
+        if let Some(stats) = &self.write_stats {
+            stats.same_hash.fetch_add(1, Ordering::Relaxed);
+        }
+        let existing_depth = ((existing >> 25) & 0x7F) as u8;
+        let replace = if mode & 2 != 0 {
+            entry.bound == Bound::Exact
+                || i32::from(entry.depth) + crate::search::params::TT_KEEP_DEPTH()
+                    >= i32::from(existing_depth)
+                || existing & GEN_MASK_U64 != generation
+        } else {
+            entry.depth >= existing_depth
+        };
+        if !replace {
+            if let Some(stats) = &self.write_stats {
+                stats.shallower_rejections.fetch_add(1, Ordering::Relaxed);
+            }
+            return None;
+        }
+        let mut data = pack(entry);
+        if mode & 2 != 0 && entry.mv.is_none() {
+            data = (data & !MOVE_BITS) | (existing & MOVE_BITS);
+        }
+        Some(data | if mode == 0 { 0 } else { generation })
+    }
+
+    #[inline]
+    fn write(&self, slot: &TtSlot, key_hash: u64, data: u64) {
+        slot.data.store(data, Ordering::Relaxed);
+        slot.key.store(key_hash ^ data, Ordering::Relaxed);
+        if let Some(stats) = &self.write_stats {
+            stats.committed.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
     /// Store an entry (depth-preferred: keep deeper results).
     pub fn store(&self, hash: u64, entry: TtEntry) {
         if let Some(stats) = &self.write_stats {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
-        let slot = self.slot(hash);
         let key_hash = self.key_hash(hash);
+        let mode = crate::search::params::TT_BUCKET();
+        if mode & 1 != 0 {
+            self.store_bucket(key_hash, &entry, mode);
+            return;
+        }
+        let slot = self.slot(hash);
+        if mode & 2 != 0 {
+            let existing_data = slot.data.load(Ordering::Relaxed);
+            let existing_key = slot.key.load(Ordering::Relaxed);
+            let data = if existing_key ^ existing_data == key_hash {
+                match self.same_position_data(existing_data, &entry, mode, self.generation_bits()) {
+                    Some(data) => data,
+                    None => return,
+                }
+            } else {
+                pack(&entry) | self.generation_bits()
+            };
+            self.write(slot, key_hash, data);
+            return;
+        }
         let existing_data = slot.data.load(Ordering::Relaxed);
         let existing_key = slot.key.load(Ordering::Relaxed);
         let occupied = existing_data != 0;
