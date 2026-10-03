@@ -905,7 +905,9 @@ fn main() {
             "setoption" => {
                 // "setoption name <Name> value <Value>"
                 let parts: Vec<&str> = rest.split_whitespace().collect();
-                if parts.get(1) == Some(&"Hash")
+                // GUIs send the standard `USI_Hash` (the USI protocol's
+                // table size option) whether or not the engine lists it.
+                if matches!(parts.get(1), Some(&"Hash") | Some(&"USI_Hash"))
                     && let Some(mb) = parts.get(3).and_then(|s| s.parse().ok())
                 {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
