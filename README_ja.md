@@ -123,6 +123,10 @@ Elo測定ではありません。
 
 学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。このcheckoutは
 `lineprior 0.12.1`を固定し、外部data scriptは`shogiesa 0.11.0`で確認しています。
+`sekirei-train`は学習専用依存の`shogiesa-core 0.11.0`を介して型付きposition JSONLを
+逐次読み込みます。JSONL中のengine観測値を暗黙に教師labelへ使うことはありません。
+既知の対局結果は`--positions --wdl-lambda`で明示的に利用でき、不明・欠落結果は
+件数を記録して除外します。
 recipeとresume toolingは[scripts索引](scripts/README.md)を参照し、生成artifactはGit外に保持します。
 
 ## 文書
