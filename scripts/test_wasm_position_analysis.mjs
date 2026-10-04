@@ -87,11 +87,18 @@ assert.equal(blocked.kind, 'terminal');
 assert.equal(blocked.terminalReason, 'no_moves');
 assert.equal(blocked.winner, 'w');
 assert.equal(blocked.inCheck, false);
+const maximal = analyze('4k4/9/9/9/9/9/9/9/4K4 b 18P4L4N4S4G2B2R 1', 1, 1);
+assert.equal(maximal.kind, 'unknown');
+assert.equal(maximal.scoreCp, undefined);
 for (const [sfen, depth, nodes, code] of [
   ['not sfen', 1, 1000, 'invalid_sfen'],
   ['9/9/9/9/9/9/9/9/9 b - 1', 1, 1000, 'invalid_position'],
   [startSfen(), 0, 1000, 'invalid_search_limit'],
   [startSfen(), 1, 100_001, 'invalid_search_limit'],
+  ['4k4/9/9/9/9/9/9/9/4K4 b 255r255b255g255s255n255l255p 1', 1, 1000, 'invalid_position'],
+  ['4k4/9/9/9/9/9/9/9/4K4 b 2R2R 1', 1, 1000, 'invalid_position'],
+  ['4k4/9/9/9/4R4/9/9/9/4K4 b 2R 1', 1, 1000, 'invalid_position'],
+  ['4k4/9/9/9/2+R+R+R4/9/9/9/4K4 b - 1', 1, 1000, 'invalid_position'],
 ]) {
   assert.throws(() => analyze(sfen, depth, nodes), error => error.code === code);
 }

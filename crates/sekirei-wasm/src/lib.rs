@@ -115,12 +115,81 @@ fn classify_score(result: &mut PositionResult, score: i32, side: Color) {
     }
 }
 
+fn validate_analysis_inventory(sfen: &str) -> Result<(), ApiError> {
+    if sfen.len() > MAX_SFEN_BYTES {
+        return Err(ApiError::new(
+            "input_too_large",
+            format!("SFEN must be at most {MAX_SFEN_BYTES} bytes"),
+        ));
+    }
+    let mut fields = sfen.split_whitespace();
+    let (Some(board), Some(_side), Some(hand)) = (fields.next(), fields.next(), fields.next())
+    else {
+        // Keep the existing SFEN parser's malformed-input diagnostics.
+        return Ok(());
+    };
+    let index = |piece: char| match piece.to_ascii_uppercase() {
+        'P' => Some(0),
+        'L' => Some(1),
+        'N' => Some(2),
+        'S' => Some(3),
+        'G' => Some(4),
+        'B' => Some(5),
+        'R' => Some(6),
+        'K' => Some(7),
+        _ => None,
+    };
+    let mut total = [0u32; 8];
+    let limit = [18, 4, 4, 4, 4, 2, 2, 2];
+    let inventory_error = || {
+        ApiError::new(
+            "invalid_position",
+            "piece inventory exceeds standard shogi limits",
+        )
+    };
+    // Count promoted pieces as their base kind, across both colors. Missing
+    // pieces are allowed (handicaps and composed problems), extras are not.
+    for piece in board.chars().filter_map(index) {
+        total[piece] += 1;
+        if total[piece] > limit[piece] {
+            return Err(inventory_error());
+        }
+    }
+    if hand != "-" {
+        let mut count = 0u32;
+        for token in hand.chars() {
+            if let Some(digit) = token.to_digit(10) {
+                count = count
+                    .checked_mul(10)
+                    .and_then(|n| n.checked_add(digit))
+                    .ok_or_else(inventory_error)?;
+            } else {
+                let piece = index(token)
+                    .filter(|&kind| kind != 7)
+                    .ok_or_else(|| ApiError::new("invalid_sfen", "invalid hand piece"))?;
+                total[piece] = total[piece]
+                    .checked_add(count.max(1))
+                    .ok_or_else(inventory_error)?;
+                if total[piece] > limit[piece] {
+                    return Err(inventory_error());
+                }
+                count = 0;
+            }
+        }
+    }
+    // This must run before Board::from_sfen: its packed Hand representation
+    // assumes a physical inventory, and oversized counts can panic while
+    // recomputing the hash. Combined inventory also protects later captures.
+    Ok(())
+}
+
 fn analyze_position_impl(
     sfen: &str,
     max_depth: u32,
     max_nodes: u32,
 ) -> Result<PositionResult, ApiError> {
     validate_search_limits(max_depth, max_nodes)?;
+    validate_analysis_inventory(sfen)?;
     let mut board = parse_board(sfen)?;
     // Rules APIs retain their original permissive parsing contract. Analysis
     // requires kings so a malformed setup is not mistaken for a finite score.
@@ -781,6 +850,36 @@ mod tests {
     const ASYMMETRIC_WHITE: &str = "4k4/9/9/9/9/9/9/9/4K4 w P 1";
 
     #[test]
+    fn analysis_rejects_oversized_inventory_before_board_parsing() {
+        for hand in [
+            "255r255b255g255s255n255l255p",
+            "2R2R",
+            "2Rr",
+            "19P",
+            "99999999999999999999999999999999999P",
+        ] {
+            let sfen = format!("4k4/9/9/9/9/9/9/9/4K4 b {hand} 1");
+            assert_eq!(
+                analyze_position_impl(&sfen, 1, 1000).unwrap_err().code,
+                "invalid_position"
+            );
+        }
+        for sfen in [
+            "4k4/9/9/9/4R4/9/9/9/4K4 b 2R 1",
+            "4k4/9/9/9/2+R+R+R4/9/9/9/4K4 b - 1",
+        ] {
+            assert_eq!(
+                analyze_position_impl(sfen, 1, 1000).unwrap_err().code,
+                "invalid_position"
+            );
+        }
+        let legal =
+            analyze_position_impl("4k4/9/9/9/9/9/9/9/4K4 b 18P4L4N4S4G2B2R 1", 1, 1).unwrap();
+        assert_eq!(legal.kind, "unknown");
+        assert_eq!(legal.score_cp, None);
+    }
+
+    #[test]
     fn position_analysis_matches_core_score_and_side_to_move() {
         for (sfen, side, sign) in [(ASYMMETRIC_BLACK, "b", 1), (ASYMMETRIC_WHITE, "w", -1)] {
             let result = analyze_position_impl(sfen, 1, 10_000).unwrap();
@@ -1054,6 +1153,21 @@ mod browser_tests {
 
     #[wasm_bindgen_test]
     fn position_analysis_contract_in_browser() {
+        let oversized = match analyze_position(
+            "4k4/9/9/9/9/9/9/9/4K4 b 255r255b255g255s255n255l255p 1",
+            1,
+            1000,
+        ) {
+            Ok(_) => panic!("oversized hand must fail without trapping"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            Reflect::get(&oversized, &JsValue::from_str("code"))
+                .unwrap()
+                .as_string()
+                .as_deref(),
+            Some("invalid_position")
+        );
         for (side, sign) in [("b", 1), ("w", -1)] {
             let sfen = format!("4k4/9/9/9/9/9/9/9/4K4 {side} P 1");
             let result = analyze_position(&sfen, 1, 10_000).unwrap();

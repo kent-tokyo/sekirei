@@ -104,7 +104,12 @@ perpetual check, resignation, or other game-history outcomes.
 Malformed SFEN and limits still throw structured `invalid_sfen`,
 `input_too_large`, or `invalid_search_limit` errors. Analysis additionally
 requires exactly one king per side and the non-moving king not in check;
-otherwise it throws `invalid_position`. The moving king may be in check.
+otherwise it throws `invalid_position`. Before board parsing it also rejects
+inventories beyond the physical supply (both colors' board and hand pieces
+combined: 18 pawns, 4 each lance/knight/silver/gold, 2 each bishop/rook).
+Promoted pieces count as their base kind; omitted pieces are allowed. This
+guards packed hand storage and later captures from oversized-input traps.
+The moving king may be in check.
 The existing rule and move-selection APIs retain their original contracts.
 
 The same depth 1–8, nodes 1–100,000, material-only, sequential one-worker,
