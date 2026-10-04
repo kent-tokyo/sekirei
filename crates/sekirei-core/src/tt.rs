@@ -225,8 +225,7 @@ impl Tt {
 
     #[inline]
     fn layout(&self) -> i32 {
-        self.layout
-            .unwrap_or_else(crate::search::params::TT_BUCKET)
+        self.layout.unwrap_or_else(crate::search::params::TT_BUCKET)
     }
 
     /// Create a table whose key space is isolated for one evaluator domain.
