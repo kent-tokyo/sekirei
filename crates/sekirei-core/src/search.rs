@@ -261,6 +261,10 @@ pub struct SearchDiagnostics {
     /// mate in one, reverse futility, razoring, ProbCut, null move cutoff,
     /// and null-move searches that did not cut.
     exits: [AtomicU64; 8],
+    /// Main-search calls by remaining depth (1..=16, deeper in 16): calls,
+    /// TT cutoffs, razoring, reverse futility, null-move cutoffs, ProbCut,
+    /// mate in one, loop nodes, and moves searched at loop nodes.
+    by_depth: [[AtomicU64; 9]; 17],
     /// Main-search nodes that searched moves and failed low.
     fail_low_nodes: AtomicU64,
 }
@@ -434,6 +438,7 @@ impl SearchDiagnostics {
             searched_checks: std::array::from_fn(|_| AtomicU64::new(0)),
             research: std::array::from_fn(|_| AtomicU64::new(0)),
             exits: std::array::from_fn(|_| AtomicU64::new(0)),
+            by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             fail_low_nodes: AtomicU64::new(0),
         }
     }
@@ -462,6 +467,18 @@ impl SearchDiagnostics {
     #[inline]
     fn exit(&self, i: usize) {
         self.exits[i].fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn at_depth(&self, depth: u32, k: usize) {
+        self.by_depth[(depth as usize).min(16)][k].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Main-search outcomes by remaining depth (see the `by_depth` field).
+    pub fn depth_table(&self) -> [[u64; 9]; 17] {
+        std::array::from_fn(|d| {
+            std::array::from_fn(|k| self.by_depth[d][k].load(Ordering::Relaxed))
+        })
     }
 
     /// Reduced probes of late moves, their full-depth null-window
@@ -2512,6 +2529,10 @@ fn alpha_beta(
     if state.budget.tick() {
         return 0;
     }
+    let entry_depth = depth;
+    if let Some(d) = state.counters() {
+        d.at_depth(entry_depth, 0);
+    }
     // Expected cut node: a null-window node its parent expects to fail high.
     let cut_node = beta - alpha == 1 && cut_at(ply);
 
@@ -2530,6 +2551,7 @@ fn alpha_beta(
     if let Some(score) = tt.cutoff {
         if let Some(d) = state.counters() {
             d.exit(1);
+            d.at_depth(entry_depth, 1);
         }
         return score;
     }
@@ -2578,6 +2600,7 @@ fn alpha_beta(
     if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
         if let Some(d) = state.counters() {
             d.exit(2);
+            d.at_depth(entry_depth, 6);
         }
         return MATE_SCORE - (ply as i32 + 1);
     }
@@ -2642,6 +2665,7 @@ fn alpha_beta(
     {
         if let Some(d) = state.counters() {
             d.exit(3);
+            d.at_depth(entry_depth, 3);
         }
         return if rfp_guard {
             (2 * beta + se) / 3
@@ -2674,6 +2698,7 @@ fn alpha_beta(
         if v <= alpha {
             if let Some(d) = state.counters() {
                 d.exit(4);
+                d.at_depth(entry_depth, 2);
             }
             return v;
         }
@@ -2688,6 +2713,7 @@ fn alpha_beta(
     {
         if let Some(d) = state.counters() {
             d.exit(5);
+            d.at_depth(entry_depth, 5);
         }
         return score;
     }
@@ -2713,6 +2739,7 @@ fn alpha_beta(
     {
         if let Some(d) = state.counters() {
             d.exit(6);
+            d.at_depth(entry_depth, 4);
         }
         return score;
     }
@@ -2928,6 +2955,8 @@ fn alpha_beta(
             .fetch_add(1, Ordering::Relaxed);
         d.loop_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
         d.searched_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
+        d.at_depth(entry_depth, 7);
+        d.at_depth(entry_depth, 8);
     }
     set_current_move(ply, Some(first_move));
     let (tok, child_in_check, first_history) = play(board, first_move, history);
@@ -3231,6 +3260,23 @@ fn alpha_beta(
                     0
                 },
                 lmr_depth: depth.saturating_sub(1 + reduce),
+                cont_hist: if is_quiet && p::PRUNE_STYLE() == 1 {
+                    lmr_ctx.history_of(&state.history, stm, m) - state.history.get(stm, m)
+                } else {
+                    0
+                },
+                main_hist: if p::PRUNE_STYLE() != 1 {
+                    0
+                } else if is_quiet {
+                    state.history.get(stm, m)
+                } else {
+                    board
+                        .piece_at(m.to)
+                        .filter(|_| m.from.is_some())
+                        .map_or(0, |v| state.history.capture_get(stm, m, v.kind))
+                },
+                alpha_raised: best_score > orig_alpha,
+                pv: is_pv,
             };
             if late.prunes(board, m, is_quiet, i + 1) {
                 // FUT_SOFT: a pruned quiet move still bounds the node from
@@ -3256,6 +3302,7 @@ fn alpha_beta(
             let check_cap = check_reduction_cap(board, m, reduce);
             if let Some(d) = state.counters() {
                 d.searched_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
+                d.at_depth(entry_depth, 8);
             }
             set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
@@ -4225,9 +4272,95 @@ struct LateMoveNode {
     history: i32,
     /// Depth the move would be searched to after its late move reduction.
     lmr_depth: u32,
+    /// PRUNE_STYLE 1 inputs: continuation + follow-up history and butterfly
+    /// history of a quiet move (or the capture history of a capture),
+    /// whether a move has already raised alpha, and whether the node is a
+    /// PV node.
+    cont_hist: i32,
+    main_hist: i32,
+    alpha_raised: bool,
+    pv: bool,
 }
 
 impl LateMoveNode {
+    /// PRUNE_STYLE 1: one rule set over the reduced depth at every node
+    /// depth. Once a move has been searched without a lost score:
+    /// - move-count pruning of quiet moves and drops (checks too unless
+    ///   `PS_LMP_CHECKS` is 0) from `(PS_LMP_BASE + d^2) / (2 - improving)`;
+    /// - captures, promotions and checks: futility of captures by the
+    ///   captured piece and capture history while the reduced depth is
+    ///   below 7, and static-exchange pruning below `-(PS_SEE_TACT * d)`;
+    /// - other quiet moves: pruned when the continuation history is below
+    ///   `-PS_CONT_K * d`; the reduced depth moves by the histories
+    ///   (`/ PS_HIST_DIV`); futility on that depth below 13
+    ///   (`PS_FUT_BASE + PS_FUT_NOBEST + PS_FUT_PER * d`); static-exchange
+    ///   pruning below `-PS_SEE_Q * d^2` of that depth.
+    fn prunes_by_lmr_depth(
+        &self,
+        board: &Board,
+        m: Move,
+        is_quiet: bool,
+        move_number: usize,
+    ) -> bool {
+        if self.best_score <= -(MATE_SCORE - 1000) {
+            return false;
+        }
+        let depth = self.depth as i32;
+        let gives_check = move_gives_direct_check(board, m);
+        if is_quiet
+            && (!gives_check || p::PS_LMP_CHECKS() != 0)
+            && (move_number as i32)
+                >= (p::PS_LMP_BASE() + depth * depth) / (2 - i32::from(self.improving))
+        {
+            return true;
+        }
+        let lmr_depth = self.lmr_depth as i32;
+        if !is_quiet || gives_check {
+            let victim = board.piece_at(m.to).filter(|_| m.from.is_some());
+            if let Some(v) = victim
+                && !gives_check
+                && lmr_depth < 7
+                && let Some(se) = self.static_eval
+                && se
+                    + 218
+                    + 223 * lmr_depth
+                    + PIECE_VALUE[v.kind.index()]
+                    + 131 * self.main_hist / 1024
+                    <= self.alpha
+            {
+                return true;
+            }
+            let margin = (p::PS_SEE_TACT() * depth + self.main_hist * 34 / 1024).max(0);
+            return self.alpha >= 0 && crate::movegen::see_exchange(board, m) < -margin;
+        }
+        if self.pv && p::PS_PV_QUIET() == 0 {
+            return false;
+        }
+        if self.cont_hist < -p::PS_CONT_K() * depth {
+            return true;
+        }
+        let hist = self.cont_hist + 71 * self.main_hist / 32;
+        let d = lmr_depth + hist / p::PS_HIST_DIV().max(1);
+        if !self.in_check
+            && d < 13
+            && let Some(se) = self.static_eval
+            && se
+                + p::PS_FUT_BASE()
+                + if self.alpha_raised {
+                    0
+                } else {
+                    p::PS_FUT_NOBEST()
+                }
+                + p::PS_FUT_PER() * d
+                + if se > self.alpha { 86 } else { 0 }
+                <= self.alpha
+        {
+            return true;
+        }
+        let d = d.max(0);
+        crate::movegen::see_exchange(board, m) < -p::PS_SEE_Q() * d * d
+    }
+
     /// Whether `m`, the `move_number`-th move of the node (1-based), is
     /// pruned before it is searched.
     ///
@@ -4240,6 +4373,9 @@ impl LateMoveNode {
     ///   clearly lose material by SEE.
     #[inline]
     fn prunes(&self, board: &Board, m: Move, is_quiet: bool, move_number: usize) -> bool {
+        if p::PRUNE_STYLE() == 1 {
+            return self.prunes_by_lmr_depth(board, m, is_quiet, move_number);
+        }
         let depth = self.depth;
         if depth == 1
             && let Some(se) = self.static_eval

@@ -426,6 +426,31 @@ search_params! {
     /// Ordering bonus of a quiet move that takes a piece off a square that a
     /// cheaper enemy piece attacks to one that is not (0: off).
     QTO_ESCAPE = 0, 0, 16000;
+    /// Pruning of later moves: 0 the depth-bounded rules of
+    /// `LateMoveNode::prunes`, 1 one rule set over the reduced depth at every
+    /// node depth (`PS_*`).
+    PRUNE_STYLE = 0, 0, 1;
+    /// PRUNE_STYLE 1: move-count limit `(PS_LMP_BASE + d^2) / (2 - improving)`.
+    PS_LMP_BASE = 3, 0, 12;
+    /// PRUNE_STYLE 1: whether the move-count limit also cuts quiet checks.
+    PS_LMP_CHECKS = 1, 0, 1;
+    /// PRUNE_STYLE 1: static-exchange margin per ply for captures,
+    /// promotions and checks.
+    PS_SEE_TACT = 167, 0, 600;
+    /// PRUNE_STYLE 1: continuation-history pruning threshold per ply.
+    PS_CONT_K = 1229, 0, 9000;
+    /// PRUNE_STYLE 1: history units per ply of reduced depth.
+    PS_HIST_DIV = 966, 100, 9000;
+    /// PRUNE_STYLE 1: futility margin base.
+    PS_FUT_BASE = 42, 0, 400;
+    /// PRUNE_STYLE 1: futility margin added while no move has raised alpha.
+    PS_FUT_NOBEST = 151, 0, 400;
+    /// PRUNE_STYLE 1: futility margin per ply of reduced depth.
+    PS_FUT_PER = 120, 20, 400;
+    /// PRUNE_STYLE 1: static-exchange pruning of quiet moves per squared ply.
+    PS_SEE_Q = 25, 0, 200;
+    /// PRUNE_STYLE 1: quiet-move pruning at PV nodes too (1) or not (0).
+    PS_PV_QUIET = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

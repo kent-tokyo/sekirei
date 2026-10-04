@@ -47,6 +47,7 @@ fn main() {
     let mut rs = [0u64; 3];
     let mut ex = [0u64; 8];
     let mut chk = [0u64; 2];
+    let mut table = [[0u64; 9]; 17];
     let mut fail_low = 0u64;
     let mut nodes = 0u64;
     let mut ab = 0u64;
@@ -62,6 +63,12 @@ fn main() {
             },
             &history,
         );
+        let t = diagnostics.depth_table();
+        for d in 0..17 {
+            for k in 0..9 {
+                table[d][k] += t[d][k];
+            }
+        }
         let c2 = diagnostics.searched_check_counts();
         chk[0] += c2[0];
         chk[1] += c2[1];
@@ -140,6 +147,26 @@ fn main() {
         ex[6] / np,
         ex[7] / np
     );
+    println!(" r     calls    TT razor   RFP   NMP    PC mate1  loop ch/node ch/loop");
+    for (d, row) in table.iter().enumerate().skip(1) {
+        let n = row[0];
+        if n == 0 {
+            continue;
+        }
+        let f = |k: usize| 100.0 * row[k] as f64 / n as f64;
+        println!(
+            "{d:2} {n:9} {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} {:5.1} {:7.2} {:7.2}",
+            f(1),
+            f(2),
+            f(3),
+            f(4),
+            f(5),
+            f(6),
+            f(7),
+            row[8] as f64 / n as f64,
+            row[8] as f64 / row[7].max(1) as f64
+        );
+    }
     // Shares within each row: where the cutoff move stood.
     let names = ["no TT, quiet", "no TT, other", "TT, quiet", "TT, other"];
     for (r, name) in names.iter().enumerate() {
