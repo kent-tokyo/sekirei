@@ -246,6 +246,12 @@ pub struct SearchDiagnostics {
     /// Main-search nodes that entered the move loop, without and with a TT
     /// move.
     loop_nodes: [AtomicU64; 2],
+    /// Main-search calls with a full window (PV nodes).
+    pv_calls: AtomicU64,
+    /// Loop nodes by window (null, full) and the moves they searched
+    /// (pruned moves left out).
+    loop_by_window: [AtomicU64; 2],
+    searched_by_window: [AtomicU64; 2],
     /// Main-search nodes that searched moves and failed low.
     fail_low_nodes: AtomicU64,
 }
@@ -413,6 +419,9 @@ impl SearchDiagnostics {
             root_mate_safety_ns: AtomicU64::new(0),
             cut_index: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             loop_nodes: std::array::from_fn(|_| AtomicU64::new(0)),
+            pv_calls: AtomicU64::new(0),
+            loop_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
+            searched_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
             fail_low_nodes: AtomicU64::new(0),
         }
     }
@@ -431,6 +440,16 @@ impl SearchDiagnostics {
         };
         self.cut_index[usize::from(!quiet) + 2 * usize::from(had_tt_move)][bucket]
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// PV calls, then loop nodes and moves searched at null-window and
+    /// full-window nodes.
+    pub fn window_counts(&self) -> (u64, [u64; 2], [u64; 2]) {
+        (
+            self.pv_calls.load(Ordering::Relaxed),
+            std::array::from_fn(|i| self.loop_by_window[i].load(Ordering::Relaxed)),
+            std::array::from_fn(|i| self.searched_by_window[i].load(Ordering::Relaxed)),
+        )
     }
 
     /// Beta cutoffs by the position of the cutoff move in its node's order
@@ -2419,6 +2438,9 @@ fn alpha_beta(
 ) -> i32 {
     if let Some(diagnostics) = state.counters() {
         diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
+        if beta - alpha > 1 {
+            diagnostics.pv_calls.fetch_add(1, Ordering::Relaxed);
+        }
     }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
@@ -2826,6 +2848,8 @@ fn alpha_beta(
     if let Some(d) = state.counters() {
         d.loop_nodes[usize::from(tt_mv.is_some_and(|t| t == first_move))]
             .fetch_add(1, Ordering::Relaxed);
+        d.loop_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
+        d.searched_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
     }
     set_current_move(ply, Some(first_move));
     let (tok, child_in_check, first_history) = play(board, first_move, history);
@@ -3152,6 +3176,9 @@ fn alpha_beta(
                 continue;
             }
             let check_cap = check_reduction_cap(board, m, reduce);
+            if let Some(d) = state.counters() {
+                d.searched_by_window[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
+            }
             set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
             // Checks are not extended (every check extension variant lost

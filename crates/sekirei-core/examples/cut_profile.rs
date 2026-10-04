@@ -43,6 +43,7 @@ fn main() {
         .collect();
     let mut cuts = [[0u64; CUT_BUCKETS]; 4];
     let mut loops = [0u64; 2];
+    let (mut pv_calls, mut lw, mut sw) = (0u64, [0u64; 2], [0u64; 2]);
     let mut fail_low = 0u64;
     let mut nodes = 0u64;
     let mut ab = 0u64;
@@ -58,6 +59,12 @@ fn main() {
             },
             &history,
         );
+        let (pc, l2, s2) = diagnostics.window_counts();
+        pv_calls += pc;
+        for i in 0..2 {
+            lw[i] += l2[i];
+            sw[i] += s2[i];
+        }
         let (c, f, l) = diagnostics.cut_histogram();
         loops[0] += l[0];
         loops[1] += l[1];
@@ -81,6 +88,15 @@ fn main() {
         ab / positions.len() as u64,
         loops[0],
         loops[1]
+    );
+    let per = |a: u64, b: u64| a as f64 / b.max(1) as f64;
+    println!(
+        "pv calls/pos {}  loop nodes null/pv {}/{}  moves searched per loop node null {:.2} pv {:.2}",
+        pv_calls / positions.len() as u64,
+        lw[0],
+        lw[1],
+        per(sw[0], lw[0]),
+        per(sw[1], lw[1])
     );
     // Shares within each row: where the cutoff move stood.
     let names = ["no TT, quiet", "no TT, other", "TT, quiet", "TT, other"];
