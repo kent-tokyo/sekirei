@@ -252,6 +252,13 @@ pub struct SearchDiagnostics {
     /// (pruned moves left out).
     loop_by_window: [AtomicU64; 2],
     searched_by_window: [AtomicU64; 2],
+    /// Late-move searches: reduced probes, their full-depth null-window
+    /// re-searches, and full-window re-searches.
+    research: [AtomicU64; 3],
+    /// How main-search calls end before the move loop: depth 0, TT cutoff,
+    /// mate in one, reverse futility, razoring, ProbCut, null move cutoff,
+    /// and null-move searches that did not cut.
+    exits: [AtomicU64; 8],
     /// Main-search nodes that searched moves and failed low.
     fail_low_nodes: AtomicU64,
 }
@@ -422,6 +429,8 @@ impl SearchDiagnostics {
             pv_calls: AtomicU64::new(0),
             loop_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
             searched_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
+            research: std::array::from_fn(|_| AtomicU64::new(0)),
+            exits: std::array::from_fn(|_| AtomicU64::new(0)),
             fail_low_nodes: AtomicU64::new(0),
         }
     }
@@ -440,6 +449,22 @@ impl SearchDiagnostics {
         };
         self.cut_index[usize::from(!quiet) + 2 * usize::from(had_tt_move)][bucket]
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Main-search calls by early exit (see the `exits` field).
+    pub fn exit_counts(&self) -> [u64; 8] {
+        std::array::from_fn(|i| self.exits[i].load(Ordering::Relaxed))
+    }
+
+    #[inline]
+    fn exit(&self, i: usize) {
+        self.exits[i].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Reduced probes of late moves, their full-depth null-window
+    /// re-searches, and full-window re-searches.
+    pub fn research_counts(&self) -> [u64; 3] {
+        std::array::from_fn(|i| self.research[i].load(Ordering::Relaxed))
     }
 
     /// PV calls, then loop nodes and moves searched at null-window and
@@ -1531,6 +1556,9 @@ fn null_move_pruning(
     );
     board.undo_null_move(null_tok);
     if null_score < beta {
+        if let Some(d) = state.counters() {
+            d.exit(7);
+        }
         return None;
     }
     if depth < p::NMP_VERIFY_DEPTH() as u32 {
@@ -1619,6 +1647,12 @@ fn pvs_child(
             .min(depth + 1)
     };
     let mut s = search(alpha, alpha + 1, probe, reduce > 0 || !cut_node);
+    let counters = state.counters();
+    if reduce > 0
+        && let Some(d) = counters
+    {
+        d.research[0].fetch_add(1, Ordering::Relaxed);
+    }
     if probe < full_depth && reduce > 0 && s > alpha {
         // LMR_DEEPER / LMR_SHALLOWER: a reduced probe that beat the best
         // score by a wide margin is re-searched one ply deeper, one that
@@ -1637,10 +1671,16 @@ fn pvs_child(
             full_depth
         };
         if d > probe {
+            if let Some(c) = counters {
+                c.research[1].fetch_add(1, Ordering::Relaxed);
+            }
             s = search(alpha, alpha + 1, d, !cut_node);
         }
     }
     if s > alpha && s < beta {
+        if let Some(c) = counters {
+            c.research[2].fetch_add(1, Ordering::Relaxed);
+        }
         s = search(alpha, beta, full_depth, false);
     }
     s
@@ -2448,6 +2488,9 @@ fn alpha_beta(
     }
     // A leaf is counted once, by the quiescence search it turns into.
     if depth == 0 {
+        if let Some(d) = state.counters() {
+            d.exit(0);
+        }
         if state.budget.should_abort() {
             return 0;
         }
@@ -2477,6 +2520,9 @@ fn alpha_beta(
     let pv_window = beta - alpha > 1;
     let tt = TtProbe::at(state, hash, depth, ply, alpha, beta, skip_move.is_some());
     if let Some(score) = tt.cutoff {
+        if let Some(d) = state.counters() {
+            d.exit(1);
+        }
         return score;
     }
     // A PV node, or one whose entry was stored on a PV (TT_PV_MODE).
@@ -2522,6 +2568,9 @@ fn alpha_beta(
     // A position with a TT entry was scanned when that entry was stored (a
     // mate in one returns before storing), so the scan is skipped there.
     if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
+        if let Some(d) = state.counters() {
+            d.exit(2);
+        }
         return MATE_SCORE - (ply as i32 + 1);
     }
     let raw_eval: Option<i32> = if !in_check && depth <= p::STATIC_EVAL_MAX_DEPTH() as u32 {
@@ -2583,6 +2632,9 @@ fn alpha_beta(
                 * depth as i32
             >= beta
     {
+        if let Some(d) = state.counters() {
+            d.exit(3);
+        }
         return if rfp_guard {
             (2 * beta + se) / 3
         } else {
@@ -2612,6 +2664,9 @@ fn alpha_beta(
             history,
         );
         if v <= alpha {
+            if let Some(d) = state.counters() {
+                d.exit(4);
+            }
             return v;
         }
     }
@@ -2623,6 +2678,9 @@ fn alpha_beta(
         && skip_move.is_none()
         && let Some(score) = probcut(state, board, beta, depth, ply, cut_node, history)
     {
+        if let Some(d) = state.counters() {
+            d.exit(5);
+        }
         return score;
     }
 
@@ -2645,6 +2703,9 @@ fn alpha_beta(
             static_eval,
         )
     {
+        if let Some(d) = state.counters() {
+            d.exit(6);
+        }
         return score;
     }
 

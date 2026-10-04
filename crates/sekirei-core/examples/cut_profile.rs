@@ -44,6 +44,8 @@ fn main() {
     let mut cuts = [[0u64; CUT_BUCKETS]; 4];
     let mut loops = [0u64; 2];
     let (mut pv_calls, mut lw, mut sw) = (0u64, [0u64; 2], [0u64; 2]);
+    let mut rs = [0u64; 3];
+    let mut ex = [0u64; 8];
     let mut fail_low = 0u64;
     let mut nodes = 0u64;
     let mut ab = 0u64;
@@ -59,6 +61,14 @@ fn main() {
             },
             &history,
         );
+        let e8 = diagnostics.exit_counts();
+        for i in 0..8 {
+            ex[i] += e8[i];
+        }
+        let r3 = diagnostics.research_counts();
+        for i in 0..3 {
+            rs[i] += r3[i];
+        }
         let (pc, l2, s2) = diagnostics.window_counts();
         pv_calls += pc;
         for i in 0..2 {
@@ -97,6 +107,25 @@ fn main() {
         lw[1],
         per(sw[0], lw[0]),
         per(sw[1], lw[1])
+    );
+    println!(
+        "reduced probes {}  full-depth re-searches {} ({:.1}%)  full-window re-searches {}",
+        rs[0],
+        rs[1],
+        100.0 * per(rs[1], rs[0]),
+        rs[2]
+    );
+    let np = positions.len() as u64;
+    println!(
+        "exits/pos: depth0 {} tt {} mate1 {} rfp {} razor {} probcut {} null-cut {} null-failed {}",
+        ex[0] / np,
+        ex[1] / np,
+        ex[2] / np,
+        ex[3] / np,
+        ex[4] / np,
+        ex[5] / np,
+        ex[6] / np,
+        ex[7] / np
     );
     // Shares within each row: where the cutoff move stood.
     let names = ["no TT, quiet", "no TT, other", "TT, quiet", "TT, other"];
