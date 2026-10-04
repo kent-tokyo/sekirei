@@ -1419,7 +1419,16 @@ fn null_move_pruning(
     prev_mv: Option<Move>,
     cut_node: bool,
     history: &SearchHistory<'_>,
+    static_eval: Option<i32>,
 ) -> Option<i32> {
+    // NMP_EVAL_DIV: a static eval far above beta reduces the null move more.
+    let eval_r = match static_eval {
+        Some(se) if p::NMP_EVAL_DIV() > 0 && se > beta => {
+            ((se - beta) / p::NMP_EVAL_DIV()).min(p::NMP_EVAL_RMAX()) as u32
+        }
+        _ => 0,
+    };
+    let r = nmp_reduction(depth) + eval_r;
     set_current_move(ply, None);
     let null_tok = board.do_null_move();
     set_cut(ply + 1, !cut_node);
@@ -1428,7 +1437,7 @@ fn null_move_pruning(
         board,
         -beta,
         -beta + 1,
-        depth.saturating_sub(1 + nmp_reduction(depth)),
+        depth.saturating_sub(1 + r),
         ply + 1,
         false,
         None,
@@ -1448,7 +1457,7 @@ fn null_move_pruning(
         board,
         beta - 1,
         beta,
-        depth.saturating_sub(1 + nmp_reduction(depth)),
+        depth.saturating_sub(1 + r),
         ply,
         false,
         prev_mv,
@@ -2476,8 +2485,17 @@ fn alpha_beta(
         && beta.abs() < MATE_SCORE - 1000
         && !in_check
         && nmp_eval_allows(static_eval, beta)
-        && let Some(score) =
-            null_move_pruning(state, board, beta, depth, ply, prev_mv, cut_node, history)
+        && let Some(score) = null_move_pruning(
+            state,
+            board,
+            beta,
+            depth,
+            ply,
+            prev_mv,
+            cut_node,
+            history,
+            static_eval,
+        )
     {
         return score;
     }

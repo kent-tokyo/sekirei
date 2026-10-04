@@ -397,6 +397,11 @@ search_params! {
     /// A score fall of this many centipawns raises the limit by 100%
     /// (capped at +50%).
     TM_DROP_DIV = 200, 20, 2000;
+    /// Null move reduction grows by one ply per this many centipawns of
+    /// static eval above beta (0: off), at most `NMP_EVAL_RMAX` plies.
+    NMP_EVAL_DIV = 0, 0, 1000;
+    /// See `NMP_EVAL_DIV`.
+    NMP_EVAL_RMAX = 3, 0, 6;
     /// TT cutoffs at PV nodes too (0), or only at null-window nodes (1).
     TT_PV_CUT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
