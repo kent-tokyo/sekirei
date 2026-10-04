@@ -51,6 +51,11 @@ jobs:
           grep -Fq 'readonly shortestMatePly:' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly uniqueSolution: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export function analyzePosition' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly kind: 'cp' | 'mate' | 'terminal' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly scorePerspective: 'sideToMove';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly evaluatorVersion: string;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
 
   test:
     runs-on: ubuntu-latest
