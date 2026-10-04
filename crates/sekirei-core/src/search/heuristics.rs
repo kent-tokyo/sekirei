@@ -324,6 +324,26 @@ impl HistoryTable {
         slot * Square::NUM + m.to.index() as usize
     }
 
+    /// Start of the row of `prev` in the continuation and follow-up tables:
+    /// `cont_idx(color, prev, m) == cont_row(color, prev) + key(m)`.
+    #[inline]
+    pub(super) fn cont_row(color: Color, prev: Move) -> usize {
+        const KEYS: usize = HISTORY_SLOTS * Square::NUM;
+        (color.index() * KEYS + Self::key(prev)) * KEYS
+    }
+
+    /// Continuation entry at a `cont_row` + `key` index.
+    #[inline]
+    pub(super) fn cont_at(&self, index: usize) -> i32 {
+        i32::from(self.cont[index].load(Ordering::Relaxed))
+    }
+
+    /// Follow-up entry at a `cont_row` + `key` index.
+    #[inline]
+    pub(super) fn follow_at(&self, index: usize) -> i32 {
+        i32::from(self.follow[index].load(Ordering::Relaxed))
+    }
+
     #[inline]
     pub(super) fn cont_idx(color: Color, prev: Move, m: Move) -> usize {
         const KEYS: usize = HISTORY_SLOTS * Square::NUM;

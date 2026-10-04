@@ -77,6 +77,7 @@ mod heuristics;
 pub mod params;
 use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
+    pack_killer,
 };
 use params as p;
 
@@ -2245,6 +2246,16 @@ fn restore_stack_path(path: &[Frame]) {
     STACK.with(|stack| stack.borrow_mut()[..path.len()].copy_from_slice(path));
 }
 
+/// Row offsets of the continuation moves in the continuation and follow-up
+/// tables (see [`ContMoves::rows`]).
+struct ContRows {
+    prev: Option<usize>,
+    own2: Option<usize>,
+    own4: Option<usize>,
+    opp3: Option<usize>,
+    own6: Option<usize>,
+}
+
 /// The earlier moves a node's history lookups are keyed on: the opponent's
 /// last move and the side's own moves two and four plies back.
 #[derive(Clone, Copy, Default)]
@@ -2283,8 +2294,41 @@ impl ContMoves {
         }
     }
 
+    /// Table rows of the continuation moves for `stm`, for scoring many
+    /// moves of one node with [`ContMoves::score_keyed`].
+    #[inline]
+    fn rows(&self, stm: Color) -> ContRows {
+        let row = |prev: Option<Move>| prev.map(|prev| HistoryTable::cont_row(stm, prev));
+        ContRows {
+            prev: row(self.prev),
+            own2: row(self.own2),
+            own4: row(self.own4),
+            opp3: row(self.opp3),
+            own6: row(self.own6),
+        }
+    }
+
+    /// [`ContMoves::score`] from the rows of [`ContMoves::rows`] and the
+    /// move's key (`HistoryTable::key`); the same value.
+    #[inline]
+    fn score_keyed(history: &HistoryTable, rows: &ContRows, key: usize) -> i32 {
+        let cont = |row: Option<usize>| row.map_or(0, |r| history.cont_at(r + key));
+        let follow = |row: Option<usize>| row.map_or(0, |r| history.follow_at(r + key));
+        let mut s = cont(rows.prev)
+            + follow(rows.own2) * p::CONT2_WEIGHT() / 16
+            + follow(rows.own4) * p::CONT4_WEIGHT() / 16;
+        if rows.opp3.is_some() {
+            s += cont(rows.opp3) * p::CONT3_WEIGHT() / 16;
+        }
+        if rows.own6.is_some() {
+            s += follow(rows.own6) * p::CONT6_WEIGHT() / 16;
+        }
+        s
+    }
+
     /// Continuation part of a quiet move's ordering score.
     #[inline]
+    #[allow(dead_code)]
     fn score(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
         let mut s = history.cont_get(stm, self.prev, m)
             + history.follow_get(stm, self.own2, m) * p::CONT2_WEIGHT() / 16
@@ -4382,12 +4426,23 @@ fn order_moves_in_place(
     // sort_by_cached_key computes the key exactly once per element, preventing
     // races where AtomicI32 history values change between comparisons in rayon threads.
     let pawn_bucket = (p::PAWN_HIST_WEIGHT() > 0).then(|| HistoryTable::pawn_bucket(board));
+    // Moves compared as packed codes, and the continuation rows of the node
+    // computed once: the same order as comparing the moves themselves.
+    let code = |m: Option<Move>| m.map_or(u32::MAX, pack_killer);
+    let (tt_code, k0_code, k1_code, cm_code) = (
+        code(tt_mv),
+        code(killers[0]),
+        code(killers[1]),
+        code(countermove),
+    );
+    let rows = cont.rows(stm);
     let mut key = |m: &Move| {
         let _score_timer = ProfileTimer::new(
             diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_score_ns)),
         );
         let m = *m;
-        if tt_mv.is_some_and(|t| t == m) {
+        let m_code = pack_killer(m);
+        if m_code == tt_code {
             if let Some(d) = diagnostics {
                 d.order_tt.fetch_add(1, Ordering::Relaxed);
             }
@@ -4415,7 +4470,7 @@ fn order_moves_in_place(
         // then the countermove); 1 history score plus KILLER_BONUS; 2 ignored.
         let order_killer = p::ORDER_KILLER();
         let mut slot_bonus = 0;
-        if killers[0].is_some_and(|k| k == m) {
+        if m_code == k0_code {
             if let Some(d) = diagnostics {
                 d.order_killer.fetch_add(1, Ordering::Relaxed);
             }
@@ -4424,7 +4479,7 @@ fn order_moves_in_place(
                 1 => slot_bonus = p::KILLER_BONUS(),
                 _ => {}
             }
-        } else if killers[1].is_some_and(|k| k == m) {
+        } else if m_code == k1_code {
             if let Some(d) = diagnostics {
                 d.order_killer.fetch_add(1, Ordering::Relaxed);
             }
@@ -4433,7 +4488,7 @@ fn order_moves_in_place(
                 1 => slot_bonus = p::KILLER_BONUS(),
                 _ => {}
             }
-        } else if countermove.is_some_and(|cm| cm == m) {
+        } else if m_code == cm_code {
             if let Some(d) = diagnostics {
                 d.order_countermove.fetch_add(1, Ordering::Relaxed);
             }
@@ -4448,7 +4503,9 @@ fn order_moves_in_place(
         if let Some(d) = diagnostics {
             d.order_history.fetch_add(1, Ordering::Relaxed);
         }
-        let mut score = history.get(stm, m) + cont.score(history, stm, m) + slot_bonus;
+        let mut score = history.get(stm, m)
+            + ContMoves::score_keyed(history, &rows, HistoryTable::key(m))
+            + slot_bonus;
         if p::FT_WEIGHT() > 0 {
             score += history.ft_get(stm, m) * p::FT_WEIGHT() / 16;
         }
