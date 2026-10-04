@@ -299,6 +299,21 @@ impl HistoryTable {
         }
     }
 
+    /// Scale the move histories (butterfly, continuation, follow-up and
+    /// capture) by `num / 16`, keeping the correction tables.
+    pub(super) fn age(&self, num: i32) {
+        for cell in &self.data {
+            let v = cell.load(Ordering::Relaxed);
+            cell.store(v * num / 16, Ordering::Relaxed);
+        }
+        for table in [&self.cont, &self.follow, &self.capture] {
+            for cell in table {
+                let v = i32::from(cell.load(Ordering::Relaxed));
+                cell.store((v * num / 16) as i16, Ordering::Relaxed);
+            }
+        }
+    }
+
     #[inline]
     pub(super) fn key(m: Move) -> usize {
         let slot = if m.from.is_some() || p::CONT_MERGE_DROPS() != 0 {

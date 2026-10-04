@@ -994,6 +994,8 @@ impl Searcher {
         if p::HIST_KEEP() == 0 {
             self.history.clear();
             self.countermoves.clear();
+        } else if p::HIST_AGE() < 16 {
+            self.history.age(p::HIST_AGE());
         }
         let state = Arc::new(SearchState {
             tt: self.tt.clone(),

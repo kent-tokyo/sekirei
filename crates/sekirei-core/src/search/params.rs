@@ -402,6 +402,9 @@ search_params! {
     NMP_EVAL_DIV = 0, 0, 1000;
     /// See `NMP_EVAL_DIV`.
     NMP_EVAL_RMAX = 3, 0, 6;
+    /// The kept move histories are scaled by this many sixteenths when a
+    /// search starts (16: unchanged).
+    HIST_AGE = 16, 0, 16;
     /// TT cutoffs at PV nodes too (0), or only at null-window nodes (1).
     TT_PV_CUT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
