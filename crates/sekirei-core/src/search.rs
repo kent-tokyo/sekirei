@@ -239,7 +239,20 @@ pub struct SearchDiagnostics {
     per_node: bool,
     quiescence_inclusive_ns: AtomicU64,
     root_mate_safety_ns: AtomicU64,
+    /// Beta cutoffs of the main search by the position of the cutoff move
+    /// in the node's move order (see [`SearchDiagnostics::cut_histogram`]),
+    /// for quiet cutoff moves (row 0) and the others (row 1).
+    cut_index: [[AtomicU64; CUT_BUCKETS]; 4],
+    /// Main-search nodes that entered the move loop, without and with a TT
+    /// move.
+    loop_nodes: [AtomicU64; 2],
+    /// Main-search nodes that searched moves and failed low.
+    fail_low_nodes: AtomicU64,
 }
+
+/// Buckets of [`SearchDiagnostics::cut_histogram`]: move 1, 2, 3, 4, 5-6,
+/// 7-8, 9-12, 13-16, 17-32, 33 and later.
+pub const CUT_BUCKETS: usize = 10;
 
 /// A point-in-time copy of [`SearchDiagnostics`] counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -398,7 +411,40 @@ impl SearchDiagnostics {
             move_order_sort_ns: AtomicU64::new(0),
             quiescence_inclusive_ns: AtomicU64::new(0),
             root_mate_safety_ns: AtomicU64::new(0),
+            cut_index: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            loop_nodes: std::array::from_fn(|_| AtomicU64::new(0)),
+            fail_low_nodes: AtomicU64::new(0),
         }
+    }
+
+    /// Record a beta cutoff by the `number`-th move (1-based) of a node.
+    #[inline]
+    fn record_cut(&self, number: usize, quiet: bool, had_tt_move: bool) {
+        let bucket = match number {
+            0..=4 => number.saturating_sub(1),
+            5..=6 => 4,
+            7..=8 => 5,
+            9..=12 => 6,
+            13..=16 => 7,
+            17..=32 => 8,
+            _ => 9,
+        };
+        self.cut_index[usize::from(!quiet) + 2 * usize::from(had_tt_move)][bucket]
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Beta cutoffs by the position of the cutoff move in its node's order
+    /// (rows: quiet and other cutoff moves at nodes without a TT move, then
+    /// the same with one), the nodes that failed low, and the nodes that
+    /// entered the move loop without and with a TT move.
+    pub fn cut_histogram(&self) -> ([[u64; CUT_BUCKETS]; 4], u64, [u64; 2]) {
+        (
+            std::array::from_fn(|r| {
+                std::array::from_fn(|b| self.cut_index[r][b].load(Ordering::Relaxed))
+            }),
+            self.fail_low_nodes.load(Ordering::Relaxed),
+            std::array::from_fn(|i| self.loop_nodes[i].load(Ordering::Relaxed)),
+        )
     }
 
     /// Return counters collected so far without resetting the observer.
@@ -2777,6 +2823,10 @@ fn alpha_beta(
 
     // ---------- First child: always sequential ----------
     let first_move = ordered[0];
+    if let Some(d) = state.counters() {
+        d.loop_nodes[usize::from(tt_mv.is_some_and(|t| t == first_move))]
+            .fetch_add(1, Ordering::Relaxed);
+    }
     set_current_move(ply, Some(first_move));
     let (tok, child_in_check, first_history) = play(board, first_move, history);
     // Apply singular extension to the TT move (ordered[0] when tt_mv is set)
@@ -2811,6 +2861,13 @@ fn alpha_beta(
     let mut best_move = Some(first_move);
 
     if score0 >= beta {
+        if let Some(d) = state.counters() {
+            d.record_cut(
+                1,
+                !enemy.contains(first_move.to) && !first_move.promote,
+                tt_mv.is_some_and(|t| t == first_move),
+            );
+        }
         reward_capture(&state.history, board, stm, first_move, depth);
         update_quiet_heuristics(
             &state.killers,
@@ -3132,6 +3189,9 @@ fn alpha_beta(
                 best_move = Some(m);
             }
             if s >= beta {
+                if let Some(d) = state.counters() {
+                    d.record_cut(i + 2, is_quiet, deferred_order);
+                }
                 return node.beta_cutoff(
                     state,
                     best_score,
@@ -3162,6 +3222,11 @@ fn alpha_beta(
     };
     if state.budget.should_abort() {
         return 0;
+    }
+    if bound == Bound::Upper
+        && let Some(d) = state.counters()
+    {
+        d.fail_low_nodes.fetch_add(1, Ordering::Relaxed);
     }
     if skip_move.is_none() {
         learn_at_node_exit(
@@ -4514,6 +4579,9 @@ fn order_moves_in_place(
         code(countermove),
     );
     let rows = cont.rows(stm);
+    // QTO_*: squares the opponent attacks with pieces up to each value class.
+    let threats = (p::QTO_PENALTY() > 0 || p::QTO_ESCAPE() > 0)
+        .then(|| crate::movegen::attacks_by_class(board, stm.flip()));
     let mut key = |m: &Move| {
         let _score_timer = ProfileTimer::new(
             diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_score_ns)),
@@ -4609,6 +4677,27 @@ fn order_moves_in_place(
                 && dist(k) <= 1
             {
                 score += p::DROP_DEF_BONUS();
+            }
+        }
+        // QTO_PENALTY: a quiet move or drop onto a square a cheaper enemy
+        // piece attacks ranks lower; QTO_ESCAPE: moving a piece away from
+        // such a square to one that is not ranks higher.
+        if let Some(th) = &threats {
+            let kind = if m.promote {
+                m.piece_kind.promoted()
+            } else {
+                m.piece_kind
+            };
+            let k = crate::movegen::threat_class(kind);
+            if (1..7).contains(&k) {
+                if th[k - 1].contains(m.to) {
+                    score -= p::QTO_PENALTY();
+                } else if let Some(from) = m.from {
+                    let k0 = crate::movegen::threat_class(m.piece_kind);
+                    if (1..7).contains(&k0) && th[k0 - 1].contains(from) {
+                        score += p::QTO_ESCAPE();
+                    }
+                }
             }
         }
         // Quiet moves and drops that hang the moved piece rank last among

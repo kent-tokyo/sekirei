@@ -420,6 +420,12 @@ search_params! {
     /// the move loop reaches them, after the captures, killers and
     /// countermove (1), or all moves at once (0).
     ORDER_LAZY = 0, 0, 1;
+    /// Ordering penalty of a quiet move or drop onto a square that a cheaper
+    /// enemy piece attacks (0: off).
+    QTO_PENALTY = 0, 0, 16000;
+    /// Ordering bonus of a quiet move that takes a piece off a square that a
+    /// cheaper enemy piece attacks to one that is not (0: off).
+    QTO_ESCAPE = 0, 0, 16000;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
