@@ -6,6 +6,20 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.58] – 2026-10-04
+
+- Transposition table: add optional four-entry cache-line buckets with
+  generation-aware replacement, preserve a useful stored move when a
+  same-position update has no move, and expose deterministic layout tests.
+  The direct-mapped layout remains the default because the clean local gate
+  was positive but statistically inconclusive.
+- USI: accept the standard `USI_Hash` spelling as an alias for `Hash`. The
+  optional `IncrementUsePercent=75` setting was positive but inconclusive in
+  the clean local gate, so the default remains zero.
+- Search diagnostics: add disabled-by-default controls for history updates,
+  continuation history, pruning bounds, internal iterative reduction, LMR,
+  and shallow TT-bound reuse. QST, the deeper null-move reduction candidate,
+  and adaptive time-management mode are not enabled in this release.
 - USI: make opening books an explicit `opening-book` Cargo feature and runtime
   opt-in. The default engine no longer depends on `lineprior`, advertises book
   options, or probes a working-directory-relative file; enabled books report
@@ -15,6 +29,8 @@ preserves older per-change notes.
   retain Sekirei internal search as the sole teacher, link the label manifest
   by verified SHA-256, and account for external labeling and internal training
   time separately. This is a reproducibility change, not a strength claim.
+- This release does not bundle a new NNUE checkpoint or make a general
+  playing-strength or external-engine superiority claim.
 
 ## [0.3.57] – 2026-10-03
 

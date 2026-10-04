@@ -5,10 +5,10 @@ static browser client. It is separate from the native USI binary.
 
 ## Install
 
-The prebuilt v0.3.57 ES-module package is published with the GitHub Release:
+The prebuilt v0.3.58 ES-module package is published with the GitHub Release:
 
 ```sh
-npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.57/sekirei-wasm-0.3.57.tgz
+npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.58/sekirei-wasm-0.3.58.tgz
 ```
 
 ## Build

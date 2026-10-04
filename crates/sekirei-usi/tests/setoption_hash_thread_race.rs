@@ -70,8 +70,7 @@ fn recv_line_matching(
     }
 }
 
-#[test]
-fn setoption_hash_joins_inflight_search_before_answering_the_next_command() {
+fn assert_hash_option_joins_inflight_search(option_name: &str) {
     let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
@@ -91,7 +90,10 @@ fn setoption_hash_joins_inflight_search_before_answering_the_next_command() {
     // Sent back-to-back with no delay: if `setoption Hash` doesn't join the
     // in-flight search, the main loop can race ahead to answer `isready`
     // before that search thread finishes printing its (now stale) `bestmove`.
-    send(&mut stdin, "setoption name Hash value 128");
+    send(
+        &mut stdin,
+        &format!("setoption name {option_name} value 128"),
+    );
     send(&mut stdin, "isready");
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -131,4 +133,14 @@ fn setoption_hash_joins_inflight_search_before_answering_the_next_command() {
 
     send(&mut stdin, "quit");
     let _ = child.wait();
+}
+
+#[test]
+fn setoption_hash_joins_inflight_search_before_answering_the_next_command() {
+    assert_hash_option_joins_inflight_search("Hash");
+}
+
+#[test]
+fn setoption_usi_hash_joins_inflight_search_before_answering_the_next_command() {
+    assert_hash_option_joins_inflight_search("USI_Hash");
 }

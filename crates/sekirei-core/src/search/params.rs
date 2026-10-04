@@ -383,7 +383,7 @@ search_params! {
     /// store of the same position replaces it when it is exact, from a newer
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
-    TT_BUCKET = 3, 0, 3;
+    TT_BUCKET = 0, 0, 3;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
