@@ -451,6 +451,15 @@ search_params! {
     PS_SEE_Q = 25, 0, 200;
     /// PRUNE_STYLE 1: quiet-move pruning at PV nodes too (1) or not (0).
     PS_PV_QUIET = 0, 0, 1;
+    /// PRUNE_STYLE 1 rules in use: 1 move count, 2 captures/promotions/checks,
+    /// 4 continuation history, 8 quiet futility, 16 quiet static exchange.
+    PS_PARTS = 31, 0, 31;
+    /// Diagnostics: cutoffs are counted by move number only at nodes of at
+    /// least this depth.
+    CUT_MIN_DEPTH = 0, 0, 16;
+    /// A node that fails low stores no move, so the table keeps the move it
+    /// had (1), or stores the best of the failing moves (0).
+    FL_MOVE = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

@@ -2992,7 +2992,9 @@ fn alpha_beta(
     let mut best_move = Some(first_move);
 
     if score0 >= beta {
-        if let Some(d) = state.counters() {
+        if let Some(d) = state.counters()
+            && depth >= p::CUT_MIN_DEPTH() as u32
+        {
             d.record_cut(
                 1,
                 !enemy.contains(first_move.to) && !first_move.promote,
@@ -3344,7 +3346,9 @@ fn alpha_beta(
                 best_move = Some(m);
             }
             if s >= beta {
-                if let Some(d) = state.counters() {
+                if let Some(d) = state.counters()
+                    && depth >= p::CUT_MIN_DEPTH() as u32
+                {
                     d.record_cut(i + 2, is_quiet, deferred_order);
                 }
                 return node.beta_cutoff(
@@ -3396,7 +3400,24 @@ fn alpha_beta(
             prev_mv,
         );
     }
-    node.store(state, best_score, bound, best_move);
+    // FL_MOVE 1: a node that failed low keeps the move already in the table
+    // instead of storing the best of its failing moves.
+    if bound == Bound::Upper && p::FL_MOVE() != 0 {
+        store_tt(
+            state,
+            node.hash,
+            best_score,
+            node.depth,
+            bound,
+            None,
+            node.ply,
+            node.skip_move,
+            node.tt_pv,
+        );
+        node.learn_correction(state, best_score, bound, best_move);
+    } else {
+        node.store(state, best_score, bound, best_move);
+    }
     best_score
 }
 
@@ -4306,8 +4327,10 @@ impl LateMoveNode {
             return false;
         }
         let depth = self.depth as i32;
+        let parts = p::PS_PARTS();
         let gives_check = move_gives_direct_check(board, m);
-        if is_quiet
+        if parts & 1 != 0
+            && is_quiet
             && (!gives_check || p::PS_LMP_CHECKS() != 0)
             && (move_number as i32)
                 >= (p::PS_LMP_BASE() + depth * depth) / (2 - i32::from(self.improving))
@@ -4316,6 +4339,9 @@ impl LateMoveNode {
         }
         let lmr_depth = self.lmr_depth as i32;
         if !is_quiet || gives_check {
+            if parts & 2 == 0 {
+                return false;
+            }
             let victim = board.piece_at(m.to).filter(|_| m.from.is_some());
             if let Some(v) = victim
                 && !gives_check
@@ -4336,12 +4362,13 @@ impl LateMoveNode {
         if self.pv && p::PS_PV_QUIET() == 0 {
             return false;
         }
-        if self.cont_hist < -p::PS_CONT_K() * depth {
+        if parts & 4 != 0 && self.cont_hist < -p::PS_CONT_K() * depth {
             return true;
         }
         let hist = self.cont_hist + 71 * self.main_hist / 32;
         let d = lmr_depth + hist / p::PS_HIST_DIV().max(1);
-        if !self.in_check
+        if parts & 8 != 0
+            && !self.in_check
             && d < 13
             && let Some(se) = self.static_eval
             && se
@@ -4358,7 +4385,7 @@ impl LateMoveNode {
             return true;
         }
         let d = d.max(0);
-        crate::movegen::see_exchange(board, m) < -p::PS_SEE_Q() * d * d
+        parts & 16 != 0 && crate::movegen::see_exchange(board, m) < -p::PS_SEE_Q() * d * d
     }
 
     /// Whether `m`, the `move_number`-th move of the node (1-based), is
