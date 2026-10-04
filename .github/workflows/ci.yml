@@ -35,7 +35,8 @@ jobs:
       - name: Native API tests
         run: cargo test -p sekirei-wasm
       - name: Browser API tests
-        run: wasm-pack test --headless --chrome crates/sekirei-wasm
+        # Exercise the same optimized profile as the published browser package.
+        run: wasm-pack test --release --headless --chrome crates/sekirei-wasm
       - name: Browser package
         run: python3 scripts/build_wasm_package.py
       - name: Package contract
