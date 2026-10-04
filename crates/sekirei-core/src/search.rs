@@ -635,8 +635,8 @@ fn tm_scaled_soft_expired(
     if depth < 4 {
         return false;
     }
-    let stab = (p::TM_STAB_MAX() - p::TM_STAB_STEP() * stable_iters.min(64) as i32)
-        .max(p::TM_STAB_MIN());
+    let stab =
+        (p::TM_STAB_MAX() - p::TM_STAB_STEP() * stable_iters.min(64) as i32).max(p::TM_STAB_MIN());
     let drop_pct = 100 + (drop.max(0) * 100 / p::TM_DROP_DIV().max(1)).min(50);
     let limit_ms = soft.as_millis() as u64 * stab.max(1) as u64 / 100 * drop_pct as u64 / 100;
     elapsed.as_millis() as u64 >= limit_ms
