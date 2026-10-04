@@ -595,9 +595,15 @@ fn evaluate_for_search(state: &SearchState, board: &Board) -> i32 {
 
 #[inline]
 fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
+    probe_tt_for_search_pv(state, hash).map(|(entry, _)| entry)
+}
+
+/// [`probe_tt_for_search`] with the entry's PV flag.
+#[inline]
+fn probe_tt_for_search_pv(state: &SearchState, hash: u64) -> Option<(TtEntry, bool)> {
     let entry = {
         let _timer = state.timer(|d| &d.tt_probe_ns);
-        state.tt.probe(hash)
+        state.tt.probe_pv(hash)
     };
     if let Some(diagnostics) = state.counters() {
         diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
@@ -610,8 +616,14 @@ fn probe_tt_for_search(state: &SearchState, hash: u64) -> Option<TtEntry> {
 
 #[inline]
 fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
+    store_tt_for_search_pv(state, hash, entry, false);
+}
+
+/// [`store_tt_for_search`] with the node's PV flag.
+#[inline]
+fn store_tt_for_search_pv(state: &SearchState, hash: u64, entry: TtEntry, pv: bool) {
     let _timer = state.timer(|d| &d.tt_store_ns);
-    state.tt.store(hash, entry);
+    state.tt.store_pv(hash, entry, pv);
     if let Some(diagnostics) = state.counters() {
         diagnostics.tt_stores.fetch_add(1, Ordering::Relaxed);
     }
@@ -1261,6 +1273,8 @@ struct TtProbe {
     hit: bool,
     /// The entry's bound and score, whatever its depth.
     bound_score: Option<(Bound, i32)>,
+    /// The entry's PV flag (the position was on a principal variation).
+    pv: bool,
 }
 
 impl TtProbe {
@@ -1286,11 +1300,13 @@ impl TtProbe {
             se_depth: 0,
             hit: false,
             bound_score: None,
+            pv: false,
         };
-        let Some(entry) = probe_tt_for_search(state, hash) else {
+        let Some((entry, entry_pv)) = probe_tt_for_search_pv(state, hash) else {
             return probe;
         };
         probe.hit = true;
+        probe.pv = entry_pv;
         let adj = score_from_tt(entry.score, ply);
         probe.bound_score = Some((entry.bound, adj));
         probe.mv = entry.mv;
@@ -2013,6 +2029,9 @@ struct NodeKey {
     corr: Option<(CorrKeys, i32)>,
     /// Opponent pieces at the node, to tell captures apart.
     enemy: crate::bitboard::Bitboard,
+    /// The node is a PV node or its TT entry says it was on a PV (stored as
+    /// the entry's PV flag).
+    tt_pv: bool,
 }
 
 impl NodeKey {
@@ -2027,6 +2046,7 @@ impl NodeKey {
             mv,
             self.ply,
             self.skip_move,
+            self.tt_pv,
         );
         self.learn_correction(state, score, bound, mv);
     }
@@ -2333,10 +2353,13 @@ fn alpha_beta(
     // TT probe
     let hash = board.hash();
     let orig_alpha = alpha;
+    let pv_window = beta - alpha > 1;
     let tt = TtProbe::at(state, hash, depth, ply, alpha, beta, skip_move.is_some());
     if let Some(score) = tt.cutoff {
         return score;
     }
+    // A PV node, or one whose entry was stored on a PV (TT_PV_MODE).
+    let tt_pv = pv_window || (tt.hit && tt.pv);
     alpha = tt.alpha;
     let tt_mv = tt.mv;
     let tt_se_score = tt.se_score;
@@ -2363,6 +2386,7 @@ fn alpha_beta(
         skip_move,
         corr: None,
         enemy: board.occ_for(stm.flip()),
+        tt_pv,
     };
 
     // Countermove: best quiet response to the opponent's previous move
@@ -2424,6 +2448,7 @@ fn alpha_beta(
     if let Some(se) = static_eval
         && depth <= p::RFP_MAX_DEPTH() as u32
         && beta.abs() < MATE_SCORE - 1000
+        && !(tt_pv && p::TT_PV_MODE() & 2 != 0)
         && (!rfp_guard
             || (beta - alpha == 1
                 && tt_mv.is_none_or(|t| t.from.is_some() && board.piece_at(t.to).is_some())))
@@ -2644,6 +2669,16 @@ fn alpha_beta(
         cut: cut_node,
         improving,
         cont: ContMoves::at(ply, prev_mv),
+        // TT_PV_MODE 1: less reduction at non-PV nodes stored on a PV;
+        // 4: at PV nodes too.
+        tt_pv: tt_pv
+            && match p::TT_PV_MODE() & 5 {
+                0 => false,
+                1 => !is_pv,
+                _ => true,
+            },
+        tt_capture: tt_mv.is_some_and(|t| t.from.is_some() && enemy.contains(t.to)),
+        enemy,
     };
 
     // ---------- First child: always sequential ----------
@@ -3857,6 +3892,7 @@ fn store_tt(
     mv: Option<Move>,
     ply: u32,
     skip_move: Option<Move>,
+    pv: bool,
 ) {
     // A singular-extension verification search excludes one legal move from
     // the move set. Its result is therefore not a valid TT result for the
@@ -3866,7 +3902,7 @@ fn store_tt(
     if skip_move.is_some() {
         return;
     }
-    store_tt_for_search(
+    store_tt_for_search_pv(
         state,
         hash,
         TtEntry {
@@ -3875,6 +3911,7 @@ fn store_tt(
             bound,
             mv,
         },
+        pv,
     );
 }
 
@@ -4250,6 +4287,12 @@ struct LmrContext {
     cut: bool,
     improving: bool,
     cont: ContMoves,
+    /// Reduce less for a PV flag (`TT_PV_MODE`, `TTPV_LMR16`).
+    tt_pv: bool,
+    /// The node's TT move is a capture (`LMR_TTCAP16`).
+    tt_capture: bool,
+    /// Opponent pieces, to tell quiet moves.
+    enemy: crate::bitboard::Bitboard,
 }
 
 impl LmrContext {
@@ -4281,6 +4324,12 @@ fn lmr_adjust(r: u32, ctx: &LmrContext, history: &HistoryTable, stm: Color, m: M
     }
     if ctx.cut {
         r16 += p::CUT_LMR16();
+    }
+    if ctx.tt_pv {
+        r16 -= p::TTPV_LMR16();
+    }
+    if ctx.tt_capture && !ctx.enemy.contains(m.to) {
+        r16 += p::LMR_TTCAP16();
     }
     if !ctx.improving {
         r16 += p::LMR_NOT_IMPROVING16();
@@ -5467,6 +5516,7 @@ mod regression_tests {
             None,
             0,
             Some(Move::drop(Square::from_index(0), PieceKind::Fu)),
+            false,
         );
 
         assert_eq!(
@@ -5494,7 +5544,17 @@ mod regression_tests {
 
         // This matches the entry that makes a singular-extension verification
         // eligible: deep enough, usable score, and the move to exclude.
-        store_tt(&state, hash, 50, 4, Bound::Exact, Some(tt_move), 0, None);
+        store_tt(
+            &state,
+            hash,
+            50,
+            4,
+            Bound::Exact,
+            Some(tt_move),
+            0,
+            None,
+            false,
+        );
         let _ = alpha_beta(
             &state,
             &mut board,

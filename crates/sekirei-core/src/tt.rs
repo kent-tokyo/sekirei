@@ -12,7 +12,8 @@
 //! Data word bit layout (64 bits):
 //!
 //! ```text
-//! [63:32]  score (i32, full range)
+//! [63]     PV flag (the node was on a principal variation, `store_pv`)
+//! [62:32]  score (31-bit signed)
 //! [31:25]  depth (7 bits, 0-127)
 //! [24:23]  bound (2 bits: 0=Exact, 1=Lower, 2=Upper)
 //! [22:16]  to    (7 bits, square index 0-80)
@@ -111,9 +112,11 @@ const GEN_MASK: u8 = 0xF;
 const GEN_MASK_U64: u64 = 0xF;
 /// Move bits [22:4] of the data word.
 const MOVE_BITS: u64 = 0x7F_FFF0;
+/// PV flag bit of the data word.
+const PV_BIT: u64 = 1 << 63;
 
 fn pack(entry: &TtEntry) -> u64 {
-    let score = (entry.score as u32 as u64) << 32;
+    let score = u64::from(entry.score as u32 & 0x7FFF_FFFF) << 32;
     let depth = (entry.depth as u64) << 25;
     let bound = (entry.bound as u64) << 23;
 
@@ -137,7 +140,8 @@ fn pack(entry: &TtEntry) -> u64 {
 }
 
 fn unpack(data: u64) -> TtEntry {
-    let score = (data >> 32) as u32 as i32; // round-trip via u32 for bit-exact restore
+    // 31-bit signed score in [62:32]: shift the PV flag out, sign-extend.
+    let score = (((data >> 32) as u32) << 1) as i32 >> 1;
     let depth = ((data >> 25) & 0x7F) as u8;
     let bound = match (data >> 23) & 0x3 {
         0 => Bound::Exact,
@@ -298,6 +302,17 @@ impl Tt {
 
     /// Probe the table. Returns `Some(entry)` on a hit, `None` on a miss or torn read.
     pub fn probe(&self, hash: u64) -> Option<TtEntry> {
+        self.probe_data(hash).map(unpack)
+    }
+
+    /// Probe the table, with the PV flag of the entry (see [`Tt::store_pv`]).
+    pub fn probe_pv(&self, hash: u64) -> Option<(TtEntry, bool)> {
+        self.probe_data(hash)
+            .map(|data| (unpack(data), data & PV_BIT != 0))
+    }
+
+    #[inline]
+    fn probe_data(&self, hash: u64) -> Option<u64> {
         let key_hash = self.key_hash(hash);
         if self.layout() & 1 != 0 {
             let bucket = &self.table[(key_hash as usize & self.mask) / BUCKET];
@@ -305,7 +320,7 @@ impl Tt {
                 let data = slot.data.load(Ordering::Relaxed);
                 let key = slot.key.load(Ordering::Relaxed);
                 if key ^ data == key_hash {
-                    return Some(unpack(data));
+                    return Some(data);
                 }
             }
             return None;
@@ -314,15 +329,11 @@ impl Tt {
         // Load data first, then key. With the XOR trick, a torn write makes key ^ data != hash.
         let data = slot.data.load(Ordering::Relaxed);
         let key = slot.key.load(Ordering::Relaxed);
-        if key ^ data == key_hash {
-            Some(unpack(data))
-        } else {
-            None
-        }
+        (key ^ data == key_hash).then_some(data)
     }
 
     /// Store into the four-slot bucket of `hash` (`TT_BUCKET` bit 0).
-    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32) {
+    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32, flags: u64) {
         let generation = self.generation_bits();
         let slots = &self.table[(key_hash as usize & self.mask) / BUCKET].0;
         let mut victim = 0;
@@ -331,7 +342,7 @@ impl Tt {
             let data = slot.data.load(Ordering::Relaxed);
             let key = slot.key.load(Ordering::Relaxed);
             if key ^ data == key_hash {
-                if let Some(data) = self.same_position_data(data, entry, mode, generation) {
+                if let Some(data) = self.same_position_data(data, entry, mode, generation, flags) {
                     self.write(slot, key_hash, data);
                 }
                 return;
@@ -352,7 +363,7 @@ impl Tt {
         {
             stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
         }
-        self.write(&slots[victim], key_hash, pack(entry) | generation);
+        self.write(&slots[victim], key_hash, pack(entry) | flags | generation);
     }
 
     /// Data to write over an entry of the same position, or `None` to keep it.
@@ -362,6 +373,7 @@ impl Tt {
         entry: &TtEntry,
         mode: i32,
         generation: u64,
+        flags: u64,
     ) -> Option<u64> {
         if let Some(stats) = &self.write_stats {
             stats.same_hash.fetch_add(1, Ordering::Relaxed);
@@ -381,7 +393,7 @@ impl Tt {
             }
             return None;
         }
-        let mut data = pack(entry);
+        let mut data = pack(entry) | flags;
         if mode & 2 != 0 && entry.mv.is_none() {
             data = (data & !MOVE_BITS) | (existing & MOVE_BITS);
         }
@@ -399,13 +411,23 @@ impl Tt {
 
     /// Store an entry (depth-preferred: keep deeper results).
     pub fn store(&self, hash: u64, entry: TtEntry) {
+        self.store_flags(hash, entry, 0);
+    }
+
+    /// Store an entry with its PV flag: whether the node was on a principal
+    /// variation (or its entry already said so). [`Tt::store`] clears it.
+    pub fn store_pv(&self, hash: u64, entry: TtEntry, pv: bool) {
+        self.store_flags(hash, entry, if pv { PV_BIT } else { 0 });
+    }
+
+    fn store_flags(&self, hash: u64, entry: TtEntry, flags: u64) {
         if let Some(stats) = &self.write_stats {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
         let key_hash = self.key_hash(hash);
         let mode = self.layout();
         if mode & 1 != 0 {
-            self.store_bucket(key_hash, &entry, mode);
+            self.store_bucket(key_hash, &entry, mode, flags);
             return;
         }
         let slot = self.slot(hash);
@@ -413,12 +435,18 @@ impl Tt {
             let existing_data = slot.data.load(Ordering::Relaxed);
             let existing_key = slot.key.load(Ordering::Relaxed);
             let data = if existing_key ^ existing_data == key_hash {
-                match self.same_position_data(existing_data, &entry, mode, self.generation_bits()) {
+                match self.same_position_data(
+                    existing_data,
+                    &entry,
+                    mode,
+                    self.generation_bits(),
+                    flags,
+                ) {
                     Some(data) => data,
                     None => return,
                 }
             } else {
-                pack(&entry) | self.generation_bits()
+                pack(&entry) | flags | self.generation_bits()
             };
             self.write(slot, key_hash, data);
             return;
@@ -448,7 +476,7 @@ impl Tt {
                 stats.equal_depth_overwrites.fetch_add(1, Ordering::Relaxed);
             }
         }
-        let data = pack(&entry);
+        let data = pack(&entry) | flags;
         slot.data.store(data, Ordering::Relaxed);
         slot.key.store(key_hash ^ data, Ordering::Relaxed);
         if let Some(stats) = &self.write_stats {
@@ -525,6 +553,27 @@ mod tests {
             depth,
             bound,
             mv,
+        }
+    }
+
+    #[test]
+    fn pv_flag_round_trips_without_touching_the_score() {
+        for layout in [0, 3] {
+            let tt = Tt::new_with_layout(1, None, layout);
+            for (i, score) in [-899_990, -1, 0, 1, 899_990].into_iter().enumerate() {
+                let h = 0x1234_5678 + ((i as u64) << 30);
+                let e = TtEntry {
+                    score,
+                    ..entry(5, Bound::Lower, None)
+                };
+                tt.store_pv(h, e, true);
+                let (got, pv) = tt.probe_pv(h).expect("stored");
+                assert_eq!((got.score, got.depth, pv), (score, 5, true));
+                // A plain store of the same position clears the flag.
+                tt.store(h, TtEntry { depth: 6, ..e });
+                let (got, pv) = tt.probe_pv(h).expect("stored");
+                assert_eq!((got.score, got.depth, pv), (score, 6, false));
+            }
         }
     }
 

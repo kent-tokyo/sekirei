@@ -407,6 +407,15 @@ search_params! {
     HIST_AGE = 16, 0, 16;
     /// TT cutoffs at PV nodes too (0), or only at null-window nodes (1).
     TT_PV_CUT = 0, 0, 1;
+    /// Uses of the TT PV flag (a PV node, or one whose entry was stored at a
+    /// PV node): bit 0 reduces late moves `TTPV_LMR16` less at non-PV nodes,
+    /// bit 2 also at PV nodes, bit 1 skips reverse futility pruning (0: off).
+    TT_PV_MODE = 0, 0, 7;
+    /// See `TT_PV_MODE`, in sixteenths of a ply.
+    TTPV_LMR16 = 16, 0, 48;
+    /// Extra late move reduction of quiet moves when the TT move is a
+    /// capture, in sixteenths of a ply (0: off).
+    LMR_TTCAP16 = 0, 0, 48;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
