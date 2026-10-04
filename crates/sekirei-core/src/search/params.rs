@@ -175,7 +175,7 @@ search_params! {
     LMR_NOT_IMPROVING16 = 0, 0, 32;
     /// Null move reduction grows by this many sixty-fourths of a ply per
     /// ply of depth (0: a fixed NMP_R).
-    NMP_R_PER_DEPTH = 9, 0, 32;
+    NMP_R_PER_DEPTH = 16, 0, 32;
     /// Singular extension margin added per ply of depth.
     SE_MARGIN_PER_DEPTH = 0, 0, 16;
     /// A singular TT move whose verification falls this far below the
