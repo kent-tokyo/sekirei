@@ -1,0 +1,108 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.58",
+  "commit": "b152ea0c5d41e4746ec880c78ae4e9563890c3f7",
+  "branch_at_release": "release/v0.3.58",
+  "candidate_state": "planned release from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.58",
+    "sekirei-core": "0.3.58",
+    "sekirei-bench": "0.3.58",
+    "sekirei-csa": "0.3.58",
+    "sekirei-match-runner": "0.3.58",
+    "sekirei-train": "0.3.58"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "9d06c187d4dc13f3a946808420bc8d375fd2e4f5169a91d2bb77714b67a6c124"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.58",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.58.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.58/sekirei-wasm-0.3.58.tgz",
+    "sha256": "db2e96e4ba5431c0a6f05e5ad8b4e713d88d3e3102ed51ba6eb036f306e438b7",
+    "size": 396392,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 10,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only",
+    "opening_corpus": {
+      "source": "Sekirei gensfen without --eval",
+      "positions": 1000,
+      "sha256": "e1c7e34ea416fa046c0092f1d7ca4619b814b50aa1f13eb34080710dd86d1d43",
+      "external_engine_or_evaluator": false
+    },
+    "tt_gate": {
+      "candidate": "T_TT_BUCKET=3",
+      "baseline": "T_TT_BUCKET=0",
+      "games": 600,
+      "candidate_wins": 319,
+      "draws": 40,
+      "baseline_wins": 241,
+      "elo": 45.4,
+      "elo_ci_95": 28.0,
+      "llr": 1.900,
+      "bounds": [-2.944, 2.944],
+      "verdict": "INCONCLUSIVE",
+      "default_enabled": false,
+      "summary_sha256": "eb81925e0bc12ce26a92182a9c8cad1a2e7e83a4d031dc944519569e5160fabf",
+      "records_sha256": "f1509176f212b9f5ce980fe7e259d39b94f4f63f0a12d900f5d3ed3e78606563"
+    },
+    "increment_gate": {
+      "candidate": "IncrementUsePercent=75",
+      "baseline": "IncrementUsePercent=0",
+      "time_control": "10 seconds plus 0.1 seconds increment",
+      "complete_pairs": 307,
+      "games": 614,
+      "candidate_wins": 318,
+      "draws": 32,
+      "baseline_wins": 264,
+      "elo": 30.6,
+      "elo_ci_95": 28.0,
+      "llr": 1.307,
+      "bounds": [-2.944, 2.944],
+      "verdict": "INCONCLUSIVE",
+      "default_enabled": false,
+      "summary_sha256": "b0d2f95854af8f9a95f16e661a1f246dcb3bbcbde5a7b42c4acc8d42d2366ea3",
+      "records_sha256": "e7166f2c80bd1539a8e4033e0e070480010a463512801ae3663fcc9faa4a9569"
+    },
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, default dependency isolation, opening-book feature tests, USI state-transition smoke, public-contract checks, WebAssembly Chrome tests, and package generation passed. TT buckets and increment use were positive in clean material-only local gates but did not cross the pre-registered paired-trinomial SPRT boundary, so both remain disabled by default."
+  },
+  "external_opponents": {
+    "status": "none_for_this_release",
+    "configuration": "No external engine, evaluator, weights, labels, or Suisho5-derived opening positions are used as release evidence for v0.3.58."
+  },
+  "known_limitations": [
+    "The TT-bucket and increment-use A/B gates were positive but statistically inconclusive; neither candidate is enabled by default.",
+    "QST, the deeper null-move reduction candidate, and adaptive time-management mode are excluded from this release.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No new NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
