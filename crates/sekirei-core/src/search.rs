@@ -1940,12 +1940,13 @@ fn root_mate_blunders(
         let mut opponent_can_mate = false;
         let discoverers = discovered_check_candidates(board);
         for &opp_m in MoveBuffer::legal(board).as_slice() {
+            if !may_give_check(board, opp_m, discoverers) {
+                continue;
+            }
+            // Only the replies played count as nodes.
             if state.budget.tick() {
                 board.undo_move(tok);
                 return None;
-            }
-            if !may_give_check(board, opp_m, discoverers) {
-                continue;
             }
             let tok2 = board.do_move(opp_m);
             let is_mate =
@@ -2445,6 +2446,18 @@ fn alpha_beta(
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
     }
+    // A leaf is counted once, by the quiescence search it turns into.
+    if depth == 0 {
+        if state.budget.should_abort() {
+            return 0;
+        }
+        let alpha = alpha.max(-(MATE_SCORE - ply as i32));
+        let beta = beta.min(MATE_SCORE - ply as i32);
+        if alpha >= beta {
+            return alpha;
+        }
+        return quiescence(state, board, alpha, beta, ply, 0, known_in_check, history);
+    }
     if state.budget.tick() {
         return 0;
     }
@@ -2456,10 +2469,6 @@ fn alpha_beta(
     let beta = beta.min(MATE_SCORE - ply as i32);
     if alpha >= beta {
         return alpha;
-    }
-
-    if depth == 0 {
-        return quiescence(state, board, alpha, beta, ply, 0, known_in_check, history);
     }
 
     // TT probe
