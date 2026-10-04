@@ -186,6 +186,10 @@ pub struct HalfKpNetwork {
     l2_weights: Box<[i8]>,
     /// `l2_weights` regrouped by input pair.
     l2_pairs: Box<[PairColumn; HIDDEN / 2]>,
+    /// `l1_weights` as rows of 8-bit weights, for the dense evaluation.
+    l1_rows: Box<[[i8; 2 * HALF_DIMS]; HIDDEN]>,
+    /// `l2_weights` as rows.
+    l2_rows: Box<[[i8; HIDDEN]; HIDDEN]>,
     out_bias: i32,
     out_weights: [i8; HIDDEN],
 }
@@ -319,9 +323,11 @@ impl HalfKpNetwork {
             ft_weights,
             l1_bias,
             l1_pairs: pair_columns(&l1_weights),
+            l1_rows: weight_rows(&l1_weights),
             l1_weights,
             l2_bias,
             l2_pairs: pair_columns(&l2_weights),
+            l2_rows: weight_rows(&l2_weights),
             l2_weights,
             out_bias,
             out_weights,
@@ -391,9 +397,11 @@ impl HalfKpNetwork {
             ft_weights,
             l1_bias,
             l1_pairs: pair_columns(&l1_weights),
+            l1_rows: weight_rows(&l1_weights),
             l1_weights,
             l2_bias,
             l2_pairs: pair_columns(&l2_weights),
+            l2_rows: weight_rows(&l2_weights),
             l2_weights,
             out_bias,
             out_weights,
@@ -408,6 +416,37 @@ impl HalfKpNetwork {
     /// Raw integer network output for already-transformed accumulators.
     /// `us` is the side to move's accumulator.
     pub fn forward(&self, us: &[i16; HALF_DIMS], them: &[i16; HALF_DIMS]) -> i32 {
+        // Both forms give the same integer. The dense rows compile to 8-bit
+        // dot-product instructions on AArch64 (the dense loops are cheaper
+        // there than the sparse pairs); elsewhere the pair form, whose
+        // 16-bit multiply-adds and skipped zero inputs are cheaper.
+        if cfg!(target_arch = "aarch64") {
+            self.forward_dense(us, them)
+        } else {
+            self.forward_pairs(us, them)
+        }
+    }
+
+    /// [`Self::forward`] by dense rows of 8-bit weights and inputs.
+    #[inline(always)]
+    pub fn forward_dense(&self, us: &[i16; HALF_DIMS], them: &[i16; HALF_DIMS]) -> i32 {
+        let mut input = [0i8; 2 * HALF_DIMS];
+        for i in 0..HALF_DIMS {
+            input[i] = us[i].clamp(0, 127) as i8;
+            input[HALF_DIMS + i] = them[i].clamp(0, 127) as i8;
+        }
+        let hidden1 = affine_dense(&self.l1_bias, &self.l1_rows, &input);
+        let hidden2 = affine_dense(&self.l2_bias, &self.l2_rows, &hidden1);
+        let mut sum = self.out_bias;
+        for (&w, &x) in self.out_weights.iter().zip(&hidden2) {
+            sum += i32::from(w) * i32::from(x);
+        }
+        sum
+    }
+
+    /// [`Self::forward`] by input pairs, skipping zero pairs in the first layer.
+    #[inline(always)]
+    pub fn forward_pairs(&self, us: &[i16; HALF_DIMS], them: &[i16; HALF_DIMS]) -> i32 {
         // Transformer output, grouped as input pairs: us[0..256] then them.
         let mut input = [[0u8; 2]; HALF_DIMS];
         for p in 0..HALF_DIMS / 2 {
@@ -433,6 +472,51 @@ fn dot(bias: i32, weights: &[i8], input: &[u8]) -> i32 {
         sum += i32::from(w) * i32::from(x);
     }
     sum
+}
+
+/// Row-major `[output][input]` weights as fixed rows.
+fn weight_rows<const IN: usize>(weights: &[i8]) -> Box<[[i8; IN]; HIDDEN]> {
+    debug_assert_eq!(weights.len(), HIDDEN * IN);
+    let rows: Vec<[i8; IN]> = weights
+        .chunks_exact(IN)
+        .map(|row| row.try_into().unwrap())
+        .collect();
+    rows.into_boxed_slice().try_into().unwrap()
+}
+
+/// Dense layer followed by `ClippedReLU`, over 8-bit inputs (0..=127).
+///
+/// Four outputs share each pass over the input, each a plain sum of 8-bit
+/// products: the loop shape that vectorizes to dot-product instructions
+/// (four independent accumulators per pass). The sums are exact integers,
+/// so the result equals the pair form.
+#[inline(always)]
+fn affine_dense<const IN: usize>(
+    bias: &[i32; HIDDEN],
+    rows: &[[i8; IN]; HIDDEN],
+    input: &[i8; IN],
+) -> [i8; HIDDEN] {
+    let mut out = [0i8; HIDDEN];
+    for g in 0..HIDDEN / 4 {
+        let (r0, r1, r2, r3) = (
+            &rows[4 * g],
+            &rows[4 * g + 1],
+            &rows[4 * g + 2],
+            &rows[4 * g + 3],
+        );
+        let (mut a0, mut a1, mut a2, mut a3) = (0i32, 0i32, 0i32, 0i32);
+        for i in 0..IN {
+            let x = i32::from(input[i]);
+            a0 += i32::from(r0[i]) * x;
+            a1 += i32::from(r1[i]) * x;
+            a2 += i32::from(r2[i]) * x;
+            a3 += i32::from(r3[i]) * x;
+        }
+        for (k, a) in [a0, a1, a2, a3].into_iter().enumerate() {
+            out[4 * g + k] = ((bias[4 * g + k] + a) >> WEIGHT_SCALE_BITS).clamp(0, 127) as i8;
+        }
+    }
+    out
 }
 
 /// Weights of one input pair for all outputs, interleaved as
@@ -832,6 +916,40 @@ mod tests {
     use std::sync::LazyLock;
 
     static NET: LazyLock<HalfKpNetwork> = LazyLock::new(|| HalfKpNetwork::random(7));
+
+    #[test]
+    fn dense_and_pair_forms_give_the_same_output() {
+        let mut state = 0x2545_F491_4F6C_DD1Du64;
+        let mut next = move || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for seed in [1u64, 7, 42] {
+            let net = HalfKpNetwork::random(seed);
+            for round in 0..200 {
+                // Accumulators beyond the clipping range on both sides, and
+                // sparse ones (mostly clipped to zero).
+                let spread = if round % 2 == 0 { 400 } else { 60 };
+                let mut acc = || -> [i16; HALF_DIMS] {
+                    std::array::from_fn(|_| (next() % (2 * spread + 1)) as i16 - spread as i16 + 20)
+                };
+                let (us, them) = (acc(), acc());
+                assert_eq!(net.forward_dense(&us, &them), net.forward_pairs(&us, &them));
+            }
+            let zero = [0i16; HALF_DIMS];
+            let full = [i16::MAX; HALF_DIMS];
+            assert_eq!(
+                net.forward_dense(&zero, &full),
+                net.forward_pairs(&zero, &full)
+            );
+            assert_eq!(
+                net.forward_dense(&full, &full),
+                net.forward_pairs(&full, &full)
+            );
+        }
+    }
 
     #[test]
     fn structural_hash_matches_published_halfkp_256x2_32_32_value() {
