@@ -454,6 +454,9 @@ search_params! {
     /// PRUNE_STYLE 1 rules in use: 1 move count, 2 captures/promotions/checks,
     /// 4 continuation history, 8 quiet futility, 16 quiet static exchange.
     PS_PARTS = 31, 0, 31;
+    /// PRUNE_STYLE 1 move-count pruning also at PV nodes (1) and at nodes in
+    /// check (2).
+    PS_LMP_NODES = 3, 0, 3;
     /// Diagnostics: cutoffs are counted by move number only at nodes of at
     /// least this depth.
     CUT_MIN_DEPTH = 0, 0, 16;

@@ -243,6 +243,13 @@ pub struct SearchDiagnostics {
     /// in the node's move order (see [`SearchDiagnostics::cut_histogram`]),
     /// for quiet cutoff moves (row 0) and the others (row 1).
     cut_index: [[AtomicU64; CUT_BUCKETS]; 4],
+    /// Cutoffs at nodes whose TT move is quiet, by the entry's bound (3) and
+    /// the node depth minus the entry depth (<= 0, 1, 2, 3, 4-5, 6+): row 0
+    /// when the TT move cut, row 1 when a later move did.
+    tt_quiet_cut: [[AtomicU64; 18]; 2],
+    /// Main-search TT probes by node depth (capped at 16): probes, hits,
+    /// hits at least as deep as the node, hits at most one ply shallower.
+    tt_by_depth: [[AtomicU64; 4]; 17],
     /// Main-search nodes that entered the move loop, without and with a TT
     /// move.
     loop_nodes: [AtomicU64; 2],
@@ -431,6 +438,8 @@ impl SearchDiagnostics {
             quiescence_inclusive_ns: AtomicU64::new(0),
             root_mate_safety_ns: AtomicU64::new(0),
             cut_index: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            tt_quiet_cut: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            tt_by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             loop_nodes: std::array::from_fn(|_| AtomicU64::new(0)),
             pv_calls: AtomicU64::new(0),
             loop_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -495,6 +504,53 @@ impl SearchDiagnostics {
             std::array::from_fn(|i| self.loop_by_window[i].load(Ordering::Relaxed)),
             std::array::from_fn(|i| self.searched_by_window[i].load(Ordering::Relaxed)),
         )
+    }
+
+    /// Record a cutoff at a node whose TT move is quiet (`tt_quiet_cut`).
+    #[inline]
+    fn record_tt_quiet_cut(&self, tt_move_cut: bool, bound: Option<Bound>, gap: i32) {
+        let b = match bound {
+            Some(Bound::Exact) => 0,
+            Some(Bound::Lower) => 1,
+            _ => 2,
+        };
+        let g = match gap {
+            ..=0 => 0,
+            1..=3 => gap as usize,
+            4..=5 => 4,
+            _ => 5,
+        };
+        self.tt_quiet_cut[usize::from(!tt_move_cut)][b * 6 + g].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Record a main-search TT probe (`tt_by_depth`).
+    #[inline]
+    fn record_tt_probe(&self, depth: u32, hit: bool, entry_depth: u8) {
+        let row = &self.tt_by_depth[depth.min(16) as usize];
+        row[0].fetch_add(1, Ordering::Relaxed);
+        if hit {
+            row[1].fetch_add(1, Ordering::Relaxed);
+            if u32::from(entry_depth) >= depth {
+                row[2].fetch_add(1, Ordering::Relaxed);
+            }
+            if u32::from(entry_depth) + 1 >= depth {
+                row[3].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// TT probes by node depth (see `tt_by_depth`).
+    pub fn tt_probe_counts(&self) -> [[u64; 4]; 17] {
+        std::array::from_fn(|r| {
+            std::array::from_fn(|i| self.tt_by_depth[r][i].load(Ordering::Relaxed))
+        })
+    }
+
+    /// Cutoffs at nodes with a quiet TT move (see `tt_quiet_cut`).
+    pub fn tt_quiet_cut_counts(&self) -> [[u64; 18]; 2] {
+        std::array::from_fn(|r| {
+            std::array::from_fn(|i| self.tt_quiet_cut[r][i].load(Ordering::Relaxed))
+        })
     }
 
     /// Searched later moves (after the first) that give check, by window.
@@ -2548,6 +2604,9 @@ fn alpha_beta(
     let orig_alpha = alpha;
     let pv_window = beta - alpha > 1;
     let tt = TtProbe::at(state, hash, depth, ply, alpha, beta, skip_move.is_some());
+    if let Some(d) = state.counters() {
+        d.record_tt_probe(depth, tt.hit, tt.se_depth);
+    }
     if let Some(score) = tt.cutoff {
         if let Some(d) = state.counters() {
             d.exit(1);
@@ -3000,6 +3059,16 @@ fn alpha_beta(
                 !enemy.contains(first_move.to) && !first_move.promote,
                 tt_mv.is_some_and(|t| t == first_move),
             );
+            if let Some(t) = tt_mv
+                && !enemy.contains(t.to)
+                && !t.promote
+            {
+                d.record_tt_quiet_cut(
+                    t == first_move,
+                    tt.bound_score.map(|(b, _)| b),
+                    depth as i32 - i32::from(tt.se_depth),
+                );
+            }
         }
         reward_capture(&state.history, board, stm, first_move, depth);
         update_quiet_heuristics(
@@ -3350,6 +3419,17 @@ fn alpha_beta(
                     && depth >= p::CUT_MIN_DEPTH() as u32
                 {
                     d.record_cut(i + 2, is_quiet, deferred_order);
+                    if let Some(t) = tt_mv
+                        && deferred_order
+                        && !enemy.contains(t.to)
+                        && !t.promote
+                    {
+                        d.record_tt_quiet_cut(
+                            false,
+                            tt.bound_score.map(|(b, _)| b),
+                            depth as i32 - i32::from(tt.se_depth),
+                        );
+                    }
                 }
                 return node.beta_cutoff(
                     state,
@@ -4329,8 +4409,11 @@ impl LateMoveNode {
         let depth = self.depth as i32;
         let parts = p::PS_PARTS();
         let gives_check = move_gives_direct_check(board, m);
+        let lmp_nodes = p::PS_LMP_NODES();
         if parts & 1 != 0
             && is_quiet
+            && (!self.pv || lmp_nodes & 1 != 0)
+            && (!self.in_check || lmp_nodes & 2 != 0)
             && (!gives_check || p::PS_LMP_CHECKS() != 0)
             && (move_number as i32)
                 >= (p::PS_LMP_BASE() + depth * depth) / (2 - i32::from(self.improving))

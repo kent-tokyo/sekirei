@@ -49,6 +49,8 @@ fn main() {
     let mut chk = [0u64; 2];
     let mut table = [[0u64; 9]; 17];
     let mut fail_low = 0u64;
+    let mut ttq = [[0u64; 18]; 2];
+    let mut ttp = [[0u64; 4]; 17];
     let mut nodes = 0u64;
     let mut ab = 0u64;
     for body in &positions {
@@ -85,6 +87,18 @@ fn main() {
         for i in 0..2 {
             lw[i] += l2[i];
             sw[i] += s2[i];
+        }
+        let tp = diagnostics.tt_probe_counts();
+        for r in 0..17 {
+            for i in 0..4 {
+                ttp[r][i] += tp[r][i];
+            }
+        }
+        let tq = diagnostics.tt_quiet_cut_counts();
+        for r in 0..2 {
+            for i in 0..18 {
+                ttq[r][i] += tq[r][i];
+            }
         }
         let (c, f, l) = diagnostics.cut_histogram();
         loops[0] += l[0];
@@ -184,4 +198,29 @@ fn main() {
         .sum();
     let pct = |v: u64| 100.0 * v as f64 / total.max(1) as f64;
     println!("first move {:.2}%  move 9+ {:.2}%", pct(first), pct(late));
+    println!(" r   probes   hit%  dep>=d%  dep>=d-1%");
+    for (r, row) in ttp.iter().enumerate().skip(1) {
+        if row[0] > 0 {
+            let q = |i: usize| 100.0 * row[i] as f64 / row[0] as f64;
+            println!("{r:2} {:8} {:6.1} {:7.1} {:8.1}", row[0], q(1), q(2), q(3));
+        }
+    }
+    println!(
+        "quiet TT move: share of its cutoffs made by the TT move, by bound and node depth - entry depth"
+    );
+    for (b, name) in ["exact", "lower", "upper"].iter().enumerate() {
+        let cells: Vec<String> = ["<=0", "1", "2", "3", "4-5", "6+"]
+            .iter()
+            .enumerate()
+            .map(|(g, lab)| {
+                let (a, z) = (ttq[0][b * 6 + g], ttq[1][b * 6 + g]);
+                format!(
+                    "{lab}:{}/{:.1}%",
+                    a + z,
+                    100.0 * a as f64 / (a + z).max(1) as f64
+                )
+            })
+            .collect();
+        println!("  {name:5} {}", cells.join(" "));
+    }
 }
