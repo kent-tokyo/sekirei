@@ -46,6 +46,7 @@ fn main() {
     let (mut pv_calls, mut lw, mut sw) = (0u64, [0u64; 2], [0u64; 2]);
     let mut rs = [0u64; 3];
     let mut ex = [0u64; 8];
+    let mut chk = [0u64; 2];
     let mut fail_low = 0u64;
     let mut nodes = 0u64;
     let mut ab = 0u64;
@@ -61,6 +62,9 @@ fn main() {
             },
             &history,
         );
+        let c2 = diagnostics.searched_check_counts();
+        chk[0] += c2[0];
+        chk[1] += c2[1];
         let e8 = diagnostics.exit_counts();
         for i in 0..8 {
             ex[i] += e8[i];
@@ -116,6 +120,15 @@ fn main() {
         rs[2]
     );
     let np = positions.len() as u64;
+    println!(
+        "later moves searched that give check: null {} of {} ({:.1}%), pv {} of {} ({:.1}%)",
+        chk[0],
+        sw[0] - lw[0],
+        100.0 * per(chk[0], sw[0] - lw[0]),
+        chk[1],
+        sw[1] - lw[1],
+        100.0 * per(chk[1], sw[1] - lw[1])
+    );
     println!(
         "exits/pos: depth0 {} tt {} mate1 {} rfp {} razor {} probcut {} null-cut {} null-failed {}",
         ex[0] / np,

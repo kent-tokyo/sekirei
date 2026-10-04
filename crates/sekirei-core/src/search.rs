@@ -252,6 +252,8 @@ pub struct SearchDiagnostics {
     /// (pruned moves left out).
     loop_by_window: [AtomicU64; 2],
     searched_by_window: [AtomicU64; 2],
+    /// Searched later moves that give check, by window.
+    searched_checks: [AtomicU64; 2],
     /// Late-move searches: reduced probes, their full-depth null-window
     /// re-searches, and full-window re-searches.
     research: [AtomicU64; 3],
@@ -429,6 +431,7 @@ impl SearchDiagnostics {
             pv_calls: AtomicU64::new(0),
             loop_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
             searched_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
+            searched_checks: std::array::from_fn(|_| AtomicU64::new(0)),
             research: std::array::from_fn(|_| AtomicU64::new(0)),
             exits: std::array::from_fn(|_| AtomicU64::new(0)),
             fail_low_nodes: AtomicU64::new(0),
@@ -475,6 +478,11 @@ impl SearchDiagnostics {
             std::array::from_fn(|i| self.loop_by_window[i].load(Ordering::Relaxed)),
             std::array::from_fn(|i| self.searched_by_window[i].load(Ordering::Relaxed)),
         )
+    }
+
+    /// Searched later moves (after the first) that give check, by window.
+    pub fn searched_check_counts(&self) -> [u64; 2] {
+        std::array::from_fn(|i| self.searched_checks[i].load(Ordering::Relaxed))
     }
 
     /// Beta cutoffs by the position of the cutoff move in its node's order
@@ -3251,6 +3259,9 @@ fn alpha_beta(
             }
             set_current_move(ply, Some(m));
             let (tok, child_in_check, child_history) = play(board, m, history);
+            if child_in_check && let Some(d) = state.counters() {
+                d.searched_checks[usize::from(is_pv)].fetch_add(1, Ordering::Relaxed);
+            }
             // Checks are not extended (every check extension variant lost
             // depth for nothing in shogi's check-rich trees); they are only
             // protected from reductions beyond `CHECK_R_MAX` plies.
