@@ -35,7 +35,8 @@ jobs:
       - name: Native API tests
         run: cargo test -p sekirei-wasm
       - name: Browser API tests
-        run: wasm-pack test --headless --chrome crates/sekirei-wasm
+        # Exercise the same optimized profile as the published browser package.
+        run: wasm-pack test --release --headless --chrome crates/sekirei-wasm
       - name: Browser package
         run: python3 scripts/build_wasm_package.py
       - name: Package contract
@@ -51,6 +52,13 @@ jobs:
           grep -Fq 'readonly shortestMatePly:' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly uniqueSolution: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export function analyzePosition' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly kind: 'cp' | 'mate' | 'terminal' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly scorePerspective: 'sideToMove';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly evaluatorVersion: string;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+      - name: Generated JavaScript analysis contract
+        run: node scripts/test_wasm_position_analysis.mjs
 
   test:
     runs-on: ubuntu-latest

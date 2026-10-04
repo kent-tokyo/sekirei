@@ -8,13 +8,17 @@
 
 use js_sys::{Array, Object, Reflect};
 use sekirei_core::board::Board;
+use sekirei_core::color::Color;
 use sekirei_core::mate::{
     MateAnalysisAbortReason, MateInOneInvalidReason, analyze_mate as analyze_core_mate,
     analyze_mate_in_one as analyze_core_mate_in_one,
 };
-use sekirei_core::movegen::generate_legal_moves;
-use sekirei_core::search::{SearchConfig, Searcher};
-use sekirei_core::sfen::{STARTPOS_SFEN, board_to_sfen, move_from_usi, move_to_usi};
+use sekirei_core::movegen::{generate_legal_moves, is_in_check};
+use sekirei_core::piece::PieceKind;
+use sekirei_core::search::{MATE_SCORE, SearchConfig, Searcher};
+use sekirei_core::sfen::{
+    PositionHistory, STARTPOS_SFEN, board_to_sfen, move_from_usi, move_to_usi,
+};
 use sekirei_core::tt::Tt;
 use wasm_bindgen::prelude::*;
 
@@ -73,6 +77,190 @@ struct SearchResult {
     depth: u32,
     nodes: u32,
     used_fallback: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PositionResult {
+    kind: &'static str,
+    score_cp: Option<i32>,
+    mate_plies: Option<u32>,
+    winner: Option<&'static str>,
+    side_to_move: &'static str,
+    depth: u32,
+    nodes: u32,
+    bound: &'static str,
+    aborted: bool,
+    abort_reason: Option<&'static str>,
+    used_fallback: bool,
+    best_move: Option<String>,
+    terminal_reason: Option<&'static str>,
+    in_check: bool,
+}
+
+fn side_name(side: Color) -> &'static str {
+    match side {
+        Color::Black => "b",
+        Color::White => "w",
+    }
+}
+
+fn classify_score(result: &mut PositionResult, score: i32, side: Color) {
+    if score.abs() >= MATE_SCORE - 1000 {
+        result.kind = "mate";
+        result.mate_plies = Some((MATE_SCORE - score.abs()).max(0) as u32);
+        result.winner = Some(side_name(if score > 0 { side } else { side.flip() }));
+    } else {
+        result.kind = "cp";
+        result.score_cp = Some(score);
+    }
+}
+
+fn validate_analysis_inventory(sfen: &str) -> Result<(), ApiError> {
+    if sfen.len() > MAX_SFEN_BYTES {
+        return Err(ApiError::new(
+            "input_too_large",
+            format!("SFEN must be at most {MAX_SFEN_BYTES} bytes"),
+        ));
+    }
+    let mut fields = sfen.split_whitespace();
+    let (Some(board), Some(_side), Some(hand)) = (fields.next(), fields.next(), fields.next())
+    else {
+        // Keep the existing SFEN parser's malformed-input diagnostics.
+        return Ok(());
+    };
+    let index = |piece: char| match piece.to_ascii_uppercase() {
+        'P' => Some(0),
+        'L' => Some(1),
+        'N' => Some(2),
+        'S' => Some(3),
+        'G' => Some(4),
+        'B' => Some(5),
+        'R' => Some(6),
+        'K' => Some(7),
+        _ => None,
+    };
+    let mut total = [0u32; 8];
+    let limit = [18, 4, 4, 4, 4, 2, 2, 2];
+    let inventory_error = || {
+        ApiError::new(
+            "invalid_position",
+            "piece inventory exceeds standard shogi limits",
+        )
+    };
+    // Count promoted pieces as their base kind, across both colors. Missing
+    // pieces are allowed (handicaps and composed problems), extras are not.
+    for piece in board.chars().filter_map(index) {
+        total[piece] += 1;
+        if total[piece] > limit[piece] {
+            return Err(inventory_error());
+        }
+    }
+    if hand != "-" {
+        let mut count = 0u32;
+        for token in hand.chars() {
+            if let Some(digit) = token.to_digit(10) {
+                count = count
+                    .checked_mul(10)
+                    .and_then(|n| n.checked_add(digit))
+                    .ok_or_else(inventory_error)?;
+            } else {
+                let piece = index(token)
+                    .filter(|&kind| kind != 7)
+                    .ok_or_else(|| ApiError::new("invalid_sfen", "invalid hand piece"))?;
+                total[piece] = total[piece]
+                    .checked_add(count.max(1))
+                    .ok_or_else(inventory_error)?;
+                if total[piece] > limit[piece] {
+                    return Err(inventory_error());
+                }
+                count = 0;
+            }
+        }
+    }
+    // This must run before Board::from_sfen: its packed Hand representation
+    // assumes a physical inventory, and oversized counts can panic while
+    // recomputing the hash. Combined inventory also protects later captures.
+    Ok(())
+}
+
+fn analyze_position_impl(
+    sfen: &str,
+    max_depth: u32,
+    max_nodes: u32,
+) -> Result<PositionResult, ApiError> {
+    validate_search_limits(max_depth, max_nodes)?;
+    validate_analysis_inventory(sfen)?;
+    let mut board = parse_board(sfen)?;
+    // Rules APIs retain their original permissive parsing contract. Analysis
+    // requires kings so a malformed setup is not mistaken for a finite score.
+    if [Color::Black, Color::White]
+        .iter()
+        .any(|&side| board.pieces(side, PieceKind::Ou).popcount() != 1)
+        || is_in_check(&board, board.side_to_move.flip())
+    {
+        return Err(ApiError::new(
+            "invalid_position",
+            "analysis requires one king per side and the non-moving king not in check",
+        ));
+    }
+    let side = board.side_to_move;
+    let in_check = is_in_check(&board, side);
+    let mut result = PositionResult {
+        kind: "unknown",
+        score_cp: None,
+        mate_plies: None,
+        winner: None,
+        side_to_move: side_name(side),
+        depth: 0,
+        nodes: 0,
+        bound: "unknown",
+        aborted: false,
+        abort_reason: None,
+        used_fallback: false,
+        best_move: None,
+        terminal_reason: None,
+        in_check,
+    };
+    if generate_legal_moves(&mut board).is_empty() {
+        result.kind = "terminal";
+        result.bound = "exact";
+        result.terminal_reason = Some(if in_check { "checkmate" } else { "no_moves" });
+        // In shogi, having no legal move is a loss, not a chess stalemate.
+        result.winner = Some(side_name(side.flip()));
+        return Ok(result);
+    }
+    let mut searcher = Searcher::new(Tt::new_for_evaluation(SEARCH_TT_MIB, false));
+    searcher.set_ybw_split(false);
+    let history = PositionHistory::initial(board.hash());
+    let (info, iterations) = searcher.search_with_history_trace(
+        &mut board,
+        SearchConfig {
+            max_depth,
+            node_limit: Some(u64::from(max_nodes)),
+            time_limit: None,
+            soft_limit: None,
+            multi_pv: 1,
+        },
+        &history,
+    );
+    result.nodes = info.nodes.min(u64::from(u32::MAX)) as u32;
+    result.aborted = info.aborted;
+    result.abort_reason = info.aborted.then_some("node_limit");
+    // The core may select a move from a partially completed deeper pass.
+    // Keep score, bound, depth, and bestMove together from the same completed
+    // pass instead. An initial fallback is useful for play, not graph data.
+    if let Some(completed) = iterations.last() {
+        result.depth = completed.depth;
+        result.bound = completed.bound.as_str();
+        result.best_move = completed.best_move.map(move_to_usi);
+        if completed.bound.as_str() != "unknown" {
+            classify_score(&mut result, completed.score, side);
+        }
+    } else {
+        result.used_fallback = info.best_move.is_some();
+        result.best_move = info.best_move.map(move_to_usi);
+    }
+    Ok(result)
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -256,6 +444,141 @@ fn computer_move_impl(
 #[wasm_bindgen]
 pub struct ComputerMove {
     result: SearchResult,
+}
+
+/// Typed evaluation of one position, separate from the move-selection API.
+#[wasm_bindgen]
+pub struct PositionAnalysis {
+    result: PositionResult,
+}
+
+#[wasm_bindgen]
+impl PositionAnalysis {
+    /// `cp`, `mate`, `terminal`, or `unknown`; unknown has no numeric score.
+    #[wasm_bindgen(
+        getter,
+        unchecked_return_type = "'cp' | 'mate' | 'terminal' | 'unknown'"
+    )]
+    pub fn kind(&self) -> String {
+        self.result.kind.to_owned()
+    }
+
+    /// Completed normal evaluation, in centipawns from the moving side.
+    #[wasm_bindgen(getter, js_name = scoreCp)]
+    pub fn score_cp(&self) -> Option<i32> {
+        self.result.score_cp
+    }
+
+    /// Absolute mate distance in plies, as found by search (not shortest-mate proof).
+    #[wasm_bindgen(getter, js_name = matePlies)]
+    pub fn mate_plies(&self) -> Option<u32> {
+        self.result.mate_plies
+    }
+
+    /// Winning side for a mate score or terminal position, when known.
+    #[wasm_bindgen(getter, unchecked_return_type = "'b' | 'w' | undefined")]
+    pub fn winner(&self) -> Option<String> {
+        self.result.winner.map(str::to_owned)
+    }
+
+    /// `b` means Black/Sente; `w` means White/Gote.
+    #[wasm_bindgen(getter, js_name = sideToMove, unchecked_return_type = "'b' | 'w'")]
+    pub fn side_to_move(&self) -> String {
+        self.result.side_to_move.to_owned()
+    }
+
+    /// Perspective of normal scores and bound inequalities.
+    #[wasm_bindgen(getter, js_name = scorePerspective, unchecked_return_type = "'sideToMove'")]
+    pub fn score_perspective(&self) -> String {
+        "sideToMove".to_owned()
+    }
+
+    /// Unit used only by `scoreCp`; mate and terminal are not centipawns.
+    #[wasm_bindgen(getter, js_name = scoreUnit, unchecked_return_type = "'cp'")]
+    pub fn score_unit(&self) -> String {
+        "cp".to_owned()
+    }
+
+    /// Completed iteration depth corresponding to this score (zero for none).
+    #[wasm_bindgen(getter)]
+    pub fn depth(&self) -> u32 {
+        self.result.depth
+    }
+
+    /// Total search nodes, including an interrupted deeper pass.
+    #[wasm_bindgen(getter)]
+    pub fn nodes(&self) -> u32 {
+        self.result.nodes
+    }
+
+    /// Bound of the returned completed score, not the interrupted pass.
+    #[wasm_bindgen(
+        getter,
+        unchecked_return_type = "'exact' | 'lower' | 'upper' | 'unknown'"
+    )]
+    pub fn bound(&self) -> String {
+        self.result.bound.to_owned()
+    }
+
+    /// Whether a later pass was interrupted by the node budget.
+    #[wasm_bindgen(getter)]
+    pub fn aborted(&self) -> bool {
+        self.result.aborted
+    }
+
+    /// Stable stop reason; absent if the requested search completed.
+    #[wasm_bindgen(getter, js_name = abortReason, unchecked_return_type = "'node_limit' | undefined")]
+    pub fn abort_reason(&self) -> Option<String> {
+        self.result.abort_reason.map(str::to_owned)
+    }
+
+    /// A legal fallback was selected without completing any iteration.
+    #[wasm_bindgen(getter, js_name = usedFallback)]
+    pub fn used_fallback(&self) -> bool {
+        self.result.used_fallback
+    }
+
+    /// Move from the completed iteration, or a legal fallback for unknown.
+    #[wasm_bindgen(getter, js_name = bestMove)]
+    pub fn best_move(&self) -> Option<String> {
+        self.result.best_move.clone()
+    }
+
+    /// Reason for terminal (no-legal-moves) results only.
+    #[wasm_bindgen(getter, js_name = terminalReason, unchecked_return_type = "'checkmate' | 'no_moves' | undefined")]
+    pub fn terminal_reason(&self) -> Option<String> {
+        self.result.terminal_reason.map(str::to_owned)
+    }
+
+    /// Whether the king of the moving side is currently in check.
+    #[wasm_bindgen(getter, js_name = inCheck)]
+    pub fn in_check(&self) -> bool {
+        self.result.in_check
+    }
+
+    /// This browser build uses built-in material evaluation only.
+    #[wasm_bindgen(getter, js_name = evaluatorId, unchecked_return_type = "'material'")]
+    pub fn evaluator_id(&self) -> String {
+        "material".to_owned()
+    }
+
+    /// Version of the built-in material values; no weight file is loaded.
+    #[wasm_bindgen(getter, js_name = evaluatorVersion)]
+    pub fn evaluator_version(&self) -> String {
+        "material-v1".to_owned()
+    }
+
+    /// Cargo package version (candidate builds also need source provenance).
+    #[wasm_bindgen(getter, js_name = engineVersion)]
+    pub fn engine_version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+
+    /// Contract schema version, separate from engine and evaluator versions.
+    #[wasm_bindgen(getter, js_name = apiVersion)]
+    pub fn api_version(&self) -> u32 {
+        1
+    }
 }
 
 #[wasm_bindgen]
@@ -505,9 +828,173 @@ pub fn computer_move(sfen: &str, max_depth: u32, max_nodes: u32) -> Result<Compu
         .map_err(ApiError::into_js)
 }
 
+/// Analyze a position without applying a move. Score, bound, and depth always
+/// refer to the same fully completed iteration. An initial node-limit fallback
+/// returns `unknown`, never a fabricated zero. Limits match [`computer_move`].
+#[wasm_bindgen(js_name = analyzePosition)]
+pub fn analyze_position(
+    sfen: &str,
+    max_depth: u32,
+    max_nodes: u32,
+) -> Result<PositionAnalysis, JsValue> {
+    analyze_position_impl(sfen, max_depth, max_nodes)
+        .map(|result| PositionAnalysis { result })
+        .map_err(ApiError::into_js)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const ASYMMETRIC_BLACK: &str = "4k4/9/9/9/9/9/9/9/4K4 b P 1";
+    const ASYMMETRIC_WHITE: &str = "4k4/9/9/9/9/9/9/9/4K4 w P 1";
+
+    #[test]
+    fn analysis_rejects_oversized_inventory_before_board_parsing() {
+        for hand in [
+            "255r255b255g255s255n255l255p",
+            "2R2R",
+            "2Rr",
+            "19P",
+            "99999999999999999999999999999999999P",
+        ] {
+            let sfen = format!("4k4/9/9/9/9/9/9/9/4K4 b {hand} 1");
+            assert_eq!(
+                analyze_position_impl(&sfen, 1, 1000).unwrap_err().code,
+                "invalid_position"
+            );
+        }
+        for sfen in [
+            "4k4/9/9/9/4R4/9/9/9/4K4 b 2R 1",
+            "4k4/9/9/9/2+R+R+R4/9/9/9/4K4 b - 1",
+        ] {
+            assert_eq!(
+                analyze_position_impl(sfen, 1, 1000).unwrap_err().code,
+                "invalid_position"
+            );
+        }
+        let legal =
+            analyze_position_impl("4k4/9/9/9/9/9/9/9/4K4 b 18P4L4N4S4G2B2R 1", 1, 1).unwrap();
+        assert_eq!(legal.kind, "unknown");
+        assert_eq!(legal.score_cp, None);
+    }
+
+    #[test]
+    fn position_analysis_matches_core_score_and_side_to_move() {
+        for (sfen, side, sign) in [(ASYMMETRIC_BLACK, "b", 1), (ASYMMETRIC_WHITE, "w", -1)] {
+            let result = analyze_position_impl(sfen, 1, 10_000).unwrap();
+            let core = computer_move_impl(sfen, 1, 10_000).unwrap();
+            assert_eq!(result.kind, "cp");
+            assert_eq!(result.side_to_move, side);
+            assert_eq!(result.score_cp, Some(core.score));
+            assert_eq!(result.score_cp.unwrap().signum(), sign);
+            assert_eq!(result.depth, core.depth);
+            assert_eq!(result.bound, "exact");
+            assert!(!result.aborted);
+            assert!(result.mate_plies.is_none());
+        }
+    }
+
+    #[test]
+    fn initial_cutoff_has_no_score_and_marks_fallback() {
+        let result = analyze_position_impl(STARTPOS_SFEN, 8, 1).unwrap();
+        assert_eq!(result.kind, "unknown");
+        assert_eq!(result.score_cp, None);
+        assert_eq!(result.mate_plies, None);
+        assert_eq!(result.depth, 0);
+        assert_eq!(result.bound, "unknown");
+        assert!(result.aborted && result.used_fallback);
+        assert_eq!(result.abort_reason, Some("node_limit"));
+        assert!(
+            legal_move_strings(STARTPOS_SFEN)
+                .unwrap()
+                .contains(&result.best_move.unwrap())
+        );
+    }
+
+    #[test]
+    fn later_cutoff_retains_the_exact_completed_iteration() {
+        let first = analyze_position_impl(STARTPOS_SFEN, 1, MAX_SEARCH_NODES).unwrap();
+        let later = analyze_position_impl(STARTPOS_SFEN, 8, first.nodes + 1).unwrap();
+        assert!(later.aborted);
+        assert!(!later.used_fallback);
+        assert_eq!(later.abort_reason, Some("node_limit"));
+        assert_eq!(later.kind, first.kind);
+        assert_eq!(later.score_cp, first.score_cp);
+        assert_eq!(later.depth, first.depth);
+        assert_eq!(later.bound, first.bound);
+        assert_eq!(later.best_move, first.best_move);
+        assert_eq!(later.depth, 1);
+    }
+
+    #[test]
+    fn mate_score_classification_handles_both_signs_without_cp() {
+        for (side, sign, winner) in [
+            (Color::Black, 1, "b"),
+            (Color::Black, -1, "w"),
+            (Color::White, 1, "w"),
+            (Color::White, -1, "b"),
+        ] {
+            let mut result = analyze_position_impl(STARTPOS_SFEN, 8, 1).unwrap();
+            classify_score(&mut result, sign * (MATE_SCORE - 5), side);
+            assert_eq!(result.kind, "mate");
+            assert_eq!(result.score_cp, None);
+            assert_eq!(result.mate_plies, Some(5));
+            assert_eq!(result.winner, Some(winner));
+        }
+        let mate = analyze_position_impl(VALID_MATE_SFEN, 3, MAX_SEARCH_NODES).unwrap();
+        assert_eq!(mate.kind, "mate");
+        assert_eq!(mate.mate_plies, Some(1));
+        assert_eq!(mate.winner, Some("b"));
+        assert!(mate.score_cp.is_none());
+        let forcing = analyze_mate_impl(SHORTEST_THREE_SFEN, 3, MAX_MATE_NODES).unwrap();
+        let defending = apply_move_impl(SHORTEST_THREE_SFEN, &forcing.solutions[0]).unwrap();
+        let loss = analyze_position_impl(&defending, 3, MAX_SEARCH_NODES).unwrap();
+        assert_eq!(loss.kind, "mate");
+        assert_eq!(loss.side_to_move, "w");
+        assert_eq!(loss.winner, Some("b"));
+        assert_eq!(loss.mate_plies, Some(2));
+        assert!(loss.score_cp.is_none());
+    }
+
+    #[test]
+    fn terminal_and_invalid_positions_are_not_cp() {
+        let terminal = apply_move_impl(VALID_MATE_SFEN, "5e5c+").unwrap();
+        let result = analyze_position_impl(&terminal, 1, 1000).unwrap();
+        assert_eq!(result.kind, "terminal");
+        assert_eq!(result.terminal_reason, Some("checkmate"));
+        assert_eq!(result.winner, Some("b"));
+        assert!(result.in_check);
+        assert_eq!(result.bound, "exact");
+        assert!(result.score_cp.is_none() && result.mate_plies.is_none());
+        assert!(!result.aborted && !result.used_fallback);
+        assert_eq!(result.nodes, 0);
+        let no_moves = analyze_position_impl("3PKP3/3PPP3/9/9/9/9/9/9/4k4 b - 1", 1, 1000).unwrap();
+        assert_eq!(no_moves.kind, "terminal");
+        assert_eq!(no_moves.terminal_reason, Some("no_moves"));
+        assert!(!no_moves.in_check);
+        assert_eq!(no_moves.winner, Some("w"));
+        assert_eq!(
+            analyze_position_impl("not sfen", 1, 1000).unwrap_err().code,
+            "invalid_sfen"
+        );
+        assert_eq!(
+            analyze_position_impl("9/9/9/9/9/9/9/9/9 b - 1", 1, 1000)
+                .unwrap_err()
+                .code,
+            "invalid_position"
+        );
+        assert_eq!(
+            analyze_position_impl(ALREADY_CHECKED_MATE_SFEN, 1, 1000)
+                .unwrap_err()
+                .code,
+            "invalid_position"
+        );
+        assert_eq!(
+            analyze_position_impl(STARTPOS_SFEN, 0, 1).unwrap_err().code,
+            "invalid_search_limit"
+        );
+    }
 
     #[test]
     fn start_position_has_thirty_legal_moves() {
@@ -663,6 +1150,86 @@ mod browser_tests {
     use wasm_bindgen_test::*;
 
     wasm_bindgen_test_configure!(run_in_browser);
+
+    #[wasm_bindgen_test]
+    fn position_analysis_contract_in_browser() {
+        let oversized = match analyze_position(
+            "4k4/9/9/9/9/9/9/9/4K4 b 255r255b255g255s255n255l255p 1",
+            1,
+            1000,
+        ) {
+            Ok(_) => panic!("oversized hand must fail without trapping"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            Reflect::get(&oversized, &JsValue::from_str("code"))
+                .unwrap()
+                .as_string()
+                .as_deref(),
+            Some("invalid_position")
+        );
+        for (side, sign) in [("b", 1), ("w", -1)] {
+            let sfen = format!("4k4/9/9/9/9/9/9/9/4K4 {side} P 1");
+            let result = analyze_position(&sfen, 1, 10_000).unwrap();
+            let core = computer_move_impl(&sfen, 1, 10_000).unwrap();
+            assert_eq!(result.kind(), "cp");
+            assert_eq!(result.score_cp(), Some(core.score));
+            assert_eq!(result.score_cp().unwrap().signum(), sign);
+            assert_eq!(result.side_to_move(), side);
+            assert_eq!(result.score_perspective(), "sideToMove");
+            assert_eq!(result.score_unit(), "cp");
+            assert_eq!(result.evaluator_id(), "material");
+            assert_eq!(result.evaluator_version(), "material-v1");
+            assert_eq!(result.engine_version(), env!("CARGO_PKG_VERSION"));
+            assert_eq!(result.api_version(), 1);
+            assert_eq!(result.bound(), "exact");
+        }
+        let initial = analyze_position(STARTPOS_SFEN, 8, 1).unwrap();
+        assert_eq!(initial.kind(), "unknown");
+        assert_eq!(initial.score_cp(), None);
+        assert_eq!(initial.mate_plies(), None);
+        assert_eq!(initial.bound(), "unknown");
+        assert!(initial.aborted() && initial.used_fallback());
+        assert_eq!(initial.abort_reason().as_deref(), Some("node_limit"));
+        let completed = analyze_position(STARTPOS_SFEN, 1, MAX_SEARCH_NODES).unwrap();
+        let partial = analyze_position(STARTPOS_SFEN, 8, completed.nodes() + 1).unwrap();
+        assert!(partial.aborted());
+        assert!(!partial.used_fallback());
+        assert_eq!(partial.score_cp(), completed.score_cp());
+        assert_eq!(partial.depth(), completed.depth());
+        assert_eq!(partial.bound(), completed.bound());
+        assert_eq!(partial.best_move(), completed.best_move());
+        let mate = analyze_position(VALID_MATE_SFEN, 3, MAX_SEARCH_NODES).unwrap();
+        assert_eq!(mate.kind(), "mate");
+        assert_eq!(mate.score_cp(), None);
+        assert_eq!(mate.mate_plies(), Some(1));
+        assert_eq!(mate.winner().as_deref(), Some("b"));
+        let forcing = analyze_mate_impl(SHORTEST_THREE_SFEN, 3, MAX_MATE_NODES).unwrap();
+        let defending = apply_move_impl(SHORTEST_THREE_SFEN, &forcing.solutions[0]).unwrap();
+        let loss = analyze_position(&defending, 3, MAX_SEARCH_NODES).unwrap();
+        assert_eq!(loss.kind(), "mate");
+        assert_eq!(loss.side_to_move(), "w");
+        assert_eq!(loss.winner().as_deref(), Some("b"));
+        assert_eq!(loss.mate_plies(), Some(2));
+        assert_eq!(loss.score_cp(), None);
+        let terminal = apply_move_impl(VALID_MATE_SFEN, "5e5c+").unwrap();
+        let result = analyze_position(&terminal, 1, 1000).unwrap();
+        assert_eq!(result.kind(), "terminal");
+        assert_eq!(result.terminal_reason().as_deref(), Some("checkmate"));
+        assert!(result.in_check());
+        assert_eq!(result.score_cp(), None);
+        let error = match analyze_position("not sfen", 1, 1000) {
+            Ok(_) => panic!("malformed SFEN must fail"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            Reflect::get(&error, &JsValue::from_str("code"))
+                .unwrap()
+                .as_string()
+                .as_deref(),
+            Some("invalid_sfen")
+        );
+    }
 
     #[wasm_bindgen_test]
     fn legal_moves_and_sfen_round_trip_in_browser() {
