@@ -416,6 +416,10 @@ search_params! {
     /// Extra late move reduction of quiet moves when the TT move is a
     /// capture, in sixteenths of a ply (0: off).
     LMR_TTCAP16 = 0, 0, 48;
+    /// Order the quiet moves (and the losing captures) of a node only when
+    /// the move loop reaches them, after the captures, killers and
+    /// countermove (1), or all moves at once (0).
+    ORDER_LAZY = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

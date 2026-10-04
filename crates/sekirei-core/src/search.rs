@@ -2575,6 +2575,15 @@ fn alpha_beta(
     // With a TT move, only that move is put first; the rest is ordered after
     // it fails to cut, since most cutoffs come from the first move.
     let mut deferred_order = false;
+    // ORDER_LAZY: order the captures, killers and countermove first and the
+    // quiet moves (with the losing captures) only when the loop reaches them
+    // (not with the young-brothers split, which takes several moves at once).
+    let lazy_order = p::ORDER_LAZY() != 0
+        && !(state.pruning.ybw_split
+            && depth >= MIN_SPLIT_DEPTH
+            && rayon::current_num_threads() > 1);
+    // Index in the move list where the unordered quiet tail starts.
+    let mut lazy_tail: Option<usize> = None;
     let mut move_buffer = {
         let _timer = state.timer(|d| &d.movegen_order_ns);
         let mut move_buffer = {
@@ -2601,6 +2610,31 @@ fn alpha_beta(
             if let Some(k) = tt_pos {
                 list[..=k].rotate_right(1);
                 deferred_order = true;
+            } else if lazy_order {
+                let split = order_moves_head(
+                    board,
+                    list,
+                    tt_mv,
+                    killers,
+                    countermove,
+                    &state.history,
+                    stm,
+                );
+                if split == 0 {
+                    order_moves_in_place(
+                        board,
+                        list,
+                        tt_mv,
+                        killers,
+                        countermove,
+                        ContMoves::at(ply, prev_mv),
+                        &state.history,
+                        stm,
+                        state.counters(),
+                    );
+                } else if split < list.len() {
+                    lazy_tail = Some(split);
+                }
             } else {
                 order_moves_in_place(
                     board,
@@ -2621,6 +2655,22 @@ fn alpha_beta(
     // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
     if let Some(skip) = skip_move {
         move_buffer.as_mut_list().retain(|m| *m != skip);
+        // The removal shifts the tail; order it all now.
+        if let Some(split) = lazy_tail.take() {
+            let list = move_buffer.as_mut_list().as_mut_slice();
+            let from = split.saturating_sub(1).min(list.len());
+            order_moves_in_place(
+                board,
+                &mut list[from..],
+                tt_mv,
+                killers,
+                countermove,
+                ContMoves::at(ply, prev_mv),
+                &state.history,
+                stm,
+                state.counters(),
+            );
+        }
     }
     let ordered = move_buffer.as_slice();
     if ordered.is_empty() {
@@ -2794,17 +2844,27 @@ fn alpha_beta(
     }
 
     if deferred_order {
-        order_moves_in_place(
-            board,
-            &mut move_buffer.as_mut_list().as_mut_slice()[1..],
-            None,
-            killers,
-            countermove,
-            ContMoves::at(ply, prev_mv),
-            &state.history,
-            stm,
-            state.counters(),
-        );
+        let tail = &mut move_buffer.as_mut_list().as_mut_slice()[1..];
+        let split = if lazy_order {
+            order_moves_head(board, tail, None, killers, countermove, &state.history, stm)
+        } else {
+            0
+        };
+        if split == 0 {
+            order_moves_in_place(
+                board,
+                tail,
+                None,
+                killers,
+                countermove,
+                ContMoves::at(ply, prev_mv),
+                &state.history,
+                stm,
+                state.counters(),
+            );
+        } else if split < tail.len() {
+            lazy_tail = Some(1 + split);
+        }
     }
     let ordered = move_buffer.as_slice();
     let rest = &ordered[1..];
@@ -2958,8 +3018,26 @@ fn alpha_beta(
     // quiet moves and drops, and in local self-play every move-count limit
     // lost strength while removing the last one (depth <= 2) gained.
     {
-        for (j, &m) in rest[seq_start..].iter().enumerate() {
-            let i = seq_start + j;
+        let rest_len = rest.len();
+        let mut next = seq_start;
+        while next < rest_len {
+            let i = next;
+            next += 1;
+            if lazy_tail == Some(i + 1) {
+                lazy_tail = None;
+                order_moves_in_place(
+                    board,
+                    &mut move_buffer.as_mut_list().as_mut_slice()[i + 1..],
+                    None,
+                    killers,
+                    countermove,
+                    ContMoves::at(ply, prev_mv),
+                    &state.history,
+                    stm,
+                    state.counters(),
+                );
+            }
+            let m = move_buffer.as_slice()[i + 1];
             if state.budget.should_abort() {
                 break;
             }
@@ -4551,6 +4629,87 @@ fn order_moves_in_place(
         diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_sort_ns)),
     );
     sort_moves_by_cached_key(moves, &mut key);
+}
+
+/// ORDER_LAZY: move the TT move, the captures that do not lose material and
+/// the killer and countermove slots of `order_moves_in_place` to the front of
+/// `moves`, in that function's order, and return how many there are. The
+/// rest (quiet moves, losing captures) stays unordered for a later
+/// `order_moves_in_place` of the tail: every key of the head is below every
+/// key of the tail, so the two passes give the same order as one when the
+/// histories have not changed in between.
+#[allow(clippy::too_many_arguments)]
+fn order_moves_head(
+    board: &mut Board,
+    moves: &mut [Move],
+    tt_mv: Option<Move>,
+    killers: [Option<Move>; 2],
+    countermove: Option<Move>,
+    history: &HistoryTable,
+    stm: Color,
+) -> usize {
+    let code = |m: Option<Move>| m.map_or(u32::MAX, pack_killer);
+    let (tt_code, k0_code, k1_code, cm_code) = (
+        code(tt_mv),
+        code(killers[0]),
+        code(killers[1]),
+        code(countermove),
+    );
+    let head_key = |m: Move| -> Option<i32> {
+        let c = pack_killer(m);
+        if c == tt_code {
+            return Some(i32::MIN);
+        }
+        if m.from.is_some()
+            && let Some(victim) = board.piece_at(m.to)
+        {
+            let see = crate::movegen::see_swap(board, m);
+            if see < 0 {
+                return None;
+            }
+            let hist = history.capture_get(stm, m, victim.kind) * p::CAPT_ORDER_WEIGHT() / 128;
+            return Some(-(10_000 + (see + hist).clamp(0, 1_999)));
+        }
+        if p::ORDER_KILLER() == 0 {
+            if c == k0_code {
+                return Some(-9_100);
+            }
+            if c == k1_code {
+                return Some(-9_050);
+            }
+        }
+        if p::ORDER_CM() == 0 && c == cm_code && c != k0_code && c != k1_code {
+            return Some(-9_000);
+        }
+        None
+    };
+    // Stable partition with the head keys, then a stable sort of the head.
+    let mut head: [(i64, Move); 64] = [(0, Move::drop(Square::from_index(0), PieceKind::Fu)); 64];
+    let mut n = 0;
+    let mut tail_len = 0;
+    for idx in 0..moves.len() {
+        let m = moves[idx];
+        match head_key(m) {
+            Some(k) if n < head.len() => {
+                head[n] = ((i64::from(k) << 16) | idx as i64, m);
+                n += 1;
+            }
+            _ => {
+                moves[tail_len] = m;
+                tail_len += 1;
+            }
+        }
+    }
+    if n == 0 {
+        return 0;
+    }
+    // Head keys are unique (index in the low bits): an unstable sort is stable.
+    head[..n].sort_unstable_by_key(|&(k, _)| k);
+    moves.copy_within(0..tail_len, n);
+    for (slot, &(_, m)) in moves.iter_mut().zip(&head[..n]) {
+        *slot = m;
+    }
+    n
 }
 
 thread_local! {
