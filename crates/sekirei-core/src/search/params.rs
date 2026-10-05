@@ -512,9 +512,9 @@ search_params! {
     /// SEARCH_V2 null-move eval divisor.
     V2_NMP_DIV = 230, 50, 600;
     /// SEARCH_V2 exchange pruning of tactical moves per depth.
-    V2_SEE_T = 160, 40, 400;
+    V2_SEE_T = 160, 40, 800;
     /// SEARCH_V2 exchange pruning of quiet moves per squared depth.
-    V2_SEE_Q = 25, 5, 80;
+    V2_SEE_Q = 25, 5, 300;
     /// SEARCH_V2 continuation-history pruning per depth.
     V2_HIST_PRUNE = 2200, 500, 8000;
     /// SEARCH_V2 history divisor of the reduced depth.
