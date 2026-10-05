@@ -198,10 +198,10 @@ struct Data {
     pawn: Vec<i16>,
     low: Vec<i16>,
     ss: Vec<Frame>,
-    lists: Vec<Vec<(i32, Move, u8)>>,
+    lists: Vec<Vec<(i32, Move, u8, i32)>>,
     /// Per ply: quiet moves not yet scored, and losing tactical moves.
     quiet_lists: Vec<Vec<Move>>,
-    bad_lists: Vec<Vec<(i32, Move, u8)>>,
+    bad_lists: Vec<Vec<(i32, Move, u8, i32)>>,
     nmp_min_ply: u32,
     epoch: u64,
     /// The TT's search count when these tables last saw a search.
@@ -496,7 +496,11 @@ fn search(
 #[allow(clippy::too_many_arguments)]
 fn node(
     d: &mut Data,
-    lists: &mut (Vec<(i32, Move, u8)>, Vec<Move>, Vec<(i32, Move, u8)>),
+    lists: &mut (
+        Vec<(i32, Move, u8, i32)>,
+        Vec<Move>,
+        Vec<(i32, Move, u8, i32)>,
+    ),
     state: &Arc<SearchState>,
     board: &mut Board,
     mut alpha: i32,
@@ -790,14 +794,18 @@ fn node(
         && !(tt_hit && tt_depth >= depth - 3 && tt_score < pc_beta)
         && static_eval != NO_EVAL
     {
-        let mut caps: Vec<(i32, Move)> = moves
-            .iter()
-            .copied()
-            .filter(|&m| is_tactical(board, m))
-            .map(|m| (7 * victim_value(board, m) + d.capt_score(board, stm, m), m))
-            .collect();
-        caps.sort_unstable_by_key(|&(k, _)| -k);
-        for (_, m) in caps {
+        // The losing-tactical list is free until the move loop: use it here.
+        let caps = &mut lists.2;
+        caps.clear();
+        for &m in moves {
+            if is_tactical(board, m) {
+                let k = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
+                caps.push((k, m, 0, i32::MIN));
+            }
+        }
+        caps.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+        for ci in 0..caps.len() {
+            let m = caps[ci].1;
             if see2(board, m) < pc_beta - static_eval {
                 continue;
             }
@@ -856,6 +864,7 @@ fn node(
                 };
             }
         }
+        lists.2.clear();
     }
 
     // Small ProbCut on a TT lower bound well above beta.
@@ -878,7 +887,7 @@ fn node(
     let low_ply = (ply as usize) < LOW_PLIES;
     let mut first_sorted = 0;
     if let Some(t) = tt_move {
-        list.push((i32::MAX, t, 0));
+        list.push((i32::MAX, t, 0, i32::MIN));
         first_sorted = 1;
     }
     for &m in moves {
@@ -887,18 +896,19 @@ fn node(
         }
         if is_tactical(board, m) {
             let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
-            if see2(board, m) >= -s / 18 {
-                list.push((s, m, 0));
+            let se = see2(board, m);
+            if se >= -s / 18 {
+                list.push((s, m, 0, se));
             } else {
-                bad_list.push((s, m, 0));
+                bad_list.push((s, m, 0, se));
             }
         } else {
             quiet_list.push(m);
         }
     }
     drop(buf);
-    list[first_sorted..].sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
-    bad_list.sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
+    list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+    bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     diag(state, entry_depth, 7);
 
     let mut best_value = -INF;
@@ -932,12 +942,13 @@ fn node(
                                     / (1 + ply as i32);
                             }
                             let check = move_gives_direct_check(board, m);
-                            if check && p::V2_CHECK_BONUS() > 0 && see2(board, m) >= -75 {
+                            let se = if check { see2(board, m) } else { i32::MIN };
+                            if check && p::V2_CHECK_BONUS() > 0 && se >= -75 {
                                 s += p::V2_CHECK_BONUS();
                             }
-                            list.push((s, m, 1 + u8::from(check)));
+                            list.push((s, m, 1 + u8::from(check), se));
                         }
-                        list[start..].sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
+                        list[start..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
                     }
                     continue;
                 }
@@ -949,7 +960,14 @@ fn node(
                 _ => break,
             }
         }
-        let (_, m, check_flag) = list[idx];
+        let (_, m, check_flag, see_cached) = list[idx];
+        let see_of = |board: &Board| {
+            if see_cached == i32::MIN {
+                see2(board, m)
+            } else {
+                see_cached
+            }
+        };
         idx += 1;
         if Some(m) == excluded {
             continue;
@@ -1000,7 +1018,7 @@ fn node(
                 let see_hist = (capt_hist / 32).clamp(-150 * depth, 150 * depth);
                 if (!gives_check || p::V2_CHK() & 1 == 0)
                     && (p::V2_SHAPE() & 2 == 0 || alpha >= 0)
-                    && see2(board, m) < -p::V2_SEE_T() * depth - see_hist
+                    && see_of(board) < -p::V2_SEE_T() * depth - see_hist
                 {
                     continue;
                 }
@@ -1033,7 +1051,7 @@ fn node(
                     }
                 }
                 let ld = lmr_depth.max(0);
-                if see2(board, m) < -p::V2_SEE_Q() * ld * ld {
+                if see_of(board) < -p::V2_SEE_Q() * ld * ld {
                     continue;
                 }
             }
