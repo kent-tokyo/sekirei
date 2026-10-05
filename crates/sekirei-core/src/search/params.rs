@@ -498,41 +498,41 @@ search_params! {
     /// without a good move and per depth, singular margin per 60 depth, less
     /// reduction on PV-like nodes and more at cut nodes (1/1024 ply), and the
     /// history weight of reductions (per 8192).
-    V2_BONUS_LIN = 140, 50, 400;
+    V2_BONUS_LIN = 190, 50, 400;
     /// SEARCH_V2 history bonus cap.
-    V2_BONUS_MAX = 1500, 500, 3000;
+    V2_BONUS_MAX = 1655, 500, 3000;
     /// SEARCH_V2 history penalty per depth.
-    V2_MALUS_LIN = 700, 100, 1200;
+    V2_MALUS_LIN = 649, 100, 1200;
     /// SEARCH_V2 history penalty cap.
-    V2_MALUS_MAX = 2300, 500, 4000;
+    V2_MALUS_MAX = 1223, 500, 4000;
     /// SEARCH_V2 move-count pruning base.
     V2_LMP_BASE = 4, 0, 12;
     /// SEARCH_V2 reverse-futility margin per depth.
-    V2_RFP_MULT = 85, 30, 200;
+    V2_RFP_MULT = 98, 30, 200;
     /// SEARCH_V2 null-move eval divisor.
-    V2_NMP_DIV = 230, 50, 600;
+    V2_NMP_DIV = 217, 50, 600;
     /// SEARCH_V2 exchange pruning of tactical moves per depth.
-    V2_SEE_T = 320, 40, 800;
+    V2_SEE_T = 285, 40, 800;
     /// SEARCH_V2 exchange pruning of quiet moves per squared depth.
-    V2_SEE_Q = 50, 5, 300;
+    V2_SEE_Q = 56, 5, 300;
     /// SEARCH_V2 continuation-history pruning per depth.
-    V2_HIST_PRUNE = 2200, 500, 8000;
+    V2_HIST_PRUNE = 2118, 500, 8000;
     /// SEARCH_V2 history divisor of the reduced depth.
-    V2_HIST_DIV = 2300, 500, 8000;
+    V2_HIST_DIV = 3394, 500, 8000;
     /// SEARCH_V2 quiet futility base.
-    V2_FUT_BASE = 50, 0, 200;
+    V2_FUT_BASE = 53, 0, 200;
     /// SEARCH_V2 quiet futility extra without a good move.
-    V2_FUT_NOBEST = 90, 0, 300;
+    V2_FUT_NOBEST = 81, 0, 300;
     /// SEARCH_V2 quiet futility per depth.
-    V2_FUT_PER = 130, 40, 300;
+    V2_FUT_PER = 106, 40, 300;
     /// SEARCH_V2 singular margin per 60 depth.
-    V2_SE_MARGIN = 55, 10, 200;
+    V2_SE_MARGIN = 56, 10, 200;
     /// SEARCH_V2 reduction relief on PV-like nodes (1/1024 ply).
-    V2_TTPV_R = 2600, 0, 5000;
+    V2_TTPV_R = 2819, 0, 5000;
     /// SEARCH_V2 extra reduction at cut nodes (1/1024 ply).
-    V2_CUT_R = 3100, 0, 5000;
+    V2_CUT_R = 3028, 0, 5000;
     /// SEARCH_V2 history weight of reductions (per 8192).
-    V2_STAT_R = 1300, 200, 3000;
+    V2_STAT_R = 1251, 200, 3000;
     /// SEARCH_V2 ordering bonus of a quiet move giving a safe check.
     V2_CHECK_BONUS = 16000, 0, 32000;
     /// SEARCH_V2 shape options (bits): 1 PV-like nodes prune over a depth
@@ -575,10 +575,10 @@ search_params! {
     V2_GOODCAP_DIV = 16, 4, 64;
     /// SEARCH_V2 weight of the root-near history in quiet move keys (divided
     /// by 1 + ply).
-    V2_LOWPLY_W = 6, 0, 16;
+    V2_LOWPLY_W = 5, 0, 16;
     /// SEARCH_V2: a quiet check gets V2_CHECK_BONUS when its exchange is at
     /// least minus this.
-    V2_CHECK_SEE = 100, 0, 600;
+    V2_CHECK_SEE = 96, 0, 600;
     /// SEARCH_V2 cost diagnostics (bit mask, changes the search): 1 scores
     /// quiet moves with the continuation histories of 1 and 2 plies only, 2
     /// without the pawn history, 4 skips the mate-in-one test of nodes, 8
