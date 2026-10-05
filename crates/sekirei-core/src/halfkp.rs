@@ -761,24 +761,10 @@ impl HalfKpAcc {
         }
         let king = self.king[p];
         let acc = &mut self.values[p];
-        *acc = *net.ft_bias;
-        for (i, cell) in mailbox.iter().enumerate() {
-            if let Some(piece) = cell
-                && let Some(f) =
-                    board_feature(king, Square(i as u8), piece.kind, piece.color, perspective)
-            {
-                add_assign(acc, net.column(f));
-            }
-        }
-        for color in PERSPECTIVES {
-            for (k, &count) in hand[color.index()].iter().enumerate() {
-                let kind = PieceKind::from_u8(k as u8).unwrap();
-                for n in 1..=count {
-                    if let Some(f) = hand_feature(king, kind, n, color, perspective) {
-                        add_assign(acc, net.column(f));
-                    }
-                }
-            }
+        if crate::search::params::NNUE_FINNY() != 0 {
+            refresh_from_cache(net, perspective, king, acc, mailbox, hand);
+        } else {
+            refresh_full(net, perspective, king, acc, mailbox, hand);
         }
         self.dirty[p] = false;
     }
@@ -896,6 +882,140 @@ impl HalfKpAcc {
     }
 }
 
+/// Build one perspective's accumulator from scratch.
+fn refresh_full(
+    net: &HalfKpNetwork,
+    perspective: Color,
+    king: Square,
+    acc: &mut [i16; HALF_DIMS],
+    mailbox: &[Option<Piece>; 81],
+    hand: &[[u8; 7]; 2],
+) {
+    *acc = *net.ft_bias;
+    for (i, cell) in mailbox.iter().enumerate() {
+        if let Some(piece) = cell
+            && let Some(f) =
+                board_feature(king, Square(i as u8), piece.kind, piece.color, perspective)
+        {
+            add_assign(acc, net.column(f));
+        }
+    }
+    for color in PERSPECTIVES {
+        for (k, &count) in hand[color.index()].iter().enumerate() {
+            let kind = PieceKind::from_u8(k as u8).unwrap();
+            for n in 1..=count {
+                if let Some(f) = hand_feature(king, kind, n, color, perspective) {
+                    add_assign(acc, net.column(f));
+                }
+            }
+        }
+    }
+}
+
+/// One perspective's accumulator for one own-king square, with the board it
+/// was built for.
+#[derive(Clone)]
+struct RefreshEntry {
+    values: [i16; HALF_DIMS],
+    mailbox: [Option<Piece>; 81],
+    hand: [[u8; 7]; 2],
+    valid: bool,
+}
+
+/// Accumulators by perspective and own-king square (NNUE_FINNY): a refresh
+/// after a king move starts from the entry of the new king square and applies
+/// only the pieces that differ from the board the entry was built for. The
+/// sums wrap, so the result equals a full rebuild exactly.
+struct RefreshCache {
+    /// The network the entries were built with.
+    net: usize,
+    entries: Vec<RefreshEntry>,
+}
+
+thread_local! {
+    static REFRESH_CACHE: std::cell::RefCell<Option<Box<RefreshCache>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn refresh_from_cache(
+    net: &HalfKpNetwork,
+    perspective: Color,
+    king: Square,
+    acc: &mut [i16; HALF_DIMS],
+    mailbox: &[Option<Piece>; 81],
+    hand: &[[u8; 7]; 2],
+) {
+    REFRESH_CACHE.with(|cell| {
+        let mut slot = cell.borrow_mut();
+        let cache = slot.get_or_insert_with(|| {
+            Box::new(RefreshCache {
+                net: 0,
+                entries: vec![
+                    RefreshEntry {
+                        values: [0; HALF_DIMS],
+                        mailbox: [None; 81],
+                        hand: [[0; 7]; 2],
+                        valid: false,
+                    };
+                    2 * 81
+                ],
+            })
+        });
+        let id = net as *const HalfKpNetwork as usize;
+        if cache.net != id {
+            cache.net = id;
+            for e in cache.entries.iter_mut() {
+                e.valid = false;
+            }
+        }
+        let e = &mut cache.entries[perspective.index() * 81 + king.0 as usize];
+        if !e.valid {
+            refresh_full(net, perspective, king, acc, mailbox, hand);
+        } else {
+            *acc = e.values;
+            for (i, (old, new)) in e.mailbox.iter().zip(mailbox.iter()).enumerate() {
+                if old == new {
+                    continue;
+                }
+                let sq = Square(i as u8);
+                if let Some(piece) = old
+                    && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
+                {
+                    sub_assign(acc, net.column(f));
+                }
+                if let Some(piece) = new
+                    && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
+                {
+                    add_assign(acc, net.column(f));
+                }
+            }
+            for color in PERSPECTIVES {
+                let c = color.index();
+                for k in 0..7 {
+                    let (was, now) = (e.hand[c][k], hand[c][k]);
+                    if was == now {
+                        continue;
+                    }
+                    let kind = PieceKind::from_u8(k as u8).unwrap();
+                    for n in now.min(was) + 1..=now.max(was) {
+                        if let Some(f) = hand_feature(king, kind, n, color, perspective) {
+                            if now > was {
+                                add_assign(acc, net.column(f));
+                            } else {
+                                sub_assign(acc, net.column(f));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        e.values = *acc;
+        e.mailbox = *mailbox;
+        e.hand = *hand;
+        e.valid = true;
+    });
+}
+
 #[inline(always)]
 fn add_assign(acc: &mut [i16; HALF_DIMS], column: &[i16]) {
     for (a, &w) in acc.iter_mut().zip(column) {
@@ -916,6 +1036,47 @@ mod tests {
     use std::sync::LazyLock;
 
     static NET: LazyLock<HalfKpNetwork> = LazyLock::new(|| HalfKpNetwork::random(7));
+
+    #[test]
+    fn cached_refresh_matches_full_refresh() {
+        // Pseudo-random games: every position's accumulator rebuilt from the
+        // per-king-square cache equals a rebuild from scratch.
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        for _game in 0..8 {
+            let mut b = crate::board::Board::startpos();
+            for _ply in 0..150 {
+                let moves: Vec<crate::mv::Move> = crate::movegen::MoveBuffer::legal(&mut b)
+                    .as_slice()
+                    .to_vec();
+                if moves.is_empty() {
+                    break;
+                }
+                let mailbox = *b.mailbox_for_eval();
+                let hand = b.hand_counts_for_eval();
+                for perspective in PERSPECTIVES {
+                    let king = mailbox
+                        .iter()
+                        .position(|c| {
+                            *c == Some(Piece {
+                                kind: PieceKind::Ou,
+                                color: perspective,
+                            })
+                        })
+                        .map(|i| Square(i as u8))
+                        .unwrap();
+                    let mut full = [0i16; HALF_DIMS];
+                    let mut cached = [0i16; HALF_DIMS];
+                    refresh_full(&NET, perspective, king, &mut full, &mailbox, &hand);
+                    refresh_from_cache(&NET, perspective, king, &mut cached, &mailbox, &hand);
+                    assert_eq!(full, cached);
+                }
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                b.do_move(moves[(seed >> 33) as usize % moves.len()]);
+            }
+        }
+    }
 
     #[test]
     fn dense_and_pair_forms_give_the_same_output() {

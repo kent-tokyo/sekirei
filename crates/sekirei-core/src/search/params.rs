@@ -565,6 +565,9 @@ search_params! {
     /// SEARCH_V2 fail-high scores pulled toward beta (1) or returned as found
     /// (0).
     V2_FH_BLEND = 0, 0, 1;
+    /// NNUE refresh after a king move starts from the accumulator kept for the
+    /// new king square (1) or rebuilds from scratch (0). Same values either way.
+    NNUE_FINNY = 1, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
