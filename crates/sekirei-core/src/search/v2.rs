@@ -214,6 +214,9 @@ struct Frame {
     cutoff_cnt: u32,
     move_count: u32,
     excluded: Option<Move>,
+    /// Plies by which the move searched from this ply is being reduced
+    /// (V2_HINDSIGHT; 0 outside a reduced search).
+    reduction: i32,
 }
 
 impl Frame {
@@ -227,6 +230,7 @@ impl Frame {
         cutoff_cnt: 0,
         move_count: 0,
         excluded: None,
+        reduction: 0,
     };
 }
 
@@ -785,6 +789,22 @@ fn node(
     {
         let bonus = (-8 * (prior.eval + static_eval)).clamp(-1500, 1300);
         gravity(&mut d.main[ft_key(stm.flip(), pm)], bonus, MAIN_LIM);
+    }
+
+    // V2_HINDSIGHT: a node reached by a strongly reduced move goes one ply
+    // deeper unless the opponent's position got worse; one reduced while both
+    // sides' evaluations agree it is quiet goes one ply shallower.
+    if p::V2_HINDSIGHT() != 0 && static_eval != NO_EVAL && excluded.is_none() {
+        if prior.reduction >= 3 && !opp_worsening {
+            depth += 1;
+        }
+        if prior.reduction >= 2
+            && depth >= 2
+            && prior.eval != NO_EVAL
+            && static_eval + prior.eval > p::V2_HS_MARGIN()
+        {
+            depth -= 1;
+        }
     }
 
     // Internal iterative reduction.
@@ -1382,6 +1402,7 @@ fn node(
             if tactical && p::V2_CAPT_LMR() == 0 {
                 dd = dd.max(new_depth);
             }
+            d.ss[i].reduction = new_depth - dd;
             value = -search(
                 d,
                 state,
@@ -1394,6 +1415,7 @@ fn node(
                 false,
                 &child_history,
             );
+            d.ss[i].reduction = 0;
             if value > alpha && dd < new_depth {
                 let deeper = value > best_value + 45 + 2 * new_depth;
                 let shallower = value < best_value + 10;
@@ -1523,6 +1545,16 @@ fn node(
         let bonus = stat_bonus(depth) * if prior.move_count > 8 { 2 } else { 1 } / 2;
         d.update_cont(i - 1, prior.pt, bonus);
         gravity(&mut d.main[ft_key(stm.flip(), pm)], bonus / 2, MAIN_LIM);
+    }
+
+    // V2_FH_BLEND: a fail-high score is pulled toward beta, less so deeper.
+    if p::V2_FH_BLEND() != 0
+        && best_value >= beta
+        && !is_decisive(best_value)
+        && !is_decisive(beta)
+        && !is_decisive(alpha)
+    {
+        best_value = (best_value * depth.max(1) + beta) / (depth.max(1) + 1);
     }
 
     // A node failing low under a PV-like parent counts as PV-like.

@@ -556,6 +556,15 @@ search_params! {
     /// SEARCH_V2 quiet move order: picked best first one at a time for the
     /// first few, ties in generation order (1), or fully sorted at once (0).
     V2_SORT = 0, 0, 1;
+    /// SEARCH_V2 depth adjustment by the reduction of the move that led to
+    /// the node (1) or none (0).
+    V2_HINDSIGHT = 0, 0, 1;
+    /// V2_HINDSIGHT: sum of the two sides' static evaluations above which a
+    /// node reached by a reduced move goes one ply shallower.
+    V2_HS_MARGIN = 80, 0, 400;
+    /// SEARCH_V2 fail-high scores pulled toward beta (1) or returned as found
+    /// (0).
+    V2_FH_BLEND = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
