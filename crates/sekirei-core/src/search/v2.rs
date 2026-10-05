@@ -630,6 +630,16 @@ fn node(
         (se, ev)
     };
     d.ss[i].eval = static_eval;
+    if let Some(c) = state.counters()
+        && excluded.is_none()
+    {
+        c.record_v2_node(
+            depth.max(0) as u32,
+            tt_pv,
+            static_eval != NO_EVAL && eval >= beta,
+            in_check,
+        );
+    }
     let prev2 = d.ss[i - 2].eval;
     let improving = static_eval != NO_EVAL && prev2 != NO_EVAL && static_eval > prev2;
     let opp_worsening =
@@ -917,8 +927,11 @@ fn node(
                                 s += 8 * i32::from(d.low[ply as usize * FT_NB + ft])
                                     / (1 + ply as i32);
                             }
-                            if move_gives_direct_check(board, m) && see2(board, m) >= -75 {
-                                s += 16000;
+                            if p::V2_CHECK_BONUS() > 0
+                                && move_gives_direct_check(board, m)
+                                && see2(board, m) >= -75
+                            {
+                                s += p::V2_CHECK_BONUS();
                             }
                             list.push((s, m));
                         }
@@ -954,6 +967,10 @@ fn node(
             }
             let mut lmr_depth = new_depth - r / 1024;
             if tactical || gives_check {
+                // A quiet check is still a quiet move for move-count pruning.
+                if !tactical && skip_quiets {
+                    continue;
+                }
                 let capt_hist = if tactical {
                     d.capt_score(board, stm, m)
                 } else {
@@ -1078,6 +1095,22 @@ fn node(
         d.ss[i].pt = pt_key(stm, m);
         d.ss[i].capture = capture;
         let (tok, child_check, child_history) = play(board, m, history);
+        if let Some(c) = state.counters() {
+            let kind = if move_count == 1 {
+                0
+            } else if capture {
+                1
+            } else if m.promote {
+                2
+            } else if child_check {
+                if m.from.is_none() { 3 } else { 4 }
+            } else if m.from.is_none() {
+                5
+            } else {
+                6
+            };
+            c.record_move_kind(depth.max(0) as u32, in_check, kind);
+        }
         d.ss[i + 1].in_check = child_check;
         d.ss[i + 1].excluded = None;
 

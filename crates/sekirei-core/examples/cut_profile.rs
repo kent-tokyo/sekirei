@@ -51,6 +51,8 @@ fn main() {
     let mut fail_low = 0u64;
     let mut ttq = [[0u64; 18]; 2];
     let mut ttp = [[0u64; 4]; 17];
+    let mut v2n = [[0u64; 4]; 17];
+    let mut mk = [[0u64; 8]; 16];
     let mut nodes = 0u64;
     let mut ab = 0u64;
     for body in &positions {
@@ -87,6 +89,18 @@ fn main() {
         for i in 0..2 {
             lw[i] += l2[i];
             sw[i] += s2[i];
+        }
+        let k = diagnostics.move_kind_counts();
+        for r in 0..16 {
+            for i in 0..8 {
+                mk[r][i] += k[r][i];
+            }
+        }
+        let vn = diagnostics.v2_node_counts();
+        for r in 0..17 {
+            for i in 0..4 {
+                v2n[r][i] += vn[r][i];
+            }
         }
         let tp = diagnostics.tt_probe_counts();
         for r in 0..17 {
@@ -198,6 +212,35 @@ fn main() {
         .sum();
     let pct = |v: u64| 100.0 * v as f64 / total.max(1) as f64;
     println!("first move {:.2}%  move 9+ {:.2}%", pct(first), pct(late));
+    if mk.iter().any(|row| row[0] > 0) {
+        println!(
+            "d chk    first     capt    promo  chkdrop  chkmove    qdrop    qmove  checks%(later)"
+        );
+        for d in 1..8 {
+            for ic in 0..2 {
+                let row = &mk[d * 2 + ic];
+                let later: u64 = row[1..7].iter().sum();
+                println!(
+                    "{d} {ic}   {}  {:5.1}",
+                    row[..7]
+                        .iter()
+                        .map(|v| format!("{v:8}"))
+                        .collect::<Vec<_>>()
+                        .join(" "),
+                    100.0 * (row[3] + row[4]) as f64 / later.max(1) as f64
+                );
+            }
+        }
+    }
+    if v2n.iter().any(|row| row[0] > 0) {
+        println!(" r  v2nodes  ttpv%  eval>=beta%  incheck%");
+        for (r, row) in v2n.iter().enumerate().skip(1) {
+            if row[0] > 0 {
+                let q = |i: usize| 100.0 * row[i] as f64 / row[0] as f64;
+                println!("{r:2} {:8} {:6.1} {:11.1} {:9.1}", row[0], q(1), q(2), q(3));
+            }
+        }
+    }
     println!(" r   probes   hit%  dep>=d%  dep>=d-1%");
     for (r, row) in ttp.iter().enumerate().skip(1) {
         if row[0] > 0 {

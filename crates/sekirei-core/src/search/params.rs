@@ -529,6 +529,8 @@ search_params! {
     V2_CUT_R = 3100, 0, 5000;
     /// SEARCH_V2 history weight of reductions (per 8192).
     V2_STAT_R = 1300, 200, 3000;
+    /// SEARCH_V2 ordering bonus of a quiet move giving a safe check.
+    V2_CHECK_BONUS = 16000, 0, 32000;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

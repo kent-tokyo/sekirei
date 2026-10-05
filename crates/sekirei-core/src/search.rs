@@ -251,6 +251,13 @@ pub struct SearchDiagnostics {
     /// Main-search TT probes by node depth (capped at 16): probes, hits,
     /// hits at least as deep as the node, hits at most one ply shallower.
     tt_by_depth: [[AtomicU64; 4]; 17],
+    /// SEARCH_V2 nodes by depth: all, PV-like (ttPv), with a static eval at
+    /// or above beta, in check.
+    v2_nodes: [[AtomicU64; 4]; 17],
+    /// Moves searched by node depth (1..7) × node in check × kind: first,
+    /// capture, promotion, checking drop, checking move, quiet drop, quiet
+    /// move.
+    v2_moves: [[AtomicU64; 8]; 16],
     /// Main-search nodes that entered the move loop, without and with a TT
     /// move.
     loop_nodes: [AtomicU64; 2],
@@ -441,6 +448,8 @@ impl SearchDiagnostics {
             cut_index: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             tt_quiet_cut: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             tt_by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            v2_nodes: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            v2_moves: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             loop_nodes: std::array::from_fn(|_| AtomicU64::new(0)),
             pv_calls: AtomicU64::new(0),
             loop_by_window: std::array::from_fn(|_| AtomicU64::new(0)),
@@ -538,6 +547,39 @@ impl SearchDiagnostics {
                 row[3].fetch_add(1, Ordering::Relaxed);
             }
         }
+    }
+
+    /// Record a SEARCH_V2 node (`v2_nodes`).
+    #[inline]
+    fn record_v2_node(&self, depth: u32, tt_pv: bool, eval_above_beta: bool, in_check: bool) {
+        let row = &self.v2_nodes[depth.min(16) as usize];
+        row[0].fetch_add(1, Ordering::Relaxed);
+        for (i, f) in [tt_pv, eval_above_beta, in_check].into_iter().enumerate() {
+            if f {
+                row[i + 1].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
+    /// Record a searched move (`v2_moves`).
+    #[inline]
+    fn record_move_kind(&self, depth: u32, in_check: bool, kind: usize) {
+        let d = depth.clamp(1, 7) as usize;
+        self.v2_moves[d * 2 + usize::from(in_check)][kind].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Searched moves by kind (see `v2_moves`).
+    pub fn move_kind_counts(&self) -> [[u64; 8]; 16] {
+        std::array::from_fn(|r| {
+            std::array::from_fn(|i| self.v2_moves[r][i].load(Ordering::Relaxed))
+        })
+    }
+
+    /// SEARCH_V2 nodes by depth (see `v2_nodes`).
+    pub fn v2_node_counts(&self) -> [[u64; 4]; 17] {
+        std::array::from_fn(|r| {
+            std::array::from_fn(|i| self.v2_nodes[r][i].load(Ordering::Relaxed))
+        })
     }
 
     /// TT probes by node depth (see `tt_by_depth`).
@@ -2695,6 +2737,16 @@ fn alpha_beta(
     // Improving: the static eval beats the one two plies earlier (same side
     // to move). Unknown evals (in check, or not computed) count as improving.
     let improving = record_static_eval(ply, static_eval);
+    if let Some(c) = state.counters()
+        && skip_move.is_none()
+    {
+        c.record_v2_node(
+            depth,
+            tt_pv,
+            static_eval.is_some_and(|se| se >= beta),
+            in_check,
+        );
+    }
     // EVAL_TT: a TT bound beyond the static eval refines it for pruning.
     let static_eval = if p::EVAL_TT() != 0 {
         static_eval.map(|se| match tt.bound_score {
