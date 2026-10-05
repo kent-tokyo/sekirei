@@ -1,0 +1,110 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.59",
+  "commit": "ceb2b928a15de637986018e2ffc87120b0cef5fb",
+  "branch_at_release": "main",
+  "candidate_state": "planned from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.59",
+    "sekirei-core": "0.3.59",
+    "sekirei-bench": "0.3.59",
+    "sekirei-csa": "0.3.59",
+    "sekirei-match-runner": "0.3.59",
+    "sekirei-train": "0.3.59"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "e4619f64641fe597b0ecca2bbbbb4a3f4985171f4619ac8daf0e9dde09f9eb21"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.59",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.59.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.59/sekirei-wasm-0.3.59.tgz",
+    "sha256": "0980d60d97f8b4ff87fdab6e53285137ac4dda6cb718d122e812fd629102552d",
+    "size": 404779,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 10,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only",
+    "opening_corpus": {
+      "source": "Sekirei gensfen without --eval",
+      "positions": 1000,
+      "sha256": "af0e7d51a130f69fada0ed3f4e664dfa08e8d24927b0d24df4f01261e3b71371",
+      "external_engine_or_evaluator": false
+    },
+    "tt_gate": {
+      "candidate": "T_TT_BUCKET=3",
+      "baseline": "T_TT_BUCKET=0",
+      "complete_pairs": 267,
+      "games": 534,
+      "candidate_wins": 283,
+      "draws": 40,
+      "baseline_wins": 211,
+      "elo": 47.13,
+      "elo_ci_95": 29.74,
+      "first_boundary_pair": 251,
+      "llr_at_first_boundary": 2.997785,
+      "full_input_llr": 3.045896,
+      "bounds": [-2.944439, 2.944439],
+      "verdict": "PASS",
+      "default_enabled": true,
+      "summary_sha256": "67af635832df8a69f22996e1a31305ba9684202ecb3d0b927dae990f12c72ea6",
+      "verdict_sha256": "efd1e0e54417536235a65e1694324f26d0fa40da181e9dc5c53ab56039a17c18",
+      "records_sha256": "7a041960370e0e080a6984e710d1221e7eb915b9dc496f952f6a6155acc62b53"
+    },
+    "fl_move_gate": {
+      "candidate": "T_FL_MOVE=1",
+      "baseline": "T_FL_MOVE=0",
+      "games": 512,
+      "candidate_wins": 245,
+      "draws": 23,
+      "baseline_wins": 244,
+      "verdict": "INCONCLUSIVE",
+      "default_enabled": false
+    },
+    "search_v2": {
+      "available": true,
+      "default_enabled": false,
+      "release_strength_evidence": false,
+      "reason": "The completed comparisons used an excluded external evaluator; the clean material-only gate was not complete before release."
+    },
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, default dependency isolation, opening-book feature tests, USI state-transition smoke, public-contract checks, WebAssembly Chrome tests, and package generation passed. The clean material-only TT-bucket gate passed its pre-registered paired-trinomial SPRT and TT_BUCKET=3 is enabled. SEARCH_V2, FL_MOVE, adaptive time management, increment use, and the deeper null-move reduction remain disabled by default."
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.59."
+  },
+  "known_limitations": [
+    "SEARCH_V2 is experimental and opt-in; its completed external-evaluator comparisons are excluded from release evidence and it is not the default search.",
+    "FL_MOVE, adaptive time management, IncrementUsePercent=75, and the deeper null-move reduction candidate are disabled by default because their clean release gates are incomplete or inconclusive.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "No general playing-strength or external-engine superiority claim is made for this release.",
+    "No new NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
