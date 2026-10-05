@@ -136,12 +136,12 @@ fn gravity(e: &mut i16, bonus: i32, limit: i32) {
 
 #[inline]
 fn stat_bonus(depth: i32) -> i32 {
-    (140 * depth - 70).clamp(0, 1500)
+    (p::V2_BONUS_LIN() * depth - 70).clamp(0, p::V2_BONUS_MAX())
 }
 
 #[inline]
 fn stat_malus(depth: i32) -> i32 {
-    (700 * depth - 120).clamp(0, 2300)
+    (p::V2_MALUS_LIN() * depth - 120).clamp(0, p::V2_MALUS_MAX())
 }
 
 /// Base reduction of the `n`-th move at `depth`, in 1/1024 ply.
@@ -154,7 +154,7 @@ fn base_reduction(improving: bool, depth: i32, n: u32) -> i32 {
 /// Move-count pruning limit at `depth`.
 #[inline]
 fn lmp_limit(depth: i32, improving: bool) -> u32 {
-    ((3 + depth * depth) / (2 - i32::from(improving))) as u32
+    ((p::V2_LMP_BASE() + depth * depth) / (2 - i32::from(improving))) as u32
 }
 
 #[derive(Clone, Copy)]
@@ -195,8 +195,13 @@ struct Data {
     low: Vec<i16>,
     ss: Vec<Frame>,
     lists: Vec<Vec<(i32, Move)>>,
+    /// Per ply: quiet moves not yet scored, and losing tactical moves.
+    quiet_lists: Vec<Vec<Move>>,
+    bad_lists: Vec<Vec<(i32, Move)>>,
     nmp_min_ply: u32,
     epoch: u64,
+    /// The TT's search count when these tables last saw a search.
+    search: u64,
 }
 
 impl Data {
@@ -209,8 +214,26 @@ impl Data {
             low: vec![0; LOW_PLIES * FT_NB],
             ss: vec![Frame::EMPTY; MAX_PLY + OFF + 8],
             lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(128)).collect(),
+            quiet_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(128)).collect(),
+            bad_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(16)).collect(),
             nmp_min_ply: 0,
             epoch: u64::MAX,
+            search: u64::MAX,
+        }
+    }
+
+    /// Scale every history by `num / 16` (a new search, V2_KEEP 2).
+    fn age(&mut self, num: i32) {
+        for t in [
+            &mut self.main,
+            &mut self.cont,
+            &mut self.capt,
+            &mut self.pawn,
+            &mut self.low,
+        ] {
+            for e in t.iter_mut() {
+                *e = (i32::from(*e) * num / 16) as i16;
+            }
         }
     }
 
@@ -356,6 +379,18 @@ pub(super) fn entry(
             d.clear();
             d.epoch = epoch;
         }
+        let search_no = state.tt.search_count();
+        if d.search != search_no {
+            d.search = search_no;
+            match p::V2_KEEP() {
+                0 => d.clear(),
+                1 => {}
+                k => d.age(16 / k),
+            }
+            for t in d.low.iter_mut() {
+                *t = 0;
+            }
+        }
         let stm = board.side_to_move;
         let i = ply as usize + OFF;
         // The path above the entry ply as the main search's stack records it.
@@ -436,19 +471,28 @@ fn search(
         let in_check = d.ss[i].in_check;
         return qs(state, board, alpha, beta, ply, in_check, history);
     }
-    let mut list = std::mem::take(&mut d.lists[ply as usize]);
-    list.clear();
-    let v = node(
-        d, &mut list, state, board, alpha, beta, depth, ply, cut_node, pv, history,
+    let p = ply as usize;
+    let mut lists = (
+        std::mem::take(&mut d.lists[p]),
+        std::mem::take(&mut d.quiet_lists[p]),
+        std::mem::take(&mut d.bad_lists[p]),
     );
-    d.lists[ply as usize] = list;
+    lists.0.clear();
+    lists.1.clear();
+    lists.2.clear();
+    let v = node(
+        d, &mut lists, state, board, alpha, beta, depth, ply, cut_node, pv, history,
+    );
+    d.lists[p] = lists.0;
+    d.quiet_lists[p] = lists.1;
+    d.bad_lists[p] = lists.2;
     v
 }
 
 #[allow(clippy::too_many_arguments)]
 fn node(
     d: &mut Data,
-    list: &mut Vec<(i32, Move)>,
+    lists: &mut (Vec<(i32, Move)>, Vec<Move>, Vec<(i32, Move)>),
     state: &Arc<SearchState>,
     board: &mut Board,
     mut alpha: i32,
@@ -622,7 +666,7 @@ fn node(
         }
 
         // Reverse futility pruning.
-        let mult = 85 - 20 * i32::from(cut_node && !tt_hit);
+        let mult = p::V2_RFP_MULT() - 20 * i32::from(cut_node && !tt_hit);
         let margin = mult * depth
             - if improving { 2 * mult } else { 0 }
             - if opp_worsening { mult / 3 } else { 0 };
@@ -652,7 +696,7 @@ fn node(
             let r = if p::V2_NMP() == 1 {
                 3 + depth / 4
             } else {
-                ((eval - beta) / 230).min(6) + depth / 3 + 5
+                ((eval - beta) / p::V2_NMP_DIV().max(1)).min(6) + depth / 3 + 5
             };
             d.ss[i].mv = None;
             d.ss[i].pt = NO_PT;
@@ -813,39 +857,34 @@ fn node(
         return pc2;
     }
 
-    // Order: the TT move, good tactical moves, quiet moves, bad tactical moves.
+    // Order in stages: the TT move, winning tactical moves, quiet moves
+    // (scored only when the loop reaches them), losing tactical moves.
+    let (list, quiet_list, bad_list) = lists;
     let pawn_bucket = HistoryTable::pawn_bucket(board);
     let low_ply = (ply as usize) < LOW_PLIES;
+    let mut first_sorted = 0;
+    if let Some(t) = tt_move {
+        list.push((i32::MAX, t));
+        first_sorted = 1;
+    }
     for &m in moves {
         if Some(m) == tt_move {
-            list.push((i32::MAX, m));
             continue;
         }
-        let key = if is_tactical(board, m) {
+        if is_tactical(board, m) {
             let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
             if see2(board, m) >= -s / 18 {
-                1_000_000_000 + s
+                list.push((s, m));
             } else {
-                -1_000_000_000 + s
+                bad_list.push((s, m));
             }
         } else {
-            let ft = ft_key(stm, m);
-            let pt = pt_key(stm, m);
-            let mut s = 2 * i32::from(d.main[ft])
-                + 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize])
-                + d.cont_score(i, pt);
-            if low_ply {
-                s += 8 * i32::from(d.low[ply as usize * FT_NB + ft]) / (1 + ply as i32);
-            }
-            if move_gives_direct_check(board, m) && see2(board, m) >= -75 {
-                s += 16000;
-            }
-            s
-        };
-        list.push((key, m));
+            quiet_list.push(m);
+        }
     }
     drop(buf);
-    list.sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
+    list[first_sorted..].sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
+    bad_list.sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
     diag(state, entry_depth, 7);
 
     let mut best_value = -INF;
@@ -859,8 +898,44 @@ fn node(
     let lmp_nodes = p::V2_LMP_NODES();
     let lmp_allowed = (!pv || lmp_nodes & 1 != 0) && (!in_check || lmp_nodes & 2 != 0);
 
-    for idx in 0..list.len() {
+    let mut stage = 0;
+    let mut idx = 0;
+    loop {
+        if idx == list.len() {
+            match stage {
+                0 => {
+                    stage = 1;
+                    if !skip_quiets {
+                        let start = list.len();
+                        for &m in quiet_list.iter() {
+                            let ft = ft_key(stm, m);
+                            let pt = pt_key(stm, m);
+                            let mut s = 2 * i32::from(d.main[ft])
+                                + 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize])
+                                + d.cont_score(i, pt);
+                            if low_ply {
+                                s += 8 * i32::from(d.low[ply as usize * FT_NB + ft])
+                                    / (1 + ply as i32);
+                            }
+                            if move_gives_direct_check(board, m) && see2(board, m) >= -75 {
+                                s += 16000;
+                            }
+                            list.push((s, m));
+                        }
+                        list[start..].sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
+                    }
+                    continue;
+                }
+                1 => {
+                    stage = 2;
+                    list.extend_from_slice(bad_list);
+                    continue;
+                }
+                _ => break,
+            }
+        }
         let m = list[idx].1;
+        idx += 1;
         if Some(m) == excluded {
             continue;
         }
@@ -896,7 +971,7 @@ fn node(
                 }
                 let see_hist = (capt_hist / 32).clamp(-150 * depth, 150 * depth);
                 if (!gives_check || p::V2_CHK() & 1 == 0)
-                    && see2(board, m) < -160 * depth - see_hist
+                    && see2(board, m) < -p::V2_SEE_T() * depth - see_hist
                 {
                     continue;
                 }
@@ -908,19 +983,19 @@ fn node(
                 let mut h = d.cont_at(i, 1, pt)
                     + d.cont_at(i, 2, pt)
                     + i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
-                if h < -2200 * depth {
+                if h < -p::V2_HIST_PRUNE() * depth {
                     continue;
                 }
                 h += 2 * i32::from(d.main[ft_key(stm, m)]);
-                lmr_depth += h / 2300;
+                lmr_depth += h / p::V2_HIST_DIV().max(1);
                 if !in_check && static_eval != NO_EVAL && lmr_depth < 9 {
                     let fut = static_eval
                         + if best_value < static_eval - 50 {
-                            140
+                            p::V2_FUT_BASE() + p::V2_FUT_NOBEST()
                         } else {
-                            50
+                            p::V2_FUT_BASE()
                         }
-                        + 120 * lmr_depth;
+                        + p::V2_FUT_PER() * lmr_depth;
                     if fut <= alpha {
                         if best_value <= fut && !is_decisive(best_value) && !is_decisive(fut) {
                             best_value = fut;
@@ -929,7 +1004,7 @@ fn node(
                     }
                 }
                 let ld = lmr_depth.max(0);
-                if see2(board, m) < -25 * ld * ld {
+                if see2(board, m) < -p::V2_SEE_Q() * ld * ld {
                     continue;
                 }
             }
@@ -945,7 +1020,7 @@ fn node(
             && !is_decisive(tt_score)
             && tt_depth >= depth - 3
         {
-            let sbeta = tt_score - (55 + 75 * i32::from(tt_pv && !pv)) * depth / 60;
+            let sbeta = tt_score - (p::V2_SE_MARGIN() + 75 * i32::from(tt_pv && !pv)) * depth / 60;
             let sdepth = new_depth / 2;
             let saved = d.ss[i];
             d.ss[i].excluded = Some(m);
@@ -1012,7 +1087,7 @@ fn node(
             // Nodes on (or once on) a principal variation are reduced much
             // less, expected cut nodes much more.
             if tt_pv {
-                r -= 2600
+                r -= p::V2_TTPV_R()
                     + if pv { 1000 } else { 0 }
                     + if tt_hit && tt_score > alpha { 900 } else { 0 }
                     + if tt_depth >= depth {
@@ -1023,7 +1098,7 @@ fn node(
             }
             r += 540 - 66 * move_count as i32;
             if cut_node {
-                r += 3100 + if tt_move.is_none() { 1050 } else { 0 };
+                r += p::V2_CUT_R() + if tt_move.is_none() { 1050 } else { 0 };
             }
             if tt_capture && !tactical {
                 r += 1400;
@@ -1034,9 +1109,17 @@ fn node(
             if Some(m) == tt_move {
                 r -= 2000;
             }
-            r -= stat * 1300 / 8192;
+            r -= stat * p::V2_STAT_R() / 8192;
             let hi = new_depth + i32::from(!all_node) + i32::from(pv && best_move.is_none());
-            let dd = (new_depth - r / 1024).clamp(1, hi.max(1));
+            let mut dd = (new_depth - r / 1024).clamp(1, hi.max(1));
+            // V2_CHECK_R: a move that gives check is reduced at most this
+            // many plies; V2_CAPT_LMR 0: tactical moves are not reduced.
+            if child_check {
+                dd = dd.max(new_depth - p::V2_CHECK_R());
+            }
+            if tactical && p::V2_CAPT_LMR() == 0 {
+                dd = dd.max(new_depth);
+            }
             value = -search(
                 d,
                 state,

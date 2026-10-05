@@ -479,6 +479,56 @@ search_params! {
     /// margin and a third of the depth, verified from depth 16 (0); at every
     /// non-PV node, reduced by 3 + depth / 4, verified from depth 6 (1).
     V2_NMP = 0, 0, 1;
+    /// SEARCH_V2 histories at a new search: forgotten (0), kept (1), or
+    /// divided by this value (2..4).
+    V2_KEEP = 1, 0, 4;
+    /// SEARCH_V2: a move that gives check is reduced at most this many plies.
+    V2_CHECK_R = 64, 0, 64;
+    /// SEARCH_V2: tactical moves are reduced like the others (1) or not (0).
+    V2_CAPT_LMR = 1, 0, 1;
+    /// SEARCH_V2 constants (see `search/v2.rs`): history bonus and penalty
+    /// per depth and caps, move-count base, reverse-futility margin per
+    /// depth, null-move eval divisor, exchange pruning of tactical moves per
+    /// depth and of quiet moves per squared depth, continuation-history
+    /// pruning per depth and its depth divisor, quiet futility base, extra
+    /// without a good move and per depth, singular margin per 60 depth, less
+    /// reduction on PV-like nodes and more at cut nodes (1/1024 ply), and the
+    /// history weight of reductions (per 8192).
+    V2_BONUS_LIN = 140, 50, 400;
+    /// SEARCH_V2 history bonus cap.
+    V2_BONUS_MAX = 1500, 500, 3000;
+    /// SEARCH_V2 history penalty per depth.
+    V2_MALUS_LIN = 700, 100, 1200;
+    /// SEARCH_V2 history penalty cap.
+    V2_MALUS_MAX = 2300, 500, 4000;
+    /// SEARCH_V2 move-count pruning base.
+    V2_LMP_BASE = 3, 0, 12;
+    /// SEARCH_V2 reverse-futility margin per depth.
+    V2_RFP_MULT = 85, 30, 200;
+    /// SEARCH_V2 null-move eval divisor.
+    V2_NMP_DIV = 230, 50, 600;
+    /// SEARCH_V2 exchange pruning of tactical moves per depth.
+    V2_SEE_T = 160, 40, 400;
+    /// SEARCH_V2 exchange pruning of quiet moves per squared depth.
+    V2_SEE_Q = 25, 5, 80;
+    /// SEARCH_V2 continuation-history pruning per depth.
+    V2_HIST_PRUNE = 2200, 500, 8000;
+    /// SEARCH_V2 history divisor of the reduced depth.
+    V2_HIST_DIV = 2300, 500, 8000;
+    /// SEARCH_V2 quiet futility base.
+    V2_FUT_BASE = 50, 0, 200;
+    /// SEARCH_V2 quiet futility extra without a good move.
+    V2_FUT_NOBEST = 90, 0, 300;
+    /// SEARCH_V2 quiet futility per depth.
+    V2_FUT_PER = 120, 40, 300;
+    /// SEARCH_V2 singular margin per 60 depth.
+    V2_SE_MARGIN = 55, 10, 200;
+    /// SEARCH_V2 reduction relief on PV-like nodes (1/1024 ply).
+    V2_TTPV_R = 2600, 0, 5000;
+    /// SEARCH_V2 extra reduction at cut nodes (1/1024 ply).
+    V2_CUT_R = 3100, 0, 5000;
+    /// SEARCH_V2 history weight of reductions (per 8192).
+    V2_STAT_R = 1300, 200, 3000;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

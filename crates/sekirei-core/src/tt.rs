@@ -295,6 +295,11 @@ impl Tt {
         self.generation.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// Number of `new_search` calls so far.
+    pub fn search_count(&self) -> u64 {
+        u64::from(self.generation.load(Ordering::Relaxed))
+    }
+
     #[inline]
     fn generation_bits(&self) -> u64 {
         u64::from(self.generation.load(Ordering::Relaxed) & GEN_MASK)
