@@ -5,10 +5,10 @@ static browser client. It is separate from the native USI binary.
 
 ## Install
 
-The prebuilt v0.3.58 ES-module package is published with the GitHub Release:
+The prebuilt v0.3.59 ES-module package is published with the GitHub Release:
 
 ```sh
-npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.58/sekirei-wasm-0.3.58.tgz
+npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.59/sekirei-wasm-0.3.59.tgz
 ```
 
 ## Build
@@ -67,11 +67,10 @@ console.log(longerProblem.outcome, longerProblem.shortestMatePly); // mate, 3
 Rejected input throws an object with stable `code` and human-readable
 `message` fields.
 
-## Position evaluation contract (source API)
+## Position evaluation contract
 
 `analyzePosition(sfen, maxDepth, maxNodes)` is additive; `computerMove` is
-unchanged. This API is in the current source, not the already-published
-v0.3.58 package. Build the source to use it until a subsequent release.
+unchanged.
 It returns a `PositionAnalysis` wasm-bindgen object; call `free()` when done.
 
 | Field | Contract |

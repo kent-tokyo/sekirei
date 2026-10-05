@@ -991,8 +991,7 @@ fn refresh_from_cache(
             }
             for color in PERSPECTIVES {
                 let c = color.index();
-                for k in 0..7 {
-                    let (was, now) = (e.hand[c][k], hand[c][k]);
+                for (k, (&was, &now)) in e.hand[c].iter().zip(hand[c].iter()).enumerate() {
                     if was == now {
                         continue;
                     }

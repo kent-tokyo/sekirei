@@ -23,7 +23,7 @@
 //!   - Delta Pruning in Quiescence Search
 
 use rayon::prelude::*;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering, fence};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use web_time::Instant;
@@ -696,7 +696,12 @@ impl EvalCache {
         }
         let stored_hash = slot.hash.load(Ordering::Relaxed);
         let score = slot.score.load(Ordering::Relaxed);
-        let after = slot.sequence.load(Ordering::Acquire);
+        // An acquire load orders operations after itself, but it does not keep
+        // the preceding payload loads from moving past the validation load.
+        // The fence completes the seqlock read protocol before we re-read the
+        // sequence, so a concurrent overwrite is always observed as a miss.
+        fence(Ordering::Acquire);
+        let after = slot.sequence.load(Ordering::Relaxed);
         (before == after && after & 1 == 0 && stored_hash == hash).then_some(score)
     }
 
@@ -710,7 +715,7 @@ impl EvalCache {
                 .compare_exchange_weak(
                     sequence,
                     sequence.wrapping_add(1),
-                    Ordering::Acquire,
+                    Ordering::AcqRel,
                     Ordering::Relaxed,
                 )
                 .is_err()

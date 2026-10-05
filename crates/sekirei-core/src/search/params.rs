@@ -175,7 +175,7 @@ search_params! {
     LMR_NOT_IMPROVING16 = 0, 0, 32;
     /// Null move reduction grows by this many sixty-fourths of a ply per
     /// ply of depth (0: a fixed NMP_R).
-    NMP_R_PER_DEPTH = 16, 0, 32;
+    NMP_R_PER_DEPTH = 9, 0, 32;
     /// Singular extension margin added per ply of depth.
     SE_MARGIN_PER_DEPTH = 0, 0, 16;
     /// A singular TT move whose verification falls this far below the
@@ -387,7 +387,7 @@ search_params! {
     /// store of the same position replaces it when it is exact, from a newer
     /// search, or at most `TT_KEEP_DEPTH` plies shallower, and keeps the
     /// stored move when it has none.
-    TT_BUCKET = 0, 0, 3;
+    TT_BUCKET = 3, 0, 3;
     /// Time management after a completed iteration: stop at the soft limit
     /// once the best move repeats (0), or at a soft limit scaled by the best
     /// move's stability and the score's fall (1, see `TM_STAB_*`).

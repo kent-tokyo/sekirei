@@ -6,6 +6,30 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.59] – 2026-10-05
+
+- Transposition table: make the four-entry cache-line bucket layout the
+  default. A pre-registered, material-only paired-trinomial SPRT against the
+  direct-mapped layout accepted H1 at 283-211-40 over 534 games
+  (LLR +3.00; H0=0 Elo, H1=+20 Elo, alpha=beta=0.05).
+- Evaluation performance: use dense 8-bit HalfKP inference on AArch64 and
+  retain per-king-square accumulators for king-move refreshes. Regression
+  tests require identical integer scores.
+- Search research: add an opt-in `SEARCH_V2` implementation, root ordering,
+  staged move ordering, cached exchange values, and diagnostic controls.
+  SEARCH_V2, FL_MOVE, adaptive time management, and the deeper null-move
+  reduction remain disabled by default because their release gates are
+  incomplete or inconclusive.
+- Diagnostics: correct node accounting so an alpha-beta leaf followed by
+  quiescence is counted once, and extend cutoff, PV, move-kind, and TT probes.
+- Correctness: strengthen the lock-free evaluation cache seqlock ordering so
+  concurrent colliding writes cannot expose a score from another position.
+- WebAssembly: expose typed bounded position analysis with explicit score,
+  bound, mate, terminal, fallback, and abort metadata while preserving the
+  existing browser move API.
+- This release does not bundle a new NNUE checkpoint or make a general
+  playing-strength or external-engine superiority claim.
+
 ## [0.3.58] – 2026-10-04
 
 - Transposition table: add optional four-entry cache-line buckets with

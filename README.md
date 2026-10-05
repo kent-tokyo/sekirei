@@ -1,18 +1,18 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.58-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.58)
+[![Release](https://img.shields.io/badge/release-v0.3.59-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.59)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.58`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.59`
 provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. It adds a four-entry transposition-table layout,
-standard `USI_Hash` compatibility, explicit opening-book and training-data
-contracts, and reproducible material-only validation. It makes no general
-playing-strength claim.
+library, and browser API. It makes the verified four-entry transposition-table
+layout the default, improves HalfKP refresh and AArch64 inference without
+changing scores, adds disabled-by-default search experiments, and exposes
+typed browser position analysis. It makes no general playing-strength claim.
 
 ## Quick start
 
@@ -59,8 +59,8 @@ beyond under explicit node limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
-The prebuilt v0.3.58 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.58/sekirei-wasm-0.3.58.tgz).
+The prebuilt v0.3.59 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.59/sekirei-wasm-0.3.59.tgz).
 
 ## What is included
 
