@@ -287,12 +287,25 @@ fn attackers_to_square(board: &Board, sq: Square, by: Color, occupied: Bitboard)
         Color::Black => Direction::S,
         Color::White => Direction::N,
     };
-    attackers |= sliding_attacks(sq, occupied, lance_direction) & board.pieces(by, PieceKind::Kyou);
-    for direction in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
-        attackers |= sliding_attacks(sq, occupied, direction) & board.bishop_sliders(by);
+    // A ray is scanned only when a slider of `by` stands on it at all.
+    let lances = board.pieces(by, PieceKind::Kyou);
+    let lance_index = direction_index(lance_direction);
+    if !(RAY_ATTACKS[lance_index][square_index] & lances).is_empty() {
+        attackers |= sliding_attacks_index(sq, occupied, lance_index) & lances;
     }
+    let bishops = board.bishop_sliders(by);
+    for direction in [Direction::NE, Direction::NW, Direction::SE, Direction::SW] {
+        let d = direction_index(direction);
+        if !(RAY_ATTACKS[d][square_index] & bishops).is_empty() {
+            attackers |= sliding_attacks_index(sq, occupied, d) & bishops;
+        }
+    }
+    let rooks = board.rook_sliders(by);
     for direction in [Direction::N, Direction::S, Direction::E, Direction::W] {
-        attackers |= sliding_attacks(sq, occupied, direction) & board.rook_sliders(by);
+        let d = direction_index(direction);
+        if !(RAY_ATTACKS[d][square_index] & rooks).is_empty() {
+            attackers |= sliding_attacks_index(sq, occupied, d) & rooks;
+        }
     }
     attackers
 }
