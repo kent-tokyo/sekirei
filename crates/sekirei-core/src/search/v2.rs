@@ -623,6 +623,260 @@ fn qs(
     quiescence(state, board, alpha, beta, ply, 0, Some(in_check), history)
 }
 
+/// SEARCH_V2's own quiescence (`V2_QS`). Every ply probes and stores the
+/// TT (no quiet checks are generated, so all quiescence plies answer the
+/// same question and share depth-0 entries; deeper entries cut too). The
+/// stand-pat is the corrected static evaluation, refined by a TT bound.
+/// Outside check it searches captures and promotions that capture nothing,
+/// ordered by the captured value and the capture history, skipping futile
+/// captures, losing exchanges and captures after the first few (checks and
+/// recaptures excepted). In check it searches every evasion, captures first,
+/// quiet ones by history, and once one avoids mate skips quiet evasions with
+/// a poor history or a losing exchange.
+#[allow(clippy::too_many_arguments)]
+fn qs2(
+    d: &mut Data,
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    mut alpha: i32,
+    beta: i32,
+    ply: u32,
+    qply: u32,
+    history: &SearchHistory<'_>,
+) -> i32 {
+    let i = ply as usize + OFF;
+    if let Some(c) = state.counters() {
+        c.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+    }
+    if let Some(outcome) = history.outcome_at_current_position() {
+        return repetition_score(outcome, board.side_to_move, ply);
+    }
+    if state.budget.tick() {
+        return 0;
+    }
+    let in_check = d.ss[i].in_check;
+    let stm = board.side_to_move;
+    if ply as usize >= MAX_PLY || qply >= 16 {
+        return if in_check {
+            0
+        } else {
+            evaluate_for_search(state, board)
+        };
+    }
+    alpha = alpha.max(-(MATE_SCORE - ply as i32));
+    let beta = beta.min(MATE_SCORE - ply as i32 - 1);
+    if alpha >= beta {
+        return alpha;
+    }
+    let pv = beta - alpha > 1;
+
+    let hash = board.hash();
+    let entry = probe_tt_for_search_pv(state, hash);
+    let (tt_move, tt_score, tt_bound) = match entry {
+        Some((e, _)) => (e.mv, score_from_tt(e.score, ply), Some(e.bound)),
+        None => (None, 0, None),
+    };
+    let has_lower = matches!(tt_bound, Some(Bound::Lower | Bound::Exact));
+    let has_upper = matches!(tt_bound, Some(Bound::Upper | Bound::Exact));
+    if !pv
+        && tt_bound.is_some()
+        && (if tt_score >= beta {
+            has_lower
+        } else {
+            has_upper
+        })
+    {
+        return tt_score;
+    }
+
+    // Stand-pat.
+    let mut best;
+    let fut_base;
+    if in_check {
+        best = -INF;
+        fut_base = -INF;
+    } else {
+        let raw = evaluate_for_search(state, board);
+        let mut c = state.history.correction(CorrKeys::of(board, stm));
+        if p::V2_CORR_CONT_W() != 0 {
+            c += i32::from(d.corr_cont[d.corr_cont_key(i)]) * p::V2_CORR_CONT_W() / 64;
+        }
+        let se = (raw + c).clamp(-(MATE_BOUND - 1000), MATE_BOUND - 1000);
+        let mut sp = se;
+        if tt_bound.is_some()
+            && !is_decisive(tt_score)
+            && (if tt_score > sp { has_lower } else { has_upper })
+        {
+            sp = tt_score;
+        }
+        if sp >= beta {
+            if tt_bound.is_none() && !state.budget.should_abort() {
+                store_tt_for_search_pv(
+                    state,
+                    hash,
+                    TtEntry {
+                        score: score_to_tt(sp, ply),
+                        depth: 0,
+                        bound: Bound::Lower,
+                        mv: None,
+                    },
+                    false,
+                );
+            }
+            return sp;
+        }
+        if qply == 0 && mate_in_one(board).is_some() {
+            return MATE_SCORE - (ply as i32 + 1);
+        }
+        if sp > alpha {
+            alpha = sp;
+        }
+        best = sp;
+        fut_base = se + p::V2_QS_FUT();
+    }
+
+    // Moves with their order keys.
+    let p_idx = ply as usize;
+    let mut list = std::mem::take(&mut d.lists[p_idx]);
+    list.clear();
+    {
+        let buf = if in_check {
+            MoveBuffer::legal_with_in_check(board, true)
+        } else {
+            MoveBuffer::captures_with_in_check(board, false)
+        };
+        for &m in buf.as_slice() {
+            if p::SKIP_NONPROMO() != 0 && useless_non_promotion(m, stm) {
+                continue;
+            }
+            let capture = m.from.is_some() && board.piece_at(m.to).is_some();
+            let key = if Some(m) == tt_move {
+                i32::MAX
+            } else if capture {
+                1_000_000 + p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m)
+            } else {
+                // A quiet evasion (drops included).
+                let pt = pt_key(stm, m);
+                2 * i32::from(d.main[ft_key(stm, m)]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt)
+            };
+            list.push((key, m, u8::from(capture), i32::MIN));
+        }
+    }
+    let promo = p::V2_QS_PROMO();
+    if !in_check && promo != 0 {
+        crate::movegen::quiet_promotions(board, promo & 1 != 0, promo & 2 != 0, |m| {
+            let key = if Some(m) == tt_move {
+                i32::MAX
+            } else {
+                500_000
+            };
+            list.push((key, m, 0, i32::MIN));
+        });
+    }
+    list.sort_unstable_by_key(|e| std::cmp::Reverse(e.0));
+
+    let prev_to = d.ss[i - 1].mv.map(|m| m.to);
+    let checks = if in_check {
+        None
+    } else {
+        Some(CheckSquares::new(board))
+    };
+    let mut best_move = None;
+    let mut move_count = 0u32;
+    let mut idx = 0;
+    while idx < list.len() {
+        let (_, m, flags, _) = list[idx];
+        idx += 1;
+        let capture = flags & 1 != 0;
+        move_count += 1;
+        if best > -MATE_BOUND {
+            if let Some(checks) = &checks {
+                // Outside check: only captures and promotions are here.
+                let gives_check = checks.gives_direct_check(m);
+                if !gives_check && Some(m.to) != prev_to && !m.promote {
+                    let fut = fut_base + victim_value(board, m);
+                    if fut <= alpha {
+                        best = best.max(fut);
+                        continue;
+                    }
+                    let mc = p::V2_QS_MC();
+                    if mc > 0 && move_count > mc as u32 {
+                        continue;
+                    }
+                }
+                if !gives_check && !captures_up(board, m) && see2(board, m) < -p::V2_QS_SEE() {
+                    continue;
+                }
+            } else if !capture {
+                // A quiet evasion once one evasion avoids mate.
+                let pt = pt_key(stm, m);
+                let h = 2 * i32::from(d.main[ft_key(stm, m)])
+                    + d.cont_at(i, 1, pt)
+                    + d.cont_at(i, 2, pt);
+                if h < -p::V2_QS_EVH() || see2(board, m) < 0 {
+                    continue;
+                }
+            }
+        }
+        let pt = pt_key(stm, m);
+        d.ss[i].mv = Some(m);
+        d.ss[i].pt = pt;
+        d.ss[i].capture = capture;
+        let (tok, child_check, child_history) = play(board, m, history);
+        d.ss[i + 1].in_check = child_check;
+        d.ss[i + 1].excluded = None;
+        let v = -qs2(
+            d,
+            state,
+            board,
+            -beta,
+            -alpha,
+            ply + 1,
+            qply + 1,
+            &child_history,
+        );
+        board.undo_move_for_search(tok);
+        if state.budget.should_abort() {
+            d.lists[p_idx] = list;
+            return 0;
+        }
+        if v > best {
+            best = v;
+            if v > alpha {
+                best_move = Some(m);
+                if v >= beta {
+                    break;
+                }
+                alpha = v;
+            }
+        }
+    }
+    d.lists[p_idx] = list;
+
+    if in_check && best == -INF {
+        return -(MATE_SCORE - ply as i32);
+    }
+    let bound = if best >= beta {
+        Bound::Lower
+    } else if pv && best_move.is_some() {
+        Bound::Exact
+    } else {
+        Bound::Upper
+    };
+    store_tt_for_search_pv(
+        state,
+        hash,
+        TtEntry {
+            score: score_to_tt(best, ply),
+            depth: 0,
+            bound,
+            mv: best_move,
+        },
+        false,
+    );
+    best
+}
+
 #[allow(clippy::too_many_arguments)]
 fn search(
     d: &mut Data,
@@ -640,6 +894,9 @@ fn search(
     if depth <= 0 {
         if let Some(c) = state.counters() {
             c.exit(0);
+        }
+        if p::V2_QS() != 0 {
+            return qs2(d, state, board, alpha, beta, ply, 0, history);
         }
         let in_check = d.ss[i].in_check;
         return qs(state, board, alpha, beta, ply, in_check, history);

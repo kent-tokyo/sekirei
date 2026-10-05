@@ -639,6 +639,24 @@ search_params! {
     /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
     /// moves before a node (0: not used).
     V2_CORR_CONT_W = 0, 0, 128;
+    /// SEARCH_V2 quiescence: its own (1; TT at every ply, corrected stand-pat,
+    /// capture futility, exchange and move-count pruning, quiet promotions,
+    /// history-pruned evasions) or the main search's (0).
+    V2_QS = 0, 0, 1;
+    /// V2_QS: a capture is futile when the stand-pat plus this plus the
+    /// captured piece's value cannot reach alpha.
+    V2_QS_FUT = 200, 0, 1000;
+    /// V2_QS: captures whose exchange loses more than this are skipped.
+    V2_QS_SEE = 50, 0, 600;
+    /// V2_QS: captures after this many are skipped (checks and recaptures
+    /// excepted; 0: no limit).
+    V2_QS_MC = 3, 0, 32;
+    /// V2_QS: once an evasion avoids mate, quiet evasions whose history is
+    /// below minus this are skipped.
+    V2_QS_EVH = 3000, 0, 20000;
+    /// V2_QS: promotions that capture nothing (bit mask: 1 pawn pushes,
+    /// 2 bishop and rook moves).
+    V2_QS_PROMO = 1, 0, 3;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
