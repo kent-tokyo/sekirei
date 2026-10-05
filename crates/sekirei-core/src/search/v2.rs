@@ -1244,7 +1244,9 @@ fn node(
                 {
                     continue;
                 }
-            } else {
+            } else if !(pv && p::V2_PVQ() != 0) {
+                // V2_PVQ 1: quiet moves of PV nodes are not pruned by history,
+                // futility or exchange.
                 let mut h = d.cont_at(i, 1, pt)
                     + d.cont_at(i, 2, pt)
                     + i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);

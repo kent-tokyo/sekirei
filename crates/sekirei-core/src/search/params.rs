@@ -512,9 +512,9 @@ search_params! {
     /// SEARCH_V2 null-move eval divisor.
     V2_NMP_DIV = 230, 50, 600;
     /// SEARCH_V2 exchange pruning of tactical moves per depth.
-    V2_SEE_T = 160, 40, 800;
+    V2_SEE_T = 320, 40, 800;
     /// SEARCH_V2 exchange pruning of quiet moves per squared depth.
-    V2_SEE_Q = 25, 5, 300;
+    V2_SEE_Q = 50, 5, 300;
     /// SEARCH_V2 continuation-history pruning per depth.
     V2_HIST_PRUNE = 2200, 500, 8000;
     /// SEARCH_V2 history divisor of the reduced depth.
@@ -524,7 +524,7 @@ search_params! {
     /// SEARCH_V2 quiet futility extra without a good move.
     V2_FUT_NOBEST = 90, 0, 300;
     /// SEARCH_V2 quiet futility per depth.
-    V2_FUT_PER = 120, 40, 300;
+    V2_FUT_PER = 130, 40, 300;
     /// SEARCH_V2 singular margin per 60 depth.
     V2_SE_MARGIN = 55, 10, 200;
     /// SEARCH_V2 reduction relief on PV-like nodes (1/1024 ply).
@@ -584,6 +584,9 @@ search_params! {
     /// without the pawn history, 4 skips the mate-in-one test of nodes, 8
     /// gives the check bonus without the exchange test.
     V2_DIAG = 0, 0, 15;
+    /// SEARCH_V2: quiet moves of PV nodes skip the history, futility and
+    /// exchange pruning (1).
+    V2_PVQ = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
