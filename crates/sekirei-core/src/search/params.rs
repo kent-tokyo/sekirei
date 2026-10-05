@@ -531,6 +531,12 @@ search_params! {
     V2_STAT_R = 1300, 200, 3000;
     /// SEARCH_V2 ordering bonus of a quiet move giving a safe check.
     V2_CHECK_BONUS = 16000, 0, 32000;
+    /// SEARCH_V2 shape options (bits): 1 PV-like nodes prune over a depth
+    /// reduced one ply more; 2 tactical exchange pruning only when alpha is
+    /// not negative; 4 reductions by the children's cutoffs and at all-nodes
+    /// in proportion, the TT capture term for every move; 8 the reduced
+    /// search of a PV node one ply deeper (up to two plies of extension).
+    V2_SHAPE = 0, 0, 15;
     /// Root moves keep the order of the previous root search of the same
     /// position (moves that raised alpha first, best first) (1), or are
     /// ordered afresh by the history each iteration (0).

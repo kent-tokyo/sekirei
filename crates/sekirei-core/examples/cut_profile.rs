@@ -58,7 +58,15 @@ fn main() {
     for body in &positions {
         let (mut board, history) = parse_position_cmd_with_history(body).expect("parse");
         let diagnostics = Arc::new(SearchDiagnostics::new());
-        let searcher = Searcher::with_diagnostics(Tt::new(64), diagnostics.clone());
+        let searcher = Searcher::with_diagnostics(
+            Tt::new(
+                std::env::var("CP_HASH")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(64),
+            ),
+            diagnostics.clone(),
+        );
         let info = searcher.search_with_history(
             &mut board,
             SearchConfig {

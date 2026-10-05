@@ -970,7 +970,13 @@ fn node(
             if lmp_allowed && move_count >= lmp_limit(depth, improving) {
                 skip_quiets = true;
             }
-            let mut lmr_depth = new_depth - r / 1024;
+            // V2_SHAPE 1: PV-like nodes prune over a more reduced depth.
+            let prune_r = r + if tt_pv && p::V2_SHAPE() & 1 != 0 {
+                1000
+            } else {
+                0
+            };
+            let mut lmr_depth = new_depth - prune_r / 1024;
             if tactical || gives_check {
                 // A quiet check is still a quiet move for move-count pruning.
                 if !tactical && skip_quiets {
@@ -993,6 +999,7 @@ fn node(
                 }
                 let see_hist = (capt_hist / 32).clamp(-150 * depth, 150 * depth);
                 if (!gives_check || p::V2_CHK() & 1 == 0)
+                    && (p::V2_SHAPE() & 2 == 0 || alpha >= 0)
                     && see2(board, m) < -p::V2_SEE_T() * depth - see_hist
                 {
                     continue;
@@ -1138,18 +1145,39 @@ fn node(
             if cut_node {
                 r += p::V2_CUT_R() + if tt_move.is_none() { 1050 } else { 0 };
             }
-            if tt_capture && !tactical {
-                r += 1400;
+            let shape = p::V2_SHAPE();
+            if tt_capture && (!tactical || shape & 4 != 0) {
+                r += if shape & 4 != 0 { 1050 } else { 1400 };
             }
-            if d.ss[i + 1].cutoff_cnt > 2 {
+            if shape & 4 != 0 {
+                // V2_SHAPE 4: more reduction after several cutoffs among the
+                // children, more at all-nodes in proportion.
+                if d.ss[i + 1].cutoff_cnt > 1 {
+                    r += 250
+                        + if d.ss[i + 1].cutoff_cnt > 2 { 1120 } else { 0 }
+                        + if all_node { 1040 } else { 0 };
+                }
+            } else if d.ss[i + 1].cutoff_cnt > 2 {
                 r += 1050 + if all_node { 800 } else { 0 };
             }
             if Some(m) == tt_move {
                 r -= 2000;
             }
             r -= stat * p::V2_STAT_R() / 8192;
-            let hi = new_depth + i32::from(!all_node) + i32::from(pv && best_move.is_none());
-            let mut dd = (new_depth - r / 1024).clamp(1, hi.max(1));
+            if shape & 4 != 0 && all_node {
+                r += r * 270 / (256 * depth + 260);
+            }
+            // V2_SHAPE 8: the reduced search of a PV node goes one ply deeper.
+            let (lo, hi) = if shape & 8 != 0 {
+                (1 + i32::from(pv), new_depth + 2 + i32::from(pv))
+            } else {
+                (
+                    1,
+                    new_depth + i32::from(!all_node) + i32::from(pv && best_move.is_none()),
+                )
+            };
+            let mut dd = (new_depth - r / 1024 + if shape & 8 != 0 { i32::from(pv) } else { 0 })
+                .clamp(lo.min(hi), hi.max(1));
             // V2_CHECK_R: a move that gives check is reduced at most this
             // many plies; V2_CAPT_LMR 0: tactical moves are not reduced.
             if child_check {
