@@ -2017,6 +2017,25 @@ fn root_search(
         None
     };
     let ordered: &[Move] = safe_moves.as_deref().unwrap_or(ordered);
+    // ROOT_ORDER: the order the previous iterations of this search left
+    // (the moves that raised alpha first, best first; the rest as before).
+    let reordered;
+    let ordered: &[Move] = if p::ROOT_ORDER() != 0 {
+        reordered = ROOT_ORDER_STATE.with(|cell| {
+            let st = cell.borrow();
+            if st.0 == board.hash()
+                && st.1.len() == ordered.len()
+                && st.1.iter().all(|m| ordered.contains(m))
+            {
+                st.1.clone()
+            } else {
+                ordered.to_vec()
+            }
+        });
+        &reordered
+    } else {
+        ordered
+    };
 
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
@@ -2142,6 +2161,14 @@ fn safe_root_moves(ordered: &[Move], unsafe_moves: &[Move]) -> Option<Vec<Move>>
     (!safe_moves.is_empty()).then_some(safe_moves)
 }
 
+/// ROOT_ORDER: the root position and its move order after the latest root
+/// search of this thread.
+type RootOrder = (u64, Vec<Move>);
+thread_local! {
+    static ROOT_ORDER_STATE: std::cell::RefCell<RootOrder> =
+        const { std::cell::RefCell::new((0, Vec::new())) };
+}
+
 fn root_search_inner(
     state: &Arc<SearchState>,
     board: &mut Board,
@@ -2153,11 +2180,14 @@ fn root_search_inner(
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
+    // Moves that raised alpha, with their scores (ROOT_ORDER).
+    let mut raised: Vec<(Move, i32)> = Vec::new();
 
     for (i, &m) in ordered.iter().enumerate() {
         let mover = board.side_to_move;
-        // Late quiet root moves get a reduced null-window probe first.
-        let quiet = board.piece_at(m.to).is_none() && !m.promote;
+        // Late quiet root moves get a reduced null-window probe first
+        // (ROOT_LMR 1: every late move).
+        let quiet = p::ROOT_LMR() != 0 || (board.piece_at(m.to).is_none() && !m.promote);
         let reduce = if depth >= 3 && i >= 3 && quiet {
             lmr_base_reduction(depth, i + 1)
                 .saturating_sub(1)
@@ -2192,7 +2222,11 @@ fn root_search_inner(
         let score = if i == 0 {
             search(board, alpha, hi, depth - 1)
         } else {
-            let reduce = if child_in_check { 0 } else { reduce };
+            let reduce = if child_in_check && p::ROOT_LMR() == 0 {
+                0
+            } else {
+                reduce
+            };
             let mut s = search(board, alpha, alpha + 1, depth - 1 - reduce);
             if reduce > 0 && s > alpha {
                 s = search(board, alpha, alpha + 1, depth - 1);
@@ -2211,10 +2245,23 @@ fn root_search_inner(
         if score > alpha {
             alpha = score;
             best_move = Some(m);
+            raised.push((m, score));
         }
         if alpha >= hi {
             break;
         }
+    }
+    if p::ROOT_ORDER() != 0 && !state.budget.should_abort() {
+        raised.sort_by_key(|&(_, s)| std::cmp::Reverse(s));
+        let mut order: Vec<Move> = raised.iter().map(|&(m, _)| m).collect();
+        order.extend(
+            ordered
+                .iter()
+                .copied()
+                .filter(|m| !raised.iter().any(|(r, _)| r == m)),
+        );
+        let hash = board.hash();
+        ROOT_ORDER_STATE.with(|cell| *cell.borrow_mut() = (hash, order));
     }
 
     // An abort means not all root moves were searched; do not publish a

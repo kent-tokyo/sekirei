@@ -144,10 +144,14 @@ fn stat_malus(depth: i32) -> i32 {
     (p::V2_MALUS_LIN() * depth - 120).clamp(0, p::V2_MALUS_MAX())
 }
 
+/// `470 ln(d) ln(n)` for depths and move numbers below 256.
+static LN_TABLE: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+
 /// Base reduction of the `n`-th move at `depth`, in 1/1024 ply.
+#[inline]
 fn base_reduction(improving: bool, depth: i32, n: u32) -> i32 {
-    let ln = |x: i32| (x.max(1) as f32).ln();
-    let scale = (470.0 * ln(depth) * ln(n as i32)) as i32;
+    let ln = LN_TABLE.get_or_init(|| (0..256).map(|x: i32| (x.max(1) as f32).ln()).collect());
+    let scale = (470.0 * ln[depth.clamp(1, 255) as usize] * ln[(n as usize).clamp(1, 255)]) as i32;
     scale + 1090 + if improving { 0 } else { scale * 216 / 512 }
 }
 
@@ -194,10 +198,10 @@ struct Data {
     pawn: Vec<i16>,
     low: Vec<i16>,
     ss: Vec<Frame>,
-    lists: Vec<Vec<(i32, Move)>>,
+    lists: Vec<Vec<(i32, Move, u8)>>,
     /// Per ply: quiet moves not yet scored, and losing tactical moves.
     quiet_lists: Vec<Vec<Move>>,
-    bad_lists: Vec<Vec<(i32, Move)>>,
+    bad_lists: Vec<Vec<(i32, Move, u8)>>,
     nmp_min_ply: u32,
     epoch: u64,
     /// The TT's search count when these tables last saw a search.
@@ -492,7 +496,7 @@ fn search(
 #[allow(clippy::too_many_arguments)]
 fn node(
     d: &mut Data,
-    lists: &mut (Vec<(i32, Move)>, Vec<Move>, Vec<(i32, Move)>),
+    lists: &mut (Vec<(i32, Move, u8)>, Vec<Move>, Vec<(i32, Move, u8)>),
     state: &Arc<SearchState>,
     board: &mut Board,
     mut alpha: i32,
@@ -874,7 +878,7 @@ fn node(
     let low_ply = (ply as usize) < LOW_PLIES;
     let mut first_sorted = 0;
     if let Some(t) = tt_move {
-        list.push((i32::MAX, t));
+        list.push((i32::MAX, t, 0));
         first_sorted = 1;
     }
     for &m in moves {
@@ -884,17 +888,17 @@ fn node(
         if is_tactical(board, m) {
             let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
             if see2(board, m) >= -s / 18 {
-                list.push((s, m));
+                list.push((s, m, 0));
             } else {
-                bad_list.push((s, m));
+                bad_list.push((s, m, 0));
             }
         } else {
             quiet_list.push(m);
         }
     }
     drop(buf);
-    list[first_sorted..].sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
-    bad_list.sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
+    list[first_sorted..].sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
+    bad_list.sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
     diag(state, entry_depth, 7);
 
     let mut best_value = -INF;
@@ -927,15 +931,13 @@ fn node(
                                 s += 8 * i32::from(d.low[ply as usize * FT_NB + ft])
                                     / (1 + ply as i32);
                             }
-                            if p::V2_CHECK_BONUS() > 0
-                                && move_gives_direct_check(board, m)
-                                && see2(board, m) >= -75
-                            {
+                            let check = move_gives_direct_check(board, m);
+                            if check && p::V2_CHECK_BONUS() > 0 && see2(board, m) >= -75 {
                                 s += p::V2_CHECK_BONUS();
                             }
-                            list.push((s, m));
+                            list.push((s, m, 1 + u8::from(check)));
                         }
-                        list[start..].sort_unstable_by_key(|&(k, _)| std::cmp::Reverse(k));
+                        list[start..].sort_unstable_by_key(|&(k, _, _)| std::cmp::Reverse(k));
                     }
                     continue;
                 }
@@ -947,7 +949,7 @@ fn node(
                 _ => break,
             }
         }
-        let m = list[idx].1;
+        let (_, m, check_flag) = list[idx];
         idx += 1;
         if Some(m) == excluded {
             continue;
@@ -956,7 +958,10 @@ fn node(
         d.ss[i].move_count = move_count;
         let tactical = is_tactical(board, m);
         let capture = m.from.is_some() && board.piece_at(m.to).is_some();
-        let gives_check = move_gives_direct_check(board, m);
+        let gives_check = match check_flag {
+            0 => move_gives_direct_check(board, m),
+            f => f == 2,
+        };
         let mut new_depth = depth - 1;
         let mut r = base_reduction(improving, depth, move_count);
 

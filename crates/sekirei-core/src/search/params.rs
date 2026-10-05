@@ -531,6 +531,13 @@ search_params! {
     V2_STAT_R = 1300, 200, 3000;
     /// SEARCH_V2 ordering bonus of a quiet move giving a safe check.
     V2_CHECK_BONUS = 16000, 0, 32000;
+    /// Root moves keep the order of the previous root search of the same
+    /// position (moves that raised alpha first, best first) (1), or are
+    /// ordered afresh by the history each iteration (0).
+    ROOT_ORDER = 0, 0, 1;
+    /// Late root moves are reduced whatever their kind, checks included (1),
+    /// or only quiet moves that do not give check (0).
+    ROOT_LMR = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
