@@ -477,11 +477,9 @@ fn dot(bias: i32, weights: &[i8], input: &[u8]) -> i32 {
 /// Row-major `[output][input]` weights as fixed rows.
 fn weight_rows<const IN: usize>(weights: &[i8]) -> Box<[[i8; IN]; HIDDEN]> {
     debug_assert_eq!(weights.len(), HIDDEN * IN);
-    let rows: Vec<[i8; IN]> = weights
-        .chunks_exact(IN)
-        .map(|row| row.try_into().unwrap())
-        .collect();
-    rows.into_boxed_slice().try_into().unwrap()
+    let (rows, remainder) = weights.as_chunks::<IN>();
+    debug_assert!(remainder.is_empty());
+    rows.to_vec().into_boxed_slice().try_into().unwrap()
 }
 
 /// Dense layer followed by `ClippedReLU`, over 8-bit inputs (0..=127).
