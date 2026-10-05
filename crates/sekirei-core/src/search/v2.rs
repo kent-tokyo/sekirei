@@ -154,14 +154,34 @@ fn stat_malus(depth: i32) -> i32 {
     (p::V2_MALUS_LIN() * depth - 120).clamp(0, p::V2_MALUS_MAX())
 }
 
-/// `470 ln(d) ln(n)` for depths and move numbers below 256.
+/// `ln(x)` for x below 256.
 static LN_TABLE: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
+
+/// `470 ln(d) ln(n)` for depths below 64 and move numbers below 256 (row
+/// `d`, column `n`).
+static RED_TABLE: std::sync::OnceLock<Vec<i32>> = std::sync::OnceLock::new();
+
+#[inline]
+fn ln_table() -> &'static [f32] {
+    LN_TABLE.get_or_init(|| (0..256).map(|x: i32| (x.max(1) as f32).ln()).collect())
+}
 
 /// Base reduction of the `n`-th move at `depth`, in 1/1024 ply.
 #[inline]
 fn base_reduction(improving: bool, depth: i32, n: u32) -> i32 {
-    let ln = LN_TABLE.get_or_init(|| (0..256).map(|x: i32| (x.max(1) as f32).ln()).collect());
-    let scale = (470.0 * ln[depth.clamp(1, 255) as usize] * ln[(n as usize).clamp(1, 255)]) as i32;
+    let d = depth.clamp(1, 255) as usize;
+    let n = (n as usize).clamp(1, 255);
+    let scale = if d < 64 {
+        RED_TABLE.get_or_init(|| {
+            let ln = ln_table();
+            (0..64 * 256)
+                .map(|k| (470.0 * ln[(k / 256).max(1)] * ln[(k % 256).max(1)]) as i32)
+                .collect()
+        })[d * 256 + n]
+    } else {
+        let ln = ln_table();
+        (470.0 * ln[d] * ln[n]) as i32
+    };
     scale + 1090 + if improving { 0 } else { scale * 216 / 512 }
 }
 
@@ -171,8 +191,9 @@ fn lmp_limit(depth: i32, improving: bool) -> u32 {
     ((p::V2_LMP_BASE() + depth * depth) / (2 - i32::from(improving))) as u32
 }
 
-/// A move-list entry: ordering key, move, check flag (0 unknown, 1 no,
-/// 2 yes) and cached exchange value (`i32::MIN`: not computed).
+/// A move-list entry: ordering key, move, flags (bits 0-1: gives check, 0
+/// unknown, 1 no, 2 yes; bit 2: tactical) and cached exchange value
+/// (`i32::MIN`: not computed).
 type Entry = (i32, Move, u8, i32);
 
 /// A node's move lists: ordered moves, unscored quiet moves, losing
@@ -989,7 +1010,12 @@ fn node(
     let low_ply = (ply as usize) < LOW_PLIES;
     let mut first_sorted = 0;
     if let Some(t) = tt_move {
-        list.push((i32::MAX, t, 0, i32::MIN));
+        list.push((
+            i32::MAX,
+            t,
+            if is_tactical(board, t) { 4 } else { 0 },
+            i32::MIN,
+        ));
         first_sorted = 1;
     }
     for &m in moves {
@@ -1007,9 +1033,9 @@ fn node(
                 see2(board, m)
             };
             if se == i32::MIN || se >= -s / 18 {
-                list.push((s, m, 0, se));
+                list.push((s, m, 4, se));
             } else {
-                bad_list.push((s, m, 0, se));
+                bad_list.push((s, m, 4, se));
             }
         } else {
             quiet_list.push(m);
@@ -1083,9 +1109,21 @@ fn node(
         }
         move_count += 1;
         d.ss[i].move_count = move_count;
-        let tactical = is_tactical(board, m);
+        let tactical = check_flag & 4 != 0;
+        // Move-count pruning first: skipped quiet moves (checks included)
+        // need nothing else.
+        if best_value > -MATE_BOUND {
+            if lmp_allowed && move_count >= lmp_limit(depth, improving) {
+                skip_quiets = true;
+            }
+            if !tactical && skip_quiets {
+                continue;
+            }
+        }
         let capture = m.from.is_some() && board.piece_at(m.to).is_some();
-        let gives_check = match check_flag {
+        let pt = pt_key(stm, m);
+        let ft = ft_key(stm, m);
+        let gives_check = match check_flag & 3 {
             0 => checks.gives_direct_check(m),
             f => f == 2,
         };
@@ -1094,9 +1132,6 @@ fn node(
 
         // Pruning at shallow depth.
         if best_value > -MATE_BOUND {
-            if lmp_allowed && move_count >= lmp_limit(depth, improving) {
-                skip_quiets = true;
-            }
             // V2_SHAPE 1: PV-like nodes prune over a more reduced depth.
             let prune_r = r + if tt_pv && p::V2_SHAPE() & 1 != 0 {
                 1000
@@ -1105,10 +1140,6 @@ fn node(
             };
             let mut lmr_depth = new_depth - prune_r / 1024;
             if tactical || gives_check {
-                // A quiet check is still a quiet move for move-count pruning.
-                if !tactical && skip_quiets {
-                    continue;
-                }
                 let capt_hist = if tactical {
                     d.capt_score(board, stm, m)
                 } else {
@@ -1132,17 +1163,13 @@ fn node(
                     continue;
                 }
             } else {
-                if skip_quiets {
-                    continue;
-                }
-                let pt = pt_key(stm, m);
                 let mut h = d.cont_at(i, 1, pt)
                     + d.cont_at(i, 2, pt)
                     + i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
                 if h < -p::V2_HIST_PRUNE() * depth {
                     continue;
                 }
-                h += 2 * i32::from(d.main[ft_key(stm, m)]);
+                h += 2 * i32::from(d.main[ft]);
                 lmr_depth += h / p::V2_HIST_DIV().max(1);
                 if !in_check && static_eval != NO_EVAL && lmr_depth < 9 {
                     let fut = static_eval
@@ -1221,8 +1248,7 @@ fn node(
         let stat = if tactical {
             7 * victim_value(board, m) + d.capt_score(board, stm, m) - 4500
         } else {
-            let pt = pt_key(stm, m);
-            2 * i32::from(d.main[ft_key(stm, m)]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt) - 3600
+            2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt) - 3600
         };
 
         // Play the move.
@@ -1231,7 +1257,7 @@ fn node(
             c.at_depth(entry_depth.max(0) as u32, 8);
         }
         d.ss[i].mv = Some(m);
-        d.ss[i].pt = pt_key(stm, m);
+        d.ss[i].pt = pt;
         d.ss[i].capture = capture;
         let (tok, child_check, child_history) = play(board, m, history);
         if let Some(c) = state.counters() {
@@ -1345,7 +1371,6 @@ fn node(
                 }
                 if !tactical {
                     let b = if value >= beta { 1600 } else { -400 };
-                    let pt = pt_key(stm, m);
                     d.update_cont(i, pt, b);
                 }
             }
