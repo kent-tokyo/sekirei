@@ -157,32 +157,39 @@ fn stat_malus(depth: i32) -> i32 {
 /// `ln(x)` for x below 256.
 static LN_TABLE: std::sync::OnceLock<Vec<f32>> = std::sync::OnceLock::new();
 
-/// `470 ln(d) ln(n)` for depths below 64 and move numbers below 256 (row
-/// `d`, column `n`).
-static RED_TABLE: std::sync::OnceLock<Vec<i32>> = std::sync::OnceLock::new();
-
 #[inline]
 fn ln_table() -> &'static [f32] {
     LN_TABLE.get_or_init(|| (0..256).map(|x: i32| (x.max(1) as f32).ln()).collect())
 }
 
-/// Base reduction of the `n`-th move at `depth`, in 1/1024 ply.
+/// `V2_RED_SCALE ln(d) ln(n)` for depths below 64 and move numbers below
+/// 256 (row `d`, column `n`).
+fn reduction_table(scale: i32) -> Vec<i32> {
+    let ln = ln_table();
+    (0..64 * 256)
+        .map(|k| (scale as f32 * ln[(k / 256).max(1)] * ln[(k % 256).max(1)]) as i32)
+        .collect()
+}
+
+/// Base reduction of the `n`-th move at `depth`, in 1/1024 ply (`table`
+/// from [`reduction_table`]).
 #[inline]
-fn base_reduction(improving: bool, depth: i32, n: u32) -> i32 {
+fn base_reduction(table: &[i32], improving: bool, depth: i32, n: u32) -> i32 {
     let d = depth.clamp(1, 255) as usize;
     let n = (n as usize).clamp(1, 255);
     let scale = if d < 64 {
-        RED_TABLE.get_or_init(|| {
-            let ln = ln_table();
-            (0..64 * 256)
-                .map(|k| (470.0 * ln[(k / 256).max(1)] * ln[(k % 256).max(1)]) as i32)
-                .collect()
-        })[d * 256 + n]
+        table[d * 256 + n]
     } else {
         let ln = ln_table();
-        (470.0 * ln[d] * ln[n]) as i32
+        (p::V2_RED_SCALE() as f32 * ln[d] * ln[n]) as i32
     };
-    scale + 1090 + if improving { 0 } else { scale * 216 / 512 }
+    scale
+        + p::V2_RED_BASE()
+        + if improving {
+            0
+        } else {
+            scale * p::V2_RED_NONIMP() / 512
+        }
 }
 
 /// Move-count pruning limit at `depth`.
@@ -246,6 +253,10 @@ struct Data {
     quiet_lists: Vec<Vec<Move>>,
     bad_lists: Vec<Vec<Entry>>,
     nmp_min_ply: u32,
+    /// Base reductions (`reduction_table`) and the V2_RED_SCALE they were
+    /// built for.
+    red: Vec<i32>,
+    red_scale: i32,
     epoch: u64,
     /// The TT's search count when these tables last saw a search.
     search: u64,
@@ -264,6 +275,8 @@ impl Data {
             quiet_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(128)).collect(),
             bad_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(16)).collect(),
             nmp_min_ply: 0,
+            red: Vec::new(),
+            red_scale: i32::MIN,
             epoch: u64::MAX,
             search: u64::MAX,
         }
@@ -418,6 +431,10 @@ fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
                 .and_then(|mut pool| pool.pop())
                 .unwrap_or_else(|| Box::new(Data::new()))
         });
+        if d.red_scale != p::V2_RED_SCALE() {
+            d.red_scale = p::V2_RED_SCALE();
+            d.red = reduction_table(d.red_scale);
+        }
         let epoch = state.history.epoch();
         if d.epoch != epoch {
             d.clear();
@@ -824,7 +841,7 @@ fn node(
 
     if !in_check && excluded.is_none() {
         // Razoring.
-        if !pv && eval < alpha - 450 - 280 * depth * depth {
+        if !pv && eval < alpha - p::V2_RAZOR_BASE() - p::V2_RAZOR_QUAD() * depth * depth {
             let v = qs(state, board, alpha - 1, alpha, ply, false, history);
             if v < alpha && !is_decisive(v) {
                 if let Some(c) = state.counters() {
@@ -859,7 +876,7 @@ fn node(
         if (cut_node || (p::V2_NMP() == 1 && !pv))
             && prior.mv.is_some()
             && eval >= beta
-            && static_eval >= beta - 20 * depth + 380
+            && static_eval >= beta - p::V2_NMP_EV_PER() * depth + p::V2_NMP_EV_BASE()
             && ply >= d.nmp_min_ply
             && !is_decisive(beta)
         {
@@ -937,7 +954,7 @@ fn node(
     let tt_move = tt_move.filter(|t| moves.contains(t));
 
     // ProbCut.
-    let pc_beta = beta + 190 - 60 * i32::from(improving);
+    let pc_beta = beta + p::V2_PC_MARGIN() - p::V2_PC_IMP() * i32::from(improving);
     if !pv
         && !in_check
         && excluded.is_none()
@@ -1019,7 +1036,7 @@ fn node(
     }
 
     // Small ProbCut on a TT lower bound well above beta.
-    let pc2 = beta + 400;
+    let pc2 = beta + p::V2_PC2_MARGIN();
     if excluded.is_none()
         && has_lower
         && tt_depth >= depth - 4
@@ -1210,7 +1227,7 @@ fn node(
             f => f == 2,
         };
         let mut new_depth = depth - 1;
-        let mut r = base_reduction(improving, depth, move_count);
+        let mut r = base_reduction(&d.red, improving, depth, move_count);
 
         // Pruning at shallow depth.
         if best_value > -MATE_BOUND {
@@ -1229,10 +1246,10 @@ fn node(
                 };
                 if !gives_check && lmr_depth < 7 && !in_check && static_eval != NO_EVAL {
                     let fut = static_eval
-                        + 250
-                        + 230 * lmr_depth
+                        + p::V2_CFUT_BASE()
+                        + p::V2_CFUT_PER() * lmr_depth
                         + victim_value(board, m)
-                        + 100 * capt_hist / 1024;
+                        + p::V2_CFUT_HIST() * capt_hist / 1024;
                     if fut <= alpha {
                         continue;
                     }
@@ -1308,7 +1325,8 @@ fn node(
                 return 0;
             }
             if v < sbeta {
-                let double_margin = 250 * i32::from(pv) - 200 * i32::from(!tt_capture);
+                let double_margin = p::V2_SE_DBL_PV() * i32::from(pv)
+                    - p::V2_SE_DBL_QUIET() * i32::from(!tt_capture);
                 let triple_margin = 90 + 280 * i32::from(pv) - 230 * i32::from(!tt_capture)
                     + 100 * i32::from(tt_pv);
                 ext =
@@ -1378,7 +1396,7 @@ fn node(
                         0
                     };
             }
-            r += 540 - 66 * move_count as i32;
+            r += p::V2_LMR_MC_BASE() - p::V2_LMR_MC_PER() * move_count as i32;
             if cut_node {
                 r += p::V2_CUT_R() + if tt_move.is_none() { 1050 } else { 0 };
             }
@@ -1398,7 +1416,7 @@ fn node(
                 r += 1050 + if all_node { 800 } else { 0 };
             }
             if Some(m) == tt_move {
-                r -= 2000;
+                r -= p::V2_LMR_TTMOVE();
             }
             r -= stat * p::V2_STAT_R() / 8192;
             if shape & 4 != 0 && all_node {
@@ -1438,8 +1456,8 @@ fn node(
             );
             d.ss[i].reduction = 0;
             if value > alpha && dd < new_depth {
-                let deeper = value > best_value + 45 + 2 * new_depth;
-                let shallower = value < best_value + 10;
+                let deeper = value > best_value + p::V2_DEEPER_BASE() + 2 * new_depth;
+                let shallower = value < best_value + p::V2_SHALLOWER();
                 new_depth += i32::from(deeper) - i32::from(shallower);
                 if new_depth > dd {
                     value = -search(
@@ -1462,7 +1480,7 @@ fn node(
             }
         } else if !pv || move_count > 1 {
             if tt_move.is_none() {
-                r += 1100;
+                r += p::V2_FULL_NOTT();
             }
             let nd = new_depth - i32::from(r > 3500) - i32::from(r > 4800 && new_depth > 2);
             value = -search(

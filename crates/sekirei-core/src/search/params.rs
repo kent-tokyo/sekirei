@@ -587,6 +587,51 @@ search_params! {
     /// SEARCH_V2: quiet moves of PV nodes skip the history, futility and
     /// exchange pruning (1).
     V2_PVQ = 0, 0, 1;
+    /// SEARCH_V2 reduction scale: `scale ln(depth) ln(move number)`.
+    V2_RED_SCALE = 470, 200, 900;
+    /// SEARCH_V2 reduction offset (1/1024 ply).
+    V2_RED_BASE = 1090, 0, 3000;
+    /// SEARCH_V2 extra reduction at non-improving nodes (scale / 512).
+    V2_RED_NONIMP = 216, 0, 600;
+    /// SEARCH_V2 razoring margin: constant part.
+    V2_RAZOR_BASE = 450, 100, 1500;
+    /// SEARCH_V2 razoring margin per squared depth.
+    V2_RAZOR_QUAD = 280, 50, 800;
+    /// SEARCH_V2 null move needs the static evaluation at least beta minus
+    /// this per depth plus V2_NMP_EV_BASE.
+    V2_NMP_EV_PER = 20, 0, 60;
+    /// SEARCH_V2 null move static-evaluation condition: constant part.
+    V2_NMP_EV_BASE = 380, 0, 1000;
+    /// SEARCH_V2 ProbCut margin over beta.
+    V2_PC_MARGIN = 190, 50, 500;
+    /// SEARCH_V2 ProbCut margin reduction at improving nodes.
+    V2_PC_IMP = 60, 0, 200;
+    /// SEARCH_V2 small ProbCut margin over beta for a TT lower bound.
+    V2_PC2_MARGIN = 400, 100, 1200;
+    /// SEARCH_V2 futility of tactical moves: constant part.
+    V2_CFUT_BASE = 250, 50, 800;
+    /// SEARCH_V2 futility of tactical moves per ply of reduced depth.
+    V2_CFUT_PER = 230, 50, 600;
+    /// SEARCH_V2 futility of tactical moves: capture-history weight (/1024).
+    V2_CFUT_HIST = 100, 0, 400;
+    /// SEARCH_V2 double extension margin at PV nodes.
+    V2_SE_DBL_PV = 250, 0, 800;
+    /// SEARCH_V2 double extension margin reduction for a quiet TT move.
+    V2_SE_DBL_QUIET = 200, 0, 600;
+    /// SEARCH_V2 late-move reduction offset (1/1024 ply), less this per move.
+    V2_LMR_MC_BASE = 540, -1000, 2000;
+    /// SEARCH_V2 late-move reduction decrease per move number.
+    V2_LMR_MC_PER = 66, 0, 200;
+    /// SEARCH_V2 reduction decrease of the TT move (1/1024 ply).
+    V2_LMR_TTMOVE = 2000, 0, 5000;
+    /// SEARCH_V2 margin over the best value for a deeper re-search.
+    V2_DEEPER_BASE = 45, 0, 200;
+    /// SEARCH_V2 margin over the best value below which the re-search is
+    /// shallower.
+    V2_SHALLOWER = 10, -50, 100;
+    /// SEARCH_V2 extra reduction without a TT move when no late-move
+    /// reduction applies (1/1024 ply).
+    V2_FULL_NOTT = 1100, 0, 3000;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
