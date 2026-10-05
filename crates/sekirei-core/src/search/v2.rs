@@ -1059,7 +1059,45 @@ fn node(
 
     let mut stage = 0;
     let mut idx = 0;
+    // The quiet moves occupy list[quiet_start..quiet_end] once scored.
+    let (mut quiet_start, mut quiet_end) = (0, 0);
+    // V2_SORT 1: the first quiet moves are picked one at a time (best
+    // first, earlier on ties), the rest sorted stably when more are needed.
+    let lazy_sort = p::V2_SORT() != 0;
+    let (mut picks, mut tail_sorted) = (0u32, false);
     loop {
+        if idx < quiet_end {
+            if skip_quiets {
+                // Every remaining quiet move would be counted and skipped.
+                let n = if excluded.is_some() {
+                    list[idx..quiet_end]
+                        .iter()
+                        .filter(|e| Some(e.1) != excluded)
+                        .count()
+                } else {
+                    quiet_end - idx
+                };
+                move_count += n as u32;
+                d.ss[i].move_count = move_count;
+                idx = quiet_end;
+                continue;
+            }
+            if lazy_sort && idx >= quiet_start && !tail_sorted {
+                if picks < 4 {
+                    let mut j = idx;
+                    for k in idx + 1..quiet_end {
+                        if list[k].0 > list[j].0 {
+                            j = k;
+                        }
+                    }
+                    list[idx..=j].rotate_right(1);
+                    picks += 1;
+                } else {
+                    list[idx..quiet_end].sort_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+                    tail_sorted = true;
+                }
+            }
+        }
         if idx == list.len() {
             match stage {
                 0 => {
@@ -1083,7 +1121,12 @@ fn node(
                             }
                             list.push((s, m, 1 + u8::from(check), se));
                         }
-                        list[start..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+                        if !lazy_sort {
+                            list[start..]
+                                .sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+                        }
+                        quiet_start = start;
+                        quiet_end = list.len();
                     }
                     continue;
                 }

@@ -553,6 +553,9 @@ search_params! {
     /// iteration's order (ROOT_ORDER) (1), or orders by the main search's
     /// tables (0).
     V2_ROOT = 0, 0, 1;
+    /// SEARCH_V2 quiet move order: picked best first one at a time for the
+    /// first few, ties in generation order (1), or fully sorted at once (0).
+    V2_SORT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
