@@ -301,7 +301,12 @@ impl Data {
     #[inline]
     fn cont_score(&self, i: usize, pt: u32) -> i32 {
         let mut s = 0;
-        for k in [1usize, 2, 3, 4, 6] {
+        let rows: &[usize] = if p::V2_DIAG() & 1 != 0 {
+            &[1, 2]
+        } else {
+            &[1, 2, 3, 4, 6]
+        };
+        for &k in rows {
             let prev = self.ss[i - k].pt;
             if prev != NO_PT {
                 s += i32::from(self.cont[prev as usize * PT_NB + pt as usize]);
@@ -742,7 +747,12 @@ fn node(
     }
 
     // A mate in one ends the node.
-    if !in_check && excluded.is_none() && !tt_hit && mate_in_one(board).is_some() {
+    if !in_check
+        && excluded.is_none()
+        && !tt_hit
+        && p::V2_DIAG() & 4 == 0
+        && mate_in_one(board).is_some()
+    {
         diag(state, entry_depth, 6);
         return MATE_SCORE - (ply as i32 + 1);
     }
@@ -1127,16 +1137,25 @@ fn node(
                         for &m in quiet_list.iter() {
                             let ft = ft_key(stm, m);
                             let pt = pt_key(stm, m);
-                            let mut s = 2 * i32::from(d.main[ft])
-                                + 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize])
-                                + d.cont_score(i, pt);
+                            let mut s = 2 * i32::from(d.main[ft]) + d.cont_score(i, pt);
+                            if p::V2_DIAG() & 2 == 0 {
+                                s += 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
+                            }
                             if low_ply {
                                 s += p::V2_LOWPLY_W() * i32::from(d.low[ply as usize * FT_NB + ft])
                                     / (1 + ply as i32);
                             }
                             let check = checks.gives_direct_check(m);
-                            let se = if check { see2(board, m) } else { i32::MIN };
-                            if check && p::V2_CHECK_BONUS() > 0 && se >= -p::V2_CHECK_SEE() {
+                            let no_see = p::V2_DIAG() & 8 != 0;
+                            let se = if check && !no_see {
+                                see2(board, m)
+                            } else {
+                                i32::MIN
+                            };
+                            if check
+                                && p::V2_CHECK_BONUS() > 0
+                                && (no_see || se >= -p::V2_CHECK_SEE())
+                            {
                                 s += p::V2_CHECK_BONUS();
                             }
                             list.push((s, m, 1 + u8::from(check), se));

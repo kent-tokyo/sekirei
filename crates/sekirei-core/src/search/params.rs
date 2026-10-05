@@ -579,6 +579,11 @@ search_params! {
     /// SEARCH_V2: a quiet check gets V2_CHECK_BONUS when its exchange is at
     /// least minus this.
     V2_CHECK_SEE = 100, 0, 600;
+    /// SEARCH_V2 cost diagnostics (bit mask, changes the search): 1 scores
+    /// quiet moves with the continuation histories of 1 and 2 plies only, 2
+    /// without the pawn history, 4 skips the mate-in-one test of nodes, 8
+    /// gives the check bonus without the exchange test.
+    V2_DIAG = 0, 0, 15;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
