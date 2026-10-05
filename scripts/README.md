@@ -31,6 +31,7 @@ records a reason.
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
+| `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol A/B self-play or node-limited YaneuraOu ladder with one external HalfKP network. One thread and `SpecTopN=0` remain the diagnostic defaults; explicit per-side thread and search-mode options support parallel studies. Local diagnostic only. |
