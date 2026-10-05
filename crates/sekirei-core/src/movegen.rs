@@ -873,7 +873,7 @@ pub(crate) fn quiet_promotions(board: &Board, pawns: bool, sliders: bool, mut f:
             while let Some(from) = pieces.pop_lsb() {
                 let mut targets = dropped_attacks(kind, color, from, occ).and_not(occ);
                 if !zone.contains(from) {
-                    targets = targets & zone;
+                    targets &= zone;
                 }
                 while let Some(to) = targets.pop_lsb() {
                     f(Move::normal(from, to, kind, true));
