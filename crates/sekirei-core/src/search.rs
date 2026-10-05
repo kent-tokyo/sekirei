@@ -4013,6 +4013,66 @@ fn quiescence(
         }
     }
 
+    // QS_PROMO: promotions that capture nothing (bit 1 pawns, 2 bishops and
+    // rooks; bit 8 at every quiescence ply, otherwise at the first only).
+    let qs_promo = p::QS_PROMO();
+    if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
+        let mut promos = [None; 16];
+        let mut n = 0;
+        crate::movegen::quiet_promotions(board, qs_promo & 1 != 0, qs_promo & 2 != 0, |m| {
+            if n < promos.len() {
+                promos[n] = Some(m);
+                n += 1;
+            }
+        });
+        for m in promos.iter().take(n).flatten().copied() {
+            if qs_on {
+                set_current_move(ply, Some(m));
+            }
+            let tok = board.do_move_for_search(m);
+            let mover = stm;
+            if is_in_check(board, mover) {
+                board.undo_move_for_search(tok);
+                continue;
+            }
+            let gives_check = is_in_check(board, board.side_to_move);
+            let child_history = history.after_move(board.hash(), mover, gives_check);
+            let score = -quiescence(
+                state,
+                board,
+                -beta,
+                -alpha,
+                ply + 1,
+                qply + 1,
+                Some(gives_check),
+                &child_history,
+            );
+            board.undo_move_for_search(tok);
+            if state.budget.should_abort() {
+                return 0;
+            }
+            if score >= beta {
+                if tt_here {
+                    store_tt_for_search(
+                        state,
+                        hash,
+                        TtEntry {
+                            score: score_to_tt(score, ply),
+                            depth: 0,
+                            bound: Bound::Lower,
+                            mv: Some(m),
+                        },
+                    );
+                }
+                return score;
+            }
+            if score > alpha {
+                alpha = score;
+                best_move = Some(m);
+            }
+        }
+    }
+
     // Quiet checks: at the shallowest qsearch level, search a handful of
     // non-capture moves that give check and have non-negative SEE.
     // Drops that give check (e.g. 飛打ち王手) are included naturally.

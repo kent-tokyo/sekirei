@@ -844,6 +844,45 @@ fn king_destination_is_safe(board: &Board, mover: Color, m: Move) -> bool {
     !is_attacked_with_occupancy(board, m.to, mover.flip(), occupied)
 }
 
+/// Promotions that capture nothing, before any legality check of the
+/// mover's own king: pawn pushes into or within the promotion zone (`pawns`)
+/// and bishop and rook moves into, within or out of it (`sliders`). Used by
+/// quiescence (`QS_PROMO`).
+pub(crate) fn quiet_promotions(board: &Board, pawns: bool, sliders: bool, mut f: impl FnMut(Move)) {
+    let color = board.side_to_move;
+    let zone = match color {
+        Color::Black => Bitboard::PROMOTE_BLACK,
+        Color::White => Bitboard::PROMOTE_WHITE,
+    };
+    let occ = board.occ();
+    if pawns {
+        let mut pawns = board.pieces(color, PieceKind::Fu);
+        while let Some(from) = pawns.pop_lsb() {
+            let target = PAWN_ATTACKS[color.index()][from.index() as usize];
+            if (target & zone).is_empty() || !(target & occ).is_empty() {
+                continue;
+            }
+            if let Some(to) = target.lsb() {
+                f(Move::normal(from, to, PieceKind::Fu, true));
+            }
+        }
+    }
+    if sliders {
+        for kind in [PieceKind::Hisha, PieceKind::Kaku] {
+            let mut pieces = board.pieces(color, kind);
+            while let Some(from) = pieces.pop_lsb() {
+                let mut targets = dropped_attacks(kind, color, from, occ).and_not(occ);
+                if !zone.contains(from) {
+                    targets = targets & zone;
+                }
+                while let Some(to) = targets.pop_lsb() {
+                    f(Move::normal(from, to, kind, true));
+                }
+            }
+        }
+    }
+}
+
 #[inline]
 fn promotion_masks(kind: PieceKind, color: Color) -> (Bitboard, Bitboard) {
     let zone = match color {

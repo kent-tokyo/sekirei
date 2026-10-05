@@ -333,6 +333,10 @@ search_params! {
     /// non-capture evasions (1), and also capture evasions that lose material
     /// (2), or search every evasion (0).
     QS_EVASION_PRUNE = 0, 0, 2;
+    /// Quiescence searches promotions that capture nothing (bit mask: 1 pawn
+    /// pushes, 2 bishop and rook moves; 8 at every quiescence ply, otherwise
+    /// at the first only), or none (0).
+    QS_PROMO = 0, 0, 15;
     /// Quiescence TT use (bit mask; 0 = top-level qsearch entries only):
     /// 1 probes and stores at every qsearch ply, 2 also cuts on main-search
     /// entries (depth >= 1), 4 orders by a main-search entry's move, 8 lets a
