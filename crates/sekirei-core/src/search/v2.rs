@@ -448,8 +448,8 @@ pub(super) fn order_root(state: &SearchState, board: &Board, moves: &mut [Move],
                 let k = if Some(m) == tt {
                     i32::MAX
                 } else if is_tactical(board, m) {
-                    let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
-                    if see2(board, m) >= -s / 18 {
+                    let s = p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m);
+                    if see2(board, m) >= -s / p::V2_GOODCAP_DIV().max(1) {
                         1_000_000_000 + s
                     } else {
                         -1_000_000_000 + s
@@ -459,10 +459,10 @@ pub(super) fn order_root(state: &SearchState, board: &Board, moves: &mut [Move],
                     let pt = pt_key(stm, m) as usize;
                     let mut s = 2 * i32::from(d.main[ft])
                         + 2 * i32::from(d.pawn[bucket * PT_NB + pt])
-                        + 8 * i32::from(d.low[ft]);
+                        + p::V2_LOWPLY_W() * i32::from(d.low[ft]);
                     if checks.gives_direct_check(m)
                         && p::V2_CHECK_BONUS() > 0
-                        && see2(board, m) >= -75
+                        && see2(board, m) >= -p::V2_CHECK_SEE()
                     {
                         s += p::V2_CHECK_BONUS();
                     }
@@ -941,7 +941,7 @@ fn node(
         caps.clear();
         for &m in moves {
             if is_tactical(board, m) {
-                let k = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
+                let k = p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m);
                 caps.push((k, m, 0, i32::MIN));
             }
         }
@@ -1043,7 +1043,7 @@ fn node(
             continue;
         }
         if is_tactical(board, m) {
-            let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
+            let s = p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m);
             // A capture of a piece worth at least the capturer cannot lose
             // the exchange: with a non-negative key it is a winning move
             // without computing the exchange (computed later only if needed).
@@ -1052,7 +1052,7 @@ fn node(
             } else {
                 see2(board, m)
             };
-            if se == i32::MIN || se >= -s / 18 {
+            if se == i32::MIN || se >= -s / p::V2_GOODCAP_DIV().max(1) {
                 list.push((s, m, 4, se));
             } else {
                 bad_list.push((s, m, 4, se));
@@ -1131,12 +1131,12 @@ fn node(
                                 + 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize])
                                 + d.cont_score(i, pt);
                             if low_ply {
-                                s += 8 * i32::from(d.low[ply as usize * FT_NB + ft])
+                                s += p::V2_LOWPLY_W() * i32::from(d.low[ply as usize * FT_NB + ft])
                                     / (1 + ply as i32);
                             }
                             let check = checks.gives_direct_check(m);
                             let se = if check { see2(board, m) } else { i32::MIN };
-                            if check && p::V2_CHECK_BONUS() > 0 && se >= -75 {
+                            if check && p::V2_CHECK_BONUS() > 0 && se >= -p::V2_CHECK_SEE() {
                                 s += p::V2_CHECK_BONUS();
                             }
                             list.push((s, m, 1 + u8::from(check), se));
@@ -1309,7 +1309,7 @@ fn node(
 
         // History score of the move for its reduction (before it is played).
         let stat = if tactical {
-            7 * victim_value(board, m) + d.capt_score(board, stm, m) - 4500
+            p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m) - 4500
         } else {
             2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt) - 3600
         };

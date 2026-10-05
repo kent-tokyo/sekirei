@@ -506,7 +506,7 @@ search_params! {
     /// SEARCH_V2 history penalty cap.
     V2_MALUS_MAX = 2300, 500, 4000;
     /// SEARCH_V2 move-count pruning base.
-    V2_LMP_BASE = 3, 0, 12;
+    V2_LMP_BASE = 4, 0, 12;
     /// SEARCH_V2 reverse-futility margin per depth.
     V2_RFP_MULT = 85, 30, 200;
     /// SEARCH_V2 null-move eval divisor.
@@ -568,6 +568,17 @@ search_params! {
     /// NNUE refresh after a king move starts from the accumulator kept for the
     /// new king square (1) or rebuilds from scratch (0). Same values either way.
     NNUE_FINNY = 1, 0, 1;
+    /// SEARCH_V2 weight of the captured piece's value in tactical move keys.
+    V2_MVV_W = 6, 1, 16;
+    /// SEARCH_V2: a tactical move is ordered with the winning ones when its
+    /// exchange is at least minus its key divided by this.
+    V2_GOODCAP_DIV = 16, 4, 64;
+    /// SEARCH_V2 weight of the root-near history in quiet move keys (divided
+    /// by 1 + ply).
+    V2_LOWPLY_W = 6, 0, 16;
+    /// SEARCH_V2: a quiet check gets V2_CHECK_BONUS when its exchange is at
+    /// least minus this.
+    V2_CHECK_SEE = 100, 0, 600;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
