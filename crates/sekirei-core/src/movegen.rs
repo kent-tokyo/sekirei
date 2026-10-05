@@ -152,6 +152,70 @@ pub fn move_gives_direct_check(board: &Board, m: Move) -> bool {
     })
 }
 
+/// For each piece kind (the kind a moving piece has on arrival), the squares
+/// from which a piece of the side to move gives direct check to the enemy
+/// king. Built once per position; [`CheckSquares::gives_direct_check`] then
+/// answers [`move_gives_direct_check`] with one lookup.
+pub struct CheckSquares([Bitboard; PieceKind::COUNT]);
+
+impl CheckSquares {
+    /// Check squares of the side to move in `board`.
+    pub fn new(board: &Board) -> Self {
+        let mut s = [Bitboard::EMPTY; PieceKind::COUNT];
+        let us = board.side_to_move;
+        let them = us.flip();
+        let Some(ksq) = board.king_square(them) else {
+            return CheckSquares(s);
+        };
+        let ki = ksq.index() as usize;
+        let rc = them.index();
+        let occ = board.occ();
+        let diagonal = sliding_attacks(ksq, occ, Direction::NE)
+            | sliding_attacks(ksq, occ, Direction::NW)
+            | sliding_attacks(ksq, occ, Direction::SE)
+            | sliding_attacks(ksq, occ, Direction::SW);
+        let orthogonal = sliding_attacks(ksq, occ, Direction::N)
+            | sliding_attacks(ksq, occ, Direction::S)
+            | sliding_attacks(ksq, occ, Direction::E)
+            | sliding_attacks(ksq, occ, Direction::W);
+        // Seen from the enemy king, our lances stand toward our side.
+        let lance = sliding_attacks(
+            ksq,
+            occ,
+            match us {
+                Color::Black => Direction::S,
+                Color::White => Direction::N,
+            },
+        );
+        let gold = GOLD_ATTACKS[rc][ki];
+        s[PieceKind::Fu.index()] = PAWN_ATTACKS[rc][ki];
+        s[PieceKind::Kyou.index()] = lance;
+        s[PieceKind::Kei.index()] = KNIGHT_ATTACKS[rc][ki];
+        s[PieceKind::Gin.index()] = SILVER_ATTACKS[rc][ki];
+        s[PieceKind::Kin.index()] = gold;
+        s[PieceKind::Tokin.index()] = gold;
+        s[PieceKind::Narikyo.index()] = gold;
+        s[PieceKind::Narikei.index()] = gold;
+        s[PieceKind::Narigin.index()] = gold;
+        s[PieceKind::Kaku.index()] = diagonal;
+        s[PieceKind::Hisha.index()] = orthogonal;
+        s[PieceKind::Uma.index()] = diagonal | ORTHOGONAL_STEP_ATTACKS[ki];
+        s[PieceKind::Ryu.index()] = orthogonal | DIAGONAL_STEP_ATTACKS[ki];
+        CheckSquares(s)
+    }
+
+    /// Whether `m` gives direct check (as [`move_gives_direct_check`]).
+    #[inline]
+    pub fn gives_direct_check(&self, m: Move) -> bool {
+        let kind = if m.promote {
+            m.piece_kind.promoted()
+        } else {
+            m.piece_kind
+        };
+        self.0[kind.index()].contains(m.to)
+    }
+}
+
 /// Squares of the side to move's pieces that are the only blocker between
 /// one of its sliders and the enemy king. Moving such a piece off the line
 /// gives a discovered check.
@@ -306,6 +370,36 @@ pub(crate) fn see_exchange(board: &Board, m: Move) -> i32 {
 #[cfg(test)]
 mod attack_union_tests {
     use super::*;
+
+    #[test]
+    fn check_squares_match_direct_check() {
+        // Pseudo-random games from the start position: every legal move of
+        // every position agrees with `move_gives_direct_check`.
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for _game in 0..12 {
+            let mut b = Board::startpos();
+            for _ply in 0..160 {
+                let moves: Vec<Move> = MoveBuffer::legal(&mut b).as_slice().to_vec();
+                if moves.is_empty() {
+                    break;
+                }
+                let cs = CheckSquares::new(&b);
+                for &m in &moves {
+                    assert_eq!(
+                        cs.gives_direct_check(m),
+                        move_gives_direct_check(&b, m),
+                        "{m:?} in {}",
+                        crate::sfen::board_to_sfen(&b)
+                    );
+                }
+                seed = seed
+                    .wrapping_mul(6_364_136_223_846_793_005)
+                    .wrapping_add(1_442_695_040_888_963_407);
+                let m = moves[(seed >> 33) as usize % moves.len()];
+                b.do_move(m);
+            }
+        }
+    }
 
     #[test]
     fn see_swap_matches_known_exchanges() {

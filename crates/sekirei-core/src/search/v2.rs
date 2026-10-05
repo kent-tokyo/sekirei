@@ -40,7 +40,7 @@ use super::{
 use crate::board::Board;
 use crate::color::Color;
 use crate::eval::PIECE_VALUE;
-use crate::movegen::{MoveBuffer, is_in_check, mate_in_one, move_gives_direct_check, see_exchange};
+use crate::movegen::{CheckSquares, MoveBuffer, is_in_check, mate_in_one, see_exchange};
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::tt::Bound;
@@ -117,6 +117,16 @@ fn victim_value(board: &Board, m: Move) -> i32 {
         .map_or(0, |v| {
             PIECE_VALUE[v.kind.index()] + PIECE_VALUE[v.kind.unpromoted().index()]
         })
+}
+
+/// Whether `m` captures a piece worth at least the capturing piece (its
+/// exchange is then at least zero).
+#[inline]
+fn captures_up(board: &Board, m: Move) -> bool {
+    m.from.is_some()
+        && board
+            .piece_at(m.to)
+            .is_some_and(|v| PIECE_VALUE[v.kind.index()] >= PIECE_VALUE[m.piece_kind.index()])
 }
 
 /// Static exchange evaluation in evaluation units. `see_exchange` counts a
@@ -406,6 +416,7 @@ pub(super) fn order_root(state: &SearchState, board: &Board, moves: &mut [Move],
     with_data(state, |d| {
         let stm = board.side_to_move;
         let bucket = HistoryTable::pawn_bucket(board);
+        let checks = CheckSquares::new(board);
         let mut keyed: Vec<(i32, Move)> = moves
             .iter()
             .map(|&m| {
@@ -424,7 +435,7 @@ pub(super) fn order_root(state: &SearchState, board: &Board, moves: &mut [Move],
                     let mut s = 2 * i32::from(d.main[ft])
                         + 2 * i32::from(d.pawn[bucket * PT_NB + pt])
                         + 8 * i32::from(d.low[ft]);
-                    if move_gives_direct_check(board, m)
+                    if checks.gives_direct_check(m)
                         && p::V2_CHECK_BONUS() > 0
                         && see2(board, m) >= -75
                     {
@@ -969,6 +980,8 @@ fn node(
         return pc2;
     }
 
+    let checks = CheckSquares::new(board);
+
     // Order in stages: the TT move, winning tactical moves, quiet moves
     // (scored only when the loop reaches them), losing tactical moves.
     let (list, quiet_list, bad_list) = lists;
@@ -985,8 +998,15 @@ fn node(
         }
         if is_tactical(board, m) {
             let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
-            let se = see2(board, m);
-            if se >= -s / 18 {
+            // A capture of a piece worth at least the capturer cannot lose
+            // the exchange: with a non-negative key it is a winning move
+            // without computing the exchange (computed later only if needed).
+            let se = if s >= 0 && captures_up(board, m) {
+                i32::MIN
+            } else {
+                see2(board, m)
+            };
+            if se == i32::MIN || se >= -s / 18 {
                 list.push((s, m, 0, se));
             } else {
                 bad_list.push((s, m, 0, se));
@@ -1030,7 +1050,7 @@ fn node(
                                 s += 8 * i32::from(d.low[ply as usize * FT_NB + ft])
                                     / (1 + ply as i32);
                             }
-                            let check = move_gives_direct_check(board, m);
+                            let check = checks.gives_direct_check(m);
                             let se = if check { see2(board, m) } else { i32::MIN };
                             if check && p::V2_CHECK_BONUS() > 0 && se >= -75 {
                                 s += p::V2_CHECK_BONUS();
@@ -1066,7 +1086,7 @@ fn node(
         let tactical = is_tactical(board, m);
         let capture = m.from.is_some() && board.piece_at(m.to).is_some();
         let gives_check = match check_flag {
-            0 => move_gives_direct_check(board, m),
+            0 => checks.gives_direct_check(m),
             f => f == 2,
         };
         let mut new_depth = depth - 1;
