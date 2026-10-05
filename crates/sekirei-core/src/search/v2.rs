@@ -63,6 +63,9 @@ const PAWN_NB: usize = 512;
 const LOW_PLIES: usize = 4;
 
 const MAIN_LIM: i32 = 7000;
+const CORR_CONT_BITS: u32 = 16;
+const CORR_CONT_NB: usize = 1 << CORR_CONT_BITS;
+const CORR_CONT_LIM: i32 = 1024;
 const CONT_LIM: i32 = 16000;
 const CAPT_LIM: i32 = 10000;
 const PAWN_LIM: i32 = 8000;
@@ -253,6 +256,9 @@ struct Data {
     quiet_lists: Vec<Vec<Move>>,
     bad_lists: Vec<Vec<Entry>>,
     nmp_min_ply: u32,
+    /// Evaluation corrections keyed by the two moves before a node
+    /// (V2_CORR_CONT_W), hashed into `CORR_CONT_NB` entries.
+    corr_cont: Vec<i16>,
     /// Base reductions (`reduction_table`) and the V2_RED_SCALE they were
     /// built for.
     red: Vec<i32>,
@@ -275,6 +281,7 @@ impl Data {
             quiet_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(128)).collect(),
             bad_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(16)).collect(),
             nmp_min_ply: 0,
+            corr_cont: vec![0; CORR_CONT_NB],
             red: Vec::new(),
             red_scale: i32::MIN,
             epoch: u64::MAX,
@@ -304,9 +311,19 @@ impl Data {
             &mut self.capt,
             &mut self.pawn,
             &mut self.low,
+            &mut self.corr_cont,
         ] {
             t.fill(0);
         }
+    }
+
+    /// Index in `corr_cont` of the node at frame `i` (its two previous moves).
+    #[inline]
+    fn corr_cont_key(&self, i: usize) -> usize {
+        let a = u64::from(self.ss[i - 1].pt);
+        let b = u64::from(self.ss[i - 2].pt);
+        ((a.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ b.wrapping_mul(0xC2B2_AE3D_27D4_EB4F))
+            >> (64 - CORR_CONT_BITS)) as usize
     }
 
     /// Continuation-history sum of `pt` against the moves 1, 2, 3, 4 and 6
@@ -781,8 +798,11 @@ fn node(
     } else {
         let raw = evaluate_for_search(state, board);
         let keys = CorrKeys::of(board, stm);
-        let se =
-            (raw + state.history.correction(keys)).clamp(-(MATE_BOUND - 1000), MATE_BOUND - 1000);
+        let mut c = state.history.correction(keys);
+        if p::V2_CORR_CONT_W() != 0 {
+            c += i32::from(d.corr_cont[d.corr_cont_key(i)]) * p::V2_CORR_CONT_W() / 64;
+        }
+        let se = (raw + c).clamp(-(MATE_BOUND - 1000), MATE_BOUND - 1000);
         corr = Some((keys, se));
         let mut ev = se;
         if tt_hit && !is_decisive(tt_score) && (if tt_score > se { has_lower } else { has_upper }) {
@@ -1629,6 +1649,12 @@ fn node(
             state
                 .history
                 .learn_correction(keys, best_value - se, depth.max(1) as u32);
+            if p::V2_CORR_CONT_W() != 0 {
+                let bonus = ((best_value - se) * depth.max(1) / p::CORR_RATE_DIV().max(1))
+                    .clamp(-CORR_CONT_LIM / 4, CORR_CONT_LIM / 4);
+                let k = d.corr_cont_key(i);
+                gravity(&mut d.corr_cont[k], bonus, CORR_CONT_LIM);
+            }
         }
     }
     best_value

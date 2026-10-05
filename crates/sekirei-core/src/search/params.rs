@@ -632,6 +632,9 @@ search_params! {
     /// SEARCH_V2 extra reduction without a TT move when no late-move
     /// reduction applies (1/1024 ply).
     V2_FULL_NOTT = 1100, 0, 3000;
+    /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
+    /// moves before a node (0: not used).
+    V2_CORR_CONT_W = 0, 0, 128;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
