@@ -168,6 +168,9 @@ pub(super) struct HistoryTable {
     ft: Vec<AtomicI16>,
     // Pawn-structure history: pawn bucket × color × move slot × to.
     pawnh: Vec<AtomicI16>,
+    // Number of `clear` calls: SEARCH_V2 keeps its own per-thread tables
+    // and forgets them when this changes (a new game).
+    epoch: std::sync::atomic::AtomicU64,
 }
 
 /// From-square slots of the from-to history: the 81 squares, then one per
@@ -237,7 +240,13 @@ impl HistoryTable {
             pawnh: (0..PAWN_HIST_BUCKETS * 2 * keys)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
+            epoch: std::sync::atomic::AtomicU64::new(0),
         }
+    }
+
+    /// Number of times the tables were cleared (see `epoch`).
+    pub(super) fn epoch(&self) -> u64 {
+        self.epoch.load(Ordering::Relaxed)
     }
 
     #[inline]
@@ -280,6 +289,7 @@ impl HistoryTable {
 
     /// Forget everything learned (a new game).
     pub(super) fn clear(&self) {
+        self.epoch.fetch_add(1, Ordering::Relaxed);
         for cell in &self.data {
             cell.store(0, Ordering::Relaxed);
         }

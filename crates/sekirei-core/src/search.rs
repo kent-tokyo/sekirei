@@ -75,6 +75,7 @@ static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod heuristics;
 pub mod params;
+mod v2;
 use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
     pack_killer,
@@ -2558,6 +2559,20 @@ fn alpha_beta(
     known_in_check: Option<bool>, // supplied by a parent that already tested the moved position
     history: &SearchHistory<'_>,
 ) -> i32 {
+    // SEARCH_V2: the rest of the tree is searched by `v2` (its own null
+    // moves, singular searches and histories).
+    if p::SEARCH_V2() != 0 && skip_move.is_none() && ply > 0 {
+        return v2::entry(
+            state,
+            board,
+            alpha,
+            beta,
+            depth,
+            ply,
+            known_in_check,
+            history,
+        );
+    }
     if let Some(diagnostics) = state.counters() {
         diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
         if beta - alpha > 1 {

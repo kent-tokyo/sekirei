@@ -463,6 +463,13 @@ search_params! {
     /// A node that fails low stores no move, so the table keeps the move it
     /// had (1), or stores the best of the failing moves (0).
     FL_MOVE = 0, 0, 1;
+    /// Search below the root with SEARCH_V2 (`search/v2.rs`): one rule set
+    /// for pruning, reductions and extensions with its own per-thread move
+    /// histories (1), or the main search (0).
+    SEARCH_V2 = 0, 0, 1;
+    /// SEARCH_V2 move-count pruning also at PV nodes (1) and at nodes in
+    /// check (2).
+    V2_LMP_NODES = 0, 0, 3;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;
