@@ -2005,6 +2005,15 @@ fn root_search(
             state.diagnostics.as_deref(),
         );
     }
+    let v2_root = p::SEARCH_V2() != 0 && p::V2_ROOT() != 0;
+    if v2_root {
+        v2::order_root(
+            state,
+            board,
+            move_buffer.as_mut_list().as_mut_slice(),
+            tt_mv,
+        );
+    }
     let ordered = move_buffer.as_slice();
 
     let safe_moves = if root_mate_safety {
@@ -2020,7 +2029,7 @@ fn root_search(
     // ROOT_ORDER: the order the previous iterations of this search left
     // (the moves that raised alpha first, best first; the rest as before).
     let reordered;
-    let ordered: &[Move] = if p::ROOT_ORDER() != 0 {
+    let ordered: &[Move] = if p::ROOT_ORDER() != 0 || v2_root {
         reordered = ROOT_ORDER_STATE.with(|cell| {
             let st = cell.borrow();
             if st.0 == board.hash()
@@ -2182,6 +2191,8 @@ fn root_search_inner(
     let mut alpha = lo;
     // Moves that raised alpha, with their scores (ROOT_ORDER).
     let mut raised: Vec<(Move, i32)> = Vec::new();
+    let v2_root = p::SEARCH_V2() != 0 && p::V2_ROOT() != 0;
+    let mut searched: Vec<Move> = Vec::new();
 
     for (i, &m) in ordered.iter().enumerate() {
         let mover = board.side_to_move;
@@ -2241,6 +2252,9 @@ fn root_search_inner(
         if state.budget.should_abort() {
             break;
         }
+        if v2_root {
+            searched.push(m);
+        }
 
         if score > alpha {
             alpha = score;
@@ -2251,7 +2265,13 @@ fn root_search_inner(
             break;
         }
     }
-    if p::ROOT_ORDER() != 0 && !state.budget.should_abort() {
+    if v2_root
+        && !state.budget.should_abort()
+        && let Some(b) = best_move
+    {
+        v2::root_learn(state, board, b, &searched, depth);
+    }
+    if (p::ROOT_ORDER() != 0 || v2_root) && !state.budget.should_abort() {
         raised.sort_by_key(|&(_, s)| std::cmp::Reverse(s));
         let mut order: Vec<Move> = raised.iter().map(|&(m, _)| m).collect();
         order.extend(

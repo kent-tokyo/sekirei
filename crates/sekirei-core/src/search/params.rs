@@ -544,6 +544,11 @@ search_params! {
     /// Late root moves are reduced whatever their kind, checks included (1),
     /// or only quiet moves that do not give check (0).
     ROOT_LMR = 0, 0, 1;
+    /// With SEARCH_V2: the root orders its moves by the SEARCH_V2 histories,
+    /// teaches them its result each iteration and keeps the previous
+    /// iteration's order (ROOT_ORDER) (1), or orders by the main search's
+    /// tables (0).
+    V2_ROOT = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

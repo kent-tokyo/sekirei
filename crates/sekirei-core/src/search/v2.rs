@@ -161,6 +161,14 @@ fn lmp_limit(depth: i32, improving: bool) -> u32 {
     ((p::V2_LMP_BASE() + depth * depth) / (2 - i32::from(improving))) as u32
 }
 
+/// A move-list entry: ordering key, move, check flag (0 unknown, 1 no,
+/// 2 yes) and cached exchange value (`i32::MIN`: not computed).
+type Entry = (i32, Move, u8, i32);
+
+/// A node's move lists: ordered moves, unscored quiet moves, losing
+/// tactical moves.
+type Lists = (Vec<Entry>, Vec<Move>, Vec<Entry>);
+
 #[derive(Clone, Copy)]
 struct Frame {
     /// Corrected static evaluation (NO_EVAL in check or unknown).
@@ -198,10 +206,10 @@ struct Data {
     pawn: Vec<i16>,
     low: Vec<i16>,
     ss: Vec<Frame>,
-    lists: Vec<Vec<(i32, Move, u8, i32)>>,
+    lists: Vec<Vec<Entry>>,
     /// Per ply: quiet moves not yet scored, and losing tactical moves.
     quiet_lists: Vec<Vec<Move>>,
-    bad_lists: Vec<Vec<(i32, Move, u8, i32)>>,
+    bad_lists: Vec<Vec<Entry>>,
     nmp_min_ply: u32,
     epoch: u64,
     /// The TT's search count when these tables last saw a search.
@@ -332,6 +340,7 @@ impl Data {
 /// Tables of finished threads. A USI search runs on a new thread for every
 /// move; the pool hands its tables (and what they learned) to the next one.
 /// The lock is taken only when a thread starts or ends, never in the search.
+#[allow(clippy::vec_box)]
 static POOL: std::sync::Mutex<Vec<Box<Data>>> = std::sync::Mutex::new(Vec::new());
 
 /// A thread's tables, returned to `POOL` when the thread ends.
@@ -358,18 +367,9 @@ fn diag(state: &SearchState, depth: i32, k: usize) {
     }
 }
 
-/// Entry from the main search (the children of the root and below).
-#[allow(clippy::too_many_arguments)]
-pub(super) fn entry(
-    state: &Arc<SearchState>,
-    board: &mut Board,
-    alpha: i32,
-    beta: i32,
-    depth: u32,
-    ply: u32,
-    known_in_check: Option<bool>,
-    history: &SearchHistory<'_>,
-) -> i32 {
+/// Run `f` on this thread's tables, taking them from the pool on first use
+/// and clearing or aging them when a new game or a new search starts.
+fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
     DATA.with(|cell| {
         let mut slot = cell.borrow_mut();
         let d = slot.0.get_or_insert_with(|| {
@@ -395,6 +395,100 @@ pub(super) fn entry(
                 *t = 0;
             }
         }
+        f(d)
+    })
+}
+
+/// Root move order from these tables (V2_ROOT): the TT move, winning
+/// tactical moves, quiet moves by history (root-ply history weighted
+/// most; safe checks first), losing tactical moves.
+pub(super) fn order_root(state: &SearchState, board: &Board, moves: &mut [Move], tt: Option<Move>) {
+    with_data(state, |d| {
+        let stm = board.side_to_move;
+        let bucket = HistoryTable::pawn_bucket(board);
+        let mut keyed: Vec<(i32, Move)> = moves
+            .iter()
+            .map(|&m| {
+                let k = if Some(m) == tt {
+                    i32::MAX
+                } else if is_tactical(board, m) {
+                    let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
+                    if see2(board, m) >= -s / 18 {
+                        1_000_000_000 + s
+                    } else {
+                        -1_000_000_000 + s
+                    }
+                } else {
+                    let ft = ft_key(stm, m);
+                    let pt = pt_key(stm, m) as usize;
+                    let mut s = 2 * i32::from(d.main[ft])
+                        + 2 * i32::from(d.pawn[bucket * PT_NB + pt])
+                        + 8 * i32::from(d.low[ft]);
+                    if move_gives_direct_check(board, m)
+                        && p::V2_CHECK_BONUS() > 0
+                        && see2(board, m) >= -75
+                    {
+                        s += p::V2_CHECK_BONUS();
+                    }
+                    s
+                };
+                (k, m)
+            })
+            .collect();
+        keyed.sort_by_key(|&(k, _)| std::cmp::Reverse(k));
+        for (slot, (_, m)) in moves.iter_mut().zip(keyed) {
+            *slot = m;
+        }
+    });
+}
+
+/// Root learning (V2_ROOT): the move that raised alpha last gets the
+/// history bonus of `depth`, the other quiet moves searched the malus.
+pub(super) fn root_learn(
+    state: &SearchState,
+    board: &Board,
+    best: Move,
+    searched: &[Move],
+    depth: u32,
+) {
+    with_data(state, |d| {
+        let stm = board.side_to_move;
+        let bucket = HistoryTable::pawn_bucket(board);
+        let i = OFF;
+        for k in 1..=OFF {
+            d.ss[i - k] = Frame::EMPTY;
+        }
+        d.ss[i] = Frame::EMPTY;
+        let depth = depth as i32;
+        let (bonus, malus) = (stat_bonus(depth), stat_malus(depth));
+        if is_tactical(board, best) {
+            d.update_capture(board, stm, best, bonus);
+        } else {
+            d.update_quiet(i, 0, stm, best, bucket, bonus);
+        }
+        for &m in searched.iter().filter(|&&m| m != best).take(32) {
+            if is_tactical(board, m) {
+                d.update_capture(board, stm, m, -malus);
+            } else if !is_tactical(board, best) {
+                d.update_quiet(i, 0, stm, m, bucket, -malus);
+            }
+        }
+    });
+}
+
+/// Entry from the main search (the children of the root and below).
+#[allow(clippy::too_many_arguments)]
+pub(super) fn entry(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    depth: u32,
+    ply: u32,
+    known_in_check: Option<bool>,
+    history: &SearchHistory<'_>,
+) -> i32 {
+    with_data(state, |d| {
         let stm = board.side_to_move;
         let i = ply as usize + OFF;
         // The path above the entry ply as the main search's stack records it.
@@ -496,11 +590,7 @@ fn search(
 #[allow(clippy::too_many_arguments)]
 fn node(
     d: &mut Data,
-    lists: &mut (
-        Vec<(i32, Move, u8, i32)>,
-        Vec<Move>,
-        Vec<(i32, Move, u8, i32)>,
-    ),
+    lists: &mut Lists,
     state: &Arc<SearchState>,
     board: &mut Board,
     mut alpha: i32,
@@ -804,8 +894,7 @@ fn node(
             }
         }
         caps.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
-        for ci in 0..caps.len() {
-            let m = caps[ci].1;
+        for &(_, m, _, _) in caps.iter() {
             if see2(board, m) < pc_beta - static_eval {
                 continue;
             }
