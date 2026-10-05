@@ -470,6 +470,15 @@ search_params! {
     /// SEARCH_V2 move-count pruning also at PV nodes (1) and at nodes in
     /// check (2).
     V2_LMP_NODES = 0, 0, 3;
+    /// SEARCH_V2: checks are exempt from the exchange pruning of tactical
+    /// moves (1).
+    V2_CHK = 0, 0, 1;
+    /// SEARCH_V2 reverse futility pruning up to this depth.
+    V2_RFP_DEPTH = 13, 0, 16;
+    /// SEARCH_V2 null move: at expected cut nodes, reduced by the eval
+    /// margin and a third of the depth, verified from depth 16 (0); at every
+    /// non-PV node, reduced by 3 + depth / 4, verified from depth 6 (1).
+    V2_NMP = 0, 0, 1;
     /// A late move whose reduced probe beats the node's best score by more
     /// than this is re-searched one ply deeper than normal (0: off).
     LMR_DEEPER_MARGIN = 0, 0, 400;

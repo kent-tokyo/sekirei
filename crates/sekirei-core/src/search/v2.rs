@@ -107,12 +107,24 @@ fn victim_index(board: &Board, m: Move) -> usize {
         .map_or(7, |v| v.kind.unpromoted().index().min(6))
 }
 
+/// Material swing of capturing on `m.to`: the captured piece leaves the
+/// board and its unpromoted kind goes to the capturer's hand.
 #[inline]
 fn victim_value(board: &Board, m: Move) -> i32 {
     board
         .piece_at(m.to)
         .filter(|_| m.from.is_some())
-        .map_or(0, |v| PIECE_VALUE[v.kind.index()])
+        .map_or(0, |v| {
+            PIECE_VALUE[v.kind.index()] + PIECE_VALUE[v.kind.unpromoted().index()]
+        })
+}
+
+/// Static exchange evaluation in evaluation units. `see_exchange` counts a
+/// capture once (the piece leaving the board); the evaluation also sees it
+/// arrive in the capturer's hand, about twice the swing.
+#[inline]
+fn see2(board: &Board, m: Move) -> i32 {
+    2 * see_exchange(board, m)
 }
 
 #[inline]
@@ -290,8 +302,26 @@ impl Data {
     }
 }
 
+/// Tables of finished threads. A USI search runs on a new thread for every
+/// move; the pool hands its tables (and what they learned) to the next one.
+/// The lock is taken only when a thread starts or ends, never in the search.
+static POOL: std::sync::Mutex<Vec<Box<Data>>> = std::sync::Mutex::new(Vec::new());
+
+/// A thread's tables, returned to `POOL` when the thread ends.
+struct Slot(Option<Box<Data>>);
+
+impl Drop for Slot {
+    fn drop(&mut self) {
+        if let Some(d) = self.0.take()
+            && let Ok(mut pool) = POOL.lock()
+        {
+            pool.push(d);
+        }
+    }
+}
+
 thread_local! {
-    static DATA: RefCell<Option<Box<Data>>> = const { RefCell::new(None) };
+    static DATA: RefCell<Slot> = const { RefCell::new(Slot(None)) };
 }
 
 #[inline]
@@ -315,7 +345,12 @@ pub(super) fn entry(
 ) -> i32 {
     DATA.with(|cell| {
         let mut slot = cell.borrow_mut();
-        let d = slot.get_or_insert_with(|| Box::new(Data::new()));
+        let d = slot.0.get_or_insert_with(|| {
+            POOL.lock()
+                .ok()
+                .and_then(|mut pool| pool.pop())
+                .unwrap_or_else(|| Box::new(Data::new()))
+        });
         let epoch = state.history.epoch();
         if d.epoch != epoch {
             d.clear();
@@ -592,7 +627,7 @@ fn node(
             - if improving { 2 * mult } else { 0 }
             - if opp_worsening { mult / 3 } else { 0 };
         if !tt_pv
-            && depth < 14
+            && depth <= p::V2_RFP_DEPTH()
             && eval - margin >= beta
             && eval >= beta
             && !is_decisive(eval)
@@ -606,15 +641,19 @@ fn node(
             return beta + (eval - beta) / 3;
         }
 
-        // Null move at expected cut nodes.
-        if cut_node
+        // Null move at expected cut nodes (V2_NMP 1: at every non-PV node).
+        if (cut_node || (p::V2_NMP() == 1 && !pv))
             && prior.mv.is_some()
             && eval >= beta
             && static_eval >= beta - 20 * depth + 380
             && ply >= d.nmp_min_ply
             && !is_decisive(beta)
         {
-            let r = ((eval - beta) / 230).min(6) + depth / 3 + 5;
+            let r = if p::V2_NMP() == 1 {
+                3 + depth / 4
+            } else {
+                ((eval - beta) / 230).min(6) + depth / 3 + 5
+            };
             d.ss[i].mv = None;
             d.ss[i].pt = NO_PT;
             d.ss[i].capture = false;
@@ -637,7 +676,8 @@ fn node(
                 return 0;
             }
             if null >= beta && !is_decisive(null) {
-                if d.nmp_min_ply != 0 || depth < 16 {
+                let verify_from = if p::V2_NMP() == 1 { 6 } else { 16 };
+                if d.nmp_min_ply != 0 || depth < verify_from {
                     if let Some(c) = state.counters() {
                         c.exit(6);
                     }
@@ -700,7 +740,7 @@ fn node(
             .collect();
         caps.sort_unstable_by_key(|&(k, _)| -k);
         for (_, m) in caps {
-            if see_exchange(board, m) < pc_beta - static_eval {
+            if see2(board, m) < pc_beta - static_eval {
                 continue;
             }
             d.ss[i].mv = Some(m);
@@ -783,7 +823,7 @@ fn node(
         }
         let key = if is_tactical(board, m) {
             let s = 7 * victim_value(board, m) + d.capt_score(board, stm, m);
-            if see_exchange(board, m) >= -s / 18 {
+            if see2(board, m) >= -s / 18 {
                 1_000_000_000 + s
             } else {
                 -1_000_000_000 + s
@@ -797,7 +837,7 @@ fn node(
             if low_ply {
                 s += 8 * i32::from(d.low[ply as usize * FT_NB + ft]) / (1 + ply as i32);
             }
-            if move_gives_direct_check(board, m) && see_exchange(board, m) >= -75 {
+            if move_gives_direct_check(board, m) && see2(board, m) >= -75 {
                 s += 16000;
             }
             s
@@ -855,7 +895,9 @@ fn node(
                     }
                 }
                 let see_hist = (capt_hist / 32).clamp(-150 * depth, 150 * depth);
-                if see_exchange(board, m) < -160 * depth - see_hist {
+                if (!gives_check || p::V2_CHK() & 1 == 0)
+                    && see2(board, m) < -160 * depth - see_hist
+                {
                     continue;
                 }
             } else {
@@ -887,7 +929,7 @@ fn node(
                     }
                 }
                 let ld = lmr_depth.max(0);
-                if see_exchange(board, m) < -25 * ld * ld {
+                if see2(board, m) < -25 * ld * ld {
                     continue;
                 }
             }
