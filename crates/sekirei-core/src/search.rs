@@ -3792,10 +3792,16 @@ fn quiescence(
     // In check the side to move has no quiet option, so stand-pat is invalid.
     if !in_check {
         // Standing pat must not hide a mate in one at the horizon.
-        if qply == 0 && mate_in_one(board).is_some() {
+        let qstyle = p::QS_STYLE();
+        if (qply == 0 || qstyle & 2 != 0) && mate_in_one(board).is_some() {
             return MATE_SCORE - (ply as i32 + 1);
         }
         let mut stand_pat = evaluate_for_search(state, board);
+        if qstyle & 1 != 0 {
+            let keys = CorrKeys::of(board, board.side_to_move);
+            stand_pat = (stand_pat + state.history.correction(keys))
+                .clamp(-(MATE_SCORE - 2000), MATE_SCORE - 2000);
+        }
         if qs_tt & 8 != 0
             && let Some((bound, adj)) = tt_bound
             && adj.abs() < MATE_SCORE - 1000
@@ -3820,6 +3826,9 @@ fn quiescence(
                         mv: None,
                     },
                 );
+            }
+            if qstyle & 4 != 0 && stand_pat.abs() < MATE_SCORE - 2000 {
+                return (stand_pat + beta) / 2;
             }
             return stand_pat;
         }
