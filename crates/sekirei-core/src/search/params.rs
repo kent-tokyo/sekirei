@@ -643,6 +643,63 @@ search_params! {
     /// SEARCH_V2 extra reduction without a TT move when no late-move
     /// reduction applies (1/1024 ply).
     V2_FULL_NOTT = 1100, 0, 3000;
+    /// SEARCH_V2 history bonus: `V2_BONUS_LIN depth` less this.
+    V2_BONUS_OFF = 70, 0, 400;
+    /// SEARCH_V2 history malus: `V2_MALUS_LIN depth` less this.
+    V2_MALUS_OFF = 120, 0, 400;
+    /// SEARCH_V2 reduction decrease (1/1024 ply) of a PV node on a principal
+    /// variation, on top of V2_TTPV_R.
+    V2_R_PV = 1000, 0, 3000;
+    /// SEARCH_V2 reduction decrease at a PV-like node whose TT score beats
+    /// alpha.
+    V2_R_TTALPHA = 900, 0, 3000;
+    /// SEARCH_V2 reduction decrease at a PV-like node whose TT entry is as
+    /// deep as the node.
+    V2_R_TTDEPTH = 980, 0, 3000;
+    /// SEARCH_V2 further decrease of V2_R_TTDEPTH at an expected cut node.
+    V2_R_TTDEPTH_CUT = 1050, 0, 3000;
+    /// SEARCH_V2 extra reduction at an expected cut node without a TT move.
+    V2_R_CUT_NOTT = 1050, 0, 3000;
+    /// SEARCH_V2 extra reduction of quiet moves after a tactical TT move.
+    V2_R_TTCAPT = 1400, 0, 3000;
+    /// SEARCH_V2 extra reduction once the children have cut more than twice.
+    V2_R_CUTOFFS = 1050, 0, 3000;
+    /// SEARCH_V2 further extra reduction of V2_R_CUTOFFS at all-nodes.
+    V2_R_CUTOFFS_ALL = 800, 0, 3000;
+    /// SEARCH_V2 offset of a tactical move's statistic for its reduction.
+    V2_STAT_TACT_OFF = 4500, 0, 12000;
+    /// SEARCH_V2 offset of a quiet move's statistic for its reduction.
+    V2_STAT_QUIET_OFF = 3600, 0, 12000;
+    /// SEARCH_V2 a search without late-move reduction loses one ply when the
+    /// reduction it would have had exceeds this (1/1024 ply) ...
+    V2_FULL_R1 = 3500, 1000, 8000;
+    /// ... and another ply above this (depth 3 and more).
+    V2_FULL_R2 = 4800, 1000, 10000;
+    /// SEARCH_V2 continuation-history bonus of a reduced move whose
+    /// re-search fails high.
+    V2_RS_BONUS = 1600, 0, 4000;
+    /// SEARCH_V2 continuation-history malus of a reduced move whose
+    /// re-search does not fail high.
+    V2_RS_MALUS = 400, 0, 2000;
+    /// SEARCH_V2 singular margin increase at a PV-like non-PV node.
+    V2_SE_TTPV = 75, 0, 300;
+    /// SEARCH_V2 triple extension margin: constant part ...
+    V2_SE_TRI_BASE = 90, 0, 400;
+    /// ... more at PV nodes ...
+    V2_SE_TRI_PV = 280, 0, 800;
+    /// ... less for a quiet TT move ...
+    V2_SE_TRI_QUIET = 230, 0, 600;
+    /// ... more at PV-like nodes.
+    V2_SE_TRI_TTPV = 100, 0, 400;
+    /// SEARCH_V2 reverse futility margin decrease per ply at an expected cut
+    /// node without a TT entry.
+    V2_RFP_CUT = 20, 0, 60;
+    /// SEARCH_V2 main history learned from how the evaluation moved over the
+    /// opponent's quiet move (per centipawn).
+    V2_OPP_EVAL = 8, 0, 32;
+    /// SEARCH_V2 quiet-move futility gets V2_FUT_NOBEST when the best value
+    /// is this far below the static evaluation.
+    V2_FUT_GAP = 50, 0, 300;
     /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
     /// moves before a node (0: not used).
     V2_CORR_CONT_W = 0, 0, 128;

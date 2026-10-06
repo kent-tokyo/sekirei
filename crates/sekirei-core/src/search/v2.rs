@@ -148,12 +148,12 @@ fn gravity(e: &mut i16, bonus: i32, limit: i32) {
 
 #[inline]
 fn stat_bonus(depth: i32) -> i32 {
-    (p::V2_BONUS_LIN() * depth - 70).clamp(0, p::V2_BONUS_MAX())
+    (p::V2_BONUS_LIN() * depth - p::V2_BONUS_OFF()).clamp(0, p::V2_BONUS_MAX())
 }
 
 #[inline]
 fn stat_malus(depth: i32) -> i32 {
-    (p::V2_MALUS_LIN() * depth - 120).clamp(0, p::V2_MALUS_MAX())
+    (p::V2_MALUS_LIN() * depth - p::V2_MALUS_OFF()).clamp(0, p::V2_MALUS_MAX())
 }
 
 /// `ln(x)` for x below 256.
@@ -1073,7 +1073,7 @@ fn node(
         && !prior.in_check
         && excluded.is_none()
     {
-        let bonus = (-8 * (prior.eval + static_eval)).clamp(-1500, 1300);
+        let bonus = (-p::V2_OPP_EVAL() * (prior.eval + static_eval)).clamp(-1500, 1300);
         gravity(&mut d.main[ft_key(stm.flip(), pm)], bonus, MAIN_LIM);
     }
 
@@ -1112,7 +1112,7 @@ fn node(
         }
 
         // Reverse futility pruning.
-        let mult = p::V2_RFP_MULT() - 20 * i32::from(cut_node && !tt_hit);
+        let mult = p::V2_RFP_MULT() - p::V2_RFP_CUT() * i32::from(cut_node && !tt_hit);
         let margin = mult * depth
             - if improving { 2 * mult } else { 0 }
             - if opp_worsening { mult / 3 } else { 0 };
@@ -1533,7 +1533,7 @@ fn node(
                 lmr_depth += h / p::V2_HIST_DIV().max(1);
                 if !in_check && static_eval != NO_EVAL && lmr_depth < 9 {
                     let fut = static_eval
-                        + if best_value < static_eval - 50 {
+                        + if best_value < static_eval - p::V2_FUT_GAP() {
                             p::V2_FUT_BASE() + p::V2_FUT_NOBEST()
                         } else {
                             p::V2_FUT_BASE()
@@ -1563,7 +1563,8 @@ fn node(
             && !is_decisive(tt_score)
             && tt_depth >= depth - 3
         {
-            let sbeta = tt_score - (p::V2_SE_MARGIN() + 75 * i32::from(tt_pv && !pv)) * depth / 60;
+            let sbeta = tt_score
+                - (p::V2_SE_MARGIN() + p::V2_SE_TTPV() * i32::from(tt_pv && !pv)) * depth / 60;
             let sdepth = new_depth / 2;
             let saved = d.ss[i];
             d.ss[i].excluded = Some(m);
@@ -1586,8 +1587,9 @@ fn node(
             if v < sbeta {
                 let double_margin = p::V2_SE_DBL_PV() * i32::from(pv)
                     - p::V2_SE_DBL_QUIET() * i32::from(!tt_capture);
-                let triple_margin = 90 + 280 * i32::from(pv) - 230 * i32::from(!tt_capture)
-                    + 100 * i32::from(tt_pv);
+                let triple_margin = p::V2_SE_TRI_BASE() + p::V2_SE_TRI_PV() * i32::from(pv)
+                    - p::V2_SE_TRI_QUIET() * i32::from(!tt_capture)
+                    + p::V2_SE_TRI_TTPV() * i32::from(tt_pv);
                 ext =
                     1 + i32::from(v < sbeta - double_margin) + i32::from(v < sbeta - triple_margin);
                 // The other moves of a node with a singular move go deeper too.
@@ -1607,9 +1609,11 @@ fn node(
 
         // History score of the move for its reduction (before it is played).
         let stat = if tactical {
-            p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m) - 4500
+            p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m)
+                - p::V2_STAT_TACT_OFF()
         } else {
-            2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt) - 3600
+            2 * i32::from(d.main[ft]) + d.cont_at(i, 1, pt) + d.cont_at(i, 2, pt)
+                - p::V2_STAT_QUIET_OFF()
         };
 
         // Play the move.
@@ -1647,21 +1651,34 @@ fn node(
             // less, expected cut nodes much more.
             if tt_pv {
                 r -= p::V2_TTPV_R()
-                    + if pv { 1000 } else { 0 }
-                    + if tt_hit && tt_score > alpha { 900 } else { 0 }
+                    + if pv { p::V2_R_PV() } else { 0 }
+                    + if tt_hit && tt_score > alpha {
+                        p::V2_R_TTALPHA()
+                    } else {
+                        0
+                    }
                     + if tt_depth >= depth {
-                        980 + if cut_node { 1050 } else { 0 }
+                        p::V2_R_TTDEPTH() + if cut_node { p::V2_R_TTDEPTH_CUT() } else { 0 }
                     } else {
                         0
                     };
             }
             r += p::V2_LMR_MC_BASE() - p::V2_LMR_MC_PER() * move_count as i32;
             if cut_node {
-                r += p::V2_CUT_R() + if tt_move.is_none() { 1050 } else { 0 };
+                r += p::V2_CUT_R()
+                    + if tt_move.is_none() {
+                        p::V2_R_CUT_NOTT()
+                    } else {
+                        0
+                    };
             }
             let shape = p::V2_SHAPE();
             if tt_capture && (!tactical || shape & 4 != 0) {
-                r += if shape & 4 != 0 { 1050 } else { 1400 };
+                r += if shape & 4 != 0 {
+                    1050
+                } else {
+                    p::V2_R_TTCAPT()
+                };
             }
             if shape & 4 != 0 {
                 // V2_SHAPE 4: more reduction after several cutoffs among the
@@ -1672,7 +1689,7 @@ fn node(
                         + if all_node { 1040 } else { 0 };
                 }
             } else if d.ss[i + 1].cutoff_cnt > 2 {
-                r += 1050 + if all_node { 800 } else { 0 };
+                r += p::V2_R_CUTOFFS() + if all_node { p::V2_R_CUTOFFS_ALL() } else { 0 };
             }
             if Some(m) == tt_move {
                 r -= p::V2_LMR_TTMOVE();
@@ -1733,7 +1750,11 @@ fn node(
                     );
                 }
                 if !tactical {
-                    let b = if value >= beta { 1600 } else { -400 };
+                    let b = if value >= beta {
+                        p::V2_RS_BONUS()
+                    } else {
+                        -p::V2_RS_MALUS()
+                    };
                     d.update_cont(i, pt, b);
                 }
             }
@@ -1741,7 +1762,9 @@ fn node(
             if tt_move.is_none() {
                 r += p::V2_FULL_NOTT();
             }
-            let nd = new_depth - i32::from(r > 3500) - i32::from(r > 4800 && new_depth > 2);
+            let nd = new_depth
+                - i32::from(r > p::V2_FULL_R1())
+                - i32::from(r > p::V2_FULL_R2() && new_depth > 2);
             value = -search(
                 d,
                 state,
