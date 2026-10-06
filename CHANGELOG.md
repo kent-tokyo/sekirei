@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.60] – 2026-10-06
+
 - Search: make SEARCH_V2 (the redesigned search below the root, with its own
   move histories, pruning, reductions, and extensions) and its root move
   ordering the default. A pre-registered, material-only paired-trinomial SPRT
@@ -26,6 +28,8 @@ preserves older per-change notes.
 - Release tooling: add `scripts/verify_release_publication.py`, which checks
   the published crates and WebAssembly asset against a release manifest and
   records the verified publication.
+- This release does not bundle a new NNUE checkpoint or make a general
+  playing-strength or external-engine superiority claim.
 
 ## [0.3.59] – 2026-10-05
 

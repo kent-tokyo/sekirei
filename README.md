@@ -1,18 +1,19 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.59-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.59)
+[![Release](https://img.shields.io/badge/release-v0.3.60-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.60)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.59`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.60`
 provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. It makes the verified four-entry transposition-table
-layout the default, improves HalfKP refresh and AArch64 inference without
-changing scores, adds disabled-by-default search experiments, and exposes
-typed browser position analysis. It makes no general playing-strength claim.
+library, and browser API. It makes SEARCH_V2 and its root ordering the default
+after a pre-registered material-only gate, keeps their move-ordering tables
+local to each searcher, and exposes additional search experiments as disabled
+options.
+It makes no general playing-strength claim.
 
 ## Quick start
 
@@ -59,8 +60,8 @@ beyond under explicit node limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
-The prebuilt v0.3.59 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.59/sekirei-wasm-0.3.59.tgz).
+The prebuilt v0.3.60 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.60/sekirei-wasm-0.3.60.tgz).
 
 ## What is included
 
