@@ -6,6 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.61] – 2026-10-07
+
+- NNUE data preparation: add stable source-game identifiers to `gensfen` and
+  a deterministic train/validation splitter that keeps each game in one arm,
+  joins games sharing an exact SFEN, can cap positions per game, records a
+  hashed split manifest, and rejects legacy rows that cannot prove isolation.
 - Search research: add disabled-by-default options for an evaluation
   correction keyed by each side's pieces other than pawns and the king
   (`CORR_W_NP`) and for continuation histories split by whether the earlier
