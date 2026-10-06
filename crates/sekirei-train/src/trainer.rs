@@ -629,17 +629,21 @@ impl TrainWeights {
     /// Quantise FT to i16; L2/out stay f32.  Returns an NnueWeights ready for inference.
     pub fn to_nnue_weights(&self) -> NnueWeights {
         // FT: f32 → i16, scaled by FT_SCALE so small weights (≈±0.1) survive quantisation.
+        // Round to nearest rather than truncating toward zero: for unclipped values,
+        // each exported parameter then differs by at most half a quantisation step.
         // Inference must divide by FT_SCALE after ClippedReLU to recover the float equivalent.
         const FT_SCALE: f32 = 64.0;
         let mut ft = vec![[0i16; L1]; INPUT];
         for i in 0..INPUT {
             for j in 0..L1 {
-                ft[i][j] = (self.ft[i * L1 + j] * FT_SCALE).clamp(-32767.0, 32767.0) as i16;
+                ft[i][j] = (self.ft[i * L1 + j] * FT_SCALE)
+                    .round()
+                    .clamp(-32767.0, 32767.0) as i16;
             }
         }
         let mut ft_bias = [0i16; L1];
         for (i, &v) in self.ft_bias.iter().enumerate() {
-            ft_bias[i] = (v * FT_SCALE).clamp(-32767.0, 32767.0) as i16;
+            ft_bias[i] = (v * FT_SCALE).round().clamp(-32767.0, 32767.0) as i16;
         }
 
         // L2 / out: f32 → f32 (no quantisation)
@@ -4587,6 +4591,98 @@ mod tests {
         assert_eq!(default_bias.l2, custom_bias.l2);
         assert_eq!(default_bias.out, custom_bias.out);
         assert_eq!(default_bias.ft_bias, custom_bias.ft_bias);
+    }
+
+    #[test]
+    fn ft_export_rounds_signed_values_and_keeps_symmetric_limits() {
+        let mut weights = TrainWeights::new_seeded(42, 0.5);
+        let cases = [
+            (0.49, 0),
+            (0.5, 1),
+            (0.51, 1),
+            (1.75, 2),
+            (-0.49, 0),
+            (-0.5, -1),
+            (-0.51, -1),
+            (-1.75, -2),
+            (32766.75, 32767),
+            (-32766.75, -32767),
+            (40000.0, 32767),
+            (-40000.0, -32767),
+        ];
+        for (j, &(scaled, _)) in cases.iter().enumerate() {
+            weights.ft[j] = scaled / 64.0;
+            weights.ft_bias[j] = scaled / 64.0;
+        }
+        let exported = weights.to_nnue_weights();
+        for (j, &(_, expected)) in cases.iter().enumerate() {
+            assert_eq!(exported.ft[0][j], expected, "FT case {j}");
+            assert_eq!(exported.ft_bias[j], expected, "bias case {j}");
+        }
+    }
+
+    #[test]
+    fn ft_export_error_is_at_most_half_a_quantization_step() {
+        for seed in [7, 42, 123] {
+            let mut trainer = Trainer::new(seed, 0.5);
+            let board = Board::startpos();
+            for stage in ["initial", "after_8_updates"] {
+                if stage == "after_8_updates" {
+                    for step in 0..8 {
+                        trainer.train_position(
+                            &board,
+                            -600.0,
+                            1.0,
+                            -600.0,
+                            None,
+                            step,
+                            GameResult::Unknown,
+                        );
+                    }
+                }
+                let weights = &trainer.weights;
+                let exported = weights.to_nnue_weights();
+                let mut old_error_sq = 0.0f64;
+                let mut new_error_sq = 0.0f64;
+                let mut count = 0usize;
+                for (&original, &quantized) in weights
+                    .ft
+                    .iter()
+                    .chain(&weights.ft_bias)
+                    .zip(exported.ft.iter().flatten().chain(&exported.ft_bias))
+                {
+                    let old = (original * 64.0) as i16 as f32 / 64.0;
+                    let new = quantized as f32 / 64.0;
+                    let error = (original - new).abs();
+                    assert!(
+                        error <= 1.0 / 128.0,
+                        "seed={seed} stage={stage} error={error}"
+                    );
+                    assert!(error <= (original - old).abs() + f32::EPSILON);
+                    old_error_sq += ((original - old) as f64).powi(2);
+                    new_error_sq += ((original - new) as f64).powi(2);
+                    count += 1;
+                }
+                assert!(new_error_sq < old_error_sq);
+                println!(
+                    "seed={seed} stage={stage} parameters={count} truncation_rmse={:.8} nearest_rmse={:.8}",
+                    (old_error_sq / count as f64).sqrt(),
+                    (new_error_sq / count as f64).sqrt(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn ft_export_preserves_an_imported_integer_checkpoint() {
+        let original = NnueWeights::default_lcg();
+        let exported = TrainWeights::from_nnue_weights(&original).to_nnue_weights();
+        assert_eq!(exported.ft, original.ft);
+        assert_eq!(exported.ft_bias, original.ft_bias);
+        assert_eq!(exported.l2, original.l2);
+        assert_eq!(exported.l2_bias, original.l2_bias);
+        assert_eq!(exported.out, original.out);
+        assert_eq!(exported.out_bias, original.out_bias);
     }
 
     #[test]

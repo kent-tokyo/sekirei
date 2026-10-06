@@ -110,3 +110,5 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * Format Substack articles for easy scanning with restrained headings, emphasis, and lists. Use only formatting the editor reliably supports, and avoid emoji except where genuinely necessary.
 * Write Japan Condo Markets for non-Japanese readers in English. Briefly explain Japan-specific geography, price units, market terms, and financing eligibility where they matter; do not assume readers know the Japanese housing market.
 * Treat Tokyo as a set of distinct condominium submarkets, not one uniform price trend. Separate waterfront areas, central districts, and residential areas such as Setagaya; compare like-for-like properties and do not generalize a small sample across areas, building types, or price bands.
+
+* 2026-10-07: Improve the in-house NNUE without interfering with Claude; use an isolated worktree and build directory, low-priority single-job checks, and preserve ongoing search matches and shared edits.

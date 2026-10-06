@@ -47,6 +47,18 @@ The `king_relative_b_small` feature changes the feature layout and requires a
 separately trained file. Width features likewise change the required file
 length even though they retain the flat magic. `JANOSW02` is not supported.
 
+## Training export precision
+
+The in-house trainer exports feature-transformer weights and biases as i16
+at scale 64, rounded to the nearest integer (halfway cases away from zero).
+Values retain the existing symmetric clamp at +/-32767. For finite values
+within that range, the parameter error is at most 1/128 in training units.
+L2 and output parameters remain f32.
+
+This affects newly exported files and their checksums; existing files load
+as before. It does not establish a playing-strength improvement. Record the
+training commit when comparing checkpoints across export implementations.
+
 ## External HalfKP networks
 
 `EvalFile` (and the first command-line argument) also accepts the common
