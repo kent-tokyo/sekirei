@@ -1,0 +1,74 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.61",
+  "commit": "fe368c620dff613018b456ad313ae636194e00d8",
+  "branch_at_release": "main",
+  "candidate_state": "released from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.61",
+    "sekirei-core": "0.3.61",
+    "sekirei-bench": "0.3.61",
+    "sekirei-csa": "0.3.61",
+    "sekirei-match-runner": "0.3.61",
+    "sekirei-train": "0.3.61"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "a87620c6ab139e9890518581fca8407a30c6027b120323b87dfe79263597821e"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.61",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.61.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.61/sekirei-wasm-0.3.61.tgz",
+    "sha256": "fd5f90e4ca3d82fd46bf7bba1674af5c224f3343e36cf27ac37c05d477483832",
+    "size": 442263,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only",
+    "nnue_data_preparation": {
+      "schema": "sekirei.gensfen-game-split.v1",
+      "split_unit": "source_game_id",
+      "shared_sfen_games_are_joined": true,
+      "legacy_rows_fail_closed": true,
+      "new_checkpoint_adopted": false
+    },
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, the optional opening-book feature, the self-play game-split unit tests, documentation and public-contract checks, a native material-only USI smoke, WebAssembly release compilation, package generation, and generated JavaScript contract checks passed. Local Chrome execution was unavailable because the installed ChromeDriver returned HTTP 404; the GitHub CI browser job remains the publication gate."
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.61."
+  },
+  "known_limitations": [
+    "The added search and Lazy SMP controls are disabled by default or retain the previous default values; this release makes no playing-strength claim for them.",
+    "The game-isolated split improves validation hygiene but does not itself train or adopt a stronger NNUE checkpoint.",
+    "No new NNUE checkpoint is bundled or adopted; the optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
