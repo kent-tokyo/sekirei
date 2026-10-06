@@ -157,6 +157,9 @@ search_params! {
     /// Static-eval correction: weight (1/64) of the entry for both king
     /// squares.
     CORR_W_KING = 21, 0, 128;
+    /// Static-eval correction: weight (1/64) of the entries keyed by each
+    /// side's pieces other than pawns and the king (0: not used).
+    CORR_W_NP = 0, 0, 128;
     /// Static-eval correction learning rate: an entry moves by
     /// `(score - corrected eval) * depth / CORR_RATE_DIV`, limited to a
     /// quarter of its range.

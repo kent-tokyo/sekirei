@@ -164,6 +164,9 @@ pub(super) struct HistoryTable {
     corr_pawn: Vec<AtomicI16>,
     corr_hand: Vec<AtomicI16>,
     corr_king: Vec<AtomicI16>,
+    // Static-eval correction by side to move, owner, and a key of the
+    // owner's pieces other than pawns and the king (CORR_W_NP).
+    corr_np: Vec<AtomicI16>,
     // From-to history: color × from (square, or drop kind) × to.
     ft: Vec<AtomicI16>,
     // Pawn-structure history: pawn bucket × color × move slot × to.
@@ -195,6 +198,9 @@ pub(super) struct CorrKeys {
     pawn: usize,
     hand: usize,
     king: usize,
+    /// Entries of `corr_np` for the black and the white pieces (only
+    /// computed when CORR_W_NP is set).
+    np: [usize; 2],
 }
 
 impl CorrKeys {
@@ -212,10 +218,28 @@ impl CorrKeys {
         let hands = u64::from(board.hand(Color::Black).packed())
             | (u64::from(board.hand(Color::White).packed()) << 32);
         let king = |c: Color| board.king_square(c).map_or(0, |sq| sq.index() as usize);
+        let mut np = [0; 2];
+        if p::CORR_W_NP() != 0 {
+            for (owner, c) in [Color::Black, Color::White].into_iter().enumerate() {
+                let mut key = 0x2545_f491_4f6c_dd1du64 ^ owner as u64;
+                for kind in (0..PieceKind::COUNT as u8).filter_map(PieceKind::from_u8) {
+                    if kind == PieceKind::Fu || kind == PieceKind::Ou {
+                        continue;
+                    }
+                    let bb = board.pieces(c, kind).0;
+                    if bb != 0 {
+                        key = (key ^ fold(bb)).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                            ^ kind.index() as u64;
+                    }
+                }
+                np[owner] = (side * 2 + owner) * CORR_BUCKETS + bucket(key);
+            }
+        }
         CorrKeys {
             pawn: side * CORR_BUCKETS + bucket(pawns),
             hand: side * CORR_BUCKETS + bucket(hands ^ 0x5bd1_e995),
             king: (side * Square::NUM + king(Color::Black)) * Square::NUM + king(Color::White),
+            np,
         }
     }
 }
@@ -239,6 +263,7 @@ impl HistoryTable {
             corr_king: (0..2 * Square::NUM * Square::NUM)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
+            corr_np: (0..4 * CORR_BUCKETS).map(|_| AtomicI16::new(0)).collect(),
             ft: (0..2 * FT_FROM * Square::NUM)
                 .map(|_| AtomicI16::new(0))
                 .collect(),
@@ -306,6 +331,7 @@ impl HistoryTable {
             &self.corr_pawn,
             &self.corr_hand,
             &self.corr_king,
+            &self.corr_np,
             &self.ft,
             &self.pawnh,
         ] {
@@ -419,9 +445,15 @@ impl HistoryTable {
     #[inline]
     pub(super) fn correction(&self, keys: CorrKeys) -> i32 {
         let get = |t: &[AtomicI16], i: usize| i32::from(t[i].load(Ordering::Relaxed));
+        let np = if p::CORR_W_NP() != 0 {
+            (get(&self.corr_np, keys.np[0]) + get(&self.corr_np, keys.np[1])) * p::CORR_W_NP()
+        } else {
+            0
+        };
         (get(&self.corr_pawn, keys.pawn) * p::CORR_W_PAWN()
             + get(&self.corr_hand, keys.hand) * p::CORR_W_HAND()
-            + get(&self.corr_king, keys.king) * p::CORR_W_KING())
+            + get(&self.corr_king, keys.king) * p::CORR_W_KING()
+            + np)
             / 64
     }
 
@@ -433,11 +465,17 @@ impl HistoryTable {
         if bonus == 0 {
             return;
         }
+        let np_tables = if p::CORR_W_NP() != 0 { 2 } else { 0 };
         for (t, i) in [
             (&self.corr_pawn, keys.pawn),
             (&self.corr_hand, keys.hand),
             (&self.corr_king, keys.king),
-        ] {
+            (&self.corr_np, keys.np[0]),
+            (&self.corr_np, keys.np[1]),
+        ]
+        .into_iter()
+        .take(3 + np_tables)
+        {
             let cell = &t[i];
             let old = i32::from(cell.load(Ordering::Relaxed));
             let new = (old + bonus - old * bonus.abs() / CORR_LIMIT).clamp(-CORR_LIMIT, CORR_LIMIT);
