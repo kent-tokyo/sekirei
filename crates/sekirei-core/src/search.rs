@@ -3842,8 +3842,7 @@ fn quiescence(
         }
         // Delta Pruning: if even the best possible capture+promotion cannot improve alpha, skip.
         // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
-        const DELTA_MARGIN: i32 = 1_800;
-        if stand_pat + DELTA_MARGIN < alpha {
+        if stand_pat + p::QS_DELTA() < alpha {
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,

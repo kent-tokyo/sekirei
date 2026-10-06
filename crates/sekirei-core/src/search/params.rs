@@ -340,6 +340,10 @@ search_params! {
     /// pushes, 2 bishop and rook moves; 8 at every quiescence ply, otherwise
     /// at the first only), or none (0).
     QS_PROMO = 0, 0, 15;
+    /// Quiescence delta pruning: a node whose stand-pat plus this cannot
+    /// reach alpha returns at once (the largest gain of one capture with a
+    /// promotion).
+    QS_DELTA = 1800, 600, 3000;
     /// Quiescence TT use (bit mask; 0 = top-level qsearch entries only):
     /// 1 probes and stores at every qsearch ply, 2 also cuts on main-search
     /// entries (depth >= 1), 4 orders by a main-search entry's move, 8 lets a
