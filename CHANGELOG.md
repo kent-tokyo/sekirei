@@ -6,6 +6,21 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search research: add disabled-by-default options for an evaluation
+  correction keyed by each side's pieces other than pawns and the king
+  (`CORR_W_NP`) and for continuation histories split by whether the earlier
+  move was made in check and captured (`V2_CONT_SPLIT`). With them off,
+  search results are unchanged.
+- Search research: expose the quiescence delta-pruning margin (`QS_DELTA`)
+  and 24 more SEARCH_V2 constants (reduction adjustments, singular and triple
+  extension margins, history offsets, full-depth thresholds) as tuning
+  options. Their defaults are the previous values; moves and node counts are
+  unchanged.
+- Lazy SMP: add `LazyFlags` bits 32 (report worker 0's result) and 64 (among
+  the deepest workers, take the lowest-numbered one instead of the highest
+  score). `LazyFlags` accepts values up to 127. Defaults are unchanged.
+- This change set makes no playing-strength claim.
+
 ## [0.3.60] – 2026-10-06
 
 - Search: make SEARCH_V2 (the redesigned search below the root, with its own
