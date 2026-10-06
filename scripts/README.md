@@ -79,6 +79,25 @@ Useful shared entry points include `gate_orchestrator.py`,
 `record_resume_run.py`, and `attach_resume_manifest.py`. Run the paired
 `test_<tool>.py` test whenever changing one of these tools.
 
+`split_gensfen_by_game.py` prepares in-house HalfKP data without allowing
+adjacent positions from one self-play game to leak across train and validation.
+It requires the six-column output from the current `gensfen`, joins games that
+share an exact SFEN, optionally limits positions contributed by one long game,
+and records input/output hashes plus phase and result counts in a manifest.
+Legacy five-column rows fail closed because they cannot prove game separation.
+
+```bash
+python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
+  --train-out data/selfplay/train.txt \
+  --validation-out data/selfplay/validation.txt \
+  --manifest data/selfplay/split-manifest.json \
+  --validation-ratio 0.10 --seed 42 --max-positions-per-game 64
+cargo run --release -p sekirei-core --example halfkp_pack -- \
+  pack data/selfplay/train.bin data/selfplay/train.txt
+cargo run --release -p sekirei-core --example halfkp_pack -- \
+  pack data/selfplay/validation.bin data/selfplay/validation.txt
+```
+
 ## Local self-play and CSA
 
 - `spsa.py` tunes search parameters with paired self-play. It requires the

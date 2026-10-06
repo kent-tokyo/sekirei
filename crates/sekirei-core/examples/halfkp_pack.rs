@@ -6,6 +6,11 @@
 //! halfkp_pack check NN.bin FV_SCALE IN.txt [N]   # sfen \t engine eval (first N lines)
 //! ```
 //!
+//! When the input is the six-column output of `gensfen`, split it by
+//! `source_game_id` before packing train and validation files separately.
+//! The game identifier is provenance metadata and is not stored in the
+//! fixed-size binary record.
+//!
 //! A record is 158 bytes, little-endian:
 //!
 //! ```text

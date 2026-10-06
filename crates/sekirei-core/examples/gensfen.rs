@@ -13,17 +13,19 @@
 //! capture) and whose score is not decisive is written as one line
 //!
 //! ```text
-//! <sfen>\t<score>\t<result>\t<ply>\t<bestmove>
+//! <sfen>\t<score>\t<result>\t<ply>\t<bestmove>\t<source_game_id>
 //! ```
 //!
 //! where `score` is the search score from the side to move's point of view and
 //! `result` is the game result from the same side's point of view (1 win,
-//! 0 draw, -1 loss). The evaluator is material unless `--eval` loads a
-//! SEKIRW01 or HalfKP file. Games end by mate, fourfold repetition (perpetual
-//! check loses), a decisive search score (|score| >= 3000 for the side to
-//! move), or `--max-ply` (draw). Lines are appended game by game, so an
-//! interrupted run keeps every finished game; the run also stops between
-//! games when `--stop-file` exists.
+//! 0 draw, -1 loss). `source_game_id` is stable for one seed/game pair and
+//! lets dataset preparation keep every position from one game on the same
+//! side of the train/validation boundary. The evaluator is material unless
+//! `--eval` loads a SEKIRW01 or HalfKP file. Games end by mate, fourfold
+//! repetition (perpetual check loses), a decisive search score (|score| >=
+//! 3000 for the side to move), or `--max-ply` (draw). Lines are appended game
+//! by game, so an interrupted run keeps every finished game; the run also
+//! stops between games when `--stop-file` exists.
 use sekirei_core::board::Board;
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::search::{SearchConfig, Searcher};
@@ -32,6 +34,10 @@ use sekirei_core::tt::Tt;
 use std::io::Write;
 
 const DECISIVE: i32 = 3000;
+
+fn source_game_id(seed: u64, game: u64) -> String {
+    format!("{seed:016x}-{game:016x}")
+}
 
 struct Rng(u64);
 
@@ -193,11 +199,12 @@ fn main() {
         }
         let mut lines = Vec::new();
         let black_result = play_game(&args, &mut rng, &mut lines);
+        let game_id = source_game_id(args.seed, game);
         results[(black_result + 1) as usize] += 1;
         let mut text = String::new();
         for (sfen, score, black, ply, best) in &lines {
             let result = if *black { black_result } else { -black_result };
-            text += &format!("{sfen}\t{score}\t{result}\t{ply}\t{best}\n");
+            text += &format!("{sfen}\t{score}\t{result}\t{ply}\t{best}\t{game_id}\n");
         }
         out.write_all(text.as_bytes()).expect("write");
         positions += lines.len() as u64;
@@ -212,5 +219,17 @@ fn main() {
                 results[0]
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::source_game_id;
+
+    #[test]
+    fn source_game_id_is_stable_and_separates_games() {
+        assert_eq!(source_game_id(7, 3), "0000000000000007-0000000000000003");
+        assert_ne!(source_game_id(7, 3), source_game_id(7, 4));
+        assert_ne!(source_game_id(7, 3), source_game_id(8, 3));
     }
 }

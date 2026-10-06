@@ -114,6 +114,7 @@ jobs:
           python3 scripts/test_compare_teacher_evals.py
           python3 scripts/test_merge_teacher_caches.py
           python3 scripts/test_summarize_self_distill.py
+          python3 -m unittest scripts/test_split_gensfen_by_game.py
           python3 -m unittest scripts/test_validate_shogiesa_diagnostic_contract.py
           bash -n scripts/train_with_shogiesa_quietset.sh
           bash -n scripts/redo_quietset_bc.sh
