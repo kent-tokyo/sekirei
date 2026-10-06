@@ -69,6 +69,9 @@ pub const LAZY_DEPTH_SKEW: u32 = 4;
 /// Workers search sequentially instead of splitting young brothers on the
 /// shared Rayon pool (which the workers themselves already occupy).
 pub const LAZY_NO_YBW: u32 = 8;
+/// Choose the move by a depth- and score-weighted vote of the workers
+/// instead of the deepest worker's result (see [`select_by_vote`]).
+pub const LAZY_VOTE: u32 = 16;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -212,10 +215,14 @@ impl LazySmpSearcher {
                 nodes: info.nodes,
             })
             .collect();
-        let result = results
-            .into_iter()
-            .reduce(select_result)
-            .expect("Lazy SMP always has at least one worker");
+        let result = if self.flags & LAZY_VOTE != 0 {
+            select_by_vote(results)
+        } else {
+            results
+                .into_iter()
+                .reduce(select_result)
+                .expect("Lazy SMP always has at least one worker")
+        };
         LazySmpInfo {
             result,
             total_nodes,
@@ -232,6 +239,75 @@ fn select_result(left: SearchInfo, right: SearchInfo) -> SearchInfo {
     if right_key > left_key { right } else { left }
 }
 
+/// Weight added to every vote above the lowest worker score, so that the
+/// lowest-scoring worker still counts.
+const VOTE_BASE: i64 = 24;
+
+/// Pick the result whose move collects the most votes: each worker with a
+/// move votes for it with `(score - lowest score + VOTE_BASE) * depth`.
+/// Among the workers behind the winning move, the deepest (then highest
+/// scoring) one supplies the result. A worker that found a mate for the side
+/// to move overrides the vote (the shortest such mate wins), since a proven
+/// win needs no majority.
+pub fn select_by_vote(results: Vec<SearchInfo>) -> SearchInfo {
+    let mate_bound = crate::search::MATE_SCORE - 1000;
+    let winning_mate = results
+        .iter()
+        .filter(|r| r.best_move.is_some() && r.score >= mate_bound)
+        .max_by_key(|r| (r.score, r.depth))
+        .map(|r| (r.score, r.depth, move_key(r.best_move)));
+    let with_move: Vec<&SearchInfo> = results.iter().filter(|r| r.best_move.is_some()).collect();
+    let chosen = if let Some(key) = winning_mate {
+        Some(key)
+    } else if with_move.is_empty() {
+        None
+    } else {
+        let lowest = with_move
+            .iter()
+            .map(|r| i64::from(r.score))
+            .min()
+            .unwrap_or(0);
+        let mut votes: Vec<(crate::mv::Move, i64)> = Vec::new();
+        for r in &with_move {
+            let mv = r.best_move.expect("filtered");
+            let w = (i64::from(r.score) - lowest + VOTE_BASE) * i64::from(r.depth.max(1));
+            match votes.iter_mut().find(|(m, _)| *m == mv) {
+                Some(entry) => entry.1 += w,
+                None => votes.push((mv, w)),
+            }
+        }
+        let (winner, _) = votes
+            .iter()
+            .copied()
+            .max_by_key(|&(m, w)| (w, move_key(Some(m))))
+            .expect("at least one vote");
+        with_move
+            .iter()
+            .filter(|r| r.best_move == Some(winner))
+            .map(|r| (r.score, r.depth, move_key(r.best_move)))
+            .max_by_key(|&(score, depth, _)| (depth, score))
+    };
+    let mut fallback = None;
+    let mut picked = None;
+    for r in results {
+        if picked.is_none()
+            && chosen.is_some_and(|(score, depth, key)| {
+                r.score == score && r.depth == depth && move_key(r.best_move) == key
+            })
+        {
+            picked = Some(r);
+        } else {
+            fallback = Some(match fallback {
+                None => r,
+                Some(f) => select_result(f, r),
+            });
+        }
+    }
+    picked
+        .or(fallback)
+        .expect("Lazy SMP always has at least one worker")
+}
+
 fn move_key(mv: Option<crate::mv::Move>) -> (u8, u8, bool, u8) {
     mv.map_or((0, 0, false, 0), |m| {
         (
@@ -241,4 +317,61 @@ fn move_key(mv: Option<crate::mv::Move>) -> (u8, u8, bool, u8) {
             m.piece_kind.index() as u8,
         )
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::mv::Move;
+    use crate::piece::PieceKind;
+    use crate::search::SearchBound;
+    use crate::square::Square;
+
+    fn info(to: u8, score: i32, depth: u32) -> SearchInfo {
+        SearchInfo {
+            best_move: Some(Move::drop(Square::from_index(to), PieceKind::Kin)),
+            score,
+            depth,
+            nodes: 0,
+            elapsed: Duration::ZERO,
+            hashfull: 0,
+            bound: SearchBound::Exact,
+            completed_bound: SearchBound::Exact,
+            aborted: false,
+            abort_reason: "none",
+            pv: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn vote_prefers_the_move_most_workers_agree_on() {
+        // One deeper worker alone against three agreeing workers.
+        let picked = select_by_vote(vec![
+            info(1, 120, 12),
+            info(2, 100, 11),
+            info(2, 105, 11),
+            info(2, 98, 11),
+        ]);
+        assert_eq!(
+            picked.best_move,
+            Some(Move::drop(Square::from_index(2), PieceKind::Kin))
+        );
+        assert_eq!(picked.score, 105);
+        // The deepest-worker rule would have taken move 1.
+        let deepest = vec![info(1, 120, 12), info(2, 100, 11)]
+            .into_iter()
+            .reduce(select_result)
+            .expect("two results");
+        assert_eq!(
+            deepest.best_move,
+            Some(Move::drop(Square::from_index(1), PieceKind::Kin))
+        );
+    }
+
+    #[test]
+    fn vote_yields_to_a_found_mate() {
+        let mate = crate::search::MATE_SCORE - 7;
+        let picked = select_by_vote(vec![info(2, 100, 12), info(2, 101, 12), info(3, mate, 9)]);
+        assert_eq!(picked.score, mate);
+    }
 }
