@@ -6,11 +6,19 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: make SEARCH_V2 (the redesigned search below the root, with its own
+  move histories, pruning, reductions, and extensions) and its root move
+  ordering the default. A pre-registered, material-only paired-trinomial SPRT
+  of SEARCH_V2 with root ordering against the 0.3.59 main search (0.5 s per
+  move, one thread) accepted H1 at 102-34-16 over 152 games (LLR +2.95;
+  H0=0 Elo, H1=+20 Elo, alpha=beta=0.05). Its tables now belong to each
+  searcher (one set per Lazy SMP worker) rather than to the running thread.
 - Search research: expose the remaining SEARCH_V2 constants (reductions,
   razoring, null move, ProbCut, tactical futility, double extensions,
   re-search margins) as tuning options, and use tuned values for twenty of
-  its history, pruning, exchange, and reduction constants. SEARCH_V2 remains
-  disabled by default until its release gate completes.
+  its history, pruning, exchange, and reduction constants.
+- Tests: the Lazy SMP agreement controls use a position with one clearly best
+  move, so their result no longer depends on how equal scores are broken.
 - Search research: add disabled-by-default options for a two-move evaluation
   correction (`V2_CORR_CONT_W`), quiet promotions in quiescence
   (`QS_PROMO`), a SEARCH_V2-specific quiescence (`V2_QS`), and a

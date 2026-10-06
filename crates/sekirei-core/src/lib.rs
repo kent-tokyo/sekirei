@@ -1095,6 +1095,10 @@ mod tests {
         assert_eq!(smp.result.depth, sequential.depth);
     }
 
+    /// Start position with a white silver hanging on 7f: one clearly best
+    /// move for the Lazy SMP agreement controls below.
+    const TIE_FREE_SFEN: &str = "ln1gkgsnl/1r5b1/ppppppppp/9/9/2s6/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+
     /// Repeating the same shared-TT control after clearing the table must not
     /// change the selected result, even though worker scheduling may vary.
     #[test]
@@ -1110,7 +1114,9 @@ mod tests {
             soft_limit: None,
             multi_pv: 1,
         };
-        let board = Board::startpos();
+        // A position with one clearly best move (7g7f takes a silver), so the
+        // selected result does not hinge on how equal scores are broken.
+        let board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
         let smp = LazySmpSearcher::new(Tt::new(16), 2);
         let mut reference = None;
         for _ in 0..4 {
@@ -1141,7 +1147,7 @@ mod tests {
             soft_limit: None,
             multi_pv: 1,
         };
-        let board = Board::startpos();
+        let board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
         let shared = LazySmpSearcher::new(Tt::new(16), 2).search(&board, cfg);
         let isolated =
             LazySmpSearcher::new_isolated_with_hash_mb(Tt::new(16), 2, 16).search(&board, cfg);

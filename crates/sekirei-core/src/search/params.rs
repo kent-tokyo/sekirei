@@ -472,9 +472,9 @@ search_params! {
     /// had (1), or stores the best of the failing moves (0).
     FL_MOVE = 0, 0, 1;
     /// Search below the root with SEARCH_V2 (`search/v2.rs`): one rule set
-    /// for pruning, reductions and extensions with its own per-thread move
-    /// histories (1), or the main search (0).
-    SEARCH_V2 = 0, 0, 1;
+    /// for pruning, reductions and extensions with its own move histories
+    /// per searcher (1), or the main search (0).
+    SEARCH_V2 = 1, 0, 1;
     /// SEARCH_V2 move-count pruning also at PV nodes (1) and at nodes in
     /// check (2).
     V2_LMP_NODES = 0, 0, 3;
@@ -556,7 +556,7 @@ search_params! {
     /// teaches them its result each iteration and keeps the previous
     /// iteration's order (ROOT_ORDER) (1), or orders by the main search's
     /// tables (0).
-    V2_ROOT = 0, 0, 1;
+    V2_ROOT = 1, 0, 1;
     /// SEARCH_V2 quiet move order: picked best first one at a time for the
     /// first few, ties in generation order (1), or fully sorted at once (0).
     V2_SORT = 0, 0, 1;
