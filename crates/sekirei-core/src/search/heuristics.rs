@@ -168,9 +168,14 @@ pub(super) struct HistoryTable {
     ft: Vec<AtomicI16>,
     // Pawn-structure history: pawn bucket × color × move slot × to.
     pawnh: Vec<AtomicI16>,
-    // Number of `clear` calls: SEARCH_V2 keeps its own per-thread tables
-    // and forgets them when this changes (a new game).
+    // Number of `clear` calls: SEARCH_V2 keeps its own tables and forgets
+    // them when this changes (a new game).
     epoch: std::sync::atomic::AtomicU64,
+    // SEARCH_V2's tables of this searcher, kept from one search to the next
+    // (one set per concurrently running search; the lock is taken only when
+    // a search below the root starts or ends).
+    #[allow(clippy::vec_box)]
+    pub(super) v2_tables: std::sync::Mutex<Vec<Box<super::v2::Data>>>,
 }
 
 /// From-square slots of the from-to history: the 81 squares, then one per
@@ -241,6 +246,7 @@ impl HistoryTable {
                 .map(|_| AtomicI16::new(0))
                 .collect(),
             epoch: std::sync::atomic::AtomicU64::new(0),
+            v2_tables: std::sync::Mutex::new(Vec::new()),
         }
     }
 

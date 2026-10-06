@@ -5,11 +5,11 @@
 //! and strong extensions each lost strength there on their own. This module
 //! searches the same tree with a single design instead:
 //!
-//! - its own per-thread move histories (butterfly from-to, continuation
-//!   histories one to six plies back, pawn-structure and capture
-//!   histories), updated with a larger penalty for failed moves than the
-//!   bonus for the cutoff move, and quiet moves ordered by all of them with
-//!   safe checks first;
+//! - its own move histories, one set per searcher (per Lazy SMP worker):
+//!   butterfly from-to, continuation histories one to six plies back,
+//!   pawn-structure and capture histories, updated with a larger penalty
+//!   for failed moves than the bonus for the cutoff move, and quiet moves
+//!   ordered by all of them with safe checks first;
 //! - TT cutoffs that depend on the expected node type, a TT move that a
 //!   node failing low does not overwrite, and small TT-based ProbCut;
 //! - reverse futility to depth 13, null move only at expected cut nodes,
@@ -26,7 +26,6 @@
 //! history, the transposition table and the repetition rules are the main
 //! search's. All constants here are this module's own.
 
-use std::cell::RefCell;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
@@ -244,7 +243,7 @@ impl Frame {
     };
 }
 
-struct Data {
+pub(super) struct Data {
     main: Vec<i16>,
     cont: Vec<i16>,
     capt: Vec<i16>,
@@ -407,29 +406,6 @@ impl Data {
     }
 }
 
-/// Tables of finished threads. A USI search runs on a new thread for every
-/// move; the pool hands its tables (and what they learned) to the next one.
-/// The lock is taken only when a thread starts or ends, never in the search.
-#[allow(clippy::vec_box)]
-static POOL: std::sync::Mutex<Vec<Box<Data>>> = std::sync::Mutex::new(Vec::new());
-
-/// A thread's tables, returned to `POOL` when the thread ends.
-struct Slot(Option<Box<Data>>);
-
-impl Drop for Slot {
-    fn drop(&mut self) {
-        if let Some(d) = self.0.take()
-            && let Ok(mut pool) = POOL.lock()
-        {
-            pool.push(d);
-        }
-    }
-}
-
-thread_local! {
-    static DATA: RefCell<Slot> = const { RefCell::new(Slot(None)) };
-}
-
 #[inline]
 fn diag(state: &SearchState, depth: i32, k: usize) {
     if let Some(d) = state.counters() {
@@ -437,17 +413,19 @@ fn diag(state: &SearchState, depth: i32, k: usize) {
     }
 }
 
-/// Run `f` on this thread's tables, taking them from the pool on first use
-/// and clearing or aging them when a new game or a new search starts.
+/// Run `f` on this searcher's tables (created on first use, then kept with
+/// the searcher's history from one search to the next), clearing or aging
+/// them when a new game or a new search starts.
 fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
-    DATA.with(|cell| {
-        let mut slot = cell.borrow_mut();
-        let d = slot.0.get_or_insert_with(|| {
-            POOL.lock()
-                .ok()
-                .and_then(|mut pool| pool.pop())
-                .unwrap_or_else(|| Box::new(Data::new()))
-        });
+    let mut d = state
+        .history
+        .v2_tables
+        .lock()
+        .ok()
+        .and_then(|mut tables| tables.pop())
+        .unwrap_or_else(|| Box::new(Data::new()));
+    {
+        let d = &mut *d;
         if d.red_scale != p::V2_RED_SCALE() {
             d.red_scale = p::V2_RED_SCALE();
             d.red = reduction_table(d.red_scale);
@@ -469,8 +447,12 @@ fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
                 *t = 0;
             }
         }
-        f(d)
-    })
+    }
+    let result = f(&mut d);
+    if let Ok(mut tables) = state.history.v2_tables.lock() {
+        tables.push(d);
+    }
+    result
 }
 
 /// Root move order from these tables (V2_ROOT): the TT move, winning
