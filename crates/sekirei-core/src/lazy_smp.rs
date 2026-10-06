@@ -72,6 +72,12 @@ pub const LAZY_NO_YBW: u32 = 8;
 /// Choose the move by a depth- and score-weighted vote of the workers
 /// instead of the deepest worker's result (see [`select_by_vote`]).
 pub const LAZY_VOTE: u32 = 16;
+/// Take worker 0's result; the helpers only fill the shared TT.
+pub const LAZY_MAIN_RESULT: u32 = 32;
+/// Among the deepest workers, take the lowest-numbered one instead of the
+/// highest-scoring one (the highest of several scores of the same depth is
+/// biased upward).
+pub const LAZY_TIE_FIRST: u32 = 64;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -215,14 +221,7 @@ impl LazySmpSearcher {
                 nodes: info.nodes,
             })
             .collect();
-        let result = if self.flags & LAZY_VOTE != 0 {
-            select_by_vote(results)
-        } else {
-            results
-                .into_iter()
-                .reduce(select_result)
-                .expect("Lazy SMP always has at least one worker")
-        };
+        let result = select_worker_result(results, self.flags);
         LazySmpInfo {
             result,
             total_nodes,
@@ -231,6 +230,30 @@ impl LazySmpSearcher {
             elapsed: started.elapsed(),
         }
     }
+}
+
+/// The result Lazy SMP reports from its workers' results (in worker order)
+/// under the behaviour switches `flags`: worker 0's ([`LAZY_MAIN_RESULT`]),
+/// the vote ([`LAZY_VOTE`]), the deepest with ties to the lowest-numbered
+/// worker ([`LAZY_TIE_FIRST`]), or the deepest with ties to the highest score.
+pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
+    let mut results = results.into_iter();
+    if flags & LAZY_MAIN_RESULT != 0 {
+        results.next()
+    } else if flags & LAZY_VOTE != 0 {
+        return select_by_vote(results.collect());
+    } else if flags & LAZY_TIE_FIRST != 0 {
+        results.reduce(|left, right| {
+            if right.depth > left.depth {
+                right
+            } else {
+                left
+            }
+        })
+    } else {
+        results.reduce(select_result)
+    }
+    .expect("Lazy SMP always has at least one worker")
 }
 
 fn select_result(left: SearchInfo, right: SearchInfo) -> SearchInfo {
@@ -366,6 +389,22 @@ mod tests {
             deepest.best_move,
             Some(Move::drop(Square::from_index(1), PieceKind::Kin))
         );
+    }
+
+    #[test]
+    fn main_result_and_first_tie_avoid_the_highest_equal_depth_score() {
+        let results = || vec![info(1, -100, 9), info(2, 60, 9), info(3, 10, 8)];
+        let to = |r: SearchInfo| r.best_move.map(|m| m.to.index());
+        // Default: the deepest, ties to the highest score.
+        assert_eq!(to(select_worker_result(results(), 0)), Some(2));
+        assert_eq!(to(select_worker_result(results(), LAZY_TIE_FIRST)), Some(1));
+        assert_eq!(
+            to(select_worker_result(results(), LAZY_MAIN_RESULT)),
+            Some(1)
+        );
+        // A deeper later worker still wins with LAZY_TIE_FIRST.
+        let deeper = vec![info(1, -100, 9), info(2, -150, 10)];
+        assert_eq!(to(select_worker_result(deeper, LAZY_TIE_FIRST)), Some(2));
     }
 
     #[test]

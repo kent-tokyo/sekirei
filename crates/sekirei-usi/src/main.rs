@@ -790,7 +790,7 @@ fn main() {
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
                 );
                 println!(
-                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 31"
+                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 127"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
                 println!("option name IncrementUsePercent type spin default 0 min 0 max 100");
@@ -931,7 +931,7 @@ fn main() {
                     && let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok())
                 {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    LAZY_FLAGS.store(n.min(31), Ordering::Relaxed);
+                    LAZY_FLAGS.store(n.min(127), Ordering::Relaxed);
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
