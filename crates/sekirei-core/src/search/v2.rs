@@ -262,6 +262,8 @@ pub(super) struct Data {
     /// built for.
     red: Vec<i32>,
     red_scale: i32,
+    /// V2_CONT_SPLIT the continuation tables were sized for.
+    cont_split: i32,
     epoch: u64,
     /// The TT's search count when these tables last saw a search.
     search: u64,
@@ -283,6 +285,7 @@ impl Data {
             corr_cont: vec![0; CORR_CONT_NB],
             red: Vec::new(),
             red_scale: i32::MIN,
+            cont_split: 0,
             epoch: u64::MAX,
             search: u64::MAX,
         }
@@ -325,6 +328,19 @@ impl Data {
             >> (64 - CORR_CONT_BITS)) as usize
     }
 
+    /// Index in `cont` of `pt` following the move of frame `f`: with
+    /// V2_CONT_SPLIT, one table per (was that side in check, did the move
+    /// capture).
+    #[inline]
+    fn cont_index(&self, f: &Frame, pt: u32) -> usize {
+        let table = if self.cont_split != 0 {
+            (usize::from(f.in_check) * 2 + usize::from(f.capture)) * PT_NB * PT_NB
+        } else {
+            0
+        };
+        table + f.pt as usize * PT_NB + pt as usize
+    }
+
     /// Continuation-history sum of `pt` against the moves 1, 2, 3, 4 and 6
     /// plies before frame `i`.
     #[inline]
@@ -336,9 +352,9 @@ impl Data {
             &[1, 2, 3, 4, 6]
         };
         for &k in rows {
-            let prev = self.ss[i - k].pt;
-            if prev != NO_PT {
-                s += i32::from(self.cont[prev as usize * PT_NB + pt as usize]);
+            let f = &self.ss[i - k];
+            if f.pt != NO_PT {
+                s += i32::from(self.cont[self.cont_index(f, pt)]);
             }
         }
         s
@@ -346,11 +362,11 @@ impl Data {
 
     #[inline]
     fn cont_at(&self, i: usize, k: usize, pt: u32) -> i32 {
-        let prev = self.ss[i - k].pt;
-        if prev == NO_PT {
+        let f = &self.ss[i - k];
+        if f.pt == NO_PT {
             0
         } else {
-            i32::from(self.cont[prev as usize * PT_NB + pt as usize])
+            i32::from(self.cont[self.cont_index(f, pt)])
         }
     }
 
@@ -361,13 +377,10 @@ impl Data {
             if in_check && k > 2 {
                 break;
             }
-            let prev = self.ss[i - k].pt;
-            if prev != NO_PT {
-                gravity(
-                    &mut self.cont[prev as usize * PT_NB + pt as usize],
-                    bonus * w / 1024,
-                    CONT_LIM,
-                );
+            let f = self.ss[i - k];
+            if f.pt != NO_PT {
+                let idx = self.cont_index(&f, pt);
+                gravity(&mut self.cont[idx], bonus * w / 1024, CONT_LIM);
             }
         }
     }
@@ -429,6 +442,12 @@ fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
         if d.red_scale != p::V2_RED_SCALE() {
             d.red_scale = p::V2_RED_SCALE();
             d.red = reduction_table(d.red_scale);
+        }
+        let split = p::V2_CONT_SPLIT();
+        if d.cont_split != split {
+            d.cont_split = split;
+            let tables = if split != 0 { 4 } else { 1 };
+            d.cont = vec![0; tables * PT_NB * PT_NB];
         }
         let epoch = state.history.epoch();
         if d.epoch != epoch {

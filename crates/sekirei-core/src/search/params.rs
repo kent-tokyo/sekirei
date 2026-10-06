@@ -700,6 +700,9 @@ search_params! {
     /// SEARCH_V2 quiet-move futility gets V2_FUT_NOBEST when the best value
     /// is this far below the static evaluation.
     V2_FUT_GAP = 50, 0, 300;
+    /// SEARCH_V2 continuation histories: one table (0) or one per (was the
+    /// earlier move made in check, did it capture) (1).
+    V2_CONT_SPLIT = 0, 0, 1;
     /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
     /// moves before a node (0: not used).
     V2_CORR_CONT_W = 0, 0, 128;
