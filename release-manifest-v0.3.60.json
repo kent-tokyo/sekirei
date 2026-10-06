@@ -3,7 +3,7 @@
   "release": "v0.3.60",
   "commit": "7dbfb6455b103244fb192a4360c1c1477692285c",
   "branch_at_release": "main",
-  "candidate_state": "planned from the verified release-preparation commit",
+  "candidate_state": "released from the verified release-preparation commit",
   "packages": {
     "sekirei": "0.3.60",
     "sekirei-core": "0.3.60",
@@ -21,9 +21,9 @@
     "sha256": "723c87f65aac08e0e27455f59962879461e0d9942776f4b88ede6cf2bda3129c"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "37414016873",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
@@ -70,9 +70,18 @@
       "first_boundary_pair": 71,
       "llr_at_first_boundary": 2.952275,
       "full_input_llr": 3.233863,
-      "bounds": [-2.944439, 2.944439],
-      "hypotheses_elo": [0, 20],
-      "alpha_beta": [0.05, 0.05],
+      "bounds": [
+        -2.944439,
+        2.944439
+      ],
+      "hypotheses_elo": [
+        0,
+        20
+      ],
+      "alpha_beta": [
+        0.05,
+        0.05
+      ],
       "verdict": "PASS",
       "default_enabled": true,
       "binary_sha256": "c929ba34a422a0df0beb6d142b1495d25acf3753d67f290b22a8b7e15333601c",
