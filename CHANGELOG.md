@@ -6,6 +6,19 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search research: expose the remaining SEARCH_V2 constants (reductions,
+  razoring, null move, ProbCut, tactical futility, double extensions,
+  re-search margins) as tuning options, and use tuned values for twenty of
+  its history, pruning, exchange, and reduction constants. SEARCH_V2 remains
+  disabled by default until its release gate completes.
+- Search research: add disabled-by-default options for a two-move evaluation
+  correction (`V2_CORR_CONT_W`), quiet promotions in quiescence
+  (`QS_PROMO`), a SEARCH_V2-specific quiescence (`V2_QS`), and a
+  score-and-depth vote among Lazy SMP workers (`LazyFlags` bit 16).
+- Release tooling: add `scripts/verify_release_publication.py`, which checks
+  the published crates and WebAssembly asset against a release manifest and
+  records the verified publication.
+
 ## [0.3.59] – 2026-10-05
 
 - Transposition table: make the four-entry cache-line bucket layout the
