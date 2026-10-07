@@ -110,6 +110,7 @@ jobs:
         run: |
           python3 scripts/test_nnue_diagnostics.py
           python3 -m unittest scripts/test_check_candidate_readiness.py
+          python3 -m unittest scripts/test_train_halfkp.py
       - name: A/B match SPRT tests
         run: python3 scripts/test_run_ab_match.py
       - name: material-only SPSA contract
