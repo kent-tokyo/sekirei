@@ -6,6 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.62] – 2026-10-07
+
+- NNUE training: export feature-transformer weights and biases by rounding to
+  the nearest integer instead of truncating toward zero. For finite unclipped
+  values, the exported parameter error is now at most half a quantisation step;
+  signed boundary cases and existing integer-checkpoint compatibility have
+  regression tests.
+- Existing weight files remain load-compatible and unchanged. This release
+  does not adopt a new checkpoint or make a new playing-strength claim.
+
 ## [0.3.61] – 2026-10-07
 
 - NNUE data preparation: add stable source-game identifiers to `gensfen` and
