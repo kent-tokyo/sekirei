@@ -8,6 +8,11 @@ preserves older per-change notes.
 
 ## [0.3.63] – 2026-10-08
 
+- NNUE training: add `scripts/train_halfkp.py`, the PyTorch trainer for the
+  in-house HalfKP 256x2-32-32 `nn.bin`, with by-game validation files
+  (`--val-data`), an optional king-independent factorizer folded at export
+  (`--fact`), and a single-epoch default for continuing on new self-play data.
+  It does not add a checkpoint or make a playing-strength claim.
 - WebAssembly: position analysis now exposes one legal primary principal
   variation from the same completed iteration as its score, depth, and bound.
   Fallback, pre-iteration abort, and terminal results keep the PV empty; the

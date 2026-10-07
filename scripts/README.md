@@ -98,6 +98,22 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
   pack data/selfplay/validation.bin data/selfplay/validation.txt
 ```
 
+`train_halfkp.py` trains a HalfKP 256x2-32-32 `nn.bin` from those packed
+files (PyTorch, quantization-aware; `EvalFile` with `FV_SCALE=24`). Pass the
+by-game validation file with `--val-data`; the random `--val` fraction lets one
+game's positions fall on both sides. `--init` continues from a saved float
+state, and `--fact` trains a king-independent piece-square row that is folded
+into every king's row at export. When continuing from the previous network on
+new self-play data, keep the default single epoch: more epochs memorise the new
+games. Validation loss is a diagnostic only; candidates still need a gate.
+Run `test_train_halfkp.py` after changing it (it skips without PyTorch).
+
+```bash
+python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
+  --val-data data/selfplay/validation.bin --init data/selfplay/prev.pt \
+  --out data/selfplay/next.bin --save data/selfplay/next.pt
+```
+
 ## Local self-play and CSA
 
 - `spsa.py` tunes search parameters with paired self-play. It requires the
