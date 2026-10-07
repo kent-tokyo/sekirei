@@ -22,7 +22,7 @@ NON_RESTARTABLE_EXIT_KINDS = {"exit_2", "exit_3", "exit_64"}
 CLIENT_STATUS_SCHEMA = "sekirei.csa-runtime-status.v1"
 CLIENT_STATUS_STATES = {
     "connecting", "authenticated", "waiting_for_game", "in_game", "receiving",
-    "game_finished", "connection_error", "client_error",
+    "game_finished", "connection_error", "client_error", "stopped",
 }
 
 
@@ -91,6 +91,17 @@ def observe_client_status(path: Path, pid: int, now: float | None = None,
     age = current - timestamp_ms / 1000.0
     if age > max_age_seconds or age < -5.0:
         return {"ok": False, "reason": "stale_or_future"}
+    completed_attempts = document.get("completed_attempts", 0)
+    max_games = document.get("max_games")
+    terminal_stop_reason = document.get("terminal_stop_reason")
+    if (not isinstance(completed_attempts, int) or isinstance(completed_attempts, bool)
+            or completed_attempts < 0):
+        return {"ok": False, "reason": "invalid_completed_attempts"}
+    if (max_games is not None
+            and (not isinstance(max_games, int) or isinstance(max_games, bool) or max_games < 1)):
+        return {"ok": False, "reason": "invalid_max_games"}
+    if terminal_stop_reason is not None and not isinstance(terminal_stop_reason, str):
+        return {"ok": False, "reason": "invalid_terminal_stop_reason"}
     return {
         "ok": True,
         "session_id": session_id,
@@ -98,6 +109,9 @@ def observe_client_status(path: Path, pid: int, now: float | None = None,
         "event": document.get("event"),
         "active_game_id": document.get("active_game_id"),
         "timestamp_ms": timestamp_ms,
+        "completed_attempts": completed_attempts,
+        "max_games": max_games,
+        "terminal_stop_reason": terminal_stop_reason,
     }
 
 
@@ -152,6 +166,8 @@ def operational_state(kind: str) -> str:
         "restart_scheduled": "restarting",
         "circuit_breaker": "blocked",
         "terminal_error": "error",
+        "one_shot_complete": "stopped",
+        "one_shot_already_complete": "stopped",
         "client_status_observed": "running",
         "client_status_changed": "running",
         "client_session_changed": "running",
@@ -169,7 +185,8 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
         client_status_file: Path | None = None,
         client_status_max_age: float = 120.0,
         max_log_bytes: int = 10 * 1024 * 1024,
-        stop_after_game_file: Path | None = None) -> int:
+        stop_after_game_file: Path | None = None,
+        one_shot: bool = False) -> int:
     if not command:
         raise ValueError("a command is required after --")
     state_dir.mkdir(parents=True, exist_ok=True)
@@ -178,6 +195,7 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
         return 1
     events_path = state_dir / "events.jsonl"
     state_path = state_dir / "state.json"
+    one_shot_completion_path = state_dir / "one-shot-complete.json"
     restart_times: deque[float] = deque()
     restart_count = 0
 
@@ -193,6 +211,10 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
         with events_path.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(value, ensure_ascii=False) + "\n")
         write_json(state_path, value)
+
+    if one_shot and one_shot_completion_path.exists():
+        event("one_shot_already_complete", completion_file=str(one_shot_completion_path))
+        return 0
 
     if stop_file.exists():
         event("explicit_stop_before_start", command=command)
@@ -242,6 +264,7 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
             stop_requested = False
             graceful_stop_pending = False
             observed_status: tuple[object, object, object, object] | None = None
+            latest_observation: dict[str, object] | None = None
             last_status_error: str | None = None
             while process.poll() is None:
                 observation: dict[str, object] | None = None
@@ -250,6 +273,7 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                         client_status_file, process.pid, max_age_seconds=client_status_max_age
                     )
                     if observation["ok"]:
+                        latest_observation = observation
                         session_id = str(observation["session_id"])
                         status_key = (
                             session_id,
@@ -316,12 +340,54 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
             stdout_pump.join()
             stderr_pump.join()
         kind = exit_kind(returncode, stop_requested)
+        if client_status_file is not None:
+            final_observation = observe_client_status(
+                client_status_file, process.pid, max_age_seconds=client_status_max_age
+            )
+            if final_observation["ok"]:
+                latest_observation = final_observation
         event("exited", attempt=attempt, pid=process.pid, returncode=returncode,
               child_exit_code=returncode,
               child_started_at=started, exit_kind=kind,
               stdout_path=str(stdout_path), stderr_path=str(stderr_path),
               client_status_file=str(client_status_file) if client_status_file else None,
               elapsed_seconds=round(time.time() - started, 3))
+        if one_shot:
+            completed_attempts = int(
+                latest_observation.get("completed_attempts", 0)
+                if latest_observation is not None else 0
+            )
+            max_games = (
+                latest_observation.get("max_games") if latest_observation is not None else None
+            )
+            reported_reason = (
+                latest_observation.get("terminal_stop_reason")
+                if latest_observation is not None else None
+            )
+            if reported_reason == "max_games_reached":
+                terminal_reason = "max_games_reached"
+            elif kind == "explicit_stop":
+                terminal_reason = "explicit_stop"
+            elif max_games is not None and completed_attempts < max_games:
+                terminal_reason = "child_exited_before_max_games"
+            else:
+                terminal_reason = "child_exited"
+            completion = {
+                "schema": "sekirei.floodgate-one-shot.v1",
+                "timestamp": time.time(),
+                "terminal_reason": terminal_reason,
+                "completed_attempts": completed_attempts,
+                "max_games": max_games,
+                "child_exit_code": returncode,
+                "exit_kind": kind,
+            }
+            write_json(one_shot_completion_path, completion)
+            event("one_shot_complete", **completion,
+                  completion_file=str(one_shot_completion_path))
+            # A bounded launchd job must remain completed even if its child
+            # disconnected before the requested game count. The durable reason
+            # carries the failure; a zero supervisor exit prevents relaunch.
+            return 0
         if kind in {"normal_exit", "explicit_stop"}:
             return 0
         if kind in NON_RESTARTABLE_EXIT_KINDS:
@@ -352,6 +418,10 @@ def main() -> int:
     parser.add_argument("--client-status-max-age", type=float, default=120.0)
     parser.add_argument("--max-log-bytes", type=int, default=10 * 1024 * 1024)
     parser.add_argument("--stop-after-game-file", type=Path, default=None)
+    parser.add_argument(
+        "--one-shot", action="store_true",
+        help="run one child generation, record its terminal reason, and never restart it",
+    )
     parser.add_argument("command", nargs=argparse.REMAINDER, help="child command after --")
     args = parser.parse_args()
     command = args.command[1:] if args.command[:1] == ["--"] else args.command
@@ -381,7 +451,7 @@ def main() -> int:
         return run(command, args.state_dir, args.stop_file, args.max_restarts,
                    args.restart_window, args.restart_delay, args.poll_seconds,
                    args.client_status_file, args.client_status_max_age, args.max_log_bytes,
-                   args.stop_after_game_file)
+                   args.stop_after_game_file, args.one_shot)
     except ValueError as exc:
         parser.error(str(exc))
         return 2

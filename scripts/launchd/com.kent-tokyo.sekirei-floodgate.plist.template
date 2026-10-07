@@ -13,6 +13,7 @@
 <string>--poll-seconds</string><string>2</string>
 <string>--client-status-file</string><string>__STATE_DIR__/client-status.json</string>
 <string>--max-log-bytes</string><string>10485760</string>
+<string>--one-shot</string>
 <string>--</string><string>__CSA_BINARY__</string>
 <string>--user</string><string>__FLOODGATE_USER__</string>
 <string>--game</string><string>floodgate-300-10F</string>
@@ -20,9 +21,10 @@
 <string>--analysis-dir</string><string>__ANALYSIS_DIR__</string>
 <string>--status-file</string><string>__STATE_DIR__/client-status.json</string>
 <string>--eval</string><string>__EVAL_MODE__</string>
+<string>--loop</string><string>--max-games</string><string>__MAX_GAMES__</string>
 </array>
 <key>RunAtLoad</key><true/>
-<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>
+<key>KeepAlive</key><false/>
 <key>ThrottleInterval</key><integer>30</integer>
 <key>ProcessType</key><string>Background</string>
 <key>WorkingDirectory</key><string>__SEKIREI_ROOT__</string>

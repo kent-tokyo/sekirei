@@ -131,6 +131,13 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
 client instead of requesting another game; the status and manifest retain the
 completed-attempt count and terminal reason without credentials.
 
+For a launchd-managed bounded batch, use the supplied plist template. It runs
+the supervisor with `--one-shot`, disables launchd `KeepAlive`, and records
+`one-shot-complete.json`. If the child exits before the limit, the record keeps
+`child_exited_before_max_games` and the completed-attempt count (including
+zero). A later accidental launch observes that durable completion and does not
+spawn another CSA client. Replace `__MAX_GAMES__` with the intended bound.
+
 Same-engine self-play supports training and regression work. It does not show
 that either revision is stronger.
 

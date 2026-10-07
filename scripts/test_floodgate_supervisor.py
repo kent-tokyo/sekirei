@@ -73,6 +73,27 @@ def test_client_status_observation_rejects_wrong_schema_or_state():
         assert supervisor.observe_client_status(path, 42, now=10.0)["reason"] == "unknown_state"
 
 
+def test_client_status_observation_preserves_bounded_progress():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "client-status.json"
+        path.write_text(json.dumps({
+            "schema": supervisor.CLIENT_STATUS_SCHEMA,
+            "state": "stopped",
+            "event": "max_games_reached",
+            "timestamp_ms": 10_000,
+            "pid": 42,
+            "session_id": "42-1",
+            "completed_attempts": 5,
+            "max_games": 5,
+            "terminal_stop_reason": "max_games_reached",
+        }))
+        observed = supervisor.observe_client_status(path, 42, now=10.0)
+        assert observed["ok"]
+        assert observed["completed_attempts"] == 5
+        assert observed["max_games"] == 5
+        assert observed["terminal_stop_reason"] == "max_games_reached"
+
+
 def test_graceful_stop_requires_a_fresh_non_active_status():
     active = {"ok": True, "state": "in_game", "active_game_id": "game-1"}
     stale = {"ok": False, "reason": "stale_or_future"}
@@ -239,6 +260,74 @@ def test_runtime_restarts_unexpected_exit_then_opens_circuit_breaker():
         assert all(Path(event["stderr_path"]).is_file() for event in exits)
 
 
+def test_one_shot_records_interrupted_zero_game_session_and_never_respawns():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        child_runs = root / "child-runs.txt"
+        code = (
+            "import json, os, pathlib, time; "
+            f"runs=pathlib.Path({str(child_runs)!r}); "
+            "runs.write_text(runs.read_text()+'x' if runs.exists() else 'x'); "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'waiting_for_game','event':None,'timestamp_ms':int(time.time()*1000),"
+            "'pid':os.getpid(),'session_id':'session-1','active_game_id':None,"
+            "'completed_attempts':0,'max_games':10,'terminal_stop_reason':None})); "
+            "time.sleep(0.08); raise SystemExit(7)"
+        )
+        result = supervisor.run(
+            [sys.executable, "-c", code], state_dir, root / "stop",
+            max_restarts=5, restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+            client_status_file=status_file, client_status_max_age=2.0, one_shot=True,
+        )
+        assert result == 0
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "child_exited_before_max_games"
+        assert completion["completed_attempts"] == 0
+        assert completion["max_games"] == 10
+        assert completion["child_exit_code"] == 7
+        assert child_runs.read_text() == "x"
+
+        repeated = supervisor.run(
+            [sys.executable, "-c", code], state_dir, root / "stop",
+            max_restarts=5, restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+            client_status_file=status_file, client_status_max_age=2.0, one_shot=True,
+        )
+        assert repeated == 0
+        assert child_runs.read_text() == "x"
+        events = [json.loads(line) for line in (state_dir / "events.jsonl").read_text().splitlines()]
+        assert [event["kind"] for event in events].count("started") == 1
+        assert events[-2]["kind"] == "one_shot_complete"
+        assert events[-1]["kind"] == "one_shot_already_complete"
+
+
+def test_one_shot_preserves_normal_max_games_terminal_reason():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        code = (
+            "import json, os, pathlib, time; "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'stopped','event':'max_games_reached','timestamp_ms':int(time.time()*1000),"
+            "'pid':os.getpid(),'session_id':'session-1','active_game_id':None,"
+            "'completed_attempts':3,'max_games':3,"
+            "'terminal_stop_reason':'max_games_reached'})); time.sleep(0.08)"
+        )
+        result = supervisor.run(
+            [sys.executable, "-c", code], state_dir, root / "stop",
+            max_restarts=5, restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+            client_status_file=status_file, client_status_max_age=2.0, one_shot=True,
+        )
+        assert result == 0
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "max_games_reached"
+        assert completion["completed_attempts"] == 3
+
+
 def test_runtime_explicit_stop_before_start_does_not_spawn_child():
     with tempfile.TemporaryDirectory() as directory:
         state_dir = Path(directory) / "state"
@@ -365,12 +454,17 @@ if __name__ == "__main__":
     test_exit_classification()
     test_only_unexpected_exit_is_restartable_and_window_is_bounded()
     test_client_status_observation_rejects_stale_or_wrong_pid()
+    test_client_status_observation_rejects_wrong_schema_or_state()
+    test_client_status_observation_preserves_bounded_progress()
     test_graceful_stop_requires_a_fresh_non_active_status()
     test_runtime_graceful_stop_waits_for_game_completion()
     test_runtime_observes_client_session_without_confusing_process_restart()
     test_runtime_suppresses_timestamp_only_updates_but_records_state_changes()
     test_child_logs_are_rotated_at_a_bounded_generation_size()
+    test_state_snapshot_contract_names_restart_count()
     test_runtime_restarts_unexpected_exit_then_opens_circuit_breaker()
+    test_one_shot_records_interrupted_zero_game_session_and_never_respawns()
+    test_one_shot_preserves_normal_max_games_terminal_reason()
     test_runtime_explicit_stop_before_start_does_not_spawn_child()
     test_runtime_rejects_a_second_supervisor_for_the_same_state_directory()
     test_runtime_normal_exit_is_not_restarted()

@@ -17,7 +17,10 @@ def test_launchd_template_is_valid_and_secret_free():
     assert "__EVAL_MODE__" in arguments
     assert "--client-status-file" in arguments
     assert "--max-log-bytes" in arguments
-    assert document["KeepAlive"] == {"SuccessfulExit": False}
+    assert "--one-shot" in arguments
+    assert "--loop" in arguments
+    assert arguments[arguments.index("--max-games") + 1] == "__MAX_GAMES__"
+    assert document["KeepAlive"] is False
     assert document["ThrottleInterval"] == 30
 
 
