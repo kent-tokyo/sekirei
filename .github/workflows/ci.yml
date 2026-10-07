@@ -57,6 +57,11 @@ jobs:
           grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly scorePerspective: 'sideToMove';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly evaluatorVersion: string;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly principalVariation: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq "readonly pvSource: 'completed_iteration' | 'none';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly candidateLineCount: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly maxCandidateLines: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly multiPvSupported: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
       - name: Generated JavaScript analysis contract
         run: node scripts/test_wasm_position_analysis.mjs
 

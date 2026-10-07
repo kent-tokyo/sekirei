@@ -97,6 +97,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * 2026-09-27: Release v0.3.52 as a behavior-preserving search refactor after version, test, manifest, registry, and GitHub Release verification.
 * 2026-09-29: Release v0.3.53 after verifying the mate-in-one search change, six-crate publication, manifest, and GitHub Release.
 * 2026-09-29: Release v0.3.54 after verifying the search/tuning changes, six-crate publication, manifest, and GitHub Release; do not use external-evaluator results as its public strength claim.
+* 2026-10-07: Resolve Issues #100 and #101 with a versioned legal-PV WASM contract and a durable one-shot Floodgate supervisor; preserve existing release evidence and unrelated work.
 * 2026-10-07: Release v0.3.62 as an NNUE trainer export-precision fix after full workspace, WebAssembly, manifest, registry, and GitHub Release verification; do not claim a new checkpoint or strength gain.
 * 2026-10-03: Release v0.3.57 after verifying the six workspace crates, WebAssembly package, release manifest, registry publication, and GitHub Release.
 * 2026-10-01: Release v0.3.55 after verifying SearchMode Auto/Lazy SMP, bounded CSA operation, six-crate publication, manifest, and GitHub Release; make no general strength claim.

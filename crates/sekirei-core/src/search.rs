@@ -160,6 +160,9 @@ pub struct SearchIteration {
     pub nodes: u64,
     /// Proof status returned by the root pass.
     pub bound: SearchBound,
+    /// Legal principal-variation prefix captured before a later iteration can
+    /// replace transposition-table entries.
+    pub pv: Vec<Move>,
     /// Cumulative nodes spent in root mate-in-one checks, if a diagnostic
     /// observer was attached.
     pub root_mate_in_one_nodes: Option<u64>,
@@ -1293,12 +1296,14 @@ impl Searcher {
                     .diagnostics
                     .as_ref()
                     .map(|observer| observer.snapshot());
+                let pv = extract_pv(&self.tt, board, best_move, depth);
                 trace.push(SearchIteration {
                     depth,
                     best_move,
                     score,
                     nodes: state.budget.nodes(),
                     bound: root_bound,
+                    pv,
                     root_mate_in_one_nodes: diagnostics
                         .map(|snapshot| snapshot.root_mate_in_one_nodes),
                     root_mate_blunder_nodes: diagnostics

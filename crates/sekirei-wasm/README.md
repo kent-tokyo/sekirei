@@ -79,16 +79,17 @@ It returns a `PositionAnalysis` wasm-bindgen object; call `free()` when done.
 | `scoreCp` | Present only for normal completed scores; positive favors the side to move |
 | `matePlies`, `winner` | Mate distance (absolute plies) and winning side (`b` = Sente, `w` = Gote); not a shortest-mate proof |
 | `sideToMove`, `scorePerspective`, `scoreUnit` | SFEN side (`b`/`w`), `sideToMove`, and `cp` (normal scores only) |
-| `depth`, `bound`, `bestMove` | All come from the same completed iteration; `bound` is `exact`, `lower`, `upper`, or `unknown` |
+| `depth`, `bound`, `bestMove`, `principalVariation` | All come from the same completed iteration; the PV is a legal primary-line prefix and `bound` is `exact`, `lower`, `upper`, or `unknown` |
+| `pvSource`, `candidateLineCount` | `completed_iteration` with one primary line, or `none` with zero lines; fallback moves are never promoted to a completed PV |
 | `aborted`, `abortReason`, `nodes` | Node exhaustion, optional `node_limit`, and total nodes including a partial deeper pass |
 | `usedFallback` | No iteration completed, but a legal fallback move exists |
 | `terminalReason`, `inCheck` | Optional `checkmate`/`no_moves`, and whether the moving king is in check |
-| `evaluatorId`, `evaluatorVersion`, `engineVersion`, `apiVersion` | `material`, `material-v1`, Cargo version, and contract schema `1` |
+| `evaluatorId`, `evaluatorVersion`, `engineVersion`, `apiVersion` | `material`, `material-v1`, Cargo version, and contract schema `2` |
 
 An interruption **after** a shallow pass can still return its completed score
 and bound with `aborted = true`. `bound` describes that score, not the later
 interrupted pass. Before any pass completes, `kind = "unknown"`, `depth = 0`,
-`bound = "unknown"`, and both numeric score fields are absent. The core's
+`bound = "unknown"`, `principalVariation = []`, and both numeric score fields are absent. The core's
 fallback/static score is never presented as a measured zero or completed
 evaluation. Mate scores are decoded here, never passed as huge centipawns.
 Mate distances and bounds describe the search result, not exhaustive
@@ -151,7 +152,9 @@ intermediate SFEN to inspect later attacking turns with the same contract.
 - Built-in material evaluation only; no external weights are loaded.
 - Sequential search only. `searchCapabilities()` reports `maxWorkers = 1`,
   `effectiveWorkers = 1`, `workerThreadsSupported = false`, and
-  `sharedArrayBufferRequired = false`.
+  `sharedArrayBufferRequired = false`. It also reports
+  `maxCandidateLines = 1` and `multiPvSupported = false`; browser analysis
+  currently exposes only the primary PV.
 - Every `computerMove` result repeats the actual `effectiveWorkers` value. Do
   not derive a core selector from `navigator.hardwareConcurrency`; this build
   accepts no worker-count setting and always falls back to one worker.

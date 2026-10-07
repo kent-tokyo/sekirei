@@ -30,6 +30,7 @@ const MAX_MATE_PLY: u32 = 15;
 const MAX_MATE_NODES: u32 = 1_000_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
+const BROWSER_MAX_CANDIDATE_LINES: u32 = 1;
 #[cfg(test)]
 const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
 #[cfg(test)]
@@ -93,6 +94,7 @@ struct PositionResult {
     abort_reason: Option<&'static str>,
     used_fallback: bool,
     best_move: Option<String>,
+    principal_variation: Vec<String>,
     terminal_reason: Option<&'static str>,
     in_check: bool,
 }
@@ -218,6 +220,7 @@ fn analyze_position_impl(
         abort_reason: None,
         used_fallback: false,
         best_move: None,
+        principal_variation: Vec::new(),
         terminal_reason: None,
         in_check,
     };
@@ -253,6 +256,7 @@ fn analyze_position_impl(
         result.depth = completed.depth;
         result.bound = completed.bound.as_str();
         result.best_move = completed.best_move.map(move_to_usi);
+        result.principal_variation = completed.pv.iter().copied().map(move_to_usi).collect();
         if completed.bound.as_str() != "unknown" {
             classify_score(&mut result, completed.score, side);
         }
@@ -544,6 +548,34 @@ impl PositionAnalysis {
         self.result.best_move.clone()
     }
 
+    /// Legal primary PV from the same completed iteration as score and depth.
+    /// A fallback move is deliberately not represented as a completed line.
+    #[wasm_bindgen(getter, js_name = principalVariation, unchecked_return_type = "string[]")]
+    pub fn principal_variation(&self) -> Array {
+        let array = Array::new();
+        for mv in &self.result.principal_variation {
+            array.push(&JsValue::from_str(mv));
+        }
+        array
+    }
+
+    /// Provenance of `principalVariation`.
+    #[wasm_bindgen(getter, js_name = pvSource, unchecked_return_type = "'completed_iteration' | 'none'")]
+    pub fn pv_source(&self) -> String {
+        if self.result.principal_variation.is_empty() {
+            "none"
+        } else {
+            "completed_iteration"
+        }
+        .to_owned()
+    }
+
+    /// Number of candidate lines represented by this result (zero or one).
+    #[wasm_bindgen(getter, js_name = candidateLineCount)]
+    pub fn candidate_line_count(&self) -> u32 {
+        u32::from(!self.result.principal_variation.is_empty())
+    }
+
     /// Reason for terminal (no-legal-moves) results only.
     #[wasm_bindgen(getter, js_name = terminalReason, unchecked_return_type = "'checkmate' | 'no_moves' | undefined")]
     pub fn terminal_reason(&self) -> Option<String> {
@@ -577,7 +609,7 @@ impl PositionAnalysis {
     /// Contract schema version, separate from engine and evaluator versions.
     #[wasm_bindgen(getter, js_name = apiVersion)]
     pub fn api_version(&self) -> u32 {
-        1
+        2
     }
 }
 
@@ -654,6 +686,18 @@ impl SearchCapabilities {
     /// Whether browser search requires `SharedArrayBuffer`.
     #[wasm_bindgen(getter, js_name = sharedArrayBufferRequired)]
     pub fn shared_array_buffer_required(&self) -> bool {
+        false
+    }
+
+    /// Maximum number of independently ranked PV lines exposed by analysis.
+    #[wasm_bindgen(getter, js_name = maxCandidateLines)]
+    pub fn max_candidate_lines(&self) -> u32 {
+        BROWSER_MAX_CANDIDATE_LINES
+    }
+
+    /// MultiPV is not exposed by the current browser analysis contract.
+    #[wasm_bindgen(getter, js_name = multiPvSupported)]
+    pub fn multi_pv_supported(&self) -> bool {
         false
     }
 }
@@ -849,6 +893,16 @@ mod tests {
     const ASYMMETRIC_BLACK: &str = "4k4/9/9/9/9/9/9/9/4K4 b P 1";
     const ASYMMETRIC_WHITE: &str = "4k4/9/9/9/9/9/9/9/4K4 w P 1";
 
+    fn assert_legal_line(mut sfen: String, line: &[String]) {
+        for mv in line {
+            assert!(
+                legal_move_strings(&sfen).unwrap().contains(mv),
+                "illegal PV move {mv} from {sfen}"
+            );
+            sfen = apply_move_impl(&sfen, mv).unwrap();
+        }
+    }
+
     #[test]
     fn analysis_rejects_oversized_inventory_before_board_parsing() {
         for hand in [
@@ -892,7 +946,32 @@ mod tests {
             assert_eq!(result.bound, "exact");
             assert!(!result.aborted);
             assert!(result.mate_plies.is_none());
+            assert_eq!(
+                result.principal_variation.first(),
+                result.best_move.as_ref()
+            );
+            assert_legal_line(sfen.to_owned(), &result.principal_variation);
         }
+    }
+
+    #[test]
+    fn completed_analysis_exposes_only_a_legal_primary_pv() {
+        let result = analyze_position_impl(STARTPOS_SFEN, 3, MAX_SEARCH_NODES).unwrap();
+        assert!(!result.principal_variation.is_empty());
+        assert!(result.principal_variation.len() <= result.depth as usize);
+        assert_eq!(
+            result.principal_variation.first(),
+            result.best_move.as_ref()
+        );
+        assert_legal_line(STARTPOS_SFEN.to_owned(), &result.principal_variation);
+
+        // The same replay path accepts the two USI forms that are easiest for
+        // browser clients to mishandle: drops and promotions.
+        assert_legal_line(
+            "4k4/9/9/9/9/9/9/9/4K4 b P 1".to_owned(),
+            &["P*5e".to_owned()],
+        );
+        assert_legal_line(VALID_MATE_SFEN.to_owned(), &["5e5c+".to_owned()]);
     }
 
     #[test]
@@ -910,6 +989,7 @@ mod tests {
                 .unwrap()
                 .contains(&result.best_move.unwrap())
         );
+        assert!(result.principal_variation.is_empty());
     }
 
     #[test]
@@ -924,6 +1004,7 @@ mod tests {
         assert_eq!(later.depth, first.depth);
         assert_eq!(later.bound, first.bound);
         assert_eq!(later.best_move, first.best_move);
+        assert_eq!(later.principal_variation, first.principal_variation);
         assert_eq!(later.depth, 1);
     }
 
@@ -969,6 +1050,7 @@ mod tests {
         assert!(result.score_cp.is_none() && result.mate_plies.is_none());
         assert!(!result.aborted && !result.used_fallback);
         assert_eq!(result.nodes, 0);
+        assert!(result.principal_variation.is_empty());
         let no_moves = analyze_position_impl("3PKP3/3PPP3/9/9/9/9/9/9/4k4 b - 1", 1, 1000).unwrap();
         assert_eq!(no_moves.kind, "terminal");
         assert_eq!(no_moves.terminal_reason, Some("no_moves"));
@@ -1058,6 +1140,8 @@ mod tests {
         assert_eq!(capabilities.effective_workers(), 1);
         assert!(!capabilities.worker_threads_supported());
         assert!(!capabilities.shared_array_buffer_required());
+        assert_eq!(capabilities.max_candidate_lines(), 1);
+        assert!(!capabilities.multi_pv_supported());
 
         let result = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
         let repeated = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
@@ -1181,8 +1265,11 @@ mod browser_tests {
             assert_eq!(result.evaluator_id(), "material");
             assert_eq!(result.evaluator_version(), "material-v1");
             assert_eq!(result.engine_version(), env!("CARGO_PKG_VERSION"));
-            assert_eq!(result.api_version(), 1);
+            assert_eq!(result.api_version(), 2);
             assert_eq!(result.bound(), "exact");
+            assert_eq!(result.pv_source(), "completed_iteration");
+            assert_eq!(result.candidate_line_count(), 1);
+            assert_eq!(result.principal_variation().length(), 1);
         }
         let initial = analyze_position(STARTPOS_SFEN, 8, 1).unwrap();
         assert_eq!(initial.kind(), "unknown");
@@ -1191,6 +1278,9 @@ mod browser_tests {
         assert_eq!(initial.bound(), "unknown");
         assert!(initial.aborted() && initial.used_fallback());
         assert_eq!(initial.abort_reason().as_deref(), Some("node_limit"));
+        assert_eq!(initial.pv_source(), "none");
+        assert_eq!(initial.candidate_line_count(), 0);
+        assert_eq!(initial.principal_variation().length(), 0);
         let completed = analyze_position(STARTPOS_SFEN, 1, MAX_SEARCH_NODES).unwrap();
         let partial = analyze_position(STARTPOS_SFEN, 8, completed.nodes() + 1).unwrap();
         assert!(partial.aborted());
@@ -1199,6 +1289,12 @@ mod browser_tests {
         assert_eq!(partial.depth(), completed.depth());
         assert_eq!(partial.bound(), completed.bound());
         assert_eq!(partial.best_move(), completed.best_move());
+        let partial_pv = partial.principal_variation();
+        let completed_pv = completed.principal_variation();
+        assert_eq!(partial_pv.length(), completed_pv.length());
+        for index in 0..partial_pv.length() {
+            assert_eq!(partial_pv.get(index), completed_pv.get(index));
+        }
         let mate = analyze_position(VALID_MATE_SFEN, 3, MAX_SEARCH_NODES).unwrap();
         assert_eq!(mate.kind(), "mate");
         assert_eq!(mate.score_cp(), None);
@@ -1218,6 +1314,7 @@ mod browser_tests {
         assert_eq!(result.terminal_reason().as_deref(), Some("checkmate"));
         assert!(result.in_check());
         assert_eq!(result.score_cp(), None);
+        assert_eq!(result.principal_variation().length(), 0);
         let error = match analyze_position("not sfen", 1, 1000) {
             Ok(_) => panic!("malformed SFEN must fail"),
             Err(error) => error,
@@ -1251,6 +1348,8 @@ mod browser_tests {
         assert_eq!(capabilities.effective_workers(), 1);
         assert!(!capabilities.worker_threads_supported());
         assert!(!capabilities.shared_array_buffer_required());
+        assert_eq!(capabilities.max_candidate_lines(), 1);
+        assert!(!capabilities.multi_pv_supported());
 
         let invalid = analyze_mate_in_one(ALREADY_CHECKED_MATE_SFEN)
             .expect("parseable invalid problem must return an analysis");
