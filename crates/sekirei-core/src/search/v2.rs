@@ -1754,7 +1754,9 @@ fn node(
                 let deeper = value > best_value + p::V2_DEEPER_BASE() + 2 * new_depth;
                 let shallower = value < best_value + p::V2_SHALLOWER();
                 new_depth += i32::from(deeper) - i32::from(shallower);
-                if new_depth > dd {
+                // An aborted child returns 0, which can look like a fail-high;
+                // re-searching it would only tick the spent budget again.
+                if new_depth > dd && !state.budget.should_abort() {
                     value = -search(
                         d,
                         state,
@@ -1799,7 +1801,7 @@ fn node(
         } else {
             value = -INF;
         }
-        if pv && (move_count == 1 || value > alpha) {
+        if pv && (move_count == 1 || value > alpha) && !state.budget.should_abort() {
             let nd = if Some(m) == tt_move && tt_depth > 1 {
                 new_depth.max(1)
             } else {

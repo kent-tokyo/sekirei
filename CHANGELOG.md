@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search (SEARCH_V2): a node no longer re-searches a move after the node or
+  time budget has run out. The aborted child's 0 could pass for a fail-high
+  and the re-search only counted one more node past the limit; the returned
+  values are unchanged.
+
 ## [0.3.63] – 2026-10-08
 
 - NNUE training: add `scripts/train_halfkp.py`, the PyTorch trainer for the
