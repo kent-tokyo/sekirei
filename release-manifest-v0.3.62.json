@@ -1,0 +1,74 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.62",
+  "commit": "5e2109a4a564165f123e879acbb2483db9e9c1f3",
+  "branch_at_release": "main",
+  "candidate_state": "release candidate from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.62",
+    "sekirei-core": "0.3.62",
+    "sekirei-bench": "0.3.62",
+    "sekirei-csa": "0.3.62",
+    "sekirei-match-runner": "0.3.62",
+    "sekirei-train": "0.3.62"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "26e6a89a094a7337b027c88a4b4d9ee2bbdbc9aa5332a1c718d4ce13456f36fa"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.62",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.62.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.62/sekirei-wasm-0.3.62.tgz",
+    "sha256": "f2473cdac564c280f5e2a9c59e8b7e6b8d5c4e83fa0c34354113a4f6157700ce",
+    "size": 442271,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only",
+    "nnue_export_precision": {
+      "mode": "nearest_integer",
+      "ft_scale": 64,
+      "max_unclipped_parameter_error": 0.0078125,
+      "existing_checkpoint_compatibility": true,
+      "new_checkpoint_adopted": false
+    },
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, the optional opening-book feature, NNUE export precision and integer-checkpoint compatibility tests, documentation and public-contract checks, a native material-only USI smoke, WebAssembly release compilation, package generation, and generated JavaScript contract checks passed. The nearest-integer FT export reduced the focused test RMSE from about 0.0088 to about 0.0044 without changing existing checkpoint loading. Browser execution remains a GitHub CI publication gate."
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.62."
+  },
+  "known_limitations": [
+    "The NNUE change affects newly exported FT parameters and their file checksums; existing NNUE files and checkpoint loading behavior are unchanged.",
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no playing-strength claim.",
+    "The optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
