@@ -6,6 +6,14 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: quiescence search now stands pat on the static evaluation plus the
+  correction-history value, as the main search already does for its static
+  eval (`QS_STYLE` default 0 → 1; `T_QS_STYLE=0` in a `tune` build restores
+  the old behaviour). Selected with Sekirei's built-in material evaluator and
+  Sekirei-generated openings at 1 and 4 search threads, and checked in
+  self-play with a Sekirei-trained HalfKP network; this entry makes no
+  playing-strength claim.
+
 ## [0.3.64] – 2026-10-08
 
 - Search (SEARCH_V2): a node no longer re-searches a move after the node or

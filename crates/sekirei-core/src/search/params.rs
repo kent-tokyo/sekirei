@@ -350,9 +350,10 @@ search_params! {
     /// usable entry bound tighten the stand-pat value.
     QS_TT = 0, 0, 15;
     /// Quiescence style (bit mask): 1 stands pat on the corrected static
-    /// evaluation, 2 looks for a mate in one at every quiescence ply (not only
-    /// the first), 4 returns the stand-pat cutoff halfway to beta.
-    QS_STYLE = 0, 0, 7;
+    /// evaluation (the same correction-history value the main search adds to
+    /// its static eval), 2 looks for a mate in one at every quiescence ply
+    /// (not only the first), 4 returns the stand-pat cutoff halfway to beta.
+    QS_STYLE = 1, 0, 7;
     /// Pruning decisions (RFP, razoring, the null-move gate, futility) use
     /// the TT score in place of the static eval when the entry's bound says
     /// the true value lies beyond the eval on that side (1), or the static
