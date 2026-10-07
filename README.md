@@ -1,18 +1,19 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.62-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.62)
+[![Release](https://img.shields.io/badge/release-v0.3.63-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.63)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.62`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.63`
 provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. It improves in-house NNUE export precision by
-rounding feature-transformer parameters to the nearest representable integer.
-Existing weight files remain compatible; this release does not adopt a new
-checkpoint or make a general playing-strength claim.
+library, and browser API. Browser analysis now exposes a legal principal
+variation from the same completed iteration as its score and depth. Bounded
+Floodgate runs persist their terminal state and do not relaunch after their
+one-shot child exits. This release does not adopt a new checkpoint or make a
+general playing-strength claim.
 
 ## Quick start
 
@@ -53,14 +54,15 @@ recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
 ### Browser / WebAssembly
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes SFEN parsing, legal USI
-moves, validated move application, deterministic bounded search, fixed worker
-capabilities, and complete shortest-mate validation through 1/3/5 plies and
-beyond under explicit node limits. It uses material
+moves, validated move application, deterministic bounded search with a legal
+primary principal variation, fixed worker capabilities, and complete
+shortest-mate validation through 1/3/5 plies and beyond under explicit node
+limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
-The prebuilt v0.3.62 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.62/sekirei-wasm-0.3.62.tgz).
+The prebuilt v0.3.63 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.63/sekirei-wasm-0.3.63.tgz).
 
 ## What is included
 

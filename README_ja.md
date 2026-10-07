@@ -1,17 +1,18 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.62-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.62)
+[![Release](https://img.shields.io/badge/release-v0.3.63-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.63)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.62`は、
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.63`は、
 USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore library、
-browser APIを含みます。自前NNUEのfeature-transformer parameterを最近接整数へ
-丸めて出力し、量子化精度を改善しました。既存の重みは引き続き読み込めます。
-新しいcheckpointの採用や一般的な棋力向上は主張しません。
+browser APIを含みます。browser解析はscore・depthと同じ完了反復に由来する合法な
+principal variationを返します。局数上限付きFloodgate実行は終了状態を永続化し、
+一回実行のchild終了後に再起動しません。新しいcheckpointの採用や一般的な棋力向上は
+主張しません。
 
 ## まず動かす
 
@@ -64,13 +65,13 @@ CC BY 4.0の別artifactです。
 ## ブラウザ / WebAssembly
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) は、SFEN解析、合法なUSI指し手、
-検証付きの着手適用、決定論的な上限付き探索、固定worker能力、完全合法手による
+検証付きの着手適用、合法な主PVを伴う決定論的な上限付き探索、固定worker能力、完全合法手による
 最短1・3・5手以上の詰み判定を明示的なnode上限付きで提供します。駒得評価と
 逐次探索だけを使い、外部重みは読み込みません。
 ネイティブUSIバイナリもブラウザ依存を持ちません。
 
-ビルド済みのv0.3.62 ES module packageは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.62/sekirei-wasm-0.3.62.tgz)
+ビルド済みのv0.3.63 ES module packageは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.63/sekirei-wasm-0.3.63.tgz)
 から取得できます。
 
 ## エンジン設定

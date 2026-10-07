@@ -6,6 +6,19 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.63] – 2026-10-08
+
+- WebAssembly: position analysis now exposes one legal primary principal
+  variation from the same completed iteration as its score, depth, and bound.
+  Fallback, pre-iteration abort, and terminal results keep the PV empty; the
+  capability contract explicitly reports that MultiPV is not supported.
+- CSA/Floodgate operations: bounded one-shot supervision now records a durable
+  terminal reason, completed-attempt count, and requested game limit, then
+  refuses to relaunch the completed child. The launchd template uses the
+  client's own `--loop --max-games` cap with `KeepAlive` disabled.
+- This release does not change the default evaluator, adopt a new checkpoint,
+  or make a new playing-strength claim.
+
 ## [0.3.62] – 2026-10-07
 
 - NNUE training: export feature-transformer weights and biases by rounding to
