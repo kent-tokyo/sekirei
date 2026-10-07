@@ -769,12 +769,16 @@ mod tests {
 
     /// Parallel and sequential searches must agree on the best move and score.
     /// We verify this by running two independent searches on fresh TTs.
+    /// Each runs on its own fresh thread: the root move order of the latest
+    /// root search is kept per thread, so a second search of the same
+    /// position on the same thread starts from a different order and is not
+    /// an independent search.
     #[test]
     fn parallel_matches_sequential_result() {
         use search::{SearchConfig, Searcher};
         use tt::Tt;
 
-        let mut board = Board::startpos();
+        let board = Board::startpos();
         let cfg = || SearchConfig {
             max_depth: 4,
             time_limit: None,
@@ -782,11 +786,17 @@ mod tests {
             soft_limit: None,
             multi_pv: 1,
         };
+        let independent = || {
+            let mut board = board.clone();
+            std::thread::spawn(move || Searcher::new(Tt::new(4)).search(&mut board, cfg()))
+                .join()
+                .expect("search thread")
+        };
 
         // First search (parallel, rayon uses all cores)
-        let r1 = Searcher::new(Tt::new(4)).search(&mut board, cfg());
+        let r1 = independent();
         // Second search on a fresh TT — same result expected
-        let r2 = Searcher::new(Tt::new(4)).search(&mut board, cfg());
+        let r2 = independent();
 
         assert_eq!(r1.score, r2.score, "scores differ");
         assert_eq!(r1.best_move, r2.best_move, "best moves differ");
@@ -827,13 +837,16 @@ mod tests {
         assert_eq!(board.hash(), before, "MultiPV mutated the board");
     }
 
-    /// TT warm-up must reduce node count on a second search
+    /// TT warm-up must reduce node count on a second search. The position
+    /// has one clearly best move: from the start position the leading pawn
+    /// pushes are within a few centipawns, and the warm second search may
+    /// legitimately prefer another one.
     #[test]
     fn tt_reduces_nodes() {
         use search::{SearchConfig, Searcher};
         use tt::Tt;
         let tt = Tt::new(16);
-        let mut board = Board::startpos();
+        let mut board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
         let cfg = || SearchConfig {
             max_depth: 4,
             time_limit: None,
@@ -1086,9 +1099,20 @@ mod tests {
             multi_pv: 1,
         };
         let board = Board::startpos();
+        // Both searches run on fresh threads: the root move order of the
+        // latest root search is kept per thread (and rayon's global workers
+        // are shared with the other tests).
         let mut sequential_board = board.clone();
-        let sequential = Searcher::new(Tt::new(16)).search(&mut sequential_board, cfg);
-        let smp = LazySmpSearcher::new(Tt::new(16), 1).search(&board, cfg);
+        let sequential = std::thread::spawn(move || {
+            Searcher::new(Tt::new(16)).search(&mut sequential_board, cfg)
+        })
+        .join()
+        .expect("search thread");
+        let smp = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("one-thread pool")
+            .install(|| LazySmpSearcher::new(Tt::new(16), 1).search(&board, cfg));
 
         assert_eq!(smp.result.best_move, sequential.best_move);
         assert_eq!(smp.result.score, sequential.score);
