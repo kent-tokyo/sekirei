@@ -1,0 +1,75 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.64",
+  "commit": "bf2d9bcb0d87ffbd38eb2d37ed5f014d21a1c00b",
+  "branch_at_release": "main",
+  "candidate_state": "release preparation validated locally; crates.io publication planned",
+  "packages": {
+    "sekirei": "0.3.64",
+    "sekirei-core": "0.3.64",
+    "sekirei-bench": "0.3.64",
+    "sekirei-csa": "0.3.64",
+    "sekirei-match-runner": "0.3.64",
+    "sekirei-train": "0.3.64"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "ec3066c1086a3b391ab848a5387be854a93981e3a7df90515f44e0b1ebde7d70"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.64",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.64.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.64/sekirei-wasm-0.3.64.tgz",
+    "sha256": "1cefc87c3cfa590e8b0bc69d49dcb306ce25f1de27cec9fd7d8581a33511d8cd",
+    "size": 443429,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only",
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, the optional opening-book feature, release and trainer Python tests, a native material-only USI smoke, WebAssembly native tests, release package generation, and generated JavaScript contract checks passed. SEARCH_V2 skips re-search after its budget has aborted, and reproducibility tests isolate thread-local root ordering. No evaluator default, checkpoint, quiescence style, or increment-time allocation was changed.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 1
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.64."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no playing-strength claim.",
+    "The QS_STYLE=1 candidate was excluded because it was not verified with the distributed in-house NNUE path.",
+    "IncrementUsePercent remains at its prior default because the M_IN3 gate was stopped before its preregistered boundary.",
+    "The optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
