@@ -1,19 +1,19 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.63-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.63)
+[![Release](https://img.shields.io/badge/release-v0.3.64-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.64)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.63`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.64`
 provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. Browser analysis now exposes a legal principal
-variation from the same completed iteration as its score and depth. Bounded
-Floodgate runs persist their terminal state and do not relaunch after their
-one-shot child exits. This release does not adopt a new checkpoint or make a
-general playing-strength claim.
+library, and browser API. SEARCH_V2 now avoids redundant re-search after its
+budget has expired, and search reproducibility tests no longer depend on a
+worker thread's previous root ordering. The default evaluator, checkpoint,
+quiescence style, and increment-time allocation are unchanged. This release
+does not make a general playing-strength claim.
 
 ## Quick start
 
@@ -61,8 +61,8 @@ limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
-The prebuilt v0.3.63 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.63/sekirei-wasm-0.3.63.tgz).
+The prebuilt v0.3.64 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.64/sekirei-wasm-0.3.64.tgz).
 
 ## What is included
 

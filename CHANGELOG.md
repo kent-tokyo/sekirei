@@ -6,10 +6,18 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.64] – 2026-10-08
+
 - Search (SEARCH_V2): a node no longer re-searches a move after the node or
   time budget has run out. The aborted child's 0 could pass for a fail-high
   and the re-search only counted one more node past the limit; the returned
   values are unchanged.
+- Search tests: reproducibility checks now isolate thread-local root ordering,
+  use a position with an unambiguous best move where required, and run the
+  one-worker Lazy SMP case in a dedicated pool.
+- The default evaluator, NNUE checkpoint, quiescence style, and increment-time
+  allocation are unchanged. This maintenance release makes no new
+  playing-strength claim.
 
 ## [0.3.63] – 2026-10-08
 
