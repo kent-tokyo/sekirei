@@ -13,6 +13,12 @@ preserves older per-change notes.
   Sekirei-generated openings, and checked in self-play with a Sekirei-trained
   HalfKP network at 1 and 4 search threads; this entry makes no
   playing-strength claim.
+- USI time management: `IncrementUsePercent` now defaults to 75, so each
+  move's base time adds three quarters of the Fischer increment instead of
+  spreading the increment over the remaining-moves estimate (0 restores the
+  old rule). Selected with Sekirei's built-in material evaluator and
+  Sekirei-generated openings at 10 s + 0.1 s with 1 and 4 search threads;
+  this entry makes no playing-strength claim.
 
 ## [0.3.65] – 2026-10-09
 
