@@ -1,0 +1,77 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.66",
+  "commit": "205e0e187305bebb04fcdc8f392e0e505364d779",
+  "branch_at_release": "main",
+  "candidate_state": "planned from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.66",
+    "sekirei-core": "0.3.66",
+    "sekirei-bench": "0.3.66",
+    "sekirei-csa": "0.3.66",
+    "sekirei-match-runner": "0.3.66",
+    "sekirei-train": "0.3.66"
+  },
+  "dependencies": {
+    "lineprior": "0.12.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "25d50038e9fde4d923e2b6ea117a3b51eb1368dd82401659ac8c2c48e4147d26"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.66",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.66.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.66/sekirei-wasm-0.3.66.tgz",
+    "sha256": "6ae4198ab80ebcdfea49a2245827c649f2a575fa8b07e9c0d5386b3f1d6688a4",
+    "size": 443551,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only and separately recorded in-house HalfKP checks",
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, the optional opening-book feature, release and trainer Python tests, a native material-only USI smoke, WebAssembly native tests, release package generation, and generated JavaScript contract checks passed. CORR_W_NP=32 passed its paired material-only gate and was directionally positive in capped one- and four-thread checks with an in-house HalfKP network. IncrementUsePercent=75 passed its one-thread paired material-only gate and was positive but not SPRT-decisive in the latest four-thread run. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 1
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.66."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "The in-house HalfKP checks of CORR_W_NP=32 were positive at one and four threads but reached their game caps before the preregistered SPRT acceptance boundary.",
+    "IncrementUsePercent=75 passed its one-thread gate; the latest four-thread run was positive but did not cross its paired SPRT boundary, while an earlier four-thread run was neutral.",
+    "The separately stored nn_r2 checkpoint beat nn_r1 by 261-1-218 in 480 local games, but is not bundled and was not measured directly against material evaluation for this release.",
+    "The optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "The local Chrome WebDriver session could not be created; the hosted WebAssembly browser test remains a required release check.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
