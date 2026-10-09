@@ -1,17 +1,16 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.66-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.66)
+[![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.66`は、
-USIエンジン、CSA client、対局runner、NNUE trainer、再利用可能なcore library、
-browser APIを含みます。静的評価の補正に歩以外の駒配置を加え、Fischer方式では
-増分の75%を各手へ直接配分する設定を既定にしました。同梱する評価関数とcheckpointは
-変更していません。一般的な棋力向上は主張しません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.67`では、
+学習データの同一性検査、定跡manifest、gate結果のexport、WASM package検証を
+強化しました。棋力向上は主張していません。測定結果は、使用した評価関数、
+ハードウェア、局面集合、探索条件の範囲で扱います。
 
 ## まず動かす
 
@@ -30,29 +29,22 @@ cd sekirei
 cargo run --release -p sekirei
 ```
 
-生成された`sekirei`をUSI対応GUIのエンジンとして登録します。checkpointなしでは
-material評価を使います。`EvalFile`はSekirei重みのほか、対応する外部HalfKP
-256x2-32-32の`nn.bin`を読み込めます。外部fileのlicenseは各fileに従います。
-0.3.38用NNUEは、別管理された任意の公開artifactとして引き続き利用でき、
-[`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin)です。
+生成された`sekirei`をUSI対応GUIへ登録します。`EvalFile`を指定しない場合は駒得評価を
+使います。0.3.38用NNUEは互換性確認と実験用の任意artifactとして残しています。
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。
-外部HalfKP fileでは`NnueOutput`ではなく`FV_SCALE`（既定16、重みの説明を優先）を
-設定します。
-使用前に[重みartifact card](weights/README.md)でSHA-256とライセンスを検証してください。
-0.3.38のgateは同cardに履歴として残しますが、現行local診断のB対materialは
-1秒/手で1/32、5秒/手で2/32であり、一律の棋力推奨はしません。NNUE重みは
-CC BY 4.0の別artifactです。
+GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。外部HalfKP
+256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに従ってください。形式、
+SHA-256、測定範囲は[NNUE重み](docs/nnue_weights.md)にまとめています。
 
 ## 主な機能
 
 - 将棋ルール、SFEN/USI表記、alpha-beta/PVS、静止探索、手順序、lock-free TT。
-- 任意の投機探索、Lazy SMP、NNUE学習、MCTS、df-pn。実験modeは棋力主張ではありません。
-- CSA/Floodgate・USI対局tool。coreの探索・評価に`unsafe`を使わないPure Rust実装。
+- 任意の投機探索、Lazy SMP、NNUE学習、MCTS、df-pn。実験機能は棋力主張ではありません。
+- CSA/Floodgate・USI対局ツール。coreの探索・評価に`unsafe`を使いません。
 
 | コマンド | package | 用途 |
 |---|---|---|
@@ -63,27 +55,19 @@ CC BY 4.0の別artifactです。
 
 ## ブラウザ / WebAssembly
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) は、SFEN解析、合法なUSI指し手、
-検証付きの着手適用、合法な主PVを伴う決定論的な上限付き探索、固定worker能力、完全合法手による
-最短1・3・5手以上の詰み判定を明示的なnode上限付きで提供します。駒得評価と
-逐次探索だけを使い、外部重みは読み込みません。
-ネイティブUSIバイナリもブラウザ依存を持ちません。
+[`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、検証付き着手、
+合法なPVを返す上限付き逐次探索、最短詰み解析を提供します。駒得評価だけを使い、
+ネイティブUSIバイナリの依存関係は変えません。
 
-ビルド済みのv0.3.66 ES module packageは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.66/sekirei-wasm-0.3.66.tgz)
+ビルド済みのv0.3.67 ES module packageは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.67/sekirei-wasm-0.3.67.tgz)
 から取得できます。
 
 ## エンジン設定
 
-USIの`usi`で全optionを表示します。`SearchMode=Auto`は1 threadで逐次探索、複数threadで
+USIの`usi`で全optionを表示します。`SearchMode=Auto`は1 workerで逐次探索、複数workerで
 Lazy SMP、`MultiPV>1`ではroot候補backendを使います。決定論的な診断は`Threads=1`、
-`SpecTopN=0`で実行します。並列modeはscheduleにより揺れる場合があります。重みの検証、format、
-外部SFNNの範囲は[NNUE重み](docs/nnue_weights.md)を参照してください。
-
-`EvalFile`は、一般的な`HalfKP 256x2-32-32`形式（`nn.bin`）の外部評価関数も読み込めます。
-形式はfile headerから自動判別し、出力の除数は`FV_SCALE`（既定16）で設定します。
-Sekireiはこの種のfileを同梱しません。各自で入手し、そのfileのlicenseに従ってください。
-読み込み部は独自実装で、他engineのsource codeに由来しません。
+`SpecTopN=0`で実行します。
 
 ## Buildと検証
 
@@ -94,9 +78,8 @@ cargo clippy --workspace --all-targets -- -D warnings
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
-Benchmark・競合比較のcommand、固定入力、過去結果の範囲は
-[script索引](scripts/README.md)に集約しています。Component単位の時間は、総合速度や
-棋力順位を示しません。
+測定ツールと過去結果の範囲は[script索引](scripts/README.md)に集約しています。
+component単位の時間は総合速度や棋力順位を示しません。
 
 ## 対局・CSA/Floodgate
 
@@ -109,32 +92,26 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Ignoredの`data/runs/`以下へmanifest、棋譜、CSA、探索値、重複情報を保存します。
-通常収集には`--weights`と`--positions`が必要です。同一engine自己対局は学習・回帰用で、
-Elo測定ではありません。
-
-`sekirei-csa`はCSA/Floodgate対局に対応します。認証情報は実行時に注入し、認証情報、
-棋譜、生成重み、学習dataをcommitしないでください。
-
-自己対局Eloは選択した基準に対する相対値で、Floodgateや人間のレートではありません。
-統計gateは`PASS`、`FAIL`、`INCONCLUSIVE`を区別します。
+`data/runs/`以下へmanifest、棋譜、CSA、探索値、重複情報を保存します。通常収集では重みと
+開始局面を明示します。`sekirei-csa`はCSA/Floodgate対局に対応します。認証情報は実行時だけ
+渡してください。同一engine自己対局は学習・回帰用で、Floodgateや人間のレートではありません。
 
 ## NNUE学習
 
-学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。このcheckoutは
-`lineprior 0.12.1`を固定し、外部data scriptは`shogiesa 0.11.0`で確認しています。
-`sekirei-train`は学習専用依存の`shogiesa-core 0.11.0`を介して型付きposition JSONLを
-逐次読み込みます。JSONL中のengine観測値を暗黙に教師labelへ使うことはありません。
-既知の対局結果は`--positions --wdl-lambda`で明示的に利用でき、不明・欠落結果は
-件数を記録して除外します。
-recipeとresume toolingは[scripts索引](scripts/README.md)を参照し、生成artifactはGit外に保持します。
+学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。学習側は
+`lineprior 0.12.1`と`shogiesa-core 0.11.0`を固定し、外部wrapperは`shogiesa 0.11.0`で
+確認しています。生成dataと重みはGit外に保存します。recipe、resume、hash、対局単位の
+分割条件は[scripts索引](scripts/README.md)を参照してください。
+
+opening bookは既定では無効で、artifactも同梱しません。book生成時は入力・設定・出力hashを
+記録したsidecar manifestを作ります。position学習では入力dataのSHA-256を記録し、開始前に
+期待値との一致を必須にできます。
 
 ## 文書
 
+- [文書索引](DOCUMENTATION.md)
 - [変更履歴](CHANGELOG.md)
 - [NNUE重みとlicense](docs/nnue_weights.md)
-- [解析benchmark契約](docs/amateur_analysis_benchmark.md)
-- [mobile組み込みの現状](docs/mobile_integration.md)
 - [script・検証tool索引](scripts/README.md)
 
 実装、test、測定、公開artifactは別の主張です。過去の実験文書は当時のversionと範囲を

@@ -17,9 +17,8 @@ browser console / page title (`PASS`/`FAIL`).
 
 ## Status
 
-- **Not yet linked from GitHub Pages** — Pages is not configured on this
-  repository as of this writing; this directory is not deployed anywhere
-  yet.
+- **Not deployed by this repository** — no tracked workflow publishes this
+  directory to GitHub Pages.
 - Bundled sample analyses are **illustrative, not measured** — no real
   engine run produced their scores/PVs. Only the three underlying
   positions are real (sourced from this project's own tracked Rust test
@@ -29,11 +28,10 @@ browser console / page title (`PASS`/`FAIL`).
   see [`../docs/nnue_weights.md`](../docs/nnue_weights.md).
 - No official mobile FFI layer exists yet — see
   [`../docs/mobile_integration.md`](../docs/mobile_integration.md).
-- The JSON shape this viewer understands follows `analysis_record_v1`,
-  introduced in a separate, still-open PR (`schemas/analysis_record_v1.schema.json`,
-  `docs/amateur_analysis_benchmark.md`). This viewer implements its own
-  tolerant parser matching that shape and does not require that PR to be
-  merged first.
+- The JSON shape follows the tracked
+  [`analysis_record_v1`](../schemas/analysis_record_v1.schema.json) schema and
+  the [analysis benchmark contract](../docs/amateur_analysis_benchmark.md).
+  The viewer uses a tolerant client-side parser for those records.
 
 ## Known gaps
 

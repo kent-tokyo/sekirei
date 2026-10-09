@@ -4,25 +4,22 @@ This document states facts about what exists today. It does not claim
 mobile-readiness Sekirei doesn't yet have — see the "Not yet true" section
 before building on any assumption here.
 
-## The stable integration surface today: the USI binary
+## Supported integration surfaces
 
-The only currently-supported integration point is the `sekirei` binary
-(`crates/sekirei-usi`) speaking [USI](https://en.wikipedia.org/wiki/USI_(protocol))
-(Universal Shogi Interface) over stdin/stdout — the same protocol shogi
-GUIs use to drive engines. There is **no official iOS/Android FFI layer,
-no C ABI, no JNI/Swift bindings** anywhere in this repository (confirmed:
-no `ffi`/`bindings`/`jni`/`swift` directory exists in the tree). Embedding
-`sekirei` in a mobile app today means either:
+Native integrations use the `sekirei` binary (`crates/sekirei-usi`) over
+[USI](https://en.wikipedia.org/wiki/USI_(protocol)). There is no official
+iOS/Android FFI layer, C ABI, JNI, or Swift binding. A native app must either:
 
 - Cross-compiling the `sekirei` binary for the target platform and driving
   it as a subprocess over stdin/stdout (works, but "subprocess" is an
   unusual shape for a mobile app sandbox — verify this fits your platform's
   constraints before committing to it), or
-- Writing your own FFI layer around `sekirei-core`'s Rust API directly
-  (`Board`, `Searcher`/`SpeculativeSearcher`, `nnue::load_weights`) —
-  possible in principle since it's a normal Rust library crate, but you
-  would be the first to do this; there's no existing example, wrapper, or
-  tested integration pattern for it in this repo.
+- Write its own FFI layer around `sekirei-core`. No tested wrapper or example
+  ships in this repository.
+
+Browser or WebView clients can use [`sekirei-wasm`](../crates/sekirei-wasm/README.md)
+for stateless SFEN, legal-move, bounded-search, and mate-analysis APIs. That
+package is sequential and material-only; it is not the native NNUE engine.
 
 ## Dependency footprint (the part relevant to embedding)
 
@@ -59,9 +56,9 @@ repo's own testing. The B-small outcome summarized in
 comes from desktop validation, not on-device inference, and must not be
 extrapolated to a phone without direct measurement.
 
-## What this does NOT have, as of this writing
+## What this does not have
 
-- No official mobile FFI/bindings (see above).
+- No official native mobile FFI/bindings.
 - No on-device production validation for the available optional NNUE weight
   (`docs/nnue_weights.md`). The versioned checkpoint can be supplied through
   `EvalFile`; material evaluation remains the fallback when it is omitted or

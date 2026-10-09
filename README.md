@@ -1,18 +1,16 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.66-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.66)
+[![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.66`
-provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. Static-evaluation correction now includes non-pawn
-piece placement, and Fischer time control uses 75% of the increment directly
-per move by default. The bundled evaluator and checkpoint are unchanged. This
-release does not make a general playing-strength claim.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.3.67` strengthens
+training-data identity checks, opening-book provenance, gate export, and WASM
+package validation. It does not claim a playing-strength improvement; measured
+results remain scoped to the exact evaluator, hardware, corpus, and settings.
 
 ## Quick start
 
@@ -31,44 +29,35 @@ cd sekirei
 cargo run --release -p sekirei
 ```
 
-Register the resulting `sekirei` executable in a USI-compatible shogi GUI.
-Without a checkpoint the engine uses material evaluation. `EvalFile` accepts
-Sekirei weights and supported external HalfKP 256x2-32-32 `nn.bin` files; an
-external file remains subject to its own license. The 0.3.38
-checkpoint remains available as a separately versioned optional artifact at
-[`weights/sekirei-nnue-v0.3.38.bin`](weights/sekirei-nnue-v0.3.38.bin):
+Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, it uses
+material evaluation. The optional 0.3.38 checkpoint remains available for
+compatibility and experimentation:
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
-For a GUI, set `EvalFile` and `NnueOutput=absolute` before `isready`.
-For an external HalfKP file, use `FV_SCALE` (default 16; consult the network's
-documentation) instead of `NnueOutput`.
-Verify the SHA-256 and license in [the weight artifact card](weights/README.md).
-The historical gate is recorded there; a current local B-vs-material diagnostic
-(1/32 at 1 second and 2/32 at 5 seconds) does not support a blanket strength
-recommendation. NNUE weights remain separate CC BY 4.0 artifacts.
+Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
+256x2-32-32 files use `FV_SCALE` instead and remain subject to their own
+licenses. See [NNUE weights](docs/nnue_weights.md) for formats, checksums, and
+the evidence boundary.
 
 ### Browser / WebAssembly
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) exposes SFEN parsing, legal USI
-moves, validated move application, deterministic bounded search with a legal
-primary principal variation, fixed worker capabilities, and complete
-shortest-mate validation through 1/3/5 plies and beyond under explicit node
-limits. It uses material
-evaluation and sequential search only; it does not load external weights or
-make the native USI binary depend on browser bindings.
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
+moves, validated move application, bounded sequential search with a legal PV,
+and bounded shortest-mate analysis. It uses material evaluation and does not
+change the native USI dependency graph.
 
-The prebuilt v0.3.66 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.66/sekirei-wasm-0.3.66.tgz).
+The prebuilt v0.3.67 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.67/sekirei-wasm-0.3.67.tgz).
 
 ## What is included
 
 - Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence, ordering, and a
   lock-free TT.
 - Optional speculative search, Lazy SMP, NNUE evaluation/training, MCTS, and
-  df-pn. Experimental modes are capabilities, not strength claims.
+  df-pn. Experimental modes are not strength claims.
 - CSA/Floodgate and USI match tooling; core search/evaluation is Pure Rust
   with no `unsafe`.
 
@@ -83,19 +72,10 @@ Workspace binaries:
 
 ## Engine configuration
 
-The `usi` command lists all options. `SearchMode=Auto` uses sequential search
-with one thread, Lazy SMP with multiple threads, and the root-candidate backend
-when `MultiPV>1`. For deterministic diagnostics use `Threads=1` and
-`SpecTopN=0`; parallel modes may vary by schedule.
-Weight validation, format, and the external-SFNN boundary are in
-[NNUE weights](docs/nnue_weights.md).
-
-`EvalFile` also accepts external evaluation files in the common
-`HalfKP 256x2-32-32` `nn.bin` format. The format is detected from the file
-header, and `FV_SCALE` (default 16) sets the output divisor. Sekirei does not
-bundle any such file: obtain it yourself and follow that file's license. The
-reader is an independent implementation, not derived from another engine's
-source.
+The `usi` command lists all options. `SearchMode=Auto` selects sequential
+search for one worker and Lazy SMP for multiple workers; `MultiPV>1` uses the
+root-candidate backend. For deterministic diagnostics use `Threads=1` and
+`SpecTopN=0`.
 
 ## Build and verify
 
@@ -106,9 +86,9 @@ cargo clippy --workspace --all-targets -- -D warnings
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
-Benchmark and cross-library commands, their pinned inputs, and historical
-scope are indexed in [scripts/README.md](scripts/README.md). A component timing
-is not an overall speed or playing-strength ranking.
+Tooling and historical benchmark scope are indexed in
+[scripts/README.md](scripts/README.md). Component timings are not overall speed
+or playing-strength rankings.
 
 ## Matches and CSA/Floodgate
 
@@ -121,29 +101,19 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Runs save a manifest, kifu, CSA, search data, and deduplication metadata under
-ignored `data/runs/`. Normal collection requires `--weights` and `--positions`.
-Same-engine self-play is training/regression data, not an Elo claim.
-
-`sekirei-csa` provides CSA/Floodgate play. Inject credentials at runtime and
-never commit credentials, game records, generated weights, or training data.
-
-Self-play Elo is relative to the selected baseline and is not a Floodgate or
-human rating. Statistical gates distinguish `PASS`, `FAIL`, and
-`INCONCLUSIVE`.
+Runs save manifests, kifu, CSA, search data, and deduplication metadata under
+ignored `data/runs/`. Normal collection requires explicit weights and opening
+positions. `sekirei-csa` supports CSA/Floodgate; inject credentials only at
+runtime. Same-engine results are relative regression evidence, not Floodgate
+or human ratings.
 
 ## NNUE training
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
-This checkout pins `lineprior 0.12.1` for training and the optional
-`sekirei/opening-book` feature; the default USI runtime does not include it or
-probe any book path. The external data scripts are verified with
-`shogiesa 0.11.0`. `sekirei-train` uses the training-only
-`shogiesa-core 0.11.0` schema to stream typed position JSONL; it does not use
-embedded engine observations as labels implicitly. Known game results may be
-used explicitly with `--positions --wdl-lambda`, while unknown or missing
-results are counted and skipped. Recipes and resume tooling are indexed in
-[scripts/README.md](scripts/README.md); generated artifacts stay outside Git.
+Training pins `lineprior 0.12.1` and `shogiesa-core 0.11.0`; external wrappers
+are checked against `shogiesa 0.11.0`. Generated data and weights stay outside
+Git. Recipes, resume rules, hashes, and game-level split requirements are in
+[scripts/README.md](scripts/README.md).
 
 Opening-book support is an explicit build and runtime choice:
 
@@ -152,25 +122,16 @@ cargo build --release -p sekirei --features opening-book
 # Then set BookFile to the shipped artifact and UseBook=true.
 ```
 
-Sekirei does not ship a default opening-book artifact. The
-`sekirei-train --build-book` command writes `<book>.manifest.json` with corpus,
-configuration, and output hashes; retain that sidecar with the book artifact.
-For a held-out book experiment, set `BookDecisionLog` and `BookExperimentId`;
-decision and `gameover` rows share a stable game ID. The
-policy is deterministic, so these logs support paired A/B analysis rather
-than propensity-based IPS/DR. Formal strength gates keep `UseBook=false`.
-
-For position training, `--positions-sha256` and
-`--validation-positions-sha256` can pin the exact input bytes. The same
-content identities are always recorded in checkpoint metadata and complete
-resume fingerprints, independent of file location.
+No default opening book is shipped. Book builds write a sidecar manifest with
+input, configuration, and output hashes; optional decision logs support held-
+out paired experiments. Position training records content SHA-256 identities
+and can require expected hashes before starting.
 
 ## Documentation
 
+- [Documentation index](DOCUMENTATION.md)
 - [Changelog](CHANGELOG.md)
 - [NNUE weights and licensing](docs/nnue_weights.md)
-- [Analysis benchmark contract](docs/amateur_analysis_benchmark.md)
-- [Mobile integration status](docs/mobile_integration.md)
 - [Script and validation-tool index](scripts/README.md)
 
 Implementation, tests, measurements, and released artifacts are separate

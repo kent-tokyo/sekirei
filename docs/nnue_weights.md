@@ -74,8 +74,8 @@ active per process.
 - The implementation is written independently from the format description.
   Sekirei neither bundles nor redistributes any external network; each file's
   own license governs its use. Record provenance with the
-  [external evaluator manifest](interop/external_sfnn_manifest_v1.md) when a
-  file is used for measurements.
+  [`external_eval_manifest_v1` validator](../scripts/validate_external_eval_manifest.py)
+  when a file is used for measurements.
 
 Interoperability is checked with deterministic random networks that anyone can
 regenerate, so no third-party file is needed:

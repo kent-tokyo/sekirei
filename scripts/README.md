@@ -1,9 +1,9 @@
 # Script index
 
 `scripts/` contains reproducibility and diagnostic tools, not a second public
-CLI. Normal engine use should go through the Cargo binaries. Most tools write
-only under ignored `data/` or `results/`; inspect `--help`, use a new run
-directory, and retain the produced manifest with the result.
+CLI. Use the Cargo binaries for normal engine operation. Before running a
+script, inspect `--help`, choose a new ignored output directory, and retain its
+manifest with the result.
 
 The workspace pins `lineprior 0.12.1`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
@@ -12,16 +12,10 @@ use it. The data-pipeline wrappers have been checked with the external
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
-`train_with_shogiesa_quietset.sh`, `redo_quietset_bc.sh`, and
-`train_with_loss_mining.sh` implement one explicit teacher contract:
-shogiesa observations are diagnostic inputs to Quietset only, while Sekirei's
-internal `--label-*` search is the sole teacher target. Before training,
-`validate_shogiesa_diagnostic_contract.py` checks the supported CLI/schema,
-requested versus achieved depth, score provenance, cache accounting, and the
-label manifest. The trainer metadata links that manifest by SHA-256, and the
-run manifest records shogiesa labeling and internal training wall time
-separately. A diagnostic/teacher depth mismatch is rejected unless the run
-records a reason.
+The shogiesa/Quietset wrappers use external observations only for diagnostics;
+Sekirei's internal `--label-*` search remains the teacher. The validator checks
+schema, depth, provenance, cache accounting, and manifest hashes before
+training.
 
 ## Release and public boundary
 
@@ -61,32 +55,23 @@ Elo claims.
 
 ## NNUE candidates and gates
 
-Candidate scripts are grouped by a frozen experiment identifier. An identifier
-is a contract, not a model name:
+Freeze the input, evaluator, hashes, factor change, and decision rule before a
+candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
+`INCONCLUSIVE`, and resource-censored outcomes distinct. Useful entry points:
 
-1. prepare/freeze the input, source identity, evaluator, and decision rule;
-2. run one declared factor change;
-3. finalize from complete artifacts only; and
-4. keep `PASS`, `FAIL`, `INCONCLUSIVE`, and resource-censored runs separate.
+- `gate_orchestrator.py` and the `*_strength_gate_*` scripts manage gate
+  declarations and terminal evidence.
+- `record_resume_run.py` and `attach_resume_manifest.py` preserve resumable
+  training lineage.
+- `split_gensfen_by_game.py` creates whole-game train/validation splits from
+  current six-column gensfen data. Legacy five-column rows fail closed.
+- `train_halfkp.py` trains the in-house HalfKP network. Use `--val-data` with a
+  game-level split; validation loss alone does not select a candidate.
+- `export_gate_observations.py` converts independent terminal gate manifests
+  into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
+  missing lineage, and conflicting retries.
 
-Unreleased candidate tools may exist only in a developer worktree. Their
-authoritative status and acceptance conditions belong in internal `ROADMAP.md`
-and run manifests, not this public index. They must not be represented as a
-shipped checkpoint or strength result.
-
-Useful shared entry points include `gate_orchestrator.py`,
-`create_strength_gate_manifest.py`, `record_strength_gate_execution.py`,
-`finalize_strength_gate_execution.py`, `run_self_distill_multiseed.sh`,
-`record_resume_run.py`, and `attach_resume_manifest.py`. Run the paired
-`test_<tool>.py` test whenever changing one of these tools.
-
-`export_gate_observations.py` converts completed independent gate manifests
-into lineprior `GateObservation` JSONL. A source manifest must declare a
-stable candidate/group identity and a common numeric `gate_observation.features`
-map before the gate; outcome-derived features are rejected. Duplicate
-shards/summaries are suppressed by candidate, group, and source-artifact
-hashes. Missing lineage or incompatible features are listed in the report and
-not guessed. Validate the result with:
+Validate exported observations with:
 
 ```bash
 python3 scripts/export_gate_observations.py run*/final.json \
@@ -95,20 +80,9 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
   data/gates/history.jsonl
 ```
 
-Here `candidate_id` identifies one exact candidate artifact and configuration.
-`group_id` identifies its experiment family, recipe, lineage, and dataset so
-related candidates stay in the same cross-validation group; shards, summaries,
-and retries of the same candidate/group are not independent observations.
-GateModel output is advisory: a real gate still needs an explicit adoption
-decision and never authorizes deployment, release, or a strength claim by
-itself.
-
-`split_gensfen_by_game.py` prepares in-house HalfKP data without allowing
-adjacent positions from one self-play game to leak across train and validation.
-It requires the six-column output from the current `gensfen`, joins games that
-share an exact SFEN, optionally limits positions contributed by one long game,
-and records input/output hashes plus phase and result counts in a manifest.
-Legacy five-column rows fail closed because they cannot prove game separation.
+`candidate_id` identifies one exact artifact/configuration; `group_id` keeps a
+shared recipe, lineage, and dataset in one cross-validation group. GateModel
+output is advisory and never authorizes deployment or a strength claim.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
@@ -122,15 +96,10 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
   pack data/selfplay/validation.bin data/selfplay/validation.txt
 ```
 
-`train_halfkp.py` trains a HalfKP 256x2-32-32 `nn.bin` from those packed
-files (PyTorch, quantization-aware; `EvalFile` with `FV_SCALE=24`). Pass the
-by-game validation file with `--val-data`; the random `--val` fraction lets one
-game's positions fall on both sides. `--init` continues from a saved float
-state, and `--fact` trains a king-independent piece-square row that is folded
-into every king's row at export. When continuing from the previous network on
-new self-play data, keep the default single epoch: more epochs memorise the new
-games. Validation loss is a diagnostic only; candidates still need a gate.
-Run `test_train_halfkp.py` after changing it (it skips without PyTorch).
+`train_halfkp.py` consumes the packed files below. `--init` resumes from a
+float checkpoint and `--fact` adds a folded king-independent factor. Keep the
+default single epoch when continuing on new self-play data unless a separate
+experiment justifies otherwise.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
@@ -144,11 +113,9 @@ python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
   explicit `--baseline material` contract, starts both Sekirei arms without
   evaluator files, and fixes `Threads=1`, `SpecTopN=0`, and `UseBook=false`.
   External evaluators are deliberately unsupported by this entry point.
-- `run_local_selfplay.py` collects offline same-engine games. A normal run
-  requires both `--weights` and `--positions`; it records weight SHA-256,
-  evaluator mode, fixed USI options, kifu/CSA, primary-PV per-move data, and
-  durable summaries. `--material-only --startpos-smoke` is limited to two
-  smoke games and is never NNUE or strength evidence.
+- `run_local_selfplay.py` collects offline games with explicit weights and
+  openings, recording evaluator identity, options, kifu/CSA, PV data, and a
+  durable summary. Material/startpos mode is smoke-only.
 - `build_selfplay_ledger.py` and `profile_nnue_transcript.py` audit replayable
   records and evaluator provenance. They are not training exporters or Elo
   estimators.
@@ -157,8 +124,7 @@ python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
   Supply credentials only at runtime; never store `FLOODGATE_TRIP` in Git,
   manifests, plist files, commands, or logs.
 
-For an unattended bounded Floodgate run, let the client own the game limit;
-do not use an external launcher that restarts a successful batch:
+For a bounded Floodgate run, let the client own the game limit:
 
 ```bash
 sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
@@ -167,16 +133,9 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
-`--max-games` is process-wide across reconnects. Protocol errors stop the
-client instead of requesting another game; the status and manifest retain the
-completed-attempt count and terminal reason without credentials.
-
-For a launchd-managed bounded batch, use the supplied plist template. It runs
-the supervisor with `--one-shot`, disables launchd `KeepAlive`, and records
-`one-shot-complete.json`. If the child exits before the limit, the record keeps
-`child_exited_before_max_games` and the completed-attempt count (including
-zero). A later accidental launch observes that durable completion and does not
-spawn another CSA client. Replace `__MAX_GAMES__` with the intended bound.
+`--max-games` persists across reconnects. For launchd, use the supplied
+one-shot template with `KeepAlive` disabled; its durable completion record
+prevents an accidental restart after a terminal run.
 
 Same-engine self-play supports training and regression work. It does not show
 that either revision is stronger.
