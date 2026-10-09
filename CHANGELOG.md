@@ -6,6 +6,30 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Added a loopback-only Denryu rehearsal that runs the real CSA client across
+  a forced 7+7 process boundary, resumes the cumulative game ceiling, records
+  an append-only status journal, hashes all evidence, and verifies that both
+  child processes are reaped.
+- Added explicit `sekirei-csa --completed-attempts` and `--status-journal`
+  options for audited bounded-run recovery.
+
+- CSA: bound incoming lines to 64 KiB, retain partial bytes across a socket
+  timeout, reject invalid UTF-8 and partial EOF explicitly, and drain an
+  oversized line before failing closed so its suffix cannot become a command.
+- CSA: validate game identifiers, side assignment, CSA time units and Fischer
+  fields before agreeing; preserve `%KACHI`/repetition events, stop on a
+  duplicate final result, and refuse a move beyond the 512-ply tournament
+  boundary. The Denryu 3 min/10 min + 2 s clock has an explicit fixture.
+- USI: cover repeated `isready` during infinite search and
+  `isready`/`ponderhit` during ponder with process-level regression tests, and
+  abort/join an active search when an adapter closes stdin without `quit`.
+- NNUE training: reject output paths that alias input data or initial states
+  through direct paths, hardlinks, or symlinks; publish network, float-state,
+  and resume-checkpoint outputs by atomic replacement.
+- Dependencies: update `lineprior` to 0.12.2 and `shogiesa-core`/the verified
+  external `shogiesa` CLI contract to 0.11.1. The opening-book schema remains
+  v1 and the shogiesa position schema remains v11.
+
 ## [0.3.67] – 2026-10-10
 
 - Documentation: shorten the English/Japanese entry READMEs and script index,

@@ -5,10 +5,10 @@ CLI. Use the Cargo binaries for normal engine operation. Before running a
 script, inspect `--help`, choose a new ignored output directory, and retain its
 manifest with the result.
 
-The workspace pins `lineprior 0.12.1`. The default USI runtime excludes it;
+The workspace pins `lineprior 0.12.2`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
 use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.0` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.0`
+`shogiesa 0.11.1` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.1`
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
@@ -99,7 +99,11 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
 `train_halfkp.py` consumes the packed files below. `--init` resumes from a
 float checkpoint and `--fact` adds a folded king-independent factor. Keep the
 default single epoch when continuing on new self-play data unless a separate
-experiment justifies otherwise.
+experiment justifies otherwise. The trainer rejects output paths that alias a
+training, validation, or initial-checkpoint input through a direct path,
+symlink, or hardlink. Network, float-state, and resume-checkpoint files are
+written to a sibling temporary file and atomically replaced only after a
+complete write.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
@@ -136,6 +140,22 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
 `--max-games` persists across reconnects. For launchd, use the supplied
 one-shot template with `KeepAlive` disabled; its durable completion record
 prevents an accidental restart after a terminal run.
+
+Before tournament deployment, run the loopback-only two-process rehearsal:
+
+```bash
+python3 scripts/run_denryu_rehearsal.py \
+  --binary target/release/sekirei-csa \
+  --output data/rehearsals/denryu-$(date +%Y%m%d-%H%M%S)
+```
+
+It runs 7 games, restarts the real client, resumes the cumulative ceiling, and
+runs 7 more. The top-level manifest hashes the executable, configuration,
+source identity, and all 14 records; the JSONL status journal proves both
+process boundaries and the final no-child state. See
+[`DENRYU_REHEARSAL.md`](DENRYU_REHEARSAL.md) for the recovery
+checklist. `--completed-attempts` is an explicit resume input and must come
+from a retained terminal status or manifest, never from an estimate.
 
 Same-engine self-play supports training and regression work. It does not show
 that either revision is stronger.

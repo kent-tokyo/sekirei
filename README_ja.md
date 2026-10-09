@@ -99,7 +99,7 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 ## NNUE学習
 
 学習CLIは`cargo run --release -p sekirei-train -- --help`で確認できます。学習側は
-`lineprior 0.12.1`と`shogiesa-core 0.11.0`を固定し、外部wrapperは`shogiesa 0.11.0`で
+`lineprior 0.12.2`と`shogiesa-core 0.11.1`を固定し、外部wrapperは`shogiesa 0.11.1`で
 確認しています。生成dataと重みはGit外に保存します。recipe、resume、hash、対局単位の
 分割条件は[scripts索引](scripts/README.md)を参照してください。
 

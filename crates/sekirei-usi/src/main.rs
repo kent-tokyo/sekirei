@@ -1512,6 +1512,11 @@ fn main() {
             }
         }
     }
+
+    // A GUI or CSA adapter may terminate by closing stdin instead of sending
+    // `quit`.  Dropping a JoinHandle would detach the search worker, so apply
+    // the same abort-and-join barrier on every input-loop exit.
+    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
 }
 
 // ---- Helpers ----

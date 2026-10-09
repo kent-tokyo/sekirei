@@ -3865,7 +3865,7 @@ fn main() {
             schema: "sekirei-opening-book-manifest-v1",
             sekirei_version: env!("CARGO_PKG_VERSION"),
             source_commit: source_commit.as_deref(),
-            lineprior_version: "0.12.1",
+            lineprior_version: "0.12.2",
             input_corpus: OpeningBookCorpus {
                 identifier: &corpus_sha256,
                 sha256: &corpus_sha256,
