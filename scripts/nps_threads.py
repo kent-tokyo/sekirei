@@ -41,15 +41,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class Usi:
     def __init__(self, binary: str, env: dict[str, str]):
+        binary_path = Path(binary).resolve()
         self.proc = subprocess.Popen(
-            [binary],
+            [str(binary_path)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
             bufsize=1,
             env=env,
-            cwd=str(Path(binary).resolve().parent),
+            cwd=str(binary_path.parent),
         )
 
     def send(self, line: str) -> None:
@@ -95,8 +96,8 @@ def parse_info(lines: list[str]) -> tuple[int, int, int]:
 
 
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
-    evalfile = Path(args.evalfile).resolve()
     if args.yaneuraou:
+        evalfile = Path(args.evalfile).resolve()
         options = [
             f"EvalDir={evalfile.parent}",
             f"FV_SCALE={args.fv_scale}",
@@ -111,12 +112,13 @@ def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
         ]
     else:
         options = [
-            f"EvalFile={evalfile}",
             f"FV_SCALE={args.fv_scale}",
             f"Threads={threads}",
             f"Hash={args.hash}",
             "UseBook=false",
         ]
+        if args.evalfile is not None:
+            options.insert(0, f"EvalFile={Path(args.evalfile).resolve()}")
     return options + list(args.option)
 
 
@@ -179,7 +181,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("engine", help="USI engine binary")
     parser.add_argument("--yaneuraou", action="store_true", help="engine is YaneuraOu")
-    parser.add_argument("--evalfile", required=True, help="HalfKP nn.bin")
+    parser.add_argument(
+        "--evalfile",
+        help="HalfKP nn.bin; omit for a material-only Sekirei measurement",
+    )
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--hash", type=int, default=64)
     parser.add_argument("--threads", default="1,2,4", help="comma-separated thread counts")
@@ -193,6 +198,8 @@ def main() -> int:
     )
     parser.add_argument("--json", help="write one JSON line per measurement")
     args = parser.parse_args()
+    if args.yaneuraou and args.evalfile is None:
+        parser.error("--yaneuraou requires --evalfile")
 
     positions = read_positions(args.positions, args.count)
     thread_counts = [int(t) for t in args.threads.split(",")]

@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "sekirei.q26-search-profile.v3"
+SCHEMA = "sekirei.q26-search-profile.v4"
 RESULT_KEYS = (
     "bestmove",
     "depth",
@@ -63,18 +63,38 @@ def parse(line: str) -> dict[str, Any]:
     return values
 
 
-def run(binary: Path, position: dict[str, Any], nodes: int, time_ms: int | None, max_depth: int, weights: Path | None, profile: bool) -> dict[str, Any]:
+def build_command(
+    binary: Path,
+    position: dict[str, Any],
+    nodes: int,
+    time_ms: int | None,
+    max_depth: int,
+    weights: Path | None,
+    profile: bool,
+) -> list[str]:
+    """Build one diagnostic command without weakening its budget contract."""
     # Q21s records a game-history fragment for analysis, but that fragment is
     # not replayable from every saved initial_sfen. Q26 profiles the recorded
     # current position only; a broken history must not silently turn this into
     # a different position or an invalid timing record.
-    command = [str(binary), "--max-depth", str(max_depth), "--sfen", position["sfen"]]
-    command.extend(("--time-ms", str(time_ms)) if time_ms is not None else ("--nodes", str(nodes)))
+    command = [str(binary), "--sfen", position["sfen"]]
+    if time_ms is not None:
+        command.extend(("--time-ms", str(time_ms), "--max-depth", str(max_depth)))
+    else:
+        # search_diagnostic treats an explicit --max-depth as fixed-depth mode
+        # and deliberately disables its node limit. Leave the engine's depth-50
+        # safety cap implicit so --nodes remains the controlling budget.
+        command.extend(("--nodes", str(nodes)))
     command.extend(("--expected-sfen", position["sfen"]))
     if profile:
         command.append("--profile-cost")
     if weights is not None:
         command.extend(("--weights", str(weights), "--nnue-output", "residual-material"))
+    return command
+
+
+def run(binary: Path, position: dict[str, Any], nodes: int, time_ms: int | None, max_depth: int, weights: Path | None, profile: bool) -> dict[str, Any]:
+    command = build_command(binary, position, nodes, time_ms, max_depth, weights, profile)
     env = dict(os.environ, RAYON_NUM_THREADS="1")
     completed = subprocess.run(command, text=True, capture_output=True, env=env, timeout=90, check=False)
     if completed.returncode:
@@ -94,21 +114,34 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--corpus", type=Path, required=True)
     parser.add_argument("--binary", type=Path, required=True)
-    parser.add_argument("--weights", type=Path, required=True)
+    parser.add_argument(
+        "--weights",
+        type=Path,
+        help="optional frozen NNUE; omit for a material-only search profile",
+    )
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--nodes", type=int, default=100_000)
     parser.add_argument("--time-ms", type=int)
     parser.add_argument("--positions", type=int, default=8)
-    parser.add_argument("--max-depth", type=int, default=4)
+    parser.add_argument("--max-depth", type=int, default=50)
     args = parser.parse_args()
     if args.nodes <= 0 or args.positions <= 0 or args.max_depth <= 0 or (args.time_ms is not None and args.time_ms <= 0):
         parser.error("nodes, positions, and max-depth must be positive")
-    for path in (args.corpus, args.binary, args.weights):
+    if args.time_ms is None and args.max_depth != 50:
+        parser.error("custom --max-depth requires --time-ms; fixed-node runs use the engine's depth-50 cap")
+    for path in (args.corpus, args.binary):
         if not path.is_file():
             parser.error(f"missing input: {path}")
+    if args.weights is not None and not args.weights.is_file():
+        parser.error(f"missing input: {args.weights}")
     corpus = json.loads(args.corpus.read_text(encoding="utf-8"))
-    positions = corpus.get("positions", [])[: args.positions]
-    if len(positions) != args.positions or not all("position" in item for item in positions):
+    positions = []
+    for item in corpus.get("positions", [])[: args.positions]:
+        position = item.get("position", item)
+        if "id" not in item or not isinstance(position, dict) or "sfen" not in position:
+            parser.error("corpus contains a position without id or sfen")
+        positions.append({"id": item["id"], "sfen": position["sfen"]})
+    if len(positions) != args.positions:
         parser.error("corpus does not contain the requested number of replayable positions")
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -118,7 +151,14 @@ def main() -> int:
         "diagnostic_only": True,
         "strength_claim": False,
         "contract": {
-            "arms": {"material": "no weights", "frozen_nnue": "residual-material, scale=1000"},
+            "arms": {
+                "material": "no weights",
+                **(
+                    {"frozen_nnue": "residual-material, scale=1000"}
+                    if args.weights is not None
+                    else {}
+                ),
+            },
             "nodes": args.nodes,
             "time_ms": args.time_ms,
             "max_depth": args.max_depth,
@@ -133,9 +173,18 @@ def main() -> int:
         "inputs": {
             "corpus": {"path": str(args.corpus), "sha256": sha256(args.corpus)},
             "binary": {"path": str(args.binary), "sha256": sha256(args.binary)},
-            "frozen_nnue": {"path": str(args.weights), "sha256": sha256(args.weights)},
+            **(
+                {
+                    "frozen_nnue": {
+                        "path": str(args.weights),
+                        "sha256": sha256(args.weights),
+                    }
+                }
+                if args.weights is not None
+                else {}
+            ),
         },
-        "positions": [{"id": item["id"], "sfen": item["position"]["sfen"]} for item in positions],
+        "positions": positions,
     }
     prereg_path = args.output_dir / "preregistration.json"
     rendered = json.dumps(prereg, indent=2, sort_keys=True) + "\n"
@@ -144,9 +193,12 @@ def main() -> int:
     prereg_path.write_text(rendered, encoding="utf-8")
 
     rows: list[dict[str, Any]] = []
-    for arm, weights in (("material", None), ("frozen_nnue", args.weights)):
+    arms: list[tuple[str, Path | None]] = [("material", None)]
+    if args.weights is not None:
+        arms.append(("frozen_nnue", args.weights))
+    for arm, weights in arms:
         for item in positions:
-            position = item["position"]
+            position = item
             results = {
                 "baseline_a": run(args.binary, position, args.nodes, args.time_ms, args.max_depth, weights, False),
                 "profile_a": run(args.binary, position, args.nodes, args.time_ms, args.max_depth, weights, True),
@@ -167,7 +219,7 @@ def main() -> int:
                 row["results"][name]["elapsed_ns"] for row in rows if row["arm"] == arm for name in ("profile_a", "profile_b")
             ),
         }
-        for arm in ("material", "frozen_nnue")
+        for arm, _ in arms
     }
     for values in timing.values():
         values["instrumentation_elapsed_ratio"] = values["profile_median_elapsed_ns"] / values["baseline_median_elapsed_ns"]

@@ -1132,6 +1132,37 @@ fn gen_pawn_attacks<const RESTRICTED: bool>(
 }
 
 #[inline]
+fn gen_pawn_v2_tacticals<const RESTRICTED: bool>(
+    board: &Board,
+    color: Color,
+    context: MoveGenContext,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
+    let mut pieces = board.pieces(color, PieceKind::Fu);
+    let (zone, stuck) = promotion_masks(PieceKind::Fu, color);
+    while let Some(from) = pieces.pop_lsb() {
+        let targets = restrictions.targets::<RESTRICTED>(
+            from,
+            PAWN_ATTACKS[color.index()][from.index() as usize].and_not(context.own),
+        );
+        let Some(to) = targets.lsb() else {
+            continue;
+        };
+        let capture = context.enemy.contains(to);
+        let can_promote = zone.contains(from) || zone.contains(to);
+        if can_promote {
+            moves.push_normal(from, to, PieceKind::Fu, true);
+            if capture && !stuck.contains(to) {
+                moves.push_normal(from, to, PieceKind::Fu, false);
+            }
+        } else if capture {
+            moves.push_normal(from, to, PieceKind::Fu, false);
+        }
+    }
+}
+
+#[inline]
 fn gen_plain_step_attacks<const RESTRICTED: bool>(
     board: &Board,
     color: Color,
@@ -1711,6 +1742,19 @@ fn generate_non_king_captures_into<const RESTRICTED: bool>(
     restrictions: MoveRestrictions,
     moves: &mut impl MoveSink,
 ) {
+    generate_non_king_v2_tacticals_into::<RESTRICTED, false>(board, color, restrictions, moves);
+}
+
+#[inline]
+fn generate_non_king_v2_tacticals_into<
+    const RESTRICTED: bool,
+    const QUIET_PAWN_PROMOTIONS: bool,
+>(
+    board: &Board,
+    color: Color,
+    restrictions: MoveRestrictions,
+    moves: &mut impl MoveSink,
+) {
     if board
         .occ_for(color)
         .and_not(board.pieces(color, PieceKind::Ou))
@@ -1725,15 +1769,19 @@ fn generate_non_king_captures_into<const RESTRICTED: bool>(
         enemy,
         occ: own | enemy,
     };
-    gen_step_captures::<RESTRICTED>(
-        board,
-        color,
-        PieceKind::Fu,
-        &PAWN_ATTACKS[color.index()],
-        context,
-        restrictions,
-        moves,
-    );
+    if QUIET_PAWN_PROMOTIONS {
+        gen_pawn_v2_tacticals::<RESTRICTED>(board, color, context, restrictions, moves);
+    } else {
+        gen_step_captures::<RESTRICTED>(
+            board,
+            color,
+            PieceKind::Fu,
+            &PAWN_ATTACKS[color.index()],
+            context,
+            restrictions,
+            moves,
+        );
+    }
 
     match color {
         Color::Black => gen_sliding_one_captures::<RESTRICTED, 0>(
@@ -3301,6 +3349,42 @@ fn generate_legal_captures_into_sink(
     }
 }
 
+/// Generate the tactical subset used by SEARCH_V2 outside check: legal
+/// captures and legal non-capturing pawn promotions. Drops and other quiet
+/// moves are deliberately deferred until the search reaches its quiet stage.
+#[inline]
+fn generate_legal_v2_tacticals_into_sink(board: &mut Board, legals: &mut impl MoveSink) {
+    legals.clear();
+    let mover = board.side_to_move;
+    let opponent = mover.flip();
+    let opponent_king = board.pieces(opponent, PieceKind::Ou);
+    let king = board.king_square(mover);
+    let constraints = current_king_constraints(board, Some(Bitboard::EMPTY));
+    debug_assert!(constraints.checkers.is_empty());
+    let restrictions = MoveRestrictions {
+        allowed: Bitboard::FULL.and_not(opponent_king),
+        pinned: constraints.pinned,
+        king,
+        unrestricted: false,
+    };
+    if constraints.pinned.is_empty() {
+        generate_non_king_v2_tacticals_into::<false, true>(board, mover, restrictions, legals);
+    } else {
+        generate_non_king_v2_tacticals_into::<true, true>(board, mover, restrictions, legals);
+    }
+
+    if let Some(king) = king {
+        let mut targets =
+            (KING_ATTACKS[king.index() as usize] & board.occ_for(opponent)).and_not(opponent_king);
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, mover, m) {
+                legals.push(m);
+            }
+        }
+    }
+}
+
 thread_local! {
     static MOVE_BUFFER_POOL: RefCell<Vec<Vec<Move>>> = const { RefCell::new(Vec::new()) };
     static FIXED_MOVE_BUFFER_POOL: RefCell<Vec<FixedMoveList>> = const { RefCell::new(Vec::new()) };
@@ -3385,6 +3469,15 @@ impl MoveBuffer {
         Self { moves: Some(moves) }
     }
 
+    /// Generate legal SEARCH_V2 tactical moves when the caller has already
+    /// established that the side to move is not in check.
+    #[inline]
+    pub(crate) fn v2_tacticals_outside_check(board: &mut Board) -> Self {
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_v2_tacticals_into_sink(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
     /// Returns the generated moves as a read-only slice.
     #[inline(always)]
     pub fn as_slice(&self) -> &[Move] {
@@ -3461,6 +3554,63 @@ mod move_buffer_tests {
 
         assert_eq!(buffered_captures.as_slice(), expected_captures.as_slice());
         assert_eq!(buffered_captures.len(), expected_captures.len());
+    }
+
+    #[test]
+    fn v2_tactical_buffer_matches_filtered_legal_moves_outside_check() {
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "lnsgkgsnl/1r5b1/p1ppppppp/6P2/9/9/PPPPPP1PP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/9/4P4/9/9/9/9/9/4K4 b - 1",
+        ] {
+            let mut full_board = Board::from_sfen(sfen).expect("fixture must parse");
+            assert!(!is_in_check(&full_board, full_board.side_to_move));
+            let expected: Vec<Move> = MoveBuffer::legal_with_in_check(&mut full_board, false)
+                .as_slice()
+                .iter()
+                .copied()
+                .filter(|m| {
+                    (m.from.is_some() && full_board.piece_at(m.to).is_some())
+                        || (m.promote && m.piece_kind == PieceKind::Fu)
+                })
+                .collect();
+
+            let mut tactical_board = Board::from_sfen(sfen).expect("fixture must parse");
+            let actual = MoveBuffer::v2_tacticals_outside_check(&mut tactical_board);
+            assert_eq!(actual.as_slice(), expected.as_slice(), "{sfen}");
+        }
+    }
+
+    #[test]
+    fn v2_tactical_buffer_matches_seeded_legal_playouts() {
+        for seed in [5usize, 23, 61, 127] {
+            let mut position = Board::startpos();
+            for ply in 0..128usize {
+                let mut full_board = position.clone();
+                let legal = MoveBuffer::legal(&mut full_board).as_slice().to_vec();
+                if legal.is_empty() {
+                    break;
+                }
+                if !is_in_check(&position, position.side_to_move) {
+                    let expected: Vec<Move> = legal
+                        .iter()
+                        .copied()
+                        .filter(|m| {
+                            (m.from.is_some() && position.piece_at(m.to).is_some())
+                                || (m.promote && m.piece_kind == PieceKind::Fu)
+                        })
+                        .collect();
+                    let actual = MoveBuffer::v2_tacticals_outside_check(&mut position);
+                    assert_eq!(
+                        actual.as_slice(),
+                        expected.as_slice(),
+                        "seed {seed} ply {ply}"
+                    );
+                }
+                let selected = legal[(seed * 17 + ply * 13) % legal.len()];
+                position.do_move(selected);
+            }
+        }
     }
 
     #[test]

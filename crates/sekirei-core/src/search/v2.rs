@@ -1215,9 +1215,17 @@ fn node(
         }
     }
 
-    // Move generation (needed for ProbCut as well).
-    let mut buf = MoveBuffer::legal_with_in_check(board, in_check);
-    if buf.is_empty() {
+    // Move generation (needed for ProbCut as well). The experimental staged
+    // path is limited to nodes outside check whose TT move, if any, belongs
+    // to the tactical subset and can therefore be validated immediately.
+    let staged_generation =
+        p::V2_STAGE_GEN() != 0 && !in_check && tt_move.is_none_or(|m| is_tactical(board, m));
+    let mut buf = if staged_generation {
+        MoveBuffer::v2_tacticals_outside_check(board)
+    } else {
+        MoveBuffer::legal_with_in_check(board, in_check)
+    };
+    if !staged_generation && buf.is_empty() {
         return if excluded.is_some() {
             alpha
         } else {
@@ -1229,6 +1237,7 @@ fn node(
             .retain(|m| !useless_non_promotion(*m, stm));
     }
     let moves = buf.as_slice();
+    let mut any_generated_move = !moves.is_empty();
     let tt_move = tt_move.filter(|t| moves.contains(t));
 
     // ProbCut.
@@ -1370,6 +1379,10 @@ fn node(
     list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     diag(state, entry_depth, 7);
+    if let Some(c) = state.counters() {
+        c.loop_nodes[usize::from(tt_move.is_some())].fetch_add(1, Ordering::Relaxed);
+        c.loop_by_window[usize::from(pv)].fetch_add(1, Ordering::Relaxed);
+    }
 
     let mut best_value = -INF;
     let mut best_move: Option<Move> = None;
@@ -1427,7 +1440,26 @@ fn node(
             match stage {
                 0 => {
                     stage = 1;
+                    if let Some(c) = state.counters() {
+                        c.move_stages[0].fetch_add(1, Ordering::Relaxed);
+                    }
                     if !skip_quiets {
+                        if staged_generation {
+                            let mut quiet_buf = MoveBuffer::legal_with_in_check(board, false);
+                            if p::SKIP_NONPROMO() != 0 {
+                                quiet_buf
+                                    .as_mut_list()
+                                    .retain(|m| !useless_non_promotion(*m, stm));
+                            }
+                            any_generated_move |= !quiet_buf.is_empty();
+                            quiet_list.extend(
+                                quiet_buf
+                                    .as_slice()
+                                    .iter()
+                                    .copied()
+                                    .filter(|m| !is_tactical(board, *m)),
+                            );
+                        }
                         let start = list.len();
                         for &m in quiet_list.iter() {
                             let ft = ft_key(stm, m);
@@ -1455,17 +1487,26 @@ fn node(
                             }
                             list.push((s, m, 1 + u8::from(check), se));
                         }
+                        if let Some(c) = state.counters() {
+                            c.move_stages[2]
+                                .fetch_add((list.len() - start) as u64, Ordering::Relaxed);
+                        }
                         if !lazy_sort {
                             list[start..]
                                 .sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
                         }
                         quiet_start = start;
                         quiet_end = list.len();
+                    } else if let Some(c) = state.counters() {
+                        c.move_stages[1].fetch_add(1, Ordering::Relaxed);
                     }
                     continue;
                 }
                 1 => {
                     stage = 2;
+                    if let Some(c) = state.counters() {
+                        c.move_stages[3].fetch_add(1, Ordering::Relaxed);
+                    }
                     list.extend_from_slice(bad_list);
                     continue;
                 }
@@ -1645,6 +1686,9 @@ fn node(
         d.ss[i].capture = capture;
         let (tok, child_check, child_history) = play(board, m, history);
         if let Some(c) = state.counters() {
+            if move_count > 1 && child_check {
+                c.searched_checks[usize::from(pv)].fetch_add(1, Ordering::Relaxed);
+            }
             let kind = if move_count == 1 {
                 0
             } else if capture {
@@ -1737,6 +1781,11 @@ fn node(
                 dd = dd.max(new_depth);
             }
             d.ss[i].reduction = new_depth - dd;
+            if dd < new_depth
+                && let Some(c) = state.counters()
+            {
+                c.research[0].fetch_add(1, Ordering::Relaxed);
+            }
             value = -search(
                 d,
                 state,
@@ -1757,6 +1806,9 @@ fn node(
                 // An aborted child returns 0, which can look like a fail-high;
                 // re-searching it would only tick the spent budget again.
                 if new_depth > dd && !state.budget.should_abort() {
+                    if let Some(c) = state.counters() {
+                        c.research[1].fetch_add(1, Ordering::Relaxed);
+                    }
                     value = -search(
                         d,
                         state,
@@ -1802,6 +1854,11 @@ fn node(
             value = -INF;
         }
         if pv && (move_count == 1 || value > alpha) && !state.budget.should_abort() {
+            if move_count > 1
+                && let Some(c) = state.counters()
+            {
+                c.research[2].fetch_add(1, Ordering::Relaxed);
+            }
             let nd = if Some(m) == tt_move && tt_depth > 1 {
                 new_depth.max(1)
             } else {
@@ -1833,6 +1890,11 @@ fn node(
                     d.ss[i].cutoff_cnt += 1 + u32::from(ext < 2 || pv);
                     if let Some(c) = state.counters() {
                         c.record_cut(move_count as usize, !tactical, tt_move.is_some());
+                        if let Some(t) = tt_move
+                            && !is_tactical(board, t)
+                        {
+                            c.record_tt_quiet_cut(t == m, tt_bound, depth - tt_depth);
+                        }
                     }
                     break;
                 }
@@ -1856,8 +1918,12 @@ fn node(
     }
 
     if move_count == 0 {
-        // Only the excluded move was legal.
-        return alpha;
+        return if excluded.is_some() || any_generated_move {
+            // Only the excluded move was legal.
+            alpha
+        } else {
+            -(MATE_SCORE - ply as i32)
+        };
     }
 
     // Learn from the result.
@@ -1912,6 +1978,11 @@ fn node(
         } else {
             Bound::Upper
         };
+        if bound == Bound::Upper
+            && let Some(c) = state.counters()
+        {
+            c.fail_low_nodes.fetch_add(1, Ordering::Relaxed);
+        }
         store_tt_for_search_pv(
             state,
             hash,

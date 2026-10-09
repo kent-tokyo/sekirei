@@ -568,6 +568,10 @@ search_params! {
     /// SEARCH_V2 quiet move order: picked best first one at a time for the
     /// first few, ties in generation order (1), or fully sorted at once (0).
     V2_SORT = 0, 0, 1;
+    /// SEARCH_V2 generates legal tactical moves first and defers the full
+    /// legal move list until the quiet stage (1), or generates all moves at
+    /// node entry (0).
+    V2_STAGE_GEN = 1, 0, 1;
     /// SEARCH_V2 depth adjustment by the reduction of the move that led to
     /// the node (1) or none (0).
     V2_HINDSIGHT = 0, 0, 1;

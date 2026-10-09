@@ -285,6 +285,14 @@ pub struct SearchDiagnostics {
     by_depth: [[AtomicU64; 9]; 17],
     /// Main-search nodes that searched moves and failed low.
     fail_low_nodes: AtomicU64,
+    /// SEARCH_V2 move-loop stages: nodes entering the quiet stage, nodes that
+    /// skipped it after late-move pruning, quiet moves scored, and nodes
+    /// entering the losing-tactical stage.
+    move_stages: [AtomicU64; 4],
+    /// Quiescence calls, nodes in check, TT cutoffs, stand-pat cutoffs,
+    /// terminal nodes, searched moves, beta cutoffs, depth-cap exits,
+    /// mate-in-one exits, and delta-pruning exits.
+    qsearch: [AtomicU64; 10],
 }
 
 /// Buckets of [`SearchDiagnostics::cut_histogram`]: move 1, 2, 3, 4, 5-6,
@@ -462,6 +470,8 @@ impl SearchDiagnostics {
             exits: std::array::from_fn(|_| AtomicU64::new(0)),
             by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             fail_low_nodes: AtomicU64::new(0),
+            move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
+            qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
         }
     }
 
@@ -616,6 +626,16 @@ impl SearchDiagnostics {
             self.fail_low_nodes.load(Ordering::Relaxed),
             std::array::from_fn(|i| self.loop_nodes[i].load(Ordering::Relaxed)),
         )
+    }
+
+    /// Quiescence outcomes and work (see the `qsearch` field).
+    pub fn qsearch_counts(&self) -> [u64; 10] {
+        std::array::from_fn(|i| self.qsearch[i].load(Ordering::Relaxed))
+    }
+
+    /// SEARCH_V2 move-loop stage usage (see the `move_stages` field).
+    pub fn move_stage_counts(&self) -> [u64; 4] {
+        std::array::from_fn(|i| self.move_stages[i].load(Ordering::Relaxed))
     }
 
     /// Return counters collected so far without resetting the observer.
@@ -3725,6 +3745,7 @@ fn quiescence(
     let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
     if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+        diagnostics.qsearch[0].fetch_add(1, Ordering::Relaxed);
     }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
@@ -3741,6 +3762,9 @@ fn quiescence(
     // until the clock runs out — the move then blows past its byoyomi.
     const QSEARCH_MAX_PLY: u32 = 10;
     if qply >= QSEARCH_MAX_PLY {
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[7].fetch_add(1, Ordering::Relaxed);
+        }
         return evaluate_for_search(state, board);
     }
 
@@ -3774,9 +3798,17 @@ fn quiescence(
         tt_mv = entry.mv;
         tt_bound = Some((entry.bound, adj));
         match entry.bound {
-            Bound::Exact => return adj,
+            Bound::Exact => {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                }
+                return adj;
+            }
             Bound::Lower => {
                 if adj >= beta {
+                    if let Some(diagnostics) = state.counters() {
+                        diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                    }
                     return adj;
                 }
                 if adj > alpha {
@@ -3785,6 +3817,9 @@ fn quiescence(
             }
             Bound::Upper => {
                 if adj <= alpha {
+                    if let Some(diagnostics) = state.counters() {
+                        diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                    }
                     return adj;
                 }
             }
@@ -3796,6 +3831,9 @@ fn quiescence(
     let orig_alpha = alpha;
 
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, board.side_to_move));
+    if in_check && let Some(diagnostics) = state.counters() {
+        diagnostics.qsearch[1].fetch_add(1, Ordering::Relaxed);
+    }
     let mut stand_pat_value: Option<i32> = None;
 
     // Stand-pat and delta pruning only apply when not in check.
@@ -3804,6 +3842,9 @@ fn quiescence(
         // Standing pat must not hide a mate in one at the horizon.
         let qstyle = p::QS_STYLE();
         if (qply == 0 || qstyle & 2 != 0) && mate_in_one(board).is_some() {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[8].fetch_add(1, Ordering::Relaxed);
+            }
             return MATE_SCORE - (ply as i32 + 1);
         }
         let mut stand_pat = evaluate_for_search(state, board);
@@ -3825,6 +3866,9 @@ fn quiescence(
         }
         stand_pat_value = Some(stand_pat);
         if stand_pat >= beta {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[3].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -3848,6 +3892,9 @@ fn quiescence(
         // Delta Pruning: if even the best possible capture+promotion cannot improve alpha, skip.
         // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
         if stand_pat + p::QS_DELTA() < alpha {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[9].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -3899,6 +3946,9 @@ fn quiescence(
     };
 
     if move_buffer.is_empty() {
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[4].fetch_add(1, Ordering::Relaxed);
+        }
         let score = if in_check {
             -MATE_SCORE + ply as i32 // checkmate
         } else {
@@ -3988,12 +4038,18 @@ fn quiescence(
             Some(child_in_check),
             &child_history,
         );
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+        }
         board.undo_move_for_search(tok);
 
         if state.budget.should_abort() {
             return 0;
         }
         if score >= beta {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -4051,11 +4107,17 @@ fn quiescence(
                 Some(gives_check),
                 &child_history,
             );
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+            }
             board.undo_move_for_search(tok);
             if state.budget.should_abort() {
                 return 0;
             }
             if score >= beta {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+                }
                 if tt_here {
                     store_tt_for_search(
                         state,
@@ -4136,12 +4198,18 @@ fn quiescence(
                 Some(gives_check),
                 &child_history,
             );
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+            }
             board.undo_move_for_search(tok);
 
             if state.budget.should_abort() {
                 return 0;
             }
             if score >= beta {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+                }
                 if !state.budget.should_abort() {
                     store_tt_for_search(
                         state,

@@ -4,8 +4,8 @@
 Run: python3 scripts/test_run_ab_match.py
 """
 
-import math
 import io
+import math
 import sys
 import tempfile
 import unittest
@@ -62,6 +62,15 @@ class SprtTest(unittest.TestCase):
         self.assertIn("USI_Hash=256", yaneuraou)
         self.assertIn("NodesLimit=20000", yaneuraou)
 
+    def test_material_only_options_omit_evalfile_and_unadvertised_book_option(self):
+        options = sekirei_options(
+            "--engine-option1", None, 24, 1, "Speculative", 0, 64
+        )
+        self.assertNotIn("EvalFile=none", options)
+        self.assertFalse(any("EvalFile=" in option for option in options))
+        self.assertFalse(any("FV_SCALE=" in option for option in options))
+        self.assertNotIn("UseBook=false", options)
+
     def test_bounds_match_wald_for_five_percent_errors(self):
         lower, upper = sprt_bounds()
         self.assertAlmostEqual(lower, math.log(0.05 / 0.95))
@@ -107,6 +116,8 @@ class SprtTest(unittest.TestCase):
                 "--out-dir", directory,
             ]
             argv.extend(["--threads-a", "4", "--threads-b", "2"])
+            argv.extend(["--option-a", "T_V2_STAGE_GEN=1"])
+            argv.extend(["--option-b", "T_V2_STAGE_GEN=0"])
             with patch.object(sys, "argv", argv), patch(
                 "run_ab_match.subprocess.Popen", return_value=process
             ) as popen, patch("sys.stdout", new_callable=io.StringIO) as stdout:
@@ -119,6 +130,32 @@ class SprtTest(unittest.TestCase):
         command = popen.call_args.args[0]
         self.assertIn("Threads=4", command)
         self.assertIn("Threads=2", command)
+        self.assertIn("T_V2_STAGE_GEN=1", command)
+        self.assertIn("T_V2_STAGE_GEN=0", command)
+
+    def test_main_defaults_to_material_only(self):
+        process = _FakeMatchProcess(["→ Draw\n"])
+        with tempfile.TemporaryDirectory() as directory:
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a",
+                "candidate",
+                "--engine-b",
+                "baseline",
+                "--games",
+                "1",
+                "--out-dir",
+                directory,
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ) as popen, patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+
+        command = popen.call_args.args[0]
+        self.assertFalse(any(option.startswith("EvalFile=") for option in command))
+        self.assertFalse(any(option.startswith("FV_SCALE=") for option in command))
 
 
 if __name__ == "__main__":

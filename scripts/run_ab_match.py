@@ -3,8 +3,9 @@
 
 Wraps ``sekirei-match`` with the settings used for local search diagnostics.
 The defaults are one search thread per engine, ``SpecTopN=0``, no opening
-book, the same external HalfKP evaluation file for both sides, and
-colour-paired opening positions. Explicit options can study parallel modes.
+book, material-only evaluation, and colour-paired opening positions. Pass an
+explicit ``--evalfile`` only when both sides should use the same HalfKP file.
+Explicit options can study parallel modes.
 
 Self-play A/B (engine A is reported)::
 
@@ -43,7 +44,7 @@ RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 
 def sekirei_options(
     prefix: str,
-    evalfile: str,
+    evalfile: str | None,
     fv_scale: int,
     threads: int = 1,
     search_mode: str = "Speculative",
@@ -57,14 +58,13 @@ def sekirei_options(
     positive ``spec_top_n``, or ``LazySMP``).
     """
     options = [
-        f"EvalFile={evalfile}",
-        f"FV_SCALE={fv_scale}",
         f"Threads={threads}",
         f"SearchMode={search_mode}",
         f"SpecTopN={spec_top_n}",
-        "UseBook=false",
         f"Hash={hash_mb}",
     ]
+    if evalfile is not None:
+        options[:0] = [f"EvalFile={evalfile}", f"FV_SCALE={fv_scale}"]
     return [arg for option in options for arg in (prefix, option)]
 
 
@@ -134,7 +134,11 @@ def main() -> int:
     parser.add_argument("--engine-a", required=True, help="Sekirei binary under test")
     parser.add_argument("--engine-b", help="baseline Sekirei binary (selfplay)")
     parser.add_argument("--yaneuraou", help="YaneuraOu binary (yaneuraou mode)")
-    parser.add_argument("--evalfile", required=True, help="HalfKP nn.bin used by both sides")
+    parser.add_argument(
+        "--evalfile",
+        default="none",
+        help="HalfKP nn.bin used by both sides; 'none' selects material-only (default)",
+    )
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--nodes-limit", type=int, default=0, help="YaneuraOu NodesLimit (0 = none)")
     parser.add_argument("--games", type=int, default=200)
@@ -160,6 +164,20 @@ def main() -> int:
     )
     parser.add_argument("--spec-top-n-a", type=int, default=0)
     parser.add_argument("--spec-top-n-b", type=int, default=0)
+    parser.add_argument(
+        "--option-a",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="additional USI option for engine A (repeatable)",
+    )
+    parser.add_argument(
+        "--option-b",
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="additional USI option for engine B (repeatable)",
+    )
     parser.add_argument("--hash", type=int, default=64, help="hash MB for every engine")
     parser.add_argument("--name", default="ab")
     parser.add_argument("--out-dir", default=str(ROOT / "target/ab-match"))
@@ -172,6 +190,9 @@ def main() -> int:
         parser.error("selfplay needs --engine-b")
     if args.mode == "yaneuraou" and not args.yaneuraou:
         parser.error("yaneuraou mode needs --yaneuraou")
+    material_only = args.evalfile.lower() in {"none", "material"}
+    if args.mode == "yaneuraou" and material_only:
+        parser.error("yaneuraou mode needs an explicit --evalfile")
     if args.games <= 0:
         parser.error("--games must be positive")
     if args.byoyomi <= 0:
@@ -211,17 +232,18 @@ def main() -> int:
     ]
     command += sekirei_options(
         "--engine-option1",
-        args.evalfile,
+        None if material_only else args.evalfile,
         args.fv_scale,
         args.threads_a,
         args.search_mode_a,
         args.spec_top_n_a,
         args.hash,
     )
+    command += [arg for option in args.option_a for arg in ("--engine-option1", option)]
     if args.mode == "selfplay":
         command += sekirei_options(
             "--engine-option2",
-            args.evalfile,
+            None if material_only else args.evalfile,
             args.fv_scale,
             args.threads_b,
             args.search_mode_b,
@@ -232,6 +254,7 @@ def main() -> int:
         command += yaneuraou_options(
             args.evalfile, args.fv_scale, args.nodes_limit, args.threads_b, args.hash
         )
+    command += [arg for option in args.option_b for arg in ("--engine-option2", option)]
 
     # Rayon sizes its pool at startup. A later USI Threads option cannot grow
     # a pool that this process environment already capped at one.
