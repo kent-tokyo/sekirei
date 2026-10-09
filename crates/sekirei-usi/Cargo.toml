@@ -14,13 +14,19 @@ path = "src/main.rs"
 sekirei-core = { path = "../sekirei-core", version = "0.3.66" }
 rayon = "1"
 lineprior = { version = "0.12.1", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+sha2 = { version = "0.10", optional = true }
 
 [features]
 default = []
-opening-book = ["dep:lineprior"]
+opening-book = ["dep:lineprior", "dep:serde", "dep:serde_json", "dep:sha2"]
 tune = ["sekirei-core/tune"]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
 nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
 nnue_l1_128 = ["sekirei-core/nnue_l1_128"]
 nnue_l2_64 = ["sekirei-core/nnue_l2_64"]
 nnue_l2_16 = ["sekirei-core/nnue_l2_16"]
+
+[dev-dependencies]
+tempfile = "3"

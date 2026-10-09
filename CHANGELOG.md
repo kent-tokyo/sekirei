@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Training provenance: position datasets now use byte-level SHA-256 identities
+  in checkpoint metadata and resume fingerprints, with optional expected-hash
+  checks for both training and explicit validation inputs.
+- Opening books: `--build-book` now writes an adjacent reproducible manifest;
+  the opt-in USI book feature can emit structured decision and terminal JSONL
+  records for held-out paired evaluation.
+- Gate tooling: add a fail-closed exporter and lineprior-schema validator for
+  independent historical gate observations.
+- WASM packaging: render the current package version into the bundled README
+  and reject stale README, package, or archive version combinations in CI.
+
 ## [0.3.66] – 2026-10-09
 
 - Search: the static-evaluation correction now also uses one table per side

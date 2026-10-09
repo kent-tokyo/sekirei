@@ -5,17 +5,19 @@
 //! library can't do itself -- mapping its ranked candidate actions back
 //! onto real, currently-legal shogi moves.
 
-use std::fs::File;
-use std::io::BufReader;
+use std::io::Cursor;
 
 use lineprior::{PriorBook, PriorBookMetadata};
 use sekirei_core::board::Board;
 use sekirei_core::mv::Move;
 use sekirei_core::sfen::move_from_usi;
+use serde::Serialize;
+use sha2::{Digest, Sha256};
 
 pub struct Book {
     inner: PriorBook,
     provenance: BookProvenance,
+    sha256: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,8 +34,9 @@ pub enum BookProvenance {
 
 impl Book {
     pub fn load(path: &str) -> Result<Book, String> {
-        let file = File::open(path).map_err(|e| format!("{path}: {e}"))?;
-        let loaded = lineprior::load_prior_book_with_metadata(BufReader::new(file))
+        let bytes = std::fs::read(path).map_err(|e| format!("{path}: {e}"))?;
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        let loaded = lineprior::load_prior_book_with_metadata(Cursor::new(bytes))
             .map_err(|e| e.to_string())?;
         let provenance = match loaded.metadata {
             Some(PriorBookMetadata::Versioned(metadata)) => BookProvenance::Versioned {
@@ -49,6 +52,7 @@ impl Book {
         Ok(Book {
             inner: loaded.book,
             provenance,
+            sha256,
         })
     }
 
@@ -60,6 +64,36 @@ impl Book {
         &self.provenance
     }
 
+    pub fn sha256(&self) -> &str {
+        &self.sha256
+    }
+
+    pub fn build_config_fingerprint(&self) -> Option<u64> {
+        match &self.provenance {
+            BookProvenance::Versioned {
+                build_config_fingerprint,
+                ..
+            } => Some(*build_config_fingerprint),
+            BookProvenance::LegacyFingerprint | BookProvenance::Headerless => None,
+        }
+    }
+
+    pub fn schema_version(&self) -> Option<u32> {
+        match &self.provenance {
+            BookProvenance::Versioned { schema_version, .. } => Some(*schema_version),
+            BookProvenance::LegacyFingerprint | BookProvenance::Headerless => None,
+        }
+    }
+
+    pub fn producer_version(&self) -> Option<&str> {
+        match &self.provenance {
+            BookProvenance::Versioned {
+                producer_version, ..
+            } => Some(producer_version),
+            BookProvenance::LegacyFingerprint | BookProvenance::Headerless => None,
+        }
+    }
+
     /// Walks `sfen`'s candidates in lineprior's own ranked (descending
     /// prior) order, returning the first whose confidence clears
     /// `min_confidence` *and* whose USI string still parses to a legal
@@ -69,21 +103,74 @@ impl Book {
     /// `None` and the caller falls back to a normal search, exactly the
     /// designed behavior for an unseen state.
     pub fn lookup(&self, sfen: &str, board: &Board, min_confidence: f64) -> Option<Move> {
-        for action in self.inner.query(sfen, None) {
-            if action.confidence < min_confidence {
-                continue;
-            }
-            if let Ok(mv) = move_from_usi(&action.action, board) {
-                return Some(mv);
-            }
-        }
-        None
+        self.decision(sfen, board, min_confidence).selected
     }
+
+    pub fn decision(&self, sfen: &str, board: &Board, min_confidence: f64) -> BookDecision {
+        let mut selected = None;
+        let candidates = self
+            .inner
+            .query(sfen, None)
+            .into_iter()
+            .enumerate()
+            .map(|(rank, action)| {
+                let confidence_pass = action.confidence >= min_confidence;
+                let parsed = move_from_usi(&action.action, board).ok();
+                let legal = parsed.is_some();
+                if selected.is_none() && confidence_pass && legal {
+                    selected = parsed;
+                }
+                BookCandidate {
+                    rank: rank + 1,
+                    action: action.action,
+                    prior: action.prior,
+                    confidence: action.confidence,
+                    confidence_pass,
+                    legal,
+                }
+            })
+            .collect::<Vec<_>>();
+        let fallback_reason = if selected.is_some() {
+            None
+        } else if candidates.is_empty() {
+            Some("unseen_state")
+        } else if candidates
+            .iter()
+            .all(|candidate| !candidate.confidence_pass)
+        {
+            Some("low_confidence")
+        } else {
+            Some("no_legal_candidate")
+        };
+        BookDecision {
+            selected,
+            candidates,
+            fallback_reason,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct BookDecision {
+    pub selected: Option<Move>,
+    pub candidates: Vec<BookCandidate>,
+    pub fallback_reason: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct BookCandidate {
+    pub rank: usize,
+    pub action: String,
+    pub prior: f64,
+    pub confidence: f64,
+    pub confidence_pass: bool,
+    pub legal: bool,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs::File;
     use std::io::Write;
 
     fn load_from(contents: &str) -> Book {
@@ -129,6 +216,32 @@ mod tests {
     }
 
     #[test]
+    fn decision_explains_low_confidence_and_illegal_candidates() {
+        let book = load_from(&format!(
+            r#"{{"state":{STARTPOS_SFEN:?},"actions":[{{"action":"not-a-move","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.7,"confidence":0.9}},{{"action":"7g7f","count":1,"weighted_count":1.0,"success_rate":1.0,"mean_score":1.0,"prior":0.3,"confidence":0.05}}]}}"#
+        ));
+        let decision = book.decision(STARTPOS_SFEN, &Board::startpos(), 0.2);
+        assert!(decision.selected.is_none());
+        assert_eq!(decision.fallback_reason, Some("no_legal_candidate"));
+        assert!(!decision.candidates[0].legal);
+        assert!(decision.candidates[0].confidence_pass);
+        assert!(decision.candidates[1].legal);
+        assert!(!decision.candidates[1].confidence_pass);
+    }
+
+    #[test]
+    fn load_records_exact_artifact_sha256() {
+        let contents = format!(
+            r#"{{"state":{STARTPOS_SFEN:?},"actions":[{{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.5,"confidence":0.5}}]}}"#
+        );
+        let book = load_from(&contents);
+        assert_eq!(
+            book.sha256(),
+            format!("{:x}", Sha256::digest(contents.as_bytes()))
+        );
+    }
+
+    #[test]
     fn unseen_state_returns_none() {
         let book = load_from(&format!(
             r#"{{"state":{STARTPOS_SFEN:?},"actions":[{{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.5,"confidence":0.5}}]}}"#
@@ -138,6 +251,15 @@ mod tests {
             book.lookup("some-other-sfen-not-in-book", &board, 0.0)
                 .is_none()
         );
+    }
+
+    #[test]
+    fn unseen_state_has_an_explicit_fallback_reason() {
+        let book = load_from("");
+        let decision = book.decision(STARTPOS_SFEN, &Board::startpos(), 0.2);
+        assert!(decision.selected.is_none());
+        assert_eq!(decision.fallback_reason, Some("unseen_state"));
+        assert!(decision.candidates.is_empty());
     }
 
     #[test]

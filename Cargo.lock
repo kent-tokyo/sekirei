@@ -777,6 +777,10 @@ dependencies = [
  "lineprior",
  "rayon",
  "sekirei-core",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
 ]
 
 [[package]]

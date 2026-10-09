@@ -38,7 +38,7 @@ use sekirei_core::{
     nnue::{load_weights, save_weights},
     sfen::{board_to_sfen, move_from_usi, move_to_usi},
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use csa::{CsaGame, parse_csa};
@@ -166,12 +166,14 @@ impl TeacherEval {
 struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
+    positions_sha256: Option<String>, // optional expected content digest
     // Optional shogiesa diagnostic provenance. These observations remain
     // diagnostics/weights only; Sekirei's own --label-* search produces the
     // training target.
     diagnostic_manifest: Option<PathBuf>,
     diagnostic_manifest_sha256: Option<String>,
     validation_positions_path: Option<PathBuf>, // --validation-positions: frozen hold-out JSONL
+    validation_positions_sha256: Option<String>, // optional expected hold-out digest
     ranking_pairs_path: Option<PathBuf>, // --ranking-pairs: strict diagnostic root-ranking JSON
     ranking_epochs: usize,               // --ranking-epochs (ranking-pairs mode only)
     ranking_max_pairs: usize,            // --ranking-max-pairs (0 = every input pair)
@@ -682,9 +684,11 @@ fn parse_args() -> Result<Args, String> {
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut games_dir = None;
     let mut positions_path: Option<PathBuf> = None;
+    let mut positions_sha256: Option<String> = None;
     let mut diagnostic_manifest: Option<PathBuf> = None;
     let mut diagnostic_manifest_sha256: Option<String> = None;
     let mut validation_positions_path: Option<PathBuf> = None;
+    let mut validation_positions_sha256: Option<String> = None;
     let mut ranking_pairs_path: Option<PathBuf> = None;
     let mut ranking_epochs = 1usize;
     let mut ranking_max_pairs = 0usize;
@@ -786,6 +790,9 @@ fn parse_args() -> Result<Args, String> {
                 i += 1;
                 positions_path = argv.get(i).map(PathBuf::from);
             }
+            "--positions-sha256" => {
+                positions_sha256 = Some(next_value(&argv, &mut i, "--positions-sha256")?);
+            }
             "--diagnostic-manifest" => {
                 i += 1;
                 diagnostic_manifest = argv.get(i).map(PathBuf::from);
@@ -797,6 +804,10 @@ fn parse_args() -> Result<Args, String> {
             "--validation-positions" => {
                 i += 1;
                 validation_positions_path = argv.get(i).map(PathBuf::from);
+            }
+            "--validation-positions-sha256" => {
+                validation_positions_sha256 =
+                    Some(next_value(&argv, &mut i, "--validation-positions-sha256")?);
             }
             "--ranking-pairs" => {
                 ranking_pairs_path = Some(next_value(&argv, &mut i, "--ranking-pairs")?);
@@ -1210,6 +1221,14 @@ fn parse_args() -> Result<Args, String> {
     if validation_positions_path.is_some() && positions_path.is_none() {
         return Err("--validation-positions requires --positions <jsonl>".to_string());
     }
+    if positions_sha256.is_some() && positions_path.is_none() {
+        return Err("--positions-sha256 requires --positions <jsonl>".to_string());
+    }
+    if validation_positions_sha256.is_some() && validation_positions_path.is_none() {
+        return Err(
+            "--validation-positions-sha256 requires --validation-positions <jsonl>".to_string(),
+        );
+    }
     if diagnostic_manifest.is_some() != diagnostic_manifest_sha256.is_some() {
         return Err(
             "--diagnostic-manifest and --diagnostic-manifest-sha256 must be supplied together"
@@ -1386,9 +1405,11 @@ fn parse_args() -> Result<Args, String> {
     Ok(Args {
         games_dir,
         positions_path,
+        positions_sha256,
         diagnostic_manifest,
         diagnostic_manifest_sha256,
         validation_positions_path,
+        validation_positions_sha256,
         ranking_pairs_path,
         ranking_epochs,
         ranking_max_pairs,
@@ -1527,6 +1548,79 @@ fn file_sha256(path: &Path) -> Result<String, String> {
         digest.update(&buffer[..count]);
     }
     Ok(format!("{:x}", digest.finalize()))
+}
+
+fn corpus_sha256(paths: &[PathBuf]) -> Result<String, String> {
+    let mut members = Vec::with_capacity(paths.len());
+    for path in paths {
+        let size = fs::metadata(path)
+            .map_err(|error| format!("cannot stat {path:?}: {error}"))?
+            .len();
+        members.push((file_sha256(path)?, size));
+    }
+    members.sort();
+    let mut digest = Sha256::new();
+    digest.update(b"sekirei-corpus-sha256-v1\0");
+    for (member, size) in members {
+        digest.update(size.to_le_bytes());
+        digest.update(member.as_bytes());
+    }
+    Ok(format!("{:x}", digest.finalize()))
+}
+
+#[derive(Serialize)]
+struct OpeningBookManifest<'a> {
+    schema: &'static str,
+    sekirei_version: &'static str,
+    source_commit: Option<&'a str>,
+    lineprior_version: &'static str,
+    input_corpus: OpeningBookCorpus<'a>,
+    adapter: OpeningBookAdapter,
+    effective_parameters: OpeningBookParameters<'a>,
+    build_config: &'a lineprior::BuildConfig,
+    build_config_fingerprint: u64,
+    observation_count: usize,
+    retained_state_count: usize,
+    output_sha256: &'a str,
+}
+
+#[derive(Serialize)]
+struct OpeningBookCorpus<'a> {
+    identifier: &'a str,
+    sha256: &'a str,
+    source_file_count: usize,
+    parsed_game_count: usize,
+}
+
+#[derive(Serialize)]
+struct OpeningBookAdapter {
+    id: &'static str,
+    version: u32,
+}
+
+#[derive(Serialize)]
+struct OpeningBookParameters<'a> {
+    min_rate: f32,
+    max_ply: usize,
+    min_count: u64,
+    output_format: &'a str,
+}
+
+fn verify_expected_sha256(label: &str, expected: Option<&str>, actual: &str) -> Result<(), String> {
+    let Some(expected) = expected else {
+        return Ok(());
+    };
+    if expected.len() != 64 || !expected.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(format!(
+            "expected SHA-256 for {label} must be 64 hexadecimal characters"
+        ));
+    }
+    if !expected.eq_ignore_ascii_case(actual) {
+        return Err(format!(
+            "{label} SHA-256 mismatch: expected {expected}, found {actual}"
+        ));
+    }
+    Ok(())
 }
 
 /// Order-independent fingerprint of which positions/games landed in the
@@ -1676,7 +1770,7 @@ fn load_initial_weights(args: &Args) -> Result<Option<(trainer::TrainWeights, St
 /// while changing data or any optimization/label setting must be rejected.
 fn resume_config_fingerprint(
     args: &Args,
-    dataset: u64,
+    dataset: &str,
     split: u64,
     teacher_identity: &str,
     initial_weights_identity: Option<&str>,
@@ -2192,6 +2286,8 @@ fn save_checkpoint_meta(
     diag: &diagnostics::EpochDiagnostics,
     git_commit: Option<&str>,
     dataset_hash: u64,
+    positions_sha256: Option<&str>,
+    validation_positions_sha256: Option<&str>,
     checkpoint_hash: u64,
     cache_hits: Option<u64>,
     cache_misses: Option<u64>,
@@ -2325,6 +2421,8 @@ fn save_checkpoint_meta(
         ),
         "git_commit": git_commit,
         "dataset_hash": dataset_hash,
+        "positions_sha256": positions_sha256,
+        "validation_positions_sha256": validation_positions_sha256,
         // FNV-1a over the just-saved checkpoint's raw weight bytes -- lets a
         // later gate/selection step verify a checkpoint file is exactly the
         // one this metadata describes.
@@ -2561,6 +2659,8 @@ fn print_usage() {
     eprintln!("  --quiet             Skip positions in check or where next move is a capture");
     eprintln!("  --min-ply <n>       Skip the first N plies per game (default: 0)");
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
+    eprintln!("  --positions-sha256 <hex>  Require exact SHA-256 for --positions input");
+    eprintln!("  --validation-positions-sha256 <hex>  Require exact SHA-256 for explicit hold-out");
     eprintln!(
         "  --label-time-ms <n>  Hard limit per teacher search; part of cache identity (default: unlimited)"
     );
@@ -3027,12 +3127,22 @@ fn main() {
             dataset_paths.push(path.clone());
         }
         let ds_hash = dataset_hash(&dataset_paths);
-        let raw_samples = load_positions(pos_path, args.strict_positions)
-            .unwrap_or_else(|error| {
+        let train_report =
+            load_positions(pos_path, args.strict_positions).unwrap_or_else(|error| {
                 eprintln!("positions load failed: {error}");
                 std::process::exit(1);
-            })
-            .samples;
+            });
+        verify_expected_sha256(
+            "positions",
+            args.positions_sha256.as_deref(),
+            &train_report.sha256,
+        )
+        .unwrap_or_else(|error| {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        });
+        let train_sha256 = train_report.sha256.clone();
+        let raw_samples = train_report.samples;
         if raw_samples.is_empty() {
             eprintln!("No valid positions loaded");
             std::process::exit(1);
@@ -3055,14 +3165,25 @@ fn main() {
 
         // Prefer an explicitly frozen hold-out. Falling back to the legacy
         // hash split remains supported for older experiment recipes.
+        let mut validation_sha256 = None;
         let (mut train_samples, mut valid_samples): (Vec<_>, Vec<_>) =
             if let Some(validation_path) = &args.validation_positions_path {
-                let validation = load_positions(validation_path, args.strict_positions)
+                let validation_report = load_positions(validation_path, args.strict_positions)
                     .unwrap_or_else(|error| {
                         eprintln!("validation positions load failed: {error}");
                         std::process::exit(1);
-                    })
-                    .samples;
+                    });
+                verify_expected_sha256(
+                    "validation positions",
+                    args.validation_positions_sha256.as_deref(),
+                    &validation_report.sha256,
+                )
+                .unwrap_or_else(|error| {
+                    eprintln!("error: {error}");
+                    std::process::exit(1);
+                });
+                validation_sha256 = Some(validation_report.sha256);
+                let validation = validation_report.samples;
                 if validation.is_empty() {
                     eprintln!("No valid explicit validation positions loaded");
                     std::process::exit(1);
@@ -3075,6 +3196,10 @@ fn main() {
                     positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
                 })
             };
+        let dataset_content_identity = format!(
+            "train={train_sha256};validation={}",
+            validation_sha256.as_deref().unwrap_or("derived-split")
+        );
         let mut split_h = split_hash(
             valid_samples
                 .iter()
@@ -3186,7 +3311,7 @@ fn main() {
 
         let resume_fingerprint = resume_config_fingerprint(
             &args,
-            ds_hash,
+            &dataset_content_identity,
             split_h,
             &teacher_identity,
             initial_weights
@@ -3595,6 +3720,8 @@ fn main() {
                 &diag,
                 git_commit.as_deref(),
                 ds_hash,
+                Some(&train_sha256),
+                validation_sha256.as_deref(),
                 ckpt_hash,
                 Some(cache_hits_epoch),
                 Some(cache_misses_epoch),
@@ -3711,13 +3838,67 @@ fn main() {
             "Book mode → {:?}  max_ply={} min_count={}",
             book_path, args.book_max_ply, args.book_min_count
         );
+        let corpus_sha256 = corpus_sha256(&files).unwrap_or_else(|error| {
+            eprintln!("Cannot identify opening-book corpus: {error}");
+            std::process::exit(1);
+        });
+        let mut build_report = None;
         if let Err(e) = write_atomic_stream(book_path, |out| {
-            book::build_book(&games, args.book_max_ply, args.book_min_count, out)
+            build_report = Some(book::build_book(
+                &games,
+                args.book_max_ply,
+                args.book_min_count,
+                out,
+            )?);
+            Ok(())
         }) {
             eprintln!("Cannot write book file: {e}");
             std::process::exit(1);
         }
-        eprintln!("Book done → {:?}", book_path);
+        let report = build_report.expect("successful book write returns a report");
+        let output_sha256 = file_sha256(book_path).unwrap_or_else(|error| {
+            eprintln!("Cannot hash opening-book output: {error}");
+            std::process::exit(1);
+        });
+        let source_commit = git_commit_hash();
+        let manifest = OpeningBookManifest {
+            schema: "sekirei-opening-book-manifest-v1",
+            sekirei_version: env!("CARGO_PKG_VERSION"),
+            source_commit: source_commit.as_deref(),
+            lineprior_version: "0.12.1",
+            input_corpus: OpeningBookCorpus {
+                identifier: &corpus_sha256,
+                sha256: &corpus_sha256,
+                source_file_count: files.len(),
+                parsed_game_count: games.len(),
+            },
+            adapter: OpeningBookAdapter {
+                id: "sekirei-csa-to-lineprior",
+                version: 1,
+            },
+            effective_parameters: OpeningBookParameters {
+                min_rate: args.min_rate,
+                max_ply: args.book_max_ply,
+                min_count: args.book_min_count,
+                output_format: "lineprior-prior-book-jsonl-v1",
+            },
+            build_config: &report.config,
+            build_config_fingerprint: report.config_fingerprint,
+            observation_count: report.observation_count,
+            retained_state_count: report.retained_state_count,
+            output_sha256: &output_sha256,
+        };
+        let manifest_path = book_path.with_extension("manifest.json");
+        let manifest_bytes = serde_json::to_vec_pretty(&manifest)
+            .expect("opening-book manifest contains serializable values");
+        if let Err(error) = write_atomic(&manifest_path, &manifest_bytes) {
+            eprintln!("Cannot write opening-book manifest {manifest_path:?}: {error}");
+            std::process::exit(1);
+        }
+        eprintln!(
+            "Book done → {:?}; manifest → {:?}",
+            book_path, manifest_path
+        );
         return;
     }
 
@@ -3768,7 +3949,7 @@ fn main() {
 
     let resume_fingerprint = resume_config_fingerprint(
         &args,
-        ds_hash,
+        &format!("legacy-csa:{ds_hash:016x}"),
         split_h,
         &teacher_identity,
         initial_weights
@@ -4298,6 +4479,8 @@ fn main() {
             &diag,
             git_commit.as_deref(),
             ds_hash,
+            None,
+            None,
             ckpt_hash,
             Some(trainer.cache_hits),
             Some(trainer.cache_misses),
@@ -4646,6 +4829,25 @@ mod tests {
     }
 
     #[test]
+    fn corpus_sha256_is_path_independent_and_content_sensitive() {
+        let first = tempfile::tempdir().unwrap();
+        let second = tempfile::tempdir().unwrap();
+        let a = first.path().join("one.csa");
+        let b = second.path().join("renamed.csa");
+        fs::write(&a, b"same bytes").unwrap();
+        fs::write(&b, b"same bytes").unwrap();
+        assert_eq!(
+            corpus_sha256(std::slice::from_ref(&a)).unwrap(),
+            corpus_sha256(std::slice::from_ref(&b)).unwrap()
+        );
+        fs::write(&b, b"Same bytes").unwrap();
+        assert_ne!(
+            corpus_sha256(std::slice::from_ref(&a)).unwrap(),
+            corpus_sha256(std::slice::from_ref(&b)).unwrap()
+        );
+    }
+
+    #[test]
     fn diagnostic_manifest_sha256_uses_file_bytes() {
         let dir = tempfile::tempdir().unwrap();
         let manifest = dir.path().join("label_manifest.json");
@@ -4659,6 +4861,15 @@ mod tests {
             file_sha256(&manifest).unwrap(),
             "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
         );
+    }
+
+    #[test]
+    fn expected_position_sha256_fails_closed() {
+        let actual = "a".repeat(64);
+        assert!(verify_expected_sha256("positions", None, &actual).is_ok());
+        assert!(verify_expected_sha256("positions", Some(&actual.to_uppercase()), &actual).is_ok());
+        assert!(verify_expected_sha256("positions", Some(&"b".repeat(64)), &actual).is_err());
+        assert!(verify_expected_sha256("positions", Some("short"), &actual).is_err());
     }
 
     #[test]

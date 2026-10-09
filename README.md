@@ -152,9 +152,18 @@ cargo build --release -p sekirei --features opening-book
 # Then set BookFile to the shipped artifact and UseBook=true.
 ```
 
-Sekirei does not ship a default opening-book artifact. Record the book file's
-SHA-256 and the four book options with any release or match that enables it;
-formal strength gates keep `UseBook=false`.
+Sekirei does not ship a default opening-book artifact. The
+`sekirei-train --build-book` command writes `<book>.manifest.json` with corpus,
+configuration, and output hashes; retain that sidecar with the book artifact.
+For a held-out book experiment, set `BookDecisionLog` and `BookExperimentId`;
+decision and `gameover` rows share a stable game ID. The
+policy is deterministic, so these logs support paired A/B analysis rather
+than propensity-based IPS/DR. Formal strength gates keep `UseBook=false`.
+
+For position training, `--positions-sha256` and
+`--validation-positions-sha256` can pin the exact input bytes. The same
+content identities are always recorded in checkpoint metadata and complete
+resume fingerprints, independent of file location.
 
 ## Documentation
 

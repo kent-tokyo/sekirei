@@ -39,6 +39,8 @@ jobs:
         run: wasm-pack test --release --headless --chrome crates/sekirei-wasm
       - name: Browser package
         run: python3 scripts/build_wasm_package.py
+      - name: WASM package metadata tests
+        run: python3 -m unittest scripts/test_check_wasm_package_metadata.py
       - name: Package contract
         run: |
           test -f crates/sekirei-wasm/pkg/sekirei_wasm_bg.wasm
@@ -62,6 +64,11 @@ jobs:
           grep -Fq 'readonly candidateLineCount: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly maxCandidateLines: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly multiPvSupported: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          version=$(python3 -c 'import json; print(json.load(open("crates/sekirei-wasm/pkg/package.json"))["version"])')
+          mkdir -p crates/sekirei-wasm/pkg-dist
+          npm pack crates/sekirei-wasm/pkg --pack-destination crates/sekirei-wasm/pkg-dist
+          python3 scripts/check_wasm_package_metadata.py \
+            --archive "crates/sekirei-wasm/pkg-dist/sekirei-wasm-${version}.tgz"
       - name: Generated JavaScript analysis contract
         run: node scripts/test_wasm_position_analysis.mjs
 
@@ -100,6 +107,8 @@ jobs:
         run: |
           cargo run --release -p sekirei-train -- --help > /tmp/sekirei-train-help.txt 2>&1
           grep -q -- '--strict-positions' /tmp/sekirei-train-help.txt
+          grep -q -- '--positions-sha256' /tmp/sekirei-train-help.txt
+          grep -q -- '--validation-positions-sha256' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint-every-games' /tmp/sekirei-train-help.txt
       - name: public surface
@@ -122,6 +131,9 @@ jobs:
           python3 scripts/test_summarize_self_distill.py
           python3 -m unittest scripts/test_split_gensfen_by_game.py
           python3 -m unittest scripts/test_validate_shogiesa_diagnostic_contract.py
+          python3 -m unittest scripts/test_export_gate_observations.py
+          cargo run -p sekirei-train --bin validate_gate_observations -- \
+            scripts/fixtures/gate_observation_v1.jsonl
           bash -n scripts/train_with_shogiesa_quietset.sh
           bash -n scripts/redo_quietset_bc.sh
           bash -n scripts/train_with_loss_mining.sh

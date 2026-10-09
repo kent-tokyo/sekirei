@@ -1,11 +1,12 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 
 use sekirei_core::board::Board;
 use sekirei_core::color::Color;
 use sekirei_core::sfen::board_to_sfen;
+use sha2::{Digest, Sha256};
 use shogiesa_core::schema::{
     GameOutcome, Observation, PositionRecord, PositionRecordParseError, SideToMove, StabilityInfo,
     parse_json_line,
@@ -49,6 +50,8 @@ pub struct PositionLoadReport {
     pub missing_stability: usize,
     pub missing_game_result: usize,
     pub unknown_game_result: usize,
+    /// SHA-256 of the exact input bytes, independent of the file path.
+    pub sha256: String,
 }
 
 impl PositionLoadReport {
@@ -136,15 +139,24 @@ fn map_record(record: PositionRecord) -> Result<PositionSample, String> {
 /// phase, side, ply, source, or result metadata.
 pub fn load_positions(path: &Path, strict: bool) -> Result<PositionLoadReport, String> {
     let file = File::open(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(HashingReader::new(file));
     let mut report = PositionLoadReport::default();
 
-    for (index, line) in reader.lines().enumerate() {
-        let line_number = index + 1;
-        let line = line.map_err(|error| {
-            format!("positions line {line_number}: cannot read JSONL row: {error}")
+    let mut raw_line = String::new();
+    let mut line_number = 0usize;
+    loop {
+        raw_line.clear();
+        let read = reader.read_line(&mut raw_line).map_err(|error| {
+            format!(
+                "positions line {}: cannot read JSONL row: {error}",
+                line_number + 1
+            )
         })?;
-        let line = line.trim();
+        if read == 0 {
+            break;
+        }
+        line_number += 1;
+        let line = raw_line.trim();
         if line.is_empty() {
             continue;
         }
@@ -201,8 +213,36 @@ pub fn load_positions(path: &Path, strict: bool) -> Result<PositionLoadReport, S
         }
     }
 
+    report.sha256 = reader.into_inner().finish();
+
     report.print_summary(path);
     Ok(report)
+}
+
+struct HashingReader<R> {
+    inner: R,
+    digest: Sha256,
+}
+
+impl<R> HashingReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            digest: Sha256::new(),
+        }
+    }
+
+    fn finish(self) -> String {
+        format!("{:x}", self.digest.finalize())
+    }
+}
+
+impl<R: Read> Read for HashingReader<R> {
+    fn read(&mut self, buffer: &mut [u8]) -> std::io::Result<usize> {
+        let count = self.inner.read(buffer)?;
+        self.digest.update(&buffer[..count]);
+        Ok(count)
+    }
 }
 
 /// Validate every non-empty JSONL position without silently skipping rows.
@@ -309,6 +349,27 @@ mod tests {
         assert_eq!(loaded.samples[0].ply, 1);
         assert_eq!(loaded.samples[0].source, "game1.csa");
         assert_eq!(loaded.schema_versions.get(&11), Some(&1));
+        assert_eq!(
+            loaded.sha256,
+            format!("{:x}", Sha256::digest(std::fs::read(file.path()).unwrap()))
+        );
+    }
+
+    #[test]
+    fn content_identity_ignores_path_but_detects_same_size_mutation() {
+        let first = make_jsonl(&[(STARTPOS_SFEN, "opening", "black", 1, "game1.csa")]);
+        let second = NamedTempFile::new().unwrap();
+        std::fs::copy(first.path(), second.path()).unwrap();
+        let a = load_positions(first.path(), true).unwrap().sha256;
+        let b = load_positions(second.path(), true).unwrap().sha256;
+        assert_eq!(a, b);
+
+        let mut bytes = std::fs::read(second.path()).unwrap();
+        let index = bytes.iter().position(|byte| *byte == b'1').unwrap();
+        bytes[index] = b'2';
+        std::fs::write(second.path(), bytes).unwrap();
+        let changed = load_positions(second.path(), false).unwrap().sha256;
+        assert_ne!(a, changed);
     }
 
     #[test]
