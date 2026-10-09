@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.66] – 2026-10-09
+
 - Search: the static-evaluation correction now also uses one table per side
   keyed by that side's pieces other than pawns and the king (`CORR_W_NP`
   default 0 → 32; `T_CORR_W_NP=0` in a `tune` build restores the old
