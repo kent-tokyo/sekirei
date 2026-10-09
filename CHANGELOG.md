@@ -6,6 +6,14 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: the static-evaluation correction now also uses one table per side
+  keyed by that side's pieces other than pawns and the king (`CORR_W_NP`
+  default 0 → 32; `T_CORR_W_NP=0` in a `tune` build restores the old
+  behaviour). Selected with Sekirei's built-in material evaluator and
+  Sekirei-generated openings, and checked in self-play with a Sekirei-trained
+  HalfKP network at 1 and 4 search threads; this entry makes no
+  playing-strength claim.
+
 ## [0.3.65] – 2026-10-09
 
 - Search: quiescence search now stands pat on the static evaluation plus the

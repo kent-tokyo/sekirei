@@ -837,33 +837,38 @@ mod tests {
         assert_eq!(board.hash(), before, "MultiPV mutated the board");
     }
 
-    /// TT warm-up must reduce node count on a second search. The position
-    /// has one clearly best move: from the start position the leading pawn
-    /// pushes are within a few centipawns, and the warm second search may
-    /// legitimately prefer another one.
+    /// A TT filled by a deeper search must make a later search cheaper than
+    /// the same search with an empty TT. Each search starts with fresh move
+    /// and correction histories, which it learns during its own iterations,
+    /// so a warm repeat at the same depth is not reliably cheaper (with
+    /// `CORR_W_NP` 32 the depth-4 repeat went from 246 to 258 nodes); a TT
+    /// two plies deeper is. The position has one clearly best move: from the
+    /// start position the leading pawn pushes are within a few centipawns,
+    /// and the warm search may legitimately prefer another one.
     #[test]
     fn tt_reduces_nodes() {
         use search::{SearchConfig, Searcher};
         use tt::Tt;
-        let tt = Tt::new(16);
         let mut board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
-        let cfg = || SearchConfig {
-            max_depth: 4,
+        let cfg = |max_depth| SearchConfig {
+            max_depth,
             time_limit: None,
             node_limit: None,
             soft_limit: None,
             multi_pv: 1,
         };
 
-        let r1 = Searcher::new(tt.clone()).search(&mut board, cfg());
-        let r2 = Searcher::new(tt.clone()).search(&mut board, cfg());
+        let cold = Searcher::new(Tt::new(16)).search(&mut board, cfg(4));
+        let tt = Tt::new(16);
+        Searcher::new(tt.clone()).search(&mut board, cfg(6));
+        let warm = Searcher::new(tt.clone()).search(&mut board, cfg(4));
 
-        assert_eq!(r1.best_move, r2.best_move, "TT changed best move");
+        assert_eq!(cold.best_move, warm.best_move, "TT changed best move");
         assert!(
-            r2.nodes <= r1.nodes,
+            warm.nodes < cold.nodes,
             "TT did not reduce nodes ({} -> {})",
-            r1.nodes,
-            r2.nodes
+            cold.nodes,
+            warm.nodes
         );
     }
 
