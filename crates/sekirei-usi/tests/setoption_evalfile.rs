@@ -172,6 +172,87 @@ fn opening_book_feature_is_opt_in_and_missing_file_falls_back_to_search() {
     let _ = child.wait();
 }
 
+#[cfg(feature = "opening-book")]
+#[test]
+fn opening_book_decision_log_records_fallback_selection_and_terminal_linkage() {
+    let suffix = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let book = std::env::temp_dir().join(format!("sekirei_book_log_book_{suffix}.jsonl"));
+    let log = std::env::temp_dir().join(format!("sekirei_book_log_{suffix}.jsonl"));
+    let start = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    let contents = format!(
+        "{{\"state\":{start:?},\"actions\":[{{\"action\":\"7g7f\",\"count\":10,\"weighted_count\":10.0,\"success_rate\":0.5,\"mean_score\":0.5,\"prior\":0.5,\"confidence\":0.5}}]}}\n"
+    );
+    std::fs::write(&book, &contents).unwrap();
+
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name BookDecisionLog value {}", log.display()),
+    );
+    send(
+        &mut stdin,
+        "setoption name BookExperimentId value heldout-a",
+    );
+    send(&mut stdin, "usinewgame");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "gameover draw");
+    send(&mut stdin, "usinewgame");
+    send(&mut stdin, "setoption name UseBook value true");
+    let missing = std::env::temp_dir().join(format!("sekirei_missing_book_{suffix}.jsonl"));
+    send(
+        &mut stdin,
+        &format!("setoption name BookFile value {}", missing.display()),
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    send(
+        &mut stdin,
+        &format!("setoption name BookFile value {}", book.display()),
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    child.wait().unwrap();
+
+    let records: Vec<serde_json::Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(records.len(), 4);
+    assert_eq!(records[0]["fallback_reason"], "use_book_false");
+    assert_eq!(records[0]["game_id"], records[1]["game_id"]);
+    assert_ne!(records[1]["game_id"], records[2]["game_id"]);
+    assert_eq!(records[2]["fallback_reason"], "load_failure");
+    assert_eq!(records[3]["selected_action"], "7g7f");
+    assert_eq!(records[3]["action_source"], "book");
+    assert_eq!(records[3]["book_sha256"].as_str().unwrap().len(), 64);
+    std::fs::remove_file(book).ok();
+    std::fs::remove_file(log).ok();
+}
+
 fn send(stdin: &mut ChildStdin, line: &str) {
     writeln!(stdin, "{line}").unwrap();
     stdin.flush().unwrap();

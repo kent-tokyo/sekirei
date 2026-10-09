@@ -8,6 +8,8 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from check_wasm_package_metadata import render_readme, validate_package
+
 
 ROOT = Path(__file__).resolve().parents[1]
 CRATE = ROOT / "crates" / "sekirei-wasm"
@@ -34,6 +36,11 @@ def main() -> None:
 
     package_json_path = PACKAGE / "package.json"
     package_json = json.loads(package_json_path.read_text(encoding="utf-8"))
+    version = package_json["version"]
+    (PACKAGE / "README.md").write_text(
+        render_readme((CRATE / "README.md").read_text(encoding="utf-8"), version),
+        encoding="utf-8",
+    )
     packaged_files = package_json.setdefault("files", [])
     for filename in LEGAL_FILES:
         shutil.copyfile(ROOT / filename, PACKAGE / filename)
@@ -43,6 +50,13 @@ def main() -> None:
         json.dumps(package_json, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
+    errors = validate_package(
+        package_json_path.read_bytes(),
+        (PACKAGE / "README.md").read_text(encoding="utf-8"),
+        f"sekirei-wasm-{version}.tgz",
+    )
+    if errors:
+        raise SystemExit("invalid WASM package metadata: " + "; ".join(errors))
 
 
 if __name__ == "__main__":

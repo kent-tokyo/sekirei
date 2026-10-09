@@ -34,9 +34,13 @@ use sekirei_core::{
 
 #[cfg(feature = "opening-book")]
 mod book;
+#[cfg(feature = "opening-book")]
+mod book_log;
 mod invariant;
 #[cfg(feature = "opening-book")]
 use book::{Book, BookProvenance};
+#[cfg(feature = "opening-book")]
+use book_log::{BookDecisionLogger, DecisionContext};
 use invariant::DiagCtx;
 #[cfg(feature = "opening-book")]
 use sekirei_core::sfen::board_to_sfen;
@@ -729,6 +733,12 @@ fn main() {
     let mut book: Option<Book> = None;
     #[cfg(feature = "opening-book")]
     let mut book_loaded_path: Option<String> = None;
+    #[cfg(feature = "opening-book")]
+    let mut book_load_failed = false;
+    #[cfg(feature = "opening-book")]
+    let mut book_decision_logger = BookDecisionLogger::default();
+    #[cfg(feature = "opening-book")]
+    let mut book_decision_counter: u64 = 0;
 
     // Current board position (updated by "position" commands)
     let mut board = Board::startpos();
@@ -813,6 +823,8 @@ fn main() {
                     println!("option name BookMaxPly type spin default 30 min 0 max 200");
                     println!("option name BookMinConfidence type string default 0.20");
                     println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
+                    println!("option name BookDecisionLog type string default");
+                    println!("option name BookExperimentId type string default default");
                 }
                 #[cfg(feature = "tune")]
                 for spec in sekirei_core::search::params::ALL {
@@ -891,10 +903,13 @@ fn main() {
                             );
                             book = Some(b);
                             book_loaded_path = Some(book_file.clone());
+                            book_load_failed = false;
                         }
                         Err(e) => {
                             println!("info string opening book load failed ({book_file}): {e}");
+                            book = None;
                             book_loaded_path = Some(book_file.clone()); // don't retry every isready
+                            book_load_failed = true;
                         }
                     }
                 }
@@ -1129,6 +1144,31 @@ fn main() {
                     #[cfg(feature = "opening-book")]
                     {
                         book_file = val.to_string();
+                        book = None;
+                        book_loaded_path = None;
+                        book_load_failed = false;
+                    }
+                } else if cfg!(feature = "opening-book") && parts.get(1) == Some(&"BookDecisionLog")
+                {
+                    #[cfg(feature = "opening-book")]
+                    {
+                        let value = rest
+                            .split_once("value ")
+                            .map(|(_, value)| value.trim())
+                            .unwrap_or("");
+                        let experiment = book_decision_logger.experiment_id().to_string();
+                        book_decision_logger.configure(value, &experiment);
+                    }
+                } else if cfg!(feature = "opening-book")
+                    && parts.get(1) == Some(&"BookExperimentId")
+                {
+                    #[cfg(feature = "opening-book")]
+                    {
+                        let value = rest
+                            .split_once("value ")
+                            .map(|(_, value)| value.trim())
+                            .unwrap_or("default");
+                        book_decision_logger.set_experiment_id(value);
                     }
                 }
             }
@@ -1140,6 +1180,7 @@ fn main() {
                 #[cfg(feature = "opening-book")]
                 {
                     current_ply = 0;
+                    book_decision_counter = 0;
                 }
                 last_position_cmd = String::from("startpos");
                 searcher.clear_tt();
@@ -1222,11 +1263,76 @@ fn main() {
                 // that has its own ponderhit/new-position protocol flow that
                 // an instant book bestmove would short-circuit incorrectly.
                 #[cfg(feature = "opening-book")]
-                if !pondering
+                if !pondering && book_decision_logger.enabled() {
+                    book_decision_counter += 1;
+                    let sfen = board_to_sfen(&board);
+                    let mut candidates = Vec::new();
+                    let mut selected = None;
+                    let fallback_reason = if !use_book {
+                        Some("use_book_false")
+                    } else if current_ply >= book_max_ply {
+                        Some("past_book_max_ply")
+                    } else if let Some(loaded_book) = &book {
+                        let decision = loaded_book.decision(&sfen, &board, book_min_confidence);
+                        candidates = decision.candidates;
+                        selected = decision.selected;
+                        decision.fallback_reason
+                    } else if book_load_failed {
+                        Some("load_failure")
+                    } else {
+                        Some("book_unavailable")
+                    };
+                    let selected_action = selected.map(move_to_usi);
+                    let experiment_id = book_decision_logger.experiment_id();
+                    if let Err(error) = book_decision_logger.decision(DecisionContext {
+                        experiment_id,
+                        game_counter,
+                        decision_counter: book_decision_counter,
+                        ply: current_ply,
+                        sfen: &sfen,
+                        use_book,
+                        book_max_ply,
+                        book_min_confidence,
+                        book_sha256: book.as_ref().map(Book::sha256),
+                        book_schema_version: book.as_ref().and_then(Book::schema_version),
+                        book_producer_version: book.as_ref().and_then(Book::producer_version),
+                        build_config_fingerprint: book
+                            .as_ref()
+                            .and_then(Book::build_config_fingerprint),
+                        candidates: &candidates,
+                        selected_action: selected_action.as_deref(),
+                        action_source: if selected.is_some() { "book" } else { "search" },
+                        fallback_reason,
+                    }) {
+                        println!("info string book decision log failed: {error}");
+                    }
+                    if let Some(mv) = selected {
+                        println!("info string book move");
+                        invariant::assert_legal_bestmove(
+                            &board,
+                            mv,
+                            &DiagCtx {
+                                game_counter,
+                                last_position_cmd: last_position_cmd.clone(),
+                                weight_path: weight_path.clone(),
+                                weight_hash,
+                                threads,
+                                board_hash_at_search_start: board.hash(),
+                                accumulator_hash_at_search_start: invariant::hash_accumulator(
+                                    &board.acc,
+                                ),
+                            },
+                        );
+                        println!("bestmove {}", move_to_usi(mv));
+                        stdout.lock().flush().ok();
+                        continue;
+                    }
+                } else if !pondering
                     && use_book
                     && current_ply < book_max_ply
-                    && let Some(b) = &book
-                    && let Some(mv) = b.lookup(&board_to_sfen(&board), &board, book_min_confidence)
+                    && let Some(loaded_book) = &book
+                    && let Some(mv) =
+                        loaded_book.lookup(&board_to_sfen(&board), &board, book_min_confidence)
                 {
                     println!("info string book move");
                     invariant::assert_legal_bestmove(
@@ -1388,7 +1494,13 @@ fn main() {
                 }
             }
 
-            "gameover" => {}
+            "gameover" =>
+            {
+                #[cfg(feature = "opening-book")]
+                if let Err(error) = book_decision_logger.terminal(game_counter, rest) {
+                    println!("info string book decision log failed: {error}");
+                }
+            }
 
             "quit" => {
                 abort_and_join_inflight_search(&mut search_abort, &mut search_handle);

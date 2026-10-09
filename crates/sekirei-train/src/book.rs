@@ -27,12 +27,20 @@ use crate::csa::{CsaGame, GameResult};
 /// ranking. Games are assumed already rating-filtered by the caller (reuses
 /// `--min-rate`, same as `--export` mode, rather than adding a separate
 /// book-specific flag).
+#[derive(Debug, Clone)]
+pub struct BookBuildReport {
+    pub observation_count: usize,
+    pub retained_state_count: usize,
+    pub config: BuildConfig,
+    pub config_fingerprint: u64,
+}
+
 pub fn build_book(
     games: &[CsaGame],
     max_ply: usize,
     min_count: u64,
     out: &mut impl Write,
-) -> io::Result<()> {
+) -> io::Result<BookBuildReport> {
     let mut observations = Vec::new();
 
     for (game_idx, game) in games.iter().enumerate() {
@@ -100,7 +108,12 @@ pub fn build_book(
     eprintln!(
         "book: {kept} positions kept (of {seen} observations, min_count={min_count}, max_ply={max_ply})"
     );
-    Ok(())
+    Ok(BookBuildReport {
+        observation_count: seen,
+        retained_state_count: kept,
+        config_fingerprint: lineprior::build_config_fingerprint(&config),
+        config,
+    })
 }
 
 #[cfg(test)]
@@ -112,7 +125,7 @@ mod tests {
     fn generated_book_records_lineprior_schema_and_build_config() {
         let game = parse_csa("V2.2\nPI\n+7776FU\n%TORYO\n").expect("valid CSA");
         let mut output = Vec::new();
-        build_book(&[game], 1, 1, &mut output).expect("build book");
+        let report = build_book(&[game], 1, 1, &mut output).expect("build book");
 
         let text = String::from_utf8(output).expect("UTF-8 JSONL");
         let header: serde_json::Value =
@@ -124,5 +137,11 @@ mod tests {
 
         let loaded = lineprior::load_prior_book(text.as_bytes()).expect("reload generated book");
         assert_eq!(loaded.entries.len(), 1);
+        assert_eq!(report.observation_count, 1);
+        assert_eq!(report.retained_state_count, 1);
+        assert_eq!(
+            report.config_fingerprint,
+            lineprior::build_config_fingerprint(&report.config)
+        );
     }
 }

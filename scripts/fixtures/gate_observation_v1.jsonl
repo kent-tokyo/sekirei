@@ -1,0 +1,1 @@
+{"candidate_id":"candidate-a","group_id":"family-a|dataset-v1","features":{"valid_cp_mse_delta":-2.5},"gate_elo_delta":12.0,"gate_games_played":40.0,"actual_elo_stddev":4.0,"elo_ci_low":null,"elo_ci_high":null,"completed_pairs":20.0,"gate_status":"Pass","provenance":{"engine_version":"0.3.66","source_commit":"deadbeef"}}

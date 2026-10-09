@@ -28,6 +28,7 @@ records a reason.
 | Tool | Purpose |
 |---|---|
 | `check_release_metadata.py` | Checks crate versions, lockfile, changelog, README, license files, tag, and release manifest. Use `--allow-planned-release-manifest` only before publication. |
+| `check_wasm_package_metadata.py` | Checks that a generated WASM package or `.tgz` has matching README, package, install URL, and asset versions. |
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
@@ -78,6 +79,29 @@ Useful shared entry points include `gate_orchestrator.py`,
 `finalize_strength_gate_execution.py`, `run_self_distill_multiseed.sh`,
 `record_resume_run.py`, and `attach_resume_manifest.py`. Run the paired
 `test_<tool>.py` test whenever changing one of these tools.
+
+`export_gate_observations.py` converts completed independent gate manifests
+into lineprior `GateObservation` JSONL. A source manifest must declare a
+stable candidate/group identity and a common numeric `gate_observation.features`
+map before the gate; outcome-derived features are rejected. Duplicate
+shards/summaries are suppressed by candidate, group, and source-artifact
+hashes. Missing lineage or incompatible features are listed in the report and
+not guessed. Validate the result with:
+
+```bash
+python3 scripts/export_gate_observations.py run*/final.json \
+  --output data/gates/history.jsonl --report data/gates/export-report.json
+cargo run -p sekirei-train --bin validate_gate_observations -- \
+  data/gates/history.jsonl
+```
+
+Here `candidate_id` identifies one exact candidate artifact and configuration.
+`group_id` identifies its experiment family, recipe, lineage, and dataset so
+related candidates stay in the same cross-validation group; shards, summaries,
+and retries of the same candidate/group are not independent observations.
+GateModel output is advisory: a real gate still needs an explicit adoption
+decision and never authorizes deployment, release, or a strength claim by
+itself.
 
 `split_gensfen_by_game.py` prepares in-house HalfKP data without allowing
 adjacent positions from one self-play game to leak across train and validation.

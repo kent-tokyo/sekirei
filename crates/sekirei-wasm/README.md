@@ -5,11 +5,15 @@ static browser client. It is separate from the native USI binary.
 
 ## Install
 
-The prebuilt v0.3.62 ES-module package is published with the GitHub Release:
+The prebuilt vX.Y.Z ES-module package is published with the
+GitHub Release:
 
 ```sh
-npm install https://github.com/kent-tokyo/sekirei/releases/download/v0.3.62/sekirei-wasm-0.3.62.tgz
+npm install https://github.com/kent-tokyo/sekirei/releases/download/vX.Y.Z/sekirei-wasm-X.Y.Z.tgz
 ```
+
+`scripts/build_wasm_package.py` resolves this example from package metadata in
+the README bundled into the release archive.
 
 ## Build
 
