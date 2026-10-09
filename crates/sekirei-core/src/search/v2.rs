@@ -1445,20 +1445,14 @@ fn node(
                     }
                     if !skip_quiets {
                         if staged_generation {
-                            let mut quiet_buf = MoveBuffer::legal_with_in_check(board, false);
+                            let mut quiet_buf = MoveBuffer::v2_quiets_outside_check(board);
                             if p::SKIP_NONPROMO() != 0 {
                                 quiet_buf
                                     .as_mut_list()
                                     .retain(|m| !useless_non_promotion(*m, stm));
                             }
                             any_generated_move |= !quiet_buf.is_empty();
-                            quiet_list.extend(
-                                quiet_buf
-                                    .as_slice()
-                                    .iter()
-                                    .copied()
-                                    .filter(|m| !is_tactical(board, *m)),
-                            );
+                            quiet_list.extend(quiet_buf.as_slice().iter().copied());
                         }
                         let start = list.len();
                         for &m in quiet_list.iter() {

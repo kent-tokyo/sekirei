@@ -3385,6 +3385,65 @@ fn generate_legal_v2_tacticals_into_sink(board: &mut Board, legals: &mut impl Mo
     }
 }
 
+/// Generate the complementary quiet subset used by SEARCH_V2 outside check.
+///
+/// Opposing pieces are treated as excluded destinations while retaining their
+/// ray occupancy, so capture targets are never materialized. Non-capturing
+/// pawn promotions are removed because the tactical stage already emitted
+/// them. The remaining order matches the full legal list after filtering.
+#[inline]
+fn generate_legal_v2_quiets_into_sink(board: &mut Board, legals: &mut FixedMoveList) {
+    legals.clear();
+    let mover = board.side_to_move;
+    let opponent = mover.flip();
+    let opponent_occ = board.occ_for(opponent);
+    let opponent_king = board.pieces(opponent, PieceKind::Ou);
+    let king = board.king_square(mover);
+    let constraints = current_king_constraints(board, Some(Bitboard::EMPTY));
+    debug_assert!(constraints.checkers.is_empty());
+    let restrictions = MoveRestrictions {
+        allowed: Bitboard::FULL.and_not(opponent_king),
+        pinned: constraints.pinned,
+        king,
+        unrestricted: false,
+    };
+    if constraints.pinned.is_empty() {
+        generate_non_king_moves_into::<false>(
+            board,
+            mover,
+            MoveRestrictions::PSEUDO,
+            opponent_occ,
+            legals,
+        );
+    } else {
+        generate_non_king_moves_into::<true>(board, mover, restrictions, opponent_occ, legals);
+    }
+
+    if let Some(king) = king {
+        let mut targets = KING_ATTACKS[king.index() as usize]
+            .and_not(board.occ_for(mover))
+            .and_not(opponent_occ);
+        while let Some(to) = targets.pop_lsb() {
+            let m = Move::normal(king, to, PieceKind::Ou, false);
+            if king_destination_is_safe(board, mover, m) {
+                legals.push(m);
+            }
+        }
+    }
+
+    if !board.hand(mover).is_empty() {
+        generate_legal_drops(
+            board,
+            mover,
+            opponent,
+            opponent_king,
+            Bitboard::FULL.and_not(opponent_king),
+            legals,
+        );
+    }
+    legals.retain(|m| !(m.promote && m.piece_kind == PieceKind::Fu));
+}
+
 thread_local! {
     static MOVE_BUFFER_POOL: RefCell<Vec<Vec<Move>>> = const { RefCell::new(Vec::new()) };
     static FIXED_MOVE_BUFFER_POOL: RefCell<Vec<FixedMoveList>> = const { RefCell::new(Vec::new()) };
@@ -3475,6 +3534,15 @@ impl MoveBuffer {
     pub(crate) fn v2_tacticals_outside_check(board: &mut Board) -> Self {
         let mut moves = take_fixed_move_buffer();
         generate_legal_v2_tacticals_into_sink(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
+    /// Generate legal SEARCH_V2 quiet moves when the caller has already
+    /// established that the side to move is not in check.
+    #[inline]
+    pub(crate) fn v2_quiets_outside_check(board: &mut Board) -> Self {
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_v2_quiets_into_sink(board, &mut moves);
         Self { moves: Some(moves) }
     }
 
@@ -3601,6 +3669,38 @@ mod move_buffer_tests {
                         })
                         .collect();
                     let actual = MoveBuffer::v2_tacticals_outside_check(&mut position);
+                    assert_eq!(
+                        actual.as_slice(),
+                        expected.as_slice(),
+                        "seed {seed} ply {ply}"
+                    );
+                }
+                let selected = legal[(seed * 17 + ply * 13) % legal.len()];
+                position.do_move(selected);
+            }
+        }
+    }
+
+    #[test]
+    fn v2_quiet_buffer_matches_filtered_legal_moves_outside_check() {
+        for seed in [5usize, 23, 61, 127] {
+            let mut position = Board::startpos();
+            for ply in 0..128usize {
+                let mut full_board = position.clone();
+                let legal = MoveBuffer::legal(&mut full_board).as_slice().to_vec();
+                if legal.is_empty() {
+                    break;
+                }
+                if !is_in_check(&position, position.side_to_move) {
+                    let expected: Vec<Move> = legal
+                        .iter()
+                        .copied()
+                        .filter(|m| {
+                            !((m.from.is_some() && position.piece_at(m.to).is_some())
+                                || (m.promote && m.piece_kind == PieceKind::Fu))
+                        })
+                        .collect();
+                    let actual = MoveBuffer::v2_quiets_outside_check(&mut position);
                     assert_eq!(
                         actual.as_slice(),
                         expected.as_slice(),
