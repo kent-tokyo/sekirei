@@ -1,19 +1,18 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/badge/release-v0.3.64-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.64)
+[![Release](https://img.shields.io/badge/release-v0.3.65-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.65)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.64`
+Sekirei is an experimental shogi engine written in pure Rust. Release `0.3.65`
 provides a USI engine, CSA client, match runner, NNUE trainer, reusable core
-library, and browser API. SEARCH_V2 now avoids redundant re-search after its
-budget has expired, and search reproducibility tests no longer depend on a
-worker thread's previous root ordering. The default evaluator, checkpoint,
-quiescence style, and increment-time allocation are unchanged. This release
-does not make a general playing-strength claim.
+library, and browser API. Quiescence search now uses the correction-history
+adjusted static evaluation for stand pat, matching the main search. The default
+evaluator and checkpoint are unchanged. This release does not make a general
+playing-strength claim.
 
 ## Quick start
 
@@ -61,8 +60,8 @@ limits. It uses material
 evaluation and sequential search only; it does not load external weights or
 make the native USI binary depend on browser bindings.
 
-The prebuilt v0.3.64 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.64/sekirei-wasm-0.3.64.tgz).
+The prebuilt v0.3.65 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.65/sekirei-wasm-0.3.65.tgz).
 
 ## What is included
 

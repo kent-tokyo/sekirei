@@ -6,13 +6,16 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.65] – 2026-10-09
+
 - Search: quiescence search now stands pat on the static evaluation plus the
   correction-history value, as the main search already does for its static
   eval (`QS_STYLE` default 0 → 1; `T_QS_STYLE=0` in a `tune` build restores
   the old behaviour). Selected with Sekirei's built-in material evaluator and
   Sekirei-generated openings at 1 and 4 search threads, and checked in
   self-play with a Sekirei-trained HalfKP network; this entry makes no
-  playing-strength claim.
+  playing-strength claim. `IncrementUsePercent=75` and `CORR_W_NP=32` remain
+  experimental and are not enabled by this release.
 
 ## [0.3.64] – 2026-10-08
 
