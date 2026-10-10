@@ -1,0 +1,71 @@
+{
+  "schema": "sekirei.nnue-candidate-card.v1",
+  "candidate_id": "nn_r3",
+  "created_at": "2026-10-11",
+  "artifact": {
+    "filename": "nn_r3.bin",
+    "sha256": "075ff76cc023abd7bae07ee5cd0c2ccf6e6b4ec80942d1bfb86a2bb83ee78627",
+    "bytes": 64216957,
+    "format": "HalfKP(Friend) 256x2-32-32",
+    "version_word": "0x7AF32F16",
+    "architecture_descriptor": "Sekirei HalfKP 256x2-32-32 own training (10312658 positions, lam 1.0)",
+    "fv_scale": 24
+  },
+  "distribution": {
+    "status": "local_only",
+    "bundled": false,
+    "default_evaluator": false,
+    "license": "CC-BY-4.0",
+    "reason": "Candidate-relative evidence is positive, but the material-evaluator release gate and complete public evidence bundle are not available."
+  },
+  "training": {
+    "initial_checkpoint": {
+      "candidate_id": "nn_r2",
+      "sha256": "8b981afe2bf98d4a38237771f98e3559f70a9840e291dd331bc554914f39d777"
+    },
+    "teacher": "Sekirei self-play with the current in-house checkpoint",
+    "external_teacher_used": false,
+    "source_generations": {
+      "first": 33,
+      "last": 40,
+      "engine_tags": ["v0.3.67", "v0.3.68"],
+      "fresh_only": true,
+      "games": 156107,
+      "positions": 10312658
+    },
+    "epochs": 1,
+    "learning_rate": 0.0005,
+    "lambda": 1.0,
+    "loss_scale": 400,
+    "fv_scale": 24
+  },
+  "candidate_relative_evidence": {
+    "status": "accepted_private_incumbent",
+    "engine_tag": "v0.3.68",
+    "opponent": "nn_r2",
+    "games": 480,
+    "wins": 260,
+    "draws": 2,
+    "losses": 218,
+    "score": 0.544,
+    "elo_estimate": 30,
+    "elo_interval_low": 1,
+    "elo_interval_high": 60,
+    "scope": "Private candidate-relative comparison under the recorded Claude loop; not a material gate, public rating, or competitor comparison."
+  },
+  "material_gate": {
+    "status": "NOT_RUN",
+    "required_before_distribution_recommendation": true
+  },
+  "evidence_gaps": [
+    "training_shard_sha256_manifest",
+    "raw_match_records",
+    "engine_binary_sha256",
+    "opening_corpus_sha256",
+    "whole_game_holdout_manifest"
+  ],
+  "derived_estimates": {
+    "chained_elo_vs_gen9": 220,
+    "directly_measured": false
+  }
+}

@@ -6,6 +6,9 @@ python3 scripts/check_documentation_references.py
 python3 scripts/test_validate_nnue_release_artifact.py
 python3 scripts/validate_nnue_release_artifact.py \
   weights/sekirei-nnue-v0.3.38.json
+python3 -m unittest scripts/test_validate_nnue_candidate_card.py
+python3 scripts/validate_nnue_candidate_card.py \
+  weights/candidates/sekirei-halfkp-r3.json
 python3 -m unittest \
   scripts/test_check_candidate_readiness.py \
   scripts/test_record_resume_run.py \

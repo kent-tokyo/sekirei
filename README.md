@@ -43,6 +43,9 @@ Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
 256x2-32-32 files use `FV_SCALE` instead and remain subject to their own
 licenses. See [NNUE weights](docs/nnue_weights.md) for formats, checksums, and
 the evidence boundary.
+The latest local `nn_r3` self-play result is tracked there as an unpublished
+candidate; it is not bundled or selected by default because its material gate
+is pending.
 
 ### Browser / WebAssembly
 
