@@ -93,6 +93,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-11: Release v0.3.70 after verifying absolute USI match deadlines, bounded Fischer-clock accounting, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
 * 2026-10-11: Release v0.3.69 after verifying the 95% coverage contract, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
 * 2026-10-11: Raise the Codecov-facing Rust engine/library line-coverage contract to 95% through behavioral tests without widening the exclusion list.
 * Record operational instructions explicitly given by the user in this `AGENTS.md`, keeping them concise, scoped, and consistent with higher-priority instructions.

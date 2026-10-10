@@ -401,6 +401,25 @@ fn end_reason_for_go_error(e: &std::io::Error) -> EndReason {
     }
 }
 
+/// Apply one Fischer-clock observation without allowing untrusted command-line
+/// values to overflow the runner's accounting. `None` means the elapsed time
+/// exceeded the remaining clock plus the scheduling margin.
+fn fischer_clock_after_move(
+    remaining_ms: u64,
+    increment_ms: u64,
+    elapsed_ms: u64,
+    margin_ms: u64,
+) -> Option<u64> {
+    if elapsed_ms > remaining_ms.saturating_add(margin_ms) {
+        return None;
+    }
+    Some(
+        remaining_ms
+            .saturating_sub(elapsed_ms)
+            .saturating_add(increment_ms),
+    )
+}
+
 fn repetition_result(e1_is_black: bool, repetition: RepetitionOutcome) -> (Outcome, EndReason) {
     match repetition {
         RepetitionOutcome::Draw => (Outcome::Draw, EndReason::Repetition),
@@ -659,7 +678,9 @@ fn run_game(
         let search_info = go_result.info;
         if let (Some(c), Some((_, inc))) = (clocks.as_mut(), fischer) {
             let used = started.elapsed().as_millis() as u64;
-            if used > c[side_idx] + CLOCK_MARGIN_MS {
+            let Some(updated_clock) =
+                fischer_clock_after_move(c[side_idx], inc, used, CLOCK_MARGIN_MS)
+            else {
                 transcript.log_move(
                     game_num,
                     ply,
@@ -677,8 +698,8 @@ fn run_game(
                     Outcome::E1Win
                 };
                 return (outcome, moves, EndReason::ClockLoss);
-            }
-            c[side_idx] = c[side_idx].saturating_sub(used) + inc;
+            };
+            c[side_idx] = updated_clock;
         }
 
         if mv_str == "resign" {
@@ -2548,6 +2569,17 @@ mod tests {
             "engine process disconnected",
         );
         assert_eq!(end_reason_for_go_error(&e), EndReason::EngineError);
+    }
+
+    #[test]
+    fn fischer_clock_accounting_is_bounded_and_reports_flag_fall() {
+        assert_eq!(fischer_clock_after_move(1_000, 100, 900, 50), Some(200));
+        assert_eq!(fischer_clock_after_move(1_000, 100, 1_051, 50), None);
+        assert_eq!(
+            fischer_clock_after_move(u64::MAX, u64::MAX, 1, 100),
+            Some(u64::MAX),
+            "large CLI clock values must saturate instead of overflowing"
+        );
     }
 
     #[test]

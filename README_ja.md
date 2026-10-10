@@ -3,15 +3,15 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.69-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.69)
+[![Release](https://img.shields.io/badge/release-v0.3.70-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.70)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.69`では、
-CSAとゲートのfail-closed処理、HalfKP学習時のメモリ使用量、Rustコードの95%
-カバレッジ契約を強化しました。この版では棋力向上を主張していません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.70`では、
+USI対局ランナーの応答期限とFischer時計の計算を安全にし、依存関係と
+NNUE候補の証拠を更新しました。この版では棋力向上を主張していません。
 
 ## まず動かす
 
@@ -64,8 +64,8 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、合法なPVを返す上限付き1ワーカー駒得探索、最短詰み解析を
-提供します。ビルド済みのv0.3.69 ESモジュールパッケージは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.69/sekirei-wasm-0.3.69.tgz)
+提供します。ビルド済みのv0.3.70 ESモジュールパッケージは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.70/sekirei-wasm-0.3.70.tgz)
 から取得できます。
 
 ## ビルドと検証
