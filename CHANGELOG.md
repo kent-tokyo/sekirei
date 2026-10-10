@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: retain every non-capturing pawn, bishop, and rook promotion when the
+  optional quiescence promotion search is enabled; promotion-heavy positions
+  are no longer silently truncated after 16 candidates.
+- CSA: reject time echoes and game-id clock fallbacks that overflow the
+  client's millisecond representation instead of panicking or wrapping.
 - Opening-book gates: freeze disjoint CSA game subsets for book training and
   held-out evaluation, preregister actual-selection coverage, and stop before
   a strength match when support is too sparse. The first 20-position run made
