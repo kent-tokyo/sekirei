@@ -52,3 +52,16 @@ def test_excluded_source_paths_accepts_count_only_positions():
         manifest = Path(directory) / "prior.json"
         manifest.write_text(json.dumps({"positions": 16}), encoding="utf-8")
         assert MODULE.excluded_source_paths([manifest]) == set()
+
+
+def test_excluded_source_paths_reads_training_side_of_book_split():
+    with tempfile.TemporaryDirectory() as directory:
+        manifest = Path(directory) / "split.json"
+        manifest.write_text(json.dumps({
+            "schema": "sekirei.book-ab-source-split.v1",
+            "training": {"sources": [{"path": "data/train-a.csa"}]},
+            "heldout": {"sources": [{"path": "data/heldout-a.csa"}]},
+        }), encoding="utf-8")
+        excluded = MODULE.excluded_source_paths([manifest])
+        assert "data/train-a.csa" in excluded
+        assert "data/heldout-a.csa" not in excluded

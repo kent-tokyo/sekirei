@@ -1,0 +1,53 @@
+{
+  "schema": "sekirei-opening-book-manifest-v1",
+  "sekirei_version": "0.3.68",
+  "source_commit": "b44353c977309bc290da0f01a7eb7194d04191c9",
+  "lineprior_version": "0.12.3",
+  "input_corpus": {
+    "identifier": "95195f22f105b603524d75178ee70cff7f341cc5d3d9bb67efb4b77daf96b148",
+    "sha256": "95195f22f105b603524d75178ee70cff7f341cc5d3d9bb67efb4b77daf96b148",
+    "source_file_count": 80,
+    "parsed_game_count": 80
+  },
+  "adapter": {
+    "id": "sekirei-csa-to-lineprior",
+    "version": 1
+  },
+  "effective_parameters": {
+    "min_rate": 0.0,
+    "max_ply": 24,
+    "min_count": 1,
+    "output_format": "lineprior-prior-book-jsonl-v1"
+  },
+  "build_config": {
+    "min_count": 1,
+    "min_weighted_count": 0.0,
+    "min_confidence": 0.0,
+    "max_step": null,
+    "smoothing_alpha": 5.0,
+    "score_weight": 1.0,
+    "success_weight": 1.0,
+    "count_weight": 1.0,
+    "max_actions_per_state": 6,
+    "confidence_k": 20.0,
+    "confidence_mode": "heuristic",
+    "confidence_z": 1.96,
+    "draw_value": 0.5,
+    "tag_filter": null,
+    "time_decay_half_life_days": null,
+    "time_decay_reference_unix_seconds": null,
+    "missing_timestamp_policy": "keep_base_weight",
+    "source_weights": {},
+    "default_source_weight": 1.0,
+    "context_order": 0,
+    "terminal_credit_weight": 0.0,
+    "scoring_strategy": "weighted_sum",
+    "bayesian_prior_strength": 5.0,
+    "ucb_exploration": 1.0,
+    "softmax_temperature": 1.0
+  },
+  "build_config_fingerprint": 8140016502723884875,
+  "observation_count": 1920,
+  "retained_state_count": 1061,
+  "output_sha256": "33b7ae27b632f322791a454cc3ec14640f7761530c616dc634bf56f98f0c18e1"
+}

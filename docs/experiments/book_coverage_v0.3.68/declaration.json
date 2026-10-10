@@ -1,0 +1,62 @@
+{
+  "schema": "sekirei.book-coverage-declaration.v1",
+  "created_before_execution": true,
+  "purpose": "coverage preflight before a held-out opening-book A/B strength gate",
+  "artifacts": {
+    "split_manifest": {
+      "path": "source_split_manifest.json",
+      "sha256": "9af71e88dabab0ce565cf9dd7182392696c89c120a1f2da523411e19f1cc19ab"
+    },
+    "heldout_manifest": {
+      "path": "heldout_manifest.json",
+      "sha256": "5f95eddce786c599ab99b566bc34db301add547530ad1a028af3714143438073"
+    },
+    "openings": {
+      "path": "heldout_openings.sfen",
+      "sha256": "be0d0f049813f61775975a203583f4bbcbc5d0a590352178f4c470ae16baca1b"
+    },
+    "book": {
+      "path": "opening_book.jsonl",
+      "sha256": "33b7ae27b632f322791a454cc3ec14640f7761530c616dc634bf56f98f0c18e1"
+    },
+    "book_manifest": {
+      "path": "opening_book.manifest.json",
+      "sha256": "bba7406dc2220d721fd4cc39b977bce6857de1ab7c509dbd9c50f6247340c0e7"
+    }
+  },
+  "identities": {
+    "engine": {
+      "version": "0.3.68",
+      "source_commit": "b44353c977309bc290da0f01a7eb7194d04191c9",
+      "features": ["opening-book"],
+      "sha256": "04c15af279b0f1c61ee4928341c0c2582b22409f73a4f6265dd1d556957d5c94"
+    },
+    "match_runner": {
+      "sha256": "06a1af5e9c4e65ce8a532db67c5bffbf6a356cff502678becb5923b14c0372da"
+    },
+    "trainer": {
+      "sha256": "ea306a1556ca94d67e717ad1a2024d4d427b95376f09ead4d5f86491a28b7b61"
+    },
+    "history_replay": {
+      "sha256": "3f135f126d8837799a0ece5e5317463da947d46b21876588103fdff1b102d32c"
+    },
+    "evaluator": "material"
+  },
+  "protocol": {
+    "positions": 20,
+    "games_per_position": 1,
+    "max_moves": 1,
+    "threads": 1,
+    "spec_top_n": 0,
+    "book_max_ply": 80,
+    "book_min_confidence": 0.0
+  },
+  "thresholds": {
+    "minimum_book_selections": 4,
+    "minimum_selection_fraction": 0.2,
+    "maximum_full_gate_games": 400,
+    "target_elo_half_width": 35.0
+  },
+  "decision_logs": ["engine1_decisions.jsonl", "engine2_decisions.jsonl"],
+  "declaration_sha256": "2903d9de2596a2f25027f7ed2ebd0c2ebc43fe99683d4ede26c8c9fe23d13801"
+}

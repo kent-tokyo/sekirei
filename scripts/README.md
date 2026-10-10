@@ -87,6 +87,10 @@ candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
 - `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
   terminal joins, book coverage, fallbacks, uncertainty, and cost for an
   archived held-out `UseBook=false`/`true` diagnostic.
+- `prepare_book_ab_split.py` freezes disjoint CSA subsets for opening-book
+  training and held-out evaluation. `summarize_book_coverage_preflight.py`
+  validates a preregistered, one-ply decision-log probe and stops before the
+  full A/B gate when actual book selection coverage is too low.
 
 Validate exported observations with:
 
