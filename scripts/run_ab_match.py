@@ -25,21 +25,107 @@ H0 (Elo <= ELO0) or H1 (Elo >= ELO1); ``--games`` is then the upper limit::
     python3 scripts/run_ab_match.py selfplay ... --games 2000 --sprt 0,10
 
 Results are local diagnostics, not playing-strength claims. The script only
-starts the external engine as a separate process.
+starts the external engine as a separate process. Pass ``--result-json`` to
+write a versioned, atomic result artifact without scraping stdout.
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import math
 import os
 import re
 import subprocess
 import sys
+import tempfile
+import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
+RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
+
+
+def file_identity(path: str | Path | None) -> dict[str, object] | None:
+    """Return a stable identity for an input file when it is available."""
+    if path is None:
+        return None
+    candidate = Path(path).expanduser().resolve()
+    identity: dict[str, object] = {"path": str(candidate), "exists": candidate.is_file()}
+    if not candidate.is_file():
+        return identity
+    digest = hashlib.sha256()
+    with candidate.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    identity.update({"sha256": digest.hexdigest(), "size_bytes": candidate.stat().st_size})
+    return identity
+
+
+def opening_identity(path: str | Path) -> dict[str, object]:
+    """Return the opening file identity and its usable SFEN row count."""
+    identity = file_identity(path)
+    assert identity is not None
+    count = 0
+    candidate = Path(path).expanduser().resolve()
+    if candidate.is_file():
+        with candidate.open(encoding="utf-8") as source:
+            count = sum(1 for line in source if line.strip() and not line.lstrip().startswith("#"))
+    identity["position_count"] = count
+    return identity
+
+
+def runner_identity() -> dict[str, object]:
+    """Describe the checked-out runner revision without requiring Git."""
+    manifest = ROOT / "crates/sekirei-usi/Cargo.toml"
+    version_match = re.search(
+        r'^version\s*=\s*"([^"]+)"', manifest.read_text(encoding="utf-8"), re.MULTILINE
+    )
+    identity: dict[str, object] = {
+        "version": version_match.group(1) if version_match else None,
+    }
+    try:
+        identity["commit"] = subprocess.run(
+            ["git", "-C", str(ROOT), "rev-parse", "HEAD"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        identity["dirty"] = bool(
+            subprocess.run(
+                ["git", "-C", str(ROOT), "status", "--porcelain"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        )
+    except (OSError, subprocess.CalledProcessError):
+        identity["commit"] = None
+        identity["dirty"] = None
+    return identity
+
+
+def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
+    """Write one result artifact atomically in the destination directory."""
+    path = path.expanduser().resolve()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
+        ) as output:
+            temporary = Path(output.name)
+            json.dump(payload, output, ensure_ascii=False, indent=2, sort_keys=True)
+            output.write("\n")
+            output.flush()
+            os.fsync(output.fileno())
+        os.replace(temporary, path)
+    finally:
+        if temporary is not None and temporary.exists():
+            temporary.unlink()
 
 
 def sekirei_options(
@@ -184,6 +270,10 @@ def main() -> int:
     parser.add_argument(
         "--match-binary", default=str(ROOT / "target/release/sekirei-match")
     )
+    parser.add_argument(
+        "--result-json",
+        help="atomically write the versioned machine-readable gate result",
+    )
     args = parser.parse_args()
 
     if args.mode == "selfplay" and not args.engine_b:
@@ -260,35 +350,68 @@ def main() -> int:
     # a pool that this process environment already capped at one.
     env = dict(os.environ, RAYON_NUM_THREADS=str(max(args.threads_a, args.threads_b, 1)))
     log_path = out / f"{args.name}.log"
+    raw_json_path = out / f"{args.name}.json"
     wins = losses = draws = 0
     verdict = ""
-    with open(log_path, "w", encoding="utf-8") as log:
-        proc = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
-        )
-        assert proc.stdout
-        for line in proc.stdout:
-            log.write(line)
-            match = RESULT.search(line)
-            if not match:
-                continue
-            outcome = match.group(1)
-            wins += outcome == "Engine1 Win"
-            losses += outcome == "Engine2 Win"
-            draws += outcome == "Draw"
-            status = f"{wins}-{losses}-{draws}"
-            if sprt:
-                llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
-                status += f" LLR {llr:+.2f} [{sprt[2]:.2f}, {sprt[3]:.2f}]"
-                if llr <= sprt[2] or llr >= sprt[3]:
-                    verdict = "H1 accepted" if llr >= sprt[3] else "H0 accepted"
-                    proc.terminate()
-                    print(status, flush=True)
-                    break
-            print(status, end="\r", flush=True)
-        code = proc.wait()
-        if verdict:
-            code = 0
+    process_code: int | None = None
+    launch_error: str | None = None
+    started_at = datetime.now(timezone.utc)
+    start = time.monotonic()
+    try:
+        with open(log_path, "w", encoding="utf-8") as log:
+            proc = subprocess.Popen(
+                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
+            )
+            assert proc.stdout
+            for line in proc.stdout:
+                log.write(line)
+                match = RESULT.search(line)
+                if not match:
+                    continue
+                outcome = match.group(1)
+                wins += outcome == "Engine1 Win"
+                losses += outcome == "Engine2 Win"
+                draws += outcome == "Draw"
+                status = f"{wins}-{losses}-{draws}"
+                if sprt:
+                    llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+                    status += f" LLR {llr:+.2f} [{sprt[2]:.2f}, {sprt[3]:.2f}]"
+                    if llr <= sprt[2] or llr >= sprt[3]:
+                        verdict = "H1 accepted" if llr >= sprt[3] else "H0 accepted"
+                        proc.terminate()
+                        print(status, flush=True)
+                        break
+                print(status, end="\r", flush=True)
+            process_code = proc.wait()
+    except OSError as error:
+        launch_error = f"{type(error).__name__}: {error}"
+        process_code = 1
+
+    games_played = wins + losses + draws
+    if launch_error:
+        terminal_state = "partial" if games_played else "failed"
+        gate_status = "error"
+        code = process_code or 1
+    elif verdict:
+        terminal_state = "sprt_stopped"
+        gate_status = "pass" if verdict == "H1 accepted" else "fail"
+        code = 0
+    elif process_code != 0:
+        terminal_state = "partial" if games_played else "failed"
+        gate_status = "error"
+        code = process_code or 1
+    elif games_played < args.games:
+        terminal_state = "partial"
+        gate_status = "error"
+        code = 1
+    elif sprt:
+        terminal_state = "inconclusive"
+        gate_status = "inconclusive"
+        code = 0
+    else:
+        terminal_state = "completed"
+        gate_status = "completed"
+        code = 0
 
     estimate, margin = elo(wins, losses, draws)
     print(
@@ -299,6 +422,99 @@ def main() -> int:
         llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
         outcome = verdict or "inconclusive (game limit reached)"
         print(f"SPRT Elo [{sprt[0]:g}, {sprt[1]:g}]: LLR {llr:+.2f}, {outcome}")
+    if launch_error:
+        print(f"match process failed: {launch_error}", file=sys.stderr)
+
+    if args.result_json:
+        finished_at = datetime.now(timezone.utc)
+        elapsed_seconds = time.monotonic() - start
+        estimate_json = estimate if math.isfinite(estimate) else None
+        margin_json = margin if math.isfinite(margin) else None
+        sprt_result: dict[str, object] | None = None
+        if sprt:
+            sprt_result = {
+                "elo0": sprt[0],
+                "elo1": sprt[1],
+                "alpha": 0.05,
+                "beta": 0.05,
+                "lower_bound": sprt[2],
+                "upper_bound": sprt[3],
+                "llr": sprt_llr(wins, losses, draws, sprt[0], sprt[1]),
+                "verdict": (
+                    "accept_h1"
+                    if verdict == "H1 accepted"
+                    else "accept_h0"
+                    if verdict == "H0 accepted"
+                    else "inconclusive"
+                ),
+            }
+        payload: dict[str, object] = {
+            "schema_version": RESULT_SCHEMA_VERSION,
+            "status": gate_status,
+            "terminal_state": terminal_state,
+            "mode": args.mode,
+            # Stable convenience fields consumed by shogiesa's external gate hook.
+            "elo": estimate_json,
+            "ci": margin_json,
+            "configuration": {
+                "name": args.name,
+                "games_limit": args.games,
+                "byoyomi_ms": args.byoyomi,
+                "nodes_limit": args.nodes_limit if args.mode == "yaneuraou" else None,
+                "fv_scale": None if material_only else args.fv_scale,
+                "hash_mb": args.hash,
+                "threads": {"a": args.threads_a, "b": args.threads_b},
+                "search_mode": {"a": args.search_mode_a, "b": args.search_mode_b},
+                "spec_top_n": {"a": args.spec_top_n_a, "b": args.spec_top_n_b},
+                "options": {"a": args.option_a, "b": args.option_b},
+                "sprt": (
+                    None
+                    if sprt is None
+                    else {"elo0": sprt[0], "elo1": sprt[1], "alpha": 0.05, "beta": 0.05}
+                ),
+            },
+            "result": {
+                "wins": wins,
+                "losses": losses,
+                "draws": draws,
+                "games_played": games_played,
+                "elo": {
+                    "estimate": estimate_json,
+                    "margin": margin_json,
+                    "lower": None if margin_json is None else estimate - margin,
+                    "upper": None if margin_json is None else estimate + margin,
+                    "confidence_level": 0.95,
+                    "method": "normal_approximation_logistic_elo",
+                },
+                "sprt": sprt_result,
+            },
+            "evidence": {
+                "complete": terminal_state in {"completed", "sprt_stopped", "inconclusive"},
+                "process_exit_code": process_code,
+                "process_error": launch_error,
+                "command": command,
+                "started_at": started_at.isoformat(),
+                "finished_at": finished_at.isoformat(),
+                "elapsed_seconds": elapsed_seconds,
+                "runner": runner_identity(),
+                "match_binary": file_identity(args.match_binary),
+                "engines": {
+                    "a": file_identity(args.engine_a),
+                    "b": file_identity(engine2),
+                },
+                "evaluation": {
+                    "mode": "material" if material_only else "halfkp",
+                    "file": None if material_only else file_identity(args.evalfile),
+                },
+                "openings": opening_identity(args.openings),
+                "outputs": {
+                    "log": file_identity(log_path),
+                    "raw_match_json": file_identity(raw_json_path),
+                    "kifu_prefix": str((out / f"kifu_{args.name}").resolve()),
+                },
+            },
+        }
+        atomic_write_json(Path(args.result_json), payload)
     return code
 
 
