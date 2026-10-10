@@ -169,4 +169,12 @@ mod tests {
     fn hand_delta_rejects_board_only_pieces() {
         let _ = hand_delta(Color::Black, PieceKind::Ou, 1);
     }
+
+    #[test]
+    fn compile_time_key_table_rebuilds_identically_at_runtime() {
+        let mut state = std::hint::black_box(0xdeadbeef_cafebabe_u64);
+        state = lcg(state);
+        assert_eq!(state, KEYS[0]);
+        assert_eq!(build_table(), KEYS);
+    }
 }

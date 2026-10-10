@@ -1,0 +1,77 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.69",
+  "commit": "333c0d4a757240a9cdf8cf9369cb0e7073c5797c",
+  "branch_at_release": "main",
+  "candidate_state": "planned from the verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.3.69",
+    "sekirei-core": "0.3.69",
+    "sekirei-bench": "0.3.69",
+    "sekirei-csa": "0.3.69",
+    "sekirei-match-runner": "0.3.69",
+    "sekirei-train": "0.3.69"
+  },
+  "dependencies": {
+    "lineprior": "0.12.3",
+    "shogiesa-core": "0.11.2",
+    "veridict": "0.19.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "b127228b9b98f18446f4554c8b80e843d26f076e346239d2661f7bcb0789beab"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.69",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.69.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.69/sekirei-wasm-0.3.69.tgz",
+    "sha256": "7567511093c871f8fa2c3b903988050054d2856d76b0203614d663dddf72de11",
+    "size": 446339,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace tests, release all-feature tests, Clippy with warnings denied, rustfmt, release-script regression tests, the optional opening-book feature, a native material-only USI smoke, the 95.1224% engine/library line-coverage gate, WebAssembly package generation, native and Node WebAssembly tests, and WebAssembly package metadata validation passed. This release strengthens fail-closed CSA and gate handling, bounds HalfKP training memory, expands behavioral regression coverage, and removes unreachable quiescence-search code. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.69."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "The robustness and coverage changes improve failure detection and evidence integrity but do not by themselves prove playing-strength improvement.",
+    "The optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "Hosted CI remains the required browser-level WebAssembly check; local release validation covered package generation, native tests, Node smoke, and metadata.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}

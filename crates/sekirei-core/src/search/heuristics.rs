@@ -547,3 +547,95 @@ pub(super) fn history_malus(depth: u32) -> i32 {
     let d = depth as i32;
     (p::HIST_MALUS_QUAD() * d * d + p::HIST_MALUS_LIN() * d).min(p::HIST_MALUS_MAX())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::board::Board;
+
+    fn quiet(from: (u8, u8), to: (u8, u8), kind: PieceKind) -> Move {
+        Move::normal(
+            Square::from_shogi(from.0, from.1),
+            Square::from_shogi(to.0, to.1),
+            kind,
+            false,
+        )
+    }
+
+    #[test]
+    fn atomic_heuristic_tables_cover_boundaries_updates_aging_and_clear() {
+        let first = quiet((7, 7), (7, 6), PieceKind::Fu);
+        let second = quiet((3, 3), (3, 4), PieceKind::Fu);
+        let drop = Move::drop(Square::from_shogi(5, 5), PieceKind::Gin);
+
+        assert_eq!(unpack_killer(0), None);
+        assert_eq!(unpack_killer(pack_killer(first)), Some(first));
+        assert_eq!(unpack_killer(pack_killer(drop)), Some(drop));
+        assert_eq!(unpack_killer(15 << 15), None);
+
+        let killers = KillerTable::new();
+        assert_eq!(killers.get(MAX_PLY), [None, None]);
+        killers.add(MAX_PLY, first);
+        killers.add(4, first);
+        killers.add(4, second);
+        assert_eq!(killers.get(4), [Some(second), Some(first)]);
+
+        let counters = CountermoveTable::new();
+        assert!(counters.get(Color::White, first).is_none());
+        counters.update(Color::White, first, drop);
+        assert_eq!(counters.get(Color::White, first), Some(drop));
+        counters.clear();
+        assert!(counters.get(Color::White, first).is_none());
+
+        let history = HistoryTable::new();
+        assert_eq!(history.epoch(), 0);
+        assert_eq!(history.get(Color::Black, first), 0);
+        history.update(Color::Black, first, 8);
+        history.malus(Color::Black, second, 6);
+        assert!(history.get(Color::Black, first) > 0);
+        assert!(history.get(Color::Black, second) < 0);
+
+        history.cont_add(Color::Black, None, second, 100);
+        history.cont_add(Color::Black, Some(first), second, 300);
+        history.follow_add(Color::Black, None, second, 100);
+        history.follow_add(Color::Black, Some(first), second, 0);
+        history.follow_add(Color::Black, Some(first), second, 400);
+        assert!(history.cont_get(Color::Black, Some(first), second) > 0);
+        assert!(history.follow_get(Color::Black, Some(first), second) > 0);
+        let row = HistoryTable::cont_row(Color::Black, first);
+        let key = HistoryTable::key(second);
+        assert_eq!(
+            history.cont_at(row + key),
+            history.cont_get(Color::Black, Some(first), second)
+        );
+        assert_eq!(
+            history.follow_at(row + key),
+            history.follow_get(Color::Black, Some(first), second)
+        );
+
+        history.capture_add(Color::Black, first, PieceKind::Gin, 500);
+        history.capture_add(Color::Black, first, PieceKind::Gin, 0);
+        assert!(history.capture_get(Color::Black, first, PieceKind::Gin) > 0);
+
+        let board = Board::startpos();
+        let bucket = HistoryTable::pawn_bucket(&board);
+        history.pawnh_add(bucket, Color::Black, first, 250);
+        history.pawnh_add(bucket, Color::Black, first, 0);
+        assert!(history.pawnh_get(bucket, Color::Black, first) > 0);
+        let keys = CorrKeys::of(&board, Color::Black);
+        history.learn_correction(keys, 0, 8);
+        history.learn_correction(keys, 500, 8);
+        assert_ne!(history.correction(keys), 0);
+
+        let before_age = history.get(Color::Black, first);
+        history.age(8);
+        assert!(history.get(Color::Black, first).abs() <= before_age.abs());
+        history.clear();
+        assert_eq!(history.epoch(), 1);
+        assert_eq!(history.get(Color::Black, first), 0);
+        assert_eq!(history.cont_get(Color::Black, Some(first), second), 0);
+        assert_eq!(history.capture_get(Color::Black, first, PieceKind::Gin), 0);
+        assert_eq!(history.pawnh_get(bucket, Color::Black, first), 0);
+        assert_eq!(history.correction(keys), 0);
+    }
+}

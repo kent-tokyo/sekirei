@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.69] – 2026-10-11
+
 - Search: retain every non-capturing pawn, bishop, and rook promotion when the
   optional quiescence promotion search is enabled; promotion-heavy positions
   are no longer silently truncated after 16 candidates.
@@ -28,10 +30,10 @@ preserves older per-change notes.
 - Dependencies: update `lineprior` to 0.12.3 and `shogiesa-core`/the verified
   external `shogiesa` CLI contract to 0.11.2. The opening-book schema remains
   v1 and the shogiesa position schema remains v11.
-- Coverage: add behavioral tests for search diagnostics, bounded teacher
-  search, position/game training filters, epoch-stat reset, gradient clipping,
-  and CSA metadata/result boundaries. The engine/library gate now requires 92%
-  line coverage with the same exclusion list.
+- Coverage: add behavioral public-path tests for move containers, search and
+  pruning controls, evaluation modes, SFNN safety boundaries, CSA protocol
+  handling, USI lifecycle, and a bounded trainer smoke. The engine/library
+  gate now requires 95% line coverage with the same exclusion list.
 - NNUE training: keep every HalfKP training and validation shard as a separate
   read-only memory map, and generate deterministic shuffle indices one batch at
   a time. Multi-file corpora no longer require a full in-memory concatenation

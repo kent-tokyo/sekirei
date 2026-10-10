@@ -4583,6 +4583,109 @@ pub(crate) fn attacks_by_class(board: &Board, color: Color) -> [Bitboard; 7] {
     out
 }
 
+#[cfg(test)]
+mod diagnostic_coverage_tests {
+    use super::*;
+
+    const ALL_KINDS: [PieceKind; 14] = [
+        PieceKind::Fu,
+        PieceKind::Kyou,
+        PieceKind::Kei,
+        PieceKind::Gin,
+        PieceKind::Kin,
+        PieceKind::Kaku,
+        PieceKind::Hisha,
+        PieceKind::Ou,
+        PieceKind::Tokin,
+        PieceKind::Narikyo,
+        PieceKind::Narikei,
+        PieceKind::Narigin,
+        PieceKind::Uma,
+        PieceKind::Ryu,
+    ];
+
+    #[test]
+    fn diagnostic_stages_cover_both_colors_and_every_piece_family() {
+        for sfen in [
+            crate::sfen::STARTPOS_SFEN,
+            "lnsgkgsnl/1r5b1/ppppppppp/9/4P4/9/PPPP1PPPP/1B5R1/LNSGKGSNL w - 2",
+            "4k4/9/2+b3+r2/9/4+P4/9/2+B3+R2/9/4K4 b - 1",
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let before = board.hash();
+            let constraints = diagnostic_king_constraints(&board);
+            let mut hinted = FixedMoveList::new();
+            diagnostic_legal_with_check_hint_into(
+                &mut board,
+                !constraints.checkers.is_empty(),
+                &mut hinted,
+            );
+            assert_eq!(hinted.as_slice(), MoveBuffer::legal(&mut board).as_slice());
+            assert!(diagnostic_king_safety_scan(&board) <= 8);
+
+            let center = Square::from_shogi(5, 5);
+            let orthogonal = diagnostic_sliding_rays(&board, center, true);
+            let diagonal = diagnostic_sliding_rays(&board, center, false);
+            assert!((orthogonal | diagonal).popcount() <= 32);
+
+            for kind in ALL_KINDS {
+                let _ = diagnostic_piece_generation(&board, kind);
+            }
+            for color in [Color::Black, Color::White] {
+                let attacks = attacks_by_class(&board, color);
+                for pair in attacks.windows(2) {
+                    assert_eq!(pair[0] & pair[1], pair[0]);
+                }
+            }
+            assert_eq!(board.hash(), before);
+        }
+    }
+
+    #[test]
+    fn threat_classes_are_monotonic_by_declared_value_family() {
+        let expected = [0, 1, 1, 2, 3, 4, 5, 7, 3, 3, 3, 3, 6, 6];
+        for (kind, class) in ALL_KINDS.into_iter().zip(expected) {
+            assert_eq!(threat_class(kind), class);
+        }
+    }
+
+    #[test]
+    fn compile_time_attack_tables_rebuild_identically_at_runtime() {
+        let pawn = build_step_attacks(std::hint::black_box([(0, -1)]));
+        assert_eq!(pawn, PAWN_ATTACKS[Color::Black.index()]);
+        assert_eq!(build_drop_allowed_masks(), DROP_ALLOWED_MASKS);
+
+        for (index, (file, rank)) in [
+            (0, -1),
+            (0, 1),
+            (-1, 0),
+            (1, 0),
+            (-1, -1),
+            (1, -1),
+            (-1, 1),
+            (1, 1),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                build_ray_attacks(std::hint::black_box(file), std::hint::black_box(rank)),
+                RAY_ATTACKS[index]
+            );
+        }
+        assert_eq!(
+            combine_rays(std::hint::black_box([0, 1, 2, 3])),
+            ORTHOGONAL_RAYS
+        );
+        assert_eq!(
+            combine_rays(std::hint::black_box([4, 5, 6, 7])),
+            DIAGONAL_RAYS
+        );
+        assert_eq!(build_pin_rays(), PIN_RAYS);
+        assert_eq!(build_file_attacks(), FILE_ATTACKS);
+    }
+}
+
 thread_local! {
     static MATE_IN_ONE_LISTS: RefCell<(FixedMoveList, FixedMoveList)> =
         RefCell::new((FixedMoveList::new(), FixedMoveList::new()));

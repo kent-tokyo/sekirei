@@ -230,7 +230,7 @@ impl BitXorAssign for Bitboard {
 
 #[cfg(test)]
 mod split_representation_probe {
-    use super::Bitboard;
+    use super::{Bitboard, file_mask, file_masks, rank_mask, ranks_mask};
     use crate::square::Square;
 
     /// SP5 prototype only: the low 64 squares and the remaining 17 squares.
@@ -310,6 +310,25 @@ mod split_representation_probe {
         assert_eq!(
             (l.low ^ r.low) as u128 | ((l.high ^ r.high) as u128) << 64,
             (left ^ right).0
+        );
+    }
+
+    #[test]
+    fn compile_time_masks_rebuild_identically_at_runtime() {
+        for index in 0..9 {
+            let index = std::hint::black_box(index);
+            assert_eq!(rank_mask(index).count_ones(), 9);
+            assert_eq!(file_mask(index).count_ones(), 9);
+            assert_eq!(Bitboard::file_bb(index).0, file_mask(index));
+        }
+        assert_eq!(file_masks(), super::FILE_MASKS);
+        assert_eq!(
+            ranks_mask(std::hint::black_box(0), std::hint::black_box(2)),
+            Bitboard::PROMOTE_BLACK.0
+        );
+        assert_eq!(
+            ranks_mask(std::hint::black_box(6), std::hint::black_box(8)),
+            Bitboard::PROMOTE_WHITE.0
         );
     }
 }

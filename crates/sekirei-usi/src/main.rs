@@ -2017,6 +2017,9 @@ mod tests {
 
     #[test]
     fn spin_option_parser_enforces_advertised_bounds() {
+        let runtime_range = SpinRange::new(4, 9);
+        assert_eq!(runtime_range.min, 4);
+        assert_eq!(runtime_range.max, 9);
         assert_eq!(
             parse_spin_option(&["name", "Threads", "value", "0"], "Threads", THREADS_RANGE,),
             Ok(0)
@@ -2052,10 +2055,23 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "opening-book")]
     #[test]
-    fn book_confidence_rejects_non_finite_and_out_of_range_values() {
-        for invalid in ["NaN", "inf", "-0.1", "1.1"] {
+    fn unit_interval_parser_rejects_malformed_non_finite_and_out_of_range_values() {
+        assert!(
+            parse_unit_interval_option(
+                &["name", "BookMinConfidence", "not-value", "0.5"],
+                "BookMinConfidence",
+            )
+            .is_err()
+        );
+        assert!(
+            parse_unit_interval_option(
+                &["name", "BookMinConfidence", "value"],
+                "BookMinConfidence",
+            )
+            .is_err()
+        );
+        for invalid in ["garbage", "NaN", "inf", "-0.1", "1.1"] {
             assert!(
                 parse_unit_interval_option(
                     &["name", "BookMinConfidence", "value", invalid],
@@ -2072,6 +2088,72 @@ mod tests {
             ),
             Ok(0.25)
         );
+    }
+
+    #[test]
+    fn every_backend_supports_common_lifecycle_operations() {
+        let backends = [
+            SearchBackend::speculative(1, 0),
+            SearchBackend::speculative(1, 1),
+            SearchBackend::lazy_smp(1, 1),
+            SearchBackend::dfpn(),
+            SearchBackend::shared_mcts(),
+        ];
+        for backend in backends {
+            backend.abort_flag().store(true, Ordering::Relaxed);
+            backend.reset_abort_flag();
+            assert!(!backend.abort_flag().load(Ordering::Relaxed));
+            backend.clear_tt();
+            assert_eq!(backend.probe_tt(0x1234), None);
+        }
+        assert_eq!(threads_for_lazy_smp(0), 1);
+        assert_eq!(threads_for_lazy_smp(3), 3);
+    }
+
+    #[test]
+    fn backend_adjudicates_draw_and_both_perpetual_check_perspectives() {
+        fn repeated_history(
+            current: u64,
+            black_checks: bool,
+            white_checks: bool,
+        ) -> PositionHistory {
+            let mut history = PositionHistory::initial(current);
+            for (hash, mover, gave_check) in [
+                (11, Color::Black, black_checks),
+                (12, Color::White, white_checks),
+                (13, Color::Black, black_checks),
+                (current, Color::White, white_checks),
+            ]
+            .into_iter()
+            .cycle()
+            .take(12)
+            {
+                history.push_after_move(hash, mover, gave_check);
+            }
+            history
+        }
+
+        let backend = SearchBackend::speculative(1, 0);
+        let config = SearchConfig {
+            max_depth: 1,
+            time_limit: None,
+            node_limit: Some(1),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let mut board = Board::startpos();
+        let current = board.hash();
+
+        let draw = backend.search(&mut board, config, &repeated_history(current, false, false));
+        assert_eq!(draw.score, 0);
+        assert_eq!(draw.nodes, 0);
+        assert!(draw.best_move.is_some());
+
+        let losing = backend.search(&mut board, config, &repeated_history(current, true, false));
+        assert_eq!(losing.score, -MATE_SCORE + 1);
+
+        let winning = backend.search(&mut board, config, &repeated_history(current, false, true));
+        assert_eq!(winning.score, MATE_SCORE - 1);
     }
 
     #[test]
