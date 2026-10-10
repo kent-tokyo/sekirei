@@ -6,6 +6,9 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- USI: advertise the package version as `id version <version>` during the
+  `usi` handshake, matching `sekirei --version` for dataset provenance.
+
 ## [0.3.68] – 2026-10-10
 
 - Coverage: exercise isolated tunable-search paths, native WASM APIs, CSA
