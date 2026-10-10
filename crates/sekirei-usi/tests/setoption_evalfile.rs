@@ -20,7 +20,7 @@
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 use sekirei_core::nnue::{INPUT, L1, L2, NnueWeights, save_weights};
@@ -187,6 +187,11 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
 
 #[test]
 fn command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input() {
+    // This test deliberately rebuilds several search backends in one process.
+    // LLVM coverage instrumentation can make those allocations take longer
+    // than the ordinary five-second protocol timeout on hosted runners.
+    const OPTION_REBUILD_TIMEOUT: Duration = Duration::from_secs(30);
+
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");
     recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
@@ -229,7 +234,7 @@ fn command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input() {
     send(&mut stdin, "gameover draw");
     send(&mut stdin, "unknown-command");
     send(&mut stdin, "isready");
-    let lines = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    let lines = recv_until(&rx, |line| line == "readyok", OPTION_REBUILD_TIMEOUT);
     assert!(
         lines
             .iter()
@@ -253,7 +258,7 @@ fn command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input() {
     let search = recv_until(
         &rx,
         |line| line.starts_with("bestmove"),
-        Duration::from_secs(5),
+        OPTION_REBUILD_TIMEOUT,
     );
     assert!(search.iter().any(|line| line.starts_with("bestmove ")));
 
@@ -438,7 +443,12 @@ fn recv_until(
                     return seen;
                 }
             }
-            Err(_) => panic!("engine stdout closed before expected line arrived; saw: {seen:?}"),
+            Err(RecvTimeoutError::Timeout) => {
+                panic!("timed out waiting for expected line; saw: {seen:?}")
+            }
+            Err(RecvTimeoutError::Disconnected) => {
+                panic!("engine stdout closed before expected line arrived; saw: {seen:?}")
+            }
         }
     }
 }
