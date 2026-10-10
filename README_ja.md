@@ -3,14 +3,14 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
+[![Release](https://img.shields.io/badge/release-v0.3.68-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.68)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.67`では、
-学習データの同一性検査、定跡manifest、gate結果のexport、WASM package検証を
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.68`では、
+USIの対局境界、対局・gate証跡、option検証、Rustコードの90%カバレッジ契約を
 強化しました。棋力向上は主張していません。測定結果は、使用した評価関数、
 ハードウェア、局面集合、探索条件の範囲で扱います。
 
@@ -61,8 +61,8 @@ SHA-256、測定範囲は[NNUE重み](docs/nnue_weights.md)にまとめていま
 合法なPVを返す上限付き逐次探索、最短詰み解析を提供します。駒得評価だけを使い、
 ネイティブUSIバイナリの依存関係は変えません。
 
-ビルド済みのv0.3.67 ES module packageは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.67/sekirei-wasm-0.3.67.tgz)
+ビルド済みのv0.3.68 ES module packageは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.68/sekirei-wasm-0.3.68.tgz)
 から取得できます。
 
 ## エンジン設定

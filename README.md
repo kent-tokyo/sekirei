@@ -3,16 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
+[![Release](https://img.shields.io/badge/release-v0.3.68-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.68)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.3.67` strengthens
-training-data identity checks, opening-book provenance, gate export, and WASM
-package validation. It does not claim a playing-strength improvement; measured
-results remain scoped to the exact evaluator, hardware, corpus, and settings.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.3.68` hardens
+USI game boundaries, match and gate evidence, option validation, and the
+90% Rust coverage contract. It does not claim a playing-strength improvement;
+measured results remain scoped to the exact evaluator, hardware, corpus, and settings.
 
 ## Quick start
 
@@ -51,8 +51,8 @@ moves, validated move application, bounded sequential search with a legal PV,
 and bounded shortest-mate analysis. It uses material evaluation and does not
 change the native USI dependency graph.
 
-The prebuilt v0.3.67 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.67/sekirei-wasm-0.3.67.tgz).
+The prebuilt v0.3.68 ES-module package is available from the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.68/sekirei-wasm-0.3.68.tgz).
 
 ## What is included
 

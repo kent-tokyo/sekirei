@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.68] – 2026-10-10
+
 - Coverage: exercise isolated tunable-search paths, native WASM APIs, CSA
   conversion, export, hashing, and the USI child-process lifecycle in CI. The
   measured engine/library line coverage is 90.08%, and the local and Codecov
