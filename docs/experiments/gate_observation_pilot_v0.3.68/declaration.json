@@ -1,0 +1,25 @@
+{
+  "schema": "sekirei.gate-observation-declaration.v1",
+  "candidate_id": "v0.3.68-stage-gen-on-04c15af279b0f1c6",
+  "group_id": "gateobs-pilot-v068-stage-gen-material-heldout-a",
+  "feature_schema_id": "sekirei.search-gate-features.v1",
+  "features": {
+    "v2_stage_gen_enabled_delta": 1.0
+  },
+  "group_definition": {
+    "independence_unit": "candidate-family+evaluator+opening-corpus+time-control",
+    "same_group": "all retries, shards, snapshots, and summaries of this candidate under the declared evaluator, opening corpus, and clock"
+  },
+  "engine_version": "0.3.68",
+  "source_commit": "99581267ff690129840915fa7ffb804b38b9f526",
+  "evaluator": "material",
+  "time_control": {
+    "byoyomi_ms": 20,
+    "games_limit": 2
+  },
+  "threads": 1,
+  "opening_corpus": "heldout_openings.sfen@8a81c79c190e1f33b194842fa9e6a2a0367e20e2512d9e22244ccefc3d33730c",
+  "cost": {
+    "games_limit": 2
+  }
+}

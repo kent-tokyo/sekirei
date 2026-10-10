@@ -48,6 +48,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
+GATE_DECLARATION_SCHEMA = "sekirei.gate-observation-declaration.v1"
+OUTCOME_FEATURE_WORDS = ("elo", "verdict", "result", "outcome", "games", "wins", "losses")
 SprtSpec = tuple[float, float, float, float]
 
 
@@ -145,6 +147,79 @@ def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
     finally:
         if temporary is not None and temporary.exists():
             temporary.unlink()
+
+
+def canonical_sha256(value: object) -> str:
+    """Hash one JSON value with the repository's stable compact encoding."""
+    encoded = json.dumps(
+        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+def load_gate_observation_declaration(path: str | Path) -> dict[str, object]:
+    """Load and freeze a prospective GateObservation declaration.
+
+    The declaration is validated before the match process starts.  Generated
+    hashes bind both the shared feature-name schema and the full leakage-group
+    contract carried into the terminal result.
+    """
+    candidate = Path(path).expanduser().resolve()
+    document = json.loads(candidate.read_text(encoding="utf-8"))
+    if not isinstance(document, dict):
+        raise ValueError("gate observation declaration must be a JSON object")
+    if document.get("schema") != GATE_DECLARATION_SCHEMA:
+        raise ValueError(f"gate observation declaration schema must be {GATE_DECLARATION_SCHEMA}")
+    if "declaration_sha256" in document:
+        raise ValueError("declaration_sha256 is generated and must not appear in the input")
+
+    for field in (
+        "candidate_id",
+        "group_id",
+        "feature_schema_id",
+        "engine_version",
+        "source_commit",
+        "evaluator",
+        "opening_corpus",
+    ):
+        if not isinstance(document.get(field), str) or not document[field]:
+            raise ValueError(f"gate observation declaration is missing {field}")
+    if not isinstance(document.get("threads"), int) or document["threads"] <= 0:
+        raise ValueError("gate observation declaration threads must be a positive integer")
+    for field in ("time_control", "cost", "group_definition"):
+        if not isinstance(document.get(field), dict) or not document[field]:
+            raise ValueError(f"gate observation declaration is missing {field}")
+
+    raw_features = document.get("features")
+    if not isinstance(raw_features, dict) or not raw_features:
+        raise ValueError("gate observation declaration needs numeric features")
+    features: dict[str, float] = {}
+    for name, value in raw_features.items():
+        if not isinstance(name, str) or not name:
+            raise ValueError("gate observation feature names must be non-empty strings")
+        if any(word in name.lower() for word in OUTCOME_FEATURE_WORDS):
+            raise ValueError(f"outcome-derived gate observation feature is forbidden: {name}")
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ValueError(f"gate observation feature {name} must be numeric")
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"gate observation feature {name} must be finite")
+        features[name] = number
+
+    normalized = dict(document)
+    normalized["features"] = dict(sorted(features.items()))
+    feature_schema_sha256 = canonical_sha256(
+        {
+            "feature_schema_id": document["feature_schema_id"],
+            "feature_names": sorted(features),
+        }
+    )
+    expected_feature_hash = document.get("feature_schema_sha256")
+    if expected_feature_hash is not None and expected_feature_hash != feature_schema_sha256:
+        raise ValueError("gate observation feature schema hash does not match feature names")
+    normalized["feature_schema_sha256"] = feature_schema_sha256
+    normalized["declaration_sha256"] = canonical_sha256(normalized)
+    return normalized
 
 
 def sekirei_options(
@@ -333,6 +408,13 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         "--result-json",
         help="atomically write the versioned machine-readable gate result",
     )
+    parser.add_argument(
+        "--gate-observation-declaration",
+        help=(
+            "prospective GateObservation declaration JSON; requires --result-json and is "
+            "validated before the match starts"
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.mode == "selfplay" and not args.engine_b:
@@ -356,6 +438,16 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("--spec-top-n-a and --spec-top-n-b must be non-negative")
     if args.nodes_limit < 0:
         parser.error("--nodes-limit must be non-negative")
+    if args.gate_observation_declaration and not args.result_json:
+        parser.error("--gate-observation-declaration requires --result-json")
+    args.gate_observation = None
+    if args.gate_observation_declaration:
+        try:
+            args.gate_observation = load_gate_observation_declaration(
+                args.gate_observation_declaration
+            )
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            parser.error(f"invalid --gate-observation-declaration: {error}")
     sprt = None
     if args.sprt:
         try:
@@ -506,6 +598,7 @@ def main() -> int:
             "status": terminal.gate_status,
             "terminal_state": terminal.terminal_state,
             "mode": args.mode,
+            "gate_observation": args.gate_observation,
             # Stable convenience fields consumed by shogiesa's external gate hook.
             "elo": estimate_json,
             "ci": margin_json,
@@ -566,6 +659,9 @@ def main() -> int:
                     "raw_match_json": file_identity(raw_json_path),
                     "kifu_prefix": str((out / f"kifu_{args.name}").resolve()),
                 },
+                "gate_observation_declaration": file_identity(
+                    args.gate_observation_declaration
+                ),
             },
         }
         atomic_write_json(Path(args.result_json), payload)

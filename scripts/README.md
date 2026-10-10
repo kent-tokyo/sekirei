@@ -29,7 +29,7 @@ training.
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
-| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. Local diagnostic only. |
+| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. `--gate-observation-declaration` validates and carries a prospective, hashed feature/group declaration into that terminal result. Local diagnostic only. |
 | `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. For Lazy SMP, also records the selected worker's node share, worker best-move agreement, and approximate worker stop-lag spread. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 92% engine/library line-coverage contract. |
@@ -79,8 +79,11 @@ candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
   game-level split; validation loss alone does not select a candidate.
 - `export_gate_observations.py` converts independent terminal gate manifests
   into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
-  missing lineage, and conflicting retries. Use `--allow-empty` to archive a
-  deterministic zero-row readiness report when no historical run is eligible.
+  missing or changed declaration hashes, missing groups, incompatible feature
+  sets, and conflicting retries. A non-empty export remains contract evidence
+  until at least 20 independent groups are available; automated acquisition is
+  never enabled. Use `--allow-empty` to archive a deterministic zero-row
+  readiness report when no historical run is eligible.
 - `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
   terminal joins, book coverage, fallbacks, uncertainty, and cost for an
   archived held-out `UseBook=false`/`true` diagnostic.
@@ -101,6 +104,10 @@ output is advisory and never authorizes deployment or a strength claim.
 The compact v0.3.67 opening-book diagnostic is archived under
 `docs/experiments/book_ab_v0.3.67/`. It is contract evidence, not a strength
 gate.
+
+The first prospective GateObservation contract pilot is archived under
+`docs/experiments/gate_observation_pilot_v0.3.68/`. Its single admitted row is
+inconclusive and is not a playing-strength claim.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \

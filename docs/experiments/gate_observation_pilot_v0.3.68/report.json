@@ -1,0 +1,26 @@
+{
+  "accepted": 1,
+  "acquisition_enabled": false,
+  "blockers": [
+    "need 19 more independent groups before fitting or calibration"
+  ],
+  "calibration_enabled": false,
+  "duplicates_suppressed": 0,
+  "feature_names": [
+    "v2_stage_gen_enabled_delta"
+  ],
+  "independent_groups": 1,
+  "inputs": 1,
+  "minimum_independent_groups": 20,
+  "model_fitting_enabled": false,
+  "quarantined": 0,
+  "readiness": "contract_only_insufficient_groups",
+  "rejections": [],
+  "schema": "sekirei.gate-observation-export.v1",
+  "source_manifests": [
+    {
+      "path": "docs/experiments/gate_observation_pilot_v0.3.68/final.json",
+      "sha256": "1ecd6beb0a829114f7efa8effb64d6637c248474dde899390ec9f229ebf6f7c7"
+    }
+  ]
+}

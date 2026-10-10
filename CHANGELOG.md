@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Gate evidence: validate a versioned, hashed GateObservation declaration
+  before an A/B run, carry it into the terminal result, and quarantine changed
+  schemas, missing groups, retries, and incomplete results during export. The
+  first two-game pilot proves the contract only; fitting remains disabled.
 - CSA: consume one delayed decisive result after an aborted game before the
   next game summary, while retaining fail-closed handling for duplicate or
   ambiguous terminal lines.
