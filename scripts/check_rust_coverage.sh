@@ -13,10 +13,14 @@ mkdir -p "${COVERAGE_DIR}"
 cargo llvm-cov clean --workspace
 
 # Run the complete default workspace first, then merge the optional opening
-# book contract into the same profile set. cargo-llvm-cov 0.8.x does not allow
-# --no-clean and --no-report together, so the feature run writes an
-# intermediate package summary before the final workspace-wide reports.
-cargo llvm-cov --workspace --no-report
+# book contract into the same profile set. The workspace contains tests that
+# mutate process-wide search tunables. Run this first pass serially so the
+# instrumentation overhead cannot combine otherwise independent test states
+# into a pathological search that overflows a test thread's stack.
+# cargo-llvm-cov 0.8.x does not allow --no-clean and --no-report together, so
+# the feature run writes an intermediate package summary before the final
+# workspace-wide reports.
+RUST_TEST_THREADS=1 cargo llvm-cov --workspace --no-report
 cargo llvm-cov -p sekirei \
   --features opening-book \
   --no-clean \
