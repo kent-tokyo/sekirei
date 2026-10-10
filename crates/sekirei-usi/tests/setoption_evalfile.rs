@@ -106,6 +106,85 @@ fn spawn_engine_with_args(args: &[&std::path::Path]) -> (Child, Receiver<String>
     (child, rx, stdin)
 }
 
+#[test]
+fn threads_zero_matches_the_advertised_usi_range() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+
+    // Threads=0 is the advertised automatic/default worker setting.  It must
+    // remain a valid value rather than being rejected by the command parser.
+    send(&mut stdin, "setoption name Threads value 0");
+    send(&mut stdin, "isready");
+    let ready = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        ready.iter().all(|line| !line.contains("invalid Threads")),
+        "advertised Threads=0 was rejected: {ready:?}"
+    );
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let search = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(search.iter().any(|line| line.starts_with("bestmove ")));
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
+#[test]
+fn spin_options_reject_values_outside_the_advertised_ranges() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+
+    for command in [
+        "setoption name Hash value 0",
+        "setoption name Threads value 513",
+        "setoption name SpecTopN value 513",
+        "setoption name LazyFlags value 256",
+        "setoption name MoveOverhead value 5001",
+        "setoption name IncrementUsePercent value 101",
+        "setoption name MultiPV value 257",
+    ] {
+        send(&mut stdin, command);
+    }
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    for name in [
+        "Hash",
+        "Threads",
+        "SpecTopN",
+        "LazyFlags",
+        "MoveOverhead",
+        "IncrementUsePercent",
+        "MultiPV",
+    ] {
+        assert!(
+            lines
+                .iter()
+                .any(|line| line.starts_with(&format!("info string invalid {name} value"))),
+            "missing range error for {name}: {lines:?}"
+        );
+    }
+
+    // Invalid options must not poison the process or prevent a normal search.
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let search = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(search.iter().any(|line| line.starts_with("bestmove ")));
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
 #[cfg(not(feature = "opening-book"))]
 #[test]
 fn default_binary_has_no_opening_book_surface_or_path_probe() {

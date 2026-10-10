@@ -50,6 +50,14 @@ use sekirei_core::sfen::board_to_sfen;
 const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "Kentaro Tanabe";
 const DEFAULT_HASH_MB: usize = 64;
+const HASH_MB_RANGE: SpinRange = SpinRange::new(1, 2048);
+const THREADS_RANGE: SpinRange = SpinRange::new(0, 512);
+const SPEC_TOP_N_RANGE: SpinRange = SpinRange::new(0, 512);
+const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 255);
+const MOVE_OVERHEAD_RANGE: SpinRange = SpinRange::new(0, 5000);
+const INCREMENT_USE_PERCENT_RANGE: SpinRange = SpinRange::new(0, 100);
+const MULTI_PV_RANGE: SpinRange = SpinRange::new(1, 256);
+const BOOK_MAX_PLY_RANGE: SpinRange = SpinRange::new(0, 200);
 #[cfg(feature = "opening-book")]
 const DEFAULT_BOOK_FILE: &str = "data/opening_book.jsonl";
 // Keep the USI controller and core speculative pool on one documented stack
@@ -70,6 +78,18 @@ static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
 static INC_USE_PCT: AtomicU32 = AtomicU32::new(75);
 // SpecTopN used by `Auto` for MultiPV analysis (the former default).
 const AUTO_MULTI_PV_SPEC_TOP_N: usize = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct SpinRange {
+    min: u64,
+    max: u64,
+}
+
+impl SpinRange {
+    const fn new(min: u64, max: u64) -> Self {
+        Self { min, max }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SearchMode {
@@ -849,21 +869,17 @@ fn main() {
             "usi" => {
                 println!("id name {ENGINE_NAME}");
                 println!("id author {ENGINE_AUTHOR}");
-                println!("option name Hash type spin default {DEFAULT_HASH_MB} min 1 max 2048");
-                println!("option name Threads type spin default 0 min 0 max 512");
+                print_spin_option("Hash", DEFAULT_HASH_MB as u64, HASH_MB_RANGE);
+                print_spin_option("Threads", 0, THREADS_RANGE);
                 println!(
                     "option name SearchMode type combo default Auto var Auto var Speculative var LazySMP var Dfpn var SharedMcts"
                 );
-                println!(
-                    "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
-                );
-                println!(
-                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 255"
-                );
-                println!("option name MoveOverhead type spin default 50 min 0 max 5000");
-                println!("option name IncrementUsePercent type spin default 75 min 0 max 100");
+                print_spin_option("SpecTopN", DEFAULT_SPEC_TOP_N as u64, SPEC_TOP_N_RANGE);
+                print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
+                print_spin_option("MoveOverhead", 50, MOVE_OVERHEAD_RANGE);
+                print_spin_option("IncrementUsePercent", 75, INCREMENT_USE_PERCENT_RANGE);
                 println!("option name Ponder type check default false");
-                println!("option name MultiPV type spin default 1 min 1 max 256");
+                print_spin_option("MultiPV", 1, MULTI_PV_RANGE);
                 println!("option name EvalFile type string default ");
                 println!(
                     "option name NnueOutput type combo default absolute var absolute var residual-material"
@@ -878,7 +894,7 @@ fn main() {
                 #[cfg(feature = "opening-book")]
                 {
                     println!("option name UseBook type check default false");
-                    println!("option name BookMaxPly type spin default 30 min 0 max 200");
+                    print_spin_option("BookMaxPly", 30, BOOK_MAX_PLY_RANGE);
                     println!("option name BookMinConfidence type string default 0.20");
                     println!("option name BookFile type string default {DEFAULT_BOOK_FILE}");
                     println!("option name BookDecisionLog type string default");
@@ -978,20 +994,22 @@ fn main() {
             "setoption" => {
                 // "setoption name <Name> value <Value>"
                 let parts: Vec<&str> = rest.split_whitespace().collect();
+                let option_name = parts.get(1).copied();
                 // GUIs send the standard `USI_Hash` (the USI protocol's
                 // table size option) whether or not the engine lists it.
-                if matches!(parts.get(1), Some(&"Hash") | Some(&"USI_Hash"))
-                    && let Some(mb) = parts.get(3).and_then(|s| s.parse().ok())
+                if matches!(option_name, Some("Hash" | "USI_Hash"))
+                    && let Some(mb) =
+                        parse_spin_option_or_report(&parts, option_name.unwrap(), HASH_MB_RANGE)
                 {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    hash_mb = mb;
+                    hash_mb = mb as usize;
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
-                } else if let Some(name) = parts.get(1).and_then(|n| n.strip_prefix("T_")) {
+                } else if let Some(name) = option_name.and_then(|n| n.strip_prefix("T_")) {
                     // Search constants for self-play tuning (builds with the
                     // `tune` feature only).
                     let value = parts.get(3).and_then(|v| v.parse::<i32>().ok());
@@ -1000,19 +1018,21 @@ fn main() {
                             "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
                         );
                     }
-                } else if parts.get(1) == Some(&"LazyFlags")
-                    && let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok())
+                } else if option_name == Some("LazyFlags")
+                    && let Some(flags) =
+                        parse_spin_option_or_report(&parts, "LazyFlags", LAZY_FLAGS_RANGE)
                 {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    LAZY_FLAGS.store(n.min(127), Ordering::Relaxed);
+                    LAZY_FLAGS.store(flags as u32, Ordering::Relaxed);
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
-                } else if parts.get(1) == Some(&"SpecTopN")
-                    && let Some(n) = parts.get(3).and_then(|s| s.parse().ok())
+                } else if option_name == Some("SpecTopN")
+                    && let Some(top_n) =
+                        parse_spin_option_or_report(&parts, "SpecTopN", SPEC_TOP_N_RANGE)
                 {
                     // Same abort+join requirement as Hash just above, and for the
                     // identical reason: this rebuilds the searcher's dedicated
@@ -1021,40 +1041,29 @@ fn main() {
                     // else here would otherwise block the main loop from moving on
                     // to the next command before that search's bestmove is printed.
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    spec_top_n = n;
+                    spec_top_n = top_n as usize;
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
-                } else if parts.get(1) == Some(&"Threads") {
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse::<usize>().ok()) {
-                        if n == 0 || n > u32::MAX as usize {
-                            println!(
-                                "info string invalid Threads value {}; expected 1..={}",
-                                n,
-                                u32::MAX
-                            );
-                        } else {
-                            threads = n as u32;
-                            // ponytail: build_global silently fails if already init'd; that's fine
-                            ensure_search_pool(n);
-                            if matches!(search_mode, SearchMode::LazySmp | SearchMode::Auto) {
-                                abort_and_join_inflight_search(
-                                    &mut search_abort,
-                                    &mut search_handle,
-                                );
-                                searcher = make_searcher(
-                                    hash_mb,
-                                    spec_top_n,
-                                    threads_for_lazy_smp(threads),
-                                    search_mode,
-                                );
-                            }
-                        }
+                } else if option_name == Some("Threads")
+                    && let Some(worker_count) =
+                        parse_spin_option_or_report(&parts, "Threads", THREADS_RANGE)
+                {
+                    threads = worker_count as u32;
+                    ensure_search_pool(worker_count as usize);
+                    if matches!(search_mode, SearchMode::LazySmp | SearchMode::Auto) {
+                        abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                        searcher = make_searcher(
+                            hash_mb,
+                            spec_top_n,
+                            threads_for_lazy_smp(threads),
+                            search_mode,
+                        );
                     }
-                } else if parts.get(1) == Some(&"SearchMode")
+                } else if option_name == Some("SearchMode")
                     && let Some(mode) = parts.get(3)
                 {
                     let new_mode = match *mode {
@@ -1073,27 +1082,33 @@ fn main() {
                         threads_for_lazy_smp(threads),
                         search_mode,
                     );
-                } else if parts.get(1) == Some(&"IncrementUsePercent") {
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok()) {
-                        INC_USE_PCT.store(n.min(100), Ordering::Relaxed);
-                    }
-                } else if parts.get(1) == Some(&"MoveOverhead") {
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
-                        move_overhead_ms = n;
-                    }
-                } else if parts.get(1) == Some(&"MultiPV") {
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse::<u32>().ok()) {
-                        multi_pv = n.max(1);
-                        let before = AUTO_MULTI_PV.swap(multi_pv, Ordering::Relaxed);
-                        if search_mode == SearchMode::Auto && (before > 1) != (multi_pv > 1) {
-                            abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                            searcher = make_searcher(
-                                hash_mb,
-                                spec_top_n,
-                                threads_for_lazy_smp(threads),
-                                search_mode,
-                            );
-                        }
+                } else if option_name == Some("IncrementUsePercent")
+                    && let Some(percent) = parse_spin_option_or_report(
+                        &parts,
+                        "IncrementUsePercent",
+                        INCREMENT_USE_PERCENT_RANGE,
+                    )
+                {
+                    INC_USE_PCT.store(percent as u32, Ordering::Relaxed);
+                } else if option_name == Some("MoveOverhead")
+                    && let Some(overhead) =
+                        parse_spin_option_or_report(&parts, "MoveOverhead", MOVE_OVERHEAD_RANGE)
+                {
+                    move_overhead_ms = overhead;
+                } else if option_name == Some("MultiPV")
+                    && let Some(value) =
+                        parse_spin_option_or_report(&parts, "MultiPV", MULTI_PV_RANGE)
+                {
+                    multi_pv = value as u32;
+                    let before = AUTO_MULTI_PV.swap(multi_pv, Ordering::Relaxed);
+                    if search_mode == SearchMode::Auto && (before > 1) != (multi_pv > 1) {
+                        abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                        searcher = make_searcher(
+                            hash_mb,
+                            spec_top_n,
+                            threads_for_lazy_smp(threads),
+                            search_mode,
+                        );
                     }
                 } else if parts.get(1) == Some(&"EvalFile") {
                     // value may contain spaces (e.g. paths with spaces)
@@ -1182,17 +1197,23 @@ fn main() {
                     if let Some(v) = parts.get(3) {
                         use_book = *v == "true";
                     }
-                } else if cfg!(feature = "opening-book") && parts.get(1) == Some(&"BookMaxPly") {
-                    #[cfg(feature = "opening-book")]
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
-                        book_max_ply = n;
-                    }
                 } else if cfg!(feature = "opening-book")
-                    && parts.get(1) == Some(&"BookMinConfidence")
+                    && option_name == Some("BookMaxPly")
+                    && let Some(_max_ply) =
+                        parse_spin_option_or_report(&parts, "BookMaxPly", BOOK_MAX_PLY_RANGE)
                 {
                     #[cfg(feature = "opening-book")]
-                    if let Some(n) = parts.get(3).and_then(|s| s.parse().ok()) {
-                        book_min_confidence = n;
+                    {
+                        book_max_ply = _max_ply as usize;
+                    }
+                } else if cfg!(feature = "opening-book")
+                    && option_name == Some("BookMinConfidence")
+                    && let Some(_confidence) =
+                        parse_unit_interval_option_or_report(&parts, "BookMinConfidence")
+                {
+                    #[cfg(feature = "opening-book")]
+                    {
+                        book_min_confidence = _confidence;
                     }
                 } else if cfg!(feature = "opening-book")
                     && parts.get(1) == Some(&"BookFile")
@@ -1597,6 +1618,78 @@ fn main() {
 
 // ---- Helpers ----
 
+fn print_spin_option(option_name: &str, default: u64, range: SpinRange) {
+    println!(
+        "option name {option_name} type spin default {default} min {} max {}",
+        range.min, range.max
+    );
+}
+
+/// Parse a USI spin option and enforce the same inclusive range advertised by
+/// the `usi` response.  Keeping this check at the protocol boundary prevents a
+/// malformed GUI command from turning into an unbounded allocation or worker
+/// count deeper in the engine.
+fn parse_spin_option(parts: &[&str], option_name: &str, range: SpinRange) -> Result<u64, String> {
+    let raw = parts.get(3).copied().unwrap_or("<missing>");
+    if parts.get(2) != Some(&"value") {
+        return Err(format!(
+            "info string invalid {option_name} value {raw}; expected setoption name {option_name} value <{}..={}>",
+            range.min, range.max
+        ));
+    }
+    let value = raw.parse::<u64>().map_err(|_| {
+        format!(
+            "info string invalid {option_name} value {raw}; expected {}..={}",
+            range.min, range.max
+        )
+    })?;
+    if value < range.min || value > range.max {
+        return Err(format!(
+            "info string invalid {option_name} value {value}; expected {}..={}",
+            range.min, range.max
+        ));
+    }
+    Ok(value)
+}
+
+fn parse_spin_option_or_report(parts: &[&str], option_name: &str, range: SpinRange) -> Option<u64> {
+    match parse_spin_option(parts, option_name, range) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            println!("{error}");
+            None
+        }
+    }
+}
+
+fn parse_unit_interval_option(parts: &[&str], option_name: &str) -> Result<f64, String> {
+    let raw = parts.get(3).copied().unwrap_or("<missing>");
+    if parts.get(2) != Some(&"value") {
+        return Err(format!(
+            "info string invalid {option_name} value {raw}; expected setoption name {option_name} value <0.0..=1.0>"
+        ));
+    }
+    let value = raw.parse::<f64>().map_err(|_| {
+        format!("info string invalid {option_name} value {raw}; expected 0.0..=1.0")
+    })?;
+    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
+        return Err(format!(
+            "info string invalid {option_name} value {raw}; expected 0.0..=1.0"
+        ));
+    }
+    Ok(value)
+}
+
+fn parse_unit_interval_option_or_report(parts: &[&str], option_name: &str) -> Option<f64> {
+    match parse_unit_interval_option(parts, option_name) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            println!("{error}");
+            None
+        }
+    }
+}
+
 fn threads_for_lazy_smp(threads: u32) -> usize {
     threads.max(1) as usize
 }
@@ -1918,6 +2011,65 @@ mod tests {
         let cfg = parse_go("btime not-a-number depth 1", Color::Black, 0, false, 1);
         assert!(cfg.time_limit.is_none());
         assert_eq!(cfg.max_depth, 1);
+    }
+
+    #[test]
+    fn spin_option_parser_enforces_advertised_bounds() {
+        assert_eq!(
+            parse_spin_option(&["name", "Threads", "value", "0"], "Threads", THREADS_RANGE,),
+            Ok(0)
+        );
+        assert_eq!(
+            parse_spin_option(
+                &["name", "LazyFlags", "value", "128"],
+                "LazyFlags",
+                LAZY_FLAGS_RANGE,
+            ),
+            Ok(128)
+        );
+        assert!(
+            parse_spin_option(
+                &["name", "Threads", "value", "513"],
+                "Threads",
+                THREADS_RANGE,
+            )
+            .is_err()
+        );
+        assert!(
+            parse_spin_option(
+                &["name", "Hash", "value", "18446744073709551616"],
+                "Hash",
+                HASH_MB_RANGE,
+            )
+            .is_err()
+        );
+        assert!(parse_spin_option(&["name", "MultiPV"], "MultiPV", MULTI_PV_RANGE).is_err());
+        assert!(
+            parse_spin_option(&["name", "Hash", "not-value", "64"], "Hash", HASH_MB_RANGE,)
+                .is_err()
+        );
+    }
+
+    #[cfg(feature = "opening-book")]
+    #[test]
+    fn book_confidence_rejects_non_finite_and_out_of_range_values() {
+        for invalid in ["NaN", "inf", "-0.1", "1.1"] {
+            assert!(
+                parse_unit_interval_option(
+                    &["name", "BookMinConfidence", "value", invalid],
+                    "BookMinConfidence",
+                )
+                .is_err(),
+                "accepted {invalid}"
+            );
+        }
+        assert_eq!(
+            parse_unit_interval_option(
+                &["name", "BookMinConfidence", "value", "0.25"],
+                "BookMinConfidence",
+            ),
+            Ok(0.25)
+        );
     }
 
     #[test]
