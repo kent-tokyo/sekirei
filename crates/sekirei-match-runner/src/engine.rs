@@ -294,6 +294,16 @@ impl UsiEngine {
         }
     }
 
+    /// Report the terminal result from this engine's point of view.
+    ///
+    /// USI consumers may use `gameover` to finalize append-only audit logs
+    /// and release per-game state.  Sending only `usinewgame` before the next
+    /// game loses that terminal linkage even when every move was recorded.
+    pub fn end_game(&mut self, result: &str) -> io::Result<()> {
+        debug_assert!(matches!(result, "win" | "lose" | "draw"));
+        self.send(&format!("gameover {result}"))
+    }
+
     /// Non-blocking check for output the engine sent without being asked --
     /// e.g. a second `bestmove` for one `go`. `go()` already consumed the
     /// one bestmove it was waiting for; anything still queued right after
