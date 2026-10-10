@@ -147,10 +147,11 @@ impl SearchBackend {
     }
 
     fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
-        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags(
+        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags_and_hash_mb(
             Tt::new(hash_mb),
             workers,
             LAZY_FLAGS.load(Ordering::Relaxed),
+            hash_mb,
         )))
     }
 
@@ -437,6 +438,9 @@ fn diagnostics_delta(
         quiescence_calls: after
             .quiescence_calls
             .saturating_sub(before.quiescence_calls),
+        qsearch: std::array::from_fn(|index| {
+            after.qsearch[index].saturating_sub(before.qsearch[index])
+        }),
         static_evaluation_ns: after
             .static_evaluation_ns
             .saturating_sub(before.static_evaluation_ns),
@@ -537,16 +541,59 @@ fn emit_search_result(
     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
     if !info.worker_stats.is_empty() {
+        let total_worker_nodes = info
+            .worker_stats
+            .iter()
+            .map(|worker| worker.nodes)
+            .sum::<u64>();
+        let selected_index = info
+            .worker_stats
+            .iter()
+            .position(|worker| worker.selected)
+            .expect("Lazy SMP diagnostics must identify the selected worker");
+        let selected = info.worker_stats[selected_index];
+        let selected_share_permille = selected
+            .nodes
+            .saturating_mul(1000)
+            .checked_div(total_worker_nodes)
+            .unwrap_or(0);
+        let agreement = info
+            .worker_stats
+            .iter()
+            .filter(|worker| worker.best_move == selected.best_move)
+            .count();
+        // This is an end-to-end worker-duration spread, not a timestamped
+        // measurement from the instant the shared abort flag was raised.
+        let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
+        let max_elapsed_ms = info
+            .worker_stats
+            .iter()
+            .map(|worker| worker.elapsed.as_millis())
+            .max()
+            .unwrap_or(main_elapsed_ms);
+        let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
         let summary = info
             .worker_stats
             .iter()
             .enumerate()
             .map(|(i, worker)| {
-                format!("w{i}:d{}:n{}:s{}", worker.depth, worker.nodes, worker.score)
+                let marker = if worker.selected { "*" } else { "" };
+                format!(
+                    "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}",
+                    worker.depth,
+                    worker.nodes,
+                    worker.score,
+                    worker.elapsed.as_millis(),
+                    u8::from(worker.aborted),
+                    worker.abort_reason
+                )
             })
             .collect::<Vec<_>>()
             .join(",");
-        println!("info string lazy_smp {summary}");
+        println!(
+            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
+            info.worker_stats.len()
+        );
     }
     if let Some(root_safety) = info.root_safety {
         println!(
@@ -800,7 +847,7 @@ fn main() {
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
                 );
                 println!(
-                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 127"
+                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 255"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
                 println!("option name IncrementUsePercent type spin default 75 min 0 max 100");
@@ -1512,6 +1559,11 @@ fn main() {
             }
         }
     }
+
+    // A GUI or CSA adapter may terminate by closing stdin instead of sending
+    // `quit`.  Dropping a JoinHandle would detach the search worker, so apply
+    // the same abort-and-join barrier on every input-loop exit.
+    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
 }
 
 // ---- Helpers ----

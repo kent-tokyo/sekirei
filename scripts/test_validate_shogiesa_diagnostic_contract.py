@@ -34,7 +34,7 @@ class DiagnosticContractTests(unittest.TestCase):
         self.manifest_path = root / "manifest.json"
         self.observations_path = root / "observations.jsonl"
         self.manifest = {
-            "shogiesa_version": "0.11.0",
+            "shogiesa_version": "0.11.1",
             "schema_version": 11,
             "command": "label",
             "depths": [2, 4],
@@ -62,7 +62,7 @@ class DiagnosticContractTests(unittest.TestCase):
     def build(self, **overrides):
         self.write()
         args = {
-            "version": "0.11.0",
+            "version": "0.11.1",
             "manifest_path": self.manifest_path,
             "observations_path": self.observations_path,
             "expected_depths": [2, 4],

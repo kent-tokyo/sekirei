@@ -6,6 +6,47 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Evidence: match runner now sends USI `gameover` to both engines so opt-in
+  decision logs retain one terminal record per completed game. Archive a
+  hash-verified v0.3.67 opening-book ON/OFF diagnostic and a zero-row gate-
+  model readiness report; neither artifact is a playing-strength claim.
+
+- Search: avoid walking the parent search line for fourfold-repetition checks
+  when a conservative 64-bit history filter proves that the current hash has
+  not occurred there. Hash collisions still use the exact comparison, so
+  move choice, score, node count, and PV remain unchanged.
+- Diagnostics: expose quiescence exit/work counters in
+  `sekirei-search-diagnostic` and summarize pooled qsearch rates in the Q26
+  fixed-budget report without presenting overlapping timers as additive.
+- Added a loopback-only Denryu rehearsal that runs the real CSA client across
+  a forced 7+7 process boundary, resumes the cumulative game ceiling, records
+  an append-only status journal, hashes all evidence, and verifies that both
+  child processes are reaped.
+- Added explicit `sekirei-csa --completed-attempts` and `--status-journal`
+  options for audited bounded-run recovery.
+
+- CSA: bound incoming lines to 64 KiB, retain partial bytes across a socket
+  timeout, reject invalid UTF-8 and partial EOF explicitly, and drain an
+  oversized line before failing closed so its suffix cannot become a command.
+- CSA: validate game identifiers, side assignment, CSA time units and Fischer
+  fields before agreeing; preserve `%KACHI`/repetition events, stop on a
+  duplicate final result, and refuse a move beyond the 512-ply tournament
+  boundary. The Denryu 3 min/10 min + 2 s clock has an explicit fixture.
+- USI: cover repeated `isready` during infinite search and
+  `isready`/`ponderhit` during ponder with process-level regression tests, and
+  abort/join an active search when an adapter closes stdin without `quit`.
+- Lazy SMP diagnostics: identify the worker that supplied the returned result
+  and report its node share, the workers' best-move agreement, and approximate
+  worker stop-lag spread; `LazyFlags` bit 128 provides an opt-in isolated-TT
+  causal control, and the thread
+  scaling script preserves these fields in JSON output.
+- NNUE training: reject output paths that alias input data or initial states
+  through direct paths, hardlinks, or symlinks; publish network, float-state,
+  and resume-checkpoint outputs by atomic replacement.
+- Dependencies: update `lineprior` to 0.12.2 and `shogiesa-core`/the verified
+  external `shogiesa` CLI contract to 0.11.1. The opening-book schema remains
+  v1 and the shogiesa position schema remains v11.
+
 ## [0.3.67] – 2026-10-10
 
 - Documentation: shorten the English/Japanese entry READMEs and script index,

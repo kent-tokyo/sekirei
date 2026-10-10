@@ -16,10 +16,12 @@
 //!   --root-candidates <moves> comma-separated USI root moves for diagnostics
 //!   --run-manifest <file> write active startup settings as JSON
 //!   --status-file <file>  write atomic runtime state for a supervisor
+//!   --status-journal <file> append runtime state transitions as JSONL
 //!   --resign <cp>      resign threshold centipawns (default: 2000)
 //!   --depth <n>        max search depth (default: 50)
 //!   --loop             reconnect after each game for continuous play
 //!   --max-games <n>    stop after n completed game attempts (requires --loop)
+//!   --completed-attempts <n> resume a bounded batch from an earlier process
 //! ```
 
 mod moves;
@@ -66,7 +68,7 @@ fn run() -> i32 {
     }
 
     let mut attempts = 0u32;
-    let mut completed_attempts = 0u32;
+    let mut completed_attempts = config.initial_completed_attempts;
     loop {
         match CsaClient::connect_with_progress(config.clone(), completed_attempts) {
             Ok(mut client) => match client.run(&mut completed_attempts) {
@@ -104,6 +106,17 @@ fn run() -> i32 {
                 }
             },
             Err(e) => {
+                if e.kind() == std::io::ErrorKind::InvalidData {
+                    write_runtime_status_progress(
+                        &config,
+                        "client_error",
+                        Some("protocol_error"),
+                        completed_attempts,
+                        Some("invalid_server_line"),
+                    );
+                    eprintln!("[csa] terminal protocol error during connect: {e}");
+                    return 3;
+                }
                 attempts += 1;
                 write_runtime_status_progress(
                     &config,
@@ -218,6 +231,10 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                 i += 1;
                 cfg.status_file = Some(arg(&argv, i)?.into());
             }
+            "--status-journal" => {
+                i += 1;
+                cfg.status_journal = Some(arg(&argv, i)?.into());
+            }
             "--root-candidates" => {
                 i += 1;
                 let value = arg(&argv, i)?;
@@ -243,6 +260,12 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
                     return Err("--max-games must be at least 1".into());
                 }
                 cfg.max_games = Some(value);
+            }
+            "--completed-attempts" => {
+                i += 1;
+                cfg.initial_completed_attempts = arg(&argv, i)?
+                    .parse::<u32>()
+                    .map_err(|error| format!("--completed-attempts: {error}"))?;
             }
             "--help" | "-h" => {
                 print_usage();
@@ -277,6 +300,15 @@ fn parse_args_with_args(argv: Vec<String>) -> Result<Config, String> {
     }
     if cfg.max_games.is_some() && !cfg.keep_alive {
         return Err("--max-games requires --loop".into());
+    }
+    if cfg.initial_completed_attempts > 0 && !cfg.keep_alive {
+        return Err("--completed-attempts requires --loop".into());
+    }
+    if cfg
+        .max_games
+        .is_some_and(|limit| cfg.initial_completed_attempts > limit)
+    {
+        return Err("--completed-attempts cannot exceed --max-games".into());
     }
     match cfg.evaluation {
         EvaluationMode::Material if cfg.weights_path.is_some() => {
@@ -325,7 +357,7 @@ impl RunManifest<'_> {
             "analysis_record_schema": "sekirei.analysis-record.v3",
             "keep_alive": config.keep_alive,
             "max_games": config.max_games,
-            "completed_attempts": 0,
+            "completed_attempts": config.initial_completed_attempts,
             "terminal_stop_reason": null,
             "game_id": config.game_id,
             "server": config.server,
@@ -383,10 +415,12 @@ fn print_usage() {
     eprintln!("  --root-candidates <moves> comma-separated USI diagnostic root moves");
     eprintln!("  --run-manifest <file> active startup settings JSON");
     eprintln!("  --status-file <file>  atomic runtime state for supervisor");
+    eprintln!("  --status-journal <file> append runtime state transitions as JSONL");
     eprintln!("  --resign <cp>      resign threshold in centipawns (default: 2000)");
     eprintln!("  --depth <n>        max search depth (default: 50)");
     eprintln!("  --loop             reconnect after each game");
     eprintln!("  --max-games <n>    stop after n game attempts (requires --loop)");
+    eprintln!("  --completed-attempts <n> resume a bounded batch (requires --loop)");
 }
 
 #[cfg(test)]
@@ -448,14 +482,50 @@ mod tests {
 
         let missing_loop = parse_args_from(["--max-games", "5"]);
         assert!(matches!(missing_loop, Err(message) if message.contains("requires --loop")));
+
+        let resumed = parse_args_from([
+            "--loop",
+            "--max-games",
+            "14",
+            "--completed-attempts",
+            "7",
+            "--eval",
+            "material",
+        ])
+        .unwrap();
+        assert_eq!(resumed.initial_completed_attempts, 7);
+
+        let without_loop = parse_args_from(["--completed-attempts", "7"]);
+        assert!(matches!(without_loop, Err(message) if message.contains("requires --loop")));
+
+        let past_limit = parse_args_from([
+            "--loop",
+            "--max-games",
+            "7",
+            "--completed-attempts",
+            "8",
+            "--eval",
+            "material",
+        ]);
+        assert!(matches!(past_limit, Err(message) if message.contains("cannot exceed")));
     }
 
     #[test]
     fn status_file_is_parsed_without_affecting_run_contract() {
-        let config = parse_args_from(["--status-file", "/tmp/sekirei-status.json"]).unwrap();
+        let config = parse_args_from([
+            "--status-file",
+            "/tmp/sekirei-status.json",
+            "--status-journal",
+            "/tmp/sekirei-status.jsonl",
+        ])
+        .unwrap();
         assert_eq!(
             config.status_file.as_deref(),
             Some(std::path::Path::new("/tmp/sekirei-status.json"))
+        );
+        assert_eq!(
+            config.status_journal.as_deref(),
+            Some(std::path::Path::new("/tmp/sekirei-status.jsonl"))
         );
         assert_eq!(config.evaluation, EvaluationMode::Material);
     }

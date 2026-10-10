@@ -519,9 +519,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "lineprior"
-version = "0.12.1"
+version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b9ed1f348ae27e05d82ad0d322b6a9fe076d0030c52ae216559cd6477d270e3f"
+checksum = "e1a8df05a0d2554f5b18d0baa72749139f2356191f37ebba1657c1dcd2b56f7e"
 dependencies = [
  "serde",
  "serde_json",
@@ -921,9 +921,9 @@ checksum = "3d0a7de4ff7c66bf0b6346bda1d530c94a496f8aa3317938923886c58191aa14"
 
 [[package]]
 name = "shogiesa-core"
-version = "0.11.0"
+version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8627624bb76353da35342d8402bd4432fa07cc11ccd2bffea4af7e7a095d98b"
+checksum = "1c14636852f10cb39fa07aa440242ab008e462ee14ff0047375a429d16a947b5"
 dependencies = [
  "serde",
  "serde_json",

@@ -1,0 +1,26 @@
+{
+  "accepted": 0,
+  "acquisition_enabled": false,
+  "blockers": [
+    "no eligible independent GateObservation rows were admitted"
+  ],
+  "duplicates_suppressed": 0,
+  "feature_names": [],
+  "inputs": 1,
+  "model_fitting_enabled": false,
+  "quarantined": 1,
+  "readiness": "blocked_no_eligible_rows",
+  "rejections": [
+    {
+      "path": "data/runs/fg6_c3_gate_openings_20260915/gate_run_terminal_lock/final.json",
+      "reason": "missing gate_observation pre-gate declaration"
+    }
+  ],
+  "schema": "sekirei.gate-observation-export.v1",
+  "source_manifests": [
+    {
+      "path": "data/runs/fg6_c3_gate_openings_20260915/gate_run_terminal_lock/final.json",
+      "sha256": "6d43b7bc553bf6055c47de218d4f3bb28a66795f0da35c7a4017c5b0159fa100"
+    }
+  ]
+}

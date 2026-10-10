@@ -251,6 +251,26 @@ enum EndReason {
     ClockLoss,
 }
 
+fn gameover_results(outcome: Outcome) -> (&'static str, &'static str) {
+    match outcome {
+        Outcome::E1Win => ("win", "lose"),
+        Outcome::E2Win => ("lose", "win"),
+        Outcome::Draw => ("draw", "draw"),
+    }
+}
+
+fn notify_gameover(e1: &mut UsiEngine, e2: &mut UsiEngine, outcome: Outcome) -> Vec<String> {
+    let (e1_result, e2_result) = gameover_results(outcome);
+    let mut errors = Vec::new();
+    if let Err(error) = e1.end_game(e1_result) {
+        errors.push(format!("e1 gameover {e1_result}: {error}"));
+    }
+    if let Err(error) = e2.end_game(e2_result) {
+        errors.push(format!("e2 gameover {e2_result}: {error}"));
+    }
+    errors
+}
+
 /// Converts a clean game into CSA. Arbitrary SFEN starts are retained in a
 /// Sekirei comment so the training reader can reconstruct the exact board.
 /// Engine/protocol faults and capped games are deliberately rejected: assigning
@@ -1989,6 +2009,14 @@ fn main() {
             game_num,
             &mut transcript,
         );
+        let gameover_errors = notify_gameover(&mut e1, &mut e2, outcome);
+        if !gameover_errors.is_empty() {
+            eprintln!(
+                "  [match] game {game_num} terminal notification failed: {}",
+                gameover_errors.join("; ")
+            );
+            invalid_games.push(format!("game{game_num:04}: gameover notification failed"));
+        }
         game_moves.push(moves.clone());
         game_keys.push(format!("{start_pos}\n{}", moves.join(" ")));
 
@@ -2293,6 +2321,13 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gameover_results_are_from_each_engine_perspective() {
+        assert_eq!(gameover_results(Outcome::E1Win), ("win", "lose"));
+        assert_eq!(gameover_results(Outcome::E2Win), ("lose", "win"));
+        assert_eq!(gameover_results(Outcome::Draw), ("draw", "draw"));
+    }
 
     #[test]
     fn selfplay_csa_replays_startpos_resignation_without_inventing_result() {

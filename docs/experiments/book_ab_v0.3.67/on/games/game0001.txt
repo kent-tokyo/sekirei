@@ -1,0 +1,4 @@
+# Engine1: Sekirei (Black)
+# Engine2: Sekirei (White)
+# Result: Draw (max moves)
+position sfen lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1 moves 9g9f 8c8d 7g7f 3c3d 8h2b+ 3a2b B*4e 5a6b 4e3d B*5d 2h7h 6c6d 6i5h 4a3b 3i3h 8d8e 5i6h 3b3c 3d1f 2c2d 5h5i 3c4d 2g2f 4d3e 1f2g 6b6c 2g5d 6c5d B*2g B*4e 2g4e 3e4e B*2g 5d5e 4g4f 5e4f 3h4g 4f3e P*4f B*7d 4f4e 7d4g+ 2g1f 2d2e 1f3h 4g3h G*3f 3e3d 4i3h 2e2f 3f2f P*2e 2f3f B*8c 5i4h P*3e 3f4f 2a3c P*2c 2b2c B*4a 2c2d 4a6c+ 6a5b

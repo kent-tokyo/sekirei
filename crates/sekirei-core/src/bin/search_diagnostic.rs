@@ -284,6 +284,7 @@ fn main() {
         ),
     };
     let profile = diagnostics.as_ref().map(|observer| observer.snapshot());
+    let qsearch = profile.map_or([0; 11], |snapshot| snapshot.qsearch);
     let bestmove = info
         .best_move
         .map(move_to_usi)
@@ -369,7 +370,7 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
+        "bestmove={bestmove}\tdepth={}\tscore_cp={}\tnodes={}\telapsed_ms={}\telapsed_ns={}\tbound={}\tcompleted_bound={}\tcompleted_iteration_valid={}\taborted={}\tabort_reason={}\tteacher_search={}\tprofile_cost={}\tstatic_evaluations={}\teval_cache_probes={}\teval_cache_hits={}\ttt_probes={}\ttt_hits={}\ttt_stores={}\torder_tt={}\torder_killer={}\torder_countermove={}\torder_history={}\troot_mate_in_one_nodes={}\troot_mate_blunder_nodes={}\troot_mate_in_one_cache_hits={}\troot_mate_blunder_cache_hits={}\talpha_beta_calls={}\tquiescence_calls={}\tqsearch_top_level_calls={}\tqsearch_in_check={}\tqsearch_tt_cutoffs={}\tqsearch_stand_pat_cutoffs={}\tqsearch_terminal_nodes={}\tqsearch_searched_moves={}\tqsearch_beta_cutoffs={}\tqsearch_depth_cap_exits={}\tqsearch_mate_in_one_exits={}\tqsearch_delta_pruning_exits={}\tstatic_evaluation_ns={}\ttt_probe_ns={}\ttt_store_ns={}\tmovegen_order_ns={}\tmovegen_generate_ns={}\tmove_order_ns={}\tmove_order_score_ns={}\tmove_order_sort_ns={}\tquiescence_inclusive_ns={}\troot_mate_safety_ns={}\tpv_usi={}\tpv_legal={}\tpv_replay_preserves_input={}\thistory_moves={}\thistory_replayed={}\thistory_initial_hash={initial_hash:016x}\thistory_final_hash={history_final_hash:016x}\thistory_matches_expected={}\troot_candidates={}{}\troot_initial_order={}\titeration_trace={}{}",
         info.depth,
         info.score,
         info.nodes,
@@ -398,6 +399,16 @@ fn main() {
         profile.map_or(0, |snapshot| snapshot.root_mate_blunder_cache_hits),
         profile.map_or(0, |snapshot| snapshot.alpha_beta_calls),
         profile.map_or(0, |snapshot| snapshot.quiescence_calls),
+        qsearch[10],
+        qsearch[1],
+        qsearch[2],
+        qsearch[3],
+        qsearch[4],
+        qsearch[5],
+        qsearch[6],
+        qsearch[7],
+        qsearch[8],
+        qsearch[9],
         profile.map_or(0, |snapshot| snapshot.static_evaluation_ns),
         profile.map_or(0, |snapshot| snapshot.tt_probe_ns),
         profile.map_or(0, |snapshot| snapshot.tt_store_ns),

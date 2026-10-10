@@ -5,10 +5,10 @@ CLI. Use the Cargo binaries for normal engine operation. Before running a
 script, inspect `--help`, choose a new ignored output directory, and retain its
 manifest with the result.
 
-The workspace pins `lineprior 0.12.1`. The default USI runtime excludes it;
+The workspace pins `lineprior 0.12.2`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
 use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.0` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.0`
+`shogiesa 0.11.1` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.1`
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
@@ -29,8 +29,8 @@ training.
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
-| `run_ab_match.py` | Fixed-protocol A/B self-play or node-limited YaneuraOu ladder with one external HalfKP network. One thread and `SpecTopN=0` remain the diagnostic defaults; explicit per-side thread and search-mode options support parallel studies. Local diagnostic only. |
-| `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. Speed diagnostic only. |
+| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. Local diagnostic only. |
+| `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. For Lazy SMP, also records the selected worker's node share, worker best-move agreement, and approximate worker stop-lag spread. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 
 ## Measurement and rules diagnostics
@@ -48,6 +48,15 @@ training.
 - `run_fixed_depth_ab.py` and `gate_resource_preflight.py` provide guarded
   deterministic A/B and resource admission checks. Use `Threads=1` and
   `SpecTopN=0` unless the experiment explicitly studies parallelism.
+- `run_q26_search_profile.py` profiles a replayable fixed-node or fixed-time
+  corpus. Its report includes pooled qsearch calls, top-level calls, exits,
+  and searched-move rates; inclusive qsearch time overlaps its leaf timers and
+  must not be added to them.
+- For a Lazy SMP shared-TT causal control, add 128 to the usual `LazyFlags`
+  value. This gives every worker a private table while retaining the other
+  selected policy bits. `Hash` remains the total memory budget and is divided
+  among the private tables; this is a diagnostic setting, not a playing
+  default.
 
 Historical reports in `benchmark_reports/` apply only to their recorded host,
 revision, corpus, and operation. They are neither general speed rankings nor
@@ -69,7 +78,11 @@ candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
   game-level split; validation loss alone does not select a candidate.
 - `export_gate_observations.py` converts independent terminal gate manifests
   into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
-  missing lineage, and conflicting retries.
+  missing lineage, and conflicting retries. Use `--allow-empty` to archive a
+  deterministic zero-row readiness report when no historical run is eligible.
+- `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
+  terminal joins, book coverage, fallbacks, uncertainty, and cost for an
+  archived held-out `UseBook=false`/`true` diagnostic.
 
 Validate exported observations with:
 
@@ -83,6 +96,10 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
 `candidate_id` identifies one exact artifact/configuration; `group_id` keeps a
 shared recipe, lineage, and dataset in one cross-validation group. GateModel
 output is advisory and never authorizes deployment or a strength claim.
+
+The compact v0.3.67 opening-book diagnostic is archived under
+`docs/experiments/book_ab_v0.3.67/`. It is contract evidence, not a strength
+gate.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
@@ -99,7 +116,11 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
 `train_halfkp.py` consumes the packed files below. `--init` resumes from a
 float checkpoint and `--fact` adds a folded king-independent factor. Keep the
 default single epoch when continuing on new self-play data unless a separate
-experiment justifies otherwise.
+experiment justifies otherwise. The trainer rejects output paths that alias a
+training, validation, or initial-checkpoint input through a direct path,
+symlink, or hardlink. Network, float-state, and resume-checkpoint files are
+written to a sibling temporary file and atomically replaced only after a
+complete write.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
@@ -136,6 +157,22 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
 `--max-games` persists across reconnects. For launchd, use the supplied
 one-shot template with `KeepAlive` disabled; its durable completion record
 prevents an accidental restart after a terminal run.
+
+Before tournament deployment, run the loopback-only two-process rehearsal:
+
+```bash
+python3 scripts/run_denryu_rehearsal.py \
+  --binary target/release/sekirei-csa \
+  --output data/rehearsals/denryu-$(date +%Y%m%d-%H%M%S)
+```
+
+It runs 7 games, restarts the real client, resumes the cumulative ceiling, and
+runs 7 more. The top-level manifest hashes the executable, configuration,
+source identity, and all 14 records; the JSONL status journal proves both
+process boundaries and the final no-child state. See
+[`DENRYU_REHEARSAL.md`](DENRYU_REHEARSAL.md) for the recovery
+checklist. `--completed-attempts` is an explicit resume input and must come
+from a retained terminal status or manifest, never from an estimate.
 
 Same-engine self-play supports training and regression work. It does not show
 that either revision is stronger.

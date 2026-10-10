@@ -70,3 +70,15 @@ difference records work sharing only and is not Elo or wall-clock evidence.
 ```bash
 cargo run --release -p sekirei-core --example lazy_smp_diagnostic
 ```
+
+On 2026-10-10, `LazyFlags` bit 128 was added as a diagnostic-only USI control.
+It keeps the other selected policy bits but gives each worker a private TT;
+the configured total `Hash` budget is divided among those tables. A
+20-position ABBA measurement used four workers, 300 ms, material evaluation,
+and the same Sekirei-generated openings. Across the resulting 40 paired
+observations, shared TT reached a greater selected depth 20 times, tied 15,
+and lost 5, for a mean advantage of 0.45 ply (median 19 versus 18). A helper
+supplied the selected result in 28 of 40 shared-TT searches and none of the
+isolated controls. Worker-duration spread was 0 ms at millisecond resolution
+in every sample. These results support retaining TT sharing, but they do not
+measure Elo or identify which individual TT hits crossed worker boundaries.

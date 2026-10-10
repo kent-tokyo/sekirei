@@ -103,6 +103,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * 2026-10-01: Release v0.3.55 after verifying SearchMode Auto/Lazy SMP, bounded CSA operation, six-crate publication, manifest, and GitHub Release; make no general strength claim.
 * 2026-09-27: Do not use Suisho5 executables, nn.bin files, evaluation outputs, or derived labels for Sekirei training, candidate selection, or public artifacts unless the user later reverses this instruction.
 * 2026-10-07: Tune search constants (SPSA) and screen search changes with material-only evaluation and Sekirei-generated openings; use Suisho5 only to measure Sekirei against YaneuraOu, never to choose constants or defaults.
+* 2026-10-10: Claude owns self-NNUE training, weights, and candidate selection. Codex must not modify that lane concurrently; focus on search, parallelism, TT, quiescence, and their measurement tooling in an isolated worktree.
 * When writing newsletter articles, use natural, concrete prose and avoid formulaic or promotional AI-sounding language. State the actual observations and their limits plainly; avoid stock disclaimer phrasing and abstract caveats.
 * Where practical, support article claims with relevant data and links to their sources. Make clear which statements are verified facts and which are estimates or interpretation.
 * Always fact-check articles before delivery. Verify factual claims, especially figures, dates, quotations, and rules, against reliable sources; correct or remove claims that cannot be verified.
@@ -112,5 +113,3 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * Format Substack articles for easy scanning with restrained headings, emphasis, and lists. Use only formatting the editor reliably supports, and avoid emoji except where genuinely necessary.
 * Write Japan Condo Markets for non-Japanese readers in English. Briefly explain Japan-specific geography, price units, market terms, and financing eligibility where they matter; do not assume readers know the Japanese housing market.
 * Treat Tokyo as a set of distinct condominium submarkets, not one uniform price trend. Separate waterfront areas, central districts, and residential areas such as Setagaya; compare like-for-like properties and do not generalize a small sample across areas, building types, or price bands.
-
-* 2026-10-07: Improve the in-house NNUE without interfering with Claude; use an isolated worktree and build directory, low-priority single-job checks, and preserve ongoing search matches and shared edits.

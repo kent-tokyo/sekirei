@@ -1,0 +1,51 @@
+{
+  "artifacts_verified": 17,
+  "bundle_sha256": "7e8b07b8087eaed2410e06ced0b2f341ff7e0e26f6c2d3a26a27ace9f750a11d",
+  "conclusion": "diagnostic contract passed; game budget is not a strength gate",
+  "conclusive": false,
+  "engine1_score_delta": 0.0,
+  "evaluation_contract": "paired-ab",
+  "off": {
+    "abstentions": 128,
+    "book_selections": 0,
+    "coverage": 0.0,
+    "decisions": 128,
+    "elapsed_seconds": 18.5,
+    "elo_ci_high": 340.49,
+    "elo_ci_low": -340.49,
+    "elo_diff": -0.0,
+    "engine1_score": 0.5,
+    "fallback_reasons": {
+      "use_book_false": 128
+    },
+    "games": 4,
+    "supported_decisions": 0,
+    "terminal_outcomes": {
+      "draw": 4
+    }
+  },
+  "on": {
+    "abstentions": 126,
+    "book_selections": 2,
+    "coverage": 0.015625,
+    "decisions": 128,
+    "elapsed_seconds": 18.9,
+    "elo_ci_high": 340.49,
+    "elo_ci_low": -340.49,
+    "elo_diff": -0.0,
+    "engine1_score": 0.5,
+    "fallback_reasons": {
+      "past_book_max_ply": 68,
+      "unseen_state": 58
+    },
+    "games": 4,
+    "supported_decisions": 2,
+    "terminal_outcomes": {
+      "draw": 4
+    }
+  },
+  "propensity_present": false,
+  "same_cases_and_budget": true,
+  "schema": "sekirei.book-ab-report.v1",
+  "strength_claim_permitted": false
+}

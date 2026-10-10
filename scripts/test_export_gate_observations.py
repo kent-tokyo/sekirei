@@ -1,5 +1,6 @@
 import json
 import math
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -45,6 +46,9 @@ class ExportTests(unittest.TestCase):
             rows, report = export([duplicate, a])
             self.assertEqual(len(rows), 1)
             self.assertEqual(report["duplicates_suppressed"], 1)
+            self.assertEqual(report["readiness"], "rows_available")
+            self.assertEqual(report["source_manifests"][0]["path"], str(a))
+            self.assertEqual(len(report["source_manifests"][0]["sha256"]), 64)
             self.assertEqual(rows[0]["gate_status"], "Pass")
             self.assertIn("source_manifest_sha256", rows[0]["provenance"])
 
@@ -71,6 +75,32 @@ class ExportTests(unittest.TestCase):
             rows, report = export(paths)
             self.assertEqual(rows, [])
             self.assertEqual(report["quarantined"], 2)
+            self.assertEqual(report["readiness"], "blocked_no_eligible_rows")
+            self.assertFalse(report["model_fitting_enabled"])
+            self.assertFalse(report["acquisition_enabled"])
+
+    def test_allow_empty_writes_deterministic_readiness_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.write(directory, "legacy.json", {"schema": "legacy"})
+            output = Path(directory) / "observations.jsonl"
+            report = Path(directory) / "report.json"
+            command = [
+                sys.executable,
+                str(Path(__file__).with_name("export_gate_observations.py")),
+                str(source),
+                "--output",
+                str(output),
+                "--report",
+                str(report),
+                "--allow-empty",
+            ]
+            completed = subprocess.run(command, check=False, capture_output=True, text=True)
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertEqual(output.read_text(encoding="utf-8"), "")
+            document = json.loads(report.read_text(encoding="utf-8"))
+            self.assertEqual(document["accepted"], 0)
+            self.assertEqual(document["quarantined"], 1)
+            self.assertEqual(document["readiness"], "blocked_no_eligible_rows")
 
     def test_different_shared_feature_sets_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:

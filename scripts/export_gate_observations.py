@@ -183,11 +183,22 @@ def export(paths: list[Path]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     report = {
         "schema": SCHEMA,
         "inputs": len(paths),
+        "source_manifests": [
+            {"path": str(path), "sha256": sha256(path)}
+            for path in sorted(paths, key=lambda item: str(item))
+            if path.is_file()
+        ],
         "accepted": len(rows),
         "duplicates_suppressed": duplicates,
         "quarantined": len(rejected),
         "feature_names": list(feature_names or ()),
         "rejections": rejected,
+        "model_fitting_enabled": False,
+        "acquisition_enabled": False,
+        "readiness": "rows_available" if rows else "blocked_no_eligible_rows",
+        "blockers": [] if rows else [
+            "no eligible independent GateObservation rows were admitted"
+        ],
     }
     return rows, report
 
@@ -197,10 +208,13 @@ def main() -> int:
     parser.add_argument("inputs", nargs="+", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--report", type=Path, required=True)
+    parser.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="write a zero-row readiness artifact instead of failing",
+    )
     args = parser.parse_args()
     rows, report = export(args.inputs)
-    if not rows:
-        raise SystemExit("no eligible independent gate observations")
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(
         "".join(json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows),
@@ -209,6 +223,8 @@ def main() -> int:
     args.report.parent.mkdir(parents=True, exist_ok=True)
     args.report.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     print(json.dumps(report, sort_keys=True))
+    if not rows and not args.allow_empty:
+        raise SystemExit("no eligible independent gate observations")
     return 0
 
 

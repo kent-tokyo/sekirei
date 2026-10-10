@@ -46,6 +46,18 @@ fn send(stdin: &mut ChildStdin, line: &str) {
     stdin.flush().unwrap();
 }
 
+fn wait_for_child_exit(child: &mut Child, timeout: Duration, context: &str) {
+    let deadline = Instant::now() + timeout;
+    loop {
+        if let Some(status) = child.try_wait().expect("failed to poll engine") {
+            assert!(status.success(), "engine exited unsuccessfully: {status}");
+            return;
+        }
+        assert!(Instant::now() < deadline, "{context}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
 fn recv_line_matching(
     rx: &Receiver<String>,
     mut pred: impl FnMut(&str) -> bool,
@@ -109,6 +121,83 @@ fn history_replayed_stop_flushes_bestmove_before_readyok() {
         None,
         "position sfen lnsg1gsnl/5k3/p1pppp1pp/6p2/9/1P4P2/P1PPPP1PP/2G1KG1S1/L+rS4NL w Brbnp 22 moves 8i9i 9g9f",
     );
+}
+
+#[test]
+fn infinite_search_answers_repeated_isready_without_stopping() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go infinite");
+    std::thread::sleep(Duration::from_millis(50));
+
+    for _ in 0..2 {
+        send(&mut stdin, "isready");
+        let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+        assert!(
+            lines.iter().all(|line| !line.starts_with("bestmove ")),
+            "isready stopped an infinite search or leaked bestmove: {lines:?}"
+        );
+    }
+
+    send(&mut stdin, "stop");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for infinite-ready test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
+fn ponder_isready_then_ponderhit_keeps_one_search_response() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name SearchMode value LazySMP");
+    send(&mut stdin, "setoption name Threads value 2");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(
+        &mut stdin,
+        "go ponder btime 600000 wtime 600000 binc 2000 winc 2000",
+    );
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "isready published a ponder result: {lines:?}"
+    );
+
+    send(&mut stdin, "ponderhit");
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "stop");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "isready");
+    let after_stop = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        after_stop.iter().all(|line| !line.starts_with("bestmove ")),
+        "ponderhit/stop produced a duplicate bestmove: {after_stop:?}"
+    );
+
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for ponder-ready test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
 }
 
 #[test]
@@ -239,6 +328,44 @@ fn lazy_smp_quit_joins_inflight_search() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+#[test]
+fn speculative_quit_joins_inflight_search() {
+    let (mut child, _rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    send(&mut stdin, "setoption name SearchMode value Speculative");
+    send(&mut stdin, "setoption name SpecTopN value 3");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(150));
+    send(&mut stdin, "quit");
+
+    wait_for_child_exit(
+        &mut child,
+        Duration::from_secs(10),
+        "quit did not join the speculative search",
+    );
+}
+
+#[test]
+fn stdin_eof_joins_inflight_multi_thread_search() {
+    let (mut child, _rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    send(&mut stdin, "setoption name SearchMode value LazySMP");
+    send(&mut stdin, "setoption name Threads value 2");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go btime 600000 wtime 600000");
+    std::thread::sleep(Duration::from_millis(150));
+    drop(stdin);
+
+    wait_for_child_exit(
+        &mut child,
+        Duration::from_secs(10),
+        "stdin EOF did not join the Lazy SMP search",
+    );
 }
 
 #[test]

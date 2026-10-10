@@ -285,6 +285,14 @@ pub struct SearchDiagnostics {
     by_depth: [[AtomicU64; 9]; 17],
     /// Main-search nodes that searched moves and failed low.
     fail_low_nodes: AtomicU64,
+    /// SEARCH_V2 move-loop stages: nodes entering the quiet stage, nodes that
+    /// skipped it after late-move pruning, quiet moves scored, and nodes
+    /// entering the losing-tactical stage.
+    move_stages: [AtomicU64; 4],
+    /// Quiescence calls, nodes in check, TT cutoffs, stand-pat cutoffs,
+    /// terminal nodes, searched moves, beta cutoffs, depth-cap exits,
+    /// mate-in-one exits, delta-pruning exits, and top-level qsearch calls.
+    qsearch: [AtomicU64; 11],
 }
 
 /// Buckets of [`SearchDiagnostics::cut_histogram`]: move 1, 2, 3, 4, 5-6,
@@ -326,6 +334,11 @@ pub struct SearchDiagnosticsSnapshot {
     pub alpha_beta_calls: u64,
     /// Number of quiescence calls.
     pub quiescence_calls: u64,
+    /// Quiescence outcomes and work: calls, in-check nodes, TT cutoffs,
+    /// stand-pat cutoffs, terminal nodes, searched moves, beta cutoffs,
+    /// depth-cap exits, mate-in-one exits, delta-pruning exits, and top-level
+    /// qsearch calls.
+    pub qsearch: [u64; 11],
     /// Inclusive wall time spent in static-evaluation calls.
     pub static_evaluation_ns: u64,
     /// Inclusive wall time spent probing the transposition table.
@@ -462,6 +475,8 @@ impl SearchDiagnostics {
             exits: std::array::from_fn(|_| AtomicU64::new(0)),
             by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
             fail_low_nodes: AtomicU64::new(0),
+            move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
+            qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
         }
     }
 
@@ -618,6 +633,16 @@ impl SearchDiagnostics {
         )
     }
 
+    /// Quiescence outcomes and work (see the `qsearch` field).
+    pub fn qsearch_counts(&self) -> [u64; 11] {
+        std::array::from_fn(|i| self.qsearch[i].load(Ordering::Relaxed))
+    }
+
+    /// SEARCH_V2 move-loop stage usage (see the `move_stages` field).
+    pub fn move_stage_counts(&self) -> [u64; 4] {
+        std::array::from_fn(|i| self.move_stages[i].load(Ordering::Relaxed))
+    }
+
     /// Return counters collected so far without resetting the observer.
     pub fn snapshot(&self) -> SearchDiagnosticsSnapshot {
         SearchDiagnosticsSnapshot {
@@ -637,6 +662,7 @@ impl SearchDiagnostics {
             root_mate_blunder_cache_hits: self.root_mate_blunder_cache_hits.load(Ordering::Relaxed),
             alpha_beta_calls: self.alpha_beta_calls.load(Ordering::Relaxed),
             quiescence_calls: self.quiescence_calls.load(Ordering::Relaxed),
+            qsearch: self.qsearch_counts(),
             static_evaluation_ns: self.static_evaluation_ns.load(Ordering::Relaxed),
             tt_probe_ns: self.tt_probe_ns.load(Ordering::Relaxed),
             tt_store_ns: self.tt_store_ns.load(Ordering::Relaxed),
@@ -1420,6 +1446,10 @@ fn extract_pv(tt: &Tt, board: &mut Board, first: Option<Move>, depth: u32) -> Ve
 struct SearchHistory<'a> {
     game: &'a PositionHistory,
     parent: Option<&'a SearchHistory<'a>>,
+    /// Bloom filter of hashes in the search line before this frame. A miss is
+    /// exact and avoids walking the parent chain; a collision falls back to
+    /// the full comparison below.
+    prior_hashes: u64,
     /// The move that produced this node; `None` for the root, whose position
     /// is the last game entry.
     entry: Option<PositionHistoryEntry>,
@@ -1430,8 +1460,14 @@ impl<'a> SearchHistory<'a> {
         SearchHistory {
             game,
             parent: None,
+            prior_hashes: 0,
             entry: None,
         }
+    }
+
+    #[inline(always)]
+    fn hash_bit(hash: u64) -> u64 {
+        1u64 << (hash >> 58)
     }
 
     #[inline]
@@ -1439,6 +1475,8 @@ impl<'a> SearchHistory<'a> {
         SearchHistory {
             game: self.game,
             parent: Some(self),
+            prior_hashes: self.prior_hashes
+                | self.entry.map_or(0, |entry| Self::hash_bit(entry.hash)),
             entry: Some(PositionHistoryEntry {
                 hash,
                 mover: Some(mover),
@@ -1454,6 +1492,12 @@ impl<'a> SearchHistory<'a> {
             return self.game.outcome_at_current_position();
         };
         let mut count = self.game.count_hash(current.hash);
+        // The current frame contributes one occurrence. With fewer than
+        // three occurrences in game history and no possible prior line match,
+        // fourfold repetition is impossible.
+        if count < 3 && self.prior_hashes & Self::hash_bit(current.hash) == 0 {
+            return None;
+        }
         let mut frame = Some(self);
         while let Some(f) = frame {
             if f.entry.is_some_and(|e| e.hash == current.hash) {
@@ -3725,6 +3769,10 @@ fn quiescence(
     let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
     if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+        diagnostics.qsearch[0].fetch_add(1, Ordering::Relaxed);
+        if qply == 0 {
+            diagnostics.qsearch[10].fetch_add(1, Ordering::Relaxed);
+        }
     }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
@@ -3741,6 +3789,9 @@ fn quiescence(
     // until the clock runs out — the move then blows past its byoyomi.
     const QSEARCH_MAX_PLY: u32 = 10;
     if qply >= QSEARCH_MAX_PLY {
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[7].fetch_add(1, Ordering::Relaxed);
+        }
         return evaluate_for_search(state, board);
     }
 
@@ -3774,9 +3825,17 @@ fn quiescence(
         tt_mv = entry.mv;
         tt_bound = Some((entry.bound, adj));
         match entry.bound {
-            Bound::Exact => return adj,
+            Bound::Exact => {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                }
+                return adj;
+            }
             Bound::Lower => {
                 if adj >= beta {
+                    if let Some(diagnostics) = state.counters() {
+                        diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                    }
                     return adj;
                 }
                 if adj > alpha {
@@ -3785,6 +3844,9 @@ fn quiescence(
             }
             Bound::Upper => {
                 if adj <= alpha {
+                    if let Some(diagnostics) = state.counters() {
+                        diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
+                    }
                     return adj;
                 }
             }
@@ -3796,6 +3858,9 @@ fn quiescence(
     let orig_alpha = alpha;
 
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, board.side_to_move));
+    if in_check && let Some(diagnostics) = state.counters() {
+        diagnostics.qsearch[1].fetch_add(1, Ordering::Relaxed);
+    }
     let mut stand_pat_value: Option<i32> = None;
 
     // Stand-pat and delta pruning only apply when not in check.
@@ -3804,6 +3869,9 @@ fn quiescence(
         // Standing pat must not hide a mate in one at the horizon.
         let qstyle = p::QS_STYLE();
         if (qply == 0 || qstyle & 2 != 0) && mate_in_one(board).is_some() {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[8].fetch_add(1, Ordering::Relaxed);
+            }
             return MATE_SCORE - (ply as i32 + 1);
         }
         let mut stand_pat = evaluate_for_search(state, board);
@@ -3825,6 +3893,9 @@ fn quiescence(
         }
         stand_pat_value = Some(stand_pat);
         if stand_pat >= beta {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[3].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -3848,6 +3919,9 @@ fn quiescence(
         // Delta Pruning: if even the best possible capture+promotion cannot improve alpha, skip.
         // Max gain = Ryu capture (1300) + Fu→Tokin promotion bonus (500) = 1800cp.
         if stand_pat + p::QS_DELTA() < alpha {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[9].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -3899,6 +3973,9 @@ fn quiescence(
     };
 
     if move_buffer.is_empty() {
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[4].fetch_add(1, Ordering::Relaxed);
+        }
         let score = if in_check {
             -MATE_SCORE + ply as i32 // checkmate
         } else {
@@ -3988,12 +4065,18 @@ fn quiescence(
             Some(child_in_check),
             &child_history,
         );
+        if let Some(diagnostics) = state.counters() {
+            diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+        }
         board.undo_move_for_search(tok);
 
         if state.budget.should_abort() {
             return 0;
         }
         if score >= beta {
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+            }
             if tt_here && !state.budget.should_abort() {
                 store_tt_for_search(
                     state,
@@ -4051,11 +4134,17 @@ fn quiescence(
                 Some(gives_check),
                 &child_history,
             );
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+            }
             board.undo_move_for_search(tok);
             if state.budget.should_abort() {
                 return 0;
             }
             if score >= beta {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+                }
                 if tt_here {
                     store_tt_for_search(
                         state,
@@ -4136,12 +4225,18 @@ fn quiescence(
                 Some(gives_check),
                 &child_history,
             );
+            if let Some(diagnostics) = state.counters() {
+                diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
+            }
             board.undo_move_for_search(tok);
 
             if state.budget.should_abort() {
                 return 0;
             }
             if score >= beta {
+                if let Some(diagnostics) = state.counters() {
+                    diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
+                }
                 if !state.budget.should_abort() {
                     store_tt_for_search(
                         state,
@@ -6263,6 +6358,29 @@ mod regression_tests {
             .probe(hash)
             .expect("root_search_inner should have stored a TT entry");
         assert_eq!(entry.bound, Bound::Lower);
+    }
+
+    #[test]
+    fn search_history_filter_preserves_exact_repetition_detection() {
+        let game = PositionHistory::initial(1);
+        let root = SearchHistory::root(&game);
+        let h1 = root.after_move(2, Color::Black, false);
+        let h2 = h1.after_move(3, Color::White, false);
+        let h3 = h2.after_move(2, Color::Black, false);
+        let h4 = h3.after_move(4, Color::White, false);
+        let h5 = h4.after_move(2, Color::Black, false);
+        let h6 = h5.after_move(5, Color::White, false);
+        let h7 = h6.after_move(2, Color::Black, false);
+
+        assert_eq!(
+            h7.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+
+        // A Bloom collision may only trigger the exact fallback. It must not
+        // create a repetition verdict for a different hash.
+        let collision = h1.after_move(2 + (1 << 20), Color::White, false);
+        assert_eq!(collision.outcome_at_current_position(), None);
     }
 
     #[test]

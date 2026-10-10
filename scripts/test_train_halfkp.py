@@ -70,5 +70,45 @@ class FactorizerTest(unittest.TestCase):
         self.assertTrue(torch.allclose(fact.rows(us), plain.rows(us)))
 
 
+@unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
+class OutputSafetyTest(unittest.TestCase):
+    def test_rejects_direct_input_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = os.path.join(tmp, "train.bin")
+            open(data, "wb").close()
+            with self.assertRaisesRegex(ValueError, "output aliases input"):
+                th.validate_io_paths([data], [data])
+
+    def test_rejects_hardlink_and_symlink_aliases(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data = os.path.join(tmp, "train.bin")
+            hardlink = os.path.join(tmp, "hardlink.bin")
+            symlink = os.path.join(tmp, "symlink.bin")
+            open(data, "wb").close()
+            os.link(data, hardlink)
+            os.symlink(data, symlink)
+            for output in (hardlink, symlink):
+                with self.subTest(output=output):
+                    with self.assertRaisesRegex(ValueError, "output aliases input"):
+                        th.validate_io_paths([data], [output])
+
+    def test_atomic_replace_preserves_existing_output_on_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            output = os.path.join(tmp, "network.bin")
+            with open(output, "wb") as f:
+                f.write(b"previous")
+
+            def fail(temporary):
+                with open(temporary, "wb") as f:
+                    f.write(b"partial")
+                raise RuntimeError("injected failure")
+
+            with self.assertRaisesRegex(RuntimeError, "injected failure"):
+                th._atomic_replace(output, fail)
+            with open(output, "rb") as f:
+                self.assertEqual(f.read(), b"previous")
+            self.assertFalse(os.path.exists(th._temporary_sibling(output)))
+
+
 if __name__ == "__main__":
     unittest.main()

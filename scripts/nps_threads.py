@@ -41,15 +41,16 @@ ROOT = Path(__file__).resolve().parent.parent
 
 class Usi:
     def __init__(self, binary: str, env: dict[str, str]):
+        binary_path = Path(binary).resolve()
         self.proc = subprocess.Popen(
-            [binary],
+            [str(binary_path)],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             text=True,
             bufsize=1,
             env=env,
-            cwd=str(Path(binary).resolve().parent),
+            cwd=str(binary_path.parent),
         )
 
     def send(self, line: str) -> None:
@@ -94,9 +95,33 @@ def parse_info(lines: list[str]) -> tuple[int, int, int]:
     return depth, nodes, nps
 
 
+def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
+    """Selected-worker diagnostics from the last Lazy SMP info line."""
+    prefix = "info string lazy_smp "
+    for line in reversed(lines):
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix) :].split()
+        try:
+            selected = int(parts[parts.index("selected") + 1].removeprefix("w"))
+            node_share_permille = int(parts[parts.index("node_share_permille") + 1])
+            agreement, workers = parts[parts.index("move_agreement") + 1].split("/", 1)
+            stop_lag_ms = int(parts[parts.index("stop_lag_ms") + 1])
+            return {
+                "selected_worker": selected,
+                "selected_node_share_permille": node_share_permille,
+                "move_agreement": int(agreement),
+                "workers": int(workers),
+                "stop_lag_ms": stop_lag_ms,
+            }
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
-    evalfile = Path(args.evalfile).resolve()
     if args.yaneuraou:
+        evalfile = Path(args.evalfile).resolve()
         options = [
             f"EvalDir={evalfile.parent}",
             f"FV_SCALE={args.fv_scale}",
@@ -111,12 +136,13 @@ def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
         ]
     else:
         options = [
-            f"EvalFile={evalfile}",
             f"FV_SCALE={args.fv_scale}",
             f"Threads={threads}",
             f"Hash={args.hash}",
             "UseBook=false",
         ]
+        if args.evalfile is not None:
+            options.insert(0, f"EvalFile={Path(args.evalfile).resolve()}")
     return options + list(args.option)
 
 
@@ -152,21 +178,31 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
             lines = engine.wait_for("bestmove")
             elapsed = time.perf_counter() - start
             depth, nodes, nps = parse_info(lines)
+            lazy_smp = parse_lazy_smp(lines)
             if nps == 0 and elapsed > 0:
                 nps = int(nodes / elapsed)
-            rows.append(
-                {
-                    "threads": threads,
-                    "position": index,
-                    "depth": depth,
-                    "nodes": nodes,
-                    "nps": nps,
-                    "elapsed_ms": round(elapsed * 1000),
-                }
-            )
+            row = {
+                "threads": threads,
+                "position": index,
+                "depth": depth,
+                "nodes": nodes,
+                "nps": nps,
+                "elapsed_ms": round(elapsed * 1000),
+            }
+            if lazy_smp is not None:
+                row["lazy_smp"] = lazy_smp
+            rows.append(row)
+            lazy_suffix = ""
+            if lazy_smp is not None:
+                lazy_suffix = (
+                    f" selected w{lazy_smp['selected_worker']}"
+                    f" share {lazy_smp['selected_node_share_permille'] / 10:.1f}%"
+                    f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
+                    f" lag {lazy_smp['stop_lag_ms']}ms"
+                )
             print(
                 f"  threads {threads} pos {index:2d}: depth {depth:2d} "
-                f"nodes {nodes:9d} nps {nps:8d}",
+                f"nodes {nodes:9d} nps {nps:8d}{lazy_suffix}",
                 file=sys.stderr,
                 flush=True,
             )
@@ -179,7 +215,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("engine", help="USI engine binary")
     parser.add_argument("--yaneuraou", action="store_true", help="engine is YaneuraOu")
-    parser.add_argument("--evalfile", required=True, help="HalfKP nn.bin")
+    parser.add_argument(
+        "--evalfile",
+        help="HalfKP nn.bin; omit for a material-only Sekirei measurement",
+    )
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--hash", type=int, default=64)
     parser.add_argument("--threads", default="1,2,4", help="comma-separated thread counts")
@@ -193,6 +232,8 @@ def main() -> int:
     )
     parser.add_argument("--json", help="write one JSON line per measurement")
     args = parser.parse_args()
+    if args.yaneuraou and args.evalfile is None:
+        parser.error("--yaneuraou requires --evalfile")
 
     positions = read_positions(args.positions, args.count)
     thread_counts = [int(t) for t in args.threads.split(",")]

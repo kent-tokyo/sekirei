@@ -1,0 +1,129 @@
+{
+  "schema": "sekirei.book-ab-bundle.v1",
+  "source": {
+    "engine_tag": "v0.3.67",
+    "engine_commit": "6bebe711e512793dcd933de441ca5b3ce5981b2f",
+    "engine_sha256": "c1b2e0cbb5a7288a923b864969db0f03355fadfa30ce85f9681c2bf0739591ba",
+    "runner_commit": "7058c851dfc0fa27802ec0e64621221ca0cb7da0",
+    "runner_sha256": "c1c40be00e2866b59fef0e1a9af331320cd0f83042f591c49c38d235f4bbf7d9",
+    "lineprior_version": "0.12.1",
+    "training_corpus_identifier": "8a352bb2a44b78dbd2b59cd497e1c1acbe0058daffb9c827a891b66e76324ceb"
+  },
+  "protocol": {
+    "positions": 2,
+    "games_per_position": 2,
+    "byoyomi_ms": 50,
+    "max_moves": 64,
+    "threads": 1,
+    "search_mode": "LazySMP",
+    "evaluator": "material"
+  },
+  "artifacts": {
+    "book": {
+      "path": "opening_book.jsonl",
+      "sha256": "f65e013bbeec88d6724cd55bd19fe060a6b3543e4c2a13ed2e5c9e3e823a7b2d",
+      "bytes": 314502
+    },
+    "book_manifest": {
+      "path": "opening_book.manifest.json",
+      "sha256": "3b59da1c6f07f6d883c8dd26ff0812db596c4440290b12e71a8fa2e0bc611ef5",
+      "bytes": 1638
+    },
+    "openings": {
+      "path": "heldout_openings.sfen",
+      "sha256": "8a81c79c190e1f33b194842fa9e6a2a0367e20e2512d9e22244ccefc3d33730c",
+      "bytes": 135
+    },
+    "off_decisions": {
+      "path": "off/decisions.jsonl",
+      "sha256": "2dafc6e87e9ea95037aace1939cac1a4358f9984e05fa4bbe20cb3762ec215bc",
+      "bytes": 85936
+    },
+    "off_result": {
+      "path": "off/result.json",
+      "sha256": "a7dd01edd91816cbc601b214084c4621d998b3d3fb6fe162dc3125f4c77eaae9",
+      "bytes": 1160
+    },
+    "off_records": {
+      "path": "off/result.jsonl",
+      "sha256": "5d5097371a7237c2861d371697691bd7100c53ea073d09c2240b326daeebc471",
+      "bytes": 144
+    },
+    "off_game_1": {"path": "off/games/game0001.txt", "sha256": "11e3d028725ac03895f7b28d1dea007c5ffeb6ac8bb58ad8a4da191652b0570c", "bytes": 491},
+    "off_game_2": {"path": "off/games/game0002.txt", "sha256": "b86c353626b3d7aea73d5bfd695b3b131793fe00795e2ac6895c37d89a3dfb1c", "bytes": 487},
+    "off_game_3": {"path": "off/games/game0003.txt", "sha256": "d7033fa2e4c1df0c466f580b54ac80f4423a53fa5dbbfc177fa893ef32bb5dd4", "bytes": 500},
+    "off_game_4": {"path": "off/games/game0004.txt", "sha256": "65ea7310f2ecefb0f88e5728c2cc1becf62ae1c9851e54aad12c6edf2571d120", "bytes": 501},
+    "on_decisions": {
+      "path": "on/decisions.jsonl",
+      "sha256": "3c70eb4647be4315d33e80972e84b998f0da5a0b535030bcea00b5eac4760253",
+      "bytes": 95676
+    },
+    "on_result": {
+      "path": "on/result.json",
+      "sha256": "887ae0f78bce06267bb70b4d7e551c1f0161241c7b02b2147696c667ff1f5b82",
+      "bytes": 1157
+    },
+    "on_records": {
+      "path": "on/result.jsonl",
+      "sha256": "5d5097371a7237c2861d371697691bd7100c53ea073d09c2240b326daeebc471",
+      "bytes": 144
+    },
+    "on_game_1": {"path": "on/games/game0001.txt", "sha256": "ae6d87f5b41f436787c2d84b0107cd6616d1f5074a01bf56480757fb7be1273d", "bytes": 488},
+    "on_game_2": {"path": "on/games/game0002.txt", "sha256": "e28383e17d973cf5303e1545830929371f9ec853b87d27e276df6c5e215516a0", "bytes": 492},
+    "on_game_3": {"path": "on/games/game0003.txt", "sha256": "f786af9def913589cb2510dd41c29c6beb45bf05a35516984d01ceb9f02d2ae5", "bytes": 495},
+    "on_game_4": {"path": "on/games/game0004.txt", "sha256": "ad0ebabf5b431280c3e3120fe1497bedf5de09c32eaa9cf0eeb2b19f1684e6a8", "bytes": 498}
+  },
+  "arms": {
+    "off": {
+      "use_book": false,
+      "decision_log": "off_decisions",
+      "result": "off_result",
+      "result_records": "off_records",
+      "elapsed_seconds": 18.5
+    },
+    "on": {
+      "use_book": true,
+      "decision_log": "on_decisions",
+      "result": "on_result",
+      "result_records": "on_records",
+      "elapsed_seconds": 18.9
+    }
+  },
+  "commands": {
+    "book_build": [
+      "train", "--games", "data/runs/local_selfplay_20260919T010030Z/csa",
+      "--min-rate", "0", "--build-book", "opening_book.jsonl",
+      "--book-max-ply", "24", "--book-min-count", "1"
+    ],
+    "off": [
+      "target/release/sekirei-match", "--engine1", "target/v067-book/release/sekirei",
+      "--engine2", "target/v067-book/release/sekirei", "--games-per-position", "2",
+      "--positions", "docs/experiments/book_ab_v0.3.67/heldout_openings.sfen",
+      "--byoyomi", "50", "--max-moves", "64",
+      "--output", "docs/experiments/book_ab_v0.3.67/off/games",
+      "--json", "docs/experiments/book_ab_v0.3.67/off/result.json",
+      "--engine-option1", "Threads=1", "--engine-option1", "SearchMode=LazySMP",
+      "--engine-option1", "UseBook=false",
+      "--engine-option1", "BookFile=docs/experiments/book_ab_v0.3.67/opening_book.jsonl",
+      "--engine-option1", "BookDecisionLog=docs/experiments/book_ab_v0.3.67/off/decisions.jsonl",
+      "--engine-option1", "BookExperimentId=book-ab-v067-off",
+      "--engine-option2", "Threads=1",
+      "--engine-option2", "SearchMode=LazySMP", "--engine-option2", "UseBook=false"
+    ],
+    "on": [
+      "target/release/sekirei-match", "--engine1", "target/v067-book/release/sekirei",
+      "--engine2", "target/v067-book/release/sekirei", "--games-per-position", "2",
+      "--positions", "docs/experiments/book_ab_v0.3.67/heldout_openings.sfen",
+      "--byoyomi", "50", "--max-moves", "64",
+      "--output", "docs/experiments/book_ab_v0.3.67/on/games",
+      "--json", "docs/experiments/book_ab_v0.3.67/on/result.json",
+      "--engine-option1", "Threads=1", "--engine-option1", "SearchMode=LazySMP",
+      "--engine-option1", "UseBook=true",
+      "--engine-option1", "BookFile=docs/experiments/book_ab_v0.3.67/opening_book.jsonl",
+      "--engine-option1", "BookDecisionLog=docs/experiments/book_ab_v0.3.67/on/decisions.jsonl",
+      "--engine-option1", "BookExperimentId=book-ab-v067-on",
+      "--engine-option2", "Threads=1",
+      "--engine-option2", "SearchMode=LazySMP", "--engine-option2", "UseBook=false"
+    ]
+  }
+}

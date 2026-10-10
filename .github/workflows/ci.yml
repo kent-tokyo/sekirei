@@ -132,6 +132,7 @@ jobs:
           python3 -m unittest scripts/test_split_gensfen_by_game.py
           python3 -m unittest scripts/test_validate_shogiesa_diagnostic_contract.py
           python3 -m unittest scripts/test_export_gate_observations.py
+          python3 -m unittest scripts/test_validate_book_ab_bundle.py
           cargo run -p sekirei-train --bin validate_gate_observations -- \
             scripts/fixtures/gate_observation_v1.jsonl
           bash -n scripts/train_with_shogiesa_quietset.sh

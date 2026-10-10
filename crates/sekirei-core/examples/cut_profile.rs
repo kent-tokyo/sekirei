@@ -2,10 +2,12 @@
 //! the move order, for fixed-depth searches of a position list.
 //!
 //! ```text
-//! cut_profile <nn.bin> <positions.txt> [count] [depth] [fv_scale] [NAME=value ...]
+//! cut_profile <nn.bin|none> <positions.txt> [count] [depth] [fv_scale] [NAME=value ...] [--json]
 //! ```
 //!
-//! `positions.txt` holds USI `position ...` lines. Every position gets one
+//! Pass `none` as the evaluator to profile the material-only search without
+//! reading an NNUE owned by another experiment. `positions.txt` holds USI
+//! `position ...` lines. Every position gets one
 //! fresh single-thread search to `depth`. `NAME=value` sets search parameters
 //! (tune builds). Prints the share of cutoffs by the position of the cutoff
 //! move (quiet and other cutoff moves), fail-low nodes and total nodes.
@@ -14,14 +16,25 @@
 use sekirei_core::halfkp;
 use sekirei_core::nnue::load_evaluator;
 use sekirei_core::search::{CUT_BUCKETS, SearchConfig, SearchDiagnostics, Searcher, params};
-use sekirei_core::sfen::parse_position_cmd_with_history;
+use sekirei_core::sfen::{move_to_usi, parse_position_cmd_with_history};
 use sekirei_core::tt::Tt;
 use std::path::Path;
 use std::sync::Arc;
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    load_evaluator(Path::new(&args[0])).expect("load evaluator");
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let json = args.iter().any(|arg| arg == "--json");
+    args.retain(|arg| arg != "--json");
+    assert!(
+        args.len() >= 2,
+        "usage: cut_profile <nn.bin|none> <positions.txt> [count] [depth] [fv_scale] [NAME=value ...] [--json]"
+    );
+    let evaluator = if args[0] == "none" {
+        "material"
+    } else {
+        load_evaluator(Path::new(&args[0])).expect("load evaluator");
+        "nnue"
+    };
     let text = std::fs::read_to_string(&args[1]).expect("positions");
     let count: usize = args.get(2).map_or(40, |s| s.parse().unwrap());
     let depth: u32 = args.get(3).map_or(10, |s| s.parse().unwrap());
@@ -36,15 +49,31 @@ fn main() {
             "unknown or fixed parameter {k}"
         );
     }
-    let positions: Vec<&str> = text
+    let positions: Vec<String> = text
         .lines()
-        .filter_map(|l| l.strip_prefix("position "))
+        .filter_map(|line| {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                None
+            } else if let Some(body) = line.strip_prefix("position ") {
+                Some(body.to_owned())
+            } else if line == "startpos" || line.starts_with("sfen ") {
+                Some(line.to_owned())
+            } else {
+                Some(format!("sfen {line}"))
+            }
+        })
         .take(count)
         .collect();
+    assert!(
+        !positions.is_empty(),
+        "positions file has no usable positions"
+    );
     let mut cuts = [[0u64; CUT_BUCKETS]; 4];
     let mut loops = [0u64; 2];
     let (mut pv_calls, mut lw, mut sw) = (0u64, [0u64; 2], [0u64; 2]);
     let mut rs = [0u64; 3];
+    let mut stages = [0u64; 4];
     let mut ex = [0u64; 8];
     let mut chk = [0u64; 2];
     let mut table = [[0u64; 9]; 17];
@@ -55,6 +84,11 @@ fn main() {
     let mut mk = [[0u64; 8]; 16];
     let mut nodes = 0u64;
     let mut ab = 0u64;
+    let mut qs = 0u64;
+    let mut evals = 0u64;
+    let mut qsearch = [0u64; 10];
+    let mut elapsed_ns = 0u128;
+    let mut decisions = Vec::with_capacity(positions.len());
     for body in &positions {
         let (mut board, history) = parse_position_cmd_with_history(body).expect("parse");
         let diagnostics = Arc::new(SearchDiagnostics::new());
@@ -75,6 +109,15 @@ fn main() {
             },
             &history,
         );
+        elapsed_ns += info.elapsed.as_nanos();
+        decisions.push(format!(
+            "{}:{}:{}",
+            info.best_move
+                .map(move_to_usi)
+                .unwrap_or_else(|| "resign".to_owned()),
+            info.score,
+            info.depth,
+        ));
         let t = diagnostics.depth_table();
         for d in 0..17 {
             for k in 0..9 {
@@ -91,6 +134,10 @@ fn main() {
         let r3 = diagnostics.research_counts();
         for i in 0..3 {
             rs[i] += r3[i];
+        }
+        let s4 = diagnostics.move_stage_counts();
+        for i in 0..4 {
+            stages[i] += s4[i];
         }
         let (pc, l2, s2) = diagnostics.window_counts();
         pv_calls += pc;
@@ -132,12 +179,41 @@ fn main() {
         }
         fail_low += f;
         nodes += info.nodes;
-        ab += diagnostics.snapshot().alpha_beta_calls;
+        let snapshot = diagnostics.snapshot();
+        ab += snapshot.alpha_beta_calls;
+        qs += snapshot.quiescence_calls;
+        evals += snapshot.static_evaluations;
+        let q = diagnostics.qsearch_counts();
+        for i in 0..qsearch.len() {
+            qsearch[i] += q[i];
+        }
     }
     let total: u64 = cuts.iter().flatten().sum();
     let labels = [
         "1", "2", "3", "4", "5-6", "7-8", "9-12", "13-16", "17-32", "33+",
     ];
+    if json {
+        println!(
+            "{{\"schema\":\"sekirei.search-tree-profile.v1\",\"evaluator\":\"{evaluator}\",\"positions\":{},\"depth\":{depth},\"elapsed_ns\":{elapsed_ns},\"decisions\":{:?},\"nodes\":{nodes},\"alpha_beta_calls\":{ab},\"quiescence_calls\":{qs},\"static_evaluations\":{evals},\"cutoffs\":{total},\"fail_low_nodes\":{fail_low},\"loop_nodes\":{:?},\"pv_calls\":{pv_calls},\"loop_by_window\":{:?},\"searched_by_window\":{:?},\"research\":{:?},\"move_stages\":{:?},\"searched_checks\":{:?},\"exits\":{:?},\"qsearch\":{:?},\"depth_table\":{:?},\"cut_histogram\":{:?},\"move_kinds\":{:?},\"v2_nodes\":{:?},\"tt_probes\":{:?},\"tt_quiet_cut\":{:?}}}",
+            positions.len(),
+            decisions,
+            loops,
+            lw,
+            sw,
+            rs,
+            stages,
+            chk,
+            ex,
+            qsearch,
+            table,
+            cuts,
+            mk,
+            v2n,
+            ttp,
+            ttq,
+        );
+        return;
+    }
     println!(
         "positions {} depth {depth} nodes/pos {} ab/pos {} cutoffs {total} fail-low nodes {fail_low} loop nodes without/with TT move {}/{}",
         positions.len(),
@@ -162,6 +238,10 @@ fn main() {
         100.0 * per(rs[1], rs[0]),
         rs[2]
     );
+    println!(
+        "move stages: quiet entered {} skipped {} quiets scored {} losing tacticals entered {}",
+        stages[0], stages[1], stages[2], stages[3]
+    );
     let np = positions.len() as u64;
     println!(
         "later moves searched that give check: null {} of {} ({:.1}%), pv {} of {} ({:.1}%)",
@@ -182,6 +262,19 @@ fn main() {
         ex[5] / np,
         ex[6] / np,
         ex[7] / np
+    );
+    println!(
+        "qsearch: calls {} in-check {} tt-cut {} stand-pat-cut {} terminal {} moves {} beta-cut {} depth-cap {} mate1 {} delta {}",
+        qsearch[0],
+        qsearch[1],
+        qsearch[2],
+        qsearch[3],
+        qsearch[4],
+        qsearch[5],
+        qsearch[6],
+        qsearch[7],
+        qsearch[8],
+        qsearch[9],
     );
     println!(" r     calls    TT razor   RFP   NMP    PC mate1  loop ch/node ch/loop");
     for (d, row) in table.iter().enumerate().skip(1) {

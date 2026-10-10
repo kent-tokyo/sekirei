@@ -27,6 +27,11 @@ fall on both sides and makes the validation loss look better than it is.
 king's row during training and folded into them at export, so the file format
 and the engine are unchanged.
 
+Input datasets are never overwritten in place: data, validation and initial
+checkpoint paths are checked against every output by canonical path and inode,
+including symlinks and hardlinks. Network, float-state and resume-checkpoint
+writes use a temporary sibling followed by atomic replacement.
+
 When continuing from the previous network on new self-play data, one epoch
 avoids memorising the new games; several epochs lowered the training loss
 while the by-game validation loss rose. The validation loss is a diagnostic,
@@ -131,6 +136,47 @@ def load(paths):
     return data
 
 
+def _temporary_sibling(path):
+    return f"{path}.tmp-{os.getpid()}"
+
+
+def _atomic_replace(path, write):
+    """Write a sibling temporary file and atomically replace *path*."""
+    temporary = _temporary_sibling(path)
+    try:
+        write(temporary)
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def _same_file_or_target(left, right):
+    """Compare existing inodes, then canonical targets for absent outputs."""
+    try:
+        if os.path.samefile(left, right):
+            return True
+    except (FileNotFoundError, OSError):
+        pass
+    return os.path.realpath(os.path.abspath(left)) == os.path.realpath(os.path.abspath(right))
+
+
+def validate_io_paths(inputs, outputs):
+    """Reject output aliases that could overwrite an input or another output."""
+    inputs = [path for path in inputs if path]
+    outputs = [path for path in outputs if path]
+    for output in outputs:
+        for source in inputs:
+            if _same_file_or_target(output, source):
+                raise ValueError(f"output aliases input: {output} -> {source}")
+    for index, output in enumerate(outputs):
+        for other in outputs[index + 1:]:
+            if _same_file_or_target(output, other):
+                raise ValueError(f"outputs alias each other: {output} -> {other}")
+
+
 def export(net, path, fv_scale, note):
     arch = f"Sekirei HalfKP 256x2-32-32 own training ({note})".encode()
     ft_w = net.ft.weight.detach().cpu().double().numpy()[:N_IN]
@@ -140,23 +186,32 @@ def export(net, path, fv_scale, note):
         ft_w = np.clip(ft_w, -FT_MAX, FT_MAX)
     ft_b = net.ft_bias.detach().cpu().double().numpy()
     q = lambda x, lo, hi, dtype: np.clip(np.rint(x), lo, hi).astype(dtype)
-    with open(path, "wb") as f:
-        f.write(struct.pack("<III", VERSION, FILE_HASH, len(arch)))
-        f.write(arch)
-        f.write(struct.pack("<I", TRANSFORMER_HASH))
-        f.write(q(ft_b * 127, -32768, 32767, "<i2").tobytes())
-        f.write(q(ft_w * 127, -32768, 32767, "<i2").tobytes())
-        f.write(struct.pack("<I", NETWORK_HASH))
-        for layer in (net.l1, net.l2):
-            w = layer.weight.detach().cpu().double().numpy()
-            b = layer.bias.detach().cpu().double().numpy()
-            # +32: the engine floors (sum >> 6); this makes it round to nearest.
-            f.write(q(b * 64 * 127 + 32, -2**31, 2**31 - 1, "<i4").tobytes())
-            f.write(q(w * 64, -127, 127, "i1").tobytes())
-        w = net.out.weight.detach().cpu().double().numpy()
-        b = net.out.bias.detach().cpu().double().numpy()
-        f.write(q(b * fv_scale, -2**31, 2**31 - 1, "<i4").tobytes())
-        f.write(q(w * fv_scale / 127, -127, 127, "i1").tobytes())
+    def write(temporary):
+        with open(temporary, "wb") as f:
+            f.write(struct.pack("<III", VERSION, FILE_HASH, len(arch)))
+            f.write(arch)
+            f.write(struct.pack("<I", TRANSFORMER_HASH))
+            f.write(q(ft_b * 127, -32768, 32767, "<i2").tobytes())
+            f.write(q(ft_w * 127, -32768, 32767, "<i2").tobytes())
+            f.write(struct.pack("<I", NETWORK_HASH))
+            for layer in (net.l1, net.l2):
+                w = layer.weight.detach().cpu().double().numpy()
+                b = layer.bias.detach().cpu().double().numpy()
+                # +32: the engine floors (sum >> 6); this makes it round to nearest.
+                f.write(q(b * 64 * 127 + 32, -2**31, 2**31 - 1, "<i4").tobytes())
+                f.write(q(w * 64, -127, 127, "i1").tobytes())
+            w = net.out.weight.detach().cpu().double().numpy()
+            b = net.out.bias.detach().cpu().double().numpy()
+            f.write(q(b * fv_scale, -2**31, 2**31 - 1, "<i4").tobytes())
+            f.write(q(w * fv_scale / 127, -127, 127, "i1").tobytes())
+            f.flush()
+            os.fsync(f.fileno())
+
+    _atomic_replace(path, write)
+
+
+def atomic_torch_save(value, path):
+    _atomic_replace(path, lambda temporary: torch.save(value, temporary))
 
 
 def load_init(net, st):
@@ -195,6 +250,10 @@ def main():
     ap.add_argument("--ckpt-every", type=int, default=200, help="steps between checkpoints")
     ap.add_argument("--log-every", type=int, default=100)
     args = ap.parse_args()
+    validate_io_paths(
+        [*args.data, *(args.val_data or []), args.init],
+        [args.out, args.save, args.ckpt],
+    )
     if args.threads:
         torch.set_num_threads(args.threads)
     torch.manual_seed(args.seed)
@@ -259,10 +318,9 @@ def main():
 
     def save_ckpt(epoch, step):
         if args.ckpt:
-            tmp = args.ckpt + ".tmp"
-            torch.save({"model": net.state_dict(), "opt": opt.state_dict(),
-                        "sched": sched.state_dict(), "epoch": epoch, "step": step}, tmp)
-            os.replace(tmp, args.ckpt)
+            atomic_torch_save({"model": net.state_dict(), "opt": opt.state_dict(),
+                               "sched": sched.state_dict(), "epoch": epoch, "step": step},
+                              args.ckpt)
 
     t0 = time.time()
     for epoch in range(start_epoch, args.epochs + 1):
@@ -289,7 +347,7 @@ def main():
               f"lr {sched.get_last_lr()[0]:.2e} {time.time() - t0:.0f}s", flush=True)
         save_ckpt(epoch + 1, 0)
         if args.save:
-            torch.save(net.state_dict(), args.save)
+            atomic_torch_save(net.state_dict(), args.save)
     net.to("cpu")
     export(net, args.out, args.fv_scale, f"{len(train_idx)} positions, lam {args.lam}{', fact' if args.fact else ''}")
     print(f"wrote {args.out}", flush=True)

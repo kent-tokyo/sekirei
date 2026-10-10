@@ -132,7 +132,7 @@ mod tests {
             serde_json::from_str(text.lines().next().expect("metadata header"))
                 .expect("valid metadata JSON");
         assert_eq!(header["prior_book_schema_version"], 1);
-        assert_eq!(header["producer_version"], "0.12.1");
+        assert_eq!(header["producer_version"], "0.12.2");
         assert_eq!(header["build_config"]["min_count"], 1);
 
         let loaded = lineprior::load_prior_book(text.as_bytes()).expect("reload generated book");
