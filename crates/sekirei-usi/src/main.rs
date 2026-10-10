@@ -49,6 +49,7 @@ use sekirei_core::sfen::board_to_sfen;
 
 const ENGINE_NAME: &str = "Sekirei";
 const ENGINE_AUTHOR: &str = "Kentaro Tanabe";
+const ENGINE_VERSION: &str = env!("CARGO_PKG_VERSION");
 const DEFAULT_HASH_MB: usize = 64;
 const HASH_MB_RANGE: SpinRange = SpinRange::new(1, 2048);
 const THREADS_RANGE: SpinRange = SpinRange::new(0, 512);
@@ -749,7 +750,7 @@ fn main() {
     if let Some(arg) = std::env::args().nth(1)
         && matches!(arg.as_str(), "--version" | "-V")
     {
-        println!("Sekirei {}", env!("CARGO_PKG_VERSION"));
+        println!("Sekirei {ENGINE_VERSION}");
         return;
     }
     if let Some(arg) = std::env::args().nth(1)
@@ -757,7 +758,7 @@ fn main() {
     {
         println!(
             "Sekirei {}\n\nUSI shogi engine\n\nUsage:\n  sekirei [NNUE_WEIGHTS]\n  sekirei --version\n  sekirei --help\n\nThe engine reads USI commands from stdin.",
-            env!("CARGO_PKG_VERSION")
+            ENGINE_VERSION
         );
         return;
     }
@@ -869,6 +870,7 @@ fn main() {
             "usi" => {
                 println!("id name {ENGINE_NAME}");
                 println!("id author {ENGINE_AUTHOR}");
+                println!("id version {ENGINE_VERSION}");
                 print_spin_option("Hash", DEFAULT_HASH_MB as u64, HASH_MB_RANGE);
                 print_spin_option("Threads", 0, THREADS_RANGE);
                 println!(
