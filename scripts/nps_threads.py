@@ -106,11 +106,13 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
             selected = int(parts[parts.index("selected") + 1].removeprefix("w"))
             node_share_permille = int(parts[parts.index("node_share_permille") + 1])
             agreement, workers = parts[parts.index("move_agreement") + 1].split("/", 1)
+            stop_lag_ms = int(parts[parts.index("stop_lag_ms") + 1])
             return {
                 "selected_worker": selected,
                 "selected_node_share_permille": node_share_permille,
                 "move_agreement": int(agreement),
                 "workers": int(workers),
+                "stop_lag_ms": stop_lag_ms,
             }
         except (ValueError, IndexError):
             return None
@@ -196,6 +198,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     f" selected w{lazy_smp['selected_worker']}"
                     f" share {lazy_smp['selected_node_share_permille'] / 10:.1f}%"
                     f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
+                    f" lag {lazy_smp['stop_lag_ms']}ms"
                 )
             print(
                 f"  threads {threads} pos {index:2d}: depth {depth:2d} "

@@ -46,8 +46,9 @@ class ThreadOptionsTest(unittest.TestCase):
         diagnostics = parse_lazy_smp(
             [
                 "info string lazy_smp selected w2 node_share_permille 268 "
-                "move_agreement 3/4 w0:d20:n10:s1,w1:d20:n11:s2,"
-                "w2*:d21:n12:s3,w3:d20:n12:s3"
+                "move_agreement 3/4 stop_lag_ms 2 "
+                "w0:d20:n10:s1:t300:x1:aexternal,w1:d20:n11:s2:t301:x1:aexternal,"
+                "w2*:d21:n12:s3:t302:x0:acompleted,w3:d20:n12:s3:t301:x1:aexternal"
             ]
         )
 
@@ -58,6 +59,7 @@ class ThreadOptionsTest(unittest.TestCase):
                 "selected_node_share_permille": 268,
                 "move_agreement": 3,
                 "workers": 4,
+                "stop_lag_ms": 2,
             },
         )
 

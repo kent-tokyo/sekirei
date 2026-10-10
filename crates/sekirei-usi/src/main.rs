@@ -558,6 +558,16 @@ fn emit_search_result(
             .iter()
             .filter(|worker| worker.best_move == selected.best_move)
             .count();
+        // This is an end-to-end worker-duration spread, not a timestamped
+        // measurement from the instant the shared abort flag was raised.
+        let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
+        let max_elapsed_ms = info
+            .worker_stats
+            .iter()
+            .map(|worker| worker.elapsed.as_millis())
+            .max()
+            .unwrap_or(main_elapsed_ms);
+        let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
         let summary = info
             .worker_stats
             .iter()
@@ -565,14 +575,19 @@ fn emit_search_result(
             .map(|(i, worker)| {
                 let marker = if worker.selected { "*" } else { "" };
                 format!(
-                    "w{i}{marker}:d{}:n{}:s{}",
-                    worker.depth, worker.nodes, worker.score
+                    "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}",
+                    worker.depth,
+                    worker.nodes,
+                    worker.score,
+                    worker.elapsed.as_millis(),
+                    u8::from(worker.aborted),
+                    worker.abort_reason
                 )
             })
             .collect::<Vec<_>>()
             .join(",");
         println!(
-            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} {summary}",
+            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
             info.worker_stats.len()
         );
     }

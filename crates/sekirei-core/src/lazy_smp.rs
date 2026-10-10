@@ -43,6 +43,12 @@ pub struct LazySmpWorkerInfo {
     pub depth: u32,
     /// Nodes visited by this worker.
     pub nodes: u64,
+    /// Wall-clock duration observed by this worker.
+    pub elapsed: Duration,
+    /// Whether this worker stopped before completing its current iteration.
+    pub aborted: bool,
+    /// Stop source reported by the worker search.
+    pub abort_reason: &'static str,
 }
 
 /// Independent root-search workers sharing a lock-free transposition table.
@@ -222,6 +228,9 @@ impl LazySmpSearcher {
                 score: info.score,
                 depth: info.depth,
                 nodes: info.nodes,
+                elapsed: info.elapsed,
+                aborted: info.aborted,
+                abort_reason: info.abort_reason,
             })
             .collect();
         let result = select_worker_result(results, self.flags);
@@ -458,6 +467,9 @@ mod tests {
         assert_eq!(selected.score, result.result.score);
         assert_eq!(selected.depth, result.result.depth);
         assert_eq!(selected.nodes, result.result.nodes);
+        assert_eq!(selected.elapsed, result.result.elapsed);
+        assert_eq!(selected.aborted, result.result.aborted);
+        assert_eq!(selected.abort_reason, result.result.abort_reason);
         assert_eq!(
             result.total_nodes,
             result
