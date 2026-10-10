@@ -2,13 +2,12 @@
 //! v0.2.2: "USI search thread race: JoinHandle now stored and joined on
 //! stop/usinewgame/go/quit; prevents stale bestmove output."
 //!
-//! `stop` must block until the in-flight search thread has fully finished
-//! (including printing its `bestmove`) before the main loop reads and answers
-//! the next command. This is verified by program order, not a timing
-//! threshold: with the join in place, `readyok` for a follow-up `isready`
-//! can only be printed *after* `stop`'s handler returns, which is *after*
-//! `bestmove` was printed. Without the join, `stop` returns immediately and
-//! `readyok` can race ahead of the still-finishing search thread's `bestmove`.
+//! `stop` must block until the in-flight search thread has fully finished and
+//! printed its `bestmove` before the main loop answers the next command.
+//! Commands that replace or terminate the current question (`position`,
+//! `usinewgame`, `quit`, and stdin EOF) instead invalidate that response before
+//! joining. These tests verify both contracts by program order rather than a
+//! timing threshold.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -56,6 +55,17 @@ fn wait_for_child_exit(child: &mut Child, timeout: Duration, context: &str) {
         assert!(Instant::now() < deadline, "{context}");
         std::thread::sleep(Duration::from_millis(20));
     }
+}
+
+fn assert_no_late_bestmove(rx: &Receiver<String>, context: &str) {
+    // stdout closes with the child, but give the reader thread a moment to
+    // forward the final buffered lines into the channel.
+    std::thread::sleep(Duration::from_millis(20));
+    let lines: Vec<_> = rx.try_iter().collect();
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "{context}: {lines:?}"
+    );
 }
 
 fn recv_line_matching(
@@ -294,6 +304,43 @@ fn position_discards_a_completed_ponder_result() {
 }
 
 #[test]
+fn usinewgame_discards_an_inflight_ponder_result() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go ponder infinite");
+    std::thread::sleep(Duration::from_millis(50));
+    send(&mut stdin, "usinewgame");
+
+    // A later stop belongs to the new game and must not publish the aborted
+    // ponder result retained by the previous one.
+    send(&mut stdin, "stop");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(10));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "usinewgame leaked a ponder result from the previous game: {lines:?}"
+    );
+
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for usinewgame ponder-reset test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn dfpn_stop_flushes_bestmove_before_answering_next_command() {
     stop_flushes_bestmove_before_answering_next_command(Some("Dfpn"), "position startpos");
 }
@@ -304,7 +351,7 @@ fn shared_mcts_stop_flushes_bestmove_before_answering_next_command() {
 }
 
 #[test]
-fn lazy_smp_quit_joins_inflight_search() {
+fn lazy_smp_quit_joins_without_publishing_an_inflight_search() {
     let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
@@ -328,11 +375,12 @@ fn lazy_smp_quit_joins_inflight_search() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert_no_late_bestmove(&rx, "quit published a Lazy SMP bestmove");
 }
 
 #[test]
-fn speculative_quit_joins_inflight_search() {
-    let (mut child, _rx, mut stdin) = spawn_engine();
+fn speculative_quit_joins_without_publishing_an_inflight_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
     send(&mut stdin, "setoption name SearchMode value Speculative");
@@ -347,11 +395,12 @@ fn speculative_quit_joins_inflight_search() {
         Duration::from_secs(10),
         "quit did not join the speculative search",
     );
+    assert_no_late_bestmove(&rx, "quit published a speculative bestmove");
 }
 
 #[test]
-fn stdin_eof_joins_inflight_multi_thread_search() {
-    let (mut child, _rx, mut stdin) = spawn_engine();
+fn stdin_eof_joins_without_publishing_inflight_multi_thread_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
     send(&mut stdin, "setoption name SearchMode value LazySMP");
@@ -366,17 +415,21 @@ fn stdin_eof_joins_inflight_multi_thread_search() {
         Duration::from_secs(10),
         "stdin EOF did not join the Lazy SMP search",
     );
+    assert_no_late_bestmove(&rx, "stdin EOF published a Lazy SMP bestmove");
 }
 
 #[test]
-fn shared_mcts_quit_joins_inflight_search() {
-    let (mut child, _rx, mut stdin) = spawn_engine();
+fn shared_mcts_quit_joins_without_publishing_an_inflight_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
 
     send(&mut stdin, "usi");
     send(&mut stdin, "setoption name SearchMode value SharedMcts");
     send(&mut stdin, "position startpos");
-    send(&mut stdin, "go btime 600000 wtime 600000");
-    std::thread::sleep(Duration::from_millis(150));
+    // Shared MCTS defaults to only 128 simulations and can legitimately
+    // finish before `quit`, especially in release builds. A large explicit
+    // budget keeps this test on the in-flight shutdown path.
+    send(&mut stdin, "go nodes 100000000 depth 65535");
+    std::thread::sleep(Duration::from_millis(50));
     send(&mut stdin, "quit");
 
     let deadline = Instant::now() + Duration::from_secs(10);
@@ -391,6 +444,7 @@ fn shared_mcts_quit_joins_inflight_search() {
         );
         std::thread::sleep(Duration::from_millis(20));
     }
+    assert_no_late_bestmove(&rx, "quit published a Shared MCTS bestmove");
 }
 
 #[test]

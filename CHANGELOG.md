@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- USI: `usinewgame`, `quit`, and stdin closure now invalidate the active
+  search generation before joining it, preventing a previous game's ponder
+  result or a shutdown-time `bestmove` from crossing the command boundary.
+  Extreme increment values now use saturating time-budget arithmetic.
 - Gate tooling: reject path-traversing run names and result-artifact paths
   that would overwrite the raw match JSON or text log. Evidence collection now
   records unreadable input identities without losing the terminal result.

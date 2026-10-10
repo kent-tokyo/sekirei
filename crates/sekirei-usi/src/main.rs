@@ -677,6 +677,17 @@ fn abort_and_join_inflight_search(
     }
 }
 
+/// Supersede the current USI question and join its worker without allowing a
+/// late `bestmove` or retained ponder result to cross the command boundary.
+fn invalidate_and_join_inflight_search(
+    search_generation: &AtomicU64,
+    search_abort: &mut Option<Arc<AtomicBool>>,
+    search_handle: &mut Option<JoinHandle<()>>,
+) {
+    search_generation.fetch_add(1, Ordering::AcqRel);
+    abort_and_join_inflight_search(search_abort, search_handle);
+}
+
 /// Change process-wide evaluator state only after an in-flight search can no
 /// longer observe it. Keeping the mutation in this helper makes the ordering
 /// explicit and directly testable without relying on scheduler timing.
@@ -1221,7 +1232,18 @@ fn main() {
             }
 
             "usinewgame" => {
-                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                invalidate_and_join_inflight_search(
+                    &search_generation,
+                    &mut search_abort,
+                    &mut search_handle,
+                );
+                active_ponder = false;
+                ponder_go_args = None;
+                ponder_result
+                    .lock()
+                    .expect("ponder result lock poisoned")
+                    .take();
+                suppress_bm.store(false, Ordering::Relaxed);
                 board = Board::startpos();
                 position_history = PositionHistory::initial(board.hash());
                 #[cfg(feature = "opening-book")]
@@ -1240,8 +1262,11 @@ fn main() {
                     // publication generation before joining, so an old
                     // worker cannot emit a stale bestmove in the tiny window
                     // between command arrival and cooperative cancellation.
-                    search_generation.fetch_add(1, Ordering::AcqRel);
-                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    invalidate_and_join_inflight_search(
+                        &search_generation,
+                        &mut search_abort,
+                        &mut search_handle,
+                    );
                     active_ponder = false;
                     ponder_go_args = None;
                     ponder_result
@@ -1550,7 +1575,11 @@ fn main() {
             }
 
             "quit" => {
-                abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                invalidate_and_join_inflight_search(
+                    &search_generation,
+                    &mut search_abort,
+                    &mut search_handle,
+                );
                 break;
             }
 
@@ -1563,7 +1592,7 @@ fn main() {
     // A GUI or CSA adapter may terminate by closing stdin instead of sending
     // `quit`.  Dropping a JoinHandle would detach the search worker, so apply
     // the same abort-and-join barrier on every input-loop exit.
-    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+    invalidate_and_join_inflight_search(&search_generation, &mut search_abort, &mut search_handle);
 }
 
 // ---- Helpers ----
@@ -1686,7 +1715,7 @@ fn parse_go(
         let moves_left = movestogo.unwrap_or(30).max(1);
         let inc_pct = u64::from(INC_USE_PCT.load(Ordering::Relaxed));
         let from_main = if inc_pct > 0 {
-            our_time / moves_left + increment * inc_pct / 100
+            (our_time / moves_left).saturating_add(increment.saturating_mul(inc_pct) / 100)
         } else {
             effective_time / moves_left
         };
@@ -1903,7 +1932,7 @@ mod tests {
     #[test]
     fn oversized_clock_values_do_not_overflow_time_budget_arithmetic() {
         let cfg = parse_go(
-            &format!("btime {} byoyomi {}", u64::MAX, u64::MAX),
+            &format!("btime {} binc {} byoyomi {}", u64::MAX, u64::MAX, u64::MAX),
             Color::Black,
             0,
             false,
