@@ -41,12 +41,23 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
+SprtSpec = tuple[float, float, float, float]
+
+
+@dataclass(frozen=True)
+class TerminalStatus:
+    """Normalized process/gate outcome used by stdout and JSON evidence."""
+
+    terminal_state: str
+    gate_status: str
+    exit_code: int
 
 
 def file_identity(path: str | Path | None) -> dict[str, object] | None:
@@ -58,10 +69,13 @@ def file_identity(path: str | Path | None) -> dict[str, object] | None:
     if not candidate.is_file():
         return identity
     digest = hashlib.sha256()
-    with candidate.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    identity.update({"sha256": digest.hexdigest(), "size_bytes": candidate.stat().st_size})
+    try:
+        with candidate.open("rb") as source:
+            for chunk in iter(lambda: source.read(1024 * 1024), b""):
+                digest.update(chunk)
+        identity.update({"sha256": digest.hexdigest(), "size_bytes": candidate.stat().st_size})
+    except OSError as error:
+        identity["identity_error"] = f"{type(error).__name__}: {error}"
     return identity
 
 
@@ -72,8 +86,13 @@ def opening_identity(path: str | Path) -> dict[str, object]:
     count = 0
     candidate = Path(path).expanduser().resolve()
     if candidate.is_file():
-        with candidate.open(encoding="utf-8") as source:
-            count = sum(1 for line in source if line.strip() and not line.lstrip().startswith("#"))
+        try:
+            with candidate.open(encoding="utf-8") as source:
+                count = sum(
+                    1 for line in source if line.strip() and not line.lstrip().startswith("#")
+                )
+        except (OSError, UnicodeError) as error:
+            identity["position_count_error"] = f"{type(error).__name__}: {error}"
     identity["position_count"] = count
     return identity
 
@@ -214,7 +233,47 @@ def sprt_bounds(alpha: float = 0.05, beta: float = 0.05) -> tuple[float, float]:
     return math.log(beta / (1 - alpha)), math.log((1 - beta) / alpha)
 
 
-def main() -> int:
+def classify_terminal_status(
+    games_played: int,
+    games_limit: int,
+    process_code: int | None,
+    process_error: str | None,
+    verdict: str,
+    sprt_enabled: bool,
+) -> TerminalStatus:
+    """Classify every terminal path once, with errors taking precedence."""
+    if process_error:
+        return TerminalStatus("partial" if games_played else "failed", "error", process_code or 1)
+    if verdict:
+        return TerminalStatus(
+            "sprt_stopped", "pass" if verdict == "H1 accepted" else "fail", 0
+        )
+    if process_code != 0:
+        return TerminalStatus("partial" if games_played else "failed", "error", process_code or 1)
+    if games_played < games_limit:
+        return TerminalStatus("partial", "error", 1)
+    if sprt_enabled:
+        return TerminalStatus("inconclusive", "inconclusive", 0)
+    return TerminalStatus("completed", "completed", 0)
+
+
+def validate_output_paths(name: str, out_dir: Path, result_json: str | None) -> None:
+    """Reject path traversal and evidence files that overwrite raw outputs."""
+    if not name or name in {".", ".."} or Path(name).name != name:
+        raise ValueError("--name must be one non-empty path component")
+    if result_json is None:
+        return
+    result_path = Path(result_json).expanduser().resolve()
+    reserved = {
+        (out_dir / f"{name}.json").expanduser().resolve(),
+        (out_dir / f"{name}.log").expanduser().resolve(),
+    }
+    if result_path in reserved:
+        raise ValueError("--result-json must not overwrite the raw match JSON or text log")
+
+
+def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool, SprtSpec | None]:
+    """Parse and validate the complete match contract before creating outputs."""
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("mode", choices=["selfplay", "yaneuraou"])
     parser.add_argument("--engine-a", required=True, help="Sekirei binary under test")
@@ -274,7 +333,7 @@ def main() -> int:
         "--result-json",
         help="atomically write the versioned machine-readable gate result",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     if args.mode == "selfplay" and not args.engine_b:
         parser.error("selfplay needs --engine-b")
@@ -307,6 +366,16 @@ def main() -> int:
             parser.error("--sprt needs ELO0 < ELO1")
         sprt = (elo0, elo1, *sprt_bounds())
 
+    out = Path(args.out_dir)
+    try:
+        validate_output_paths(args.name, out, args.result_json)
+    except ValueError as error:
+        parser.error(str(error))
+    return args, material_only, sprt
+
+
+def main() -> int:
+    args, material_only, sprt = parse_args()
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     engine2 = args.engine_b if args.mode == "selfplay" else args.yaneuraou
@@ -388,30 +457,14 @@ def main() -> int:
         process_code = 1
 
     games_played = wins + losses + draws
-    if launch_error:
-        terminal_state = "partial" if games_played else "failed"
-        gate_status = "error"
-        code = process_code or 1
-    elif verdict:
-        terminal_state = "sprt_stopped"
-        gate_status = "pass" if verdict == "H1 accepted" else "fail"
-        code = 0
-    elif process_code != 0:
-        terminal_state = "partial" if games_played else "failed"
-        gate_status = "error"
-        code = process_code or 1
-    elif games_played < args.games:
-        terminal_state = "partial"
-        gate_status = "error"
-        code = 1
-    elif sprt:
-        terminal_state = "inconclusive"
-        gate_status = "inconclusive"
-        code = 0
-    else:
-        terminal_state = "completed"
-        gate_status = "completed"
-        code = 0
+    terminal = classify_terminal_status(
+        games_played,
+        args.games,
+        process_code,
+        launch_error,
+        verdict,
+        sprt is not None,
+    )
 
     estimate, margin = elo(wins, losses, draws)
     print(
@@ -450,8 +503,8 @@ def main() -> int:
             }
         payload: dict[str, object] = {
             "schema_version": RESULT_SCHEMA_VERSION,
-            "status": gate_status,
-            "terminal_state": terminal_state,
+            "status": terminal.gate_status,
+            "terminal_state": terminal.terminal_state,
             "mode": args.mode,
             # Stable convenience fields consumed by shogiesa's external gate hook.
             "elo": estimate_json,
@@ -489,7 +542,8 @@ def main() -> int:
                 "sprt": sprt_result,
             },
             "evidence": {
-                "complete": terminal_state in {"completed", "sprt_stopped", "inconclusive"},
+                "complete": terminal.terminal_state
+                in {"completed", "sprt_stopped", "inconclusive"},
                 "process_exit_code": process_code,
                 "process_error": launch_error,
                 "command": command,
@@ -515,7 +569,7 @@ def main() -> int:
             },
         }
         atomic_write_json(Path(args.result_json), payload)
-    return code
+    return terminal.exit_code
 
 
 if __name__ == "__main__":

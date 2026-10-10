@@ -62,6 +62,18 @@ const MIN_SPLIT_DEPTH: u32 = 3;
 /// request is observed, so every dedicated speculative pool uses this budget.
 pub const RECURSIVE_SEARCH_STACK_BYTES: usize = 8 * 1024 * 1024;
 
+/// Run a recursive-search regression with the production stack contract.
+#[cfg(test)]
+pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
+    std::thread::Builder::new()
+        .name("sekirei-search-regression".to_owned())
+        .stack_size(RECURSIVE_SEARCH_STACK_BYTES)
+        .spawn(test)
+        .expect("spawn search regression")
+        .join()
+        .expect("search regression panicked");
+}
+
 /// Whether quiescence tries quiet checking moves at its first ply. Finding
 /// them requires generating and playing every legal move at each leaf; in
 /// local self-play, disabling it was clearly stronger.
@@ -6524,44 +6536,46 @@ mod regression_tests {
 
     #[test]
     fn singular_verification_does_not_short_circuit_on_its_own_tt_entry() {
-        let mut board = Board::startpos();
-        let hash = board.hash();
-        let tt_move = MoveBuffer::legal(&mut board).as_slice()[0];
-        let tt = Tt::new(1);
-        let state = fresh_state(tt.clone());
-        let history = PositionHistory::initial(hash);
+        on_search_stack(|| {
+            let mut board = Board::startpos();
+            let hash = board.hash();
+            let tt_move = MoveBuffer::legal(&mut board).as_slice()[0];
+            let tt = Tt::new(1);
+            let state = fresh_state(tt.clone());
+            let history = PositionHistory::initial(hash);
 
-        // This matches the entry that makes a singular-extension verification
-        // eligible: deep enough, usable score, and the move to exclude.
-        store_tt(
-            &state,
-            hash,
-            50,
-            4,
-            Bound::Exact,
-            Some(tt_move),
-            0,
-            None,
-            false,
-        );
-        let _ = alpha_beta(
-            &state,
-            &mut board,
-            -14,
-            50,
-            4,
-            0,
-            false,
-            None,
-            Some(tt_move),
-            None,
-            &SearchHistory::root(&history),
-        );
+            // This matches the entry that makes a singular-extension verification
+            // eligible: deep enough, usable score, and the move to exclude.
+            store_tt(
+                &state,
+                hash,
+                50,
+                4,
+                Bound::Exact,
+                Some(tt_move),
+                0,
+                None,
+                false,
+            );
+            let _ = alpha_beta(
+                &state,
+                &mut board,
+                -14,
+                50,
+                4,
+                0,
+                false,
+                None,
+                Some(tt_move),
+                None,
+                &SearchHistory::root(&history),
+            );
 
-        assert!(
-            state.budget.nodes() > 1,
-            "verification search must not return directly from its own TT entry"
-        );
+            assert!(
+                state.budget.nodes() > 1,
+                "verification search must not return directly from its own TT entry"
+            );
+        });
     }
 
     // Regression: `external_abort` (USI "stop") used to only be checked at

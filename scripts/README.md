@@ -29,7 +29,7 @@ training.
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
-| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema. Local diagnostic only. |
+| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. Local diagnostic only. |
 | `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. For Lazy SMP, also records the selected worker's node share, worker best-move agreement, and approximate worker stop-lag spread. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 

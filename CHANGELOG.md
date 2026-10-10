@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Gate tooling: reject path-traversing run names and result-artifact paths
+  that would overwrite the raw match JSON or text log. Evidence collection now
+  records unreadable input identities without losing the terminal result.
+- Tests: run the deep transposition-table search fixture with the same 8 MiB
+  recursive-search stack contract used by the engine, avoiding debug-only
+  test-harness stack overflow.
+
 - Gate tooling: `run_ab_match.py --result-json` now atomically records a
   versioned, fail-closed A/B result with the exact configuration, W/D/L and
   Elo inputs, optional SPRT state, binary/evaluation/opening hashes, command,

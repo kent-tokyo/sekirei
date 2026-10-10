@@ -16,6 +16,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from run_ab_match import (  # noqa: E402
+    classify_terminal_status,
     main,
     sekirei_options,
     sprt_bounds,
@@ -50,6 +51,12 @@ class _FakeMatchProcess:
 
 
 class SprtTest(unittest.TestCase):
+    def test_terminal_status_keeps_error_precedence(self):
+        status = classify_terminal_status(20, 20, 7, "OSError: broken pipe", "H1 accepted", True)
+        self.assertEqual(status.terminal_state, "partial")
+        self.assertEqual(status.gate_status, "error")
+        self.assertEqual(status.exit_code, 7)
+
     def test_parallel_options_are_explicit_for_both_engines(self):
         sekirei = sekirei_options(
             "--engine-option1", "weights.nnue", 24, 4, "LazySMP", 0, 128
@@ -283,6 +290,74 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(result["status"], "error")
         self.assertIsNone(result["result"]["elo"]["margin"])
         self.assertIn("FileNotFoundError", result["evidence"]["process_error"])
+
+    def test_result_json_cannot_overwrite_raw_match_output(self):
+        with tempfile.TemporaryDirectory() as directory:
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "1",
+                "--name", "collision",
+                "--out-dir", directory,
+                "--result-json", str(Path(directory) / "collision.json"),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen"
+            ) as popen, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as stopped:
+                    main()
+
+        self.assertEqual(stopped.exception.code, 2)
+        popen.assert_not_called()
+
+    def test_name_cannot_escape_output_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "1",
+                "--name", "../escape",
+                "--out-dir", directory,
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen"
+            ) as popen, patch("sys.stderr", new_callable=io.StringIO):
+                with self.assertRaises(SystemExit) as stopped:
+                    main()
+
+        self.assertEqual(stopped.exception.code, 2)
+        popen.assert_not_called()
+
+    def test_malformed_openings_still_produce_failure_evidence(self):
+        process = _FakeMatchProcess([], exit_code=2)
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            openings = Path(directory) / "openings.sfen"
+            openings.write_bytes(b"\xff\n")
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "1",
+                "--openings", str(openings),
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 2)
+            result = json.loads(result_path.read_text())
+
+        self.assertEqual(result["terminal_state"], "failed")
+        self.assertIn("UnicodeDecodeError", result["evidence"]["openings"]["position_count_error"])
 
     def test_modes_share_the_same_top_level_schema(self):
         schemas = []

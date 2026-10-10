@@ -847,29 +847,31 @@ mod tests {
     /// and the warm search may legitimately prefer another one.
     #[test]
     fn tt_reduces_nodes() {
-        use search::{SearchConfig, Searcher};
-        use tt::Tt;
-        let mut board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
-        let cfg = |max_depth| SearchConfig {
-            max_depth,
-            time_limit: None,
-            node_limit: None,
-            soft_limit: None,
-            multi_pv: 1,
-        };
+        search::on_search_stack(|| {
+            use search::{SearchConfig, Searcher};
+            use tt::Tt;
+            let mut board = Board::from_sfen(TIE_FREE_SFEN).expect("fixture parses");
+            let cfg = |max_depth| SearchConfig {
+                max_depth,
+                time_limit: None,
+                node_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+            };
 
-        let cold = Searcher::new(Tt::new(16)).search(&mut board, cfg(4));
-        let tt = Tt::new(16);
-        Searcher::new(tt.clone()).search(&mut board, cfg(6));
-        let warm = Searcher::new(tt.clone()).search(&mut board, cfg(4));
+            let cold = Searcher::new(Tt::new(16)).search(&mut board, cfg(4));
+            let tt = Tt::new(16);
+            Searcher::new(tt.clone()).search(&mut board, cfg(6));
+            let warm = Searcher::new(tt.clone()).search(&mut board, cfg(4));
 
-        assert_eq!(cold.best_move, warm.best_move, "TT changed best move");
-        assert!(
-            warm.nodes < cold.nodes,
-            "TT did not reduce nodes ({} -> {})",
-            cold.nodes,
-            warm.nodes
-        );
+            assert_eq!(cold.best_move, warm.best_move, "TT changed best move");
+            assert!(
+                warm.nodes < cold.nodes,
+                "TT did not reduce nodes ({} -> {})",
+                cold.nodes,
+                warm.nodes
+            );
+        });
     }
 
     /// SpeculativeSearcher must return a valid move, leave the board unchanged,
