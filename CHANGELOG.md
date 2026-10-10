@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Opening-book gates: freeze disjoint CSA game subsets for book training and
+  held-out evaluation, preregister actual-selection coverage, and stop before
+  a strength match when support is too sparse. The first 20-position run made
+  0 book selections and is archived as `not_ready / INCONCLUSIVE`, not as a
+  book failure or strength result.
 - Gate evidence: validate a versioned, hashed GateObservation declaration
   before an A/B run, carry it into the terminal result, and quarantine changed
   schemas, missing groups, retries, and incomplete results during export. The

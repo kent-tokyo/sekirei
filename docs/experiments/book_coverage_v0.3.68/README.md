@@ -16,6 +16,12 @@ The full paired A/B strength gate runs only if at least 4 of 20 decisions and
 20% of cases select a book move. A failed preflight is recorded as
 `not_ready / INCONCLUSIVE`; it is not a FAIL and permits no strength claim.
 
+The completed preflight selected 0/20 moves. Every fallback reason was
+`unseen_state`; all 20 state hashes were unique. The full 400-game A/B budget
+was therefore not started. `preflight_report.json` is the machine-readable
+terminal result, while the match JSON/JSONL and both engine decision logs
+retain the raw evidence.
+
 The first launch stopped before game 1 because a prior tune-feature build had
 overwritten the expected opening-book binary. `attempt_1.json` preserves that
 failure. The declaration was then superseded with the hash of a binary built
