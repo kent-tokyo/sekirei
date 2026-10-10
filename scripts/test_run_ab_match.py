@@ -5,6 +5,7 @@ Run: python3 scripts/test_run_ab_match.py
 """
 
 import io
+import json
 import math
 import sys
 import tempfile
@@ -26,8 +27,9 @@ from run_ab_match import (  # noqa: E402
 class _FakeMatchProcess:
     """Minimal stdlib-only `Popen` replacement for an early-stop regression."""
 
-    def __init__(self, lines: list[str]):
+    def __init__(self, lines: list[str], exit_code: int = 0):
         self._lines = iter(lines)
+        self._exit_code = exit_code
         self.stdout = self
         self.terminated = False
         self.lines_read = 0
@@ -44,7 +46,7 @@ class _FakeMatchProcess:
         self.terminated = True
 
     def wait(self):
-        return 143 if self.terminated else 0
+        return 143 if self.terminated else self._exit_code
 
 
 class SprtTest(unittest.TestCase):
@@ -105,6 +107,7 @@ class SprtTest(unittest.TestCase):
         )
         process = _FakeMatchProcess(lines)
         with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
             argv = [
                 "run_ab_match.py",
                 "selfplay",
@@ -114,14 +117,19 @@ class SprtTest(unittest.TestCase):
                 "--games", "600",
                 "--sprt", "0,10",
                 "--out-dir", directory,
+                "--result-json", str(result_path),
             ]
             argv.extend(["--threads-a", "4", "--threads-b", "2"])
             argv.extend(["--option-a", "T_V2_STAGE_GEN=1"])
             argv.extend(["--option-b", "T_V2_STAGE_GEN=0"])
             with patch.object(sys, "argv", argv), patch(
                 "run_ab_match.subprocess.Popen", return_value=process
-            ) as popen, patch("sys.stdout", new_callable=io.StringIO) as stdout:
+            ) as popen, patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO) as stdout:
                 self.assertEqual(main(), 0)
+
+            result = json.loads(result_path.read_text())
 
         self.assertTrue(process.terminated)
         self.assertLess(process.lines_read, len(lines))
@@ -132,6 +140,11 @@ class SprtTest(unittest.TestCase):
         self.assertIn("Threads=2", command)
         self.assertIn("T_V2_STAGE_GEN=1", command)
         self.assertIn("T_V2_STAGE_GEN=0", command)
+        self.assertEqual(result["schema_version"], "sekirei.ab_gate_result.v1")
+        self.assertEqual(result["terminal_state"], "sprt_stopped")
+        self.assertEqual(result["status"], "pass")
+        self.assertEqual(result["result"]["sprt"]["verdict"], "accept_h1")
+        self.assertTrue(result["evidence"]["complete"])
 
     def test_main_defaults_to_material_only(self):
         process = _FakeMatchProcess(["→ Draw\n"])
@@ -156,6 +169,153 @@ class SprtTest(unittest.TestCase):
         command = popen.call_args.args[0]
         self.assertFalse(any(option.startswith("EvalFile=") for option in command))
         self.assertFalse(any(option.startswith("FV_SCALE=") for option in command))
+
+    def test_result_json_records_normal_completion(self):
+        process = _FakeMatchProcess(
+            ["→ Engine1 Win\n", "→ Engine2 Win\n", "→ Draw\n"]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            openings = Path(directory) / "openings.sfen"
+            openings.write_text("startpos\n# ignored\n\n")
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "3",
+                "--openings", str(openings),
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+
+        self.assertEqual(result["terminal_state"], "completed")
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["elo"], result["result"]["elo"]["estimate"])
+        self.assertEqual(result["ci"], result["result"]["elo"]["margin"])
+        self.assertEqual(result["result"]["games_played"], 3)
+        self.assertEqual(result["evidence"]["openings"]["position_count"], 1)
+        self.assertIsNone(result["result"]["sprt"])
+
+    def test_result_json_records_inconclusive_game_limit(self):
+        process = _FakeMatchProcess(["→ Engine1 Win\n", "→ Engine2 Win\n"])
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "2",
+                "--sprt", "0,10",
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+
+        self.assertEqual(result["terminal_state"], "inconclusive")
+        self.assertEqual(result["status"], "inconclusive")
+        self.assertEqual(result["result"]["sprt"]["verdict"], "inconclusive")
+
+    def test_result_json_fails_closed_on_partial_process_failure(self):
+        process = _FakeMatchProcess(["→ Engine1 Win\n"], exit_code=7)
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "2",
+                "--sprt", "0,10",
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 7)
+            result = json.loads(result_path.read_text())
+
+        self.assertEqual(result["terminal_state"], "partial")
+        self.assertEqual(result["status"], "error")
+        self.assertFalse(result["evidence"]["complete"])
+        self.assertEqual(result["evidence"]["process_exit_code"], 7)
+
+    def test_result_json_fails_closed_when_process_cannot_start(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "1",
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", side_effect=FileNotFoundError("missing")
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO), patch(
+                "sys.stderr", new_callable=io.StringIO
+            ):
+                self.assertEqual(main(), 1)
+            result = json.loads(result_path.read_text())
+
+        self.assertEqual(result["terminal_state"], "failed")
+        self.assertEqual(result["status"], "error")
+        self.assertIsNone(result["result"]["elo"]["margin"])
+        self.assertIn("FileNotFoundError", result["evidence"]["process_error"])
+
+    def test_modes_share_the_same_top_level_schema(self):
+        schemas = []
+        with tempfile.TemporaryDirectory() as directory:
+            evalfile = Path(directory) / "nn.bin"
+            evalfile.write_bytes(b"weights")
+            for mode in ("selfplay", "yaneuraou"):
+                result_path = Path(directory) / f"{mode}.json"
+                argv = [
+                    "run_ab_match.py",
+                    mode,
+                    "--engine-a", "candidate",
+                    "--games", "1",
+                    "--out-dir", directory,
+                    "--result-json", str(result_path),
+                ]
+                if mode == "selfplay":
+                    argv.extend(["--engine-b", "baseline"])
+                else:
+                    argv.extend(
+                        ["--yaneuraou", "yaneuraou", "--evalfile", str(evalfile)]
+                    )
+                process = _FakeMatchProcess(["→ Draw\n"])
+                with patch.object(sys, "argv", argv), patch(
+                    "run_ab_match.subprocess.Popen", return_value=process
+                ), patch(
+                    "run_ab_match.runner_identity",
+                    return_value={"commit": "test", "dirty": False},
+                ), patch("sys.stdout", new_callable=io.StringIO):
+                    self.assertEqual(main(), 0)
+                schemas.append(set(json.loads(result_path.read_text())))
+
+        self.assertEqual(schemas[0], schemas[1])
 
 
 if __name__ == "__main__":

@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Gate tooling: `run_ab_match.py --result-json` now atomically records a
+  versioned, fail-closed A/B result with the exact configuration, W/D/L and
+  Elo inputs, optional SPRT state, binary/evaluation/opening hashes, command,
+  timing, and explicit completed, stopped, inconclusive, partial, or failed
+  state. Self-play and external-engine runs share the same top-level schema.
 - Evidence: match runner now sends USI `gameover` to both engines so opt-in
   decision logs retain one terminal record per completed game. Archive a
   hash-verified v0.3.67 opening-book ON/OFF diagnostic and a zero-row gate-
