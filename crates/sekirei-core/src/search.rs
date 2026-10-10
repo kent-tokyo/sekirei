@@ -291,8 +291,8 @@ pub struct SearchDiagnostics {
     move_stages: [AtomicU64; 4],
     /// Quiescence calls, nodes in check, TT cutoffs, stand-pat cutoffs,
     /// terminal nodes, searched moves, beta cutoffs, depth-cap exits,
-    /// mate-in-one exits, and delta-pruning exits.
-    qsearch: [AtomicU64; 10],
+    /// mate-in-one exits, delta-pruning exits, and top-level qsearch calls.
+    qsearch: [AtomicU64; 11],
 }
 
 /// Buckets of [`SearchDiagnostics::cut_histogram`]: move 1, 2, 3, 4, 5-6,
@@ -334,6 +334,11 @@ pub struct SearchDiagnosticsSnapshot {
     pub alpha_beta_calls: u64,
     /// Number of quiescence calls.
     pub quiescence_calls: u64,
+    /// Quiescence outcomes and work: calls, in-check nodes, TT cutoffs,
+    /// stand-pat cutoffs, terminal nodes, searched moves, beta cutoffs,
+    /// depth-cap exits, mate-in-one exits, delta-pruning exits, and top-level
+    /// qsearch calls.
+    pub qsearch: [u64; 11],
     /// Inclusive wall time spent in static-evaluation calls.
     pub static_evaluation_ns: u64,
     /// Inclusive wall time spent probing the transposition table.
@@ -629,7 +634,7 @@ impl SearchDiagnostics {
     }
 
     /// Quiescence outcomes and work (see the `qsearch` field).
-    pub fn qsearch_counts(&self) -> [u64; 10] {
+    pub fn qsearch_counts(&self) -> [u64; 11] {
         std::array::from_fn(|i| self.qsearch[i].load(Ordering::Relaxed))
     }
 
@@ -657,6 +662,7 @@ impl SearchDiagnostics {
             root_mate_blunder_cache_hits: self.root_mate_blunder_cache_hits.load(Ordering::Relaxed),
             alpha_beta_calls: self.alpha_beta_calls.load(Ordering::Relaxed),
             quiescence_calls: self.quiescence_calls.load(Ordering::Relaxed),
+            qsearch: self.qsearch_counts(),
             static_evaluation_ns: self.static_evaluation_ns.load(Ordering::Relaxed),
             tt_probe_ns: self.tt_probe_ns.load(Ordering::Relaxed),
             tt_store_ns: self.tt_store_ns.load(Ordering::Relaxed),
@@ -1440,6 +1446,10 @@ fn extract_pv(tt: &Tt, board: &mut Board, first: Option<Move>, depth: u32) -> Ve
 struct SearchHistory<'a> {
     game: &'a PositionHistory,
     parent: Option<&'a SearchHistory<'a>>,
+    /// Bloom filter of hashes in the search line before this frame. A miss is
+    /// exact and avoids walking the parent chain; a collision falls back to
+    /// the full comparison below.
+    prior_hashes: u64,
     /// The move that produced this node; `None` for the root, whose position
     /// is the last game entry.
     entry: Option<PositionHistoryEntry>,
@@ -1450,8 +1460,14 @@ impl<'a> SearchHistory<'a> {
         SearchHistory {
             game,
             parent: None,
+            prior_hashes: 0,
             entry: None,
         }
+    }
+
+    #[inline(always)]
+    fn hash_bit(hash: u64) -> u64 {
+        1u64 << (hash >> 58)
     }
 
     #[inline]
@@ -1459,6 +1475,8 @@ impl<'a> SearchHistory<'a> {
         SearchHistory {
             game: self.game,
             parent: Some(self),
+            prior_hashes: self.prior_hashes
+                | self.entry.map_or(0, |entry| Self::hash_bit(entry.hash)),
             entry: Some(PositionHistoryEntry {
                 hash,
                 mover: Some(mover),
@@ -1474,6 +1492,12 @@ impl<'a> SearchHistory<'a> {
             return self.game.outcome_at_current_position();
         };
         let mut count = self.game.count_hash(current.hash);
+        // The current frame contributes one occurrence. With fewer than
+        // three occurrences in game history and no possible prior line match,
+        // fourfold repetition is impossible.
+        if count < 3 && self.prior_hashes & Self::hash_bit(current.hash) == 0 {
+            return None;
+        }
         let mut frame = Some(self);
         while let Some(f) = frame {
             if f.entry.is_some_and(|e| e.hash == current.hash) {
@@ -3746,6 +3770,9 @@ fn quiescence(
     if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
         diagnostics.qsearch[0].fetch_add(1, Ordering::Relaxed);
+        if qply == 0 {
+            diagnostics.qsearch[10].fetch_add(1, Ordering::Relaxed);
+        }
     }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
@@ -6331,6 +6358,29 @@ mod regression_tests {
             .probe(hash)
             .expect("root_search_inner should have stored a TT entry");
         assert_eq!(entry.bound, Bound::Lower);
+    }
+
+    #[test]
+    fn search_history_filter_preserves_exact_repetition_detection() {
+        let game = PositionHistory::initial(1);
+        let root = SearchHistory::root(&game);
+        let h1 = root.after_move(2, Color::Black, false);
+        let h2 = h1.after_move(3, Color::White, false);
+        let h3 = h2.after_move(2, Color::Black, false);
+        let h4 = h3.after_move(4, Color::White, false);
+        let h5 = h4.after_move(2, Color::Black, false);
+        let h6 = h5.after_move(5, Color::White, false);
+        let h7 = h6.after_move(2, Color::Black, false);
+
+        assert_eq!(
+            h7.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+
+        // A Bloom collision may only trigger the exact fallback. It must not
+        // create a repetition verdict for a different hash.
+        let collision = h1.after_move(2 + (1 << 20), Color::White, false);
+        assert_eq!(collision.outcome_at_current_position(), None);
     }
 
     #[test]

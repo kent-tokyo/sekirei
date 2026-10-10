@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-SCHEMA = "sekirei.q26-search-profile.v4"
+SCHEMA = "sekirei.q26-search-profile.v5"
 RESULT_KEYS = (
     "bestmove",
     "depth",
@@ -39,6 +39,19 @@ LEAF_COMPONENTS = (
     "move_order_sort_ns",
     "root_mate_safety_ns",
 )
+QSEARCH_COUNTERS = (
+    "quiescence_calls",
+    "qsearch_top_level_calls",
+    "qsearch_in_check",
+    "qsearch_tt_cutoffs",
+    "qsearch_stand_pat_cutoffs",
+    "qsearch_terminal_nodes",
+    "qsearch_searched_moves",
+    "qsearch_beta_cutoffs",
+    "qsearch_depth_cap_exits",
+    "qsearch_mate_in_one_exits",
+    "qsearch_delta_pruning_exits",
+)
 
 
 def sha256(path: Path) -> str:
@@ -53,6 +66,10 @@ def parse(line: str) -> dict[str, Any]:
         "order_killer", "order_countermove", "order_history", "root_mate_in_one_nodes",
         "root_mate_blunder_nodes", "root_mate_in_one_cache_hits",
         "root_mate_blunder_cache_hits", "alpha_beta_calls", "quiescence_calls",
+        "qsearch_top_level_calls", "qsearch_in_check", "qsearch_tt_cutoffs", "qsearch_stand_pat_cutoffs",
+        "qsearch_terminal_nodes", "qsearch_searched_moves", "qsearch_beta_cutoffs",
+        "qsearch_depth_cap_exits", "qsearch_mate_in_one_exits",
+        "qsearch_delta_pruning_exits",
         "static_evaluation_ns", "tt_probe_ns", "tt_store_ns", "movegen_order_ns",
         "movegen_generate_ns", "move_order_ns", "move_order_score_ns", "move_order_sort_ns",
         "quiescence_inclusive_ns", "root_mate_safety_ns",
@@ -61,6 +78,27 @@ def parse(line: str) -> dict[str, Any]:
     for key in ("completed_iteration_valid", "aborted", "pv_legal", "pv_replay_preserves_input", "history_matches_expected"):
         values[key] = values[key] == "true"
     return values
+
+
+def summarize_qsearch(profiles: list[dict[str, Any]]) -> dict[str, float | int | dict[str, int]]:
+    """Pool qsearch counters without treating overlapping exit classes as additive time."""
+    totals = {key: sum(profile[key] for profile in profiles) for key in QSEARCH_COUNTERS}
+    calls = totals["quiescence_calls"]
+    searched_moves = totals["qsearch_searched_moves"]
+    top_level_calls = totals["qsearch_top_level_calls"]
+    return {
+        "totals": totals,
+        "searched_moves_per_call": searched_moves / calls if calls else 0.0,
+        "in_check_share": totals["qsearch_in_check"] / calls if calls else 0.0,
+        "tt_cutoff_share": totals["qsearch_tt_cutoffs"] / calls if calls else 0.0,
+        "tt_cutoffs_per_top_level_call": totals["qsearch_tt_cutoffs"] / top_level_calls
+        if top_level_calls
+        else 0.0,
+        "stand_pat_cutoff_share": totals["qsearch_stand_pat_cutoffs"] / calls if calls else 0.0,
+        "beta_cutoff_per_searched_move": totals["qsearch_beta_cutoffs"] / searched_moves
+        if searched_moves
+        else 0.0,
+    }
 
 
 def build_command(
@@ -270,6 +308,7 @@ def main() -> int:
         "component_median_ns": component_medians,
         "tt_breakdown": tt_breakdown,
         "ordering_breakdown": ordering_breakdown,
+        "qsearch_breakdown": summarize_qsearch(profiles),
         "quiescence_inclusive_median_ns": statistics.median(profile["quiescence_inclusive_ns"] for profile in profiles),
         "selected_single_component": selected,
         "selection_reason": "largest median independently timed leaf component; quiescence is reported separately because it overlaps leaf spans",

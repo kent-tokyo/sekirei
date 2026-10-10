@@ -438,6 +438,9 @@ fn diagnostics_delta(
         quiescence_calls: after
             .quiescence_calls
             .saturating_sub(before.quiescence_calls),
+        qsearch: std::array::from_fn(|index| {
+            after.qsearch[index].saturating_sub(before.qsearch[index])
+        }),
         static_evaluation_ns: after
             .static_evaluation_ns
             .saturating_sub(before.static_evaluation_ns),

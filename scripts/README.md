@@ -48,6 +48,10 @@ training.
 - `run_fixed_depth_ab.py` and `gate_resource_preflight.py` provide guarded
   deterministic A/B and resource admission checks. Use `Threads=1` and
   `SpecTopN=0` unless the experiment explicitly studies parallelism.
+- `run_q26_search_profile.py` profiles a replayable fixed-node or fixed-time
+  corpus. Its report includes pooled qsearch calls, top-level calls, exits,
+  and searched-move rates; inclusive qsearch time overlaps its leaf timers and
+  must not be added to them.
 - For a Lazy SMP shared-TT causal control, add 128 to the usual `LazyFlags`
   value. This gives every worker a private table while retaining the other
   selected policy bits. `Hash` remains the total memory budget and is divided

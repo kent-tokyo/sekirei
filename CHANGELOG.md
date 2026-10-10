@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: avoid walking the parent search line for fourfold-repetition checks
+  when a conservative 64-bit history filter proves that the current hash has
+  not occurred there. Hash collisions still use the exact comparison, so
+  move choice, score, node count, and PV remain unchanged.
+- Diagnostics: expose quiescence exit/work counters in
+  `sekirei-search-diagnostic` and summarize pooled qsearch rates in the Q26
+  fixed-budget report without presenting overlapping timers as additive.
 - Added a loopback-only Denryu rehearsal that runs the real CSA client across
   a forced 7+7 process boundary, resumes the cumulative game ceiling, records
   an append-only status journal, hashes all evidence, and verifies that both
