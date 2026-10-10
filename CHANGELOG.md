@@ -6,6 +6,15 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.70] – 2026-10-11
+
+- Match runner: enforce one absolute deadline for each USI handshake, readiness
+  barrier, and `go` response. Repeated `info` output can no longer extend a
+  move indefinitely when an engine never returns `bestmove`.
+- Match runner: reject overflowing Fischer clock fields and use saturating
+  arithmetic when applying elapsed time and increments, preventing untrusted
+  clock values from wrapping or panicking.
+
 - Documentation: shorten and align the English and Japanese entry READMEs,
   make the documentation index the single map for current contracts and
   historical evidence, and move releases through v0.3.66 into the archive.

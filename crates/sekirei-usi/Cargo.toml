@@ -1,6 +1,6 @@
 [package]
 name = "sekirei"
-version = "0.3.69"
+version = "0.3.70"
 edition = "2024"
 description = "USI shogi engine binary (Sekirei)"
 license = "MIT OR Apache-2.0"
@@ -11,7 +11,7 @@ name = "sekirei"
 path = "src/main.rs"
 
 [dependencies]
-sekirei-core = { path = "../sekirei-core", version = "0.3.69" }
+sekirei-core = { path = "../sekirei-core", version = "0.3.70" }
 rayon = "1"
 lineprior = { version = "0.12.4", optional = true }
 serde = { version = "1", features = ["derive"], optional = true }

@@ -11,7 +11,7 @@ use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 pub struct UsiEngine {
     _process: Child,
@@ -145,9 +145,9 @@ impl UsiEngine {
         let _ = self._process.wait();
     }
 
-    /// Read the next output line, waiting at most `timeout`.
-    fn recv_line(&mut self, timeout: Duration) -> io::Result<String> {
-        map_recv_result(self.rx.recv_timeout(timeout))
+    /// Read the next output line before one absolute protocol deadline.
+    fn recv_line_until(&mut self, deadline: Instant) -> io::Result<String> {
+        recv_line_until(&self.rx, deadline)
     }
 
     /// Perform the USI handshake: usi → usiok → setoption* → isready → readyok.
@@ -167,9 +167,10 @@ impl UsiEngine {
     /// tasks/lessons.md) and makes match results harder to reproduce.
     pub fn initialize(&mut self, options: &[String]) -> io::Result<()> {
         self.send("usi")?;
+        let usi_deadline = deadline_after(HANDSHAKE_TIMEOUT)?;
         let mut advertised_options = HashSet::new();
         loop {
-            let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
+            let line = self.recv_line_until(usi_deadline)?;
             if line.starts_with("id name ") {
                 self.name = line.strip_prefix("id name ").unwrap_or(&line).to_string();
             } else if let Some(name) = advertised_option_name(&line) {
@@ -190,6 +191,7 @@ impl UsiEngine {
             self.send(&cmd)?;
         }
         self.send("isready")?;
+        let ready_deadline = deadline_after(HANDSHAKE_TIMEOUT)?;
         // `setoption` is asynchronous in USI. For ordinary options a
         // `readyok` barrier is sufficient, but a strength gate must also
         // prove that the requested NNUE interpretation reached the engine.
@@ -210,7 +212,7 @@ impl UsiEngine {
         let mut nnue_acknowledged = expected_nnue_ack.is_none();
         let mut eval_acknowledged = expected_eval_ack.is_none();
         loop {
-            let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
+            let line = self.recv_line_until(ready_deadline)?;
             if expected_nnue_ack.as_deref() == Some(line.as_str()) {
                 nnue_acknowledged = true;
                 self.nnue_output_acknowledgement = expected_nnue_ack.clone();
@@ -281,8 +283,9 @@ impl UsiEngine {
         self.stop();
         self.send("usinewgame")?;
         self.send("isready")?;
+        let ready_deadline = deadline_after(HANDSHAKE_TIMEOUT)?;
         loop {
-            let line = self.recv_line(HANDSHAKE_TIMEOUT)?;
+            let line = self.recv_line_until(ready_deadline)?;
             if line.contains("readyok") {
                 return Ok(());
             }
@@ -321,33 +324,60 @@ impl UsiEngine {
         self.send(position_cmd)?;
         self.send(go_cmd)?;
 
-        let deadline = parse_byoyomi_ms(go_cmd)
+        let timeout = parse_byoyomi_ms(go_cmd)
             .or_else(|| parse_clock_ms(go_cmd))
             .map(|ms| Duration::from_millis(ms) + MOVE_GRACE)
             .unwrap_or(MOVE_FALLBACK);
 
-        let mut completed_primary: Option<SearchInfo> = None;
-        let mut root_mate_safety = None;
-        loop {
-            let line = self.recv_line(deadline)?; // TimedOut bubbles up = engine hung
-            if line.starts_with("bestmove") {
-                let mv = line
-                    .split_whitespace()
-                    .nth(1)
-                    .unwrap_or("resign")
-                    .to_string();
-                let mut info = completed_primary.unwrap_or_default();
-                info.root_mate_safety = root_mate_safety;
-                return Ok(GoResult { bestmove: mv, info });
-            }
-            if line.starts_with("info ") {
-                retain_completed_primary(&mut completed_primary, &line);
-                if let Some(metrics) = parse_root_mate_safety_metrics(&line) {
-                    root_mate_safety = Some(metrics);
-                }
+        wait_for_bestmove(&self.rx, timeout)
+    }
+}
+
+/// Collect one USI search response within a single wall-clock budget.
+///
+/// The deadline is intentionally absolute. Reusing `timeout` for every
+/// `recv_timeout` call would let a faulty engine avoid forfeiting forever by
+/// emitting `info` lines often enough without ever returning `bestmove`.
+fn wait_for_bestmove(rx: &Receiver<String>, timeout: Duration) -> io::Result<GoResult> {
+    let deadline = deadline_after(timeout)?;
+
+    let mut completed_primary: Option<SearchInfo> = None;
+    let mut root_mate_safety = None;
+    loop {
+        let line = recv_line_until(rx, deadline)?;
+        if line.starts_with("bestmove") {
+            let mv = line
+                .split_whitespace()
+                .nth(1)
+                .unwrap_or("resign")
+                .to_string();
+            let mut info = completed_primary.unwrap_or_default();
+            info.root_mate_safety = root_mate_safety;
+            return Ok(GoResult { bestmove: mv, info });
+        }
+        if line.starts_with("info ") {
+            retain_completed_primary(&mut completed_primary, &line);
+            if let Some(metrics) = parse_root_mate_safety_metrics(&line) {
+                root_mate_safety = Some(metrics);
             }
         }
     }
+}
+
+fn deadline_after(timeout: Duration) -> io::Result<Instant> {
+    Instant::now().checked_add(timeout).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "engine response deadline is outside the supported clock range",
+        )
+    })
+}
+
+fn recv_line_until(rx: &Receiver<String>, deadline: Instant) -> io::Result<String> {
+    let remaining = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or_else(engine_read_timeout)?;
+    map_recv_result(rx.recv_timeout(remaining))
 }
 
 fn parse_root_mate_safety_metrics(line: &str) -> Option<RootMateSafetyMetrics> {
@@ -454,13 +484,15 @@ fn parse_search_info(line: &str) -> Option<SearchInfo> {
 /// unit-testable.
 fn map_recv_result(r: Result<String, mpsc::RecvTimeoutError>) -> io::Result<String> {
     r.map(|s| s.trim_end().to_string()).map_err(|e| match e {
-        mpsc::RecvTimeoutError::Timeout => {
-            io::Error::new(io::ErrorKind::TimedOut, "engine read timeout")
-        }
+        mpsc::RecvTimeoutError::Timeout => engine_read_timeout(),
         mpsc::RecvTimeoutError::Disconnected => {
             io::Error::new(io::ErrorKind::BrokenPipe, "engine process disconnected")
         }
     })
+}
+
+fn engine_read_timeout() -> io::Error {
+    io::Error::new(io::ErrorKind::TimedOut, "engine read timeout")
 }
 
 /// The longest a Fischer `go btime B wtime W binc I winc J` command can
@@ -474,7 +506,7 @@ fn parse_clock_ms(go_cmd: &str) -> Option<u64> {
             .and_then(|v| v.parse::<u64>().ok())
     };
     let clock = get("btime").max(get("wtime"))?;
-    Some(clock + get("binc").max(get("winc")).unwrap_or(0))
+    clock.checked_add(get("binc").max(get("winc")).unwrap_or(0))
 }
 
 /// Extract the byoyomi value (ms) from a `go ... byoyomi N ...` command.
@@ -591,6 +623,11 @@ done
             Some(3000)
         );
         assert_eq!(super::parse_clock_ms("go byoyomi 500"), None);
+        assert_eq!(
+            super::parse_clock_ms("go btime 18446744073709551615 wtime 0 binc 1 winc 0"),
+            None,
+            "untrusted clock fields must not overflow the match runner"
+        );
     }
 
     use super::*;
@@ -780,6 +817,31 @@ done
     fn recv_ok_trims_trailing_whitespace() {
         let line = map_recv_result(Ok("bestmove 7g7f  \r\n".to_string())).unwrap();
         assert_eq!(line, "bestmove 7g7f");
+    }
+
+    #[test]
+    fn info_chatter_cannot_extend_the_total_bestmove_deadline() {
+        let (tx, rx) = mpsc::channel();
+        tx.send("info depth 1 nodes 1".to_string()).unwrap();
+        let sender = thread::spawn(move || {
+            for depth in 2..=10 {
+                thread::sleep(Duration::from_millis(10));
+                if tx
+                    .send(format!("info depth {depth} nodes {depth}"))
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = tx.send("bestmove 7g7f".to_string());
+        });
+
+        let error = wait_for_bestmove(&rx, Duration::from_millis(25))
+            .expect_err("periodic info output must not reset the move deadline");
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+
+        drop(rx);
+        sender.join().expect("info sender must not panic");
     }
 
     #[test]
