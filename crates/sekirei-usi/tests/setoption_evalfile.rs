@@ -185,6 +185,82 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
     let _ = child.wait();
 }
 
+#[test]
+fn command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+
+    // Exercise the successful setoption paths together in one real USI
+    // process.  These options rebuild or mutate different runtime components;
+    // the final search proves that none of the transitions poisoned the
+    // command loop.
+    for command in [
+        "setoption name Hash value 1",
+        "setoption name LazyFlags value 7",
+        "setoption name SpecTopN value 1",
+        "setoption name Threads value 2",
+        "setoption name SearchMode value LazySMP",
+        "setoption name SearchMode value Speculative",
+        "setoption name SearchMode value SharedMcts",
+        "setoption name SearchMode value Dfpn",
+        "setoption name SearchMode value Auto",
+        "setoption name IncrementUsePercent value 0",
+        "setoption name MoveOverhead value 17",
+        "setoption name MultiPV value 2",
+        "setoption name MultiPV value 1",
+        "setoption name FV_SCALE value 17",
+        "setoption name NnueOutput value absolute",
+    ] {
+        send(&mut stdin, command);
+    }
+
+    // Malformed or unsupported input is fail-closed and must leave the
+    // process responsive.  The tuning option is deliberately attempted in a
+    // normal build, where it must be rejected rather than silently accepted.
+    send(&mut stdin, "setoption name T_DOES_NOT_EXIST value 1");
+    send(&mut stdin, "setoption name NnueOutput value unsupported");
+    send(&mut stdin, "setoption name NnueOutput");
+    send(&mut stdin, "setoption name FV_SCALE value nope");
+    send(&mut stdin, "setoption name FV_SCALE value 129");
+    send(&mut stdin, "setoption name SearchMode value unsupported");
+    send(&mut stdin, "ponderhit");
+    send(&mut stdin, "position malformed");
+    send(&mut stdin, "gameover draw");
+    send(&mut stdin, "unknown-command");
+    send(&mut stdin, "isready");
+    let lines = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("cannot set T_DOES_NOT_EXIST"))
+    );
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("invalid NnueOutput unsupported"))
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.contains("invalid FV_SCALE"))
+            .count(),
+        2
+    );
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let search = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(search.iter().any(|line| line.starts_with("bestmove ")));
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
 #[cfg(not(feature = "opening-book"))]
 #[test]
 fn default_binary_has_no_opening_book_surface_or_path_probe() {

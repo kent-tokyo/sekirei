@@ -10,7 +10,7 @@
 [English](README.md)
 
 SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.68`では、
-USIの対局境界、対局・gate証跡、option検証、Rustコードの90%カバレッジ契約を
+USIの対局境界、対局・gate証跡、option検証、Rustコードの95%カバレッジ契約を
 強化しました。棋力向上は主張していません。測定結果は、使用した評価関数、
 ハードウェア、局面集合、探索条件の範囲で扱います。
 
@@ -82,7 +82,7 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が必要です。
-再利用可能なRustコードと配布するUSI実行系の行カバレッジを90%以上に固定します。
+再利用可能なRustコードと配布するUSI実行系の行カバレッジを95%以上に固定します。
 任意の定跡・探索調整機能も対象です。ベンチマーク・診断用バイナリと、対局や学習を
 編成するCLI入口は通常CIで検証しますが、このバッジの集計対象からは分離します。
 

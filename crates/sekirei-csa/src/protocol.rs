@@ -1909,10 +1909,15 @@ fn parse_time_from_echo(line: &str) -> Option<u64> {
 mod tests {
     use super::{
         Color, Config, CsaClient, CsaLineReader, CsaTimeControl, EvaluationMode, GameRecord,
-        GameResult, MAX_CSA_LINE_BYTES, RecordMetadata, ServerLine, TOURNAMENT_MAX_PLIES,
-        advance_tournament_ply, bare_server_move, classify_server_line, parse_game_end,
-        parse_our_color, parse_time_from_echo,
+        GameResult, MAX_CSA_LINE_BYTES, RecordMetadata, RootCandidateRecord, ServerLine,
+        TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
+        classify_server_line, parse_game_end, parse_our_color, parse_time_from_echo,
+        update_run_manifest_game, update_run_manifest_progress, write_runtime_status_progress,
     };
+    use sekirei_core::board::Board;
+    use sekirei_core::color::Color as CoreColor;
+    use sekirei_core::movegen::generate_legal_moves;
+    use sekirei_core::sfen::move_to_usi;
     use std::collections::VecDeque;
     use std::fs;
     use std::io::{self, BufRead, BufReader, Cursor, Read, Write};
@@ -2049,6 +2054,131 @@ mod tests {
             invalid.apply("Total_Time:not-a-number").unwrap_err().kind(),
             io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn time_control_and_manifest_fail_closed_on_every_ambiguous_boundary() {
+        for (unit, expected) in [("2sec", 2_000), ("3min", 180_000), ("4msec", 4)] {
+            assert_eq!(super::parse_time_unit_ms(unit).unwrap(), expected);
+        }
+        for unit in ["", "1hour", "0sec", "18446744073709551615min"] {
+            assert_eq!(
+                super::parse_time_unit_ms(unit).unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{unit}"
+            );
+        }
+        for value in ["", "-1", " 1", "18446744073709551616"] {
+            assert_eq!(
+                super::parse_decimal(value).unwrap_err().kind(),
+                io::ErrorKind::InvalidData,
+                "{value}"
+            );
+        }
+        let mut duplicate_unit = CsaTimeControl::default();
+        duplicate_unit.apply("Time_Unit:1sec").unwrap();
+        assert_eq!(
+            duplicate_unit.apply("Time_Unit:1sec").unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let mut overflow = CsaTimeControl::default();
+        overflow.apply("Time_Unit:1min").unwrap();
+        overflow.apply("Total_Time:18446744073709551615").unwrap();
+        assert_eq!(
+            overflow.finish().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        let mut unrelated = CsaTimeControl::default();
+        assert!(!unrelated.apply("Name+:player").unwrap());
+        assert_eq!(
+            parse_our_color("black").unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+
+        let root = unique_test_directory("manifest-errors");
+        fs::create_dir_all(&root).unwrap();
+        let manifest = root.join("run.json");
+        fs::write(&manifest, "[]").unwrap();
+        assert_eq!(
+            update_run_manifest_progress(&manifest, Some(1), 0, None)
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::write(&manifest, r#"{"games":{}}"#).unwrap();
+        let position = vec!["PI".to_string(), "+".to_string()];
+        assert_eq!(
+            update_run_manifest_game(
+                &manifest,
+                super::RunManifestGame {
+                    game_id: "broken",
+                    color: Color::Black,
+                    black_player: None,
+                    white_player: None,
+                    total_time_ms: None,
+                    byoyomi_ms: None,
+                    increment_ms: None,
+                    effective_main_time_ms: 0,
+                    effective_period_ms: 0,
+                    initial_position: &position,
+                    initial_sfen: sekirei_core::sfen::STARTPOS_SFEN,
+                },
+            )
+            .unwrap_err()
+            .kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn direct_think_paths_cover_ordinary_and_no_legal_move_resignation() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let client_stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (server_stream, _) = listener.accept().unwrap();
+        server_stream
+            .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+            .unwrap();
+        let mut client = CsaClient {
+            reader: CsaLineReader::new(client_stream.try_clone().unwrap()),
+            writer: client_stream,
+            searcher: Searcher::new(Tt::new(1)),
+            config: Config {
+                max_depth: 1,
+                resign_score: sekirei_core::search::MATE_SCORE,
+                root_candidates: vec!["not-a-move".into()],
+                ..Config::default()
+            },
+            status_state: "connected",
+            status_event: None,
+            status_details: super::RuntimeStatusDetails::default(),
+            awaiting_aborted_game_result: false,
+        };
+
+        let mut start = Board::startpos();
+        let ordinary = client
+            .think_and_send(&mut start, Color::Black, 60_000, 0)
+            .unwrap();
+        assert_eq!(ordinary.decision, "ordinary_cp_resign");
+        assert!(ordinary.root_candidates.as_ref().is_some_and(Vec::is_empty));
+
+        client.config.resign_score = -sekirei_core::search::MATE_SCORE;
+        let mut mated = Board::from_sfen("k8/1R7/1K7/9/9/9/9/9/9 w - 1").unwrap();
+        let terminal = client
+            .think_and_send(&mut mated, Color::White, 0, 0)
+            .unwrap();
+        assert_eq!(terminal.decision, "no_legal_move_resign");
+        assert_eq!(terminal.abort_reason, "no_legal_move");
+
+        drop(client);
+        let mut received = String::new();
+        BufReader::new(server_stream)
+            .read_to_string(&mut received)
+            .unwrap();
+        assert_eq!(received.lines().filter(|line| *line == "%TORYO").count(), 2);
     }
 
     #[test]
@@ -2318,6 +2448,7 @@ mod tests {
             analysis_dir: Some(analysis_dir.clone()),
             status_file: Some(status_dir.join("client-status.json")),
             run_manifest: Some(run_manifest.clone()),
+            root_candidates: vec!["3c3d".into(), "not-a-move".into()],
             ..Config::default()
         };
         let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
@@ -2359,7 +2490,8 @@ mod tests {
         assert!(analysis.contains("\"search_backend\":\"alpha_beta\""));
         assert!(analysis.contains("\"resign_score_cp\":-900000"));
         assert!(analysis.contains("\"pv_csa\":["));
-        assert!(analysis.contains("\"root_candidates\":null"));
+        assert!(analysis.contains("\"root_candidates\":[{"));
+        assert!(analysis.contains("\"move_csa\":\"-3334FU\""));
         let status = fs::read_to_string(status_dir.join("client-status.json")).unwrap();
         assert!(status.contains("\"schema\": \"sekirei.csa-runtime-status.v1\""));
         assert!(status.contains("\"state\": \"game_finished\""));
@@ -3122,6 +3254,148 @@ mod tests {
         log.write_line("write must fail");
         assert!(!log.healthy());
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn direct_recording_writes_search_candidates_and_every_terminal_result() {
+        let root = unique_test_directory("direct-recording");
+        let records = root.join("records");
+        let analyses = root.join("analyses");
+        fs::create_dir_all(&root).unwrap();
+
+        let mut board = Board::startpos();
+        let best_move = generate_legal_moves(&mut board)[0];
+        let bestmove_csa = crate::moves::move_to_csa(best_move, CoreColor::Black);
+        let result = ThinkResult {
+            move_made: Some(best_move),
+            csa_move: Some(bestmove_csa.clone()),
+            score: 42,
+            depth: 4,
+            nodes: 123,
+            elapsed_ms: 7,
+            budget_ms: 100,
+            time_left_before_ms: 1_000,
+            byoyomi_ms: 100,
+            hashfull: 3,
+            score_kind: "cp",
+            bound: "exact",
+            completed_bound: "exact",
+            completed_iteration_valid: true,
+            abort_reason: "none",
+            decision: "move",
+            pv_csa: Some(vec![bestmove_csa.clone()]),
+            root_candidates: Some(vec![RootCandidateRecord {
+                move_csa: bestmove_csa.clone(),
+                score: 42,
+                score_kind: "cp",
+                bound: "exact",
+                depth: 4,
+                nodes: 123,
+                elapsed_ms: 7,
+                aborted: false,
+                abort_reason: "none",
+            }]),
+        };
+
+        for (index, terminal) in [
+            GameResult::Win,
+            GameResult::Lose,
+            GameResult::Draw,
+            GameResult::Aborted,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let game_id = format!("game-{index}");
+            let metadata = RecordMetadata {
+                game_id: &game_id,
+                user: "test\"user",
+                color: if index % 2 == 0 {
+                    Color::Black
+                } else {
+                    Color::White
+                },
+                evaluation: EvaluationMode::Material,
+                hash_mb: 16,
+                max_depth: 4,
+                resign_score: -2_000,
+                run_manifest: None,
+            };
+            let mut record = GameRecord::open(&records, metadata, Some(&analyses)).unwrap();
+            record.append_position(&["PI".to_string(), "+".to_string()]);
+            record.append(&bestmove_csa);
+            record.append_analysis(&board, Color::Black, &result);
+            assert!(record.healthy());
+            record.finish_with_result(terminal);
+        }
+
+        let analysis = fs::read_dir(&analyses)
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .collect::<String>();
+        assert!(analysis.contains("\"root_candidates\":[{"));
+        assert!(analysis.contains(&format!("\"bestmove_csa\":\"{bestmove_csa}\"")));
+        for result in ["win", "lose", "draw", "aborted"] {
+            assert!(analysis.contains(&format!("\"result\":\"{result}\"")));
+        }
+        assert_eq!(move_to_usi(best_move).len(), 4);
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn runtime_status_and_manifest_updates_are_atomic_and_append_only() {
+        let root = unique_test_directory("status-manifest");
+        let status = root.join("nested/status.json");
+        let journal = root.join("nested/status.jsonl");
+        let manifest = root.join("run.json");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(&manifest, "{}").unwrap();
+        let config = Config {
+            game_id: "floodgate-180-2F".into(),
+            max_games: Some(14),
+            status_file: Some(status.clone()),
+            status_journal: Some(journal.clone()),
+            ..Config::default()
+        };
+
+        write_runtime_status_progress(&config, "running", Some("connected"), 3, None);
+        write_runtime_status_progress(
+            &config,
+            "stopped",
+            Some("max_games_reached"),
+            14,
+            Some("max_games_reached"),
+        );
+        let snapshot: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status).unwrap()).unwrap();
+        assert_eq!(snapshot["completed_attempts"], 14);
+        assert_eq!(fs::read_to_string(journal).unwrap().lines().count(), 2);
+
+        let initial = vec!["PI".to_string(), "+".to_string()];
+        update_run_manifest_game(
+            &manifest,
+            super::RunManifestGame {
+                game_id: "server-game",
+                color: Color::White,
+                black_player: Some("black"),
+                white_player: Some("white"),
+                total_time_ms: Some(180_000),
+                byoyomi_ms: None,
+                increment_ms: Some(2_000),
+                effective_main_time_ms: 180_000,
+                effective_period_ms: 2_000,
+                initial_position: &initial,
+                initial_sfen: sekirei_core::sfen::STARTPOS_SFEN,
+            },
+        )
+        .unwrap();
+        update_run_manifest_progress(&manifest, Some(14), 1, Some("test_stop")).unwrap();
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(manifest).unwrap()).unwrap();
+        assert_eq!(manifest["games"].as_array().unwrap().len(), 1);
+        assert_eq!(manifest["completed_attempts"], 1);
+        assert_eq!(manifest["terminal_stop_reason"], "test_stop");
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn unique_test_directory(label: &str) -> PathBuf {

@@ -335,7 +335,7 @@ jobs:
       - uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov@0.8.7
-      - name: Rust engine/library coverage (minimum 92%)
+      - name: Rust engine/library coverage (minimum 95%)
         run: bash scripts/check_rust_coverage.sh
       - name: Upload coverage artifact
         if: always() && hashFiles('target/coverage/lcov.info') != ''
@@ -347,6 +347,8 @@ jobs:
             target/coverage/summary.json
             target/coverage/full-workspace-summary.json
             target/coverage/tuned-search-summary.json
+            target/coverage/tuned-public-path-summary.json
+            target/coverage/trainer-smoke-summary.json
             target/coverage/wasm-native-contract-summary.json
           if-no-files-found: error
       - name: Upload coverage to Codecov

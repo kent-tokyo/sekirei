@@ -74,11 +74,6 @@ pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
         .expect("search regression panicked");
 }
 
-/// Whether quiescence tries quiet checking moves at its first ply. Finding
-/// them requires generating and playing every legal move at each leaf; in
-/// local self-play, disabling it was clearly stronger.
-const QSEARCH_CHECKS: bool = false;
-
 /// Exact cache of the existing floating-point LMR formula for all representable
 /// TT depths and the practical maximum shogi move count. This removes two
 /// transcendental `ln` calls from every late-move probe without changing the
@@ -2689,22 +2684,6 @@ impl ContMoves {
         s
     }
 
-    /// Continuation part of a quiet move's ordering score.
-    #[inline]
-    #[allow(dead_code)]
-    fn score(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
-        let mut s = history.cont_get(stm, self.prev, m)
-            + history.follow_get(stm, self.own2, m) * p::CONT2_WEIGHT() / 16
-            + history.follow_get(stm, self.own4, m) * p::CONT4_WEIGHT() / 16;
-        if self.opp3.is_some() {
-            s += history.cont_get(stm, self.opp3, m) * p::CONT3_WEIGHT() / 16;
-        }
-        if self.own6.is_some() {
-            s += history.follow_get(stm, self.own6, m) * p::CONT6_WEIGHT() / 16;
-        }
-        s
-    }
-
     /// Add `delta` to the continuation entries of `m`.
     #[inline]
     fn update(&self, history: &HistoryTable, stm: Color, m: Move, delta: i32) {
@@ -4167,102 +4146,6 @@ fn quiescence(
             if score > alpha {
                 alpha = score;
                 best_move = Some(m);
-            }
-        }
-    }
-
-    // Quiet checks: at the shallowest qsearch level, search a handful of
-    // non-capture moves that give check and have non-negative SEE.
-    // Drops that give check (e.g. 飛打ち王手) are included naturally.
-    if QSEARCH_CHECKS && !in_check && qply == 0 {
-        const MAX_QCHECKS: usize = 4;
-        let mut qcheck_count = 0;
-        let qchecks = {
-            let _timer = state.timer(|d| &d.movegen_order_ns);
-            let mut qchecks = {
-                let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
-                MoveBuffer::legal_with_in_check(board, false)
-            };
-            {
-                let _order_timer = state.timer(|d| &d.move_order_ns);
-                let mut tt_first = |m: &Move| i32::from(Some(*m) != tt_mv);
-                let list = qchecks.as_mut_list().as_mut_slice();
-                sort_moves_by_cached_key(list, &mut tt_first);
-            }
-            qchecks
-        };
-        for &m in qchecks.as_slice() {
-            // Skip captures — already handled above
-            if m.from.is_some() && board.piece_at(m.to).is_some() {
-                continue;
-            }
-            // Test if this move gives check, then apply safety filter — combined in one do/undo
-            let tok = board.do_move_for_search(m);
-            let gives_check = is_in_check(board, board.side_to_move);
-            if !gives_check {
-                board.undo_move_for_search(tok);
-                continue;
-            }
-            // Safety: skip if the checking piece can be immediately recaptured at a loss.
-            // Promoting moves are exempt (promotion value offsets the risk).
-            if !m.promote {
-                let mover_val = PIECE_VALUE[m.piece_kind.index()];
-                let captures = MoveBuffer::captures(board);
-                let unsafe_check = captures
-                    .as_slice()
-                    .iter()
-                    .filter(|r| r.to == m.to)
-                    .any(|r| PIECE_VALUE[r.piece_kind.index()] < mover_val);
-                if unsafe_check {
-                    board.undo_move_for_search(tok);
-                    continue;
-                }
-            }
-            let mover = board.side_to_move.flip();
-            let child_history = history.after_move(board.hash(), mover, gives_check);
-            let score = -quiescence(
-                state,
-                board,
-                -beta,
-                -alpha,
-                ply + 1,
-                qply + 1,
-                Some(gives_check),
-                &child_history,
-            );
-            if let Some(diagnostics) = state.counters() {
-                diagnostics.qsearch[5].fetch_add(1, Ordering::Relaxed);
-            }
-            board.undo_move_for_search(tok);
-
-            if state.budget.should_abort() {
-                return 0;
-            }
-            if score >= beta {
-                if let Some(diagnostics) = state.counters() {
-                    diagnostics.qsearch[6].fetch_add(1, Ordering::Relaxed);
-                }
-                if !state.budget.should_abort() {
-                    store_tt_for_search(
-                        state,
-                        hash,
-                        TtEntry {
-                            score: score_to_tt(score, ply),
-                            depth: 0,
-                            bound: Bound::Lower,
-                            mv: Some(m),
-                        },
-                    );
-                }
-                return score;
-            }
-            if score > alpha {
-                alpha = score;
-                best_move = Some(m);
-            }
-            qcheck_count += 1;
-            if qcheck_count >= MAX_QCHECKS {
-                break;
             }
         }
     }
