@@ -1,5 +1,6 @@
 {
   "schema": "sekirei.book-coverage-declaration.v1",
+  "supersedes_declaration_sha256": "2903d9de2596a2f25027f7ed2ebd0c2ebc43fe99683d4ede26c8c9fe23d13801",
   "created_before_execution": true,
   "purpose": "coverage preflight before a held-out opening-book A/B strength gate",
   "artifacts": {
@@ -29,7 +30,7 @@
       "version": "0.3.68",
       "source_commit": "b44353c977309bc290da0f01a7eb7194d04191c9",
       "features": ["opening-book"],
-      "sha256": "04c15af279b0f1c61ee4928341c0c2582b22409f73a4f6265dd1d556957d5c94"
+      "sha256": "ad4bfee0adb0b58478ef45f6eb482a6be2a0269d4a5bf4e8af012a0856aec9db"
     },
     "match_runner": {
       "sha256": "06a1af5e9c4e65ce8a532db67c5bffbf6a356cff502678becb5923b14c0372da"
@@ -58,5 +59,5 @@
     "target_elo_half_width": 35.0
   },
   "decision_logs": ["engine1_decisions.jsonl", "engine2_decisions.jsonl"],
-  "declaration_sha256": "2903d9de2596a2f25027f7ed2ebd0c2ebc43fe99683d4ede26c8c9fe23d13801"
+  "declaration_sha256": "fe070d69e5e35be70d5786eef4f06f2d131737fcb4fd4cf94c59d8f21e3c1b61"
 }
