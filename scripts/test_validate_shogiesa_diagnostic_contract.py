@@ -34,7 +34,8 @@ class DiagnosticContractTests(unittest.TestCase):
         self.manifest_path = root / "manifest.json"
         self.observations_path = root / "observations.jsonl"
         self.manifest = {
-            "shogiesa_version": "0.11.2",
+            "manifest_schema_version": 1,
+            "shogiesa_version": "0.11.3",
             "schema_version": 11,
             "command": "label",
             "depths": [2, 4],
@@ -62,7 +63,7 @@ class DiagnosticContractTests(unittest.TestCase):
     def build(self, **overrides):
         self.write()
         args = {
-            "version": "0.11.2",
+            "version": "0.11.3",
             "manifest_path": self.manifest_path,
             "observations_path": self.observations_path,
             "expected_depths": [2, 4],
@@ -86,9 +87,16 @@ class DiagnosticContractTests(unittest.TestCase):
         self.assertEqual(len(result["shogiesa_manifest_sha256"]), 64)
 
     def test_rejects_unsupported_version_and_schema(self):
-        self.assertEqual(contract.parse_version_output("shogiesa 0.11.2"), "0.11.2")
+        self.assertEqual(contract.parse_version_output("shogiesa 0.11.3"), "0.11.3")
         with self.assertRaisesRegex(contract.ContractError, "unsupported shogiesa version"):
             contract.parse_version_output("shogiesa 0.12.0")
+        self.manifest.pop("manifest_schema_version")
+        with self.assertRaisesRegex(contract.ContractError, "manifest_schema_version"):
+            self.build()
+        self.manifest["manifest_schema_version"] = 2
+        with self.assertRaisesRegex(contract.ContractError, "manifest_schema_version"):
+            self.build()
+        self.manifest["manifest_schema_version"] = 1
         self.record["schema_version"] = 12
         with self.assertRaisesRegex(contract.ContractError, "unsupported schema_version"):
             self.build()

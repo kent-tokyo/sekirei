@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Dependencies: update `lineprior` to 0.12.4 and `shogiesa-core` plus the
+  verified external `shogiesa` CLI contract to 0.11.3. The opening-book schema
+  remains v1 and the position schema remains v11; diagnostic manifests now
+  require the independent `manifest_schema_version: 1` contract.
 - NNUE evidence: register the exact `nn_r3` HalfKP candidate identity,
   fresh-only self-play lineage, candidate-relative 480-game result, and missing
   release evidence. Add a fail-closed card/artifact validator without bundling
