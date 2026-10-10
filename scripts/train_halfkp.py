@@ -27,6 +27,12 @@ fall on both sides and makes the validation loss look better than it is.
 king's row during training and folded into them at export, so the file format
 and the engine are unchanged.
 
+Training and validation shards stay as separate read-only memory maps. Batches
+copy only the records they use, and deterministic affine permutations generate
+their indices without allocating an all-position shuffle. Python heap use for
+input records and shuffle indices therefore scales with the batch size rather
+than the total dataset size; mapped pages remain reclaimable by the OS.
+
 Input datasets are never overwritten in place: data, validation and initial
 checkpoint paths are checked against every output by canonical path and inode,
 including symlinks and hardlinks. Network, float-state and resume-checkpoint
@@ -61,6 +67,7 @@ NETWORK_HASH = FILE_HASH ^ TRANSFORMER_HASH
 # Integer ranges of the file format expressed in float units.
 FT_MAX = 6.0                   # |w| * 127 * 38 stays inside i16
 HID_MAX = 127.0 / 64.0         # i8 weights, scale 64
+DATA_ORDER_VERSION = "mmap-affine-v1"
 
 
 class Net(nn.Module):
@@ -130,10 +137,125 @@ def indices(rec):
     return us, them
 
 
-def load(paths):
-    parts = [np.fromfile(p, dtype=REC) for p in paths]
-    data = np.concatenate(parts) if len(parts) > 1 else parts[0]
-    return data
+class MappedRecords:
+    """A logical record array backed by separate read-only mmap shards."""
+
+    def __init__(self, paths):
+        if not paths:
+            raise ValueError("at least one dataset path is required")
+        self.parts = []
+        offsets = [0]
+        for path in paths:
+            size = os.path.getsize(path)
+            if size % REC.itemsize:
+                raise ValueError(
+                    f"dataset size is not a multiple of {REC.itemsize} bytes: {path}"
+                )
+            count = size // REC.itemsize
+            if count:
+                part = np.memmap(path, dtype=REC, mode="r", shape=(count,))
+                self.parts.append(part)
+                offsets.append(offsets[-1] + count)
+        if offsets[-1] == 0:
+            raise ValueError("dataset contains no records")
+        self.offsets = np.asarray(offsets, dtype=np.int64)
+
+    def __len__(self):
+        return int(self.offsets[-1])
+
+    def take(self, indices_):
+        """Copy arbitrary logical rows into one batch-sized array."""
+        requested = np.asarray(indices_, dtype=np.int64)
+        flat = requested.reshape(-1)
+        if flat.size == 0:
+            return np.empty(requested.shape, dtype=REC)
+        if np.any(flat < 0) or np.any(flat >= len(self)):
+            raise IndexError("record index out of range")
+
+        result = np.empty(flat.shape, dtype=REC)
+        shard_ids = np.searchsorted(self.offsets[1:], flat, side="right")
+        for shard_id in np.unique(shard_ids):
+            mask = shard_ids == shard_id
+            local = flat[mask] - self.offsets[shard_id]
+            result[mask] = self.parts[int(shard_id)][local]
+        return result.reshape(requested.shape)
+
+
+class AffinePermutation:
+    """Deterministic O(1)-state permutation of ``range(size)``."""
+
+    def __init__(self, size, seed):
+        if size <= 0:
+            raise ValueError("permutation size must be positive")
+        self.size = int(size)
+        if self.size == 1:
+            self.multiplier, self.shift = 0, 0
+            return
+        rng = np.random.default_rng(seed)
+        multiplier = int(rng.integers(1, self.size))
+        while math.gcd(multiplier, self.size) != 1:
+            multiplier = (multiplier + 1) % self.size
+            if multiplier == 0:
+                multiplier = 1
+        self.multiplier = multiplier
+        self.shift = int(rng.integers(0, self.size))
+
+    def take(self, ranks):
+        ranks = np.asarray(ranks, dtype=np.int64)
+        if np.any(ranks < 0) or np.any(ranks >= self.size):
+            raise IndexError("permutation rank out of range")
+        if self.size == 1:
+            return np.zeros(ranks.shape, dtype=np.int64)
+        return (ranks * self.multiplier + self.shift) % self.size
+
+
+class RecordSelection:
+    """A slice of one fixed permutation, used for train/validation isolation."""
+
+    def __init__(self, source_size, start, count, seed):
+        if start < 0 or count <= 0 or start + count > source_size:
+            raise ValueError("invalid record selection")
+        self.start = int(start)
+        self.count = int(count)
+        self.permutation = AffinePermutation(source_size, seed)
+
+    def take(self, ranks):
+        ranks = np.asarray(ranks, dtype=np.int64)
+        if np.any(ranks < 0) or np.any(ranks >= self.count):
+            raise IndexError("selection rank out of range")
+        return self.permutation.take(ranks + self.start)
+
+
+def batch_ranks(step, batch_size, count):
+    """Return the logical ranks for one bounded-memory training batch."""
+    start = step * batch_size
+    stop = min(start + batch_size, count)
+    if start >= count:
+        return np.empty(0, dtype=np.int64)
+    return np.arange(start, stop, dtype=np.int64)
+
+
+def data_order_contract(seed, batch_size, train_count):
+    return {
+        "version": DATA_ORDER_VERSION,
+        "seed": int(seed),
+        "batch_size": int(batch_size),
+        "train_count": int(train_count),
+    }
+
+
+def validate_checkpoint_order(state, expected):
+    """Reject a resume that could repeat or skip rows within an epoch."""
+    actual = state.get("data_order")
+    if actual is None:
+        if state.get("step", 0) != 0:
+            raise ValueError(
+                "checkpoint predates the memory-mapped data order and stops "
+                "mid-epoch; resume it with the 0.3.68 trainer or start a new epoch"
+            )
+        return
+    if actual != expected:
+        raise ValueError(f"checkpoint data-order mismatch: {actual!r} != {expected!r}")
 
 
 def _temporary_sibling(path):
@@ -256,25 +378,40 @@ def main():
     )
     if args.threads:
         torch.set_num_threads(args.threads)
+    if args.batch <= 0:
+        raise ValueError("--batch must be positive")
+    if args.max_train < 0:
+        raise ValueError("--max-train must not be negative")
     torch.manual_seed(args.seed)
-    rng = np.random.default_rng(args.seed)
 
-    data = load(args.data)
+    train_data = MappedRecords(args.data)
     if args.val_data:
-        n_tr = len(data)
-        data = np.concatenate([data, load(args.val_data)])
-        n = len(data)
-        train_idx = rng.permutation(n_tr)
-        if args.max_train:
-            train_idx = train_idx[:args.max_train]
-        val_idx = np.arange(n_tr, n)
-        n_val = len(val_idx)
+        val_data = MappedRecords(args.val_data)
+        available_train = len(train_data)
+        train_count = min(args.max_train or available_train, available_train)
+        train_selection = RecordSelection(available_train, 0, train_count, args.seed)
+        val_selection = RecordSelection(len(val_data), 0, len(val_data), args.seed + 1)
+        total_positions = available_train + len(val_data)
     else:
-        n = len(data)
-        order = rng.permutation(n)
-        n_val = max(1, int(n * args.val))
-        val_idx, train_idx = order[:n_val], order[n_val:]
-    print(f"{n} positions ({len(train_idx)} train, {n_val} held out), device {args.device}", flush=True)
+        if not 0.0 < args.val < 1.0:
+            raise ValueError("--val must be between 0 and 1 without --val-data")
+        val_data = train_data
+        total_positions = len(train_data)
+        n_val = max(1, int(total_positions * args.val))
+        available_train = total_positions - n_val
+        if available_train <= 0:
+            raise ValueError("dataset needs at least one training and one validation record")
+        train_count = min(args.max_train or available_train, available_train)
+        # The adjacent slices share one fixed permutation, so they are disjoint
+        # without retaining an O(number of positions) index array.
+        val_selection = RecordSelection(total_positions, 0, n_val, args.seed)
+        train_selection = RecordSelection(total_positions, n_val, train_count, args.seed)
+    n_val = val_selection.count
+    print(
+        f"{total_positions} positions ({train_count} train, {n_val} held out), "
+        f"device {args.device}, mmap input",
+        flush=True,
+    )
 
     dev = torch.device(args.device)
     net = Net(args.fv_scale, args.fact)
@@ -282,11 +419,13 @@ def main():
         load_init(net, torch.load(args.init, map_location="cpu"))
     net.to(dev)
     opt = torch.optim.Adam(net.parameters(), lr=args.lr)
-    steps_per_epoch = max(1, len(train_idx) // args.batch)
+    steps_per_epoch = max(1, train_count // args.batch)
     sched = torch.optim.lr_scheduler.CosineAnnealingLR(opt, T_max=args.epochs * steps_per_epoch, eta_min=args.lr * 0.05)
+    order_contract = data_order_contract(args.seed, args.batch, train_count)
 
-    def batch_tensors(idx):
-        rec = data[np.sort(idx)]
+    def batch_tensors(dataset, selection, ranks):
+        idx = np.sort(selection.take(ranks))
+        rec = dataset.take(idx)
         us, them = indices(rec)
         score = torch.from_numpy(rec["score"].astype(np.float32))
         res = torch.from_numpy(rec["res"].astype(np.float32))
@@ -298,7 +437,8 @@ def main():
         total, count = 0.0, 0
         with torch.no_grad():
             for s in range(0, n_val, args.batch):
-                us, them, target = batch_tensors(val_idx[s:s + args.batch])
+                ranks = np.arange(s, min(s + args.batch, n_val), dtype=np.int64)
+                us, them, target = batch_tensors(val_data, val_selection, ranks)
                 p = torch.sigmoid(net(us, them) / args.scale)
                 total += ((p - target) ** 2).sum().item()
                 count += len(target)
@@ -308,6 +448,7 @@ def main():
     start_epoch, start_step = 1, 0
     if args.ckpt and os.path.exists(args.ckpt):
         state = torch.load(args.ckpt, map_location="cpu", weights_only=False)
+        validate_checkpoint_order(state, order_contract)
         net.load_state_dict(state["model"])
         opt.load_state_dict(state["opt"])
         sched.load_state_dict(state["sched"])
@@ -319,16 +460,18 @@ def main():
     def save_ckpt(epoch, step):
         if args.ckpt:
             atomic_torch_save({"model": net.state_dict(), "opt": opt.state_dict(),
-                               "sched": sched.state_dict(), "epoch": epoch, "step": step},
+                               "sched": sched.state_dict(), "epoch": epoch, "step": step,
+                               "data_order": order_contract},
                               args.ckpt)
 
     t0 = time.time()
     for epoch in range(start_epoch, args.epochs + 1):
-        perm = np.random.default_rng(args.seed * 1000 + epoch).permutation(train_idx)
+        epoch_order = AffinePermutation(train_count, args.seed * 1000 + epoch)
         running, seen = 0.0, 0
         first = start_step if epoch == start_epoch else 0
         for s in range(first, steps_per_epoch):
-            us, them, target = batch_tensors(perm[s * args.batch:(s + 1) * args.batch])
+            ranks = epoch_order.take(batch_ranks(s, args.batch, train_count))
+            us, them, target = batch_tensors(train_data, train_selection, ranks)
             p = torch.sigmoid(net(us, them) / args.scale)
             loss = ((p - target) ** 2).mean()
             opt.zero_grad(set_to_none=True)
@@ -349,11 +492,12 @@ def main():
         if args.save:
             atomic_torch_save(net.state_dict(), args.save)
     net.to("cpu")
-    export(net, args.out, args.fv_scale, f"{len(train_idx)} positions, lam {args.lam}{', fact' if args.fact else ''}")
+    export(net, args.out, args.fv_scale, f"{train_count} positions, lam {args.lam}{', fact' if args.fact else ''}")
     print(f"wrote {args.out}", flush=True)
     # A few float predictions for comparison with `halfkp_pack check`.
     with torch.no_grad():
-        us, them = indices(data[:5])
+        preview = train_data.take(np.arange(min(5, len(train_data)), dtype=np.int64))
+        us, them = indices(preview)
         pred = net(torch.from_numpy(us), torch.from_numpy(them))
     print("first 5 predictions (cp):", [round(v) for v in pred.tolist()])
 

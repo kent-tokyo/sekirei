@@ -71,6 +71,80 @@ class FactorizerTest(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
+class MappedDatasetTest(unittest.TestCase):
+    @staticmethod
+    def write_records(path, scores):
+        records = np.zeros(len(scores), dtype=th.REC)
+        records["score"] = scores
+        records.tofile(path)
+
+    def test_multiple_shards_remain_mapped_and_take_preserves_order(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = os.path.join(tmp, "first.bin")
+            second = os.path.join(tmp, "second.bin")
+            self.write_records(first, [10, 11])
+            self.write_records(second, [20, 21, 22])
+
+            records = th.MappedRecords([first, second])
+            batch = records.take(np.array([4, 0, 2, 1], dtype=np.int64))
+
+            self.assertEqual(len(records), 5)
+            self.assertTrue(all(isinstance(part, np.memmap) for part in records.parts))
+            self.assertEqual(batch["score"].tolist(), [22, 10, 20, 11])
+
+    def test_rejects_truncated_and_empty_datasets(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            truncated = os.path.join(tmp, "truncated.bin")
+            empty = os.path.join(tmp, "empty.bin")
+            with open(truncated, "wb") as f:
+                f.write(b"not-a-record")
+            open(empty, "wb").close()
+
+            with self.assertRaisesRegex(ValueError, "multiple"):
+                th.MappedRecords([truncated])
+            with self.assertRaisesRegex(ValueError, "no records"):
+                th.MappedRecords([empty])
+
+    def test_affine_permutation_is_deterministic_and_bijective(self):
+        ranks = np.arange(997, dtype=np.int64)
+        first = th.AffinePermutation(len(ranks), 17).take(ranks)
+        second = th.AffinePermutation(len(ranks), 17).take(ranks)
+        other = th.AffinePermutation(len(ranks), 18).take(ranks)
+
+        self.assertTrue(np.array_equal(first, second))
+        self.assertEqual(np.unique(first).size, len(ranks))
+        self.assertFalse(np.array_equal(first, other))
+
+    def test_train_and_validation_selections_are_disjoint(self):
+        total, held_out = 101, 13
+        validation = th.RecordSelection(total, 0, held_out, seed=23)
+        training = th.RecordSelection(total, held_out, total - held_out, seed=23)
+        val_idx = set(validation.take(np.arange(held_out)).tolist())
+        train_idx = set(training.take(np.arange(total - held_out)).tolist())
+
+        self.assertFalse(val_idx & train_idx)
+        self.assertEqual(val_idx | train_idx, set(range(total)))
+
+    def test_batch_ranks_allocates_only_one_batch(self):
+        batch = th.batch_ranks(step=1234, batch_size=8192, count=20_000_000)
+        self.assertEqual(len(batch), 8192)
+        self.assertEqual(batch[0], 1234 * 8192)
+
+    def test_checkpoint_order_rejects_unsafe_mid_epoch_legacy_resume(self):
+        expected = th.data_order_contract(seed=1, batch_size=8192, train_count=20_000_000)
+        with self.assertRaisesRegex(ValueError, "predates.*mid-epoch"):
+            th.validate_checkpoint_order({"step": 12}, expected)
+        th.validate_checkpoint_order({"step": 0}, expected)
+
+    def test_checkpoint_order_requires_the_same_bounded_shuffle_contract(self):
+        expected = th.data_order_contract(seed=1, batch_size=8192, train_count=100)
+        th.validate_checkpoint_order({"step": 3, "data_order": expected}, expected)
+        changed = th.data_order_contract(seed=2, batch_size=8192, train_count=100)
+        with self.assertRaisesRegex(ValueError, "data-order mismatch"):
+            th.validate_checkpoint_order({"step": 3, "data_order": changed}, expected)
+
+
+@unittest.skipUnless(HAVE_DEPS, "torch and numpy are required")
 class OutputSafetyTest(unittest.TestCase):
     def test_rejects_direct_input_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:

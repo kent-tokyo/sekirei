@@ -121,7 +121,16 @@ experiment justifies otherwise. The trainer rejects output paths that alias a
 training, validation, or initial-checkpoint input through a direct path,
 symlink, or hardlink. Network, float-state, and resume-checkpoint files are
 written to a sibling temporary file and atomically replaced only after a
-complete write.
+complete write. Every packed shard remains a separate read-only memory map;
+training and validation copy only one batch at a time, and deterministic
+shuffle indices are generated per batch. Large multi-shard runs therefore do
+not load or concatenate the full position corpus on the Python heap; mapped
+pages remain reclaimable by the operating system.
+
+Checkpoints written by this version record the shuffle contract. A checkpoint
+from the older full-memory trainer can be continued at an epoch boundary, but
+a mid-epoch legacy checkpoint must be finished with that trainer or restarted
+at a new epoch; otherwise the changed ordering could repeat or skip records.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \

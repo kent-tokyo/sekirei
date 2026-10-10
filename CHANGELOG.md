@@ -8,6 +8,11 @@ preserves older per-change notes.
 
 - USI: advertise the package version as `id version <version>` during the
   `usi` handshake, matching `sekirei --version` for dataset provenance.
+- NNUE training: keep every HalfKP training and validation shard as a separate
+  read-only memory map, and generate deterministic shuffle indices one batch at
+  a time. Multi-file corpora no longer require a full in-memory concatenation
+  or an all-position permutation. New checkpoints record this data-order
+  contract and reject unsafe mid-epoch resumes from the former ordering.
 
 ## [0.3.68] – 2026-10-10
 
