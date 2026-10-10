@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.69] – 2026-10-11
+
 - Search: retain every non-capturing pawn, bishop, and rook promotion when the
   optional quiescence promotion search is enabled; promotion-heavy positions
   are no longer silently truncated after 16 candidates.
