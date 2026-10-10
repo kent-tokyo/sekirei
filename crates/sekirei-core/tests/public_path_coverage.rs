@@ -262,8 +262,22 @@ fn public_evaluation_and_policy_adapters_cover_all_move_families() {
     assert_eq!(residual, material_score(&board) + absolute);
 
     let activation = board.nnue_activation_summary_with(&weights);
-    assert_eq!(activation.ft_units, 512);
-    assert_eq!(activation.l2_units, 32);
+    let expected_ft_units = if cfg!(feature = "nnue_l1_384") {
+        2 * 384
+    } else if cfg!(feature = "nnue_l1_128") {
+        2 * 128
+    } else {
+        2 * 256
+    };
+    let expected_l2_units = if cfg!(feature = "nnue_l2_64") {
+        64
+    } else if cfg!(feature = "nnue_l2_16") {
+        16
+    } else {
+        32
+    };
+    assert_eq!(activation.ft_units, expected_ft_units);
+    assert_eq!(activation.l2_units, expected_l2_units);
     assert!(activation.ft_active <= activation.ft_units);
     assert!(activation.l2_active <= activation.l2_units);
 
