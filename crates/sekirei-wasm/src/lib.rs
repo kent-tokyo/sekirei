@@ -1153,6 +1153,72 @@ mod tests {
     }
 
     #[test]
+    fn exported_analysis_getters_match_the_native_results() {
+        assert_eq!(start_sfen(), STARTPOS_SFEN);
+
+        let analysis = analyze_position(ASYMMETRIC_BLACK, 1, 10_000).unwrap();
+        assert_eq!(analysis.kind(), "cp");
+        assert!(analysis.score_cp().is_some());
+        assert_eq!(analysis.mate_plies(), None);
+        assert_eq!(analysis.winner(), None);
+        assert_eq!(analysis.side_to_move(), "b");
+        assert_eq!(analysis.score_perspective(), "sideToMove");
+        assert_eq!(analysis.score_unit(), "cp");
+        assert_eq!(analysis.depth(), 1);
+        assert!(analysis.nodes() > 0);
+        assert_eq!(analysis.bound(), "exact");
+        assert!(!analysis.aborted());
+        assert_eq!(analysis.abort_reason(), None);
+        assert!(!analysis.used_fallback());
+        assert!(analysis.best_move().is_some());
+        assert_eq!(analysis.pv_source(), "completed_iteration");
+        assert_eq!(analysis.candidate_line_count(), 1);
+        assert_eq!(analysis.terminal_reason(), None);
+        assert!(!analysis.in_check());
+        assert_eq!(analysis.evaluator_id(), "material");
+        assert_eq!(analysis.evaluator_version(), "material-v1");
+        assert_eq!(analysis.engine_version(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(analysis.api_version(), 2);
+
+        let bounded = computer_move(STARTPOS_SFEN, 8, 1).unwrap();
+        let bounded_native = computer_move_impl(STARTPOS_SFEN, 8, 1).unwrap();
+        assert_eq!(bounded.used_fallback(), bounded_native.used_fallback);
+        assert_eq!(bounded.best_move(), bounded_native.best_move);
+        assert_eq!(bounded.score(), bounded_native.score);
+        assert_eq!(bounded.depth(), bounded_native.depth);
+        assert_eq!(bounded.nodes(), bounded_native.nodes);
+
+        let mate_in_one = analyze_mate_in_one(VALID_MATE_SFEN).unwrap();
+        let mate_in_one_native = analyze_mate_in_one_impl(VALID_MATE_SFEN).unwrap();
+        assert!(mate_in_one.valid_position());
+        assert!(!mate_in_one.defender_already_in_check());
+        assert_eq!(mate_in_one.invalid_reason(), None);
+        assert_eq!(
+            mate_in_one.unique_solution(),
+            mate_in_one_native.solutions.len() == 1
+        );
+
+        let invalid = analyze_mate_in_one(ALREADY_CHECKED_MATE_SFEN).unwrap();
+        assert!(!invalid.valid_position());
+        assert!(invalid.defender_already_in_check());
+        assert_eq!(
+            invalid.invalid_reason().as_deref(),
+            Some("defender_already_in_check")
+        );
+        assert!(!invalid.unique_solution());
+
+        let mate = analyze_mate(SHORTEST_THREE_SFEN, 3, MAX_MATE_NODES).unwrap();
+        let mate_native = analyze_mate_impl(SHORTEST_THREE_SFEN, 3, MAX_MATE_NODES).unwrap();
+        assert!(mate.valid_position());
+        assert_eq!(mate.outcome(), "mate");
+        assert_eq!(mate.shortest_mate_ply(), Some(3));
+        assert_eq!(mate.unique_solution(), mate_native.unique_solution);
+        assert!(mate.nodes() > 0);
+        assert!(!mate.aborted());
+        assert_eq!(mate.reason(), None);
+    }
+
+    #[test]
     fn mate_in_one_adapter_matches_the_core_analysis() {
         let invalid = analyze_mate_in_one_impl(ALREADY_CHECKED_MATE_SFEN).unwrap();
         assert!(!invalid.valid_position);

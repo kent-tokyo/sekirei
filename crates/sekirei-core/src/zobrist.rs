@@ -122,3 +122,51 @@ pub fn compute_hash(
 
     h
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn full_hash_contains_every_supported_component() {
+        let mut mailbox = [None; 81];
+        mailbox[0] = Some((Color::Black, PieceKind::Ou));
+        mailbox[80] = Some((Color::White, PieceKind::Ryu));
+        let mut hands = [[0; 7]; 2];
+        hands[0] = [2, 1, 1, 1, 1, 1, 1];
+        hands[1] = [1, 1, 1, 1, 1, 1, 1];
+
+        let black = compute_hash(&mailbox, &hands, Color::Black);
+        let white = compute_hash(&mailbox, &hands, Color::White);
+        assert_eq!(black ^ white, side_key());
+
+        let mut expected = piece_key(Square::from_index(0), Color::Black, PieceKind::Ou)
+            ^ piece_key(Square::from_index(80), Color::White, PieceKind::Ryu)
+            ^ side_key();
+        for (color_index, color) in [Color::Black, Color::White].into_iter().enumerate() {
+            for (kind_index, kind) in [
+                PieceKind::Fu,
+                PieceKind::Kyou,
+                PieceKind::Kei,
+                PieceKind::Gin,
+                PieceKind::Kin,
+                PieceKind::Kaku,
+                PieceKind::Hisha,
+            ]
+            .into_iter()
+            .enumerate()
+            {
+                for count in 1..=hands[color_index][kind_index] {
+                    expected ^= hand_delta(color, kind, count);
+                }
+            }
+        }
+        assert_eq!(black, expected);
+    }
+
+    #[test]
+    #[should_panic(expected = "not a hand piece")]
+    fn hand_delta_rejects_board_only_pieces() {
+        let _ = hand_delta(Color::Black, PieceKind::Ou, 1);
+    }
+}

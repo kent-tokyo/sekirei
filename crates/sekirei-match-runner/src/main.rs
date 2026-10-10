@@ -537,6 +537,24 @@ fn engine1_to_move(e1_is_black: bool, side_to_move: Color) -> bool {
         }
 }
 
+fn position_prefix(start_pos: &str) -> String {
+    if start_pos == "startpos" {
+        "position startpos".to_string()
+    } else {
+        format!("position sfen {start_pos}")
+    }
+}
+
+fn parse_start_position(start_pos: &str) -> Result<(String, Board), String> {
+    let prefix = position_prefix(start_pos);
+    let command = prefix
+        .strip_prefix("position ")
+        .expect("position_prefix always includes the USI command prefix");
+    let board = parse_position_cmd(command)
+        .map_err(|error| format!("invalid match start position {start_pos:?}: {error}"))?;
+    Ok((prefix, board))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn run_game(
     e1: &mut UsiEngine,
@@ -578,18 +596,13 @@ fn run_game(
         fatal_protocol_error(e1, e2, &msg);
     }
 
-    // Build the initial board state for legality/repetition checking
-    let pos_prefix = if start_pos == "startpos" {
-        "position startpos".to_string()
-    } else {
-        format!("position sfen {start_pos}")
-    };
-
-    let mut board =
-        match parse_position_cmd(pos_prefix.strip_prefix("position ").unwrap_or("startpos")) {
-            Ok(b) => b,
-            Err(_) => Board::startpos(),
-        };
+    // Opening files are validated before either engine starts. Keep this
+    // boundary fail-closed as well: silently falling back to startpos would
+    // leave the engines and the runner's legality board on different
+    // positions and misreport the first move as illegal.
+    let (pos_prefix, mut board) = parse_start_position(start_pos).unwrap_or_else(|error| {
+        fatal_protocol_error(e1, e2, &format!("game {game_num} cannot start: {error}"))
+    });
     let mut position_history = PositionHistory::initial(board.hash());
 
     for ply in 0..max_moves {
@@ -1085,27 +1098,28 @@ fn persist_csa_manifest(
 }
 
 fn load_positions(path: &Path) -> Result<Vec<String>, String> {
-    let positions: Vec<String> = fs::read_to_string(path)
-        .map_err(|error| format!("cannot read opening file {}: {error}", path.display()))?
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !l.starts_with('#'))
-        .map(str::to_string)
-        .collect();
+    let contents = fs::read_to_string(path)
+        .map_err(|error| format!("cannot read opening file {}: {error}", path.display()))?;
+    let mut positions = Vec::new();
+    for (index, line) in contents.lines().enumerate() {
+        let sfen = line.trim();
+        if sfen.is_empty() || sfen.starts_with('#') {
+            continue;
+        }
+        parse_position_cmd(&format!("sfen {sfen}")).map_err(|error| {
+            format!(
+                "invalid SFEN in {} at line {}: {error}",
+                path.display(),
+                index + 1
+            )
+        })?;
+        positions.push(sfen.to_string());
+    }
     if positions.is_empty() {
         return Err(format!(
             "opening file contains no SFEN positions: {}",
             path.display()
         ));
-    }
-    for (line_number, sfen) in positions.iter().enumerate() {
-        parse_position_cmd(&format!("sfen {sfen}")).map_err(|error| {
-            format!(
-                "invalid SFEN in {} at non-comment position line {}: {error}",
-                path.display(),
-                line_number + 1
-            )
-        })?;
     }
     Ok(positions)
 }
@@ -1390,106 +1404,139 @@ fn incomplete_pair_message(records: &[(usize, veridict::input::Record)]) -> Opti
     })
 }
 
-fn run_gate(argv: &[String]) {
-    let mut pass_elo = 20.0f64;
-    let mut pass_los = 0.95f64;
-    let mut fail_elo = -10.0f64;
-    let mut anchor: Option<f64> = None;
-    let mut json_path: Option<String> = None;
+struct GateOptions {
+    path: String,
+    pass_elo: f64,
+    pass_los: f64,
+    fail_elo: f64,
+    anchor: Option<f64>,
+    min_diversity_ratio: f64,
+    sprt: bool,
+    elo0: f64,
+    elo1: f64,
+    alpha: f64,
+    beta: f64,
+    sprt_variant: veridict::sprt::SprtVariant,
+    paired_by_id: bool,
+    require_complete_pairs: bool,
+}
+
+fn gate_value<'a>(argv: &'a [String], index: &mut usize, flag: &str) -> Result<&'a str, String> {
+    *index += 1;
+    argv.get(*index)
+        .map(String::as_str)
+        .ok_or_else(|| format!("gate: {flag} requires a value"))
+}
+
+fn gate_number(argv: &[String], index: &mut usize, flag: &str) -> Result<f64, String> {
+    let raw = gate_value(argv, index, flag)?;
+    let value = raw
+        .parse::<f64>()
+        .map_err(|_| format!("gate: invalid {flag} value {raw:?}"))?;
+    if !value.is_finite() {
+        return Err(format!("gate: {flag} must be finite"));
+    }
+    Ok(value)
+}
+
+fn unit_interval(value: f64, flag: &str) -> Result<f64, String> {
+    if (0.0..=1.0).contains(&value) {
+        Ok(value)
+    } else {
+        Err(format!("gate: {flag} must be in 0..=1"))
+    }
+}
+
+fn parse_gate_options(argv: &[String]) -> Result<GateOptions, String> {
+    let mut options = GateOptions {
+        path: String::new(),
+        pass_elo: 20.0,
+        pass_los: 0.95,
+        fail_elo: -10.0,
+        anchor: None,
+        min_diversity_ratio: 0.3,
+        sprt: false,
+        elo0: 0.0,
+        elo1: 20.0,
+        alpha: 0.05,
+        beta: 0.05,
+        sprt_variant: veridict::sprt::SprtVariant::Wald,
+        paired_by_id: false,
+        require_complete_pairs: false,
+    };
     // Not empirically tuned yet -- a starting estimate. Below this, too much
     // of the run is the same handful of games repeated rather than
     // independent trials (see diversity_stats / tasks/lessons.md), so a
     // confident-looking Elo number stops being trustworthy.
-    let mut min_diversity_ratio = 0.3f64;
-    let mut sprt = false;
-    let mut elo0 = 0.0f64;
-    let mut elo1 = 20.0f64;
-    let mut alpha = 0.05f64;
-    let mut beta = 0.05f64;
-    let mut sprt_variant = veridict::sprt::SprtVariant::Wald;
-    let mut paired_by_id = false;
-    let mut require_complete_pairs = false;
     let mut i = 0;
     while i < argv.len() {
         match argv[i].as_str() {
-            "--pass-elo" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    pass_elo = v.parse().unwrap_or(pass_elo);
-                }
-            }
+            "--pass-elo" => options.pass_elo = gate_number(argv, &mut i, "--pass-elo")?,
             "--pass-los" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    pass_los = v.parse().unwrap_or(pass_los);
-                }
+                options.pass_los =
+                    unit_interval(gate_number(argv, &mut i, "--pass-los")?, "--pass-los")?;
             }
-            "--fail-elo" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    fail_elo = v.parse().unwrap_or(fail_elo);
-                }
-            }
-            "--anchor" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    anchor = v.parse().ok();
-                }
-            }
-            "--sprt" => sprt = true,
-            "--elo0" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    elo0 = v.parse().unwrap_or(elo0);
-                }
-            }
-            "--elo1" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    elo1 = v.parse().unwrap_or(elo1);
-                }
-            }
+            "--fail-elo" => options.fail_elo = gate_number(argv, &mut i, "--fail-elo")?,
+            "--anchor" => options.anchor = Some(gate_number(argv, &mut i, "--anchor")?),
+            "--sprt" => options.sprt = true,
+            "--elo0" => options.elo0 = gate_number(argv, &mut i, "--elo0")?,
+            "--elo1" => options.elo1 = gate_number(argv, &mut i, "--elo1")?,
             "--alpha" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    alpha = v.parse().unwrap_or(alpha);
-                }
+                options.alpha = unit_interval(gate_number(argv, &mut i, "--alpha")?, "--alpha")?;
             }
             "--beta" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    beta = v.parse().unwrap_or(beta);
-                }
+                options.beta = unit_interval(gate_number(argv, &mut i, "--beta")?, "--beta")?;
             }
             "--sprt-variant" => {
-                i += 1;
-                sprt_variant = match argv.get(i).map(String::as_str) {
-                    Some("trinomial") => veridict::sprt::SprtVariant::Trinomial,
-                    _ => veridict::sprt::SprtVariant::Wald,
+                options.sprt_variant = match gate_value(argv, &mut i, "--sprt-variant")? {
+                    "wald" => veridict::sprt::SprtVariant::Wald,
+                    "trinomial" => veridict::sprt::SprtVariant::Trinomial,
+                    value => {
+                        return Err(format!(
+                            "gate: invalid --sprt-variant {value:?}; expected wald or trinomial"
+                        ));
+                    }
                 };
             }
-            "--paired-by-id" => paired_by_id = true,
-            "--require-complete-pairs" => require_complete_pairs = true,
+            "--paired-by-id" => options.paired_by_id = true,
+            "--require-complete-pairs" => options.require_complete_pairs = true,
             "--min-diversity-ratio" => {
-                i += 1;
-                if let Some(v) = argv.get(i) {
-                    min_diversity_ratio = v.parse().unwrap_or(min_diversity_ratio);
-                }
+                options.min_diversity_ratio = unit_interval(
+                    gate_number(argv, &mut i, "--min-diversity-ratio")?,
+                    "--min-diversity-ratio",
+                )?;
             }
-            other if !other.starts_with("--") => json_path = Some(other.to_string()),
-            _ => {}
+            other if other.starts_with("--") => {
+                return Err(format!("gate: unknown option {other}"));
+            }
+            path if options.path.is_empty() => options.path = path.to_string(),
+            path => {
+                return Err(format!(
+                    "gate: unexpected second result path {path:?}; first was {:?}",
+                    options.path
+                ));
+            }
         }
         i += 1;
     }
-    let path = match json_path {
-        Some(p) => p,
-        None => {
-            eprintln!(
-                "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial] [--paired-by-id --require-complete-pairs]]"
-            );
-            std::process::exit(2);
-        }
-    };
+    if options.path.is_empty() {
+        return Err("gate: missing result.json path".to_string());
+    }
+    if options.require_complete_pairs && !options.paired_by_id {
+        return Err("gate: --require-complete-pairs requires --paired-by-id".to_string());
+    }
+    Ok(options)
+}
+
+fn run_gate(argv: &[String]) {
+    let options = parse_gate_options(argv).unwrap_or_else(|error| {
+        eprintln!("{error}");
+        eprintln!(
+            "gate: usage: sekirei-match gate <result.json> [--pass-elo 20] [--pass-los 0.95] [--fail-elo -10] [--anchor <rating>] [--min-diversity-ratio 0.3] [--sprt [--elo0 0] [--elo1 20] [--alpha 0.05] [--beta 0.05] [--sprt-variant wald|trinomial] [--paired-by-id --require-complete-pairs]]"
+        );
+        std::process::exit(2);
+    });
+    let path = options.path;
     let content = match fs::read_to_string(&path) {
         Ok(c) => c,
         Err(e) => {
@@ -1525,9 +1572,10 @@ fn run_gate(argv: &[String]) {
         std::process::exit(2);
     }
 
-    if let Some(msg) =
-        low_diversity_message(json_f64(&content, "diversity_ratio"), min_diversity_ratio)
-    {
+    if let Some(msg) = low_diversity_message(
+        json_f64(&content, "diversity_ratio"),
+        options.min_diversity_ratio,
+    ) {
         println!("{msg}");
         std::process::exit(2);
     }
@@ -1535,7 +1583,7 @@ fn run_gate(argv: &[String]) {
     let records_path = PathBuf::from(&path).with_extension("jsonl");
     let records_content = fs::read_to_string(&records_path).ok();
 
-    if sprt {
+    if options.sprt {
         let raw = match records_content {
             Some(r) => r,
             None => {
@@ -1555,24 +1603,20 @@ fn run_gate(argv: &[String]) {
                 std::process::exit(2);
             }
         };
-        if require_complete_pairs {
-            if !paired_by_id {
-                eprintln!("gate: --require-complete-pairs requires --paired-by-id");
-                std::process::exit(2);
-            }
-            if let Some(msg) = incomplete_pair_message(&records) {
-                eprintln!("{msg}");
-                std::process::exit(2);
-            }
+        if options.require_complete_pairs
+            && let Some(msg) = incomplete_pair_message(&records)
+        {
+            eprintln!("{msg}");
+            std::process::exit(2);
         }
         let report = match sprt_decide(
             &records,
-            elo0,
-            elo1,
-            alpha,
-            beta,
-            sprt_variant,
-            paired_by_id,
+            options.elo0,
+            options.elo1,
+            options.alpha,
+            options.beta,
+            options.sprt_variant,
+            options.paired_by_id,
         ) {
             Ok(r) => r,
             Err(e) => {
@@ -1581,7 +1625,11 @@ fn run_gate(argv: &[String]) {
             }
         };
         println!(
-            "veridict: sprt  H0(elo<={elo0:+.1}) vs H1(elo>={elo1:+.1})  alpha={alpha}  beta={beta}  llr={:.3} (bounds [{:.3}, {:.3}])  {}  full_input_llr={:.3}  observations={}/{}",
+            "veridict: sprt  H0(elo<={:+.1}) vs H1(elo>={:+.1})  alpha={}  beta={}  llr={:.3} (bounds [{:.3}, {:.3}])  {}  full_input_llr={:.3}  observations={}/{}",
+            options.elo0,
+            options.elo1,
+            options.alpha,
+            options.beta,
             report.decision_llr,
             report.lower_bound,
             report.upper_bound,
@@ -1596,7 +1644,8 @@ fn run_gate(argv: &[String]) {
             veridict::Verdict::Inconclusive => "INCONCLUSIVE",
         };
         println!(
-            "{label}  (sprt: alpha={alpha} is the guaranteed false-accept rate under H0, beta={beta} the false-reject rate under H1 -- this is not a claim that the true effect is >= elo1, only that H1 was accepted at that error rate)"
+            "{label}  (sprt: alpha={} is the guaranteed false-accept rate under H0, beta={} the false-reject rate under H1 -- this is not a claim that the true effect is >= elo1, only that H1 was accepted at that error rate)",
+            options.alpha, options.beta
         );
         write_verdict_sidecar(
             &path,
@@ -1610,10 +1659,10 @@ fn run_gate(argv: &[String]) {
   "bound_hi": {:.6},
   "analyzed_observations": {},
   "available_observations": {},
-  "elo0": {elo0},
-  "elo1": {elo1},
-  "alpha": {alpha},
-  "beta": {beta}
+  "elo0": {},
+  "elo1": {},
+  "alpha": {},
+  "beta": {}
 }}
 "#,
                 report.decision_llr,
@@ -1622,6 +1671,10 @@ fn run_gate(argv: &[String]) {
                 report.upper_bound,
                 report.analyzed_observation_count,
                 report.available_observation_count,
+                options.elo0,
+                options.elo1,
+                options.alpha,
+                options.beta,
             ),
         );
         std::process::exit(match report.verdict {
@@ -1642,7 +1695,7 @@ fn run_gate(argv: &[String]) {
                     std::process::exit(2);
                 }
             };
-            let report = match veridict_decide(&records, pass_elo, fail_elo) {
+            let report = match veridict_decide(&records, options.pass_elo, options.fail_elo) {
                 Ok(r) => r,
                 Err(e) => {
                     eprintln!("gate: veridict error: {e}");
@@ -1662,9 +1715,9 @@ fn run_gate(argv: &[String]) {
             // Legacy fallback for result files predating per-game JSONL
             // persistence: no raw trials to re-run veridict against, so
             // fall back to the old point-estimate + LOS threshold check.
-            let verdict = if elo >= pass_elo && los >= pass_los {
+            let verdict = if elo >= options.pass_elo && los >= options.pass_los {
                 veridict::Verdict::Pass
-            } else if elo <= fail_elo {
+            } else if elo <= options.fail_elo {
                 veridict::Verdict::Fail
             } else {
                 veridict::Verdict::Inconclusive
@@ -1683,7 +1736,7 @@ fn run_gate(argv: &[String]) {
     // Self-play Elo vs. a population rating pool (floodgate) aren't the same scale —
     // this is a directional estimate, not a measurement. Real answer is still
     // "connect to floodgate" (see tasks/todo.md).
-    let rating_suffix = match anchor {
+    let rating_suffix = match options.anchor {
         Some(a) => format!("  est_rating≈{:.0} (anchor={a:.0})", a + effect),
         None => String::new(),
     };
@@ -1699,11 +1752,12 @@ fn run_gate(argv: &[String]) {
             r#"{{
   "method": "ci",
   "verdict": {label:?},
-  "pass_elo": {pass_elo},
-  "fail_elo": {fail_elo},
-  "pass_los": {pass_los}
+  "pass_elo": {},
+  "fail_elo": {},
+  "pass_los": {}
 }}
-"#
+"#,
+            options.pass_elo, options.fail_elo, options.pass_los,
         ),
     );
     std::process::exit(match verdict {
@@ -2139,11 +2193,7 @@ fn main() {
                 let _ = writeln!(content, "# Engine2 NNUE: {acknowledgement}");
             }
             let _ = writeln!(content, "# Result: {result_str}{reason_tag}");
-            let pos_line = if start_pos == "startpos" {
-                "position startpos".to_string()
-            } else {
-                format!("position sfen {start_pos}")
-            };
+            let pos_line = position_prefix(start_pos);
             if moves.is_empty() {
                 let _ = writeln!(content, "{pos_line}");
             } else {
@@ -2327,6 +2377,33 @@ mod tests {
         assert_eq!(gameover_results(Outcome::E1Win), ("win", "lose"));
         assert_eq!(gameover_results(Outcome::E2Win), ("lose", "win"));
         assert_eq!(gameover_results(Outcome::Draw), ("draw", "draw"));
+    }
+
+    #[test]
+    fn match_start_position_never_falls_back_to_startpos() {
+        let (prefix, board) = parse_start_position("startpos").unwrap();
+        assert_eq!(prefix, "position startpos");
+        assert_eq!(board.hash(), Board::startpos().hash());
+
+        let sfen = "4k4/9/9/9/9/9/9/9/4K4 w - 1";
+        let (prefix, board) = parse_start_position(sfen).unwrap();
+        assert_eq!(prefix, format!("position sfen {sfen}"));
+        assert_eq!(board.side_to_move, Color::White);
+
+        assert!(parse_start_position("not-a-valid-sfen").is_err());
+    }
+
+    #[test]
+    fn opening_loader_reports_the_physical_source_line() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei-match-invalid-openings-{}-{}.sfen",
+            std::process::id(),
+            now_ms()
+        ));
+        fs::write(&path, "# comment\n\nnot-a-valid-sfen\n").unwrap();
+        let error = load_positions(&path).unwrap_err();
+        let _ = fs::remove_file(path);
+        assert!(error.contains("at line 3"), "unexpected error: {error}");
     }
 
     #[test]
@@ -2596,6 +2673,61 @@ mod tests {
     fn low_diversity_message_silent_when_field_missing() {
         // Legacy result files predating this check must not start failing.
         assert_eq!(low_diversity_message(None, 0.3), None);
+    }
+
+    fn gate_args(args: &[&str]) -> Vec<String> {
+        args.iter().map(|value| (*value).to_string()).collect()
+    }
+
+    #[test]
+    fn gate_options_reject_invalid_values_instead_of_using_defaults() {
+        let error = parse_gate_options(&gate_args(&["result.json", "--elo1", "2O"]))
+            .err()
+            .expect("invalid Elo must fail closed");
+        assert!(
+            error.contains("invalid --elo1"),
+            "unexpected error: {error}"
+        );
+
+        let error = parse_gate_options(&gate_args(&["result.json", "--pass-los", "1.1"]))
+            .err()
+            .expect("out-of-range LOS must fail closed");
+        assert!(error.contains("0..=1"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn gate_options_reject_unknown_or_ambiguous_arguments() {
+        assert!(parse_gate_options(&gate_args(&["result.json", "--elol", "20"])).is_err());
+        assert!(parse_gate_options(&gate_args(&["first.json", "second.json"])).is_err());
+        assert!(parse_gate_options(&gate_args(&["result.json", "--alpha"])).is_err());
+        assert!(
+            parse_gate_options(&gate_args(&["result.json", "--require-complete-pairs"])).is_err()
+        );
+    }
+
+    #[test]
+    fn gate_options_parse_explicit_contract() {
+        let options = parse_gate_options(&gate_args(&[
+            "result.json",
+            "--pass-elo",
+            "12.5",
+            "--sprt",
+            "--elo0",
+            "0",
+            "--elo1",
+            "10",
+            "--sprt-variant",
+            "trinomial",
+            "--paired-by-id",
+            "--require-complete-pairs",
+        ]))
+        .expect("valid gate contract");
+        assert_eq!(options.path, "result.json");
+        assert_eq!(options.pass_elo, 12.5);
+        assert!(options.sprt);
+        assert_eq!(options.elo1, 10.0);
+        assert!(options.paired_by_id);
+        assert!(options.require_complete_pairs);
     }
 
     #[test]

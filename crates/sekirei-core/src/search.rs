@@ -5552,6 +5552,186 @@ mod see_tests {
     use std::thread;
     use std::time::Instant;
 
+    /// Restore every tuned search parameter even when this test exits early.
+    ///
+    /// The test is ignored by default because search parameters are process-wide
+    /// atomics under the `tune` feature.  The coverage job runs it in an isolated
+    /// test process, so no unrelated test can observe these temporary values.
+    #[cfg(feature = "tune")]
+    struct TuneParamGuard(Vec<(&'static str, i32)>);
+
+    #[cfg(feature = "tune")]
+    impl TuneParamGuard {
+        fn new(names: &[&'static str]) -> Self {
+            let saved = names
+                .iter()
+                .map(|&name| {
+                    let default = p::ALL
+                        .iter()
+                        .find(|spec| spec.name == name)
+                        .unwrap_or_else(|| panic!("unknown search parameter {name}"))
+                        .default;
+                    (name, default)
+                })
+                .collect();
+            Self(saved)
+        }
+
+        fn set(&self, name: &str, value: i32) {
+            assert!(p::set(name, value), "unknown search parameter {name}");
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    impl Drop for TuneParamGuard {
+        fn drop(&mut self) {
+            for &(name, value) in &self.0 {
+                assert!(p::set(name, value));
+            }
+        }
+    }
+
+    /// Exercise the supported non-default search paths without allowing their
+    /// process-wide tuning parameters to leak into the normal test suite.
+    ///
+    /// Besides improving coverage, this is a contract test for the SPSA/USI
+    /// tuning surface: each configuration must return a legal move and restore
+    /// the root board exactly.  Run explicitly with `--features tune --ignored`.
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "isolated coverage contract for process-wide tuning parameters"]
+    fn tuned_search_paths_restore_the_board_and_return_legal_moves() {
+        on_search_stack(|| {
+            const PARAMS: &[&str] = &[
+                "SEARCH_V2",
+                "QS_PROMO",
+                "PRUNE_STYLE",
+                "PS_PARTS",
+                "MULTICUT",
+                "PC_MIN_DEPTH",
+                "PC_STORE",
+                "SE_MIN_DEPTH",
+                "ORDER_LAZY",
+                "ORDER_KILLER",
+                "ORDER_CM",
+                "HIST_EXACT",
+                "HIST_PRIOR",
+                "CONT3_UPDATE",
+                "CONT6_UPDATE",
+                "FL_MOVE",
+                "TT_PV_CUT",
+                "TT_SLACK_UPPER",
+                "V2_QS",
+                "V2_STAGE_GEN",
+                "V2_NMP",
+                "V2_SHAPE",
+                "V2_SORT",
+                "V2_CHK",
+                "V2_CAPT_LMR",
+                "V2_KEEP",
+                "V2_HINDSIGHT",
+                "V2_FH_BLEND",
+                "V2_PVQ",
+                "V2_CONT_SPLIT",
+                "V2_CORR_CONT_W",
+            ];
+            const POSITIONS: &[&str] = &[
+                crate::sfen::STARTPOS_SFEN,
+                "lnsgkgsnl/1r5b1/ppppppppp/9/4P4/9/PPPP1PPPP/1B5R1/LNSGKGSNL w - 2",
+                "k8/9/4p4/4P4/4R4/9/9/9/8K b P 1",
+            ];
+            const CONFIGURATIONS: &[&[(&str, i32)]] = &[
+                // Fully exercise the maintained legacy alpha-beta path.
+                &[("SEARCH_V2", 0)],
+                // Optional legacy qsearch promotions and unified late-move pruning.
+                &[
+                    ("SEARCH_V2", 0),
+                    ("QS_PROMO", 11),
+                    ("PRUNE_STYLE", 1),
+                    ("PS_PARTS", 31),
+                    ("MULTICUT", 1),
+                    ("PC_MIN_DEPTH", 4),
+                    ("SE_MIN_DEPTH", 4),
+                ],
+                // The alternative multi-cut implementation is separately exposed.
+                &[("SEARCH_V2", 0), ("MULTICUT", 2)],
+                // Lazy ordering and optional learning/TT policies in the legacy
+                // search are independently tunable and must remain memory-safe.
+                &[
+                    ("SEARCH_V2", 0),
+                    ("ORDER_LAZY", 1),
+                    ("ORDER_KILLER", 1),
+                    ("ORDER_CM", 1),
+                    ("HIST_EXACT", 1),
+                    ("HIST_PRIOR", 16),
+                    ("CONT3_UPDATE", 16),
+                    ("CONT6_UPDATE", 8),
+                    ("FL_MOVE", 1),
+                    ("TT_PV_CUT", 1),
+                    ("TT_SLACK_UPPER", 1),
+                    ("PC_STORE", 1),
+                    ("PC_MIN_DEPTH", 4),
+                    ("SE_MIN_DEPTH", 4),
+                ],
+                // Optional V2 qsearch, eager generation, NMP, and shape branches.
+                &[
+                    ("SEARCH_V2", 1),
+                    ("V2_QS", 1),
+                    ("V2_STAGE_GEN", 0),
+                    ("V2_NMP", 1),
+                    ("V2_SHAPE", 15),
+                    ("V2_SORT", 0),
+                    ("V2_CHK", 1),
+                    ("V2_CAPT_LMR", 0),
+                    ("V2_KEEP", 2),
+                    ("V2_HINDSIGHT", 1),
+                    ("V2_FH_BLEND", 1),
+                    ("V2_PVQ", 1),
+                    ("V2_CONT_SPLIT", 1),
+                    ("V2_CORR_CONT_W", 64),
+                ],
+            ];
+
+            let guard = TuneParamGuard::new(PARAMS);
+            for configuration in CONFIGURATIONS {
+                for &name in PARAMS {
+                    let default = p::ALL
+                        .iter()
+                        .find(|spec| spec.name == name)
+                        .expect("listed parameter must exist")
+                        .default;
+                    guard.set(name, default);
+                }
+                for &(name, value) in *configuration {
+                    guard.set(name, value);
+                }
+
+                for &sfen in POSITIONS {
+                    let mut board = Board::from_sfen(sfen).expect("coverage fixture must parse");
+                    let hash = board.hash();
+                    let accumulator = board.acc.clone();
+                    let legal = generate_legal_moves(&mut board);
+                    let result = Searcher::new(Tt::new(4)).search(
+                        &mut board,
+                        SearchConfig {
+                            max_depth: 6,
+                            node_limit: Some(40_000),
+                            ..SearchConfig::default()
+                        },
+                    );
+
+                    let best = result
+                        .best_move
+                        .expect("a non-terminal fixture must return a move");
+                    assert!(legal.contains(&best), "illegal best move for {sfen}");
+                    assert!(result.nodes > 0);
+                    assert_eq!(board.hash(), hash, "search must restore {sfen}");
+                    assert_eq!(board.acc, accumulator, "search must restore NNUE state");
+                }
+            }
+        });
+    }
+
     #[test]
     fn eval_cache_round_trips_signed_scores_and_rejects_collisions() {
         let cache = EvalCache::new();

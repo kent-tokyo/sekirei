@@ -71,3 +71,47 @@ pub fn export_game<W: Write>(
 fn json_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::csa::parse_csa;
+
+    fn short_game() -> CsaGame {
+        parse_csa("+7776FU\n-3334FU\n+2726FU\n%TORYO\n").expect("valid CSA game")
+    }
+
+    #[test]
+    fn export_game_writes_search_labels_for_selected_positions() {
+        let game = short_game();
+        let mut output = Vec::new();
+        export_game(&game, 2, false, 0, &[1, 2], 10_000, &mut output).expect("export succeeds");
+        let text = String::from_utf8(output).expect("UTF-8 JSONL");
+        let lines = text.lines().collect::<Vec<_>>();
+        assert_eq!(lines.len(), 4, "plies 0 and 2 at two depths each");
+        for line in lines {
+            let value: serde_json::Value = serde_json::from_str(line).expect("valid JSON");
+            assert_eq!(value["label"], "equal");
+            assert_eq!(value["evaluator_id"], "sekirei-search");
+            assert!(matches!(value["budget"].as_u64(), Some(1 | 2)));
+            assert!(value["sample_id"].as_str().is_some());
+        }
+    }
+
+    #[test]
+    fn export_game_honours_minimum_ply_and_empty_depths() {
+        let game = short_game();
+        let mut output = Vec::new();
+        export_game(&game, 1, false, game.moves.len(), &[1], 0, &mut output)
+            .expect("skipped export succeeds");
+        assert!(output.is_empty());
+
+        export_game(&game, 1, false, 0, &[], 0, &mut output).expect("empty depth list succeeds");
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn json_string_escapes_quotes_and_backslashes() {
+        assert_eq!(json_string("a\\b\"c"), "\"a\\\\b\\\"c\"");
+    }
+}

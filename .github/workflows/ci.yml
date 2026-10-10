@@ -316,6 +316,43 @@ jobs:
             --output /tmp/release-manifest-with-resume.json
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-resume.json
 
+  coverage:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov@0.8.7
+      - name: Rust engine/library coverage (minimum 90%)
+        run: bash scripts/check_rust_coverage.sh
+      - name: Upload coverage artifact
+        if: always() && hashFiles('target/coverage/lcov.info') != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: rust-engine-coverage
+          path: |
+            target/coverage/lcov.info
+            target/coverage/summary.json
+            target/coverage/full-workspace-summary.json
+            target/coverage/tuned-search-summary.json
+            target/coverage/wasm-native-contract-summary.json
+          if-no-files-found: error
+      - name: Upload coverage to Codecov
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false
+        uses: codecov/codecov-action@v5
+        with:
+          files: target/coverage/lcov.info
+          flags: rust-engine
+          fail_ci_if_error: true
+          use_oidc: true
+
   shared-mcts-artifact-audit:
     needs: test
     runs-on: ubuntu-latest

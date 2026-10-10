@@ -1,6 +1,8 @@
 # Sekirei — Rust製将棋エンジン
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
 [![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
@@ -75,8 +77,14 @@ Lazy SMP、`MultiPV>1`ではroot候補backendを使います。決定論的な�
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+bash scripts/check_rust_coverage.sh
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
+
+カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が必要です。
+再利用可能なRustコードと配布するUSI実行系の行カバレッジを90%以上に固定します。
+任意の定跡・探索調整機能も対象です。ベンチマーク・診断用バイナリと、対局や学習を
+編成するCLI入口は通常CIで検証しますが、このバッジの集計対象からは分離します。
 
 測定ツールと過去結果の範囲は[script索引](scripts/README.md)に集約しています。
 component単位の時間は総合速度や棋力順位を示しません。

@@ -1883,6 +1883,12 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
+    // Coverage instrumentation makes the depth-one engine response noticeably
+    // slower than a normal test build. Keep a finite deadline so a broken
+    // protocol test still terminates, but do not mistake instrumentation
+    // overhead for a CSA timeout failure.
+    const FAKE_SERVER_READ_TIMEOUT: Duration = Duration::from_secs(30);
+
     enum ReadStep {
         Bytes(Vec<u8>),
         Error(io::ErrorKind),
@@ -2212,7 +2218,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
@@ -2352,7 +2358,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
@@ -2436,7 +2442,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
@@ -2521,7 +2527,7 @@ mod tests {
             for (first, last) in [(1, FIRST_STOP), (FIRST_STOP + 1, FINAL_STOP)] {
                 let (stream, _) = listener.accept().unwrap();
                 stream
-                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                     .unwrap();
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut writer = stream;
@@ -2677,7 +2683,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
@@ -2759,7 +2765,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;
@@ -2839,7 +2845,7 @@ mod tests {
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().unwrap();
             stream
-                .set_read_timeout(Some(Duration::from_secs(5)))
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
                 .unwrap();
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut writer = stream;

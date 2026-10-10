@@ -1,6 +1,8 @@
 # Sekirei — Rust Shogi Engine
 
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
 [![Release](https://img.shields.io/badge/release-v0.3.67-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.67)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
@@ -83,8 +85,15 @@ root-candidate backend. For deterministic diagnostics use `Threads=1` and
 cargo build --release
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
+bash scripts/check_rust_coverage.sh
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
+
+The coverage command requires `cargo-llvm-cov 0.8.7`, `llvm-tools-preview`,
+and `jq`. It enforces at least 90% line coverage for reusable Rust code and the
+shipped USI runtime, including optional opening-book and tunable-search paths.
+Benchmark and diagnostic binaries plus orchestration-heavy CLI entry points are
+exercised by normal CI but kept outside this badge contract.
 
 Tooling and historical benchmark scope are indexed in
 [scripts/README.md](scripts/README.md). Component timings are not overall speed

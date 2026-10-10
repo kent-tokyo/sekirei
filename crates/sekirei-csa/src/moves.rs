@@ -327,4 +327,76 @@ mod tests {
         let parsed = board_from_csa_position(&["PI".into(), "+".into()]).expect("valid PI");
         assert_eq!(parsed.hash(), Board::startpos().hash());
     }
+
+    #[test]
+    fn csa_piece_and_square_tables_cover_valid_and_invalid_tokens() {
+        let pieces = [
+            ("FU", PieceKind::Fu),
+            ("KY", PieceKind::Kyou),
+            ("KE", PieceKind::Kei),
+            ("GI", PieceKind::Gin),
+            ("KI", PieceKind::Kin),
+            ("KA", PieceKind::Kaku),
+            ("HI", PieceKind::Hisha),
+            ("OU", PieceKind::Ou),
+            ("TO", PieceKind::Tokin),
+            ("NY", PieceKind::Narikyo),
+            ("NK", PieceKind::Narikei),
+            ("NG", PieceKind::Narigin),
+            ("UM", PieceKind::Uma),
+            ("RY", PieceKind::Ryu),
+        ];
+        for (token, kind) in pieces {
+            assert_eq!(csa_piece(token), Some(kind));
+        }
+        assert_eq!(csa_piece("XX"), None);
+        assert!(csa_square(1, 1).is_some());
+        for (file, rank) in [(0, 1), (10, 1), (1, 0), (1, 10)] {
+            assert!(csa_square(file, rank).is_none());
+        }
+        for token in ["+7776FU", "-3334FU", "+0088KA"] {
+            assert!(is_csa_move_token(token));
+        }
+        for token in ["+", "+7776", "+777xFU", "+7776XX"] {
+            assert!(!is_csa_move_token(token));
+        }
+    }
+
+    #[test]
+    fn move_parser_and_serializer_cover_normal_promotion_and_drop_moves() {
+        let mut board = Board::startpos();
+        let normal = csa_to_move(&mut board, "+7776FU").expect("legal pawn move");
+        assert_eq!(move_to_csa(normal, Color::Black), "+7776FU");
+        assert!(csa_to_move(&mut board, "+7776XX").is_none());
+        assert!(csa_to_move(&mut board, "+0076FU").is_none());
+
+        let mut promotion_board =
+            Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b - 1").expect("promotion position");
+        let promoted = csa_to_move(&mut promotion_board, "+5352TO").expect("legal promotion");
+        assert!(promoted.promote);
+        assert_eq!(move_to_csa(promoted, Color::Black), "+5352TO");
+
+        let mut drop_board =
+            Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b P 1").expect("drop position");
+        let drop = csa_to_move(&mut drop_board, "+0055FU").expect("legal pawn drop");
+        assert!(drop.from.is_none());
+        assert_eq!(move_to_csa(drop, Color::Black), "+0055FU");
+    }
+
+    #[test]
+    fn csa_position_rejects_incomplete_and_invalid_setups() {
+        assert!(board_from_csa_position(&["+".into()]).is_err());
+
+        let mut bad_hand = start_position();
+        bad_hand.push("P+00OU".into());
+        assert!(board_from_csa_position(&bad_hand).is_err());
+
+        let mut bad_count = start_position();
+        bad_count.push("P+xxFU".into());
+        assert!(board_from_csa_position(&bad_count).is_err());
+
+        let mut missing_side = start_position();
+        missing_side.retain(|line| line != "+");
+        assert!(board_from_csa_position(&missing_side).is_err());
+    }
 }

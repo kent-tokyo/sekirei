@@ -539,6 +539,46 @@ impl Drop for UsiEngine {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    const FAKE_ENGINE: &str = r#"
+while IFS= read -r line; do
+  case "$line" in
+    usi)
+      echo "id name Sekirei coverage fake"
+      echo "option name Threads type spin default 1 min 1 max 128"
+      echo "option name NnueOutput type combo default absolute var absolute var residual-material"
+      echo "option name EvalFile type string default"
+      echo "usiok"
+      ;;
+    "setoption name NnueOutput value "*)
+      echo "info string NNUE output mode ${line##*value }"
+      ;;
+    "setoption name EvalFile value "*)
+      echo "info string NNUE weights loaded from ${line##*value }"
+      ;;
+    stop)
+      echo "info string stopped stale search"
+      ;;
+    isready)
+      echo "readyok"
+      ;;
+    go*)
+      echo "info depth 7 nodes 123 time 4 nps 30750 score cp 42 pv 7g7f 3c3d"
+      echo "info string root_mate_safety mate1_cache_hits 1 blunder_cache_hits 2 mate1_nodes 3 blunder_nodes 4"
+      echo "bestmove 7g7f"
+      ;;
+    quit)
+      exit 0
+      ;;
+  esac
+done
+"#;
+
+    #[cfg(unix)]
+    fn launch_shell(script: &str, options: &[String]) -> UsiEngine {
+        UsiEngine::launch("/bin/sh", &["-c".to_string(), script.to_string()], options)
+            .expect("launch fake USI engine")
+    }
 
     #[test]
     fn clock_deadline_is_the_larger_clock_plus_increment() {
@@ -554,6 +594,90 @@ mod tests {
     }
 
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn fake_engine_covers_the_match_lifecycle_and_structured_search_result() {
+        let options = vec![
+            "Threads=1".to_string(),
+            "NnueOutput=absolute".to_string(),
+            "EvalFile=/tmp/coverage-fake.nnue".to_string(),
+        ];
+        let mut engine = launch_shell(FAKE_ENGINE, &options);
+
+        engine.initialize(&options).expect("USI handshake");
+        assert_eq!(engine.name, "Sekirei coverage fake");
+        assert!(engine.pid() > 0);
+        assert_eq!(
+            engine.nnue_output_acknowledgement(),
+            Some("info string NNUE output mode absolute")
+        );
+        assert_eq!(
+            engine.eval_file_acknowledgement(),
+            Some("info string NNUE weights loaded from /tmp/coverage-fake.nnue")
+        );
+
+        engine.begin_new_game().expect("new-game barrier");
+        let result = engine
+            .go("position startpos", "go byoyomi 10")
+            .expect("search result");
+        assert_eq!(result.bestmove, "7g7f");
+        assert_eq!(result.info.depth, Some(7));
+        assert_eq!(result.info.score_cp, Some(42));
+        assert_eq!(result.info.nodes, Some(123));
+        assert_eq!(result.info.time_ms, Some(4));
+        assert_eq!(result.info.nps, Some(30_750));
+        assert_eq!(result.info.pv, ["7g7f", "3c3d"]);
+        assert_eq!(
+            result.info.root_mate_safety,
+            Some(RootMateSafetyMetrics {
+                mate1_cache_hits: 1,
+                blunder_cache_hits: 2,
+                mate1_nodes: 3,
+                blunder_nodes: 4,
+            })
+        );
+        assert!(engine.check_no_stray_output().is_none());
+        engine.end_game("win").expect("gameover");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialize_fails_closed_for_unadvertised_options() {
+        let options = vec!["Hash=64".to_string()];
+        let mut engine = launch_shell(FAKE_ENGINE, &options);
+        let err = engine
+            .initialize(&options)
+            .expect_err("Hash is not advertised");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialize_fails_closed_when_eval_acknowledgement_is_missing() {
+        let script = r#"
+while IFS= read -r line; do
+  case "$line" in
+    usi) echo "option name EvalFile type string default"; echo "usiok" ;;
+    isready) echo "readyok" ;;
+    quit) exit 0 ;;
+  esac
+done
+"#;
+        let options = vec!["EvalFile=/tmp/missing-ack.nnue".to_string()];
+        let mut engine = launch_shell(script, &options);
+        let err = engine
+            .initialize(&options)
+            .expect_err("EvalFile acknowledgement is required");
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn kill_reaps_an_unresponsive_engine() {
+        let mut engine = launch_shell("while :; do sleep 1; done", &[]);
+        engine.kill();
+    }
 
     #[test]
     fn advertised_option_name_accepts_standard_declarations() {

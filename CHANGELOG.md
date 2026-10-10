@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Coverage: exercise isolated tunable-search paths, native WASM APIs, CSA
+  conversion, export, hashing, and the USI child-process lifecycle in CI. The
+  measured engine/library line coverage is 90.08%, and the local and Codecov
+  gates now require at least 90% without widening the exclusion list.
 - USI: `usinewgame`, `quit`, and stdin closure now invalidate the active
   search generation before joining it, preventing a previous game's ponder
   result or a shutdown-time `bestmove` from crossing the command boundary.
