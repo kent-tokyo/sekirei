@@ -29,3 +29,21 @@ The binary and its model card are versioned release artifacts. They are
 licensed under [CC BY 4.0](../NNUE-LICENSE.md), separately from Sekirei's
 MIT OR Apache-2.0 source code. Retain the Sekirei / Kentaro Tanabe attribution
 when redistributing or adapting the artifact.
+
+## Current in-house candidate
+
+`nn_r3` is the current local HalfKP candidate. Its exact identity and evidence
+boundary are recorded in
+[`candidates/sekirei-halfkp-r3.json`](candidates/sekirei-halfkp-r3.json).
+The binary is not stored in Git, bundled, selected by default, or recommended
+for distribution. The recorded 480-game result is against `nn_r2`, not against
+material evaluation; the chained estimate against `gen9` is not a direct
+measurement.
+
+If the local artifact is available, verify it before any diagnostic:
+
+```bash
+python3 scripts/validate_nnue_candidate_card.py \
+  weights/candidates/sekirei-halfkp-r3.json \
+  --artifact data/selfplay/nnue/claude061/nn_r3.bin
+```

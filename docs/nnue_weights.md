@@ -21,6 +21,23 @@ gate, external rating, or comparison with another engine.
 Without `EvalFile` or a command-line checkpoint, Sekirei uses its material
 fallback. It does not silently select or substitute a model.
 
+## Current local candidate
+
+The latest in-house candidate is `nn_r3`, a HalfKP 256x2-32-32 network used
+with `FV_SCALE=24`. It was trained for one epoch from `nn_r2` on the fresh
+gen33--40 self-play slice (156,107 games and 10,312,658 positions), generated
+by Sekirei v0.3.67/v0.3.68 without an external teacher. In the recorded private
+comparison it scored 260 wins, 2 draws, and 218 losses against `nn_r2`
+(estimated +30 Elo, interval +1 to +60).
+
+This is candidate-relative evidence only. Raw game records, dataset shard
+hashes, the engine-binary hash, the opening-corpus hash, and a fresh whole-game
+hold-out manifest are not present in the repository, and no material-evaluator
+gate has been run. Therefore `nn_r3` is not bundled, is not the default, and is
+not yet a distributed recommendation. The exact SHA-256 and the missing
+evidence are recorded in the
+[`nn_r3` candidate card](../weights/candidates/sekirei-halfkp-r3.json).
+
 ## Loading a weight
 
 ```bash

@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- NNUE evidence: register the exact `nn_r3` HalfKP candidate identity,
+  fresh-only self-play lineage, candidate-relative 480-game result, and missing
+  release evidence. Add a fail-closed card/artifact validator without bundling
+  the 61 MiB network or changing the default material evaluator.
+
 ## [0.3.69] – 2026-10-11
 
 - Search: retain every non-capturing pawn, bishop, and rook promotion when the

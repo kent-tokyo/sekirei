@@ -41,6 +41,8 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。外部HalfKP
 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに従ってください。形式、
 SHA-256、測定範囲は[NNUE重み](docs/nnue_weights.md)にまとめています。
+最新のローカル候補`nn_r3`も同文書に記録しました。駒得評価との正式gateは未実施のため、
+重みは同梱せず、既定評価器にもしていません。
 
 ## 主な機能
 
