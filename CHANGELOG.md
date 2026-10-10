@@ -25,7 +25,8 @@ preserves older per-change notes.
   abort/join an active search when an adapter closes stdin without `quit`.
 - Lazy SMP diagnostics: identify the worker that supplied the returned result
   and report its node share, the workers' best-move agreement, and approximate
-  worker stop-lag spread; the thread
+  worker stop-lag spread; `LazyFlags` bit 128 provides an opt-in isolated-TT
+  causal control, and the thread
   scaling script preserves these fields in JSON output.
 - NNUE training: reject output paths that alias input data or initial states
   through direct paths, hardlinks, or symlinks; publish network, float-state,

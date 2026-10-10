@@ -147,10 +147,11 @@ impl SearchBackend {
     }
 
     fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
-        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags(
+        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags_and_hash_mb(
             Tt::new(hash_mb),
             workers,
             LAZY_FLAGS.load(Ordering::Relaxed),
+            hash_mb,
         )))
     }
 
@@ -843,7 +844,7 @@ fn main() {
                     "option name SpecTopN type spin default {DEFAULT_SPEC_TOP_N} min 0 max 512"
                 );
                 println!(
-                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 127"
+                    "option name LazyFlags type spin default {LAZY_DEFAULT_FLAGS} min 0 max 255"
                 );
                 println!("option name MoveOverhead type spin default 50 min 0 max 5000");
                 println!("option name IncrementUsePercent type spin default 75 min 0 max 100");

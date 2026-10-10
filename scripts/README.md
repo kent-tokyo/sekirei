@@ -48,6 +48,11 @@ training.
 - `run_fixed_depth_ab.py` and `gate_resource_preflight.py` provide guarded
   deterministic A/B and resource admission checks. Use `Threads=1` and
   `SpecTopN=0` unless the experiment explicitly studies parallelism.
+- For a Lazy SMP shared-TT causal control, add 128 to the usual `LazyFlags`
+  value. This gives every worker a private table while retaining the other
+  selected policy bits. `Hash` remains the total memory budget and is divided
+  among the private tables; this is a diagnostic setting, not a playing
+  default.
 
 Historical reports in `benchmark_reports/` apply only to their recorded host,
 revision, corpus, and operation. They are neither general speed rankings nor

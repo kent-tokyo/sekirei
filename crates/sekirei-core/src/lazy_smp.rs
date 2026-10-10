@@ -86,6 +86,9 @@ pub const LAZY_MAIN_RESULT: u32 = 32;
 /// highest-scoring one (the highest of several scores of the same depth is
 /// biased upward).
 pub const LAZY_TIE_FIRST: u32 = 64;
+/// Give each worker a private TT. This is a diagnostic control for measuring
+/// the causal value of TT sharing and is not part of the default policy.
+pub const LAZY_ISOLATED_TT: u32 = 128;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -99,13 +102,35 @@ impl LazySmpSearcher {
     /// Create a Lazy SMP searcher with explicit behaviour switches
     /// (`LAZY_*` constants; 0 is the original independent-worker scheme).
     pub fn with_flags(tt: Arc<Tt>, workers: usize, flags: u32) -> Self {
+        Self::with_flags_and_hash_mb(tt, workers, flags, 16)
+    }
+
+    /// Create a Lazy SMP searcher with explicit behaviour switches and a total
+    /// TT memory budget. [`LAZY_ISOLATED_TT`] divides that budget among the
+    /// workers so shared and isolated diagnostics reserve comparable memory.
+    pub fn with_flags_and_hash_mb(
+        tt: Arc<Tt>,
+        workers: usize,
+        flags: u32,
+        total_hash_mb: usize,
+    ) -> Self {
         let workers = workers.max(1);
+        let share_tt = flags & LAZY_ISOLATED_TT == 0;
+        let worker_hash_mb = if share_tt {
+            total_hash_mb
+        } else {
+            (total_hash_mb / workers).max(1)
+        };
         let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let persistent = if flags & LAZY_PERSISTENT != 0 {
             (0..workers)
                 .map(|index| {
-                    let mut searcher =
-                        Searcher::with_abort_flag(tt.clone(), external_abort.clone());
+                    let worker_tt = if share_tt {
+                        tt.clone()
+                    } else {
+                        Tt::new(worker_hash_mb)
+                    };
+                    let mut searcher = Searcher::with_abort_flag(worker_tt, external_abort.clone());
                     searcher.set_depth_skew(Self::skew(flags, index));
                     searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
                     searcher
@@ -117,8 +142,8 @@ impl LazySmpSearcher {
         Self {
             tt,
             workers,
-            share_tt: true,
-            hash_mb: 16,
+            share_tt,
+            hash_mb: worker_hash_mb,
             external_abort,
             flags,
             persistent,
@@ -137,10 +162,12 @@ impl LazySmpSearcher {
 
     /// Isolated-TT diagnostic constructor with an explicit table size.
     pub fn new_isolated_with_hash_mb(tt: Arc<Tt>, workers: usize, hash_mb: usize) -> Self {
-        let mut searcher = Self::with_flags(tt, workers, 0);
-        searcher.share_tt = false;
-        searcher.hash_mb = hash_mb;
-        searcher
+        Self::with_flags_and_hash_mb(
+            tt,
+            workers,
+            LAZY_ISOLATED_TT,
+            hash_mb.saturating_mul(workers.max(1)),
+        )
     }
 
     /// Returns the shared stop flag used by every worker.
@@ -427,6 +454,23 @@ mod tests {
         // A deeper later worker still wins with LAZY_TIE_FIRST.
         let deeper = vec![info(1, -100, 9), info(2, -150, 10)];
         assert_eq!(to(select_worker_result(deeper, LAZY_TIE_FIRST)), Some(2));
+    }
+
+    #[test]
+    fn isolated_tt_flag_keeps_the_default_policy_unchanged() {
+        let shared = LazySmpSearcher::with_flags_and_hash_mb(Tt::new(1), 2, LAZY_DEFAULT_FLAGS, 1);
+        let isolated = LazySmpSearcher::with_flags_and_hash_mb(
+            Tt::new(1),
+            2,
+            LAZY_DEFAULT_FLAGS | LAZY_ISOLATED_TT,
+            8,
+        );
+
+        assert!(shared.share_tt);
+        assert!(!isolated.share_tt);
+        assert_eq!(isolated.hash_mb, 4);
+        assert_eq!(shared.persistent.len(), 2);
+        assert_eq!(isolated.persistent.len(), 2);
     }
 
     #[test]
