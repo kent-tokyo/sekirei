@@ -1,0 +1,42 @@
+{
+  "schema": "sekirei.gate-model-readiness.v1",
+  "status": "blocked_no_eligible_rows",
+  "source_release": "v0.3.67",
+  "source_commit": "6bebe711e512793dcd933de441ca5b3ce5981b2f",
+  "lineprior_validator_version": "0.12.2",
+  "exact_command": [
+    "python3", "scripts/export_gate_observations.py",
+    "data/runs/fg6_c3_gate_openings_20260915/gate_run_terminal_lock/final.json",
+    "--output", "docs/experiments/gate_observations_v0.3.67.jsonl",
+    "--report", "docs/experiments/gate_observations_v0.3.67.report.json",
+    "--allow-empty"
+  ],
+  "source_manifest": {
+    "path": "data/runs/fg6_c3_gate_openings_20260915/gate_run_terminal_lock/final.json",
+    "sha256": "6d43b7bc553bf6055c47de218d4f3bb28a66795f0da35c7a4017c5b0159fa100"
+  },
+  "source_artifact_hashes": {
+    "execution_manifest": "8583e7c375f6b4cca44c5232f1ad4bd90dc3e0d605e6dac5c4113cb911c93a52",
+    "state": "1d58c87fc68f3c587ffde26454cf534b4e2f1145c859ccf4ee44ae9ef44d8fd9",
+    "combined": "db9c2b6ab376c4f9c081151dc1e804352ad9ea638e4b45f1d42e447ff5584402",
+    "combined_jsonl": "8f8253b1540170e5a87e289faffa7128dd0bbb23cc450def52604044e977a726",
+    "candidate": "2f345c6f8998981d81543ab43a6686cdc07842d26a232d33c52d7fbf5f4bb578",
+    "baseline": "63a97fdd8419be3aed199f666c70445e54533ecd20c8ce783b59c97b9bc9e683"
+  },
+  "export": {
+    "observations_path": "docs/experiments/gate_observations_v0.3.67.jsonl",
+    "observations_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "report_path": "docs/experiments/gate_observations_v0.3.67.report.json",
+    "report_sha256": "0332cdcc87ef7cc86f1bf06acbd271c11b41a479a0a0171a2cff3b5dd8440dfd",
+    "accepted": 0,
+    "quarantined": 1,
+    "duplicates_suppressed": 0
+  },
+  "blockers": [
+    "the only terminal strength-gate manifest predates the gate_observation pre-gate declaration",
+    "no shared pre-gate feature schema is available for independent groups"
+  ],
+  "model_fitting_enabled": false,
+  "acquisition_enabled": false,
+  "validation": "not_applicable_to_zero_rows"
+}

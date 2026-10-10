@@ -78,7 +78,11 @@ candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
   game-level split; validation loss alone does not select a candidate.
 - `export_gate_observations.py` converts independent terminal gate manifests
   into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
-  missing lineage, and conflicting retries.
+  missing lineage, and conflicting retries. Use `--allow-empty` to archive a
+  deterministic zero-row readiness report when no historical run is eligible.
+- `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
+  terminal joins, book coverage, fallbacks, uncertainty, and cost for an
+  archived held-out `UseBook=false`/`true` diagnostic.
 
 Validate exported observations with:
 
@@ -92,6 +96,10 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
 `candidate_id` identifies one exact artifact/configuration; `group_id` keeps a
 shared recipe, lineage, and dataset in one cross-validation group. GateModel
 output is advisory and never authorizes deployment or a strength claim.
+
+The compact v0.3.67 opening-book diagnostic is archived under
+`docs/experiments/book_ab_v0.3.67/`. It is contract evidence, not a strength
+gate.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \

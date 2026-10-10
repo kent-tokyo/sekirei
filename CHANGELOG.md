@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Evidence: match runner now sends USI `gameover` to both engines so opt-in
+  decision logs retain one terminal record per completed game. Archive a
+  hash-verified v0.3.67 opening-book ON/OFF diagnostic and a zero-row gate-
+  model readiness report; neither artifact is a playing-strength claim.
+
 - Search: avoid walking the parent search line for fourfold-repetition checks
   when a conservative 64-bit history filter proves that the current hash has
   not occurred there. Hash collisions still use the exact comparison, so
