@@ -6,8 +6,32 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Opening-book gates: freeze disjoint CSA game subsets for book training and
+  held-out evaluation, preregister actual-selection coverage, and stop before
+  a strength match when support is too sparse. The first 20-position run made
+  0 book selections and is archived as `not_ready / INCONCLUSIVE`, not as a
+  book failure or strength result.
+- Gate evidence: validate a versioned, hashed GateObservation declaration
+  before an A/B run, carry it into the terminal result, and quarantine changed
+  schemas, missing groups, retries, and incomplete results during export. The
+  first two-game pilot proves the contract only; fitting remains disabled.
+- CSA: consume one delayed decisive result after an aborted game before the
+  next game summary, while retaining fail-closed handling for duplicate or
+  ambiguous terminal lines.
 - USI: advertise the package version as `id version <version>` during the
   `usi` handshake, matching `sekirei --version` for dataset provenance.
+- Dependencies: update `lineprior` to 0.12.3 and `shogiesa-core`/the verified
+  external `shogiesa` CLI contract to 0.11.2. The opening-book schema remains
+  v1 and the shogiesa position schema remains v11.
+- Coverage: add behavioral tests for search diagnostics, bounded teacher
+  search, position/game training filters, epoch-stat reset, gradient clipping,
+  and CSA metadata/result boundaries. The engine/library gate now requires 92%
+  line coverage with the same exclusion list.
+- NNUE training: keep every HalfKP training and validation shard as a separate
+  read-only memory map, and generate deterministic shuffle indices one batch at
+  a time. Multi-file corpora no longer require a full in-memory concatenation
+  or an all-position permutation. New checkpoints record this data-order
+  contract and reject unsafe mid-epoch resumes from the former ordering.
 
 ## [0.3.68] – 2026-10-10
 

@@ -1,0 +1,195 @@
+{
+  "ci": 2399.999826281631,
+  "configuration": {
+    "byoyomi_ms": 20,
+    "fv_scale": null,
+    "games_limit": 2,
+    "hash_mb": 64,
+    "name": "gateobs-pilot",
+    "nodes_limit": null,
+    "options": {
+      "a": [
+        "T_V2_STAGE_GEN=1"
+      ],
+      "b": [
+        "T_V2_STAGE_GEN=0"
+      ]
+    },
+    "search_mode": {
+      "a": "Speculative",
+      "b": "Speculative"
+    },
+    "spec_top_n": {
+      "a": 0,
+      "b": 0
+    },
+    "sprt": {
+      "alpha": 0.05,
+      "beta": 0.05,
+      "elo0": 0.0,
+      "elo1": 10.0
+    },
+    "threads": {
+      "a": 1,
+      "b": 1
+    }
+  },
+  "elo": -0.0,
+  "evidence": {
+    "command": [
+      "target/release/sekirei-match",
+      "--engine1",
+      "target/release/sekirei",
+      "--engine2",
+      "target/release/sekirei",
+      "--games",
+      "2",
+      "--byoyomi",
+      "20",
+      "--positions",
+      "docs/experiments/book_ab_v0.3.67/heldout_openings.sfen",
+      "--json",
+      "docs/experiments/gate_observation_pilot_v0.3.68/run/gateobs-pilot.json",
+      "--output",
+      "docs/experiments/gate_observation_pilot_v0.3.68/run/kifu_gateobs-pilot",
+      "--engine-option1",
+      "Threads=1",
+      "--engine-option1",
+      "SearchMode=Speculative",
+      "--engine-option1",
+      "SpecTopN=0",
+      "--engine-option1",
+      "Hash=64",
+      "--engine-option1",
+      "T_V2_STAGE_GEN=1",
+      "--engine-option2",
+      "Threads=1",
+      "--engine-option2",
+      "SearchMode=Speculative",
+      "--engine-option2",
+      "SpecTopN=0",
+      "--engine-option2",
+      "Hash=64",
+      "--engine-option2",
+      "T_V2_STAGE_GEN=0"
+    ],
+    "complete": true,
+    "elapsed_seconds": 14.839449333027005,
+    "engines": {
+      "a": {
+        "exists": true,
+        "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/target/release/sekirei",
+        "sha256": "04c15af279b0f1c61ee4928341c0c2582b22409f73a4f6265dd1d556957d5c94",
+        "size_bytes": 4088576
+      },
+      "b": {
+        "exists": true,
+        "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/target/release/sekirei",
+        "sha256": "04c15af279b0f1c61ee4928341c0c2582b22409f73a4f6265dd1d556957d5c94",
+        "size_bytes": 4088576
+      }
+    },
+    "evaluation": {
+      "file": null,
+      "mode": "material"
+    },
+    "finished_at": "2026-10-10T13:00:01.637355+00:00",
+    "gate_observation_declaration": {
+      "exists": true,
+      "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/docs/experiments/gate_observation_pilot_v0.3.68/declaration.json",
+      "sha256": "1d9c8c3da34d17f01087571110e5579807b0f84f081411d2ef0bb9cb09f96d78",
+      "size_bytes": 903
+    },
+    "match_binary": {
+      "exists": true,
+      "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/target/release/sekirei-match",
+      "sha256": "06a1af5e9c4e65ce8a532db67c5bffbf6a356cff502678becb5923b14c0372da",
+      "size_bytes": 1388976
+    },
+    "openings": {
+      "exists": true,
+      "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/docs/experiments/book_ab_v0.3.67/heldout_openings.sfen",
+      "position_count": 2,
+      "sha256": "8a81c79c190e1f33b194842fa9e6a2a0367e20e2512d9e22244ccefc3d33730c",
+      "size_bytes": 135
+    },
+    "outputs": {
+      "kifu_prefix": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/docs/experiments/gate_observation_pilot_v0.3.68/run/kifu_gateobs-pilot",
+      "log": {
+        "exists": true,
+        "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/docs/experiments/gate_observation_pilot_v0.3.68/run/gateobs-pilot.log",
+        "sha256": "d0108840024d2442309f3e0f1781cb4a0e771586e5481fc8aa7309a4a5407a4c",
+        "size_bytes": 690
+      },
+      "raw_match_json": {
+        "exists": true,
+        "path": "/Users/k_tanabe/.codex/worktrees/deps-roadmap-067/sekirei/docs/experiments/gate_observation_pilot_v0.3.68/run/gateobs-pilot.json",
+        "sha256": "161866b9efc6a3e21e32493f4c8b5a4636873a446fef72b7bcd44b89696e963a",
+        "size_bytes": 1032
+      }
+    },
+    "process_error": null,
+    "process_exit_code": 0,
+    "runner": {
+      "commit": "99581267ff690129840915fa7ffb804b38b9f526",
+      "dirty": true,
+      "version": "0.3.68"
+    },
+    "started_at": "2026-10-10T12:59:46.797642+00:00"
+  },
+  "gate_observation": {
+    "candidate_id": "v0.3.68-stage-gen-on-04c15af279b0f1c6",
+    "cost": {
+      "games_limit": 2
+    },
+    "declaration_sha256": "e609d7326fd6feb34e46ee4e1df9aff182494be7639d564483b48ef3c8b675ac",
+    "engine_version": "0.3.68",
+    "evaluator": "material",
+    "feature_schema_id": "sekirei.search-gate-features.v1",
+    "feature_schema_sha256": "48adfd6f7186b9b7dccf9fef789eb4c39fc7dd47228a99a228ce2839c74d9c33",
+    "features": {
+      "v2_stage_gen_enabled_delta": 1.0
+    },
+    "group_definition": {
+      "independence_unit": "candidate-family+evaluator+opening-corpus+time-control",
+      "same_group": "all retries, shards, snapshots, and summaries of this candidate under the declared evaluator, opening corpus, and clock"
+    },
+    "group_id": "gateobs-pilot-v068-stage-gen-material-heldout-a",
+    "opening_corpus": "heldout_openings.sfen@8a81c79c190e1f33b194842fa9e6a2a0367e20e2512d9e22244ccefc3d33730c",
+    "schema": "sekirei.gate-observation-declaration.v1",
+    "source_commit": "99581267ff690129840915fa7ffb804b38b9f526",
+    "threads": 1,
+    "time_control": {
+      "byoyomi_ms": 20,
+      "games_limit": 2
+    }
+  },
+  "mode": "selfplay",
+  "result": {
+    "draws": 0,
+    "elo": {
+      "confidence_level": 0.95,
+      "estimate": -0.0,
+      "lower": -2399.999826281631,
+      "margin": 2399.999826281631,
+      "method": "normal_approximation_logistic_elo",
+      "upper": 2399.999826281631
+    },
+    "games_played": 2,
+    "losses": 1,
+    "sprt": {
+      "alpha": 0.05,
+      "beta": 0.05,
+      "elo0": 0.0,
+      "elo1": 10.0,
+      "llr": -0.0008279642729054562,
+      "lower_bound": -2.9444389791664403,
+      "upper_bound": 2.9444389791664403,
+      "verdict": "inconclusive"
+    },
+    "wins": 1
+  },
+  "schema_version": "sekirei.ab_gate_result.v1",
+  "status": "inconclusive",
+  "terminal_state": "inconclusive"
+}

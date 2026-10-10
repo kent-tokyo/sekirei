@@ -5,10 +5,10 @@ CLI. Use the Cargo binaries for normal engine operation. Before running a
 script, inspect `--help`, choose a new ignored output directory, and retain its
 manifest with the result.
 
-The workspace pins `lineprior 0.12.2`. The default USI runtime excludes it;
+The workspace pins `lineprior 0.12.3`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
 use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.1` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.1`
+`shogiesa 0.11.2` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.2`
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
@@ -29,10 +29,10 @@ training.
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
-| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. Local diagnostic only. |
+| `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. `--gate-observation-declaration` validates and carries a prospective, hashed feature/group declaration into that terminal result. Local diagnostic only. |
 | `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. For Lazy SMP, also records the selected worker's node share, worker best-move agreement, and approximate worker stop-lag spread. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
-| `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 90% engine/library line-coverage contract. |
+| `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 92% engine/library line-coverage contract. |
 
 ## Measurement and rules diagnostics
 
@@ -79,11 +79,18 @@ candidate run. Finalize only complete artifacts, and keep `PASS`, `FAIL`,
   game-level split; validation loss alone does not select a candidate.
 - `export_gate_observations.py` converts independent terminal gate manifests
   into lineprior `GateObservation` JSONL. It rejects outcome-derived features,
-  missing lineage, and conflicting retries. Use `--allow-empty` to archive a
-  deterministic zero-row readiness report when no historical run is eligible.
+  missing or changed declaration hashes, missing groups, incompatible feature
+  sets, and conflicting retries. A non-empty export remains contract evidence
+  until at least 20 independent groups are available; automated acquisition is
+  never enabled. Use `--allow-empty` to archive a deterministic zero-row
+  readiness report when no historical run is eligible.
 - `validate_book_ab_bundle.py` verifies hashes, arm symmetry, decision-to-
   terminal joins, book coverage, fallbacks, uncertainty, and cost for an
   archived held-out `UseBook=false`/`true` diagnostic.
+- `prepare_book_ab_split.py` freezes disjoint CSA subsets for opening-book
+  training and held-out evaluation. `summarize_book_coverage_preflight.py`
+  validates a preregistered, one-ply decision-log probe and stops before the
+  full A/B gate when actual book selection coverage is too low.
 
 Validate exported observations with:
 
@@ -101,6 +108,10 @@ output is advisory and never authorizes deployment or a strength claim.
 The compact v0.3.67 opening-book diagnostic is archived under
 `docs/experiments/book_ab_v0.3.67/`. It is contract evidence, not a strength
 gate.
+
+The first prospective GateObservation contract pilot is archived under
+`docs/experiments/gate_observation_pilot_v0.3.68/`. Its single admitted row is
+inconclusive and is not a playing-strength claim.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
@@ -121,7 +132,16 @@ experiment justifies otherwise. The trainer rejects output paths that alias a
 training, validation, or initial-checkpoint input through a direct path,
 symlink, or hardlink. Network, float-state, and resume-checkpoint files are
 written to a sibling temporary file and atomically replaced only after a
-complete write.
+complete write. Every packed shard remains a separate read-only memory map;
+training and validation copy only one batch at a time, and deterministic
+shuffle indices are generated per batch. Large multi-shard runs therefore do
+not load or concatenate the full position corpus on the Python heap; mapped
+pages remain reclaimable by the operating system.
+
+Checkpoints written by this version record the shuffle contract. A checkpoint
+from the older full-memory trainer can be continued at an epoch boundary, but
+a mid-epoch legacy checkpoint must be finished with that trainer or restarted
+at a new epoch; otherwise the changed ordering could repeat or skip records.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \

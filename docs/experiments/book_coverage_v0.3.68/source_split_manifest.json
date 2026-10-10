@@ -1,0 +1,628 @@
+{
+  "schema": "sekirei.book-ab-source-split.v1",
+  "source_dir": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa",
+  "source_manifests": [
+    {
+      "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/run-manifest.json",
+      "sha256": "91d07b72ad0995f6f3dc869c5a6bb0bb72e0429a1cfff0db873f22b638ef6231"
+    },
+    {
+      "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/manifest.json",
+      "sha256": "1410f58211c9a61a64120a5f7449f19949c37931892548f9ba2cc22422323b35"
+    }
+  ],
+  "selection": "lexicographic_filename_prefix",
+  "training": {
+    "count": 80,
+    "sources": [
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0001.csa",
+        "name": "game0001.csa",
+        "sha256": "45aef4a4d12686b40e790673cb952dab7f9ba513f1ccc8904587880001ac24ce",
+        "bytes": 1537
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0002.csa",
+        "name": "game0002.csa",
+        "sha256": "0775a476b82a9dbf1fdf08d1037dbf2dd1d7f2b4fb802dd3c397efcb20110711",
+        "bytes": 617
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0003.csa",
+        "name": "game0003.csa",
+        "sha256": "c224cf504d920f1050a2e19b6dde36da447e7604cc4e3b6be1e946fd93195a7c",
+        "bytes": 993
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0004.csa",
+        "name": "game0004.csa",
+        "sha256": "a149e8c8614da734d213fa3af5597e408dc7b2e31d7604be0471c6012a01af29",
+        "bytes": 529
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0005.csa",
+        "name": "game0005.csa",
+        "sha256": "c54dfaffa19e5effe8b49bb21dd5b528bf78d8d446ffd32071f183aa8a9be910",
+        "bytes": 2073
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0006.csa",
+        "name": "game0006.csa",
+        "sha256": "2e4a46096e54a69cdc5b6526997d80090dbe3c0cc083b9c6c65b963eb80ada84",
+        "bytes": 1329
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0007.csa",
+        "name": "game0007.csa",
+        "sha256": "cfca88e60424044412199a98824173429b30f407fed504539a456b825dc0144b",
+        "bytes": 809
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0008.csa",
+        "name": "game0008.csa",
+        "sha256": "d88cce55be11774a664c7755388b2f87efa6a153025b95e912f1cf25e3e761a2",
+        "bytes": 801
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0009.csa",
+        "name": "game0009.csa",
+        "sha256": "4c0767e312d51755f3acae07160cb4a1b40ffd40166ba6d7a959b54ea36cc966",
+        "bytes": 1217
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0010.csa",
+        "name": "game0010.csa",
+        "sha256": "e31828f0a902d63b94d8fc5b77600bbc8b1a061b1eea722fed0acd74482427b9",
+        "bytes": 1361
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0011.csa",
+        "name": "game0011.csa",
+        "sha256": "1ae07f937fdc48e3f4917c935365e0f4d276f9f87a8d63d8c0ed54587d73684a",
+        "bytes": 1177
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0012.csa",
+        "name": "game0012.csa",
+        "sha256": "c85a534868b29bf2dad29012ae9be5ca2b030be4330628a1caba5249a6b4aa60",
+        "bytes": 1425
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0013.csa",
+        "name": "game0013.csa",
+        "sha256": "faadff3ff20f6e19d939bf437b79f2394e35ae4727363960538cd8e56ea2495c",
+        "bytes": 1209
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0014.csa",
+        "name": "game0014.csa",
+        "sha256": "92f9127fcc40e7cbc389bcd1f22c18d85fd694ce62cfe251ba42e86b1e975f73",
+        "bytes": 865
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0015.csa",
+        "name": "game0015.csa",
+        "sha256": "9ece9516a1b2dd426c11af3aa549b72395139f537e4d99a65cccda11bce2751f",
+        "bytes": 609
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0016.csa",
+        "name": "game0016.csa",
+        "sha256": "7d8e9d780c27077cf384e95497db6c32b907e72b3f93866b235569b4dc835f77",
+        "bytes": 633
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0017.csa",
+        "name": "game0017.csa",
+        "sha256": "9614dd00c1bb7db0cce2195253ef13fb21774a07327cfb5f95b60f7390b7167c",
+        "bytes": 1537
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0018.csa",
+        "name": "game0018.csa",
+        "sha256": "c3d0ab1ef7ffebd2be63b1c68951891e49f8315209d267017f74d92d62616bdc",
+        "bytes": 945
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0019.csa",
+        "name": "game0019.csa",
+        "sha256": "963dc7af2582ebc51f6e5d5c6d34f8d512abd1011de2833fd05a871c368f56d7",
+        "bytes": 865
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0020.csa",
+        "name": "game0020.csa",
+        "sha256": "fc22c6f47f1f0c4f42a5907336235b8fcd016a044c1b2167f2534cb2cd646f79",
+        "bytes": 577
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0021.csa",
+        "name": "game0021.csa",
+        "sha256": "3e63ba6374d9116dbfa93d18715af9cfd2d17ac1d9ebce0312ae4812d256fb28",
+        "bytes": 1201
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0022.csa",
+        "name": "game0022.csa",
+        "sha256": "97c66ebef17ad413e52ac33c577a7aebfc6db0377ed485795480b2503ddca03d",
+        "bytes": 1425
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0023.csa",
+        "name": "game0023.csa",
+        "sha256": "ab80c681cd32f922a9597783520e61b39a0a497afe277cdd504542d717b777e4",
+        "bytes": 953
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0024.csa",
+        "name": "game0024.csa",
+        "sha256": "6159d61022ffb62501b326ae101baa29d943bc039dd3acbfcd9cce7c0a6d0733",
+        "bytes": 769
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0025.csa",
+        "name": "game0025.csa",
+        "sha256": "37281cb78297ee8bc9d56938ff476491750fdc1d5c06d0c25cb83afe3d7ccc35",
+        "bytes": 1497
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0026.csa",
+        "name": "game0026.csa",
+        "sha256": "6ce5742fda5185e193437704c84e3f3999a1cf64d61da5b1c099988d39ca7e0f",
+        "bytes": 1217
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0027.csa",
+        "name": "game0027.csa",
+        "sha256": "74e9c675ac3fc1b464a157dd2f4c74b48cf811f635c75ffc8114fd4cca2f0610",
+        "bytes": 865
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0028.csa",
+        "name": "game0028.csa",
+        "sha256": "bb1d910e804fa353347919b8ed0a063a58acacded2bdde056310750853bfad84",
+        "bytes": 2297
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0029.csa",
+        "name": "game0029.csa",
+        "sha256": "b274c5f2b06f98f3d9a0e77e8ff6d8d53bca69c855562f24ddcc1a096ac3a41f",
+        "bytes": 457
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0030.csa",
+        "name": "game0030.csa",
+        "sha256": "d98ba43c1fbd14208afd9236ef1ab2d0a246c95ae545250974428361600ed5bb",
+        "bytes": 1065
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0031.csa",
+        "name": "game0031.csa",
+        "sha256": "a6c72dfb62a8b97d5fba9c8f208b3238a4c10976421946361cf843f76b9b6bc1",
+        "bytes": 977
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0032.csa",
+        "name": "game0032.csa",
+        "sha256": "fed58d850fd241b6b90575f43d424901e274cbdb1936f65d0acfe385829451ca",
+        "bytes": 1001
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0033.csa",
+        "name": "game0033.csa",
+        "sha256": "221785238b6ea0f211e5e5c3c9ea3e49323fa854a3ea76f09e232a1b9058e918",
+        "bytes": 1217
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0034.csa",
+        "name": "game0034.csa",
+        "sha256": "50b11ae20f9f5241be697786f0f34d7c1277d56d25c669062984e7a82e52e68d",
+        "bytes": 1113
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0035.csa",
+        "name": "game0035.csa",
+        "sha256": "955d24ef63a73886a30d918b5fd444307e86ccea753697f53f03c5522af047de",
+        "bytes": 1009
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0036.csa",
+        "name": "game0036.csa",
+        "sha256": "9e55692be921051e88b3c78998e0e50e7ca8feb6022af5c94e129cd488e05e74",
+        "bytes": 913
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0037.csa",
+        "name": "game0037.csa",
+        "sha256": "3b4c1cc264feb9a0828e3e71546bdf9abf304ec54bf9b599727e4c5dc0298136",
+        "bytes": 1121
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0038.csa",
+        "name": "game0038.csa",
+        "sha256": "60ab437a4dc630b35691a595f45de1006b2872a8aae99fb1c5ed0a18bb5ab75b",
+        "bytes": 1057
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0039.csa",
+        "name": "game0039.csa",
+        "sha256": "12d6ad978ae028034393d6450116df5b23a262d71a543772afaae9f0e7301a36",
+        "bytes": 1233
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0040.csa",
+        "name": "game0040.csa",
+        "sha256": "37e4b6639b3513ba6350b76a4251a089b2e1cde04c85045aec1510fe99865662",
+        "bytes": 1345
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0041.csa",
+        "name": "game0041.csa",
+        "sha256": "22e8680072588ed2edf0a1c460b4ae2abc32de30d208f73f6be4c4287df6a440",
+        "bytes": 577
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0042.csa",
+        "name": "game0042.csa",
+        "sha256": "22c7f8d9928e0ba34e213571c3f2b3efb5f78de73b650c4a391772a9433fddad",
+        "bytes": 761
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0043.csa",
+        "name": "game0043.csa",
+        "sha256": "3c20bc191ed7f2828eab02346a5ad479603ea62e373bce92077c09400d358fd9",
+        "bytes": 1009
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0044.csa",
+        "name": "game0044.csa",
+        "sha256": "9368aad2804261a551871df71ced388c82abc19e33c261da76c22ef896b4d250",
+        "bytes": 1353
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0045.csa",
+        "name": "game0045.csa",
+        "sha256": "613446e94a6f369af45dcd57e676f70097535100a0a1ef22e1cff9d77d3302d7",
+        "bytes": 689
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0046.csa",
+        "name": "game0046.csa",
+        "sha256": "3ab8e914c147f45628b6fae89b935467dd80239c521999c0f0b4f13d33458047",
+        "bytes": 1257
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0047.csa",
+        "name": "game0047.csa",
+        "sha256": "8e7cf6d3db80a3b372f4ea63b718b8e6fae61db5e5617dab28be44d27f7ac690",
+        "bytes": 777
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0048.csa",
+        "name": "game0048.csa",
+        "sha256": "85f07d92d88b6a57065eec46d5deef138f4db1fb3ce29061bf90b753aa6241d6",
+        "bytes": 1105
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0049.csa",
+        "name": "game0049.csa",
+        "sha256": "8ede3f3454f67957ef8b40e928ca65cd12e4eef3b2ee875f8e73ee5899c47002",
+        "bytes": 1113
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0050.csa",
+        "name": "game0050.csa",
+        "sha256": "a17ffb21abd0e868bc21650a5d469d6bb986b9aedf3d65f420c461d9a4ed6d21",
+        "bytes": 625
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0051.csa",
+        "name": "game0051.csa",
+        "sha256": "acfc4815ae3d7dc6114717539e36c37b3bc08a6c6493703bc6d5fe93d26bebad",
+        "bytes": 545
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0052.csa",
+        "name": "game0052.csa",
+        "sha256": "8b6099cd9fda6f2d6fc1cfdec670de97cce1d792a4d2a4182ef2c58c604f03f6",
+        "bytes": 3990
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0053.csa",
+        "name": "game0053.csa",
+        "sha256": "f06eb3a9d8c20882f2b37081f679bae738575ec3bfaf20af5257b03718783321",
+        "bytes": 921
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0054.csa",
+        "name": "game0054.csa",
+        "sha256": "fc57e79ae4555d61b5128a4ceadb9cd54d90e82f0505da5f62bd66abef9530c7",
+        "bytes": 873
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0055.csa",
+        "name": "game0055.csa",
+        "sha256": "527f2ee46b5c44d665087ed3fb4e529e11de8c666c1eaacfbd0e68f1293a91b0",
+        "bytes": 929
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0056.csa",
+        "name": "game0056.csa",
+        "sha256": "243286afc4dd11d1ae502b12fdcfc11a915e2a27a6d6ad4dcc5c839cea96d9e8",
+        "bytes": 1001
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0057.csa",
+        "name": "game0057.csa",
+        "sha256": "cce96b59b3cc891cfe7c97dee41576a394d0067a7d52f2bba1b8ccd8f98fd6c7",
+        "bytes": 1257
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0058.csa",
+        "name": "game0058.csa",
+        "sha256": "b8e54a1575d71752be69bfc9bb9bf63155997e092a3d6af9c69407fd9cba269f",
+        "bytes": 1121
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0059.csa",
+        "name": "game0059.csa",
+        "sha256": "269321881a8376a6930e07dd45a0f8a3054b79997fa81e819abfb266fb4fe9a2",
+        "bytes": 873
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0060.csa",
+        "name": "game0060.csa",
+        "sha256": "1d3ab9246ca94ccc470fae715ce92ad7bc58f5060fd7622bd4582c409ac7385d",
+        "bytes": 1281
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0061.csa",
+        "name": "game0061.csa",
+        "sha256": "cdfaa24d47deab63b3e2e5a4f3738a5c4d4edbbfc9067df7f0dce9974f17e0be",
+        "bytes": 833
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0062.csa",
+        "name": "game0062.csa",
+        "sha256": "94b0f98c550016ec974514646a17cb21e301eeb2d3b48e69abfadd4f93303811",
+        "bytes": 753
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0063.csa",
+        "name": "game0063.csa",
+        "sha256": "6b774a3af09733dddf61233b1e9bde3b281b6792c5b6b5898a57a34659a55f9d",
+        "bytes": 665
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0064.csa",
+        "name": "game0064.csa",
+        "sha256": "850d306215c79c5e3cab609466aa2873a46874c59f6526cec336797c9f1292df",
+        "bytes": 1041
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0065.csa",
+        "name": "game0065.csa",
+        "sha256": "4269efe2b2cb806063c2157ae7ff0b24d59fd0489073ae4f198725ac4dc66260",
+        "bytes": 937
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0066.csa",
+        "name": "game0066.csa",
+        "sha256": "543d845c1f2f44759ad15cd737c46d08b369ab55ef740e5090b5d5616f6b1e1a",
+        "bytes": 929
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0067.csa",
+        "name": "game0067.csa",
+        "sha256": "c3cf8a8d5856a504a1fd9bec8e9bfea615ea5c9ef1213b157dda4b1ae0e8cfb1",
+        "bytes": 961
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0068.csa",
+        "name": "game0068.csa",
+        "sha256": "49f959ce8c611dc47a3341b9c84c0aac6e20635c1a4fd776491f05d9dd0af866",
+        "bytes": 1241
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0069.csa",
+        "name": "game0069.csa",
+        "sha256": "6e1869dde6ddec44107dfca55391548dc9b04ce09c2ff89fd54044d143c7edde",
+        "bytes": 689
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0070.csa",
+        "name": "game0070.csa",
+        "sha256": "be7b9cc9ccf0b6de2c228f0499125d420b18f7b637fa4529208a39e89d48d3e1",
+        "bytes": 769
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0071.csa",
+        "name": "game0071.csa",
+        "sha256": "2d2a2394906868510c36b7668320c9029802427048801944278843e234247bd1",
+        "bytes": 769
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0072.csa",
+        "name": "game0072.csa",
+        "sha256": "0145c6e68e90c56968c2955029aa43e6063ec9342ebca2a1c3845b5d667e33d3",
+        "bytes": 1401
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0073.csa",
+        "name": "game0073.csa",
+        "sha256": "3f21c9d3d309fbe695c864e7345e6a6c55fddbff1ff48224902cde417aedd8d2",
+        "bytes": 793
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0074.csa",
+        "name": "game0074.csa",
+        "sha256": "248ab68bc247487656e16824e7e18eb3e3031d8ee3532de666b14bc36033506c",
+        "bytes": 1145
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0075.csa",
+        "name": "game0075.csa",
+        "sha256": "210189c2f764adefdf2642282edc0aed18bf19b72aad79ca38f4b494e14e7f45",
+        "bytes": 1041
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0076.csa",
+        "name": "game0076.csa",
+        "sha256": "19813053e60284800895138e159395ef716a2fc6d74f811e62882c09a473dc75",
+        "bytes": 857
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0077.csa",
+        "name": "game0077.csa",
+        "sha256": "88ba96aab7c411dd1fb56a109ab805fffb78c0924eba72d9c7142cdb667052e7",
+        "bytes": 1185
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0078.csa",
+        "name": "game0078.csa",
+        "sha256": "6b25dc2228b22fe23c51b1e4c20a067616a5987a878b1c87ff1be60826334215",
+        "bytes": 1025
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0079.csa",
+        "name": "game0079.csa",
+        "sha256": "d8fc22d15b209232ef5d2838a8716194291dde5042929b5736d2ec8f534b7486",
+        "bytes": 777
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0080.csa",
+        "name": "game0080.csa",
+        "sha256": "d91c42fe152a72805814f3d217f41df1177df96888b30449826bc49197e08f28",
+        "bytes": 889
+      }
+    ]
+  },
+  "heldout": {
+    "count": 20,
+    "sources": [
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0081.csa",
+        "name": "game0081.csa",
+        "sha256": "4698fe70006e883198759c49b34e91f156b401582a1db2060deac58ee9a25f52",
+        "bytes": 206
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0082.csa",
+        "name": "game0082.csa",
+        "sha256": "bffae09a3b3459060b9188a4e0f9af5294491c436324ad4b9f2d52522ade9026",
+        "bytes": 593
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0083.csa",
+        "name": "game0083.csa",
+        "sha256": "5a77af285309e6d12da6393970a6959036f956501d81be8d5d4ac289115e1771",
+        "bytes": 1193
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0084.csa",
+        "name": "game0084.csa",
+        "sha256": "e7e316dce75413722a57785dbb6868103cc7dc08a6be0bee2148a96b9f4655be",
+        "bytes": 1097
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0085.csa",
+        "name": "game0085.csa",
+        "sha256": "7c986449dade2b1e00309933b84356bf42d756a846c1070bdd0eb299b51e5200",
+        "bytes": 609
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0086.csa",
+        "name": "game0086.csa",
+        "sha256": "7558669fe666cc0074eceafb234b74de5aabd51dc3a97361fc37bde3da53a82b",
+        "bytes": 1065
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0087.csa",
+        "name": "game0087.csa",
+        "sha256": "92c16a45b7356f5ee9b3c365f0d5cd33d3ef6b133aa9a7200e5e8c8ca3670833",
+        "bytes": 1161
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0088.csa",
+        "name": "game0088.csa",
+        "sha256": "82a9ae0aba929ce24a607a26119e3818aa0f62a7807eee00ddf711a40b35808b",
+        "bytes": 913
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0089.csa",
+        "name": "game0089.csa",
+        "sha256": "1044aac3d6c57acf99aebcfad51fa60b7fc75027ba02d1e79777768cba042892",
+        "bytes": 1025
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0090.csa",
+        "name": "game0090.csa",
+        "sha256": "77c06f3db9764f115573aa97e92160f1f712a1b380e8b33dc33a3a98aed1513f",
+        "bytes": 689
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0091.csa",
+        "name": "game0091.csa",
+        "sha256": "5241249d378aa80f869a7a9918a68287ba5d4c099ec7835c1c8eaed3c926c603",
+        "bytes": 1113
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0092.csa",
+        "name": "game0092.csa",
+        "sha256": "58df8f427286fc3d2f33cb2bae3345237d4a2067d7ddf030ed01e7e732688b93",
+        "bytes": 1089
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0093.csa",
+        "name": "game0093.csa",
+        "sha256": "b89bcb5c94408b257596f4dd22311e527d5505b35ee5cea1d32df434bfb4801f",
+        "bytes": 1505
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0094.csa",
+        "name": "game0094.csa",
+        "sha256": "247d8a0a811ea84cb9f803cc423d6146f3d03625488712f22a1a99fad0ee27d8",
+        "bytes": 1681
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0095.csa",
+        "name": "game0095.csa",
+        "sha256": "e174e43e50da50561588621244d5365e24b2d09af9665ed5d335d0753fc5ef18",
+        "bytes": 785
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0096.csa",
+        "name": "game0096.csa",
+        "sha256": "52b8ecdf3cd8044e2e95b9aec064115070694316d31fa1c9f5537cecabecce04",
+        "bytes": 1169
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0097.csa",
+        "name": "game0097.csa",
+        "sha256": "3d72ec7989253fc18310bc7bc74c3c71c275f386b979ad7fddbaca540ba4ce5a",
+        "bytes": 1217
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0098.csa",
+        "name": "game0098.csa",
+        "sha256": "1eb72f5119534a706dd66eb2cdd5373ea0204487e0856887a6c1e92930eaa53b",
+        "bytes": 1457
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0099.csa",
+        "name": "game0099.csa",
+        "sha256": "b83cab9f595084564b4ca9a7a7b24e21b2db2778bb4b5f99cc4ae198531aabfe",
+        "bytes": 817
+      },
+      {
+        "path": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/data/runs/local_selfplay_20260919T010030Z/csa/game0100.csa",
+        "name": "game0100.csa",
+        "sha256": "b05692bb0df4bf6a63d27b8d320295d9793f56d16a09441050daf33cab0b0a13",
+        "bytes": 753
+      }
+    ]
+  },
+  "disjoint_by_path": true,
+  "disjoint_by_sha256": true,
+  "strength_claim_permitted": false
+}

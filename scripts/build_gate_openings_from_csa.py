@@ -34,6 +34,11 @@ def excluded_source_paths(manifests: list[Path]) -> set[str]:
     excluded: set[str] = set()
     for manifest in manifests:
         document = json.loads(manifest.read_text(encoding="utf-8"))
+        if document.get("schema") == "sekirei.book-ab-source-split.v1":
+            training = document.get("training", {})
+            for row in training.get("sources", []) if isinstance(training, dict) else ():
+                if isinstance(row, dict) and isinstance(row.get("path"), str):
+                    excluded.update(canonical_paths(row["path"]))
         for row in document.get("sources", []):
             if isinstance(row, dict) and isinstance(row.get("path"), str):
                 excluded.update(canonical_paths(row["path"]))

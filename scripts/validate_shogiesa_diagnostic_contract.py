@@ -18,7 +18,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_SHOGIESA_VERSIONS = {"0.11.1"}
+SUPPORTED_SHOGIESA_VERSIONS = {"0.11.2"}
 SUPPORTED_SCHEMA_VERSION = 11
 TEACHER_SOURCE = "sekirei_internal_search"
 

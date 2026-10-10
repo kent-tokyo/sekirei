@@ -338,4 +338,80 @@ T1
         let game = parse_csa(&sample_with_ending("%TIME_UP")).expect("parse failed");
         assert_eq!(game.result, GameResult::Unknown);
     }
+
+    #[test]
+    fn metadata_comments_and_all_clean_result_directions_are_preserved() {
+        let one_move = |ending: &str| {
+            format!(
+                "V2.2\nPI\n+\n'black_rate:Black+hash:2800.5\n'white_rate:White+hash:2700.25\n'ordinary comment\n+7776FU\n{ending}\n"
+            )
+        };
+
+        for (ending, expected) in [
+            ("%TORYO", GameResult::BlackWin),
+            ("%TSUMI", GameResult::BlackWin),
+            ("%KACHI", GameResult::BlackWin),
+            ("%JISHOGI", GameResult::Draw),
+        ] {
+            let game = parse_csa(&one_move(ending)).expect("one-move fixture must parse");
+            assert_eq!(game.result, expected, "ending {ending}");
+            assert_eq!(game.black_rate, Some(2800.5));
+            assert_eq!(game.white_rate, Some(2700.25));
+        }
+
+        let white_loser = one_move("'sekirei_perpetual_check_loser: white\n%SENNICHITE");
+        assert_eq!(
+            parse_csa(&white_loser).unwrap().result,
+            GameResult::BlackWin
+        );
+        let invalid_loser = one_move("'sekirei_perpetual_check_loser: invalid\n%SENNICHITE");
+        assert_eq!(parse_csa(&invalid_loser).unwrap().result, GameResult::Draw);
+    }
+
+    #[test]
+    fn helpers_reject_invalid_coordinates_and_cover_every_piece_token() {
+        assert_eq!(csa_square(0, 1), None);
+        assert_eq!(csa_square(10, 1), None);
+        assert_eq!(csa_square(1, 0), None);
+        assert_eq!(csa_square(1, 10), None);
+        assert!(csa_square(9, 9).is_some());
+
+        for (token, expected) in [
+            ("FU", PieceKind::Fu),
+            ("KY", PieceKind::Kyou),
+            ("KE", PieceKind::Kei),
+            ("GI", PieceKind::Gin),
+            ("KI", PieceKind::Kin),
+            ("KA", PieceKind::Kaku),
+            ("HI", PieceKind::Hisha),
+            ("OU", PieceKind::Ou),
+            ("TO", PieceKind::Tokin),
+            ("NY", PieceKind::Narikyo),
+            ("NK", PieceKind::Narikei),
+            ("NG", PieceKind::Narigin),
+            ("UM", PieceKind::Uma),
+            ("RY", PieceKind::Ryu),
+        ] {
+            assert_eq!(csa_piece(token), Some(expected));
+        }
+        assert_eq!(csa_piece("XX"), None);
+        assert!(parse_csa("V2.2\nPI\n%TORYO\n").is_none());
+        for bad_move in ["+0076FU", "+7076FU", "+7700FU", "+7770FU", "+7776XX"] {
+            assert!(parse_csa(&format!("V2.2\nPI\n{bad_move}\n%TORYO\n")).is_none());
+        }
+
+        let two_moves = |ending: &str| format!("V2.2\nPI\n+7776FU\n-3334FU\n{ending}\n");
+        assert_eq!(
+            parse_csa(&two_moves("%TORYO")).unwrap().result,
+            GameResult::WhiteWin
+        );
+        assert_eq!(
+            parse_csa(&two_moves("%TSUMI")).unwrap().result,
+            GameResult::WhiteWin
+        );
+        assert_eq!(
+            parse_csa(&two_moves("%KACHI")).unwrap().result,
+            GameResult::WhiteWin
+        );
+    }
 }

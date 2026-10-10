@@ -1,0 +1,25 @@
+{
+  "abstentions": 20,
+  "actual_decisions": 20,
+  "book_selections": 0,
+  "declaration_sha256": "fe070d69e5e35be70d5786eef4f06f2d131737fcb4fd4cf94c59d8f21e3c1b61",
+  "fallback_reasons": {
+    "unseen_state": 20
+  },
+  "full_gate_started": false,
+  "gate_verdict": "NOT_RUN",
+  "interpretation": "INCONCLUSIVE",
+  "next_action": "improve_book_support_before_full_gate",
+  "schema": "sekirei.book-coverage-preflight.v1",
+  "selection_fraction": 0.0,
+  "source_split_disjoint": true,
+  "status": "not_ready",
+  "strength_claim_permitted": false,
+  "thresholds": {
+    "maximum_full_gate_games": 400,
+    "minimum_book_selections": 4,
+    "minimum_selection_fraction": 0.2,
+    "target_elo_half_width": 35.0
+  },
+  "unique_states": 20
+}

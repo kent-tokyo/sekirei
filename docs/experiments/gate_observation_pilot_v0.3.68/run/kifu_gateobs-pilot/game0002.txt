@@ -1,0 +1,4 @@
+# Engine1: Sekirei (White)
+# Engine2: Sekirei (Black)
+# Result: Engine1 Win
+position sfen ln1gk1sn1/2r3gbl/1pspppppp/p8/1PP1B4/P8/3PPPPPP/3K1SGR1/LNSG3NL w P 18 moves 7c6d 5e7g 5a4b 7g6f 4b5a 6i7h 5c5d 7e7d 7b7d 7h8g 7d7b 6f8h 6d7e 6h5i 6c6d 5i5h 1c1d 5h6h P*7f 7i7h 8a7c 6h6i 5a6b 4g4f 7c8e 1g1f 7f7g 8i7g 7e8d 7g8e 8d8e P*7e 7b7e 8h9g 7e7d N*6f 7d7a 9g6d P*6e 6f5d 6b6c 6d8b+ N*7e 8g8h 6c5d 8b7a 6a7a R*5a B*5c P*7b 3c3d P*8i 7a7b 5a9a+ N*8f 5g5f 5d6c P*7c 8f7h+ 6i7h 8e7f 9a6a 7b6b 6a6b 5c6b G*6h S*8g 7h6i 8g8h+ 8i8h R*8i 6i5h 8i8h+ N*5i 2b7g+ 4h5g 7e6g+ 5i6g 7f6g 5h4g 6g6h N*5e 6c7c 5g6h 8h6h S*2f G*5g 4g3f N*4d 3f4e S*3f 3g3f 2a3c 4e3d G*2d

@@ -6071,6 +6071,118 @@ mod see_tests {
     }
 
     #[test]
+    fn diagnostics_tables_preserve_every_recorded_dimension() {
+        let diagnostics = SearchDiagnostics::default();
+
+        assert_eq!(SearchBound::Exact.as_str(), "exact");
+        assert_eq!(SearchBound::Lower.as_str(), "lower");
+        assert_eq!(SearchBound::Upper.as_str(), "upper");
+        assert_eq!(SearchBound::Unknown.as_str(), "unknown");
+
+        diagnostics.record_cut(1, true, false);
+        diagnostics.record_cut(6, false, true);
+        diagnostics.record_cut(40, true, true);
+        diagnostics.exit(3);
+        diagnostics.at_depth(4, 5);
+        diagnostics.research[0].fetch_add(2, Ordering::Relaxed);
+        diagnostics.pv_calls.fetch_add(3, Ordering::Relaxed);
+        diagnostics.loop_by_window[1].fetch_add(4, Ordering::Relaxed);
+        diagnostics.searched_by_window[0].fetch_add(5, Ordering::Relaxed);
+        diagnostics.record_tt_quiet_cut(true, Some(Bound::Exact), 0);
+        diagnostics.record_tt_quiet_cut(false, Some(Bound::Lower), 4);
+        diagnostics.record_tt_quiet_cut(false, None, 9);
+        diagnostics.record_tt_probe(5, false, 0);
+        diagnostics.record_tt_probe(5, true, 4);
+        diagnostics.record_tt_probe(5, true, 5);
+        diagnostics.record_v2_node(6, true, true, true);
+        diagnostics.record_move_kind(3, false, 7);
+        diagnostics.searched_checks[1].fetch_add(6, Ordering::Relaxed);
+        diagnostics.fail_low_nodes.fetch_add(7, Ordering::Relaxed);
+        diagnostics.loop_nodes[0].fetch_add(8, Ordering::Relaxed);
+        diagnostics.qsearch[10].fetch_add(9, Ordering::Relaxed);
+        diagnostics.move_stages[3].fetch_add(10, Ordering::Relaxed);
+
+        assert_eq!(diagnostics.exit_counts()[3], 1);
+        assert_eq!(diagnostics.depth_table()[4][5], 1);
+        assert_eq!(diagnostics.research_counts()[0], 2);
+        let (pv, loops, searched) = diagnostics.window_counts();
+        assert_eq!((pv, loops[1], searched[0]), (3, 4, 5));
+        assert_eq!(diagnostics.tt_quiet_cut_counts()[0][0], 1);
+        assert_eq!(diagnostics.tt_quiet_cut_counts()[1][10], 1);
+        assert_eq!(diagnostics.tt_quiet_cut_counts()[1][17], 1);
+        assert_eq!(diagnostics.tt_probe_counts()[5], [3, 2, 1, 2]);
+        assert_eq!(diagnostics.v2_node_counts()[6], [1, 1, 1, 1]);
+        assert_eq!(diagnostics.move_kind_counts()[6][7], 1);
+        assert_eq!(diagnostics.searched_check_counts()[1], 6);
+        let (cuts, fail_low, loop_nodes) = diagnostics.cut_histogram();
+        assert_eq!(cuts[0][0], 1);
+        assert_eq!(cuts[3][4], 1);
+        assert_eq!(cuts[2][9], 1);
+        assert_eq!((fail_low, loop_nodes[0]), (7, 8));
+        assert_eq!(diagnostics.qsearch_counts()[10], 9);
+        assert_eq!(diagnostics.move_stage_counts()[3], 10);
+    }
+
+    #[test]
+    fn diagnostic_search_wrappers_and_soft_limit_edges_are_bounded() {
+        let soft = std::time::Duration::from_millis(100);
+        assert!(!tm_scaled_soft_expired(
+            std::time::Duration::from_secs(1),
+            None,
+            10,
+            0,
+            0,
+        ));
+        assert!(!tm_scaled_soft_expired(
+            std::time::Duration::from_secs(1),
+            Some(soft),
+            3,
+            0,
+            0,
+        ));
+        assert!(!tm_scaled_soft_expired(
+            std::time::Duration::from_millis(1),
+            Some(soft),
+            8,
+            64,
+            100,
+        ));
+        assert!(tm_scaled_soft_expired(
+            std::time::Duration::from_secs(1),
+            Some(soft),
+            8,
+            0,
+            100,
+        ));
+
+        let searcher = Searcher::with_pruning(
+            Tt::new(1),
+            PruningConfig {
+                null_move: false,
+                late_move_reduction: false,
+                ybw_split: false,
+            },
+        );
+        let config = SearchConfig {
+            max_depth: 2,
+            node_limit: Some(2_000),
+            ..SearchConfig::default()
+        };
+
+        let mut board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let info =
+            searcher.search_with_history_without_root_mate_safety(&mut board, config, &history);
+        assert!(info.best_move.is_some());
+
+        let (traced, trace) = searcher
+            .search_with_history_trace_without_root_mate_safety(&mut board, config, &history);
+        assert!(traced.best_move.is_some());
+        assert!(!trace.is_empty());
+        assert_eq!(board.hash(), history.entries().last().unwrap().hash);
+    }
+
+    #[test]
     fn iteration_trace_keeps_only_completed_passes_and_reports_root_safety_cost() {
         let diagnostics = Arc::new(SearchDiagnostics::new());
         let searcher = Searcher::with_pruning_and_diagnostics(

@@ -1,0 +1,18 @@
+Engine1: Sekirei
+Engine2: Sekirei
+Opening positions: 2 SFENs
+Games: 2  Byoyomi: 20ms
+
+Game    1: Sekirei (Black) vs Sekirei (White) → Engine2 Win  (205 moves)
+Game    2: Sekirei (White) vs Sekirei (Black) → Engine1 Win  (95 moves)
+
+=== Results after 2 games ===
+  Sekirei: 1W 0D 1L  (50.0%)
+  Sekirei: 1W 0D 1L  (50.0%)
+
+Elo difference: -0 ± 482 (95% CI)
+LOS: 50.0%
+Diversity: 2/2 unique 20-ply openings (ratio 1.00, top repeat ×1)
+Exact games: 2/2 unique (0 duplicates, ratio 0.00, top repeat ×1)
+Result saved to docs/experiments/gate_observation_pilot_v0.3.68/run/gateobs-pilot.json
+Per-game records saved to docs/experiments/gate_observation_pilot_v0.3.68/run/gateobs-pilot.jsonl

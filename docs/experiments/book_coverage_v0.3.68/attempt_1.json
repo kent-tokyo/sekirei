@@ -1,0 +1,8 @@
+{
+  "schema": "sekirei.book-coverage-attempt.v1",
+  "declaration_sha256": "2903d9de2596a2f25027f7ed2ebd0c2ebc43fe99683d4ede26c8c9fe23d13801",
+  "status": "aborted_before_first_game",
+  "games": 0,
+  "reason": "engine did not advertise requested USI option UseBook",
+  "resolution": "rebuild only the sekirei opening-book feature and preregister its new binary hash"
+}

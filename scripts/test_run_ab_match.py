@@ -4,6 +4,7 @@
 Run: python3 scripts/test_run_ab_match.py
 """
 
+import hashlib
 import io
 import json
 import math
@@ -210,6 +211,61 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(result["result"]["games_played"], 3)
         self.assertEqual(result["evidence"]["openings"]["position_count"], 1)
         self.assertIsNone(result["result"]["sprt"])
+
+    def test_result_json_carries_validated_prospective_gate_declaration(self):
+        process = _FakeMatchProcess(["→ Draw\n"])
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = Path(directory) / "gate_result.json"
+            declaration_path = Path(directory) / "declaration.json"
+            declaration_path.write_text(
+                json.dumps(
+                    {
+                        "schema": "sekirei.gate-observation-declaration.v1",
+                        "candidate_id": "pilot-candidate",
+                        "group_id": "pilot-independent-group",
+                        "feature_schema_id": "sekirei.search-gate-features.v1",
+                        "features": {"node_ratio": 1.25, "qsearch_share": 0.7},
+                        "group_definition": {
+                            "boundary": "same evaluator, openings, clock, and candidate family"
+                        },
+                        "engine_version": "0.3.68",
+                        "source_commit": "deadbeef",
+                        "evaluator": "material",
+                        "time_control": {"byoyomi_ms": 100},
+                        "threads": 1,
+                        "opening_corpus": "openings_standard-v1",
+                        "cost": {"games_limit": 1},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            declaration_input_sha256 = hashlib.sha256(declaration_path.read_bytes()).hexdigest()
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games", "1",
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+                "--gate-observation-declaration", str(declaration_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+
+        declaration = result["gate_observation"]
+        self.assertEqual(declaration["candidate_id"], "pilot-candidate")
+        self.assertEqual(len(declaration["feature_schema_sha256"]), 64)
+        self.assertEqual(len(declaration["declaration_sha256"]), 64)
+        self.assertEqual(
+            result["evidence"]["gate_observation_declaration"]["sha256"],
+            declaration_input_sha256,
+        )
 
     def test_result_json_records_inconclusive_game_limit(self):
         process = _FakeMatchProcess(["→ Engine1 Win\n", "→ Engine2 Win\n"])

@@ -522,6 +522,21 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "move parser could not interpret")]
+    fn replay_rejects_a_malformed_historical_move_token() {
+        verify_position_replay("startpos moves invalid", &Board::startpos(), &replay_ctx());
+    }
+
+    #[test]
+    fn file_hash_reports_present_and_missing_inputs() {
+        assert_eq!(
+            hash_file(file!()),
+            std::fs::read(file!()).ok().map(|b| fnv1a(&b))
+        );
+        assert_eq!(hash_file("this-path-must-not-exist-sekirei"), None);
+    }
+
+    #[test]
     fn replay_handles_capture_promotion_and_drop() {
         // A real move sequence from an actual completed game this session
         // (base opening + 38 plies), chosen specifically because it
