@@ -9,14 +9,11 @@
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.3.69` adds
+Sekirei is an experimental Pure Rust shogi engine. Release `0.3.69` hardens
 fail-closed CSA and gate handling, bounds HalfKP training memory, and raises
-the Rust coverage contract to 95%. This does not claim a playing-strength improvement;
-measured results remain scoped to the exact evaluator, hardware, corpus, and settings.
+the Rust coverage contract to 95%. It does not claim a playing-strength gain.
 
 ## Quick start
-
-Install the released USI engine:
 
 ```bash
 cargo install sekirei
@@ -31,42 +28,28 @@ cd sekirei
 cargo run --release -p sekirei
 ```
 
-Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, it uses
-material evaluation. The optional 0.3.38 checkpoint remains available for
-compatibility and experimentation:
+Register `sekirei` in a USI-compatible GUI. Without `EvalFile`, the engine
+uses material evaluation. The optional 0.3.38 checkpoint remains available
+for compatibility and experiments:
 
 ```bash
 sekirei /path/to/sekirei-nnue-v0.3.38.bin
 ```
 
 Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
-256x2-32-32 files use `FV_SCALE` instead and remain subject to their own
-licenses. See [NNUE weights](docs/nnue_weights.md) for formats, checksums, and
-the evidence boundary.
-The latest local `nn_r3` self-play result is tracked there as an unpublished
-candidate; it is not bundled or selected by default because its material gate
-is pending.
+256x2-32-32 files use `FV_SCALE` and remain subject to their own licenses.
+[NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
+the evidence boundary. The unpublished `nn_r3` candidate is not bundled or
+selected by default because its material gate has not run.
 
-### Browser / WebAssembly
+## Components
 
-[`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
-moves, validated move application, bounded sequential search with a legal PV,
-and bounded shortest-mate analysis. It uses material evaluation and does not
-change the native USI dependency graph.
-
-The prebuilt v0.3.69 ES-module package is available from the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.69/sekirei-wasm-0.3.69.tgz).
-
-## What is included
-
-- Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence, ordering, and a
-  lock-free TT.
-- Optional speculative search, Lazy SMP, NNUE evaluation/training, MCTS, and
+- Shogi rules, SFEN/USI notation, alpha-beta/PVS, quiescence search, move
+  ordering, and a lock-free transposition table.
+- Optional speculative search, Lazy SMP, NNUE training/evaluation, MCTS, and
   df-pn. Experimental modes are not strength claims.
-- CSA/Floodgate and USI match tooling; core search/evaluation is Pure Rust
-  with no `unsafe`.
-
-Workspace binaries:
+- CSA/Floodgate and local USI match tooling. Core search and evaluation use no
+  `unsafe` code.
 
 | Command | Package | Purpose |
 |---|---|---|
@@ -75,12 +58,17 @@ Workspace binaries:
 | `sekirei-match` | `sekirei-match-runner` | USI match runner |
 | `train` | `sekirei-train` | NNUE training |
 
-## Engine configuration
+The `usi` command lists every engine option. `SearchMode=Auto` selects
+sequential search for one worker and Lazy SMP for multiple workers. For
+deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 
-The `usi` command lists all options. `SearchMode=Auto` selects sequential
-search for one worker and Lazy SMP for multiple workers; `MultiPV>1` uses the
-root-candidate backend. For deterministic diagnostics use `Threads=1` and
-`SpecTopN=0`.
+### Browser / WebAssembly
+
+[`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
+moves, validated move application, bounded one-worker material search with a
+legal PV, and bounded shortest-mate analysis. The prebuilt v0.3.69 ES-module
+package is attached to the
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.69/sekirei-wasm-0.3.69.tgz).
 
 ## Build and verify
 
@@ -92,20 +80,16 @@ bash scripts/check_rust_coverage.sh
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
-The coverage command requires `cargo-llvm-cov 0.8.7`, `llvm-tools-preview`,
-and `jq`. It enforces at least 95% line coverage for reusable Rust code and the
-shipped USI runtime, including optional opening-book and tunable-search paths.
-Benchmark and diagnostic binaries plus orchestration-heavy CLI entry points are
-exercised by normal CI but kept outside this badge contract.
+The coverage command requires `cargo-llvm-cov 0.8.7`,
+`llvm-tools-preview`, and `jq`. It enforces at least 95% line coverage for
+reusable Rust code and the shipped USI runtime. See the
+[script index](scripts/README.md) for benchmark, gate, release, and training
+tools. Component timings are not overall speed or strength rankings.
 
-Tooling and historical benchmark scope are indexed in
-[scripts/README.md](scripts/README.md). Component timings are not overall speed
-or playing-strength rankings.
+## Matches and training
 
-## Matches and CSA/Floodgate
-
-Use `sekirei-match` for local USI matches. For unattended offline self-play
-with durable records:
+Use `sekirei-match` for local USI matches. Durable offline self-play requires
+explicit weights and opening positions:
 
 ```bash
 python3 scripts/run_local_selfplay.py --games 1000 \
@@ -113,58 +97,41 @@ python3 scripts/run_local_selfplay.py --games 1000 \
   --positions data/gate/openings_standard.sfen
 ```
 
-Runs save manifests, kifu, CSA, search data, and deduplication metadata under
-ignored `data/runs/`. Normal collection requires explicit weights and opening
-positions. `sekirei-csa` supports CSA/Floodgate; inject credentials only at
-runtime. Same-engine results are relative regression evidence, not Floodgate
-or human ratings.
+Runs store manifests, records, CSA, search data, and deduplication metadata
+under ignored `data/runs/`. Same-engine results are regression evidence, not
+Floodgate or human ratings. `sekirei-csa` accepts credentials only at runtime.
 
-## NNUE training
-
-Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
+For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
 Training pins `lineprior 0.12.4` and `shogiesa-core 0.11.3`; external wrappers
-are checked against `shogiesa 0.11.3`. Generated data and weights stay outside
-Git. Recipes, resume rules, hashes, and game-level split requirements are in
-[scripts/README.md](scripts/README.md).
+are checked against `shogiesa 0.11.3`. Data and weights remain outside Git.
+Recipes, hashes, resume rules, and whole-game split requirements are in the
+[script index](scripts/README.md).
 
-Opening-book support is an explicit build and runtime choice:
+Opening-book support is build-time and runtime opt-in:
 
 ```bash
 cargo build --release -p sekirei --features opening-book
-# Then set BookFile to the shipped artifact and UseBook=true.
+# Then set BookFile and UseBook=true.
 ```
 
-No default opening book is shipped. Book builds write a sidecar manifest with
-input, configuration, and output hashes; optional decision logs support held-
-out paired experiments. Position training records content SHA-256 identities
-and can require expected hashes before starting.
+No default book is shipped. Book and training workflows retain hashed
+manifests so inputs, settings, and outputs can be audited.
 
 ## Documentation
 
 - [Documentation index](DOCUMENTATION.md)
-- [Changelog](CHANGELOG.md)
+- [Changelog](CHANGELOG.md) and [archived history](CHANGELOG_ARCHIVE.md)
 - [NNUE weights and licensing](docs/nnue_weights.md)
 - [Script and validation-tool index](scripts/README.md)
 
 Implementation, tests, measurements, and released artifacts are separate
-claims. Historical experiment reports preserve their original version and
-scope; they are not statements about the current engine unless explicitly
-revalidated.
+claims. Historical reports keep their original version and scope unless they
+are explicitly revalidated.
 
 ## License and attribution
 
 Source code is [MIT](LICENSE-MIT) OR [Apache-2.0](LICENSE-APACHE); retain
 [NOTICE](NOTICE). NNUE files are separate CC BY 4.0 artifacts; see
-[NNUE-LICENSE.md](NNUE-LICENSE.md).
-
-Recommended attribution:
-
-```text
-This product is based on Sekirei,
-an open-source shogi engine developed by Kentaro Tanabe.
-
-https://github.com/kent-tokyo/sekirei
-```
-
-This display is recommended, not an additional advertising clause. Do not use
-the Sekirei name or logo to imply official endorsement without permission.
+[NNUE-LICENSE.md](NNUE-LICENSE.md). The attribution text in `NOTICE` is
+recommended when redistributing Sekirei, but it is not an additional
+advertising clause. Do not imply official endorsement without permission.
