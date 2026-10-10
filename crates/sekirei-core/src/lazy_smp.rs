@@ -33,6 +33,8 @@ pub struct LazySmpInfo {
 /// Compact per-worker result for Lazy SMP diagnostics.
 #[derive(Clone, Copy, Debug)]
 pub struct LazySmpWorkerInfo {
+    /// Whether this worker supplied the result returned to the caller.
+    pub selected: bool,
     /// Worker-selected best move, if any.
     pub best_move: Option<crate::mv::Move>,
     /// Worker score in centipawns or a mate score.
@@ -212,9 +214,10 @@ impl LazySmpSearcher {
             .collect();
 
         let total_nodes = results.iter().map(|info| info.nodes).sum();
-        let worker_results = results
+        let mut worker_results: Vec<LazySmpWorkerInfo> = results
             .iter()
             .map(|info| LazySmpWorkerInfo {
+                selected: false,
                 best_move: info.best_move,
                 score: info.score,
                 depth: info.depth,
@@ -222,6 +225,16 @@ impl LazySmpSearcher {
             })
             .collect();
         let result = select_worker_result(results, self.flags);
+        let selected_worker = worker_results
+            .iter()
+            .position(|worker| {
+                worker.best_move == result.best_move
+                    && worker.score == result.score
+                    && worker.depth == result.depth
+                    && worker.nodes == result.nodes
+            })
+            .expect("selected Lazy SMP result must come from one worker");
+        worker_results[selected_worker].selected = true;
         LazySmpInfo {
             result,
             total_nodes,
@@ -412,5 +425,46 @@ mod tests {
         let mate = crate::search::MATE_SCORE - 7;
         let picked = select_by_vote(vec![info(2, 100, 12), info(2, 101, 12), info(3, mate, 9)]);
         assert_eq!(picked.score, mate);
+    }
+
+    #[test]
+    fn diagnostics_mark_exactly_one_selected_worker() {
+        let searcher = LazySmpSearcher::new(Tt::new(1), 2);
+        let board = Board::startpos();
+        let result = searcher.search(
+            &board,
+            SearchConfig {
+                max_depth: 4,
+                node_limit: Some(500),
+                ..SearchConfig::default()
+            },
+        );
+
+        assert_eq!(result.worker_results.len(), 2);
+        assert_eq!(
+            result
+                .worker_results
+                .iter()
+                .filter(|worker| worker.selected)
+                .count(),
+            1
+        );
+        let selected = result
+            .worker_results
+            .iter()
+            .find(|worker| worker.selected)
+            .expect("one worker must be selected");
+        assert_eq!(selected.best_move, result.result.best_move);
+        assert_eq!(selected.score, result.result.score);
+        assert_eq!(selected.depth, result.result.depth);
+        assert_eq!(selected.nodes, result.result.nodes);
+        assert_eq!(
+            result.total_nodes,
+            result
+                .worker_results
+                .iter()
+                .map(|worker| worker.nodes)
+                .sum::<u64>()
+        );
     }
 }

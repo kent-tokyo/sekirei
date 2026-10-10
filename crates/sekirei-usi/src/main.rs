@@ -537,16 +537,44 @@ fn emit_search_result(
     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
     if !info.worker_stats.is_empty() {
+        let total_worker_nodes = info
+            .worker_stats
+            .iter()
+            .map(|worker| worker.nodes)
+            .sum::<u64>();
+        let selected_index = info
+            .worker_stats
+            .iter()
+            .position(|worker| worker.selected)
+            .expect("Lazy SMP diagnostics must identify the selected worker");
+        let selected = info.worker_stats[selected_index];
+        let selected_share_permille = selected
+            .nodes
+            .saturating_mul(1000)
+            .checked_div(total_worker_nodes)
+            .unwrap_or(0);
+        let agreement = info
+            .worker_stats
+            .iter()
+            .filter(|worker| worker.best_move == selected.best_move)
+            .count();
         let summary = info
             .worker_stats
             .iter()
             .enumerate()
             .map(|(i, worker)| {
-                format!("w{i}:d{}:n{}:s{}", worker.depth, worker.nodes, worker.score)
+                let marker = if worker.selected { "*" } else { "" };
+                format!(
+                    "w{i}{marker}:d{}:n{}:s{}",
+                    worker.depth, worker.nodes, worker.score
+                )
             })
             .collect::<Vec<_>>()
             .join(",");
-        println!("info string lazy_smp {summary}");
+        println!(
+            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} {summary}",
+            info.worker_stats.len()
+        );
     }
     if let Some(root_safety) = info.root_safety {
         println!(

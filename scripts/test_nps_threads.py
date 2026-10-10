@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from nps_threads import Usi, engine_options  # noqa: E402
+from nps_threads import Usi, engine_options, parse_lazy_smp  # noqa: E402
 
 
 class ThreadOptionsTest(unittest.TestCase):
@@ -41,6 +41,28 @@ class ThreadOptionsTest(unittest.TestCase):
         binary = Path("target/release/sekirei").resolve()
         self.assertEqual(popen.call_args.args[0], [str(binary)])
         self.assertEqual(popen.call_args.kwargs["cwd"], str(binary.parent))
+
+    def test_lazy_smp_diagnostics_are_parsed(self):
+        diagnostics = parse_lazy_smp(
+            [
+                "info string lazy_smp selected w2 node_share_permille 268 "
+                "move_agreement 3/4 w0:d20:n10:s1,w1:d20:n11:s2,"
+                "w2*:d21:n12:s3,w3:d20:n12:s3"
+            ]
+        )
+
+        self.assertEqual(
+            diagnostics,
+            {
+                "selected_worker": 2,
+                "selected_node_share_permille": 268,
+                "move_agreement": 3,
+                "workers": 4,
+            },
+        )
+
+    def test_malformed_lazy_smp_diagnostics_are_ignored(self):
+        self.assertIsNone(parse_lazy_smp(["info string lazy_smp selected nope"]))
 
 
 if __name__ == "__main__":

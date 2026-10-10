@@ -95,6 +95,28 @@ def parse_info(lines: list[str]) -> tuple[int, int, int]:
     return depth, nodes, nps
 
 
+def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
+    """Selected-worker diagnostics from the last Lazy SMP info line."""
+    prefix = "info string lazy_smp "
+    for line in reversed(lines):
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix) :].split()
+        try:
+            selected = int(parts[parts.index("selected") + 1].removeprefix("w"))
+            node_share_permille = int(parts[parts.index("node_share_permille") + 1])
+            agreement, workers = parts[parts.index("move_agreement") + 1].split("/", 1)
+            return {
+                "selected_worker": selected,
+                "selected_node_share_permille": node_share_permille,
+                "move_agreement": int(agreement),
+                "workers": int(workers),
+            }
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
     if args.yaneuraou:
         evalfile = Path(args.evalfile).resolve()
@@ -154,21 +176,30 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
             lines = engine.wait_for("bestmove")
             elapsed = time.perf_counter() - start
             depth, nodes, nps = parse_info(lines)
+            lazy_smp = parse_lazy_smp(lines)
             if nps == 0 and elapsed > 0:
                 nps = int(nodes / elapsed)
-            rows.append(
-                {
-                    "threads": threads,
-                    "position": index,
-                    "depth": depth,
-                    "nodes": nodes,
-                    "nps": nps,
-                    "elapsed_ms": round(elapsed * 1000),
-                }
-            )
+            row = {
+                "threads": threads,
+                "position": index,
+                "depth": depth,
+                "nodes": nodes,
+                "nps": nps,
+                "elapsed_ms": round(elapsed * 1000),
+            }
+            if lazy_smp is not None:
+                row["lazy_smp"] = lazy_smp
+            rows.append(row)
+            lazy_suffix = ""
+            if lazy_smp is not None:
+                lazy_suffix = (
+                    f" selected w{lazy_smp['selected_worker']}"
+                    f" share {lazy_smp['selected_node_share_permille'] / 10:.1f}%"
+                    f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
+                )
             print(
                 f"  threads {threads} pos {index:2d}: depth {depth:2d} "
-                f"nodes {nodes:9d} nps {nps:8d}",
+                f"nodes {nodes:9d} nps {nps:8d}{lazy_suffix}",
                 file=sys.stderr,
                 flush=True,
             )
