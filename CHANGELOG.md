@@ -8,6 +8,10 @@ preserves older per-change notes.
 
 - USI: advertise the package version as `id version <version>` during the
   `usi` handshake, matching `sekirei --version` for dataset provenance.
+- Coverage: add behavioral tests for search diagnostics, bounded teacher
+  search, position/game training filters, epoch-stat reset, gradient clipping,
+  and CSA metadata/result boundaries. The engine/library gate now requires 92%
+  line coverage with the same exclusion list.
 - NNUE training: keep every HalfKP training and validation shard as a separate
   read-only memory map, and generate deterministic shuffle indices one batch at
   a time. Multi-file corpora no longer require a full in-memory concatenation

@@ -6,7 +6,7 @@ set -euo pipefail
 # points are still exercised by normal CI, but are not allowed to dilute or
 # inflate this engine/library coverage contract.
 readonly COVERAGE_IGNORE_REGEX='(^|/)(target|crates/sekirei-bench|crates/sekirei-core/src/bin|crates/sekirei-csa/src/bin|crates/sekirei-train/src/bin)(/|$)|crates/(sekirei-csa|sekirei-match-runner|sekirei-train)/src/main\.rs$'
-readonly COVERAGE_MIN_LINES="${COVERAGE_MIN_LINES:-90}"
+readonly COVERAGE_MIN_LINES="${COVERAGE_MIN_LINES:-92}"
 readonly COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
 
 mkdir -p "${COVERAGE_DIR}"
@@ -64,8 +64,21 @@ cargo llvm-cov report \
   --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
   --output-path "${COVERAGE_DIR}/summary.json"
 
+# cargo-llvm-cov compares an integer-rounded percentage for
+# --fail-under-lines. Enforce the published contract against the exact JSON
+# percentage as well, so 91.77% cannot pass a 92% gate.
+if ! jq --argjson minimum "${COVERAGE_MIN_LINES}" -e \
+  '.data[0].totals.lines.percent >= $minimum' \
+  "${COVERAGE_DIR}/summary.json" >/dev/null; then
+  jq -r --arg minimum "${COVERAGE_MIN_LINES}" '
+    .data[0].totals.lines
+    | "Rust line coverage \(.percent)% is below the required \($minimum)%"
+  ' "${COVERAGE_DIR}/summary.json" >&2
+  exit 1
+fi
+
 # Preserve the unfiltered workspace number as a separate diagnostic. It is not
-# the badge value and is not used to pass the 90% gate.
+# the badge value and is not used to pass the 92% gate.
 cargo llvm-cov report \
   --json \
   --summary-only \

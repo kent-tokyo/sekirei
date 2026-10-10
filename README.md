@@ -10,8 +10,9 @@
 [日本語](README_ja.md)
 
 Sekirei is an experimental Pure Rust shogi engine. Release `0.3.68` hardens
-USI game boundaries, match and gate evidence, option validation, and the
-90% Rust coverage contract. It does not claim a playing-strength improvement;
+USI game boundaries, match and gate evidence, and option validation. The
+current Rust coverage contract is 92%. This does not claim a playing-strength
+improvement;
 measured results remain scoped to the exact evaluator, hardware, corpus, and settings.
 
 ## Quick start
@@ -90,7 +91,7 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 The coverage command requires `cargo-llvm-cov 0.8.7`, `llvm-tools-preview`,
-and `jq`. It enforces at least 90% line coverage for reusable Rust code and the
+and `jq`. It enforces at least 92% line coverage for reusable Rust code and the
 shipped USI runtime, including optional opening-book and tunable-search paths.
 Benchmark and diagnostic binaries plus orchestration-heavy CLI entry points are
 exercised by normal CI but kept outside this badge contract.

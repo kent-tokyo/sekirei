@@ -4347,6 +4347,29 @@ fn adam_update_scalar(
 mod tests {
     use super::*;
 
+    fn position_sample(
+        board: Board,
+        phase: &str,
+        side: &str,
+        result: GameResult,
+    ) -> crate::positions::PositionSample {
+        crate::positions::PositionSample {
+            board,
+            phase: phase.to_string(),
+            side_to_move: side.to_string(),
+            ply: 0,
+            source: "coverage-fixture".to_string(),
+            source_kind: "test".to_string(),
+            root_id: None,
+            variation_id: None,
+            branch_from_ply: None,
+            observations: Vec::new(),
+            stability: None,
+            game_result: result,
+            game_result_source: Some("fixture".to_string()),
+        }
+    }
+
     fn teacher_info(depth: u32, completed_bound: SearchBound) -> SearchInfo {
         SearchInfo {
             best_move: None,
@@ -4391,6 +4414,316 @@ mod tests {
     #[should_panic(expected = "teacher label search did not complete")]
     fn completed_teacher_score_rejects_a_pre_iteration_budget_stop() {
         let _ = completed_teacher_score(teacher_info(0, SearchBound::Unknown), "fixture");
+    }
+
+    #[test]
+    fn diagnostic_option_parsers_round_trip_supported_values() {
+        assert_eq!(FreezeLayer::parse("ft").unwrap().as_str(), "ft");
+        assert_eq!(FreezeLayer::parse("l2").unwrap().as_str(), "l2");
+        assert_eq!(FreezeLayer::parse("out").unwrap().as_str(), "out");
+        assert_eq!(FreezeLayer::parse("unknown"), None);
+
+        assert_eq!(ReplayComponent::parse("cp").unwrap().as_str(), "cp");
+        assert_eq!(ReplayComponent::parse("wdl").unwrap().as_str(), "wdl");
+        assert_eq!(ReplayComponent::parse("unknown"), None);
+
+        assert_eq!(ConflictMaskLayer::parse("ft").unwrap().as_str(), "ft");
+        assert_eq!(ConflictMaskLayer::parse("ft-l2").unwrap().as_str(), "ft-l2");
+        assert_eq!(ConflictMaskLayer::parse("unknown"), None);
+    }
+
+    #[test]
+    fn validation_stats_adds_all_metrics_and_calibration_buckets() {
+        let mut left = ValidStats {
+            loss_sum: 1.0,
+            count: 2,
+            cp_mse_sum: 3.0,
+            wdl_loss_sum: 4.0,
+            wdl_count: 5,
+            output_sum: 6.0,
+            output_sum_sq: 7.0,
+            output_min: -8.0,
+            output_max: 9.0,
+            ..ValidStats::default()
+        };
+        left.calibration_bucket_count[2] = 10;
+        left.calibration_bucket_predicted_sum[2] = 11.0;
+        left.calibration_bucket_actual_sum[2] = 12.0;
+
+        let mut right = ValidStats {
+            loss_sum: 13.0,
+            count: 14,
+            cp_mse_sum: 15.0,
+            wdl_loss_sum: 16.0,
+            wdl_count: 17,
+            output_sum: 18.0,
+            output_sum_sq: 19.0,
+            output_min: -20.0,
+            output_max: 21.0,
+            ..ValidStats::default()
+        };
+        right.calibration_bucket_count[2] = 22;
+        right.calibration_bucket_predicted_sum[2] = 23.0;
+        right.calibration_bucket_actual_sum[2] = 24.0;
+
+        let total = left + right;
+        assert_eq!((total.loss_sum, total.count), (14.0, 16));
+        assert_eq!((total.cp_mse_sum, total.wdl_loss_sum), (18.0, 20.0));
+        assert_eq!(total.wdl_count, 22);
+        assert_eq!((total.output_sum, total.output_sum_sq), (24.0, 26.0));
+        assert_eq!((total.output_min, total.output_max), (-20.0, 21.0));
+        assert_eq!(total.calibration_bucket_count[2], 32);
+        assert_eq!(total.calibration_bucket_predicted_sum[2], 34.0);
+        assert_eq!(total.calibration_bucket_actual_sum[2], 36.0);
+    }
+
+    #[test]
+    fn training_weight_views_match_their_owned_storage() {
+        let weights = TrainWeights::new_seeded(9, 0.25);
+        assert_eq!(weights.l2(), weights.l2.as_slice());
+        assert_eq!(weights.l2_bias(), weights.l2_bias.as_slice());
+        assert_eq!(weights.out(), weights.out.as_slice());
+        assert_eq!(weights.out_bias(), weights.out_bias);
+    }
+
+    #[test]
+    fn position_training_handles_filters_weights_cache_and_search_misses() {
+        let board = Board::startpos();
+        let mut after_76 = board.clone();
+        let mv_76 = sekirei_core::sfen::move_from_usi("7g7f", &after_76).unwrap();
+        after_76.do_move(mv_76);
+        let mut after_26 = board.clone();
+        let mv_26 = sekirei_core::sfen::move_from_usi("2g2f", &after_26).unwrap();
+        after_26.do_move(mv_26);
+        let mut after_76_34 = after_76.clone();
+        let mv_34 = sekirei_core::sfen::move_from_usi("3c3d", &after_76_34).unwrap();
+        after_76_34.do_move(mv_34);
+
+        let samples = vec![
+            position_sample(board.clone(), "opening", "black", GameResult::BlackWin),
+            position_sample(after_76, "opening", "white", GameResult::Unknown),
+            position_sample(after_26, "middle", "white", GameResult::WhiteWin),
+            position_sample(after_76_34, "middle", "black", GameResult::BlackWin),
+        ];
+        let sfens: Vec<_> = samples
+            .iter()
+            .map(|sample| board_to_sfen(&sample.board))
+            .collect();
+        let scored = HashMap::from([
+            (sfens[0].clone(), 0.75),
+            (sfens[1].clone(), 0.50),
+            (sfens[3].clone(), 0.25),
+        ]);
+        let phase_weights = HashMap::from([("opening".to_string(), 1.5)]);
+        let side_weights = HashMap::from([("black".to_string(), 2.0)]);
+        let cache = HashMap::from([(sfens[0].clone(), 120), (sfens[3].clone(), MATE_SCORE - 1)]);
+
+        let mut trainer = Trainer::new(11, 0.5);
+        trainer.exclude_mate_labels = true;
+        trainer.train_positions(
+            &samples,
+            1,
+            &scored,
+            true,
+            &phase_weights,
+            &side_weights,
+            &cache,
+            &mut Vec::new(),
+            Some(0.5),
+            1_200.0,
+        );
+        assert_eq!(trainer.total_count, 1);
+        assert_eq!(trainer.dropped_unknown_wdl, 1);
+        assert_eq!(trainer.dropped_missing, 1);
+        assert_eq!(trainer.dropped_mate_labels, 1);
+
+        trainer.exclude_mate_labels = false;
+        trainer.train_positions(
+            &samples[..1],
+            1,
+            &scored,
+            false,
+            &HashMap::new(),
+            &HashMap::new(),
+            &cache,
+            &mut Vec::new(),
+            None,
+            1_200.0,
+        );
+        assert_eq!(trainer.total_count, 2);
+
+        let mut searched = Trainer::new(12, 0.5);
+        searched.teacher_node_limit = Some(20_000);
+        let mut new_entries = Vec::new();
+        let (raw, weighted, stats) = searched.eval_positions(
+            &samples[..1],
+            1,
+            &phase_weights,
+            &side_weights,
+            &HashMap::new(),
+            &mut new_entries,
+            None,
+            1_200.0,
+        );
+        assert!(raw.is_finite() && weighted.is_finite());
+        assert_eq!(stats.count, 1);
+        assert_eq!(new_entries.len(), 1);
+
+        let mut searched_training = Trainer::new(16, 0.5);
+        searched_training.teacher_node_limit = Some(20_000);
+        let mut searched_entries = Vec::new();
+        searched_training.train_positions(
+            &samples[..1],
+            1,
+            &HashMap::new(),
+            false,
+            &HashMap::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            &mut searched_entries,
+            None,
+            1_200.0,
+        );
+        assert_eq!(searched_training.total_count, 1);
+        assert_eq!(searched_entries.len(), 1);
+
+        let mut mate_validation = Trainer::new(17, 0.5);
+        mate_validation.exclude_mate_labels = true;
+        let mate_cache = HashMap::from([(sfens[0].clone(), MATE_SCORE - 1)]);
+        let (raw, weighted, stats) = mate_validation.eval_positions(
+            &samples[..1],
+            1,
+            &HashMap::new(),
+            &HashMap::new(),
+            &mate_cache,
+            &mut Vec::new(),
+            None,
+            1_200.0,
+        );
+        assert_eq!((raw, weighted, stats.count), (0.0, 0.0, 0));
+        assert_eq!(mate_validation.dropped_mate_labels, 1);
+    }
+
+    #[test]
+    fn game_validation_replays_cached_labels_and_reports_wdl_calibration() {
+        let game = crate::csa::parse_csa("V2.2\nPI\n+7776FU\n-3334FU\n%TORYO\n")
+            .expect("fixture must be legal");
+        let mut cache = HashMap::new();
+        let mut board = game.initial_board.clone();
+        for &mv in &game.moves {
+            cache.insert(board_to_sfen(&board), 80);
+            board.do_move(mv);
+        }
+
+        let mut trainer = Trainer::new(13, 0.5);
+        let stats = trainer.eval_game(&game, 1, false, 0, 1, Some(0.5), 1_200.0, &mut cache);
+        assert_eq!(stats.count, 2);
+        assert_eq!(stats.wdl_count, 2);
+        assert_eq!(stats.calibration_bucket_count.iter().sum::<u64>(), 2);
+        assert!(stats.output_min.is_finite());
+        assert!(stats.output_max.is_finite());
+
+        let quiet = trainer.eval_game(&game, 1, true, 1, 1, None, 1_200.0, &mut cache);
+        assert_eq!(quiet.count, 1);
+        assert_eq!(quiet.wdl_count, 1);
+    }
+
+    #[test]
+    fn game_training_covers_sampling_stability_and_teacher_blending() {
+        let game = crate::csa::parse_csa("V2.2\nPI\n+7776FU\n-3334FU\n%TORYO\n")
+            .expect("fixture must be legal");
+        let mut cache = HashMap::new();
+        let mut scored = HashMap::new();
+        let mut board = game.initial_board.clone();
+        for &mv in &game.moves {
+            let sfen = board_to_sfen(&board);
+            cache.insert(sfen.clone(), 90);
+            scored.insert(sfen, 0.75);
+            board.do_move(mv);
+        }
+
+        let mut trainer = Trainer::new(18, 0.5);
+        trainer.search_target_weight = 0.5;
+        trainer.train_game(
+            7,
+            &game,
+            1,
+            false,
+            0,
+            1,
+            &scored,
+            true,
+            Some(0.5),
+            1_200.0,
+            &mut cache,
+        );
+        assert_eq!(trainer.total_count, 2);
+
+        trainer.train_game(
+            8, &game, 1, false, 1, 1, &scored, false, None, 1_200.0, &mut cache,
+        );
+        assert_eq!(trainer.total_count, 3);
+
+        trainer.train_game(
+            9,
+            &game,
+            1,
+            false,
+            0,
+            1,
+            &HashMap::from([("not-this-position".to_string(), 1.0)]),
+            false,
+            None,
+            1_200.0,
+            &mut cache,
+        );
+        assert_eq!(trainer.dropped_missing, 2);
+    }
+
+    #[test]
+    fn reset_epoch_stats_clears_every_accumulator_and_reseeds_sampling() {
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(14, 0.5);
+        trainer.diagnostic_rate_matched_mask_count = 1;
+        trainer.diagnostic_rate_matched_mask_total = 2;
+        trainer.diagnostic_rate_matched_mask_seed = 3;
+        trainer.train_position(
+            &board,
+            300.0,
+            1.0,
+            300.0,
+            Some(-300.0),
+            1,
+            GameResult::BlackWin,
+        );
+        assert!(trainer.total_count > 0);
+        assert!(trainer.l2_sample_count > 0);
+
+        trainer.reset_epoch_stats();
+
+        assert_eq!(trainer.total_count, 0);
+        assert_eq!(trainer.total_weight, 0.0);
+        assert_eq!(trainer.l2_sample_count, 0);
+        assert_eq!(trainer.cache_hits, 0);
+        assert_eq!(trainer.cache_misses, 0);
+        assert!(trainer.global_grad_norm_values.is_empty());
+        assert!(trainer.trace_snapshots.is_empty());
+        assert!(trainer.sample_grad_records.is_empty());
+        assert_eq!(trainer.rate_matched_remaining_needed, 1);
+        assert_eq!(trainer.rate_matched_remaining_pool, 2);
+    }
+
+    #[test]
+    fn per_layer_gradient_clipping_is_accounted_independently() {
+        let board = Board::startpos();
+        let mut trainer = Trainer::new(15, 0.5);
+        trainer.ft_clip_norm = Some(f32::MIN_POSITIVE);
+        trainer.l2_clip_norm = Some(f32::MIN_POSITIVE);
+        trainer.out_clip_norm = Some(f32::MIN_POSITIVE);
+        trainer.train_position(&board, -600.0, 1.0, -600.0, None, 0, GameResult::Unknown);
+        assert_eq!(trainer.ft_clip_count, 1);
+        assert_eq!(trainer.l2_clip_count, 1);
+        assert_eq!(trainer.out_clip_count, 1);
     }
 
     #[test]
