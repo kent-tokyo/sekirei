@@ -6,6 +6,9 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- CSA: consume one delayed decisive result after an aborted game before the
+  next game summary, while retaining fail-closed handling for duplicate or
+  ambiguous terminal lines.
 - USI: advertise the package version as `id version <version>` during the
   `usi` handshake, matching `sekirei --version` for dataset provenance.
 - Dependencies: update `lineprior` to 0.12.3 and `shogiesa-core`/the verified

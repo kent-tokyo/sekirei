@@ -582,6 +582,11 @@ pub struct CsaClient {
     status_state: &'static str,
     status_event: Option<String>,
     status_details: RuntimeStatusDetails,
+    /// A server may report an abort reason (for example `#TIME_UP`) before the
+    /// decisive result for the same game.  Permit exactly one such result at
+    /// the boundary before the next `Game_Summary`, then return to the normal
+    /// fail-closed protocol handling.
+    awaiting_aborted_game_result: bool,
 }
 
 impl CsaClient {
@@ -614,6 +619,7 @@ impl CsaClient {
                 completed_attempts,
                 ..RuntimeStatusDetails::default()
             },
+            awaiting_aborted_game_result: false,
         };
         client.login()?;
         client.set_status("authenticated", None);
@@ -817,9 +823,28 @@ impl CsaClient {
         let mut summary_validated = false;
         let mut in_position = false;
         let mut position_lines = Vec::new();
+        let mut header_started = false;
 
         loop {
             let line = self.recv()?;
+            if line.starts_with('#') {
+                let delayed_result = parse_game_end(&line);
+                if !header_started
+                    && self.awaiting_aborted_game_result
+                    && delayed_result != GameResult::Aborted
+                {
+                    eprintln!("[csa] consumed trailing result for aborted game: {line}");
+                    self.awaiting_aborted_game_result = false;
+                    continue;
+                }
+                eprintln!("[csa] unexpected terminal before START: {line}");
+                self.stop_for_protocol_error("unexpected_terminal_before_game");
+                return Ok(GameResult::Aborted);
+            }
+            // Once any part of the next header arrives, a later terminal can
+            // no longer be associated safely with the preceding game.
+            header_started = true;
+            self.awaiting_aborted_game_result = false;
             if let Some(rest) = line.strip_prefix("Game_ID:") {
                 if !game_summary_id.is_empty() {
                     eprintln!("[csa] duplicate Game_ID field");
@@ -890,10 +915,6 @@ impl CsaClient {
                     return Ok(GameResult::Aborted);
                 }
                 break;
-            } else if line.starts_with('#') {
-                eprintln!("[csa] unexpected terminal before START: {line}");
-                self.stop_for_protocol_error("unexpected_terminal_before_game");
-                return Ok(GameResult::Aborted);
             } else if line == "BEGIN Position" {
                 in_position = true;
             } else if line == "END Position" {
@@ -1052,6 +1073,7 @@ impl CsaClient {
                             // ends the game. Do not consume the terminal
                             // result and then wait for a second one.
                             let terminal = parse_game_end(&t_line);
+                            self.awaiting_aborted_game_result = terminal == GameResult::Aborted;
                             if let Some(record) = record.as_mut() {
                                 if !our_move_recorded
                                     && let Some(csa_move) = result.csa_move.as_deref()
@@ -1131,6 +1153,7 @@ impl CsaClient {
                                 }
                                 continue;
                             }
+                            self.awaiting_aborted_game_result = result == GameResult::Aborted;
                             if let Some(record) = record.as_mut() {
                                 record.append(&line);
                                 if !record.healthy() {
@@ -2756,6 +2779,107 @@ mod tests {
             }));
         }
         fs::remove_dir_all(record_dir).unwrap();
+    }
+
+    #[test]
+    fn delayed_result_after_aborted_game_is_consumed_before_next_summary() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("LOGIN test "));
+            writer.write_all(b"LOGIN: test OK\n").unwrap();
+            writer.flush().unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("%%GAME delayed-terminal"));
+            writer
+                .write_all(
+                    b"Game_ID:delayed-terminal-1\nYour_Turn:-\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:delayed-terminal-1\n",
+                )
+                .unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("AGREE:delayed-terminal-1"));
+            writer.write_all(b"+7776FU\n").unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with('-'));
+            writer.write_all(b"#TIME_UP\n").unwrap();
+            writer.flush().unwrap();
+
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("%%GAME delayed-terminal"));
+            writer
+                .write_all(
+                    b"#WIN\nGame_ID:delayed-terminal-2\nYour_Turn:-\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:delayed-terminal-2\n",
+                )
+                .unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("AGREE:delayed-terminal-2"));
+            writer.write_all(b"+7776FU\n").unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with('-'));
+            writer.write_all(b"#WIN\n").unwrap();
+            writer.flush().unwrap();
+        });
+
+        let root = unique_test_directory("protocol-delayed-terminal");
+        let record_dir = root.join("records");
+        fs::create_dir_all(&record_dir).unwrap();
+        let status_file = root.join("status.json");
+        let config = Config {
+            server: "127.0.0.1".into(),
+            port,
+            user: "test".into(),
+            password: "secret".into(),
+            game_id: "delayed-terminal".into(),
+            keep_alive: true,
+            max_games: Some(2),
+            max_depth: 1,
+            resign_score: -sekirei_core::search::MATE_SCORE,
+            record_dir: record_dir.clone(),
+            status_file: Some(status_file.clone()),
+            ..Config::default()
+        };
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        client.run(&mut completed_attempts).unwrap();
+        server.join().unwrap();
+
+        assert_eq!(completed_attempts, 2);
+        assert!(!client.has_terminal_client_error());
+        let status: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(status_file).unwrap()).unwrap();
+        assert_eq!(status["terminal_stop_reason"], "max_games_reached");
+        let mut records: Vec<PathBuf> = fs::read_dir(&record_dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .collect();
+        records.sort();
+        assert_eq!(records.len(), 2);
+        let first = fs::read_to_string(&records[0]).unwrap();
+        let second = fs::read_to_string(&records[1]).unwrap();
+        assert!(first.contains("#TIME_UP"));
+        assert!(!first.contains("#WIN"));
+        assert!(second.contains("#WIN"));
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
