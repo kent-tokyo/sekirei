@@ -120,8 +120,8 @@ or human ratings.
 ## NNUE training
 
 Run `cargo run --release -p sekirei-train -- --help` for the training CLI.
-Training pins `lineprior 0.12.2` and `shogiesa-core 0.11.1`; external wrappers
-are checked against `shogiesa 0.11.1`. Generated data and weights stay outside
+Training pins `lineprior 0.12.3` and `shogiesa-core 0.11.2`; external wrappers
+are checked against `shogiesa 0.11.2`. Generated data and weights stay outside
 Git. Recipes, resume rules, hashes, and game-level split requirements are in
 [scripts/README.md](scripts/README.md).
 

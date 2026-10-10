@@ -8,6 +8,9 @@ preserves older per-change notes.
 
 - USI: advertise the package version as `id version <version>` during the
   `usi` handshake, matching `sekirei --version` for dataset provenance.
+- Dependencies: update `lineprior` to 0.12.3 and `shogiesa-core`/the verified
+  external `shogiesa` CLI contract to 0.11.2. The opening-book schema remains
+  v1 and the shogiesa position schema remains v11.
 - Coverage: add behavioral tests for search diagnostics, bounded teacher
   search, position/game training filters, epoch-stat reset, gradient clipping,
   and CSA metadata/result boundaries. The engine/library gate now requires 92%
