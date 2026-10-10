@@ -3546,6 +3546,17 @@ impl MoveBuffer {
         Self { moves: Some(moves) }
     }
 
+    /// Generates non-capturing promotions used by quiescence search.
+    ///
+    /// These moves still need the caller's king-safety check. Keeping them in
+    /// the shared fixed-capacity buffer avoids both a heap allocation and an
+    /// arbitrary tactical-move limit at promotion-heavy positions.
+    pub(crate) fn quiet_promotions(board: &Board, pawns: bool, sliders: bool) -> Self {
+        let mut moves = take_fixed_move_buffer();
+        quiet_promotions(board, pawns, sliders, |m| moves.push(m));
+        Self { moves: Some(moves) }
+    }
+
     /// Returns the generated moves as a read-only slice.
     #[inline(always)]
     pub fn as_slice(&self) -> &[Move] {
@@ -3622,6 +3633,23 @@ mod move_buffer_tests {
 
         assert_eq!(buffered_captures.as_slice(), expected_captures.as_slice());
         assert_eq!(buffered_captures.len(), expected_captures.len());
+    }
+
+    #[test]
+    fn quiet_promotion_buffer_does_not_truncate_slider_moves() {
+        // Four unpromoted sliders already in the promotion zone can produce
+        // more than the old qsearch-local limit of 16 quiet promotions.
+        let board = Board::from_sfen("8k/9/R1RB1B3/9/9/9/9/9/4K4 b - 1")
+            .expect("promotion-heavy fixture must parse");
+        let mut expected = Vec::new();
+        quiet_promotions(&board, true, true, |m| expected.push(m));
+
+        assert!(
+            expected.len() > 16,
+            "fixture must cover the former 16-move truncation"
+        );
+        let buffered = MoveBuffer::quiet_promotions(&board, true, true);
+        assert_eq!(buffered.as_slice(), expected.as_slice());
     }
 
     #[test]

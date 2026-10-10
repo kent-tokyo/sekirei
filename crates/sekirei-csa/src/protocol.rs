@@ -1099,7 +1099,11 @@ impl CsaClient {
                             continue;
                         }
                         if let Some(used_sec) = parse_time_from_echo(&t_line) {
-                            let used_ms = used_sec * 1000;
+                            let Some(used_ms) = used_sec.checked_mul(1_000) else {
+                                eprintln!("[csa] time echo overflows milliseconds: {t_line}");
+                                self.stop_for_protocol_error("invalid_time_echo");
+                                return Ok(GameResult::Aborted);
+                            };
                             time_left_ms = time_left_ms.saturating_sub(used_ms);
                             if is_fischer {
                                 time_left_ms = time_left_ms.saturating_add(increment_or_byoyomi_ms);
@@ -1407,8 +1411,9 @@ impl CsaClient {
         // "floodgate-600-10" → parts[1] = "600"
         if parts.len() >= 2
             && let Ok(secs) = parts[1].parse::<u64>()
+            && let Some(milliseconds) = secs.checked_mul(1_000)
         {
-            return secs * 1000;
+            return milliseconds;
         }
         600_000 // default 10 min
     }
@@ -1421,8 +1426,10 @@ impl CsaClient {
             if suffix.ends_with('S') || suffix.ends_with('F') {
                 suffix = &suffix[..suffix.len() - 1];
             }
-            if let Ok(secs) = suffix.parse::<u64>() {
-                return secs * 1000;
+            if let Ok(secs) = suffix.parse::<u64>()
+                && let Some(milliseconds) = secs.checked_mul(1_000)
+            {
+                return milliseconds;
             }
         }
         10_000 // default 10 sec byoyomi
@@ -1876,7 +1883,7 @@ fn bare_server_move(line: &str) -> Option<&str> {
         return None;
     }
     if let Some(time) = parts.next() {
-        time.strip_prefix('T')?.parse::<u64>().ok()?;
+        parse_time_seconds(time)?;
     }
     if parts.next().is_some() {
         return None;
@@ -1884,10 +1891,18 @@ fn bare_server_move(line: &str) -> Option<&str> {
     Some(token)
 }
 
+/// Parse a CSA `T<seconds>` field only when it can be represented by the
+/// millisecond clock used by the client.
+fn parse_time_seconds(field: &str) -> Option<u64> {
+    let seconds = field.strip_prefix('T')?.parse::<u64>().ok()?;
+    seconds.checked_mul(1_000)?;
+    Some(seconds)
+}
+
 /// Parse seconds from a CSA time echo: "T18" or "+9796FU,T18" → Some(18).
 fn parse_time_from_echo(line: &str) -> Option<u64> {
     let t_part = line.rsplit(',').next().unwrap_or(line);
-    t_part.strip_prefix('T')?.parse().ok()
+    parse_time_seconds(t_part)
 }
 
 #[cfg(test)]
@@ -2062,6 +2077,7 @@ mod tests {
         assert_eq!(parse_time_from_echo("+9796FU,T18"), Some(18));
         assert_eq!(parse_time_from_echo("+9796FU,Tbad"), None);
         assert_eq!(parse_time_from_echo("+9796FU"), None);
+        assert_eq!(parse_time_from_echo(&format!("T{}", u64::MAX)), None);
     }
 
     #[test]
@@ -2070,6 +2086,7 @@ mod tests {
         assert_eq!(bare_server_move("-1112KY,T0"), Some("-1112KY"));
         assert_eq!(bare_server_move("+2726FU"), Some("+2726FU"));
         assert_eq!(bare_server_move("+2726FU,Tbad"), None);
+        assert_eq!(bare_server_move(&format!("+2726FU,T{}", u64::MAX)), None);
         assert_eq!(bare_server_move("+2726FU,T1,extra"), None);
     }
 

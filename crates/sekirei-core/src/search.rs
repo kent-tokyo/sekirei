@@ -4116,15 +4116,8 @@ fn quiescence(
     // rooks; bit 8 at every quiescence ply, otherwise at the first only).
     let qs_promo = p::QS_PROMO();
     if qs_promo & 3 != 0 && !in_check && (qply == 0 || qs_promo & 8 != 0) {
-        let mut promos = [None; 16];
-        let mut n = 0;
-        crate::movegen::quiet_promotions(board, qs_promo & 1 != 0, qs_promo & 2 != 0, |m| {
-            if n < promos.len() {
-                promos[n] = Some(m);
-                n += 1;
-            }
-        });
-        for m in promos.iter().take(n).flatten().copied() {
+        let promos = MoveBuffer::quiet_promotions(board, qs_promo & 1 != 0, qs_promo & 2 != 0);
+        for &m in promos.as_slice() {
             if qs_on {
                 set_current_move(ply, Some(m));
             }
