@@ -8,11 +8,15 @@ mistaken for current behavior.
 
 | Document | Scope |
 |---|---|
+| [`CHANGELOG.md`](CHANGELOG.md) | Unreleased work and the three most recent releases |
+| [`CHANGELOG_ARCHIVE.md`](CHANGELOG_ARCHIVE.md) | Older release notes retained as historical evidence |
 | [`docs/nnue_weights.md`](docs/nnue_weights.md) | Supported evaluator formats, released weight, checksums, licensing, and claim boundary |
+| [`weights/README.md`](weights/README.md) | Files in `weights/` and exact loading/checksum instructions |
 | [`docs/amateur_analysis_benchmark.md`](docs/amateur_analysis_benchmark.md) | Reproducible analysis-record format and comparison metrics; no published benchmark result |
 | [`docs/mobile_integration.md`](docs/mobile_integration.md) | Current native/mobile integration surface and known gaps |
 | [`crates/sekirei-wasm/README.md`](crates/sekirei-wasm/README.md) | Browser API, package installation, and bounded-search contracts |
 | [`scripts/README.md`](scripts/README.md) | Release, training, match, and diagnostic tool index |
+| [`scripts/DENRYU_REHEARSAL.md`](scripts/DENRYU_REHEARSAL.md) | Loopback CSA recovery and 14-game continuity rehearsal |
 
 ## Design records
 
@@ -41,4 +45,4 @@ operation.
 `ROADMAP.md`, `tasks/`, generated games, training data, unpublished weights,
 and run outputs are local development material and intentionally excluded from
 the public repository. Public status belongs in the changelog, issues, merged
-pull requests, and versioned manifests.
+pull requests, candidate cards, and versioned release manifests.
