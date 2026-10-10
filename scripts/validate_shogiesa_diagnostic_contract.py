@@ -18,7 +18,8 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_SHOGIESA_VERSIONS = {"0.11.2"}
+SUPPORTED_SHOGIESA_VERSIONS = {"0.11.3"}
+SUPPORTED_MANIFEST_SCHEMA_VERSION = 1
 SUPPORTED_SCHEMA_VERSION = 11
 TEACHER_SOURCE = "sekirei_internal_search"
 
@@ -85,6 +86,11 @@ def validate_manifest(
 ) -> dict[str, int | float | None]:
     if manifest.get("shogiesa_version") != version:
         raise ContractError("manifest shogiesa_version does not match the executable")
+    if manifest.get("manifest_schema_version") != SUPPORTED_MANIFEST_SCHEMA_VERSION:
+        raise ContractError(
+            "unsupported manifest_schema_version "
+            f"{manifest.get('manifest_schema_version')!r}"
+        )
     if manifest.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
         raise ContractError(
             f"unsupported manifest schema_version {manifest.get('schema_version')!r}"

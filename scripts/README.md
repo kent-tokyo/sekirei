@@ -5,10 +5,10 @@ CLI. Use the Cargo binaries for normal engine operation. Before running a
 script, inspect `--help`, choose a new ignored output directory, and retain its
 manifest with the result.
 
-The workspace pins `lineprior 0.12.3`. The default USI runtime excludes it;
+The workspace pins `lineprior 0.12.4`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
 use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.2` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.2`
+`shogiesa 0.11.3` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.3`
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
