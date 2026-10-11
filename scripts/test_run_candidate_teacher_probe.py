@@ -1,4 +1,6 @@
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -8,7 +10,16 @@ from run_candidate_teacher_probe import load_corpus, render_usi_commands  # noqa
 
 class ProbeTests(unittest.TestCase):
     def test_load_corpus_is_bounded_and_has_ids(self):
-        rows = load_corpus(Path("data/runs/nnue_v1_gate2/corpus100.jsonl"), 3)
+        with tempfile.TemporaryDirectory() as directory:
+            corpus = Path(directory) / "corpus.jsonl"
+            corpus.write_text(
+                "\n".join(
+                    json.dumps({"sample_id": f"sample-{index}", "sfen": f"sfen-{index}"})
+                    for index in range(5)
+                ),
+                encoding="utf-8",
+            )
+            rows = load_corpus(corpus, 3)
         self.assertEqual(len(rows), 3)
         self.assertTrue(all(row["sample_id"] for row in rows))
 
