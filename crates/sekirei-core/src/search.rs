@@ -82,6 +82,7 @@ static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod child_search;
 mod heuristics;
+mod node;
 pub mod params;
 mod path;
 mod pruning;
@@ -92,6 +93,7 @@ use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
     pack_killer,
 };
+use node::NodeKey;
 use params as p;
 use path::{
     ContMoves, current_move_at, cut_at, doubles_at, record_static_eval, restore_stack_path,
@@ -2047,116 +2049,6 @@ fn root_search_inner(
 // Core Alpha-Beta with YBW parallelism
 // ============================================================
 
-/// What identifies a main-search node in the transposition table: its hash,
-/// the (possibly reduced) depth it is searched to, the ply, and the move a
-/// singular verification search excludes.
-#[derive(Clone, Copy)]
-struct NodeKey {
-    hash: u64,
-    depth: u32,
-    ply: u32,
-    skip_move: Option<Move>,
-    /// The node's correction keys and corrected static evaluation, when it
-    /// has one (not in check, shallow enough to evaluate).
-    corr: Option<(CorrKeys, i32)>,
-    /// Opponent pieces at the node, to tell captures apart.
-    enemy: crate::bitboard::Bitboard,
-    /// The node is a PV node or its TT entry says it was on a PV (stored as
-    /// the entry's PV flag).
-    tt_pv: bool,
-}
-
-impl NodeKey {
-    #[inline]
-    fn store(&self, state: &SearchState, score: i32, bound: Bound, mv: Option<Move>) {
-        store_tt(
-            state,
-            self.hash,
-            score,
-            self.depth,
-            bound,
-            mv,
-            self.ply,
-            self.skip_move,
-            self.tt_pv,
-        );
-        self.learn_correction(state, score, bound, mv);
-    }
-
-    /// Teach the static-eval correction the result of this node when it
-    /// says something about the evaluation: not for captures or promotions
-    /// (the evaluation of the position does not see them), mate scores,
-    /// singular verification searches, or bounds on the wrong side of the
-    /// corrected evaluation.
-    #[inline]
-    fn learn_correction(&self, state: &SearchState, score: i32, bound: Bound, mv: Option<Move>) {
-        let Some((keys, eval)) = self.corr else {
-            return;
-        };
-        if self.skip_move.is_some()
-            || state.budget.should_abort()
-            || score.abs() >= MATE_SCORE - 1000
-            || mv.is_some_and(|m| m.promote || self.enemy.contains(m.to))
-            || (bound == Bound::Lower && score <= eval)
-            || (bound == Bound::Upper && score >= eval)
-        {
-            return;
-        }
-        state
-            .history
-            .learn_correction(keys, score - eval, self.depth);
-    }
-
-    /// A beta cutoff on `cutoff_move`: penalise the quiet moves tried before
-    /// it, reward it, store the lower bound and return the score.
-    #[allow(clippy::too_many_arguments)]
-    fn beta_cutoff(
-        &self,
-        state: &SearchState,
-        best_score: i32,
-        best_move: Option<Move>,
-        tried_quiet: &[Move],
-        tried_captures: &[Move],
-        cutoff_move: Move,
-        stm: Color,
-        board: &Board,
-        prev_mv: Option<Move>,
-    ) -> i32 {
-        let depth = self.depth;
-        let cont = ContMoves::at(self.ply, prev_mv);
-        let pawn_bucket = (p::PAWN_HIST_WEIGHT() > 0).then(|| HistoryTable::pawn_bucket(board));
-        for &qm in tried_quiet {
-            state.history.malus(stm, qm, depth);
-            cont.update(&state.history, stm, qm, -history_malus(depth));
-            if let Some(b) = pawn_bucket {
-                state.history.pawnh_add(b, stm, qm, -history_malus(depth));
-            }
-        }
-        let capture_malus = -history_malus(depth) * p::CAPT_UPDATE() / 16;
-        for &cm in tried_captures {
-            if let Some(victim) = board.piece_at(cm.to) {
-                state
-                    .history
-                    .capture_add(stm, cm, victim.kind, capture_malus);
-            }
-        }
-        reward_capture(&state.history, board, stm, cutoff_move, depth);
-        update_quiet_heuristics(
-            &state.killers,
-            &state.history,
-            &state.countermoves,
-            cutoff_move,
-            stm,
-            self.ply,
-            depth,
-            board,
-            prev_mv,
-        );
-        self.store(state, best_score, Bound::Lower, best_move);
-        best_score
-    }
-}
-
 /// Convert a history-dependent fourfold repetition into a score from the
 /// current side-to-move's perspective.  This deliberately runs before any TT
 /// access: the same Zobrist position can be a draw, a perpetual-check loss, or
@@ -2276,15 +2168,7 @@ fn alpha_beta(
         };
     let depth = if iir { depth - 1 } else { depth };
     let stm = board.side_to_move;
-    let mut node = NodeKey {
-        hash,
-        depth,
-        ply,
-        skip_move,
-        corr: None,
-        enemy: board.occ_for(stm.flip()),
-        tt_pv,
-    };
+    let mut node = NodeKey::new(board, hash, depth, ply, skip_move, tt_pv);
 
     // Countermove: best quiet response to the opponent's previous move
     let countermove = prev_mv.and_then(|pm| state.countermoves.get(stm.flip(), pm));
@@ -2315,7 +2199,7 @@ fn alpha_beta(
         let keys = CorrKeys::of(board, stm);
         let corrected =
             (se + state.history.correction(keys)).clamp(-(MATE_SCORE - 2000), MATE_SCORE - 2000);
-        node.corr = Some((keys, corrected));
+        node.set_correction(keys, corrected);
         corrected
     });
     // Improving: the static eval beats the one two plies earlier (same side
@@ -3134,18 +3018,7 @@ fn alpha_beta(
     // FL_MOVE 1: a node that failed low keeps the move already in the table
     // instead of storing the best of its failing moves.
     if bound == Bound::Upper && p::FL_MOVE() != 0 {
-        store_tt(
-            state,
-            node.hash,
-            best_score,
-            node.depth,
-            bound,
-            None,
-            node.ply,
-            node.skip_move,
-            node.tt_pv,
-        );
-        node.learn_correction(state, best_score, bound, best_move);
+        node.store_without_move(state, best_score, bound, best_move);
     } else {
         node.store(state, best_score, bound, best_move);
     }
