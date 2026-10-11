@@ -1,6 +1,7 @@
 //! Process-isolated provenance test for browser-style HalfKP evaluator bytes.
 
 use sekirei_core::halfkp::HalfKpNetwork;
+use sekirei_core::nnue::{NnueWeights, install_weights};
 use sekirei_core::sfen::STARTPOS_SFEN;
 use sekirei_wasm::{analyze_position, load_evaluator};
 use sha2::{Digest, Sha256};
@@ -31,4 +32,8 @@ fn loaded_halfkp_provenance_is_frozen_into_results() {
         "HalfKP-256x2-32-32-v0x7af32f16"
     );
     assert_eq!(analysis.evaluator_weight_sha256(), Some(expected_hash));
+
+    let error = install_weights(NnueWeights::default_lcg())
+        .expect_err("a loaded HalfKP evaluator must reject SEKIRW replacement");
+    assert_eq!(error.kind(), std::io::ErrorKind::AlreadyExists);
 }
