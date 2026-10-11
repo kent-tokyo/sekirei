@@ -1442,6 +1442,9 @@ mod tests {
         assert_eq!(analysis.engine_version(), env!("CARGO_PKG_VERSION"));
         assert_eq!(analysis.api_version(), 3);
 
+        let unknown = analyze_position(STARTPOS_SFEN, 8, 1).unwrap();
+        assert_eq!(unknown.pv_source(), "none");
+
         let bounded = computer_move(STARTPOS_SFEN, 8, 1).unwrap();
         let bounded_native = computer_move_impl(STARTPOS_SFEN, 8, 1).unwrap();
         assert_eq!(bounded.used_fallback(), bounded_native.used_fallback);
