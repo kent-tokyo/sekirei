@@ -164,6 +164,7 @@ jobs:
           python3 scripts/validate_release_manifest.py /tmp/release-manifest-with-readiness.json
       - name: analysis record diagnostics
         run: |
+          python3 -m unittest scripts/test_run_tactical_line_diagnostic.py
           python3 scripts/test_record_floodgate_manifest.py
           python3 scripts/test_finalize_csa_run_manifest.py
           python3 scripts/test_validate_csa_run_manifest.py

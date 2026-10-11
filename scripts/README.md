@@ -56,6 +56,12 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
   corpus. Its report includes pooled qsearch calls, top-level calls, exits,
   and searched-move rates; inclusive qsearch time overlaps its leaf timers and
   must not be added to them.
+- `run_tactical_line_diagnostic.py` keeps the initial choice, opponent reply,
+  and subsequent response as separate fixed-node observations. Every normal
+  and fixed-root candidate search starts a fresh process; the node budget is
+  per invocation. Reference moves in the case file are labels for comparison,
+  never assertions that an engine alternative is wrong. The shipped fixture
+  contains only the fully specified Question 2 position from Issue #149.
 - For a Lazy SMP shared-TT causal control, add 128 to the usual `LazyFlags`
   value. This gives every worker a private table while retaining the other
   selected policy bits. `Hash` remains the total memory budget and is divided
@@ -65,6 +71,22 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 Historical reports in `benchmark_reports/` apply only to their recorded host,
 revision, corpus, and operation. They are neither general speed rankings nor
 Elo claims.
+
+Example material-only tactical-line capture (repeat `--nodes` for a budget
+ladder):
+
+```bash
+cargo build --release -p sekirei-core --bins
+python3 scripts/run_tactical_line_diagnostic.py \
+  --cases scripts/fixtures/tactical_line_cases_v1.json \
+  --engine target/release/sekirei-search-diagnostic \
+  --history-sfen target/release/history_sfen \
+  --nodes 100000 --nodes 2000000 \
+  --output data/runs/tactical-lines/report.json
+```
+
+Add `--weights FILE --nnue-output absolute` for a distinct NNUE lane. The
+report hashes both executables, the case file, and the optional weights.
 
 ## NNUE candidates and gates
 

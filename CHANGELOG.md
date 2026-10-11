@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search: preserve the primary PV captured at the last completed speculative
+  iteration when a later node- or time-limited iteration is interrupted. The
+  returned move, score, depth, and PV now remain one consistent snapshot.
+- Diagnostics: add a fresh-process fixed-node tool that records first-move,
+  reply, and response observations separately. Human reference moves remain
+  metadata rather than correctness assertions, and material and explicit
+  NNUE runs retain separate executable and evaluator provenance.
 - WebAssembly: add bounded sequential MultiPV analysis for up to four unique
   root moves under one shared node budget. Ranked candidates expose typed
   score, bound, depth, node, cutoff, and legal PV provenance only from fully
