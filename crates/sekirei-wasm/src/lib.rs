@@ -19,7 +19,7 @@ use sekirei_core::mate::{
 };
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::piece::PieceKind;
-use sekirei_core::search::{MATE_SCORE, SearchConfig, Searcher};
+use sekirei_core::search::{MATE_SCORE, MultiPvCandidate, SearchConfig, Searcher};
 use sekirei_core::sfen::{PositionHistory, STARTPOS_SFEN, move_to_usi};
 #[cfg(any(test, target_arch = "wasm32"))]
 use sekirei_core::sfen::{board_to_sfen, move_from_usi};
@@ -37,7 +37,7 @@ const MAX_MATE_PLY: u32 = 15;
 const MAX_MATE_NODES: u32 = 1_000_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
-const BROWSER_MAX_CANDIDATE_LINES: u32 = 1;
+const BROWSER_MAX_CANDIDATE_LINES: u32 = 4;
 const MAX_EVALUATOR_BYTES: usize = sekirei_core::halfkp::MAX_FILE_BYTES;
 #[cfg(test)]
 const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
@@ -106,6 +106,36 @@ struct PositionResult {
     principal_variation: Vec<String>,
     terminal_reason: Option<&'static str>,
     in_check: bool,
+    evaluator: EvaluatorMetadata,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MultiPvCandidateResult {
+    rank: u32,
+    root_move: String,
+    kind: &'static str,
+    score_cp: Option<i32>,
+    mate_plies: Option<u32>,
+    winner: Option<&'static str>,
+    side_to_move: &'static str,
+    depth: u32,
+    nodes: u32,
+    bound: &'static str,
+    principal_variation: Vec<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct MultiPvPositionResult {
+    side_to_move: &'static str,
+    depth: u32,
+    nodes: u32,
+    completed_nodes: u32,
+    aborted: bool,
+    abort_reason: Option<&'static str>,
+    used_fallback: bool,
+    terminal_reason: Option<&'static str>,
+    in_check: bool,
+    candidates: Vec<MultiPvCandidateResult>,
     evaluator: EvaluatorMetadata,
 }
 
@@ -209,15 +239,28 @@ fn side_name(side: Color) -> &'static str {
     }
 }
 
-fn classify_score(result: &mut PositionResult, score: i32, side: Color) {
+fn score_fields(
+    score: i32,
+    side: Color,
+) -> (&'static str, Option<i32>, Option<u32>, Option<&'static str>) {
     if score.abs() >= MATE_SCORE - 1000 {
-        result.kind = "mate";
-        result.mate_plies = Some((MATE_SCORE - score.abs()).max(0) as u32);
-        result.winner = Some(side_name(if score > 0 { side } else { side.flip() }));
+        (
+            "mate",
+            None,
+            Some((MATE_SCORE - score.abs()).max(0) as u32),
+            Some(side_name(if score > 0 { side } else { side.flip() })),
+        )
     } else {
-        result.kind = "cp";
-        result.score_cp = Some(score);
+        ("cp", Some(score), None, None)
     }
+}
+
+fn classify_score(result: &mut PositionResult, score: i32, side: Color) {
+    let (kind, score_cp, mate_plies, winner) = score_fields(score, side);
+    result.kind = kind;
+    result.score_cp = score_cp;
+    result.mate_plies = mate_plies;
+    result.winner = winner;
 }
 
 fn validate_analysis_inventory(sfen: &str) -> Result<(), ApiError> {
@@ -369,6 +412,115 @@ fn analyze_position_impl(
         result.best_move = info.best_move.map(move_to_usi);
     }
     Ok(result)
+}
+
+fn multi_pv_candidate_result(
+    candidate: &MultiPvCandidate,
+    depth: u32,
+    nodes: u64,
+    side: Color,
+) -> MultiPvCandidateResult {
+    let (kind, score_cp, mate_plies, winner) = score_fields(candidate.score, side);
+    MultiPvCandidateResult {
+        rank: candidate.rank,
+        root_move: move_to_usi(candidate.root_move),
+        kind,
+        score_cp,
+        mate_plies,
+        winner,
+        side_to_move: side_name(side),
+        depth,
+        nodes: nodes.min(u64::from(u32::MAX)) as u32,
+        bound: candidate.bound.as_str(),
+        principal_variation: candidate.pv.iter().copied().map(move_to_usi).collect(),
+    }
+}
+
+fn analyze_position_multi_pv_impl(
+    sfen: &str,
+    max_depth: u32,
+    max_nodes: u32,
+    candidate_lines: u32,
+) -> Result<MultiPvPositionResult, ApiError> {
+    validate_search_limits(max_depth, max_nodes)?;
+    if !(1..=BROWSER_MAX_CANDIDATE_LINES).contains(&candidate_lines) {
+        return Err(ApiError::new(
+            "invalid_candidate_lines",
+            format!("candidateLines must be in 1..={BROWSER_MAX_CANDIDATE_LINES}"),
+        ));
+    }
+    validate_analysis_inventory(sfen)?;
+    let mut board = parse_board(sfen)?;
+    if [Color::Black, Color::White]
+        .iter()
+        .any(|&side| board.pieces(side, PieceKind::Ou).popcount() != 1)
+        || is_in_check(&board, board.side_to_move.flip())
+    {
+        return Err(ApiError::new(
+            "invalid_position",
+            "analysis requires one king per side and the non-moving king not in check",
+        ));
+    }
+    let side = board.side_to_move;
+    let in_check = is_in_check(&board, side);
+    let evaluator = evaluator_metadata();
+    if generate_legal_moves(&mut board).is_empty() {
+        return Ok(MultiPvPositionResult {
+            side_to_move: side_name(side),
+            depth: 0,
+            nodes: 0,
+            completed_nodes: 0,
+            aborted: false,
+            abort_reason: None,
+            used_fallback: false,
+            terminal_reason: Some(if in_check { "checkmate" } else { "no_moves" }),
+            in_check,
+            candidates: Vec::new(),
+            evaluator,
+        });
+    }
+
+    let mut searcher = Searcher::new(Tt::new_for_evaluation(SEARCH_TT_MIB, false));
+    searcher.set_ybw_split(false);
+    let history = PositionHistory::initial(board.hash());
+    let (info, iterations) = searcher.search_multi_pv_with_history_trace(
+        &mut board,
+        SearchConfig {
+            max_depth,
+            node_limit: Some(u64::from(max_nodes)),
+            time_limit: None,
+            soft_limit: None,
+            multi_pv: candidate_lines,
+        },
+        &history,
+    );
+    let completed = iterations.last();
+    let candidates = completed
+        .map(|iteration| {
+            iteration
+                .candidates
+                .iter()
+                .map(|candidate| {
+                    multi_pv_candidate_result(candidate, iteration.depth, iteration.nodes, side)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Ok(MultiPvPositionResult {
+        side_to_move: side_name(side),
+        depth: completed.map_or(0, |iteration| iteration.depth),
+        nodes: info.nodes.min(u64::from(u32::MAX)) as u32,
+        completed_nodes: completed.map_or(0, |iteration| {
+            iteration.nodes.min(u64::from(u32::MAX)) as u32
+        }),
+        aborted: info.aborted,
+        abort_reason: info.aborted.then_some("node_limit"),
+        used_fallback: completed.is_none() && info.best_move.is_some(),
+        terminal_reason: None,
+        in_check,
+        candidates,
+        evaluator,
+    })
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -563,6 +715,230 @@ pub struct PositionAnalysis {
     result: PositionResult,
 }
 
+/// One ranked candidate from a fully completed MultiPV iteration.
+#[wasm_bindgen]
+pub struct MultiPvCandidateAnalysis {
+    result: MultiPvCandidateResult,
+}
+
+#[wasm_bindgen]
+impl MultiPvCandidateAnalysis {
+    /// One-based rank within the completed candidate set.
+    #[wasm_bindgen(getter)]
+    pub fn rank(&self) -> u32 {
+        self.result.rank
+    }
+
+    /// Unique legal root move represented by this line.
+    #[wasm_bindgen(getter, js_name = rootMove)]
+    pub fn root_move(&self) -> String {
+        self.result.root_move.clone()
+    }
+
+    /// `cp` or `mate`; unknown and terminal candidates are never fabricated.
+    #[wasm_bindgen(getter, unchecked_return_type = "'cp' | 'mate'")]
+    pub fn kind(&self) -> String {
+        self.result.kind.to_owned()
+    }
+
+    /// Completed normal evaluation in centipawns from the moving side.
+    #[wasm_bindgen(getter, js_name = scoreCp)]
+    pub fn score_cp(&self) -> Option<i32> {
+        self.result.score_cp
+    }
+
+    /// Absolute mate distance in plies, when this is a mate score.
+    #[wasm_bindgen(getter, js_name = matePlies)]
+    pub fn mate_plies(&self) -> Option<u32> {
+        self.result.mate_plies
+    }
+
+    /// Winning side for a mate score, when known.
+    #[wasm_bindgen(getter, unchecked_return_type = "'b' | 'w' | undefined")]
+    pub fn winner(&self) -> Option<String> {
+        self.result.winner.map(str::to_owned)
+    }
+
+    /// `b` means Black/Sente; `w` means White/Gote.
+    #[wasm_bindgen(getter, js_name = sideToMove, unchecked_return_type = "'b' | 'w'")]
+    pub fn side_to_move(&self) -> String {
+        self.result.side_to_move.to_owned()
+    }
+
+    /// Perspective of normal scores and bound inequalities.
+    #[wasm_bindgen(getter, js_name = scorePerspective, unchecked_return_type = "'sideToMove'")]
+    pub fn score_perspective(&self) -> String {
+        "sideToMove".to_owned()
+    }
+
+    /// Unit used only by `scoreCp`.
+    #[wasm_bindgen(getter, js_name = scoreUnit, unchecked_return_type = "'cp'")]
+    pub fn score_unit(&self) -> String {
+        "cp".to_owned()
+    }
+
+    /// Shared completed root depth for this candidate set.
+    #[wasm_bindgen(getter)]
+    pub fn depth(&self) -> u32 {
+        self.result.depth
+    }
+
+    /// Cumulative request nodes through this completed candidate set.
+    #[wasm_bindgen(getter)]
+    pub fn nodes(&self) -> u32 {
+        self.result.nodes
+    }
+
+    /// Proof status returned by this candidate's root search.
+    #[wasm_bindgen(getter, unchecked_return_type = "'exact' | 'lower' | 'upper'")]
+    pub fn bound(&self) -> String {
+        self.result.bound.to_owned()
+    }
+
+    /// Candidates are published only after the complete set finishes.
+    #[wasm_bindgen(getter, js_name = cutoffState, unchecked_return_type = "'completed_iteration'")]
+    pub fn cutoff_state(&self) -> String {
+        "completed_iteration".to_owned()
+    }
+
+    /// Legal PV from the same completed iteration as score and depth.
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen(getter, js_name = principalVariation, unchecked_return_type = "string[]")]
+    pub fn principal_variation(&self) -> Array {
+        let array = Array::new();
+        for mv in &self.result.principal_variation {
+            array.push(&JsValue::from_str(mv));
+        }
+        array
+    }
+
+    /// Distinguishes a root-only completed line from a longer PV.
+    #[wasm_bindgen(getter, js_name = pvSource, unchecked_return_type = "'root_only' | 'completed_iteration'")]
+    pub fn pv_source(&self) -> String {
+        if self.result.principal_variation.len() == 1 {
+            "root_only"
+        } else {
+            "completed_iteration"
+        }
+        .to_owned()
+    }
+}
+
+/// Bounded sequential MultiPV analysis for one browser-supplied position.
+#[wasm_bindgen]
+pub struct MultiPvPositionAnalysis {
+    result: MultiPvPositionResult,
+}
+
+#[wasm_bindgen]
+impl MultiPvPositionAnalysis {
+    /// `b` means Black/Sente; `w` means White/Gote.
+    #[wasm_bindgen(getter, js_name = sideToMove, unchecked_return_type = "'b' | 'w'")]
+    pub fn side_to_move(&self) -> String {
+        self.result.side_to_move.to_owned()
+    }
+
+    /// Perspective of every candidate score and bound.
+    #[wasm_bindgen(getter, js_name = scorePerspective, unchecked_return_type = "'sideToMove'")]
+    pub fn score_perspective(&self) -> String {
+        "sideToMove".to_owned()
+    }
+
+    /// Deepest iteration whose complete candidate set was published.
+    #[wasm_bindgen(getter)]
+    pub fn depth(&self) -> u32 {
+        self.result.depth
+    }
+
+    /// Total request nodes, including an interrupted deeper candidate set.
+    #[wasm_bindgen(getter)]
+    pub fn nodes(&self) -> u32 {
+        self.result.nodes
+    }
+
+    /// Nodes consumed through the published completed candidate set.
+    #[wasm_bindgen(getter, js_name = completedNodes)]
+    pub fn completed_nodes(&self) -> u32 {
+        self.result.completed_nodes
+    }
+
+    /// Whether a later iteration or candidate set hit the global node budget.
+    #[wasm_bindgen(getter)]
+    pub fn aborted(&self) -> bool {
+        self.result.aborted
+    }
+
+    /// Stable stop reason; absent if the requested search completed.
+    #[wasm_bindgen(getter, js_name = abortReason, unchecked_return_type = "'node_limit' | undefined")]
+    pub fn abort_reason(&self) -> Option<String> {
+        self.result.abort_reason.map(str::to_owned)
+    }
+
+    /// Search found a legal fallback, but no candidate set completed.
+    #[wasm_bindgen(getter, js_name = usedFallback)]
+    pub fn used_fallback(&self) -> bool {
+        self.result.used_fallback
+    }
+
+    /// Reason for terminal (no-legal-moves) results only.
+    #[wasm_bindgen(getter, js_name = terminalReason, unchecked_return_type = "'checkmate' | 'no_moves' | undefined")]
+    pub fn terminal_reason(&self) -> Option<String> {
+        self.result.terminal_reason.map(str::to_owned)
+    }
+
+    /// Whether the king of the moving side is currently in check.
+    #[wasm_bindgen(getter, js_name = inCheck)]
+    pub fn in_check(&self) -> bool {
+        self.result.in_check
+    }
+
+    /// Number of complete, unique candidates available through [`Self::candidate`].
+    #[wasm_bindgen(getter, js_name = candidateCount)]
+    pub fn candidate_count(&self) -> u32 {
+        self.result.candidates.len() as u32
+    }
+
+    /// Return one owned candidate object. Call `free()` after reading it.
+    #[wasm_bindgen(js_name = candidate)]
+    pub fn candidate(&self, index: u32) -> Option<MultiPvCandidateAnalysis> {
+        self.result
+            .candidates
+            .get(index as usize)
+            .cloned()
+            .map(|result| MultiPvCandidateAnalysis { result })
+    }
+
+    /// Evaluator that produced this candidate set.
+    #[wasm_bindgen(getter, js_name = evaluatorId)]
+    pub fn evaluator_id(&self) -> String {
+        self.result.evaluator.id.to_owned()
+    }
+
+    /// Stable evaluator format/version label.
+    #[wasm_bindgen(getter, js_name = evaluatorVersion)]
+    pub fn evaluator_version(&self) -> String {
+        self.result.evaluator.version.to_owned()
+    }
+
+    /// SHA-256 of the exact loaded weight bytes, absent for material.
+    #[wasm_bindgen(getter, js_name = evaluatorWeightSha256)]
+    pub fn evaluator_weight_sha256(&self) -> Option<String> {
+        self.result.evaluator.weight_sha256.clone()
+    }
+
+    /// Cargo package version.
+    #[wasm_bindgen(getter, js_name = engineVersion)]
+    pub fn engine_version(&self) -> String {
+        env!("CARGO_PKG_VERSION").to_owned()
+    }
+
+    /// Contract schema version, separate from engine and evaluator versions.
+    #[wasm_bindgen(getter, js_name = apiVersion)]
+    pub fn api_version(&self) -> u32 {
+        4
+    }
+}
+
 #[wasm_bindgen]
 impl PositionAnalysis {
     /// `cp`, `mate`, `terminal`, or `unknown`; unknown has no numeric score.
@@ -723,7 +1099,7 @@ impl PositionAnalysis {
     /// Contract schema version, separate from engine and evaluator versions.
     #[wasm_bindgen(getter, js_name = apiVersion)]
     pub fn api_version(&self) -> u32 {
-        3
+        4
     }
 }
 
@@ -870,10 +1246,10 @@ impl SearchCapabilities {
         BROWSER_MAX_CANDIDATE_LINES
     }
 
-    /// MultiPV is not exposed by the current browser analysis contract.
+    /// Whether bounded browser MultiPV analysis is available.
     #[wasm_bindgen(getter, js_name = multiPvSupported)]
     pub fn multi_pv_supported(&self) -> bool {
-        false
+        true
     }
 
     /// Largest evaluator byte image accepted before format validation.
@@ -1100,6 +1476,24 @@ pub fn analyze_position(
         .map_err(ApiError::into_js)
 }
 
+/// Analyze up to `candidateLines` unique root moves under one global budget.
+///
+/// Only complete candidate sets from a fully completed iteration are exposed.
+/// A partially searched deeper set is discarded, while `nodes`, `aborted`,
+/// and `abortReason` still describe the whole request. Search is sequential
+/// and bounded by the same depth/node limits as [`analyze_position`].
+#[wasm_bindgen(js_name = analyzePositionMultiPv)]
+pub fn analyze_position_multi_pv(
+    sfen: &str,
+    max_depth: u32,
+    max_nodes: u32,
+    candidate_lines: u32,
+) -> Result<MultiPvPositionAnalysis, JsValue> {
+    analyze_position_multi_pv_impl(sfen, max_depth, max_nodes, candidate_lines)
+        .map(|result| MultiPvPositionAnalysis { result })
+        .map_err(ApiError::into_js)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,6 +1593,72 @@ mod tests {
             &["P*5e".to_owned()],
         );
         assert_legal_line(VALID_MATE_SFEN.to_owned(), &["5e5c+".to_owned()]);
+    }
+
+    #[test]
+    fn multi_pv_returns_unique_ranked_legal_lines_under_one_budget() {
+        let result = analyze_position_multi_pv_impl(STARTPOS_SFEN, 2, MAX_SEARCH_NODES, 3).unwrap();
+        assert_eq!(result.depth, 2);
+        assert_eq!(result.candidates.len(), 3);
+        assert!(result.completed_nodes <= result.nodes);
+        let mut roots = std::collections::HashSet::new();
+        for (index, candidate) in result.candidates.iter().enumerate() {
+            assert_eq!(candidate.rank, index as u32 + 1);
+            assert_eq!(candidate.side_to_move, "b");
+            assert_eq!(candidate.depth, result.depth);
+            assert_eq!(candidate.nodes, result.completed_nodes);
+            assert_eq!(
+                candidate.principal_variation.first(),
+                Some(&candidate.root_move)
+            );
+            assert!(roots.insert(candidate.root_move.clone()));
+            assert_legal_line(STARTPOS_SFEN.to_owned(), &candidate.principal_variation);
+        }
+    }
+
+    #[test]
+    fn one_line_multi_pv_matches_position_analysis_primary() {
+        let single = analyze_position_impl(ASYMMETRIC_BLACK, 2, MAX_SEARCH_NODES).unwrap();
+        let multi =
+            analyze_position_multi_pv_impl(ASYMMETRIC_BLACK, 2, MAX_SEARCH_NODES, 1).unwrap();
+        assert_eq!(multi.candidates.len(), 1);
+        let primary = &multi.candidates[0];
+        assert_eq!(primary.root_move, single.best_move.unwrap());
+        assert_eq!(primary.kind, single.kind);
+        assert_eq!(primary.score_cp, single.score_cp);
+        assert_eq!(primary.mate_plies, single.mate_plies);
+        assert_eq!(primary.winner, single.winner);
+        assert_eq!(primary.depth, single.depth);
+        assert_eq!(primary.bound, single.bound);
+        assert_eq!(primary.principal_variation, single.principal_variation);
+    }
+
+    #[test]
+    fn multi_pv_never_fabricates_partial_or_terminal_candidates() {
+        let cutoff = analyze_position_multi_pv_impl(STARTPOS_SFEN, 8, 1, 4).unwrap();
+        assert!(cutoff.aborted && cutoff.used_fallback);
+        assert_eq!(cutoff.abort_reason, Some("node_limit"));
+        assert_eq!(cutoff.depth, 0);
+        assert!(cutoff.candidates.is_empty());
+
+        let terminal = apply_move_impl(VALID_MATE_SFEN, "5e5c+").unwrap();
+        let terminal = analyze_position_multi_pv_impl(&terminal, 1, 1000, 4).unwrap();
+        assert_eq!(terminal.terminal_reason, Some("checkmate"));
+        assert!(terminal.candidates.is_empty());
+        assert!(!terminal.aborted && !terminal.used_fallback);
+
+        assert_eq!(
+            analyze_position_multi_pv_impl(STARTPOS_SFEN, 1, 1000, 0)
+                .unwrap_err()
+                .code,
+            "invalid_candidate_lines"
+        );
+        assert_eq!(
+            analyze_position_multi_pv_impl(STARTPOS_SFEN, 1, 1000, 5)
+                .unwrap_err()
+                .code,
+            "invalid_candidate_lines"
+        );
     }
 
     #[test]
@@ -1396,8 +1856,8 @@ mod tests {
         assert_eq!(capabilities.effective_workers(), 1);
         assert!(!capabilities.worker_threads_supported());
         assert!(!capabilities.shared_array_buffer_required());
-        assert_eq!(capabilities.max_candidate_lines(), 1);
-        assert!(!capabilities.multi_pv_supported());
+        assert_eq!(capabilities.max_candidate_lines(), 4);
+        assert!(capabilities.multi_pv_supported());
         assert_eq!(
             capabilities.max_evaluator_bytes(),
             MAX_EVALUATOR_BYTES as u32
@@ -1440,7 +1900,45 @@ mod tests {
         assert_eq!(analysis.evaluator_version(), "material-v1");
         assert_eq!(analysis.evaluator_weight_sha256(), None);
         assert_eq!(analysis.engine_version(), env!("CARGO_PKG_VERSION"));
-        assert_eq!(analysis.api_version(), 3);
+        assert_eq!(analysis.api_version(), 4);
+
+        let multi = analyze_position_multi_pv(ASYMMETRIC_BLACK, 2, 10_000, 2).unwrap();
+        assert_eq!(multi.side_to_move(), "b");
+        assert_eq!(multi.score_perspective(), "sideToMove");
+        assert_eq!(multi.depth(), 2);
+        assert!(multi.nodes() >= multi.completed_nodes());
+        assert!(!multi.aborted());
+        assert_eq!(multi.abort_reason(), None);
+        assert!(!multi.used_fallback());
+        assert_eq!(multi.terminal_reason(), None);
+        assert!(!multi.in_check());
+        assert_eq!(multi.candidate_count(), 2);
+        assert_eq!(multi.evaluator_id(), "material");
+        assert_eq!(multi.evaluator_version(), "material-v1");
+        assert_eq!(multi.evaluator_weight_sha256(), None);
+        assert_eq!(multi.engine_version(), env!("CARGO_PKG_VERSION"));
+        assert_eq!(multi.api_version(), 4);
+        assert!(multi.candidate(2).is_none());
+        let candidate = multi.candidate(0).unwrap();
+        assert_eq!(candidate.rank(), 1);
+        assert!(!candidate.root_move().is_empty());
+        assert!(matches!(candidate.kind().as_str(), "cp" | "mate"));
+        assert!(candidate.score_cp().is_some() || candidate.mate_plies().is_some());
+        assert_eq!(candidate.winner(), None);
+        assert_eq!(candidate.side_to_move(), "b");
+        assert_eq!(candidate.score_perspective(), "sideToMove");
+        assert_eq!(candidate.score_unit(), "cp");
+        assert_eq!(candidate.depth(), multi.depth());
+        assert_eq!(candidate.nodes(), multi.completed_nodes());
+        assert!(matches!(
+            candidate.bound().as_str(),
+            "exact" | "lower" | "upper"
+        ));
+        assert_eq!(candidate.cutoff_state(), "completed_iteration");
+        assert!(matches!(
+            candidate.pv_source().as_str(),
+            "root_only" | "completed_iteration"
+        ));
 
         let unknown = analyze_position(STARTPOS_SFEN, 8, 1).unwrap();
         assert_eq!(unknown.pv_source(), "none");
@@ -1600,7 +2098,7 @@ mod browser_tests {
             assert_eq!(result.evaluator_version(), "material-v1");
             assert_eq!(result.evaluator_weight_sha256(), None);
             assert_eq!(result.engine_version(), env!("CARGO_PKG_VERSION"));
-            assert_eq!(result.api_version(), 3);
+            assert_eq!(result.api_version(), 4);
             assert_eq!(result.bound(), "exact");
             assert_eq!(result.pv_source(), "completed_iteration");
             assert_eq!(result.candidate_line_count(), 1);
@@ -1683,8 +2181,8 @@ mod browser_tests {
         assert_eq!(capabilities.effective_workers(), 1);
         assert!(!capabilities.worker_threads_supported());
         assert!(!capabilities.shared_array_buffer_required());
-        assert_eq!(capabilities.max_candidate_lines(), 1);
-        assert!(!capabilities.multi_pv_supported());
+        assert_eq!(capabilities.max_candidate_lines(), 4);
+        assert!(capabilities.multi_pv_supported());
         assert_eq!(
             capabilities.max_evaluator_bytes(),
             MAX_EVALUATOR_BYTES as u32

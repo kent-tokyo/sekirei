@@ -37,6 +37,7 @@ import init, {
   applyMove,
   computerMove,
   analyzePosition,
+  analyzePositionMultiPv,
   loadEvaluator,
   searchCapabilities,
 } from "./pkg/sekirei_wasm.js";
@@ -61,6 +62,14 @@ reply.free();
 const evaluation = analyzePosition(sfen, 4, 50_000);
 console.log(evaluation.kind, evaluation.scoreCp, evaluation.bound);
 evaluation.free();
+
+const ranked = analyzePositionMultiPv(sfen, 4, 50_000, 4);
+for (let index = 0; index < ranked.candidateCount; index += 1) {
+  const candidate = ranked.candidate(index);
+  console.log(candidate.rank, candidate.rootMove, candidate.scoreCp);
+  candidate.free();
+}
+ranked.free();
 
 const problem = analyzeMateInOne(
   "4k4/2S3S2/2SGpGS2/9/4R4/9/9/9/4K4 b - 1",
@@ -96,7 +105,7 @@ It returns a `PositionAnalysis` wasm-bindgen object; call `free()` when done.
 | `usedFallback` | No iteration completed, but a legal fallback move exists |
 | `terminalReason`, `inCheck` | Optional `checkmate`/`no_moves`, and whether the moving king is in check |
 | `evaluatorId`, `evaluatorVersion`, `evaluatorWeightSha256` | Actual evaluator identity and exact input-byte hash; material has no hash |
-| `engineVersion`, `apiVersion` | Cargo version and contract schema `3` |
+| `engineVersion`, `apiVersion` | Cargo version and contract schema `4` |
 
 An interruption **after** a shallow pass can still return its completed score
 and bound with `aborted = true`. `bound` describes that score, not the later
@@ -123,6 +132,28 @@ Promoted pieces count as their base kind; omitted pieces are allowed. This
 guards packed hand storage and later captures from oversized-input traps.
 The moving king may be in check.
 The existing rule and move-selection APIs retain their original contracts.
+
+## MultiPV analysis contract
+
+`analyzePositionMultiPv(sfen, maxDepth, maxNodes, candidateLines)` ranks up to
+four unique legal root moves. It uses one sequential searcher and one global
+node budget for the whole request; it does not multiply `maxNodes` by the
+number of lines. Query `searchCapabilities()` instead of assuming the maximum.
+
+The result exposes `candidateCount` and `candidate(index)`. Each candidate is
+an owned wasm-bindgen object and must be freed after use. Rank, root move,
+score, bound, depth, nodes, and PV all come from the same fully completed
+iteration. `pvSource` distinguishes `root_only` from a longer
+`completed_iteration` line. Candidates are never synthesized from an
+unfinished iteration, a fallback move, an unknown score, or a terminal
+position.
+
+If a deeper candidate set reaches the node limit, `nodes`, `aborted`, and
+`abortReason` describe the whole request while `completedNodes`, `depth`, and
+the returned candidates remain at the last complete set. With
+`candidateLines = 1`, the primary result follows the existing
+`analyzePosition` contract. Results use whichever immutable evaluator was
+loaded into the worker; this API makes no strength claim about that evaluator.
 
 The same depth 1–8, nodes 1–100,000, sequential one-worker,
 4 MiB TT limits apply. Run synchronous analysis in an application Web Worker
