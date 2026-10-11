@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- NNUE evidence: record the pinned v0.3.68 material-gate PASS results for the
+  local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
+  opening-corpus, candidate, and local raw-archive hashes. The weight remains
+  unbundled and the material evaluator remains the default.
+
 ## [0.3.72] – 2026-10-11
 
 - Search diagnostics: add an opt-in Lazy SMP counter path and extend the

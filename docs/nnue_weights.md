@@ -30,12 +30,20 @@ by Sekirei v0.3.67/v0.3.68 without an external teacher. In the recorded private
 comparison it scored 260 wins, 2 draws, and 218 losses against `nn_r2`
 (estimated +30 Elo, interval +1 to +60).
 
-This is candidate-relative evidence only. Raw game records, dataset shard
-hashes, the engine-binary hash, the opening-corpus hash, and a fresh whole-game
-hold-out manifest are not present in the repository, and no material-evaluator
-gate has been run. Therefore `nn_r3` is not bundled, is not the default, and is
-not yet a distributed recommendation. The exact SHA-256 and the missing
-evidence are recorded in the
+The candidate also passed two preregistered colour-swapped material-evaluator
+gates on the pinned v0.3.68 engine. At 500 ms per move it scored 63-0-9 and
+crossed the SPRT upper bound after 36 pairs; at 1 second it scored 79-0-9 and
+crossed after 44 pairs. Both used one thread, no opening book, Hash 64,
+`SpecTopN=0`, and the exact candidate SHA-256 recorded below. The normalized
+results and provenance are in the
+[`nn_r3` material-gate record](experiments/nnue_r3_material_gate_v0.3.68/README.md).
+
+This establishes an advantage over material evaluation only under those local
+v0.3.68 conditions. It is not a current-main compatibility gate, external
+rating, or default-adoption decision. Raw match archives, dataset shard hashes,
+and a fresh whole-game hold-out manifest remain outside the repository.
+Therefore `nn_r3` is not bundled, is not the default, and is not yet a
+distributed recommendation. The exact SHA-256 and remaining gaps are in the
 [`nn_r3` candidate card](../weights/candidates/sekirei-halfkp-r3.json).
 
 ## Loading a weight

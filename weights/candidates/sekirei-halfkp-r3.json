@@ -16,7 +16,7 @@
     "bundled": false,
     "default_evaluator": false,
     "license": "CC-BY-4.0",
-    "reason": "Candidate-relative evidence is positive, but the material-evaluator release gate and complete public evidence bundle are not available."
+    "reason": "The pinned v0.3.68 material gates passed, but the training-shard and whole-game hold-out manifests are incomplete, raw match archives remain local, and the candidate has not been re-gated on current main."
   },
   "training": {
     "initial_checkpoint": {
@@ -54,15 +54,73 @@
     "scope": "Private candidate-relative comparison under the recorded Claude loop; not a material gate, public rating, or competitor comparison."
   },
   "material_gate": {
-    "status": "NOT_RUN",
-    "required_before_distribution_recommendation": true
+    "status": "PASS",
+    "required_before_distribution_recommendation": false,
+    "protocol": {
+      "method": "paired trinomial SPRT",
+      "elo0": 0,
+      "elo1": 20,
+      "alpha": 0.05,
+      "beta": 0.05,
+      "complete_colour_swapped_pairs_required": true
+    },
+    "engine": {
+      "tag": "v0.3.68",
+      "commit": "6b00f0eaea9b3bc1153c25f4b6ddcd33a0cfdbc7",
+      "sha256": "705b0e5b285dbdbaa5db7489cb18238251736ec17aa165756414d01d43e7cc77"
+    },
+    "candidate_sha256": "075ff76cc023abd7bae07ee5cd0c2ccf6e6b4ec80942d1bfb86a2bb83ee78627",
+    "opening_corpus_sha256": "a1bbe55e6969937e80708cd2dadbf52490370713a9f8c937fdfca9ad510f291b",
+    "common_options": {
+      "threads": 1,
+      "spec_top_n": 0,
+      "use_book": false,
+      "hash_mb": 64,
+      "fv_scale": 24
+    },
+    "conditions": [
+      {
+        "byoyomi_ms": 500,
+        "pairs": 36,
+        "games": 72,
+        "wins": 63,
+        "draws": 0,
+        "losses": 9,
+        "llr": 3.050456,
+        "upper_bound": 2.944439,
+        "evidence": "docs/experiments/nnue_r3_material_gate_v0.3.68/gate-500ms.json"
+      },
+      {
+        "byoyomi_ms": 1000,
+        "pairs": 44,
+        "games": 88,
+        "wins": 79,
+        "draws": 0,
+        "losses": 9,
+        "llr": 2.981347,
+        "upper_bound": 2.944439,
+        "evidence": "docs/experiments/nnue_r3_material_gate_v0.3.68/gate-1000ms.json"
+      }
+    ],
+    "raw_evidence_archives": [
+      {
+        "filename": "mgate_nn_r3_v0368.tar.gz",
+        "sha256": "d199fc0af1a5b57b1146df016ca8689aede27de009e8e9f1209f39a07f999a1c",
+        "repository_status": "local_only"
+      },
+      {
+        "filename": "mgate_nn_r3_v0368_1s.tar.gz",
+        "sha256": "27a206545b986b1c9d40a0115c27087dcdda7ff2d35aefab5cb41db634c05b53",
+        "repository_status": "local_only"
+      }
+    ],
+    "scope": "Local candidate-versus-material evidence only; not a Floodgate, human, or competitor rating and not a default-adoption decision."
   },
   "evidence_gaps": [
     "training_shard_sha256_manifest",
     "raw_match_records",
-    "engine_binary_sha256",
-    "opening_corpus_sha256",
-    "whole_game_holdout_manifest"
+    "whole_game_holdout_manifest",
+    "current_main_compatibility_gate"
   ],
   "derived_estimates": {
     "chained_elo_vs_gen9": 220,
