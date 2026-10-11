@@ -23,8 +23,8 @@
 //!   - Delta Pruning in Quiescence Search
 
 use rayon::prelude::*;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering, fence};
-use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use web_time::Instant;
 
@@ -72,12 +72,6 @@ pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
         .expect("search regression panicked");
 }
 
-/// Exact cache of the existing floating-point LMR formula for all representable
-/// TT depths and the practical maximum shogi move count. This removes two
-/// transcendental `ln` calls from every late-move probe without changing the
-/// reduction chosen by the search.
-static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
-
 mod child_search;
 mod heuristics;
 mod late_move;
@@ -93,7 +87,10 @@ use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
     pack_killer,
 };
-use late_move::LateMoveNode;
+use late_move::{
+    LateMoveNode, LmrContext, check_reduction_cap, lmr_adjust, lmr_base_reduction, lmr_reduce,
+    promotion_counts_as_quiet,
+};
 use node::NodeKey;
 use params as p;
 use path::{
@@ -3716,33 +3713,6 @@ fn store_tt(
     );
 }
 
-/// The late move reduction cap of a move that turns out to give check,
-/// decided on the board before the move: `CHECK_R_MAX`, or
-/// `CHECK_R_MAX_BAD` when the move hangs the moved piece.
-#[inline]
-fn check_reduction_cap(board: &Board, m: Move, reduce: u32) -> u32 {
-    let (good, bad) = (p::CHECK_R_MAX() as u32, p::CHECK_R_MAX_BAD() as u32);
-    if reduce <= good.min(bad) || good == bad {
-        return good;
-    }
-    if crate::movegen::see_exchange(board, m) < 0 {
-        bad
-    } else {
-        good
-    }
-}
-
-/// Whether a non-capture promotion is reduced and pruned like a quiet move
-/// (`QUIET_PROMO`).
-#[inline]
-fn promotion_counts_as_quiet(m: Move) -> bool {
-    match p::QUIET_PROMO() {
-        0 => false,
-        1 => m.piece_kind != PieceKind::Fu,
-        _ => true,
-    }
-}
-
 /// A non-promotion of a pawn, bishop or rook that could have promoted (and,
 /// with `SKIP_NONPROMO` 2, of a lance to the second rank). The promoted
 /// piece moves like the original and more (a lance on the second rank can
@@ -3844,156 +3814,6 @@ fn qsearch_order_key(board: &Board, m: Move) -> i32 {
         0
     };
     victim + promo - PIECE_VALUE[m.piece_kind.index()]
-}
-
-/// Compute Late Move Reduction amount for a move.
-/// Returns 0 if the move should not be reduced.
-#[inline]
-#[allow(clippy::too_many_arguments)]
-fn lmr_reduce(
-    board: &Board,
-    m: Move,
-    move_idx: usize,
-    depth: u32,
-    killers: &[Option<Move>; 2],
-    tt_mv: Option<Move>,
-    history: &HistoryTable,
-    stm: Color,
-) -> u32 {
-    if depth < p::LMR_MIN_DEPTH() as u32 {
-        return 0;
-    }
-    if move_idx < 2 {
-        return 0;
-    }
-    // Don't reduce the TT move.
-    if tt_mv.is_some_and(|t| t == m) {
-        return 0;
-    }
-    // Captures: not reduced, or (CAPTURE_LMR) reduced when they lose
-    // material, and other captures one ply less.
-    let mut less = 0;
-    if m.from.is_some_and(|_| board.piece_at(m.to).is_some()) {
-        match p::CAPTURE_LMR() {
-            0 => return 0,
-            1 if crate::movegen::see_swap(board, m) >= 0 => return 0,
-            1 => {}
-            _ => {
-                if crate::movegen::see_swap(board, m) >= 0 {
-                    less = 1;
-                }
-            }
-        }
-    } else if m.promote && !promotion_counts_as_quiet(m) {
-        return 0;
-    }
-    // Killers: not reduced, or (KILLER_LMR) reduced like other quiet moves,
-    // optionally one ply less.
-    if killers.contains(&Some(m)) {
-        match p::KILLER_LMR() {
-            0 => return 0,
-            1 => less = 1,
-            _ => {}
-        }
-    }
-    let mut r = lmr_base_reduction(depth, move_idx).saturating_sub(less);
-    if board.piece_at(m.to).is_some() {
-        return r;
-    }
-    // History adjustment: well-tried quiet moves get less reduction; poorly-tried get more.
-    let hist = history.get(stm, m);
-    if hist > p::LMR_HIST() {
-        r = r.saturating_sub(1);
-    } else if hist < -p::LMR_HIST() && depth >= 5 {
-        r += 1;
-    }
-    r
-}
-
-/// What late move reductions know about the node beyond the move itself.
-#[derive(Clone, Copy)]
-struct LmrContext {
-    pv: bool,
-    /// Expected cut node.
-    cut: bool,
-    improving: bool,
-    cont: ContMoves,
-    /// Reduce less for a PV flag (`TT_PV_MODE`, `TTPV_LMR16`).
-    tt_pv: bool,
-    /// The node's TT move is a capture (`LMR_TTCAP16`).
-    tt_capture: bool,
-    /// Opponent pieces, to tell quiet moves.
-    enemy: crate::bitboard::Bitboard,
-}
-
-impl LmrContext {
-    /// History of `m` at this node: butterfly + continuation + two-ply
-    /// follow-up.
-    #[inline]
-    fn history_of(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
-        self.cont.primary_score(history, stm, m)
-    }
-}
-
-/// Adjust the base reduction `r` of a reducible move (0 stays 0). The
-/// adjustments are summed in sixteenths of a ply and rounded, so that the
-/// tuner can move them in small steps.
-#[inline]
-fn lmr_adjust(r: u32, ctx: &LmrContext, history: &HistoryTable, stm: Color, m: Move) -> u32 {
-    if r == 0 {
-        return 0;
-    }
-    let mut r16 = r as i32 * 16;
-    let scale = p::LMR_STAT_SCALE();
-    if scale != 0 {
-        r16 -= ctx.history_of(history, stm, m) * scale / (1 << 13);
-    }
-    if ctx.pv {
-        r16 -= p::LMR_PV_LESS16();
-    }
-    if ctx.cut {
-        r16 += p::CUT_LMR16();
-    }
-    if ctx.tt_pv {
-        r16 -= p::TTPV_LMR16();
-    }
-    if ctx.tt_capture && !ctx.enemy.contains(m.to) {
-        r16 += p::LMR_TTCAP16();
-    }
-    if !ctx.improving {
-        r16 += p::LMR_NOT_IMPROVING16();
-    }
-    ((r16 + 8) / 16).max(0) as u32
-}
-
-#[inline]
-fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
-    const DEPTHS: usize = 128;
-    const MOVES: usize = 600;
-    if (depth as usize) < DEPTHS && move_idx < MOVES {
-        let table = LMR_REDUCTION_TABLE.get_or_init(|| {
-            let move_lns: [f32; MOVES] = std::array::from_fn(|index| (index.max(1) as f32).ln());
-            (0..DEPTHS)
-                .map(|d| {
-                    let depth_ln = (d.max(1) as f32).ln();
-                    std::array::from_fn(|index| lmr_formula(depth_ln, move_lns[index]) as u8)
-                })
-                .collect::<Vec<_>>()
-                .into_boxed_slice()
-        });
-        table[depth as usize][move_idx] as u32
-    } else {
-        lmr_formula((depth as f32).ln(), (move_idx as f32).ln()) as u32
-    }
-}
-
-/// Base late move reduction from the logarithms of depth and move number:
-/// `BASE + ln(depth) * ln(move) / DIV` (1 + ... / 2 by default). The table
-/// above is built on first use, so tuning options must be set before the
-/// first search.
-#[inline]
-fn lmr_formula(depth_ln: f32, move_ln: f32) -> f32 {
-    p::LMR_BASE16() as f32 / 16.0 + depth_ln * move_ln / (p::LMR_DIV100() as f32 / 100.0)
 }
 
 #[allow(clippy::too_many_arguments)]

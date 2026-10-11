@@ -1,11 +1,201 @@
 //! Late-move pruning decisions for the main alpha-beta search.
 
+use std::sync::OnceLock;
+
+use crate::bitboard::Bitboard;
 use crate::board::Board;
+use crate::color::Color;
 use crate::eval::PIECE_VALUE;
 use crate::movegen::{move_gives_direct_check, see_exchange, see_swap};
 use crate::mv::Move;
+use crate::piece::PieceKind;
 
+use super::heuristics::HistoryTable;
+use super::path::ContMoves;
 use super::{MATE_SCORE, params as p};
+
+/// Exact cache of the existing floating-point LMR formula for all representable
+/// TT depths and the practical maximum shogi move count. This removes two
+/// transcendental `ln` calls from every late-move probe without changing the
+/// reduction chosen by the search.
+static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
+
+/// The late move reduction cap of a move that turns out to give check,
+/// decided on the board before the move: `CHECK_R_MAX`, or
+/// `CHECK_R_MAX_BAD` when the move hangs the moved piece.
+#[inline]
+pub(super) fn check_reduction_cap(board: &Board, m: Move, reduce: u32) -> u32 {
+    let (good, bad) = (p::CHECK_R_MAX() as u32, p::CHECK_R_MAX_BAD() as u32);
+    if reduce <= good.min(bad) || good == bad {
+        return good;
+    }
+    if see_exchange(board, m) < 0 {
+        bad
+    } else {
+        good
+    }
+}
+
+/// Whether a non-capture promotion is reduced and pruned like a quiet move
+/// (`QUIET_PROMO`).
+#[inline]
+pub(super) fn promotion_counts_as_quiet(m: Move) -> bool {
+    match p::QUIET_PROMO() {
+        0 => false,
+        1 => m.piece_kind != PieceKind::Fu,
+        _ => true,
+    }
+}
+
+/// Compute Late Move Reduction amount for a move.
+/// Returns 0 if the move should not be reduced.
+#[inline]
+#[allow(clippy::too_many_arguments)]
+pub(super) fn lmr_reduce(
+    board: &Board,
+    m: Move,
+    move_idx: usize,
+    depth: u32,
+    killers: &[Option<Move>; 2],
+    tt_mv: Option<Move>,
+    history: &HistoryTable,
+    stm: Color,
+) -> u32 {
+    if depth < p::LMR_MIN_DEPTH() as u32 {
+        return 0;
+    }
+    if move_idx < 2 {
+        return 0;
+    }
+    if tt_mv.is_some_and(|t| t == m) {
+        return 0;
+    }
+    let mut less = 0;
+    if m.from.is_some_and(|_| board.piece_at(m.to).is_some()) {
+        match p::CAPTURE_LMR() {
+            0 => return 0,
+            1 if see_swap(board, m) >= 0 => return 0,
+            1 => {}
+            _ => {
+                if see_swap(board, m) >= 0 {
+                    less = 1;
+                }
+            }
+        }
+    } else if m.promote && !promotion_counts_as_quiet(m) {
+        return 0;
+    }
+    if killers.contains(&Some(m)) {
+        match p::KILLER_LMR() {
+            0 => return 0,
+            1 => less = 1,
+            _ => {}
+        }
+    }
+    let mut r = lmr_base_reduction(depth, move_idx).saturating_sub(less);
+    if board.piece_at(m.to).is_some() {
+        return r;
+    }
+    let hist = history.get(stm, m);
+    if hist > p::LMR_HIST() {
+        r = r.saturating_sub(1);
+    } else if hist < -p::LMR_HIST() && depth >= 5 {
+        r += 1;
+    }
+    r
+}
+
+/// What late move reductions know about the node beyond the move itself.
+#[derive(Clone, Copy)]
+pub(super) struct LmrContext {
+    pub(super) pv: bool,
+    /// Expected cut node.
+    pub(super) cut: bool,
+    pub(super) improving: bool,
+    pub(super) cont: ContMoves,
+    /// Reduce less for a PV flag (`TT_PV_MODE`, `TTPV_LMR16`).
+    pub(super) tt_pv: bool,
+    /// The node's TT move is a capture (`LMR_TTCAP16`).
+    pub(super) tt_capture: bool,
+    /// Opponent pieces, to tell quiet moves.
+    pub(super) enemy: Bitboard,
+}
+
+impl LmrContext {
+    /// History of `m` at this node: butterfly + continuation + two-ply
+    /// follow-up.
+    #[inline]
+    pub(super) fn history_of(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
+        self.cont.primary_score(history, stm, m)
+    }
+}
+
+/// Adjust the base reduction `r` of a reducible move (0 stays 0). The
+/// adjustments are summed in sixteenths of a ply and rounded, so that the
+/// tuner can move them in small steps.
+#[inline]
+pub(super) fn lmr_adjust(
+    r: u32,
+    ctx: &LmrContext,
+    history: &HistoryTable,
+    stm: Color,
+    m: Move,
+) -> u32 {
+    if r == 0 {
+        return 0;
+    }
+    let mut r16 = r as i32 * 16;
+    let scale = p::LMR_STAT_SCALE();
+    if scale != 0 {
+        r16 -= ctx.history_of(history, stm, m) * scale / (1 << 13);
+    }
+    if ctx.pv {
+        r16 -= p::LMR_PV_LESS16();
+    }
+    if ctx.cut {
+        r16 += p::CUT_LMR16();
+    }
+    if ctx.tt_pv {
+        r16 -= p::TTPV_LMR16();
+    }
+    if ctx.tt_capture && !ctx.enemy.contains(m.to) {
+        r16 += p::LMR_TTCAP16();
+    }
+    if !ctx.improving {
+        r16 += p::LMR_NOT_IMPROVING16();
+    }
+    ((r16 + 8) / 16).max(0) as u32
+}
+
+#[inline]
+pub(super) fn lmr_base_reduction(depth: u32, move_idx: usize) -> u32 {
+    const DEPTHS: usize = 128;
+    const MOVES: usize = 600;
+    if (depth as usize) < DEPTHS && move_idx < MOVES {
+        let table = LMR_REDUCTION_TABLE.get_or_init(|| {
+            let move_lns: [f32; MOVES] = std::array::from_fn(|index| (index.max(1) as f32).ln());
+            (0..DEPTHS)
+                .map(|d| {
+                    let depth_ln = (d.max(1) as f32).ln();
+                    std::array::from_fn(|index| lmr_formula(depth_ln, move_lns[index]) as u8)
+                })
+                .collect::<Vec<_>>()
+                .into_boxed_slice()
+        });
+        table[depth as usize][move_idx] as u32
+    } else {
+        lmr_formula((depth as f32).ln(), (move_idx as f32).ln()) as u32
+    }
+}
+
+/// Base late move reduction from the logarithms of depth and move number:
+/// `BASE + ln(depth) * ln(move) / DIV` (1 + ... / 2 by default). The table
+/// above is built on first use, so tuning options must be set before the
+/// first search.
+#[inline]
+fn lmr_formula(depth_ln: f32, move_ln: f32) -> f32 {
+    p::LMR_BASE16() as f32 / 16.0 + depth_ln * move_ln / (p::LMR_DIV100() as f32 / 100.0)
+}
 
 /// The parent's state that decides whether a late move is skipped.
 #[derive(Clone, Copy)]
