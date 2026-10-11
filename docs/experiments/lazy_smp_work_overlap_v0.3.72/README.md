@@ -44,6 +44,14 @@ normal ordering. Its diagnostic values improved only slightly, while the same
 64-game screen ended 22-40-2 (about -100 +/- 90 Elo). The candidate was
 rejected and its implementation removed.
 
+A third temporary candidate kept worker zero's aspiration window unchanged and
+scaled the three helpers to 200%, 50%, and 400%. Four-worker cross-worker
+visits fell to 20.3% and shared fingerprints to 12.7%, but median depth fell to
+14.5. Its 64-game screen ended 31-33-0 (about -11 +/- 87 Elo). This candidate
+was also rejected and removed. Together, these screens show that reducing the
+overlap estimate alone is not an adoption criterion; completed depth and paired
+match results still control the decision.
+
 ## Reproduction
 
 The ordinary shared-table lane is:
