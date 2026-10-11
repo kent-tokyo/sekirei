@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search diagnostics: add an opt-in Lazy SMP counter path and extend the
+  thread-scaling tool with worker TT hit/store counts, shared-table collision
+  topology, repeated-position best-move stability, and explicit warning that
+  counter-enabled runs are not timing baselines. The default search path is
+  unchanged.
 - CSA: let bounded multi-game runs reconnect up to three times after a
   post-game transport close while preserving completed-game progress. Failed
   recovery is recorded as `post_game_reconnect_exhausted`; mid-game, protocol,

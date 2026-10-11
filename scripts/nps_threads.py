@@ -1,11 +1,16 @@
 #!/usr/bin/env python3
 """Thread-scaling measurement for a USI engine (Sekirei or YaneuraOu).
 
-For each thread count, every position is searched once with ``go movetime``
+For each thread count, every position is searched with ``go movetime``
 and the last ``info`` line's depth and nodes are recorded.  The report gives
 the median NPS, the median depth, and the NPS ratio against 1 thread, so the
 multi-thread setting used for the final judgement (4 threads) can be compared
 with the 1-thread figures every SPRT so far was run at.
+
+``--lazy-diagnostics`` enables Sekirei's opt-in counter path and records
+worker-local TT probes/hits/stores plus shared-table write collisions.  This
+adds relaxed atomic counter traffic, so use a separate run without it for NPS.
+Use ``--repeats`` to measure root-bestmove stability on the same positions.
 
 Sekirei, Lazy SMP vs the default speculative mode::
 
@@ -107,16 +112,114 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
             node_share_permille = int(parts[parts.index("node_share_permille") + 1])
             agreement, workers = parts[parts.index("move_agreement") + 1].split("/", 1)
             stop_lag_ms = int(parts[parts.index("stop_lag_ms") + 1])
-            return {
+            result = {
                 "selected_worker": selected,
                 "selected_node_share_permille": node_share_permille,
                 "move_agreement": int(agreement),
                 "workers": int(workers),
                 "stop_lag_ms": stop_lag_ms,
             }
+            summary = parts[-1]
+            worker_stats = parse_lazy_workers(summary)
+            if worker_stats:
+                result["worker_stats"] = worker_stats
+            return result
         except (ValueError, IndexError):
             return None
     return None
+
+
+def parse_lazy_workers(summary: str) -> list[dict[str, int | str | bool]]:
+    """Parse the compact comma-separated Lazy SMP worker summary."""
+    workers = []
+    for raw_worker in summary.split(","):
+        fields = raw_worker.split(":")
+        if len(fields) != 10 or not fields[0].startswith("w"):
+            return []
+        worker_label = fields[0]
+        selected = worker_label.endswith("*")
+        try:
+            workers.append(
+                {
+                    "worker": int(worker_label[1:].removesuffix("*")),
+                    "selected": selected,
+                    "depth": int(fields[1].removeprefix("d")),
+                    "nodes": int(fields[2].removeprefix("n")),
+                    "score": int(fields[3].removeprefix("s")),
+                    "elapsed_ms": int(fields[4].removeprefix("t")),
+                    "aborted": fields[5].removeprefix("x") == "1",
+                    "abort_reason": fields[6].removeprefix("a"),
+                    "tt_probes": int(fields[7].removeprefix("p")),
+                    "tt_hits": int(fields[8].removeprefix("h")),
+                    "tt_stores": int(fields[9].removeprefix("r")),
+                }
+            )
+        except ValueError:
+            return []
+    return workers
+
+
+def parse_lazy_smp_tt(lines: list[str]) -> dict[str, int] | None:
+    """Aggregate TT diagnostics from the last Lazy SMP TT info line."""
+    prefix = "info string lazy_smp_tt "
+    keys = (
+        "probes",
+        "hits",
+        "attempted",
+        "committed",
+        "same_hash",
+        "equal_depth",
+        "shallower_rejected",
+        "collision_overwrites",
+    )
+    for line in reversed(lines):
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix) :].split()
+        try:
+            return {key: int(parts[parts.index(key) + 1]) for key in keys}
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
+def parse_bestmove(lines: list[str]) -> str:
+    for line in reversed(lines):
+        if line.startswith("bestmove "):
+            return line.split(maxsplit=2)[1]
+    return ""
+
+
+def go_command(args: argparse.Namespace) -> str:
+    if args.depth is not None:
+        return f"go depth {args.depth}"
+    return f"go movetime {args.movetime}"
+
+
+def summarize_lazy_tt(rows: list[dict]) -> dict[str, float | int] | None:
+    diagnostics = [row.get("lazy_smp_tt") for row in rows]
+    diagnostics = [item for item in diagnostics if item is not None]
+    if not diagnostics:
+        return None
+    totals = {
+        key: sum(item[key] for item in diagnostics)
+        for key in (
+            "probes",
+            "hits",
+            "attempted",
+            "committed",
+            "same_hash",
+            "equal_depth",
+            "shallower_rejected",
+            "collision_overwrites",
+        )
+    }
+    totals["hit_rate"] = totals["hits"] / max(totals["probes"], 1)
+    totals["same_hash_rate"] = totals["same_hash"] / max(totals["attempted"], 1)
+    totals["collision_rate"] = totals["collision_overwrites"] / max(
+        totals["attempted"], 1
+    )
+    return totals
 
 
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
@@ -143,6 +246,8 @@ def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
         ]
         if args.evalfile is not None:
             options.insert(0, f"EvalFile={Path(args.evalfile).resolve()}")
+        if args.lazy_diagnostics:
+            options.append("LazyDiagnostics=true")
     return options + list(args.option)
 
 
@@ -171,41 +276,54 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
     rows = []
     try:
         for index, position in enumerate(positions):
-            engine.send("usinewgame")
-            engine.send(f"position {position}")
-            start = time.perf_counter()
-            engine.send(f"go movetime {args.movetime}")
-            lines = engine.wait_for("bestmove")
-            elapsed = time.perf_counter() - start
-            depth, nodes, nps = parse_info(lines)
-            lazy_smp = parse_lazy_smp(lines)
-            if nps == 0 and elapsed > 0:
-                nps = int(nodes / elapsed)
-            row = {
-                "threads": threads,
-                "position": index,
-                "depth": depth,
-                "nodes": nodes,
-                "nps": nps,
-                "elapsed_ms": round(elapsed * 1000),
-            }
-            if lazy_smp is not None:
-                row["lazy_smp"] = lazy_smp
-            rows.append(row)
-            lazy_suffix = ""
-            if lazy_smp is not None:
-                lazy_suffix = (
-                    f" selected w{lazy_smp['selected_worker']}"
-                    f" share {lazy_smp['selected_node_share_permille'] / 10:.1f}%"
-                    f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
-                    f" lag {lazy_smp['stop_lag_ms']}ms"
+            for repeat in range(args.repeats):
+                engine.send("usinewgame")
+                engine.send(f"position {position}")
+                start = time.perf_counter()
+                engine.send(go_command(args))
+                lines = engine.wait_for("bestmove")
+                elapsed = time.perf_counter() - start
+                depth, nodes, nps = parse_info(lines)
+                lazy_smp = parse_lazy_smp(lines)
+                lazy_smp_tt = parse_lazy_smp_tt(lines)
+                if nps == 0 and elapsed > 0:
+                    nps = int(nodes / elapsed)
+                row = {
+                    "threads": threads,
+                    "position": index,
+                    "repeat": repeat,
+                    "bestmove": parse_bestmove(lines),
+                    "depth": depth,
+                    "nodes": nodes,
+                    "nps": nps,
+                    "elapsed_ms": round(elapsed * 1000),
+                }
+                if lazy_smp is not None:
+                    row["lazy_smp"] = lazy_smp
+                if lazy_smp_tt is not None:
+                    row["lazy_smp_tt"] = lazy_smp_tt
+                rows.append(row)
+                lazy_suffix = ""
+                if lazy_smp is not None:
+                    lazy_suffix = (
+                        f" selected w{lazy_smp['selected_worker']}"
+                        f" share {lazy_smp['selected_node_share_permille'] / 10:.1f}%"
+                        f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
+                        f" lag {lazy_smp['stop_lag_ms']}ms"
+                    )
+                if lazy_smp_tt is not None:
+                    hit_rate = lazy_smp_tt["hits"] / max(lazy_smp_tt["probes"], 1)
+                    lazy_suffix += (
+                        f" tt-hit {hit_rate:.1%}"
+                        f" collisions {lazy_smp_tt['collision_overwrites']}"
+                    )
+                print(
+                    f"  threads {threads} pos {index:2d} run {repeat + 1}:"
+                    f" depth {depth:2d} nodes {nodes:9d} nps {nps:8d}"
+                    f" bestmove {row['bestmove']}{lazy_suffix}",
+                    file=sys.stderr,
+                    flush=True,
                 )
-            print(
-                f"  threads {threads} pos {index:2d}: depth {depth:2d} "
-                f"nodes {nodes:9d} nps {nps:8d}{lazy_suffix}",
-                file=sys.stderr,
-                flush=True,
-            )
     finally:
         engine.quit()
     return rows
@@ -222,11 +340,21 @@ def main() -> int:
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--hash", type=int, default=64)
     parser.add_argument("--threads", default="1,2,4", help="comma-separated thread counts")
-    parser.add_argument("--movetime", type=int, default=2000, help="ms per position")
+    budget = parser.add_mutually_exclusive_group()
+    budget.add_argument("--movetime", type=int, default=2000, help="ms per position")
+    budget.add_argument("--depth", type=int, help="fixed depth instead of wall time")
     parser.add_argument(
         "--positions", default=str(ROOT / "data/gate/openings_standard.sfen")
     )
     parser.add_argument("--count", type=int, default=20, help="positions to use")
+    parser.add_argument(
+        "--repeats", type=int, default=1, help="search each position this many times"
+    )
+    parser.add_argument(
+        "--lazy-diagnostics",
+        action="store_true",
+        help="enable opt-in Sekirei Lazy SMP TT counters (adds overhead)",
+    )
     parser.add_argument(
         "--option", action="append", default=[], help="extra USI option Name=Value"
     )
@@ -234,6 +362,12 @@ def main() -> int:
     args = parser.parse_args()
     if args.yaneuraou and args.evalfile is None:
         parser.error("--yaneuraou requires --evalfile")
+    if args.yaneuraou and args.lazy_diagnostics:
+        parser.error("--lazy-diagnostics is Sekirei-only")
+    if args.repeats < 1:
+        parser.error("--repeats must be at least 1")
+    if args.depth is not None and args.depth < 1:
+        parser.error("--depth must be at least 1")
 
     positions = read_positions(args.positions, args.count)
     thread_counts = [int(t) for t in args.threads.split(",")]
@@ -250,16 +384,41 @@ def main() -> int:
 
     base = statistics.median(r["nps"] for r in results[thread_counts[0]])
     label = Path(args.engine).name + (" " + " ".join(args.option) if args.option else "")
-    print(f"{label}: {len(positions)} positions, {args.movetime} ms each")
-    print("threads  median NPS   ratio  median depth  min..max depth")
+    budget_label = (
+        f"fixed depth {args.depth}"
+        if args.depth is not None
+        else f"{args.movetime} ms each"
+    )
+    print(f"{label}: {len(positions)} positions x {args.repeats} repeats, {budget_label}")
+    print("threads  median NPS   ratio  median depth  min..max depth  bestmove stability")
     for threads in thread_counts:
         rows = results[threads]
         nps = statistics.median(r["nps"] for r in rows)
         depths = [r["depth"] for r in rows]
+        stable = []
+        for position in range(len(positions)):
+            moves = [r["bestmove"] for r in rows if r["position"] == position]
+            stable.append(max(moves.count(move) for move in set(moves)) / len(moves))
         print(
             f"{threads:7d}  {nps:10.0f}  {nps / base:6.2f}  "
             f"{statistics.median(depths):12.1f}  {min(depths)}..{max(depths)}"
+            f"  {statistics.mean(stable):17.1%}"
         )
+    tt_summaries = {
+        threads: summarize_lazy_tt(results[threads]) for threads in thread_counts
+    }
+    if any(summary is not None for summary in tt_summaries.values()):
+        print("TT diagnostic lane (counter overhead included; do not use as timing baseline)")
+        print("threads  hit rate  same-hash writes  collision writes")
+        for threads in thread_counts:
+            summary = tt_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['hit_rate']:8.1%}"
+                f"  {summary['same_hash_rate']:16.1%}"
+                f"  {summary['collision_rate']:15.3%}"
+            )
     return 0
 
 

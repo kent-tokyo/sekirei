@@ -136,6 +136,54 @@ fn threads_zero_matches_the_advertised_usi_range() {
 }
 
 #[test]
+fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name LazyDiagnostics type check default false")
+    );
+
+    for command in [
+        "setoption name Hash value 1",
+        "setoption name Threads value 2",
+        "setoption name SearchMode value LazySMP",
+        "setoption name LazyDiagnostics value true",
+    ] {
+        send(&mut stdin, command);
+    }
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(10));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go nodes 2000 depth 6");
+    let search = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(10),
+    );
+    assert!(
+        search
+            .iter()
+            .any(|line| line.starts_with("info string lazy_smp_tt probes ")),
+        "missing aggregate TT diagnostics: {search:?}"
+    );
+    assert!(
+        search.iter().any(|line| {
+            line.starts_with("info string lazy_smp selected ")
+                && line.contains(":p")
+                && line.contains(":h")
+                && line.contains(":r")
+        }),
+        "missing worker TT diagnostics: {search:?}"
+    );
+
+    send(&mut stdin, "quit");
+    let _ = child.wait();
+}
+
+#[test]
 fn spin_options_reject_values_outside_the_advertised_ranges() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");

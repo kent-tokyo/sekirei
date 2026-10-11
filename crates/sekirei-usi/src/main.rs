@@ -29,7 +29,7 @@ use sekirei_core::{
         SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
-    tt::Tt,
+    tt::{Tt, TtWriteSnapshot},
 };
 
 #[cfg(feature = "opening-book")]
@@ -77,6 +77,9 @@ const SEARCH_STACK_BYTES: usize = RECURSIVE_SEARCH_STACK_BYTES;
 const DEFAULT_SPEC_TOP_N: usize = 0;
 // Lazy SMP behaviour switches (USI option LazyFlags, `lazy_smp::LAZY_*`).
 static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
+// Opt-in per-node counters for Lazy SMP scaling measurements. Production
+// searches keep this false because even relaxed atomics perturb throughput.
+static LAZY_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 // MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
 // MultiPV > 1 (only the speculative searcher reports several root lines).
 static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
@@ -122,6 +125,7 @@ struct SearchResult {
     /// never attributed to another root candidate.
     pv: Vec<sekirei_core::mv::Move>,
     worker_stats: Vec<LazySmpWorkerInfo>,
+    lazy_tt_writes: Option<TtWriteSnapshot>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
@@ -175,12 +179,13 @@ impl SearchBackend {
     }
 
     fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
-        Self::LazySmp(Arc::new(LazySmpSearcher::with_flags_and_hash_mb(
-            Tt::new(hash_mb),
-            workers,
-            LAZY_FLAGS.load(Ordering::Relaxed),
-            hash_mb,
-        )))
+        let flags = LAZY_FLAGS.load(Ordering::Relaxed);
+        let searcher = if LAZY_DIAGNOSTICS.load(Ordering::Relaxed) {
+            LazySmpSearcher::diagnostic(workers, flags, hash_mb)
+        } else {
+            LazySmpSearcher::with_flags_and_hash_mb(Tt::new(hash_mb), workers, flags, hash_mb)
+        };
+        Self::LazySmp(Arc::new(searcher))
     }
 
     fn dfpn() -> Self {
@@ -261,6 +266,7 @@ impl SearchBackend {
                 pv_list: Vec::new(),
                 pv: Vec::new(),
                 worker_stats: Vec::new(),
+                lazy_tt_writes: None,
                 shared_mcts_stats: None,
                 root_safety: None,
             };
@@ -299,6 +305,7 @@ impl SearchBackend {
                     pv_list: Vec::new(),
                     pv: result.pv,
                     worker_stats: info.worker_results,
+                    lazy_tt_writes: info.tt_writes,
                     shared_mcts_stats: None,
                     root_safety: None,
                 }
@@ -342,6 +349,7 @@ impl SearchBackend {
                     pv_list: Vec::new(),
                     pv: result.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
+                    lazy_tt_writes: None,
                     shared_mcts_stats: None,
                     root_safety: None,
                 }
@@ -383,6 +391,7 @@ impl SearchBackend {
                     pv_list: Vec::new(),
                     pv: info.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
+                    lazy_tt_writes: None,
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
@@ -406,6 +415,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         pv_list: Vec::new(),
         pv: info.pv,
         worker_stats: Vec::new(),
+        lazy_tt_writes: None,
         shared_mcts_stats: None,
         root_safety: None,
     }
@@ -422,6 +432,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         pv_list: info.pv_list,
         pv: info.pv,
         worker_stats: Vec::new(),
+        lazy_tt_writes: None,
         shared_mcts_stats: None,
         root_safety: None,
     }
@@ -557,6 +568,93 @@ fn score_to_usi(score: i32) -> String {
     }
 }
 
+fn emit_lazy_smp_diagnostics(info: &SearchResult) {
+    if info.worker_stats.is_empty() {
+        return;
+    }
+    let total_worker_nodes = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.nodes)
+        .sum::<u64>();
+    let selected_index = info
+        .worker_stats
+        .iter()
+        .position(|worker| worker.selected)
+        .expect("Lazy SMP diagnostics must identify the selected worker");
+    let selected = info.worker_stats[selected_index];
+    let selected_share_permille = selected
+        .nodes
+        .saturating_mul(1000)
+        .checked_div(total_worker_nodes)
+        .unwrap_or(0);
+    let agreement = info
+        .worker_stats
+        .iter()
+        .filter(|worker| worker.best_move == selected.best_move)
+        .count();
+    // This is an end-to-end worker-duration spread, not a timestamped
+    // measurement from the instant the shared abort flag was raised.
+    let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
+    let max_elapsed_ms = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.elapsed.as_millis())
+        .max()
+        .unwrap_or(main_elapsed_ms);
+    let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
+    let summary = info
+        .worker_stats
+        .iter()
+        .enumerate()
+        .map(|(i, worker)| {
+            let marker = if worker.selected { "*" } else { "" };
+            format!(
+                "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}",
+                worker.depth,
+                worker.nodes,
+                worker.score,
+                worker.elapsed.as_millis(),
+                u8::from(worker.aborted),
+                worker.abort_reason,
+                worker.tt_probes,
+                worker.tt_hits,
+                worker.tt_stores,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    println!(
+        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
+        info.worker_stats.len()
+    );
+}
+
+fn emit_lazy_smp_tt_diagnostics(info: &SearchResult) {
+    let Some(writes) = info.lazy_tt_writes else {
+        return;
+    };
+    let probes = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.tt_probes)
+        .sum::<u64>();
+    let hits = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.tt_hits)
+        .sum::<u64>();
+    println!(
+        "info string lazy_smp_tt probes {probes} hits {hits} attempted {} committed {} same_hash {} equal_depth {} shallower_rejected {} collision_overwrites {}",
+        writes.attempted,
+        writes.committed,
+        writes.same_hash,
+        writes.equal_depth_overwrites,
+        writes.shallower_rejections,
+        writes.collision_overwrites,
+    );
+}
+
 /// Emit the complete response for one search generation.  Keeping this in one
 /// place prevents `go`, `stop`, and `ponderhit` from rendering a completed
 /// result with subtly different score/PV/ponder semantics.
@@ -568,61 +666,8 @@ fn emit_search_result(
 ) {
     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
-    if !info.worker_stats.is_empty() {
-        let total_worker_nodes = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.nodes)
-            .sum::<u64>();
-        let selected_index = info
-            .worker_stats
-            .iter()
-            .position(|worker| worker.selected)
-            .expect("Lazy SMP diagnostics must identify the selected worker");
-        let selected = info.worker_stats[selected_index];
-        let selected_share_permille = selected
-            .nodes
-            .saturating_mul(1000)
-            .checked_div(total_worker_nodes)
-            .unwrap_or(0);
-        let agreement = info
-            .worker_stats
-            .iter()
-            .filter(|worker| worker.best_move == selected.best_move)
-            .count();
-        // This is an end-to-end worker-duration spread, not a timestamped
-        // measurement from the instant the shared abort flag was raised.
-        let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
-        let max_elapsed_ms = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.elapsed.as_millis())
-            .max()
-            .unwrap_or(main_elapsed_ms);
-        let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
-        let summary = info
-            .worker_stats
-            .iter()
-            .enumerate()
-            .map(|(i, worker)| {
-                let marker = if worker.selected { "*" } else { "" };
-                format!(
-                    "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}",
-                    worker.depth,
-                    worker.nodes,
-                    worker.score,
-                    worker.elapsed.as_millis(),
-                    u8::from(worker.aborted),
-                    worker.abort_reason
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        println!(
-            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
-            info.worker_stats.len()
-        );
-    }
+    emit_lazy_smp_diagnostics(&info);
+    emit_lazy_smp_tt_diagnostics(&info);
     if let Some(root_safety) = info.root_safety {
         println!(
             "info string root_mate_safety mate1_cache_hits {} blunder_cache_hits {} mate1_nodes {} blunder_nodes {}",
@@ -841,6 +886,7 @@ fn main() {
                 );
                 print_spin_option("SpecTopN", DEFAULT_SPEC_TOP_N as u64, SPEC_TOP_N_RANGE);
                 print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
+                println!("option name LazyDiagnostics type check default false");
                 print_spin_option("MoveOverhead", 50, MOVE_OVERHEAD_RANGE);
                 print_spin_option("IncrementUsePercent", 75, INCREMENT_USE_PERCENT_RANGE);
                 println!("option name Ponder type check default false");
@@ -983,6 +1029,19 @@ fn main() {
                             "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
                         );
                     }
+                } else if option_name == Some("LazyDiagnostics") {
+                    let Some(enabled) = parse_check_option_or_report(&parts, "LazyDiagnostics")
+                    else {
+                        continue;
+                    };
+                    abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
+                    LAZY_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    searcher = make_searcher(
+                        hash_mb,
+                        spec_top_n,
+                        threads_for_lazy_smp(threads),
+                        search_mode,
+                    );
                 } else if option_name == Some("LazyFlags")
                     && let Some(flags) =
                         parse_spin_option_or_report(&parts, "LazyFlags", LAZY_FLAGS_RANGE)
@@ -1627,6 +1686,32 @@ fn parse_spin_option_or_report(parts: &[&str], option_name: &str, range: SpinRan
     }
 }
 
+fn parse_check_option(parts: &[&str], option_name: &str) -> Result<bool, String> {
+    let raw = parts.get(3).copied().unwrap_or("<missing>");
+    if parts.get(2) != Some(&"value") {
+        return Err(format!(
+            "info string invalid {option_name} value {raw}; expected setoption name {option_name} value <true|false>"
+        ));
+    }
+    match raw {
+        "true" => Ok(true),
+        "false" => Ok(false),
+        _ => Err(format!(
+            "info string invalid {option_name} value {raw}; expected true or false"
+        )),
+    }
+}
+
+fn parse_check_option_or_report(parts: &[&str], option_name: &str) -> Option<bool> {
+    match parse_check_option(parts, option_name) {
+        Ok(value) => Some(value),
+        Err(error) => {
+            println!("{error}");
+            None
+        }
+    }
+}
+
 fn parse_unit_interval_option(parts: &[&str], option_name: &str) -> Result<f64, String> {
     let raw = parts.get(3).copied().unwrap_or("<missing>");
     if parts.get(2) != Some(&"value") {
@@ -1890,6 +1975,31 @@ mod tests {
             parse_spin_option(&["name", "Hash", "not-value", "64"], "Hash", HASH_MB_RANGE,)
                 .is_err()
         );
+    }
+
+    #[test]
+    fn check_option_parser_accepts_only_explicit_boolean_values() {
+        assert_eq!(
+            parse_check_option(
+                &["name", "LazyDiagnostics", "value", "true"],
+                "LazyDiagnostics",
+            ),
+            Ok(true)
+        );
+        assert_eq!(
+            parse_check_option(
+                &["name", "LazyDiagnostics", "value", "false"],
+                "LazyDiagnostics",
+            ),
+            Ok(false)
+        );
+        for parts in [
+            &["name", "LazyDiagnostics"][..],
+            &["name", "LazyDiagnostics", "not-value", "true"][..],
+            &["name", "LazyDiagnostics", "value", "yes"][..],
+        ] {
+            assert!(parse_check_option(parts, "LazyDiagnostics").is_err());
+        }
     }
 
     #[test]

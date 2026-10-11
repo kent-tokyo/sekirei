@@ -430,6 +430,18 @@ impl Drop for ProfileTimer<'_> {
 }
 
 impl SearchDiagnostics {
+    /// Create an observer that records per-node counters without wall-clock
+    /// timers. This is intended for parallel-scaling diagnostics: atomic
+    /// counters still perturb throughput, but avoiding a clock read around
+    /// every hot-path component keeps that perturbation bounded and explicit.
+    pub fn counters_only() -> Self {
+        Self {
+            timing: false,
+            per_node: true,
+            ..Self::new()
+        }
+    }
+
     /// Create an observer that records only the root mate-safety counters.
     /// Production USI searches use this: per-node atomic counters and clock
     /// reads would otherwise cost a large share of search throughput.
@@ -981,6 +993,28 @@ impl Searcher {
             tt,
             external_abort,
             diagnostics: None,
+            eval_cache: active_eval_cache(),
+            pruning: PruningConfig::default(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
+            depth_skew: 0,
+        }
+    }
+
+    /// Create a searcher using a caller-owned abort flag and diagnostics.
+    ///
+    /// Lazy SMP uses this only for explicitly enabled scaling measurements;
+    /// production workers keep [`Self::with_abort_flag`] and therefore pay no
+    /// per-node diagnostic-counter cost.
+    pub fn with_abort_flag_and_diagnostics(
+        tt: Arc<Tt>,
+        external_abort: Arc<AtomicBool>,
+        diagnostics: Arc<SearchDiagnostics>,
+    ) -> Self {
+        Searcher {
+            tt,
+            external_abort,
+            diagnostics: Some(diagnostics),
             eval_cache: active_eval_cache(),
             pruning: PruningConfig::default(),
             history: Arc::new(HistoryTable::new()),
