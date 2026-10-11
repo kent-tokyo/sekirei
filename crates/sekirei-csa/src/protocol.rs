@@ -681,6 +681,14 @@ impl CsaClient {
         self.status_state == "client_error"
     }
 
+    /// Publish a terminal authenticated-session failure without discarding
+    /// the session identity or bounded-run progress needed by the supervisor.
+    pub fn mark_run_error(&mut self, completed_attempts: u32) {
+        self.status_details.completed_attempts = completed_attempts;
+        self.status_details.terminal_stop_reason = Some("run_error".into());
+        self.set_status("client_error", Some("run_error"));
+    }
+
     // ---- Private ----
 
     fn write_status(&self, state: &str, event: Option<&str>) {

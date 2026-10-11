@@ -328,6 +328,37 @@ def test_one_shot_preserves_normal_max_games_terminal_reason():
         assert completion["completed_attempts"] == 3
 
 
+def test_one_shot_preserves_reported_run_error_terminal_reason():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        code = (
+            "import json, os, pathlib, time; "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'client_error','event':'run_error','timestamp_ms':int(time.time()*1000),"
+            "'pid':os.getpid(),'session_id':'session-1','active_game_id':None,"
+            "'completed_attempts':3,'max_games':10,'terminal_stop_reason':'run_error'})); "
+            "time.sleep(0.08); raise SystemExit(1)"
+        )
+        result = supervisor.run(
+            [sys.executable, "-c", code], state_dir, root / "stop",
+            max_restarts=5, restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+            client_status_file=status_file, client_status_max_age=2.0, one_shot=True,
+        )
+        assert result == 0
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "run_error"
+        assert completion["completed_attempts"] == 3
+        assert completion["max_games"] == 10
+        assert completion["child_exit_code"] == 1
+        events = [json.loads(line) for line in (state_dir / "events.jsonl").read_text().splitlines()]
+        assert [event["kind"] for event in events].count("started") == 1
+        assert all(event["kind"] != "restart_scheduled" for event in events)
+        assert events[-1]["kind"] == "one_shot_complete"
+
+
 def test_runtime_explicit_stop_before_start_does_not_spawn_child():
     with tempfile.TemporaryDirectory() as directory:
         state_dir = Path(directory) / "state"
@@ -465,6 +496,7 @@ if __name__ == "__main__":
     test_runtime_restarts_unexpected_exit_then_opens_circuit_breaker()
     test_one_shot_records_interrupted_zero_game_session_and_never_respawns()
     test_one_shot_preserves_normal_max_games_terminal_reason()
+    test_one_shot_preserves_reported_run_error_terminal_reason()
     test_runtime_explicit_stop_before_start_does_not_spawn_child()
     test_runtime_rejects_a_second_supervisor_for_the_same_state_directory()
     test_runtime_normal_exit_is_not_restarted()
