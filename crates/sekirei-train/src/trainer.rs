@@ -4727,7 +4727,10 @@ mod tests {
         let board = Board::startpos();
         let mut trainer = Trainer::new(14, 0.5);
         assert_eq!(trainer.avg_loss(), 0.0);
-        trainer.weights.ft_bias[0] = 127.0;
+        // Keep this fixture independent of the active feature layout.  A value
+        // exactly on the clipping boundary can be pulled below it by the
+        // randomly initialized active feature weights.
+        trainer.weights.ft_bias[0] = 10_000.0;
         trainer.trace_positions = [1u64].into_iter().collect();
         trainer.weight_snapshot_trace = true;
         trainer.diagnostic_rate_matched_mask_count = 1;
