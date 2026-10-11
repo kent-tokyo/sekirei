@@ -32,7 +32,7 @@ use crate::board::Board;
 use crate::budget::{Budget, soft_limit_expired};
 use crate::color::Color;
 use crate::eval::{PIECE_VALUE, evaluate, evaluation_cache_key};
-use crate::movegen::{MoveBuffer, is_in_check, mate_in_one, move_gives_direct_check};
+use crate::movegen::{MoveBuffer, is_in_check, mate_in_one};
 #[cfg(test)]
 use crate::movegen::{discovered_check_candidates, generate_legal_captures, generate_legal_moves};
 use crate::mv::{Move, MoveToken};
@@ -40,6 +40,7 @@ use crate::nnue::weights_active;
 use crate::piece::PieceKind;
 use crate::sfen::{PositionHistory, PositionHistoryEntry, RepetitionOutcome};
 use crate::speculative::{SpecGroup, SpecState};
+#[cfg(test)]
 use crate::square::Square;
 use crate::tt::{Bound, Tt, TtEntry};
 
@@ -75,6 +76,7 @@ pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
 mod child_search;
 mod heuristics;
 mod late_move;
+mod move_order;
 mod node;
 pub mod params;
 mod path;
@@ -85,11 +87,16 @@ mod v2;
 use child_search::pvs_child;
 use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
-    pack_killer,
 };
 use late_move::{
     LateMoveNode, LmrContext, check_reduction_cap, lmr_adjust, lmr_base_reduction, lmr_reduce,
     promotion_counts_as_quiet,
+};
+#[cfg(test)]
+use move_order::sort_by_cached_i32_key_small;
+use move_order::{
+    QSEARCH_TT_ORDER_OFFSET, order_moves_head, order_moves_in_place, qsearch_order_key,
+    sort_moves_by_cached_key,
 };
 use node::NodeKey;
 use params as p;
@@ -3793,345 +3800,6 @@ fn update_quiet_heuristics(
             countermoves.update(stm.flip(), pm, m);
         }
     }
-}
-
-/// Offset that places every non-TT move after the TT move in the qsearch
-/// order key; `qsearch_order_key` stays far below it.
-const QSEARCH_TT_ORDER_OFFSET: i32 = 1_000_000;
-
-/// Cheap MVV-LVA-style ordering key for quiescence: victim (+ promotion gain)
-/// minus the attacker value. No board mutation, no recursion — fast enough to
-/// call on every move at every qsearch node. Non-captures score by promotion
-/// gain alone (0 for plain quiet moves).
-#[inline]
-fn qsearch_order_key(board: &Board, m: Move) -> i32 {
-    let victim = board
-        .piece_at(m.to)
-        .map_or(0, |c| PIECE_VALUE[c.kind.index()]);
-    let promo = if m.promote {
-        PIECE_VALUE[m.piece_kind.promoted().index()] - PIECE_VALUE[m.piece_kind.index()]
-    } else {
-        0
-    };
-    victim + promo - PIECE_VALUE[m.piece_kind.index()]
-}
-
-#[allow(clippy::too_many_arguments)]
-fn order_moves_in_place(
-    board: &mut Board,
-    moves: &mut [Move],
-    tt_mv: Option<Move>,
-    killers: [Option<Move>; 2],
-    countermove: Option<Move>,
-    cont: ContMoves,
-    history: &HistoryTable,
-    stm: Color,
-    diagnostics: Option<&SearchDiagnostics>,
-) {
-    // sort_by_cached_key computes the key exactly once per element, preventing
-    // races where AtomicI32 history values change between comparisons in rayon threads.
-    let pawn_bucket = (p::PAWN_HIST_WEIGHT() > 0).then(|| HistoryTable::pawn_bucket(board));
-    // Moves compared as packed codes, and the continuation rows of the node
-    // computed once: the same order as comparing the moves themselves.
-    let code = |m: Option<Move>| m.map_or(u32::MAX, pack_killer);
-    let (tt_code, k0_code, k1_code, cm_code) = (
-        code(tt_mv),
-        code(killers[0]),
-        code(killers[1]),
-        code(countermove),
-    );
-    let rows = cont.rows(stm);
-    // QTO_*: squares the opponent attacks with pieces up to each value class.
-    let threats = (p::QTO_PENALTY() > 0 || p::QTO_ESCAPE() > 0)
-        .then(|| crate::movegen::attacks_by_class(board, stm.flip()));
-    let mut key = |m: &Move| {
-        let _score_timer = ProfileTimer::new(
-            diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_score_ns)),
-        );
-        let m = *m;
-        let m_code = pack_killer(m);
-        if m_code == tt_code {
-            if let Some(d) = diagnostics {
-                d.order_tt.fetch_add(1, Ordering::Relaxed);
-            }
-            return i32::MIN;
-        } // 1. TT move first
-
-        // 2. Captures ordered by SEE (2-ply Static Exchange Evaluation)
-        //    Winning/equal (see >= 0): searched before killers
-        //    Losing (see < 0): searched after quiet moves
-        if m.from.is_some()
-            && let Some(victim) = board.piece_at(m.to)
-        {
-            let see = crate::movegen::see_swap(board, m);
-            return if see >= 0 {
-                // Best captures first; the capture history reorders them
-                // inside the band above the killers.
-                let hist = history.capture_get(stm, m, victim.kind) * p::CAPT_ORDER_WEIGHT() / 128;
-                -(10_000 + (see + hist).clamp(0, 1_999))
-            } else {
-                10_000 - see // range: 10_001 to 11_300 (losing captures last)
-            };
-        }
-
-        // ORDER_KILLER: 0 fixed slots above the history quiets (killers,
-        // then the countermove); 1 history score plus KILLER_BONUS; 2 ignored.
-        let order_killer = p::ORDER_KILLER();
-        let mut slot_bonus = 0;
-        if m_code == k0_code {
-            if let Some(d) = diagnostics {
-                d.order_killer.fetch_add(1, Ordering::Relaxed);
-            }
-            match order_killer {
-                0 => return -9_100,
-                1 => slot_bonus = p::KILLER_BONUS(),
-                _ => {}
-            }
-        } else if m_code == k1_code {
-            if let Some(d) = diagnostics {
-                d.order_killer.fetch_add(1, Ordering::Relaxed);
-            }
-            match order_killer {
-                0 => return -9_050,
-                1 => slot_bonus = p::KILLER_BONUS(),
-                _ => {}
-            }
-        } else if m_code == cm_code {
-            if let Some(d) = diagnostics {
-                d.order_countermove.fetch_add(1, Ordering::Relaxed);
-            }
-            match p::ORDER_CM() {
-                0 => return -9_000,
-                1 => slot_bonus = p::KILLER_BONUS(),
-                _ => {}
-            }
-        }
-
-        // 6. Remaining quiet moves by history score
-        if let Some(d) = diagnostics {
-            d.order_history.fetch_add(1, Ordering::Relaxed);
-        }
-        let mut score = history.get(stm, m)
-            + ContMoves::score_keyed(history, &rows, HistoryTable::key(m))
-            + slot_bonus;
-        if p::FT_WEIGHT() > 0 {
-            score += history.ft_get(stm, m) * p::FT_WEIGHT() / 16;
-        }
-        if let Some(b) = pawn_bucket {
-            score += history.pawnh_get(b, stm, m) * p::PAWN_HIST_WEIGHT() / 16;
-        }
-        // Drops near a king: attacking drops by the enemy king (DROP_KING_BONUS,
-        // times 2 when adjacent) and defending drops next to our own king
-        // (DROP_DEF_BONUS) rank ahead of other drops with the same history.
-        if m.from.is_none() && (p::DROP_KING_BONUS() > 0 || p::DROP_DEF_BONUS() > 0) {
-            let dist = |k: Square| {
-                (i32::from(m.to.file_0()) - i32::from(k.file_0()))
-                    .abs()
-                    .max((i32::from(m.to.rank_0()) - i32::from(k.rank_0())).abs())
-            };
-            if let Some(k) = board.king_square(stm.flip()) {
-                let d = dist(k);
-                if d <= 2 {
-                    score += p::DROP_KING_BONUS() * (3 - d);
-                }
-            }
-            if let Some(k) = board.king_square(stm)
-                && dist(k) <= 1
-            {
-                score += p::DROP_DEF_BONUS();
-            }
-        }
-        // QTO_PENALTY: a quiet move or drop onto a square a cheaper enemy
-        // piece attacks ranks lower; QTO_ESCAPE: moving a piece away from
-        // such a square to one that is not ranks higher.
-        if let Some(th) = &threats {
-            let kind = if m.promote {
-                m.piece_kind.promoted()
-            } else {
-                m.piece_kind
-            };
-            let k = crate::movegen::threat_class(kind);
-            if (1..7).contains(&k) {
-                if th[k - 1].contains(m.to) {
-                    score -= p::QTO_PENALTY();
-                } else if let Some(from) = m.from {
-                    let k0 = crate::movegen::threat_class(m.piece_kind);
-                    if (1..7).contains(&k0) && th[k0 - 1].contains(from) {
-                        score += p::QTO_ESCAPE();
-                    }
-                }
-            }
-        }
-        // Quiet moves and drops that hang the moved piece rank last among
-        // quiet moves (QUIET_SEE_ORDER).
-        if p::QUIET_SEE_ORDER() > 0 && crate::movegen::see_exchange(board, m) < 0 {
-            score -= p::QUIET_SEE_ORDER();
-        }
-        if p::SAFE_CHECK_BONUS() > 0
-            && move_gives_direct_check(board, m)
-            && crate::movegen::see_swap(board, m) >= -75
-        {
-            score += p::SAFE_CHECK_BONUS();
-        }
-        let score = score.clamp(-9_000, 9_000);
-        -(-8_000 + score)
-    };
-    let _sort_timer = ProfileTimer::new(
-        diagnostics.and_then(|diagnostics| diagnostics.timed(&diagnostics.move_order_sort_ns)),
-    );
-    sort_moves_by_cached_key(moves, &mut key);
-}
-
-/// ORDER_LAZY: move the TT move, the captures that do not lose material and
-/// the killer and countermove slots of `order_moves_in_place` to the front of
-/// `moves`, in that function's order, and return how many there are. The
-/// rest (quiet moves, losing captures) stays unordered for a later
-/// `order_moves_in_place` of the tail: every key of the head is below every
-/// key of the tail, so the two passes give the same order as one when the
-/// histories have not changed in between.
-#[allow(clippy::too_many_arguments)]
-fn order_moves_head(
-    board: &mut Board,
-    moves: &mut [Move],
-    tt_mv: Option<Move>,
-    killers: [Option<Move>; 2],
-    countermove: Option<Move>,
-    history: &HistoryTable,
-    stm: Color,
-) -> usize {
-    let code = |m: Option<Move>| m.map_or(u32::MAX, pack_killer);
-    let (tt_code, k0_code, k1_code, cm_code) = (
-        code(tt_mv),
-        code(killers[0]),
-        code(killers[1]),
-        code(countermove),
-    );
-    let head_key = |m: Move| -> Option<i32> {
-        let c = pack_killer(m);
-        if c == tt_code {
-            return Some(i32::MIN);
-        }
-        if m.from.is_some()
-            && let Some(victim) = board.piece_at(m.to)
-        {
-            let see = crate::movegen::see_swap(board, m);
-            if see < 0 {
-                return None;
-            }
-            let hist = history.capture_get(stm, m, victim.kind) * p::CAPT_ORDER_WEIGHT() / 128;
-            return Some(-(10_000 + (see + hist).clamp(0, 1_999)));
-        }
-        if p::ORDER_KILLER() == 0 {
-            if c == k0_code {
-                return Some(-9_100);
-            }
-            if c == k1_code {
-                return Some(-9_050);
-            }
-        }
-        if p::ORDER_CM() == 0 && c == cm_code && c != k0_code && c != k1_code {
-            return Some(-9_000);
-        }
-        None
-    };
-    // Stable partition with the head keys, then a stable sort of the head.
-    let mut head: [(i64, Move); 64] = [(0, Move::drop(Square::from_index(0), PieceKind::Fu)); 64];
-    let mut n = 0;
-    let mut tail_len = 0;
-    for idx in 0..moves.len() {
-        let m = moves[idx];
-        match head_key(m) {
-            Some(k) if n < head.len() => {
-                head[n] = ((i64::from(k) << 16) | idx as i64, m);
-                n += 1;
-            }
-            _ => {
-                moves[tail_len] = m;
-                tail_len += 1;
-            }
-        }
-    }
-    if n == 0 {
-        return 0;
-    }
-    // Head keys are unique (index in the low bits): an unstable sort is stable.
-    head[..n].sort_unstable_by_key(|&(k, _)| k);
-    moves.copy_within(0..tail_len, n);
-    for (slot, &(_, m)) in moves.iter_mut().zip(&head[..n]) {
-        *slot = m;
-    }
-    n
-}
-
-thread_local! {
-    /// Reused key and move scratch for `sort_moves_by_cached_key`.
-    static ORDER_SCRATCH: std::cell::RefCell<(Vec<i64>, Vec<Move>)> =
-        const { std::cell::RefCell::new((Vec::new(), Vec::new())) };
-}
-
-/// Stable ordering by an i32 key computed once per move, as
-/// `slice::sort_by_cached_key` would order it, without its per-call heap
-/// allocation. Short lists use an insertion sort; longer ones sort packed
-/// `(key, index)` values in reused per-thread scratch, where the index keeps
-/// equal keys in their original order.
-#[inline]
-fn sort_moves_by_cached_key<F>(moves: &mut [Move], key: &mut F)
-where
-    F: FnMut(&Move) -> i32,
-{
-    const INSERTION_MAX: usize = 16;
-    if moves.len() < 2 {
-        return;
-    }
-    if moves.len() <= INSERTION_MAX {
-        sort_by_cached_i32_key_small(moves, key);
-        return;
-    }
-    debug_assert!(moves.len() <= usize::from(u16::MAX));
-    ORDER_SCRATCH.with(|scratch| {
-        let mut scratch = scratch.borrow_mut();
-        let (keys, copy) = &mut *scratch;
-        keys.clear();
-        keys.extend(
-            moves
-                .iter()
-                .enumerate()
-                .map(|(index, m)| (i64::from(key(m)) << 16) | index as i64),
-        );
-        keys.sort_unstable();
-        copy.clear();
-        copy.extend_from_slice(moves);
-        for (slot, &packed) in moves.iter_mut().zip(keys.iter()) {
-            *slot = copy[(packed & 0xFFFF) as usize];
-        }
-    });
-}
-
-/// Stable cached-key ordering without a temporary heap allocation for the
-/// move counts normally seen at a search node.
-#[inline]
-fn sort_by_cached_i32_key_small<F>(moves: &mut [Move], key: &mut F)
-where
-    F: FnMut(&Move) -> i32,
-{
-    const CAPACITY: usize = 64;
-    debug_assert!(moves.len() <= CAPACITY);
-    let placeholder = Move::drop(Square::from_index(0), PieceKind::Fu);
-    let mut sorted = [placeholder; CAPACITY];
-    let mut keys = [0i32; CAPACITY];
-
-    for (index, &mv) in moves.iter().enumerate() {
-        let mv_key = key(&mv);
-        let mut position = index;
-        while position > 0 && mv_key < keys[position - 1] {
-            sorted[position] = sorted[position - 1];
-            keys[position] = keys[position - 1];
-            position -= 1;
-        }
-        sorted[position] = mv;
-        keys[position] = mv_key;
-    }
-    moves.copy_from_slice(&sorted[..moves.len()]);
 }
 
 #[cfg(test)]
