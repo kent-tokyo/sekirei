@@ -20,6 +20,7 @@
 
 mod elo;
 mod engine;
+mod game;
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
@@ -29,15 +30,18 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use engine::{SearchInfo, UsiEngine};
+use game::{
+    EndReason, Outcome, end_reason_for_go_error, engine1_to_move, fischer_clock_after_move,
+    gameover_results, repetition_result,
+};
+#[cfg(test)]
+use sekirei_core::sfen::RepetitionOutcome;
 use sekirei_core::{
     board::Board,
     color::Color,
     movegen::{generate_legal_moves, is_in_check},
     piece::PieceKind,
-    sfen::{
-        PositionHistory, RepetitionOutcome, board_to_sfen, move_from_usi, move_to_usi,
-        parse_position_cmd,
-    },
+    sfen::{PositionHistory, board_to_sfen, move_from_usi, move_to_usi, parse_position_cmd},
 };
 
 // ---- Args ----
@@ -230,35 +234,6 @@ fn print_usage() {
 
 // ---- Game runner ----
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Outcome {
-    E1Win,
-    E2Win,
-    Draw,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EndReason {
-    Resign,
-    Win,
-    IllegalMove,
-    Repetition,
-    PerpetualCheck(Color),
-    MaxMoves,
-    EngineError,
-    TimeForfeit,
-    /// The side to move used more than its remaining Fischer clock.
-    ClockLoss,
-}
-
-fn gameover_results(outcome: Outcome) -> (&'static str, &'static str) {
-    match outcome {
-        Outcome::E1Win => ("win", "lose"),
-        Outcome::E2Win => ("lose", "win"),
-        Outcome::Draw => ("draw", "draw"),
-    }
-}
-
 fn notify_gameover(e1: &mut UsiEngine, e2: &mut UsiEngine, outcome: Outcome) -> Vec<String> {
     let (e1_result, e2_result) = gameover_results(outcome);
     let mut errors = Vec::new();
@@ -393,50 +368,6 @@ const fn csa_piece_name(kind: PieceKind) -> &'static str {
 /// (`engine::map_recv_result` maps that to a different io::ErrorKind
 /// specifically so this distinction is possible). A pure function so the
 /// branch itself is directly unit-testable without spawning a process.
-fn end_reason_for_go_error(e: &std::io::Error) -> EndReason {
-    if e.kind() == std::io::ErrorKind::TimedOut {
-        EndReason::TimeForfeit
-    } else {
-        EndReason::EngineError
-    }
-}
-
-/// Apply one Fischer-clock observation without allowing untrusted command-line
-/// values to overflow the runner's accounting. `None` means the elapsed time
-/// exceeded the remaining clock plus the scheduling margin.
-fn fischer_clock_after_move(
-    remaining_ms: u64,
-    increment_ms: u64,
-    elapsed_ms: u64,
-    margin_ms: u64,
-) -> Option<u64> {
-    if elapsed_ms > remaining_ms.saturating_add(margin_ms) {
-        return None;
-    }
-    Some(
-        remaining_ms
-            .saturating_sub(elapsed_ms)
-            .saturating_add(increment_ms),
-    )
-}
-
-fn repetition_result(e1_is_black: bool, repetition: RepetitionOutcome) -> (Outcome, EndReason) {
-    match repetition {
-        RepetitionOutcome::Draw => (Outcome::Draw, EndReason::Repetition),
-        RepetitionOutcome::PerpetualCheck(loser) => {
-            let e1_loses = engine1_to_move(e1_is_black, loser);
-            (
-                if e1_loses {
-                    Outcome::E2Win
-                } else {
-                    Outcome::E1Win
-                },
-                EndReason::PerpetualCheck(loser),
-            )
-        }
-    }
-}
-
 /// Launch an engine and run its `usi`/`setoption`/`isready` handshake, or
 /// exit -- used both for the initial launch and to replace a retired engine
 /// process mid-run (see the `IllegalMove`/`EngineError` handling in `main`).
@@ -545,15 +476,6 @@ impl Transcript {
             let _ = w.flush(); // rare (one per move), forensics value outweighs the syscall
         }
     }
-}
-
-fn engine1_to_move(e1_is_black: bool, side_to_move: Color) -> bool {
-    side_to_move
-        == if e1_is_black {
-            Color::Black
-        } else {
-            Color::White
-        }
 }
 
 fn position_prefix(start_pos: &str) -> String {
