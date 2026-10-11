@@ -146,6 +146,16 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
             .any(|line| line == "option name LazyDiagnostics type check default false")
     );
 
+    send(&mut stdin, "setoption name LazyDiagnostics value yes");
+    send(&mut stdin, "isready");
+    let invalid = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(
+        invalid
+            .iter()
+            .any(|line| line.starts_with("info string invalid LazyDiagnostics value")),
+        "missing invalid-value diagnostic: {invalid:?}"
+    );
+
     for command in [
         "setoption name Hash value 1",
         "setoption name Threads value 2",
