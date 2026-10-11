@@ -106,3 +106,62 @@ impl TtProbe {
         probe
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::AtomicBool;
+
+    use crate::search::{Budget, CountermoveTable, HistoryTable, KillerTable, PruningConfig};
+    use crate::tt::{Tt, TtEntry};
+
+    use super::*;
+
+    fn state() -> SearchState {
+        SearchState {
+            tt: Tt::new(1),
+            budget: Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false)))),
+            killers: KillerTable::new(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
+            diagnostics: None,
+            eval_cache: None,
+            pruning: PruningConfig::default(),
+        }
+    }
+
+    fn store(state: &SearchState, hash: u64, bound: Bound, score: i32) {
+        state.tt.store(
+            hash,
+            TtEntry {
+                score,
+                depth: 8,
+                bound,
+                mv: None,
+            },
+        );
+    }
+
+    #[test]
+    fn exact_lower_and_upper_entries_obey_the_window_and_exclusion_contract() {
+        let exact = state();
+        store(&exact, 1, Bound::Exact, 25);
+        assert_eq!(TtProbe::at(&exact, 1, 4, 0, 0, 10, false).cutoff, Some(25));
+        assert_eq!(TtProbe::at(&exact, 1, 4, 0, 0, 10, true).cutoff, None);
+
+        let lower = state();
+        store(&lower, 2, Bound::Lower, 5);
+        let raised = TtProbe::at(&lower, 2, 4, 0, 0, 10, false);
+        assert_eq!(raised.cutoff, None);
+        assert_eq!(raised.alpha, 5);
+        store(&lower, 3, Bound::Lower, 12);
+        assert_eq!(TtProbe::at(&lower, 3, 4, 0, 0, 10, false).cutoff, Some(12));
+
+        let upper = state();
+        store(&upper, 4, Bound::Upper, -1);
+        assert_eq!(TtProbe::at(&upper, 4, 4, 0, 0, 10, false).cutoff, Some(-1));
+        store(&upper, 5, Bound::Upper, 5);
+        assert_eq!(TtProbe::at(&upper, 5, 4, 0, 0, 10, false).cutoff, None);
+        assert_eq!(TtProbe::at(&upper, 5, 4, 0, 0, 10, false).se_score, None);
+    }
+}

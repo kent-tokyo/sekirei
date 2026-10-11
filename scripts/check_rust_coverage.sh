@@ -6,8 +6,14 @@ set -euo pipefail
 # points are still exercised by normal CI, but are not allowed to dilute or
 # inflate this engine/library coverage contract.
 readonly COVERAGE_IGNORE_REGEX='(^|/)(target|crates/sekirei-bench|crates/sekirei-core/src/bin|crates/sekirei-csa/src/bin|crates/sekirei-train/src/bin)(/|$)|crates/(sekirei-csa|sekirei-match-runner|sekirei-train)/src/main\.rs$'
-readonly COVERAGE_MIN_LINES="${COVERAGE_MIN_LINES:-95}"
+readonly COVERAGE_MIN_LINES="${COVERAGE_MIN_LINES:-98}"
 readonly COVERAGE_DIR="${COVERAGE_DIR:-target/coverage}"
+
+# Coverage instrumentation increases stack use in the parallel search tests,
+# while incremental artifacts roughly double the peak disk footprint. Keep the
+# CI contract deterministic on constrained macOS runners as well as Linux.
+export RUST_MIN_STACK="${RUST_MIN_STACK:-16777216}"
+export CARGO_INCREMENTAL="${CARGO_INCREMENTAL:-0}"
 
 mkdir -p "${COVERAGE_DIR}"
 coverage_tmp="$(mktemp -d "${TMPDIR:-/tmp}/sekirei-coverage.XXXXXX")"
@@ -66,6 +72,7 @@ cargo llvm-cov -p sekirei-core \
 # contract part of the published evidence instead of leaving their test bodies
 # permanently uncovered.
 for test_name in \
+  tests::perft5_startpos \
   tt::tests::concurrent_colliding_writes_stay_well_formed_under_stress \
   mcts::tests::root_parallelism_remains_equivalent_across_repeated_scheduler_runs
 do
@@ -126,7 +133,7 @@ cargo llvm-cov report \
 
 # cargo-llvm-cov compares an integer-rounded percentage for
 # --fail-under-lines. Enforce the published contract against the exact JSON
-# percentage as well, so 94.99% cannot pass a 95% gate.
+# percentage as well, so 97.99% cannot pass a 98% gate.
 if ! jq --argjson minimum "${COVERAGE_MIN_LINES}" -e \
   '.data[0].totals.lines.percent >= $minimum' \
   "${COVERAGE_DIR}/summary.json" >/dev/null; then
@@ -138,7 +145,7 @@ if ! jq --argjson minimum "${COVERAGE_MIN_LINES}" -e \
 fi
 
 # Preserve the unfiltered workspace number as a separate diagnostic. It is not
-# the badge value and is not used to pass the 95% gate.
+# the badge value and is not used to pass the 98% gate.
 cargo llvm-cov report \
   --json \
   --summary-only \

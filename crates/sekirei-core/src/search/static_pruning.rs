@@ -136,7 +136,9 @@ pub(super) fn razoring_score(
 mod tests {
     use std::cell::Cell;
 
-    use super::razoring_score;
+    use crate::board::Board;
+
+    use super::{razoring_score, reverse_futility_score};
 
     #[test]
     fn razoring_calls_quiescence_only_after_crossing_the_margin() {
@@ -160,5 +162,37 @@ mod tests {
     #[test]
     fn razoring_keeps_searching_when_quiescence_raises_alpha() {
         assert_eq!(razoring_score(Some(-100_000), 2, 0, 1, |_, _| 1), None);
+    }
+
+    #[test]
+    fn reverse_futility_obeys_depth_mate_pv_and_margin_guards() {
+        let board = Board::startpos();
+        assert_eq!(
+            reverse_futility_score(&board, None, false, 1, 0, 1, false, None),
+            None
+        );
+        assert_eq!(
+            reverse_futility_score(&board, Some(10_000), false, 99, 0, 1, false, None),
+            None
+        );
+        assert_eq!(
+            reverse_futility_score(
+                &board,
+                Some(10_000),
+                false,
+                1,
+                0,
+                super::MATE_SCORE,
+                false,
+                None,
+            ),
+            None
+        );
+        assert_eq!(
+            reverse_futility_score(&board, Some(0), false, 1, 0, 500, false, None),
+            None
+        );
+        let score = reverse_futility_score(&board, Some(1_000), true, 1, 0, 100, false, None);
+        assert_eq!(score, Some(1_000));
     }
 }

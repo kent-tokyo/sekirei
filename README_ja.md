@@ -79,7 +79,7 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
-必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを95%以上に
+必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に
 固定します。ベンチマーク、ゲート、リリース、学習の各ツールは
 [スクリプト索引](scripts/README.md)を参照してください。処理単位の時間は
 総合速度や棋力順位を示しません。

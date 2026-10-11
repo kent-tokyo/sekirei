@@ -6,6 +6,15 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Coverage: raise the reusable Rust engine/library line-coverage contract from
+  95% to 98% without widening the exclusion list. Add behavioral coverage for
+  search, rules, protocol, trainer, and native WASM paths; browser-only
+  JavaScript conversions remain covered by the WebAssembly browser job.
+- Documentation: align the English and Japanese entry points, current contract
+  index, WebAssembly API, analysis benchmark, mobile notes, and script index
+  with v0.3.70 and the 98% coverage gate. Historical experiment and release
+  records retain their original scope.
+
 ## [0.3.70] – 2026-10-11
 
 - Match runner: enforce one absolute deadline for each USI handshake, readiness

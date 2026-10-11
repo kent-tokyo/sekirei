@@ -3629,10 +3629,19 @@ mod see_tests {
             const PARAMS: &[&str] = &[
                 "SEARCH_V2",
                 "QS_PROMO",
+                "QS_TT",
+                "QS_STYLE",
+                "QS_EVASION_PRUNE",
+                "QS_MOVE_LIMIT",
+                "QS_FUT_MARGIN",
+                "QS_SEE_MIN",
+                "SKIP_NONPROMO",
+                "QUIET_PROMO",
                 "PRUNE_STYLE",
                 "PS_PARTS",
                 "MULTICUT",
                 "PC_MIN_DEPTH",
+                "PC_MARGIN",
                 "PC_STORE",
                 "SE_MIN_DEPTH",
                 "ORDER_LAZY",
@@ -3644,7 +3653,52 @@ mod see_tests {
                 "CONT6_UPDATE",
                 "FL_MOVE",
                 "TT_PV_CUT",
+                "TT_SLACK_DEPTH",
+                "TT_SLACK_MARGIN",
                 "TT_SLACK_UPPER",
+                "FT_WEIGHT",
+                "PAWN_HIST_WEIGHT",
+                "DROP_KING_BONUS",
+                "DROP_DEF_BONUS",
+                "QTO_PENALTY",
+                "QTO_ESCAPE",
+                "QUIET_SEE_ORDER",
+                "SAFE_CHECK_BONUS",
+                "CAPTURE_LMR",
+                "KILLER_LMR",
+                "CAPT_FUT_BASE",
+                "CAPT_FUT_PER_DEPTH",
+                "LMR_NOT_IMPROVING16",
+                "LMR_STAT_SCALE",
+                "LMR_PV_LESS16",
+                "LMR_PV_PLUS",
+                "LMR_DEEPER_MARGIN",
+                "LMR_SHALLOWER_MARGIN",
+                "CUT_LMR16",
+                "TTPV_LMR16",
+                "LMR_TTCAP16",
+                "NMP_EVAL_MARGIN",
+                "EVAL_TT",
+                "RFP_GUARD",
+                "RFP_DAMP",
+                "CAPT_FUT_MAX_DEPTH",
+                "LMP_PV",
+                "PRUNE_PV",
+                "QSEE_MARGIN",
+                "CHECK_PRUNE",
+                "LMP_MAX_DEPTH",
+                "LMP_PV_MAX_DEPTH",
+                "HP_MAX_DEPTH",
+                "HP_MARGIN",
+                "SE_EXT_MAX",
+                "SE_DOUBLE_MARGIN",
+                "SE_NEG_TT",
+                "SE_NEG_CUT",
+                "NMP_VERIFY_DEPTH",
+                "IIR_MODE",
+                "TM_MODE",
+                "HIST_KEEP",
+                "HIST_AGE",
                 "V2_QS",
                 "V2_STAGE_GEN",
                 "V2_NMP",
@@ -3658,6 +3712,7 @@ mod see_tests {
                 "V2_PVQ",
                 "V2_CONT_SPLIT",
                 "V2_CORR_CONT_W",
+                "V2_DIAG",
             ];
             const POSITIONS: &[&str] = &[
                 crate::sfen::STARTPOS_SFEN,
@@ -3679,6 +3734,23 @@ mod see_tests {
                 ],
                 // The alternative multi-cut implementation is separately exposed.
                 &[("SEARCH_V2", 0), ("MULTICUT", 2)],
+                // Exercise the optional history lifecycle, time manager and
+                // qsearch bound/pruning policies as one isolated stack.
+                &[
+                    ("SEARCH_V2", 0),
+                    ("HIST_KEEP", 1),
+                    ("HIST_AGE", 8),
+                    ("TM_MODE", 1),
+                    ("IIR_MODE", 2),
+                    ("QS_TT", 15),
+                    ("QS_STYLE", 7),
+                    ("QS_EVASION_PRUNE", 2),
+                    ("QS_MOVE_LIMIT", 2),
+                    ("QS_FUT_MARGIN", 200),
+                    ("QS_SEE_MIN", 100),
+                    ("QS_PROMO", 11),
+                    ("SKIP_NONPROMO", 2),
+                ],
                 // Lazy ordering and optional learning/TT policies in the legacy
                 // search are independently tunable and must remain memory-safe.
                 &[
@@ -3714,9 +3786,638 @@ mod see_tests {
                     ("V2_CONT_SPLIT", 1),
                     ("V2_CORR_CONT_W", 64),
                 ],
+                // Lazy quiet ordering needs enough legal quiet moves to pass
+                // both the four-move selection prefix and the stable tail.
+                &[
+                    ("SEARCH_V2", 1),
+                    ("V2_STAGE_GEN", 1),
+                    ("V2_SORT", 1),
+                    ("V2_SHAPE", 15),
+                    ("V2_DIAG", 15),
+                ],
             ];
 
             let guard = TuneParamGuard::new(PARAMS);
+
+            // Directly exercise the small policy helpers as well as the full
+            // searches below. Rare parameter combinations otherwise require
+            // a particular TT/history trajectory and make coverage depend on
+            // incidental move ordering rather than the documented contract.
+            guard.set("ORDER_KILLER", 1);
+            guard.set("ORDER_CM", 1);
+            guard.set("FT_WEIGHT", 16);
+            guard.set("PAWN_HIST_WEIGHT", 16);
+            guard.set("DROP_KING_BONUS", 600);
+            guard.set("DROP_DEF_BONUS", 400);
+            guard.set("QTO_PENALTY", 300);
+            guard.set("QTO_ESCAPE", 300);
+            guard.set("QUIET_SEE_ORDER", 250);
+            guard.set("SAFE_CHECK_BONUS", 500);
+            let mut ordering_board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b RBGSNLP 1").unwrap();
+            let mut ordering_moves = generate_legal_moves(&mut ordering_board);
+            let tt_move = ordering_moves[0];
+            let killer = ordering_moves[1];
+            let countermove = ordering_moves[2];
+            let diagnostics = SearchDiagnostics::new();
+            order_moves_in_place(
+                &mut ordering_board,
+                &mut ordering_moves,
+                Some(tt_move),
+                [Some(killer), None],
+                Some(countermove),
+                ContMoves::default(),
+                &HistoryTable::new(),
+                Color::Black,
+                Some(&diagnostics),
+            );
+            assert_eq!(ordering_moves[0], tt_move);
+            guard.set("ORDER_KILLER", 2);
+            guard.set("ORDER_CM", 2);
+            order_moves_in_place(
+                &mut ordering_board,
+                &mut ordering_moves,
+                None,
+                [Some(killer), None],
+                Some(countermove),
+                ContMoves::default(),
+                &HistoryTable::new(),
+                Color::Black,
+                None,
+            );
+
+            let pawn_promotion = Move::normal(
+                Square::from_shogi(5, 3),
+                Square::from_shogi(5, 2),
+                PieceKind::Fu,
+                true,
+            );
+            let silver_promotion = Move::normal(
+                Square::from_shogi(4, 3),
+                Square::from_shogi(4, 2),
+                PieceKind::Gin,
+                true,
+            );
+            guard.set("QUIET_PROMO", 1);
+            assert!(!promotion_counts_as_quiet(pawn_promotion));
+            assert!(promotion_counts_as_quiet(silver_promotion));
+            guard.set("QUIET_PROMO", 2);
+            assert!(promotion_counts_as_quiet(pawn_promotion));
+            assert!(lmr_base_reduction(200, 700) > 0);
+            guard.set("SKIP_NONPROMO", 2);
+            assert!(useless_non_promotion(
+                Move::normal(
+                    Square::from_shogi(5, 3),
+                    Square::from_shogi(5, 2),
+                    PieceKind::Kyou,
+                    false,
+                ),
+                Color::Black,
+            ));
+
+            let history = HistoryTable::new();
+            let context = LmrContext {
+                pv: true,
+                cut: true,
+                improving: false,
+                cont: ContMoves::default(),
+                tt_pv: true,
+                tt_capture: true,
+                enemy: crate::bitboard::Bitboard::EMPTY,
+            };
+            guard.set("LMR_STAT_SCALE", 32);
+            guard.set("LMR_PV_LESS16", 16);
+            guard.set("CUT_LMR16", 16);
+            guard.set("TTPV_LMR16", 16);
+            guard.set("LMR_TTCAP16", 16);
+            guard.set("LMR_NOT_IMPROVING16", 16);
+            assert!(lmr_adjust(3, &context, &history, Color::Black, killer) <= 5);
+
+            let mut bad_capture_board =
+                Board::from_sfen("k8/9/9/4p4/4p4/9/4R4/9/8K b - 1").unwrap();
+            let bad_capture = generate_legal_captures(&mut bad_capture_board)
+                .into_iter()
+                .find(|m| m.to == Square::from_shogi(5, 5))
+                .unwrap();
+            let mut good_capture_board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+            let good_capture = generate_legal_captures(&mut good_capture_board)
+                .into_iter()
+                .find(|m| m.to == Square::from_shogi(5, 5))
+                .unwrap();
+            guard.set("CAPTURE_LMR", 1);
+            assert!(
+                lmr_reduce(
+                    &bad_capture_board,
+                    bad_capture,
+                    3,
+                    6,
+                    &[None, None],
+                    None,
+                    &history,
+                    Color::Black,
+                ) > 0
+            );
+            assert_eq!(
+                lmr_reduce(
+                    &good_capture_board,
+                    good_capture,
+                    3,
+                    6,
+                    &[None, None],
+                    None,
+                    &history,
+                    Color::Black,
+                ),
+                0
+            );
+            guard.set("CAPTURE_LMR", 2);
+            assert!(
+                lmr_reduce(
+                    &good_capture_board,
+                    good_capture,
+                    3,
+                    6,
+                    &[None, None],
+                    None,
+                    &history,
+                    Color::Black,
+                ) <= lmr_base_reduction(6, 3)
+            );
+            guard.set("KILLER_LMR", 1);
+            let killer_reduction = lmr_reduce(
+                &ordering_board,
+                killer,
+                3,
+                6,
+                &[Some(killer), None],
+                None,
+                &history,
+                Color::Black,
+            );
+            guard.set("KILLER_LMR", 2);
+            assert!(
+                lmr_reduce(
+                    &ordering_board,
+                    killer,
+                    3,
+                    6,
+                    &[Some(killer), None],
+                    None,
+                    &history,
+                    Color::Black,
+                ) >= killer_reduction
+            );
+
+            guard.set("NMP_EVAL_MARGIN", 100);
+            assert!(nmp_eval_allows(Some(0), 100));
+            assert!(!nmp_eval_allows(Some(-1), 100));
+            assert!(nmp_eval_allows(None, 100));
+
+            guard.set("RFP_GUARD", 1);
+            guard.set("RFP_DAMP", 2);
+            assert_eq!(
+                reverse_futility_score(&ordering_board, Some(1_000), true, 1, 99, 100, false, None,),
+                Some(400)
+            );
+            assert_eq!(
+                reverse_futility_score(
+                    &ordering_board,
+                    Some(1_000),
+                    true,
+                    1,
+                    0,
+                    100,
+                    false,
+                    Some(Move::drop(Square::from_shogi(5, 5), PieceKind::Fu)),
+                ),
+                None
+            );
+            guard.set("RFP_GUARD", 0);
+            for (damp, expected) in [(0, 1_000), (1, 550), (2, 400)] {
+                guard.set("RFP_DAMP", damp);
+                assert_eq!(
+                    reverse_futility_score(
+                        &ordering_board,
+                        Some(1_000),
+                        true,
+                        1,
+                        0,
+                        100,
+                        false,
+                        None,
+                    ),
+                    Some(expected)
+                );
+            }
+
+            let fresh_state = || {
+                Arc::new(SearchState {
+                    tt: Tt::new(1),
+                    budget: Arc::new(Budget::new(
+                        None,
+                        Some(200_000),
+                        Arc::new(AtomicBool::new(false)),
+                    )),
+                    killers: KillerTable::new(),
+                    history: Arc::new(HistoryTable::new()),
+                    countermoves: Arc::new(CountermoveTable::new()),
+                    diagnostics: Some(Arc::new(SearchDiagnostics::new())),
+                    eval_cache: None,
+                    pruning: PruningConfig::default(),
+                })
+            };
+
+            let cached_state = Arc::new(SearchState {
+                tt: Tt::new(1),
+                budget: Arc::new(Budget::new(
+                    None,
+                    Some(200_000),
+                    Arc::new(AtomicBool::new(false)),
+                )),
+                killers: KillerTable::new(),
+                history: Arc::new(HistoryTable::new()),
+                countermoves: Arc::new(CountermoveTable::new()),
+                diagnostics: Some(Arc::new(SearchDiagnostics::new())),
+                eval_cache: Some(Arc::new(EvalCache::new())),
+                pruning: PruningConfig::default(),
+            });
+            let first_eval = evaluate_for_search(&cached_state, &ordering_board);
+            assert_eq!(
+                evaluate_for_search(&cached_state, &ordering_board),
+                first_eval
+            );
+            cached_state.eval_cache.as_ref().unwrap().clear();
+
+            // Exercise the extracted node helpers directly. Full searches hit
+            // these policies only after a particular TT/history trajectory,
+            // which made their coverage depend on incidental move ordering.
+            guard.set("SEARCH_V2", 0);
+            guard.set("SE_MIN_DEPTH", 4);
+            guard.set("SE_EXT_MAX", 3);
+            guard.set("MULTICUT", 0);
+            let state = fresh_state();
+            let mut helper_board = Board::startpos();
+            let helper_move = generate_legal_moves(&mut helper_board)[0];
+            let game_history = PositionHistory::initial(helper_board.hash());
+            let root_history = SearchHistory::root(&game_history);
+
+            guard.set("EVAL_TT", 1);
+            let mut node = NodeKey::new(&helper_board, helper_board.hash(), 4, 0, None, false);
+            let plain_eval = prepare_node_evaluation(
+                &state,
+                &helper_board,
+                helper_board.side_to_move,
+                4,
+                0,
+                false,
+                None,
+                &mut node,
+            )
+            .value
+            .unwrap();
+            let exact_eval = prepare_node_evaluation(
+                &state,
+                &helper_board,
+                helper_board.side_to_move,
+                4,
+                0,
+                false,
+                Some((Bound::Exact, plain_eval + 123)),
+                &mut node,
+            );
+            assert_eq!(exact_eval.value, Some(plain_eval + 123));
+            assert_eq!(
+                prepare_node_evaluation(
+                    &state,
+                    &helper_board,
+                    helper_board.side_to_move,
+                    4,
+                    0,
+                    false,
+                    Some((Bound::Lower, plain_eval - 1)),
+                    &mut node,
+                )
+                .value,
+                Some(plain_eval)
+            );
+            assert_eq!(
+                prepare_node_evaluation(
+                    &state,
+                    &helper_board,
+                    helper_board.side_to_move,
+                    4,
+                    0,
+                    true,
+                    None,
+                    &mut node,
+                )
+                .value,
+                None
+            );
+            assert_eq!(razoring_score(None, 1, 0, 1, |_, _| 0), None);
+            assert_eq!(razoring_score(Some(-100_000), 1, 0, 2, |_, _| 0), None);
+            assert_eq!(
+                razoring_score(Some(-100_000), 1, MATE_SCORE, MATE_SCORE + 1, |_, _| 0),
+                None
+            );
+
+            let singular = SingularContext {
+                alpha: -10_000,
+                beta: 10_000,
+                depth: 4,
+                ply: 0,
+                prev_move: None,
+                excluded_move: None,
+                in_check: false,
+                tt_move: Some(helper_move),
+                tt_score: Some(2_000),
+                tt_depth: 4,
+                pv: false,
+                cut: false,
+                double_extensions: 0,
+            };
+            assert!(matches!(
+                singular.probe(&state, &mut helper_board, &root_history),
+                SingularOutcome::Extension(1..=3)
+            ));
+
+            // The same verification search also owns the two MultiCut exits
+            // and the negative-extension fallbacks. Keep those decisions
+            // covered directly instead of relying on a rare TT trajectory in
+            // a full search.
+            guard.set("MULTICUT", 1);
+            let multicut = SingularContext {
+                alpha: -10_000,
+                beta: -10_000,
+                tt_score: Some(-9_000),
+                ..singular
+            };
+            assert!(matches!(
+                multicut.probe(&state, &mut helper_board, &root_history),
+                SingularOutcome::Cutoff(_)
+            ));
+            guard.set("MULTICUT", 2);
+            assert!(matches!(
+                multicut.probe(&state, &mut helper_board, &root_history),
+                SingularOutcome::Cutoff(_)
+            ));
+            guard.set("MULTICUT", 0);
+            guard.set("SE_NEG_TT", 2);
+            let negative_tt = SingularContext {
+                alpha: -10_000,
+                beta: -6_000,
+                tt_score: Some(-5_000),
+                ..singular
+            };
+            assert_eq!(
+                negative_tt.probe(&state, &mut helper_board, &root_history),
+                SingularOutcome::Extension(-2)
+            );
+            guard.set("SE_NEG_CUT", 3);
+            let negative_cut = SingularContext {
+                beta: 6_000,
+                cut: true,
+                ..negative_tt
+            };
+            assert_eq!(
+                negative_cut.probe(&state, &mut helper_board, &root_history),
+                SingularOutcome::Extension(-3)
+            );
+
+            let (token, child_in_check, child_history) =
+                play(&mut helper_board, helper_move, &root_history);
+            let baseline = pvs_child(
+                &state,
+                &mut helper_board,
+                (-10_000, 10_000),
+                5,
+                2,
+                0,
+                0,
+                helper_move,
+                false,
+                child_in_check,
+                &child_history,
+                -500,
+            );
+            helper_board.undo_move_for_search(token);
+
+            // Cover the three optional PVS re-search policies independently.
+            // Their scores are deterministic for this fixed child, so derive
+            // the comparison threshold from the baseline rather than baking
+            // an evaluator-specific score into the test.
+            guard.set("LMR_DEEPER_MARGIN", 1);
+            let (token, child_in_check, child_history) =
+                play(&mut helper_board, helper_move, &root_history);
+            let _ = pvs_child(
+                &fresh_state(),
+                &mut helper_board,
+                (-10_000, 10_000),
+                5,
+                2,
+                0,
+                0,
+                helper_move,
+                false,
+                child_in_check,
+                &child_history,
+                baseline - 2,
+            );
+            helper_board.undo_move_for_search(token);
+
+            guard.set("LMR_DEEPER_MARGIN", 0);
+            guard.set("LMR_SHALLOWER_MARGIN", 100);
+            let (token, child_in_check, child_history) =
+                play(&mut helper_board, helper_move, &root_history);
+            let _ = pvs_child(
+                &fresh_state(),
+                &mut helper_board,
+                (-10_000, 10_000),
+                5,
+                2,
+                0,
+                0,
+                helper_move,
+                false,
+                child_in_check,
+                &child_history,
+                baseline,
+            );
+            helper_board.undo_move_for_search(token);
+
+            guard.set("LMR_SHALLOWER_MARGIN", 0);
+            guard.set("LMR_PV_PLUS", 1);
+            let (token, child_in_check, child_history) =
+                play(&mut helper_board, helper_move, &root_history);
+            let _ = pvs_child(
+                &fresh_state(),
+                &mut helper_board,
+                (-10_000, 10_000),
+                5,
+                3,
+                1,
+                0,
+                helper_move,
+                false,
+                child_in_check,
+                &child_history,
+                baseline,
+            );
+            helper_board.undo_move_for_search(token);
+
+            guard.set("PC_STORE", 1);
+            guard.set("PC_MARGIN", 50);
+            let mut capture_board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+            let capture_history = PositionHistory::initial(capture_board.hash());
+            assert!(
+                probcut(
+                    &fresh_state(),
+                    &mut capture_board,
+                    -10_000,
+                    8,
+                    0,
+                    false,
+                    &SearchHistory::root(&capture_history),
+                )
+                .is_some()
+            );
+
+            guard.set("NMP_VERIFY_DEPTH", 1);
+            let null_hash = helper_board.hash();
+            let _ = null_move_pruning(
+                &fresh_state(),
+                &mut helper_board,
+                -10_000,
+                4,
+                0,
+                None,
+                false,
+                &root_history,
+                Some(0),
+            );
+            assert_eq!(helper_board.hash(), null_hash);
+
+            guard.set("TT_SLACK_DEPTH", 4);
+            guard.set("TT_SLACK_MARGIN", 10);
+            guard.set("TT_SLACK_UPPER", 1);
+            let tt_state = fresh_state();
+            tt_state.tt.store(
+                helper_board.hash(),
+                TtEntry {
+                    score: -100,
+                    depth: 1,
+                    bound: Bound::Upper,
+                    mv: Some(helper_move),
+                },
+            );
+            let probe = TtProbe::at(&tt_state, helper_board.hash(), 3, 0, 0, 1, false);
+            assert_eq!(probe.cutoff, Some(-40));
+
+            guard.set("ORDER_LAZY", 1);
+            let context = MoveListContext {
+                depth: 4,
+                ply: 0,
+                previous_move: None,
+                excluded_move: None,
+                in_check: false,
+                tt_move: Some(helper_move),
+                killers: [None, None],
+                countermove: None,
+                side_to_move: helper_board.side_to_move,
+            };
+            let MovePreparation::Ready(mut prepared) =
+                NodeMoveList::prepare(&state, &mut helper_board, context)
+            else {
+                panic!("start position must have legal moves");
+            };
+            assert!(prepared.deferred_order());
+            prepared.order_after_first(&state, &mut helper_board);
+            for index in 1..prepared.as_slice().len() {
+                prepared.order_lazy_tail_at(&state, &mut helper_board, index);
+            }
+
+            guard.set("PRUNE_STYLE", 1);
+            guard.set("PS_PARTS", 31);
+            let late = LateMoveNode {
+                depth: 4,
+                alpha: 100,
+                beta: 101,
+                in_check: false,
+                static_eval: Some(-10_000),
+                best_score: 0,
+                improving: false,
+                history: -10_000,
+                lmr_depth: 2,
+                cont_hist: -10_000,
+                main_hist: -10_000,
+                alpha_raised: false,
+                pv: false,
+            };
+            assert!(late.prunes(&helper_board, helper_move, true, 100));
+
+            guard.set("PS_PARTS", 0);
+            assert!(!late.prunes(&good_capture_board, good_capture, false, 1));
+            guard.set("PS_PARTS", 8);
+            let late_futility = LateMoveNode {
+                static_eval: Some(-10_000),
+                cont_hist: 0,
+                main_hist: 0,
+                alpha_raised: true,
+                ..late
+            };
+            assert!(late_futility.prunes(&helper_board, helper_move, true, 1));
+
+            guard.set("PRUNE_STYLE", 0);
+            guard.set("CAPT_FUT_MAX_DEPTH", 12);
+            guard.set("CAPT_FUT_BASE", 0);
+            guard.set("CAPT_FUT_PER_DEPTH", 0);
+            assert!(late_futility.prunes(&good_capture_board, good_capture, false, 1));
+
+            guard.set("LMP_PV", 1);
+            guard.set("LMP_PV_MAX_DEPTH", 16);
+            let pv_lmp = LateMoveNode {
+                alpha: 0,
+                beta: 10,
+                static_eval: Some(0),
+                pv: true,
+                ..late
+            };
+            assert!(pv_lmp.prunes(&helper_board, helper_move, true, 100));
+
+            guard.set("LMP_MAX_DEPTH", 8);
+            let depth_gap = LateMoveNode {
+                depth: 7,
+                alpha: 0,
+                beta: 1,
+                static_eval: Some(10_000),
+                history: 10_000,
+                ..late
+            };
+            assert!(!depth_gap.prunes(&helper_board, helper_move, false, 1));
+
+            guard.set("LMP_MAX_DEPTH", 0);
+            guard.set("HP_MAX_DEPTH", 8);
+            guard.set("HP_MARGIN", 1);
+            let history_prune = LateMoveNode {
+                depth: 2,
+                alpha: 0,
+                beta: 1,
+                static_eval: Some(10_000),
+                history: -10_000,
+                ..late
+            };
+            assert!(history_prune.prunes(&helper_board, helper_move, true, 1));
+
+            let mut checking_board = Board::from_sfen("4k4/9/9/9/9/9/9/9/4K4 b R 1").unwrap();
+            let checking_move = generate_legal_moves(&mut checking_board)
+                .into_iter()
+                .find(|m| crate::movegen::move_gives_direct_check(&checking_board, *m))
+                .unwrap();
+            guard.set("LMP_MAX_DEPTH", 8);
+            guard.set("CHECK_PRUNE", 0);
+            assert!(!history_prune.prunes(&checking_board, checking_move, true, 100));
+            guard.set("CHECK_PRUNE", 2);
+            assert!(history_prune.prunes(&checking_board, checking_move, true, 100));
+
             for configuration in CONFIGURATIONS {
                 for &name in PARAMS {
                     let default = p::ALL
@@ -3735,25 +4436,52 @@ mod see_tests {
                     let hash = board.hash();
                     let accumulator = board.acc.clone();
                     let legal = generate_legal_moves(&mut board);
-                    let result = Searcher::new(Tt::new(4)).search(
-                        &mut board,
-                        SearchConfig {
-                            max_depth: 6,
-                            node_limit: Some(40_000),
-                            ..SearchConfig::default()
-                        },
-                    );
+                    let diagnostics = Arc::new(SearchDiagnostics::new());
+                    let result = Searcher::with_diagnostics(Tt::new(4), diagnostics.clone())
+                        .search(
+                            &mut board,
+                            SearchConfig {
+                                max_depth: 6,
+                                node_limit: Some(40_000),
+                                ..SearchConfig::default()
+                            },
+                        );
 
                     let best = result
                         .best_move
                         .expect("a non-terminal fixture must return a move");
                     assert!(legal.contains(&best), "illegal best move for {sfen}");
                     assert!(result.nodes > 0);
+                    assert!(diagnostics.snapshot().alpha_beta_calls > 0);
                     assert_eq!(board.hash(), hash, "search must restore {sfen}");
                     assert_eq!(board.acc, accumulator, "search must restore NNUE state");
                 }
             }
         });
+    }
+
+    #[test]
+    fn repetition_scores_are_oriented_to_the_current_side() {
+        assert_eq!(
+            repetition_score(RepetitionOutcome::Draw, Color::Black, 7),
+            0
+        );
+        assert_eq!(
+            repetition_score(
+                RepetitionOutcome::PerpetualCheck(Color::Black),
+                Color::Black,
+                7
+            ),
+            -(MATE_SCORE - 7)
+        );
+        assert_eq!(
+            repetition_score(
+                RepetitionOutcome::PerpetualCheck(Color::Black),
+                Color::White,
+                7
+            ),
+            MATE_SCORE - 7
+        );
     }
 
     #[test]
@@ -4755,6 +5483,21 @@ mod regression_tests {
         );
         assert_eq!(retained.depth, seeded.depth);
         assert_eq!(retained.bound, seeded.bound);
+
+        let (best_move, root_score, root_bound) = root_search(
+            &state,
+            &mut board,
+            4,
+            0,
+            &[],
+            None,
+            false,
+            &SearchHistory::root(&history),
+            None,
+        );
+        assert_eq!(best_move, None);
+        assert_eq!(root_score, 0);
+        assert_eq!(root_bound, SearchBound::Exact);
     }
 
     #[test]

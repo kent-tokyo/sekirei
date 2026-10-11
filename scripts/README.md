@@ -12,10 +12,9 @@ use it. The data-pipeline wrappers have been checked with the external
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
-The shogiesa/Quietset wrappers use external observations only for diagnostics;
-Sekirei's internal `--label-*` search remains the teacher. The validator checks
-schema, depth, provenance, cache accounting, and manifest hashes before
-training.
+The shogiesa/Quietset wrappers are diagnostic only; Sekirei's internal
+`--label-*` search remains the teacher. Validation covers schema, depth,
+provenance, cache accounting, and hashes.
 
 ## Release and public boundary
 
@@ -33,7 +32,7 @@ training.
 | `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. `--gate-observation-declaration` validates and carries a prospective, hashed feature/group declaration into that terminal result. Local diagnostic only. |
 | `nps_threads.py` | Measures NPS and depth scaling across explicit thread counts for Sekirei or a separately supplied USI engine. For Lazy SMP, also records the selected worker's node share, worker best-move agreement, and approximate worker stop-lag spread. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
-| `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 95% engine/library line-coverage contract. |
+| `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
 
 ## Measurement and rules diagnostics
 
@@ -106,13 +105,8 @@ cargo run -p sekirei-train --bin validate_gate_observations -- \
 shared recipe, lineage, and dataset in one cross-validation group. GateModel
 output is advisory and never authorizes deployment or a strength claim.
 
-The compact v0.3.67 opening-book diagnostic is archived under
-`docs/experiments/book_ab_v0.3.67/`. It is contract evidence, not a strength
-gate.
-
-The first prospective GateObservation contract pilot is archived under
-`docs/experiments/gate_observation_pilot_v0.3.68/`. Its single admitted row is
-inconclusive and is not a playing-strength claim.
+Historical book and GateObservation pilots are under `docs/experiments/`.
+They preserve their original scope and are not current strength evidence.
 
 ```bash
 python3 scripts/split_gensfen_by_game.py data/selfplay/part*.txt \
@@ -126,23 +120,12 @@ cargo run --release -p sekirei-core --example halfkp_pack -- \
   pack data/selfplay/validation.bin data/selfplay/validation.txt
 ```
 
-`train_halfkp.py` consumes the packed files below. `--init` resumes from a
-float checkpoint and `--fact` adds a folded king-independent factor. Keep the
-default single epoch when continuing on new self-play data unless a separate
-experiment justifies otherwise. The trainer rejects output paths that alias a
-training, validation, or initial-checkpoint input through a direct path,
-symlink, or hardlink. Network, float-state, and resume-checkpoint files are
-written to a sibling temporary file and atomically replaced only after a
-complete write. Every packed shard remains a separate read-only memory map;
-training and validation copy only one batch at a time, and deterministic
-shuffle indices are generated per batch. Large multi-shard runs therefore do
-not load or concatenate the full position corpus on the Python heap; mapped
-pages remain reclaimable by the operating system.
-
-Checkpoints written by this version record the shuffle contract. A checkpoint
-from the older full-memory trainer can be continued at an epoch boundary, but
-a mid-epoch legacy checkpoint must be finished with that trainer or restarted
-at a new epoch; otherwise the changed ordering could repeat or skip records.
+`train_halfkp.py` consumes packed shards. `--init` resumes a float checkpoint;
+`--fact` folds in a king-independent factor. Inputs remain separate read-only
+memory maps and only one batch is copied at a time. Outputs are written by
+atomic replacement, and direct, symlink, or hardlink aliases to an input are
+rejected. New checkpoints record the shuffle contract. Resume a legacy
+full-memory checkpoint only at an epoch boundary.
 
 ```bash
 python3 scripts/train_halfkp.py --data data/selfplay/train.bin \
@@ -176,9 +159,8 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
-`--max-games` persists across reconnects. For launchd, use the supplied
-one-shot template with `KeepAlive` disabled; its durable completion record
-prevents an accidental restart after a terminal run.
+`--max-games` persists across reconnects. For launchd, use the one-shot
+template with `KeepAlive` disabled.
 
 Before tournament deployment, run the loopback-only two-process rehearsal:
 
@@ -188,10 +170,8 @@ python3 scripts/run_denryu_rehearsal.py \
   --output data/rehearsals/denryu-$(date +%Y%m%d-%H%M%S)
 ```
 
-It runs 7 games, restarts the real client, resumes the cumulative ceiling, and
-runs 7 more. The top-level manifest hashes the executable, configuration,
-source identity, and all 14 records; the JSONL status journal proves both
-process boundaries and the final no-child state. See
+It runs 7 games, restarts the real client, then runs 7 more while preserving
+the cumulative ceiling. See
 [`DENRYU_REHEARSAL.md`](DENRYU_REHEARSAL.md) for the recovery
 checklist. `--completed-attempts` is an explicit resume input and must come
 from a retained terminal status or manifest, never from an estimate.

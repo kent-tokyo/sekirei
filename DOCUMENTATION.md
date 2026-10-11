@@ -8,7 +8,7 @@ mistaken for current behavior.
 
 | Document | Scope |
 |---|---|
-| [`CHANGELOG.md`](CHANGELOG.md) | Unreleased work and the three most recent releases |
+| [`CHANGELOG.md`](CHANGELOG.md) | Unreleased work and recent releases |
 | [`CHANGELOG_ARCHIVE.md`](CHANGELOG_ARCHIVE.md) | Older release notes retained as historical evidence |
 | [`docs/nnue_weights.md`](docs/nnue_weights.md) | Supported evaluator formats, released weight, checksums, licensing, and claim boundary |
 | [`weights/README.md`](weights/README.md) | Files in `weights/` and exact loading/checksum instructions |
@@ -42,7 +42,7 @@ operation.
 
 ## Private planning
 
-`ROADMAP.md`, `tasks/`, generated games, training data, unpublished weights,
-and run outputs are local development material and intentionally excluded from
-the public repository. Public status belongs in the changelog, issues, merged
-pull requests, candidate cards, and versioned release manifests.
+`ROADMAP.md`, generated games, training data, unpublished weights, and run
+outputs are local development material and intentionally excluded from the
+public repository. Public status belongs in the changelog, issues, merged pull
+requests, candidate cards, and versioned release manifests.

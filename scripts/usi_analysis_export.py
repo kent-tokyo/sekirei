@@ -18,12 +18,6 @@ Usage:
 "sfen": str, "sample_id": str (optional, defaults to "game_id:ply")}.
 
 Known, deliberate limitations (not bugs):
-  - `go nodes N` is not implemented by Sekirei's USI layer
-    (crates/sekirei-usi/src/main.rs::parse_go has no "nodes" branch) --
-    every position run against Sekirei with `--nodes` will run unbounded
-    until `--timeout` fires, producing all-"timeout" records. A warning
-    is printed once at startup when this is detected; use `--depth`
-    against Sekirei instead.
   - A book-move bestmove (Sekirei's opening book short-circuits search
     entirely for an opening position) has no `info depth ...` line to
     parse, so it's classified `status: "incomplete"` rather than "ok" --
@@ -388,15 +382,6 @@ def main():
 
     engine_name = args.engine_name or caps["id_name"] or binary.name
     engine_version = args.engine_version or (build_info or {}).get("version") or "unknown"
-
-    if args.nodes is not None and engine_name.lower() == "sekirei":
-        print(
-            "WARNING: --nodes requested against Sekirei; 'go nodes' is not implemented "
-            "(crates/sekirei-usi/src/main.rs::parse_go has no 'nodes' branch) -- every "
-            "position will run unbounded until --timeout, i.e. every record below will be "
-            "status=timeout. Use --depth against Sekirei.",
-            file=sys.stderr,
-        )
 
     if (
         args.spec_top_n is not None

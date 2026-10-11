@@ -413,6 +413,88 @@ fn opening_book_decision_log_records_fallback_selection_and_terminal_linkage() {
     std::fs::remove_file(log).ok();
 }
 
+#[cfg(feature = "opening-book")]
+#[test]
+fn versioned_book_options_and_terminal_log_failure_are_reported() {
+    let suffix = TEST_FILE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let book = std::env::temp_dir().join(format!("sekirei_versioned_book_{suffix}.jsonl"));
+    let log_directory = std::env::temp_dir().join(format!("sekirei_book_log_dir_{suffix}"));
+    let _ = std::fs::remove_file(&book);
+    let _ = std::fs::remove_dir_all(&log_directory);
+    std::fs::create_dir(&log_directory).unwrap();
+    let start = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+    let contents = format!(
+        concat!(
+            r#"{{"prior_book_schema_version":1,"producer_version":"coverage-test","build_config":{{"source":"local"}},"build_config_fingerprint":7}}"#,
+            "\n",
+            r#"{{"state":{:?},"actions":[{{"action":"7g7f","count":10,"weighted_count":10.0,"success_rate":0.5,"mean_score":0.5,"prior":0.9,"confidence":0.75}}]}}"#,
+            "\n"
+        ),
+        start
+    );
+    std::fs::write(&book, contents).unwrap();
+
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_until(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(
+        &mut stdin,
+        &format!("setoption name BookFile value {}", book.display()),
+    );
+    send(&mut stdin, "setoption name BookMaxPly value 2");
+    send(&mut stdin, "setoption name BookMinConfidence value 0.8");
+    send(&mut stdin, "setoption name UseBook value true");
+    send(&mut stdin, "isready");
+    let loaded = recv_until(&rx, |line| line == "readyok", Duration::from_secs(5));
+    assert!(loaded.iter().any(|line| {
+        line.contains("schema=1")
+            && line.contains("producer=coverage-test")
+            && line.contains("build_config_fingerprint=7")
+    }));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let rejected = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(rejected.iter().all(|line| line != "info string book move"));
+
+    send(&mut stdin, "setoption name BookMinConfidence value 0.7");
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 1");
+    let selected = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(5),
+    );
+    assert!(selected.iter().any(|line| line == "info string book move"));
+    assert!(selected.iter().any(|line| line == "bestmove 7g7f"));
+
+    send(
+        &mut stdin,
+        &format!(
+            "setoption name BookDecisionLog value {}",
+            log_directory.display()
+        ),
+    );
+    send(&mut stdin, "setoption name BookExperimentId value coverage");
+    send(&mut stdin, "gameover draw");
+    let failed = recv_until(
+        &rx,
+        |line| line.contains("book decision log failed"),
+        Duration::from_secs(5),
+    );
+    assert!(failed.iter().any(|line| line.contains("cannot open")));
+
+    send(&mut stdin, "quit");
+    let status = child.wait().unwrap();
+    assert!(status.success());
+    let _ = std::fs::remove_file(book);
+    let _ = std::fs::remove_dir_all(log_directory);
+}
+
 fn send(stdin: &mut ChildStdin, line: &str) {
     writeln!(stdin, "{line}").unwrap();
     stdin.flush().unwrap();
@@ -1060,6 +1142,7 @@ fn usinewgame_resets_book_ply_tracking() {
         &format!("setoption name BookFile value {}", book_path.display()),
     );
     send(&mut stdin, "setoption name BookMaxPly value 1");
+    send(&mut stdin, "setoption name BookMinConfidence value 0.25");
     send(&mut stdin, "setoption name UseBook value true");
     send(&mut stdin, "isready");
     recv_until(&rx, |l| l == "readyok", Duration::from_secs(5));

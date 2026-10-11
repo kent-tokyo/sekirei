@@ -227,11 +227,9 @@ fn dump_replay_failure(
 /// (incremental-vs-from-scratch) is independent of that shared code path,
 /// which is exactly why both checks run, not just one.
 ///
-/// Every historical move token is also legality-checked against the
-/// shadow board *before* being applied -- these moves were already played
-/// in a real game, so if the shadow's own (so-far-consistent) board
-/// considers one illegal, the desync predates this move and lives in the
-/// shadow's own state, not in this specific move token.
+/// `move_from_usi` validates each historical move against the shadow board
+/// before returning it, so malformed and illegal moves share the same
+/// fail-closed diagnostic path here.
 pub fn verify_position_replay(body: &str, live_board: &Board, ctx: &ReplayDiagCtx) {
     if let Err((requested, actual)) = verify_base_position(body) {
         eprintln!("=== POSITION DESYNC DETECTED ===");
@@ -282,21 +280,6 @@ pub fn verify_position_replay(body: &str, live_board: &Board, ctx: &ReplayDiagCt
                 );
             }
         };
-
-        let mut legal_check = shadow.clone();
-        if !generate_legal_moves(&mut legal_check).contains(&mv) {
-            dump_replay_failure(
-                "historical move is illegal on the shadow board -- shadow already desynced before this move",
-                ctx,
-                body,
-                Some(idx),
-                Some(tok),
-                &applied,
-                Some(&shadow),
-                None,
-                Some(live_board),
-            );
-        }
 
         let before = shadow.clone();
         shadow.do_move(mv);
@@ -525,6 +508,22 @@ mod tests {
     #[should_panic(expected = "move parser could not interpret")]
     fn replay_rejects_a_malformed_historical_move_token() {
         verify_position_replay("startpos moves invalid", &Board::startpos(), &replay_ctx());
+    }
+
+    #[test]
+    fn malformed_base_is_left_to_the_position_handler() {
+        assert_eq!(verify_base_position("not-a-position"), Ok(()));
+        verify_position_replay("not-a-position", &Board::startpos(), &replay_ctx());
+    }
+
+    #[test]
+    #[should_panic(expected = "base position does not match")]
+    fn replay_rejects_a_noncanonical_base_sfen() {
+        verify_position_replay(
+            "sfen lnsgkgsnl/1r5b1/p1ppppppp/9/9/9/P1PPPPPPP/1B5R1/LNSGKGSNL b - 01",
+            &Board::startpos(),
+            &replay_ctx(),
+        );
     }
 
     #[test]

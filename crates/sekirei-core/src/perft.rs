@@ -67,9 +67,7 @@ fn perft_depth_three(board: &mut Board, legal_buffers: &mut [FixedMoveList]) -> 
 }
 
 fn perft_with_buffers(board: &mut Board, depth: u32, legal_buffers: &mut [FixedMoveList]) -> u64 {
-    if depth == 0 {
-        return 1;
-    }
+    debug_assert!(depth > 0, "depth zero is handled by perft");
     if depth == 1 {
         return count_legal_moves(board);
     }

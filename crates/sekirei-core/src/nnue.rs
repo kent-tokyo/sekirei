@@ -1192,6 +1192,28 @@ mod tests {
     }
 
     #[test]
+    fn read_weights_rejects_unknown_magic_with_actionable_error() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei_test_nnue_bad_magic_{}.bin",
+            std::process::id()
+        ));
+        let weights = NnueWeights::default_lcg();
+        save_weights(&weights, &path).expect("failed to write test weights");
+        let mut bytes = std::fs::read(&path).expect("failed to read test weights");
+        bytes[..8].copy_from_slice(b"BADMAGIC");
+        std::fs::write(&path, bytes).expect("failed to write malformed test weights");
+
+        let error = match read_weights(&path) {
+            Ok(_) => panic!("unknown magic must be rejected"),
+            Err(error) => error,
+        };
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(error.to_string().contains("bad magic"));
+        assert!(error.to_string().contains("need retraining"));
+    }
+
+    #[test]
     fn read_weights_rejects_non_finite_values() {
         let path = std::env::temp_dir().join(format!(
             "sekirei_test_nnue_non_finite_{}.bin",
@@ -1212,6 +1234,40 @@ mod tests {
         };
         assert_eq!(error.kind(), ErrorKind::InvalidData);
         assert!(error.to_string().contains("non-finite"));
+    }
+
+    #[test]
+    fn accumulator_and_atomic_save_boundaries_fail_without_partial_artifacts() {
+        let mut acc = NnueAcc::default();
+        let before = acc.clone();
+        acc.add_hand(PieceKind::Fu, 0, Color::Black);
+        acc.remove_hand(PieceKind::Fu, 0, Color::Black);
+        acc.add_hand(PieceKind::Fu, u8::MAX, Color::White);
+        acc.remove_hand(PieceKind::Fu, u8::MAX, Color::White);
+        assert_eq!(acc, before);
+        acc.add_piece(Square::from_shogi(5, 9), PieceKind::Ou, Color::Black);
+        assert_eq!(acc.king_sq[Color::Black.index()], Square::from_shogi(5, 9));
+
+        let weights = NnueWeights::default_lcg();
+        let root = std::env::temp_dir().join(format!(
+            "sekirei_nnue_atomic_boundaries_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let destination_directory = root.join("weights.bin");
+        std::fs::create_dir(&destination_directory).unwrap();
+        assert!(save_weights(&weights, &destination_directory).is_err());
+        assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+
+        let missing_parent = root.join("missing").join("weights.bin");
+        assert!(save_weights(&weights, &missing_parent).is_err());
+        assert!(!missing_parent.exists());
+        assert!(save_weights(&weights, std::path::Path::new("/")).is_err());
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

@@ -1010,6 +1010,30 @@ mod tests {
     use super::*;
     use crate::movegen::generate_legal_moves;
 
+    struct ZeroPolicy;
+
+    impl MctsPolicy for ZeroPolicy {
+        fn prior(&self, _board: &Board, _mv: Move) -> f32 {
+            0.0
+        }
+    }
+
+    fn checkmated_board() -> Board {
+        let board = Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").unwrap();
+        let mut probe = board.clone();
+        generate_legal_moves(&mut probe)
+            .into_iter()
+            .find_map(|mv| {
+                let mut after = board.clone();
+                after.do_move_for_search(mv);
+                let mut replies = after.clone();
+                (generate_legal_moves(&mut replies).is_empty()
+                    && is_in_check(&after, after.side_to_move))
+                .then_some(after)
+            })
+            .expect("fixture must contain a mating move")
+    }
+
     #[test]
     fn root_pilot_is_deterministic_and_accounts_for_simulations() {
         let board = Board::startpos();
@@ -1151,6 +1175,179 @@ mod tests {
     }
 
     #[test]
+    fn direct_depth_zero_simulators_cover_expanded_nodes_and_value_cache_hits() {
+        struct FixedValue;
+        impl MctsValue for FixedValue {
+            fn value(&self, _board: &Board) -> f32 {
+                0.25
+            }
+        }
+
+        let board = Board::startpos();
+        let abort = AtomicBool::new(false);
+
+        let mut value_cache = HashMap::new();
+        let mut cache_hits = 0;
+        let mut nodes = 1;
+        let mut first_leaf = TreeNode::new();
+        let mut first_board = board.clone();
+        let mut first_context = TreeSimulationContext {
+            exploration: std::f32::consts::SQRT_2,
+            policy: &ZeroPolicy,
+            value: &FixedValue,
+            nodes: &mut nodes,
+            cache_enabled: true,
+            value_cache: &mut value_cache,
+            value_cache_hits: &mut cache_hits,
+            abort: &abort,
+        };
+        assert!(tree_simulate(&mut first_board, &mut first_leaf, 0, &mut first_context).is_some());
+
+        let mut cached_leaf = TreeNode::new();
+        let mut cached_board = board.clone();
+        assert!(
+            tree_simulate(&mut cached_board, &mut cached_leaf, 0, &mut first_context).is_some()
+        );
+        assert_eq!(*first_context.value_cache_hits, 1);
+
+        let legal = MoveBuffer::legal(&mut board.clone());
+        let mut expanded = TreeNode::new();
+        expand_node(&board, &mut expanded, &ZeroPolicy, legal.as_slice());
+        let mut expanded_board = board.clone();
+        assert!(tree_simulate(&mut expanded_board, &mut expanded, 0, &mut first_context).is_some());
+
+        let mut arena = vec![SharedTreeNode {
+            visits: 0,
+            value_sum: 0.0,
+            children: Vec::new(),
+        }];
+        let mut index = HashMap::new();
+        let mut transposition_hits = 0;
+        let mut shared_context = SharedSearchContext {
+            policy: &ZeroPolicy,
+            value: &FixedValue,
+            arena: &mut arena,
+            index: &mut index,
+            transposition_hits: &mut transposition_hits,
+            share_transpositions: false,
+            abort: &abort,
+        };
+        shared_expand(&board, 0, 1, legal.as_slice(), &mut shared_context);
+        let mut shared_board = board.clone();
+        assert!(
+            shared_simulate(
+                &mut shared_board,
+                0,
+                0,
+                std::f32::consts::SQRT_2,
+                &mut shared_context,
+            )
+            .is_some()
+        );
+        assert_eq!(shared_context.arena[0].visits, 1);
+
+        let mut uncached = TreeNode::new();
+        expand_node(&board, &mut uncached, &ZeroPolicy, legal.as_slice());
+        let mut uncached_board = board.clone();
+        let mut uncached_nodes = 1;
+        let mut uncached_values = HashMap::new();
+        let mut uncached_hits = 0;
+        let mut uncached_context = TreeSimulationContext {
+            exploration: std::f32::consts::SQRT_2,
+            policy: &ZeroPolicy,
+            value: &FixedValue,
+            nodes: &mut uncached_nodes,
+            cache_enabled: false,
+            value_cache: &mut uncached_values,
+            value_cache_hits: &mut uncached_hits,
+            abort: &abort,
+        };
+        assert!(
+            tree_simulate(&mut uncached_board, &mut uncached, 0, &mut uncached_context).is_some()
+        );
+    }
+
+    #[test]
+    fn root_pilot_scores_a_mating_child_without_calling_the_value_provider() {
+        struct MatingMovePolicy(Move);
+        impl MctsPolicy for MatingMovePolicy {
+            fn prior(&self, _board: &Board, mv: Move) -> f32 {
+                if mv == self.0 { 1.0 } else { 0.0 }
+            }
+        }
+        struct PanicValue;
+        impl MctsValue for PanicValue {
+            fn value(&self, _board: &Board) -> f32 {
+                panic!("terminal child must bypass the value provider")
+            }
+        }
+
+        let board = Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").unwrap();
+        let mut probe = board.clone();
+        let mating_move = generate_legal_moves(&mut probe)
+            .into_iter()
+            .find(|&mv| {
+                let mut after = board.clone();
+                after.do_move_for_search(mv);
+                let mut replies = after.clone();
+                generate_legal_moves(&mut replies).is_empty()
+                    && is_in_check(&after, after.side_to_move)
+            })
+            .expect("fixture must contain a mating move");
+        for value_cache in [false, true] {
+            let info = RootMcts::default().search(
+                &board,
+                MctsConfig {
+                    simulations: 1,
+                    value_cache,
+                    root_widening: Some(u32::MAX),
+                },
+                &MatingMovePolicy(mating_move),
+                &PanicValue,
+            );
+            assert_eq!(info.score, 1_000);
+            assert_eq!(info.best_move, Some(mating_move));
+        }
+    }
+
+    #[test]
+    fn tree_expanders_replace_all_zero_priors_with_uniform_weights() {
+        let board = Board::startpos();
+        let mut probe = board.clone();
+        let moves = MoveBuffer::legal(&mut probe);
+
+        let mut root = TreeNode::new();
+        expand_node(&board, &mut root, &ZeroPolicy, moves.as_slice());
+        assert!(!root.children.is_empty());
+        assert!(root.children.iter().all(|child| child.prior == 1.0));
+
+        let mut arena = vec![SharedTreeNode {
+            visits: 0,
+            value_sum: 0.0,
+            children: Vec::new(),
+        }];
+        let mut index = HashMap::new();
+        let mut transposition_hits = 0;
+        let abort = AtomicBool::new(false);
+        let mut context = SharedSearchContext {
+            policy: &ZeroPolicy,
+            value: &MaterialValue,
+            arena: &mut arena,
+            index: &mut index,
+            transposition_hits: &mut transposition_hits,
+            share_transpositions: false,
+            abort: &abort,
+        };
+        shared_expand(&board, 0, 2, moves.as_slice(), &mut context);
+        assert!(
+            context.arena[0]
+                .children
+                .iter()
+                .all(|child| child.prior == 1.0)
+        );
+    }
+
+    #[test]
     fn deterministic_value_cache_reuses_root_child_evaluations() {
         let board = Board::startpos();
         let info = RootMcts::default().search(
@@ -1256,6 +1453,102 @@ mod tests {
     }
 
     #[test]
+    fn all_tree_pilots_score_checkmate_from_the_side_to_move() {
+        let board = checkmated_board();
+        let root = RootMcts::default().search(
+            &board,
+            MctsConfig::default(),
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        let tree = TreeMcts::default().search(
+            &board,
+            TreeMctsConfig::default(),
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        let shared = SharedTreeMcts::default().search(
+            &board,
+            SharedTreeMctsConfig::default(),
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert_eq!(root.score, -1_000);
+        assert_eq!(tree.score, -1_000);
+        assert_eq!(shared.score, -1_000);
+        assert_eq!(
+            (root.simulations, tree.simulations, shared.simulations),
+            (0, 0, 0)
+        );
+    }
+
+    #[test]
+    fn recursive_tree_simulators_account_for_terminal_leaves() {
+        let boards = [
+            (Board::from_sfen("9/9/9/9/9/9/9/9/9 b - 1").unwrap(), 0.0),
+            (checkmated_board(), -1.0),
+        ];
+        for (board, expected) in boards {
+            for depth_left in [0, 2] {
+                let abort = AtomicBool::new(false);
+                let mut nodes = 1;
+                let mut value_cache = HashMap::new();
+                let mut value_cache_hits = 0;
+                let mut root = TreeNode::new();
+                let mut context = TreeSimulationContext {
+                    exploration: TreeMcts::default().exploration,
+                    policy: &UniformPolicy,
+                    value: &MaterialValue,
+                    nodes: &mut nodes,
+                    cache_enabled: true,
+                    value_cache: &mut value_cache,
+                    value_cache_hits: &mut value_cache_hits,
+                    abort: &abort,
+                };
+                assert_eq!(
+                    tree_simulate(&mut board.clone(), &mut root, depth_left, &mut context),
+                    Some(expected)
+                );
+                assert_eq!((root.visits, root.value_sum), (1, expected));
+
+                let mut arena = vec![SharedTreeNode {
+                    visits: 0,
+                    value_sum: 0.0,
+                    children: Vec::new(),
+                }];
+                let mut index = HashMap::new();
+                let mut transposition_hits = 0;
+                let mut shared_context = SharedSearchContext {
+                    policy: &UniformPolicy,
+                    value: &MaterialValue,
+                    arena: &mut arena,
+                    index: &mut index,
+                    transposition_hits: &mut transposition_hits,
+                    share_transpositions: true,
+                    abort: &abort,
+                };
+                assert_eq!(
+                    shared_simulate(
+                        &mut board.clone(),
+                        0,
+                        depth_left,
+                        SharedTreeMcts::default().exploration,
+                        &mut shared_context,
+                    ),
+                    Some(expected)
+                );
+                assert_eq!(
+                    (
+                        shared_context.arena[0].visits,
+                        shared_context.arena[0].value_sum,
+                    ),
+                    (1, expected)
+                );
+            }
+        }
+    }
+
+    #[test]
     fn tree_value_cache_reuses_identical_leaf_evaluations() {
         let board = Board::startpos();
         let info = TreeMcts::default().search(
@@ -1341,6 +1634,21 @@ mod tests {
         assert_eq!(first.simulations, 16);
         assert_eq!(first.nodes, second.nodes);
         assert_eq!(first.root_children, 30);
+    }
+
+    #[test]
+    fn shared_tree_pilot_handles_terminal_positions_without_simulating() {
+        let board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b - 1").unwrap();
+        let info = SharedTreeMcts::default().search(
+            &board,
+            SharedTreeMctsConfig::default(),
+            &UniformPolicy,
+            &MaterialValue,
+        );
+        assert_eq!(info.best_move, None);
+        assert_eq!(info.score, 0);
+        assert_eq!(info.simulations, 0);
+        assert_eq!(info.nodes, 1);
     }
 
     #[test]

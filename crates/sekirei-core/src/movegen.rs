@@ -3915,6 +3915,28 @@ mod move_buffer_tests {
         board.undo_move_for_search(token);
         assert_eq!(board.pawn_files(Color::Black), original);
     }
+
+    #[test]
+    fn kingless_diagnostic_positions_fail_closed_without_inventing_checks() {
+        let board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b R 1").unwrap();
+        let drop = Move::drop(Square::from_shogi(5, 5), PieceKind::Hisha);
+
+        assert!(!move_gives_direct_check(&board, drop));
+        assert!(
+            CheckSquares::new(&board)
+                .0
+                .iter()
+                .all(|squares| squares.is_empty())
+        );
+        assert!(discovered_check_candidates(&board).is_empty());
+        assert!(!king_destination_is_safe(&board, Color::Black, drop));
+        assert!(!pawn_drop_has_king_escape(
+            &board,
+            Color::Black,
+            Square::from_shogi(5, 5)
+        ));
+        assert_eq!(diagnostic_king_safety_scan(&board), 0);
+    }
 }
 
 #[cfg(test)]
@@ -4514,6 +4536,78 @@ fn king_can_step_away(board: &Board, color: Color, ksq: Square) -> bool {
 mod diagnostic_coverage_tests {
     use super::*;
 
+    #[derive(Default)]
+    struct DefaultSink(Vec<Move>);
+
+    impl MoveSink for DefaultSink {
+        fn clear(&mut self) {
+            self.0.clear();
+        }
+
+        fn push(&mut self, m: Move) {
+            self.0.push(m);
+        }
+    }
+
+    fn exercise_sink(sink: &mut impl MoveSink) {
+        let from = Square::from_shogi(5, 4);
+        let plain = Square::from_shogi(5, 5);
+        let zone = Square::from_shogi(5, 3);
+        let forced = Square::from_shogi(5, 1);
+
+        sink.clear();
+        sink.push(Move::normal(from, plain, PieceKind::Gin, false));
+        sink.push_normal(from, zone, PieceKind::Gin, true);
+        sink.push_drop(plain, PieceKind::Kin);
+        sink.push_plain_targets(
+            from,
+            PieceKind::Gin,
+            Bitboard::from_square(plain) | Bitboard::from_square(zone),
+        );
+        sink.push_drop_targets(
+            PieceKind::Kaku,
+            Bitboard::from_square(plain) | Bitboard::from_square(zone),
+        );
+        let mut promotable = Bitboard::from_square(plain)
+            | Bitboard::from_square(zone)
+            | Bitboard::from_square(forced);
+        sink.push_promotable_targets_with_masks(
+            from,
+            PieceKind::Fu,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::STUCK_FU_KYOU_BLACK,
+            &mut promotable,
+        );
+
+        let mut none = Bitboard::EMPTY;
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut none,
+            sink,
+        );
+        let mut outside = Bitboard::from_square(plain);
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut outside,
+            sink,
+        );
+        let mut inside = Bitboard::from_square(zone);
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut inside,
+            sink,
+        );
+    }
+
     const ALL_KINDS: [PieceKind; 14] = [
         PieceKind::Fu,
         PieceKind::Kyou,
@@ -4566,6 +4660,33 @@ mod diagnostic_coverage_tests {
             }
             assert_eq!(board.hash(), before);
         }
+    }
+
+    #[test]
+    fn every_move_sink_contract_handles_plain_drop_and_promotion_batches() {
+        let mut default = DefaultSink::default();
+        exercise_sink(&mut default);
+        assert!(default.0.len() >= 12);
+
+        let mut packed = PackedMoveList::default();
+        exercise_sink(&mut packed);
+        assert!(packed.len() >= 12);
+        assert!(packed.as_slice().iter().all(|mv| mv.to_move().is_some()));
+
+        let mut narrow = NarrowMoveList::default();
+        exercise_sink(&mut narrow);
+        assert!(narrow.len() >= 12);
+        assert_eq!(narrow.as_mut_slice().len(), narrow.as_slice().len());
+
+        let mut fixed = FixedMoveList::default();
+        exercise_sink(&mut fixed);
+        assert!(fixed.len() >= 12);
+
+        let mut counter = MoveCounter::default();
+        exercise_sink(&mut counter);
+        assert!(counter.count >= 12);
+        counter.clear();
+        assert_eq!(counter.count, 0);
     }
 
     #[test]

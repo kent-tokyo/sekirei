@@ -12,8 +12,9 @@ use sekirei_core::eval::{
 };
 use sekirei_core::external_eval::read_sfnn_header;
 use sekirei_core::hand::Hand;
+use sekirei_core::lazy_smp::{LAZY_VOTE, LazySmpSearcher, select_by_vote, select_worker_result};
 use sekirei_core::mate::{
-    MateAnalysisAbortReason, MateAnalysisOutcome, MateInOneInvalidReason, analyze_mate,
+    MateAnalysisAbortReason, MateAnalysisOutcome, MateInOneInvalidReason, analyze_mate, solve_mate,
 };
 use sekirei_core::movegen::{
     CheckSquares, FixedMoveList, MoveBuffer, NarrowMoveList, PackedMoveList,
@@ -26,7 +27,9 @@ use sekirei_core::nnue::NnueWeights;
 use sekirei_core::perft::perft;
 use sekirei_core::piece::PieceKind;
 use sekirei_core::policy::top_n;
-use sekirei_core::search::{PruningConfig, SearchBound, SearchConfig, Searcher};
+use sekirei_core::search::{
+    PruningConfig, SearchBound, SearchConfig, SearchDiagnostics, SearchInfo, Searcher,
+};
 use sekirei_core::sfen::{
     PositionHistory, STARTPOS_SFEN, apply_moves, board_to_sfen, move_from_usi, move_to_usi,
     parse_position_cmd, piece_to_sfen_char,
@@ -241,6 +244,52 @@ fn public_sfen_history_and_mate_contracts_cover_boundary_families() {
     let hash = rules_only.hash();
     rules_only.recompute_derived();
     assert_eq!(rules_only.hash(), hash);
+
+    let mate = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+    let exhausted = analyze_mate(&mate, 3, 0);
+    assert!(exhausted.aborted);
+    assert_eq!(
+        exhausted.abort_reason,
+        Some(MateAnalysisAbortReason::NodeLimit)
+    );
+    assert_eq!(solve_mate(&mate, 0, 15, None).nodes, 1);
+    assert!(solve_mate(&mate, 100, 0, None).mate_move.is_none());
+}
+
+#[test]
+fn public_lazy_smp_controls_cover_ephemeral_isolated_and_vote_paths() {
+    let board = Board::startpos();
+    let config = SearchConfig {
+        max_depth: 2,
+        node_limit: Some(256),
+        ..SearchConfig::default()
+    };
+    let isolated = LazySmpSearcher::new_isolated(Tt::new(1), 1);
+    let result = isolated.search(&board, config);
+    assert_eq!(result.workers, 1);
+    assert!(result.result.best_move.is_some());
+
+    let shared = LazySmpSearcher::with_flags(Tt::new(1), 1, 0);
+    assert!(shared.search(&board, config).result.best_move.is_some());
+
+    let empty = |score| SearchInfo {
+        best_move: None,
+        score,
+        depth: 1,
+        nodes: 1,
+        elapsed: Duration::ZERO,
+        hashfull: 0,
+        bound: SearchBound::Exact,
+        completed_bound: SearchBound::Exact,
+        aborted: false,
+        abort_reason: "none",
+        pv: Vec::new(),
+    };
+    assert_eq!(select_by_vote(vec![empty(1), empty(2)]).score, 2);
+    assert_eq!(
+        select_worker_result(vec![empty(1), empty(2)], LAZY_VOTE).score,
+        2
+    );
 }
 
 #[test]
@@ -453,7 +502,8 @@ fn run_public_search_controls() {
     let legal = generate_legal_moves(&mut board);
     let first = legal[0];
     let illegal = Move::drop(Square::from_shogi(5, 5), PieceKind::Ou);
-    let searcher = Searcher::new(Tt::new(4));
+    let diagnostics = Arc::new(SearchDiagnostics::new());
+    let searcher = Searcher::with_diagnostics(Tt::new(4), diagnostics.clone());
 
     assert_eq!(SearchBound::Exact.as_str(), "exact");
     assert_eq!(SearchBound::Lower.as_str(), "lower");
@@ -473,6 +523,12 @@ fn run_public_search_controls() {
     assert!(normal.best_move.is_some_and(|mv| legal.contains(&mv)));
     assert!(!trace.is_empty());
     assert!(trace.windows(2).all(|pair| pair[0].depth < pair[1].depth));
+    assert!(
+        trace
+            .iter()
+            .all(|entry| entry.root_mate_in_one_nodes.is_some())
+    );
+    assert!(diagnostics.snapshot().alpha_beta_calls > 0);
 
     let (diagnostic, diagnostic_trace) = searcher
         .search_with_history_trace_without_root_mate_safety(
@@ -634,12 +690,22 @@ fn run_tuned_public_search_matrix() {
         "V2_KEEP",
         "V2_HINDSIGHT",
         "V2_PVQ",
+        "V2_DIAG",
+        "SKIP_NONPROMO",
         "MULTICUT",
         "PRUNE_STYLE",
         "QS_PROMO",
         "ORDER_LAZY",
         "FL_MOVE",
         "TT_PV_CUT",
+        "HIST_KEEP",
+        "HIST_AGE",
+        "FUT_SOFT",
+        "LMR_EXT_HIST",
+        "PC_MIN_DEPTH",
+        "IIR_MODE",
+        "TT_PV_MODE",
+        "SE_DEPTH_BUMP",
     ];
     let saved = NAMES
         .iter()
@@ -654,8 +720,25 @@ fn run_tuned_public_search_matrix() {
         .collect::<Vec<_>>();
     let _restore = Restore(saved.clone());
     let configurations: &[&[(&str, i32)]] = &[
-        &[("SEARCH_V2", 0), ("PRUNE_STYLE", 1), ("QS_PROMO", 31)],
-        &[("SEARCH_V2", 0), ("MULTICUT", 2), ("ORDER_LAZY", 1)],
+        &[
+            ("SEARCH_V2", 0),
+            ("PRUNE_STYLE", 1),
+            ("QS_PROMO", 31),
+            ("HIST_KEEP", 0),
+            ("FUT_SOFT", 1),
+            ("LMR_EXT_HIST", 1),
+            ("PC_MIN_DEPTH", 4),
+            ("IIR_MODE", 3),
+            ("TT_PV_MODE", 7),
+            ("SE_DEPTH_BUMP", 1),
+        ],
+        &[
+            ("SEARCH_V2", 0),
+            ("MULTICUT", 2),
+            ("ORDER_LAZY", 1),
+            ("HIST_KEEP", 1),
+            ("HIST_AGE", 0),
+        ],
         &[("SEARCH_V2", 0), ("FL_MOVE", 1), ("TT_PV_CUT", 1)],
         &[
             ("SEARCH_V2", 1),
@@ -667,6 +750,14 @@ fn run_tuned_public_search_matrix() {
             ("V2_KEEP", 2),
             ("V2_HINDSIGHT", 1),
             ("V2_PVQ", 1),
+        ],
+        &[
+            ("SEARCH_V2", 1),
+            ("V2_QS", 1),
+            ("V2_STAGE_GEN", 1),
+            ("V2_KEEP", 0),
+            ("V2_DIAG", 15),
+            ("SKIP_NONPROMO", 2),
         ],
     ];
     let mut positions = Vec::new();
@@ -687,6 +778,31 @@ fn run_tuned_public_search_matrix() {
     }
     assert!(positions.len() >= 4);
 
+    assert!(sekirei_core::search::params::set("SEARCH_V2", 0));
+    let mating_root = Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").unwrap();
+    let mut root_probe = mating_root.clone();
+    let mut mated = generate_legal_moves(&mut root_probe)
+        .into_iter()
+        .find_map(|mv| {
+            let mut child = mating_root.clone();
+            child.do_move(mv);
+            let mut reply_probe = child.clone();
+            (generate_legal_moves(&mut reply_probe).is_empty()
+                && is_in_check(&child, child.side_to_move))
+            .then_some(child)
+        })
+        .expect("fixture must contain a mating move");
+    let mated_result = Searcher::new(Tt::new(1)).search(
+        &mut mated,
+        SearchConfig {
+            max_depth: 2,
+            node_limit: Some(32),
+            ..SearchConfig::default()
+        },
+    );
+    assert!(mated_result.best_move.is_none());
+    assert_eq!(mated_result.score, -sekirei_core::search::MATE_SCORE);
+
     for configuration in configurations {
         for &(name, value) in &saved {
             assert!(sekirei_core::search::params::set(name, value));
@@ -699,6 +815,7 @@ fn run_tuned_public_search_matrix() {
             let original = board_to_sfen(&board);
             let mut searcher = Searcher::new(Tt::new(4));
             searcher.set_ybw_split(false);
+            searcher.new_search();
             let result = searcher.search(
                 &mut board,
                 SearchConfig {
@@ -711,6 +828,34 @@ fn run_tuned_public_search_matrix() {
             assert_eq!(board_to_sfen(&board), original);
         }
     }
+
+    for &(name, value) in &saved {
+        assert!(sekirei_core::search::params::set(name, value));
+    }
+    assert!(sekirei_core::search::params::set("SEARCH_V2", 1));
+    let mut board = Board::startpos();
+    let hash = board.hash();
+    let mut repetition = PositionHistory::initial(hash);
+    for mover in [
+        Color::Black,
+        Color::White,
+        Color::Black,
+        Color::White,
+        Color::Black,
+        Color::White,
+    ] {
+        repetition = repetition.after_move(hash, mover, false);
+    }
+    let result = Searcher::new(Tt::new(1)).search_with_history(
+        &mut board,
+        SearchConfig {
+            max_depth: 3,
+            node_limit: Some(100),
+            ..SearchConfig::default()
+        },
+        &repetition,
+    );
+    assert_eq!(result.score, 0);
 }
 
 fn run_deterministic_playout_corpus() {

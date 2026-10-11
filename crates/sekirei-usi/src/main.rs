@@ -1928,6 +1928,18 @@ mod tests {
     }
 
     #[test]
+    fn unit_interval_reporting_wrapper_preserves_valid_values_and_rejects_errors() {
+        assert_eq!(
+            parse_unit_interval_option_or_report(&["name", "x", "value", "0.25"], "x"),
+            Some(0.25)
+        );
+        assert_eq!(
+            parse_unit_interval_option_or_report(&["name", "x", "value", "NaN"], "x"),
+            None
+        );
+    }
+
+    #[test]
     fn every_backend_supports_common_lifecycle_operations() {
         let backends = [
             SearchBackend::speculative(1, 0),

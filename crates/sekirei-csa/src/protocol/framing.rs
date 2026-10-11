@@ -103,3 +103,78 @@ impl<R: Read> CsaLineReader<R> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::VecDeque;
+
+    enum Step {
+        Bytes(&'static [u8]),
+        Error(io::ErrorKind),
+    }
+
+    struct ScriptedRead(VecDeque<Step>);
+
+    impl Read for ScriptedRead {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            match self.0.pop_front() {
+                Some(Step::Bytes(bytes)) => {
+                    let len = bytes.len().min(output.len());
+                    output[..len].copy_from_slice(&bytes[..len]);
+                    if len < bytes.len() {
+                        self.0.push_front(Step::Bytes(&bytes[len..]));
+                    }
+                    Ok(len)
+                }
+                Some(Step::Error(kind)) => Err(io::Error::from(kind)),
+                None => Ok(0),
+            }
+        }
+    }
+
+    #[test]
+    fn timeout_without_partial_input_is_returned_immediately() {
+        let mut reader = CsaLineReader::new(ScriptedRead(VecDeque::from([Step::Error(
+            io::ErrorKind::TimedOut,
+        )])));
+        assert_eq!(
+            reader.read_line().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+    }
+
+    #[test]
+    fn only_one_partial_timeout_is_tolerated() {
+        let mut reader = CsaLineReader::new(ScriptedRead(VecDeque::from([
+            Step::Bytes(b"partial"),
+            Step::Error(io::ErrorKind::WouldBlock),
+            Step::Error(io::ErrorKind::TimedOut),
+        ])));
+        assert_eq!(
+            reader.read_line().unwrap_err().kind(),
+            io::ErrorKind::TimedOut
+        );
+    }
+
+    #[test]
+    fn oversized_unterminated_line_is_rejected_at_eof() {
+        let input = vec![b'x'; MAX_CSA_LINE_BYTES + 1];
+        let mut reader = CsaLineReader::new(input.as_slice());
+        assert_eq!(
+            reader.read_line().unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+    }
+
+    #[test]
+    fn split_crlf_line_is_joined_and_carriage_return_is_removed() {
+        let mut reader = CsaLineReader::new(ScriptedRead(VecDeque::from([
+            Step::Bytes(b"Game_"),
+            Step::Bytes(b"ID:test\r\nnext\n"),
+        ])));
+        assert_eq!(reader.read_line().unwrap().as_deref(), Some("Game_ID:test"));
+        assert_eq!(reader.read_line().unwrap().as_deref(), Some("next"));
+        assert_eq!(reader.read_line().unwrap(), None);
+    }
+}

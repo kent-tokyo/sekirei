@@ -67,3 +67,23 @@ pub(crate) fn copy_atomic(source: &Path, destination: &Path) -> io::Result<u64> 
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn atomic_helpers_clean_temporary_files_after_each_failure_stage() {
+        assert_eq!(
+            temporary_sibling(Path::new("/")).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("output");
+        assert!(write_atomic_stream(&output, |_| Err(io::Error::other("write"))).is_err());
+        fs::create_dir(&output).unwrap();
+        assert!(write_atomic(&output, b"cannot replace a directory").is_err());
+        assert!(copy_atomic(&root.path().join("missing"), &root.path().join("copy")).is_err());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 1);
+    }
+}
