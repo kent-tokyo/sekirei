@@ -9,7 +9,7 @@
 //!   6. END → back to step 2 (if --loop)
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Write};
+use std::io::{self, BufWriter, Write};
 use std::net::TcpStream;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -26,11 +26,12 @@ use sekirei_core::{
 
 use crate::moves::{board_from_csa_position, csa_to_move, is_csa_move_token, move_to_csa};
 
+mod framing;
 mod time_control;
 
+use framing::CsaLineReader;
 use time_control::{CsaTimeControl, ParsedTimeControl};
 
-const MAX_CSA_LINE_BYTES: usize = 64 * 1024;
 const TOURNAMENT_MAX_PLIES: usize = 512;
 
 fn parse_our_color(value: &str) -> io::Result<Color> {
@@ -53,115 +54,6 @@ fn advance_tournament_ply(ply_count: &mut usize) -> io::Result<()> {
     }
     *ply_count += 1;
     Ok(())
-}
-
-/// Bounded, timeout-tolerant CSA line reader.
-///
-/// `BufRead::read_line` has no input-size ceiling and may leave callers with
-/// ambiguous state after a timeout in the middle of a multibyte UTF-8
-/// sequence. This reader keeps raw bytes until a complete line arrives,
-/// validates UTF-8 only at that boundary, and drains an oversized line before
-/// reporting it so its suffix can never be interpreted as a new CSA command.
-struct CsaLineReader<R: Read> {
-    inner: BufReader<R>,
-    pending: Vec<u8>,
-    discarding_oversized: bool,
-}
-
-impl<R: Read> CsaLineReader<R> {
-    fn new(inner: R) -> Self {
-        Self {
-            inner: BufReader::new(inner),
-            pending: Vec::new(),
-            discarding_oversized: false,
-        }
-    }
-
-    fn read_line(&mut self) -> io::Result<Option<String>> {
-        let mut consecutive_partial_timeouts = 0u8;
-        loop {
-            let available = match self.inner.fill_buf() {
-                Ok(bytes) => bytes,
-                Err(error)
-                    if matches!(
-                        error.kind(),
-                        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-                    ) && (!self.pending.is_empty() || self.discarding_oversized)
-                        && consecutive_partial_timeouts == 0 =>
-                {
-                    // A socket timeout is not a line boundary. Keep the bytes
-                    // already received and allow one more timed read for the
-                    // rest. A second timeout without progress still fails, so
-                    // a dead peer cannot hold the client forever.
-                    consecutive_partial_timeouts += 1;
-                    continue;
-                }
-                Err(error) => return Err(error),
-            };
-
-            if available.is_empty() {
-                if self.discarding_oversized {
-                    self.discarding_oversized = false;
-                    self.pending.clear();
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "CSA line exceeded 64 KiB before EOF",
-                    ));
-                }
-                if self.pending.is_empty() {
-                    return Ok(None);
-                }
-                self.pending.clear();
-                return Err(io::Error::new(
-                    io::ErrorKind::UnexpectedEof,
-                    "connection closed in the middle of a CSA line",
-                ));
-            }
-
-            consecutive_partial_timeouts = 0;
-
-            if let Some(newline) = available.iter().position(|byte| *byte == b'\n') {
-                if !self.discarding_oversized {
-                    if self.pending.len().saturating_add(newline) > MAX_CSA_LINE_BYTES {
-                        self.pending.clear();
-                        self.discarding_oversized = true;
-                    } else {
-                        self.pending.extend_from_slice(&available[..newline]);
-                    }
-                }
-                self.inner.consume(newline + 1);
-
-                if self.discarding_oversized {
-                    self.discarding_oversized = false;
-                    self.pending.clear();
-                    return Err(io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "CSA line exceeds the 64 KiB limit",
-                    ));
-                }
-
-                if self.pending.last() == Some(&b'\r') {
-                    self.pending.pop();
-                }
-                let bytes = std::mem::take(&mut self.pending);
-                let line = String::from_utf8(bytes).map_err(|_| {
-                    io::Error::new(io::ErrorKind::InvalidData, "CSA line is not valid UTF-8")
-                })?;
-                return Ok(Some(line));
-            }
-
-            let consumed = available.len();
-            if !self.discarding_oversized {
-                if self.pending.len().saturating_add(consumed) > MAX_CSA_LINE_BYTES {
-                    self.pending.clear();
-                    self.discarding_oversized = true;
-                } else {
-                    self.pending.extend_from_slice(available);
-                }
-            }
-            self.inner.consume(consumed);
-        }
-    }
 }
 
 // ---- Public config ----
@@ -1793,13 +1685,14 @@ fn parse_time_from_echo(line: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use super::framing::{CsaLineReader, MAX_CSA_LINE_BYTES};
     use super::time_control::{CsaTimeControl, parse_decimal, parse_time_unit_ms};
     use super::{
-        Color, Config, CsaClient, CsaLineReader, EvaluationMode, GameRecord, GameResult,
-        MAX_CSA_LINE_BYTES, RecordMetadata, RootCandidateRecord, ServerLine, TOURNAMENT_MAX_PLIES,
-        ThinkResult, advance_tournament_ply, bare_server_move, classify_server_line,
-        parse_game_end, parse_our_color, parse_time_from_echo, update_run_manifest_game,
-        update_run_manifest_progress, write_runtime_status_progress,
+        Color, Config, CsaClient, EvaluationMode, GameRecord, GameResult, RecordMetadata,
+        RootCandidateRecord, ServerLine, TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply,
+        bare_server_move, classify_server_line, parse_game_end, parse_our_color,
+        parse_time_from_echo, update_run_manifest_game, update_run_manifest_progress,
+        write_runtime_status_progress,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
