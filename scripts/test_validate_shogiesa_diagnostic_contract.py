@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPT = Path(__file__).with_name("validate_shogiesa_diagnostic_contract.py")
@@ -32,10 +33,11 @@ class DiagnosticContractTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         root = Path(self.temp.name)
         self.manifest_path = root / "manifest.json"
+        self.positions_path = root / "positions.jsonl"
         self.observations_path = root / "observations.jsonl"
         self.manifest = {
             "manifest_schema_version": 1,
-            "shogiesa_version": "0.11.3",
+            "shogiesa_version": "0.11.4",
             "schema_version": 11,
             "command": "label",
             "depths": [2, 4],
@@ -52,19 +54,52 @@ class DiagnosticContractTests(unittest.TestCase):
             "schema_version": 11,
             "observations": [observation(2, 2), observation(4, 4)],
         }
+        self.verification = {
+            "report_schema_version": 1,
+            "shogiesa_version": "0.11.4",
+            "manifest_schema_version": 1,
+            "schema_version": 11,
+            "command": "label",
+            "depths": [2, 4],
+            "engine_options": ["Threads=1", "UseBook=false"],
+            "manifest_sha256": "1" * 64,
+            "dataset_sha256": "2" * 64,
+            "output_sha256": "3" * 64,
+            "provenance": "complete",
+            "missing_digests": [],
+            "records_read": 1,
+            "records_kept": 1,
+            "cache_hits": 1,
+            "cache_misses": 1,
+            "cache_hit_rate": 0.5,
+            "requested_depth_total": 2,
+            "requested_depth_underreach": 0,
+            "output": {
+                "records": 1,
+                "labeled_records": 1,
+                "unlabeled_records": 0,
+                "observations_with_candidates": 0,
+                "observations_total": 2,
+                "requested_depth_total": 2,
+                "requested_depth_underreach": 0,
+            },
+        }
 
     def tearDown(self):
         self.temp.cleanup()
 
     def write(self):
         self.manifest_path.write_text(json.dumps(self.manifest), encoding="utf-8")
+        self.positions_path.write_text(json.dumps({"schema_version": 11}) + "\n", encoding="utf-8")
         self.observations_path.write_text(json.dumps(self.record) + "\n", encoding="utf-8")
 
     def build(self, **overrides):
         self.write()
         args = {
-            "version": "0.11.3",
+            "version": "0.11.4",
+            "verifier_executable": "typed-verifier",
             "manifest_path": self.manifest_path,
+            "positions_path": self.positions_path,
             "observations_path": self.observations_path,
             "expected_depths": [2, 4],
             "label_depth": 4,
@@ -72,7 +107,10 @@ class DiagnosticContractTests(unittest.TestCase):
             "label_elapsed_seconds": 9,
         }
         args.update(overrides)
-        return contract.build_contract(**args)
+        with mock.patch.object(
+            contract, "run_typed_verifier", return_value=self.verification
+        ):
+            return contract.build_contract(**args)
 
     def test_records_diagnostic_only_provenance_and_cache_cost(self):
         result = self.build()
@@ -84,22 +122,44 @@ class DiagnosticContractTests(unittest.TestCase):
         )
         self.assertEqual(result["shogiesa_manifest_stats"]["cache_hits"], 1)
         self.assertEqual(result["shogiesa_label_elapsed_seconds"], 9)
-        self.assertEqual(len(result["shogiesa_manifest_sha256"]), 64)
+        self.assertEqual(result["shogiesa_manifest_sha256"], "1" * 64)
+        self.assertEqual(result["positions_sha256"], "2" * 64)
+        self.assertEqual(result["observations_sha256"], "3" * 64)
+        self.assertEqual(result["artifact_provenance"], "complete")
 
     def test_rejects_unsupported_version_and_schema(self):
-        self.assertEqual(contract.parse_version_output("shogiesa 0.11.3"), "0.11.3")
+        self.assertEqual(contract.parse_version_output("shogiesa 0.11.4"), "0.11.4")
         with self.assertRaisesRegex(contract.ContractError, "unsupported shogiesa version"):
             contract.parse_version_output("shogiesa 0.12.0")
-        self.manifest.pop("manifest_schema_version")
-        with self.assertRaisesRegex(contract.ContractError, "manifest_schema_version"):
+        self.verification["schema_version"] = 12
+        with self.assertRaisesRegex(contract.ContractError, "schema_version"):
             self.build()
-        self.manifest["manifest_schema_version"] = 2
-        with self.assertRaisesRegex(contract.ContractError, "manifest_schema_version"):
+        self.verification["schema_version"] = 11
+        self.verification["shogiesa_version"] = "0.11.3"
+        with self.assertRaisesRegex(contract.ContractError, "does not match"):
             self.build()
-        self.manifest["manifest_schema_version"] = 1
-        self.record["schema_version"] = 12
-        with self.assertRaisesRegex(contract.ContractError, "unsupported schema_version"):
+
+    def test_rejects_policy_mismatch_after_typed_verification(self):
+        self.verification["depths"] = [4]
+        with self.assertRaisesRegex(contract.ContractError, "depths"):
             self.build()
+        self.verification["depths"] = [2, 4]
+        self.verification["engine_options"] = ["Threads=1"]
+        with self.assertRaisesRegex(contract.ContractError, "UseBook=false"):
+            self.build()
+
+    def test_typed_verifier_failure_is_fail_closed(self):
+        self.write()
+        completed = mock.Mock(returncode=2, stdout="", stderr="digest mismatch")
+        with mock.patch.object(contract.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(contract.ContractError, "digest mismatch"):
+                contract.run_typed_verifier(
+                    "typed-verifier",
+                    self.manifest_path,
+                    self.positions_path,
+                    self.observations_path,
+                    False,
+                )
 
     def test_rejects_missing_perspective_provenance(self):
         self.record["observations"][0].pop("score_perspective")

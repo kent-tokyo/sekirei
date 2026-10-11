@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Full shogiesa + quietset + sekirei training pipeline.
 #
-# Verified against: shogiesa 0.11.3 (github.com/kent-tokyo/shogiesa,
+# Verified against: shogiesa 0.11.4 (github.com/kent-tokyo/shogiesa,
 # schema_version 11), quietset-cli 0.16.0. Both tools now support --version
 # (check that first if this script breaks); if this script breaks on
 # `label`/`score` output shape, check for a schema change against those
@@ -71,6 +71,7 @@ MIN_LR=${MIN_LR:-0.00001}
 BEST_EVERY=${BEST_EVERY:-0}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR=${RUN_DIR:-"data/runs/$TIMESTAMP"}
+TYPED_VERIFIER=${TYPED_VERIFIER:-./target/release/verify-shogiesa-label-run}
 
 # Prune old completed runs' stage1-3 intermediates before adding a new one --
 # see scripts/cleanup_runs.sh. Safe by default: only touches runs with a
@@ -107,6 +108,7 @@ command -v cargo    >/dev/null || { echo "error: cargo not found";             e
 [ -f "$BASELINE" ]             || { echo "error: baseline weights not found: $BASELINE"; exit 1; }
 python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
   --shogiesa "$SHOGIESA" --version-only >/dev/null
+cargo build --release -q -p sekirei-train --bin verify-shogiesa-label-run
 
 echo "=== shogiesa + quietset + sekirei pipeline ==="
 echo "  CSA dir   : $CSA_DIR"
@@ -160,7 +162,9 @@ fi
 DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
 DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
   --shogiesa "$SHOGIESA" \
+  --typed-verifier "$TYPED_VERIFIER" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --positions "$RUN_DIR/stage1/positions.jsonl" \
   --observations "$RUN_DIR/stage2/observations.jsonl" \
   --depths "$DEPTHS" \
   --label-depth "$LABEL_DEPTH" \

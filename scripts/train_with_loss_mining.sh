@@ -10,7 +10,7 @@
 # trials) -- see tasks/lessons.md "Strength gates -- startpos-only matches
 # collapse". Requires shogiesa >= the from-match sfen fix (commit ff90198).
 #
-# Verified against: shogiesa 0.11.3 (github.com/kent-tokyo/shogiesa,
+# Verified against: shogiesa 0.11.4 (github.com/kent-tokyo/shogiesa,
 # schema_version 11), quietset-cli 0.16.0 -- same convention as
 # scripts/train_with_shogiesa_quietset.sh.
 #
@@ -55,6 +55,7 @@ MIN_PLY=${MIN_PLY:-10}
 EVERY_N_PLIES=${EVERY_N_PLIES:-4}
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR=${RUN_DIR:-"data/runs/loss_mine_$TIMESTAMP"}
+TYPED_VERIFIER=${TYPED_VERIFIER:-./target/release/verify-shogiesa-label-run}
 
 BASE_POSITIONS=data/runs/bc_redo_20260628_214103/stage1/positions_10k.jsonl
 BASE_SCORED=data/runs/bc_redo_20260628_214103/stage3/scored_10k.jsonl
@@ -99,6 +100,7 @@ command -v cargo    >/dev/null || { echo "error: cargo not found";    exit 127; 
 [ -f "$BASELINE" ]       || { echo "error: baseline weights not found: $BASELINE"; exit 1; }
 python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
   --shogiesa "$SHOGIESA" --version-only >/dev/null
+cargo build --release -q -p sekirei-train --bin verify-shogiesa-label-run
 
 echo "=== loss-position mining + train ==="
 echo "  output    : $OUTPUT"
@@ -151,7 +153,9 @@ echo "  -> $RUN_DIR/stage2/observations.jsonl ($(wc -l < "$RUN_DIR/stage2/observ
 DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
 DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
   --shogiesa "$SHOGIESA" \
+  --typed-verifier "$TYPED_VERIFIER" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --positions "$RUN_DIR/stage1/mined_positions.jsonl" \
   --observations "$RUN_DIR/stage2/observations.jsonl" \
   --depths "$MINE_DEPTHS" \
   --label-depth "$LABEL_DEPTH" \
