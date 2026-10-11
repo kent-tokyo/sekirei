@@ -78,6 +78,7 @@ mod heuristics;
 mod late_move;
 mod move_order;
 mod node;
+mod node_moves;
 pub mod params;
 mod path;
 mod pruning;
@@ -97,10 +98,10 @@ use late_move::{
 #[cfg(test)]
 use move_order::sort_by_cached_i32_key_small;
 use move_order::{
-    QSEARCH_TT_ORDER_OFFSET, order_moves_head, order_moves_in_place, qsearch_order_key,
-    sort_moves_by_cached_key,
+    QSEARCH_TT_ORDER_OFFSET, order_moves_in_place, qsearch_order_key, sort_moves_by_cached_key,
 };
 use node::NodeKey;
+use node_moves::{MoveListContext, MovePreparation, NodeMoveList};
 use params as p;
 use path::{
     ContMoves, current_move_at, cut_at, doubles_at, restore_stack_path, set_current_move, set_cut,
@@ -2104,110 +2105,23 @@ fn alpha_beta(
     }
 
     let killers = state.killers.get(ply as usize);
-    // With a TT move, only that move is put first; the rest is ordered after
-    // it fails to cut, since most cutoffs come from the first move.
-    let mut deferred_order = false;
-    // ORDER_LAZY: order the captures, killers and countermove first and the
-    // quiet moves (with the losing captures) only when the loop reaches them
-    // (not with the young-brothers split, which takes several moves at once).
-    let lazy_order = p::ORDER_LAZY() != 0
-        && !(state.pruning.ybw_split
-            && depth >= MIN_SPLIT_DEPTH
-            && rayon::current_num_threads() > 1);
-    // Index in the move list where the unordered quiet tail starts.
-    let mut lazy_tail: Option<usize> = None;
-    let mut move_buffer = {
-        let _timer = state.timer(|d| &d.movegen_order_ns);
-        let mut move_buffer = {
-            let _generate_timer = state.timer(|d| &d.movegen_generate_ns);
-            MoveBuffer::legal_with_in_check(board, in_check)
-        };
-        if move_buffer.is_empty() {
-            return -(MATE_SCORE - ply as i32); // shorter mate = higher score for the mating side
-        }
-        // The promoting twin of a skipped move is always in the list, so the
-        // list cannot become empty here.
-        if p::SKIP_NONPROMO() != 0 {
-            move_buffer
-                .as_mut_list()
-                .retain(|m| !useless_non_promotion(*m, stm));
-        }
-
-        {
-            let _order_timer = state.timer(|d| &d.move_order_ns);
-            let list = move_buffer.as_mut_list().as_mut_slice();
-            let tt_pos = tt_mv
-                .filter(|_| skip_move.is_none())
-                .and_then(|t| list.iter().position(|&m| m == t));
-            if let Some(k) = tt_pos {
-                list[..=k].rotate_right(1);
-                deferred_order = true;
-            } else if lazy_order {
-                let split = order_moves_head(
-                    board,
-                    list,
-                    tt_mv,
-                    killers,
-                    countermove,
-                    &state.history,
-                    stm,
-                );
-                if split == 0 {
-                    order_moves_in_place(
-                        board,
-                        list,
-                        tt_mv,
-                        killers,
-                        countermove,
-                        ContMoves::at(ply, prev_mv),
-                        &state.history,
-                        stm,
-                        state.counters(),
-                    );
-                } else if split < list.len() {
-                    lazy_tail = Some(split);
-                }
-            } else {
-                order_moves_in_place(
-                    board,
-                    list,
-                    tt_mv,
-                    killers,
-                    countermove,
-                    ContMoves::at(ply, prev_mv),
-                    &state.history,
-                    stm,
-                    state.counters(),
-                );
-            }
-        }
-        move_buffer
+    let move_context = MoveListContext {
+        depth,
+        ply,
+        previous_move: prev_mv,
+        excluded_move: skip_move,
+        in_check,
+        tt_move: tt_mv,
+        killers,
+        countermove,
+        side_to_move: stm,
     };
-
-    // For singular search: filter out the excluded move (rare, only at depth >= SE_MIN_DEPTH / 2)
-    if let Some(skip) = skip_move {
-        move_buffer.as_mut_list().retain(|m| *m != skip);
-        // The removal shifts the tail; order it all now.
-        if let Some(split) = lazy_tail.take() {
-            let list = move_buffer.as_mut_list().as_mut_slice();
-            let from = split.saturating_sub(1).min(list.len());
-            order_moves_in_place(
-                board,
-                &mut list[from..],
-                tt_mv,
-                killers,
-                countermove,
-                ContMoves::at(ply, prev_mv),
-                &state.history,
-                stm,
-                state.counters(),
-            );
-        }
-    }
-    let ordered = move_buffer.as_slice();
-    if ordered.is_empty() {
-        return alpha;
-    } // all moves excluded (shouldn't happen in practice)
+    let mut moves = match NodeMoveList::prepare(state, board, move_context) {
+        MovePreparation::Mated => return -(MATE_SCORE - ply as i32),
+        MovePreparation::ExcludedAll => return alpha,
+        MovePreparation::Ready(moves) => moves,
+    };
+    let ordered = moves.as_slice();
 
     let is_pv = beta - alpha > 1;
 
@@ -2347,30 +2261,8 @@ fn alpha_beta(
         tried_captures.push(first_move);
     }
 
-    if deferred_order {
-        let tail = &mut move_buffer.as_mut_list().as_mut_slice()[1..];
-        let split = if lazy_order {
-            order_moves_head(board, tail, None, killers, countermove, &state.history, stm)
-        } else {
-            0
-        };
-        if split == 0 {
-            order_moves_in_place(
-                board,
-                tail,
-                None,
-                killers,
-                countermove,
-                ContMoves::at(ply, prev_mv),
-                &state.history,
-                stm,
-                state.counters(),
-            );
-        } else if split < tail.len() {
-            lazy_tail = Some(1 + split);
-        }
-    }
-    let ordered = move_buffer.as_slice();
+    moves.order_after_first(state, board);
+    let ordered = moves.as_slice();
     let rest = &ordered[1..];
     if rest.is_empty() {
         let bound = if best_score > orig_alpha {
@@ -2527,21 +2419,8 @@ fn alpha_beta(
         while next < rest_len {
             let i = next;
             next += 1;
-            if lazy_tail == Some(i + 1) {
-                lazy_tail = None;
-                order_moves_in_place(
-                    board,
-                    &mut move_buffer.as_mut_list().as_mut_slice()[i + 1..],
-                    None,
-                    killers,
-                    countermove,
-                    ContMoves::at(ply, prev_mv),
-                    &state.history,
-                    stm,
-                    state.counters(),
-                );
-            }
-            let m = move_buffer.as_slice()[i + 1];
+            moves.order_lazy_tail_at(state, board, i + 1);
+            let m = moves.as_slice()[i + 1];
             if state.budget.should_abort() {
                 break;
             }
@@ -2663,9 +2542,9 @@ fn alpha_beta(
                 if let Some(d) = state.counters()
                     && depth >= p::CUT_MIN_DEPTH() as u32
                 {
-                    d.record_cut(i + 2, is_quiet, deferred_order);
+                    d.record_cut(i + 2, is_quiet, moves.deferred_order());
                     if let Some(t) = tt_mv
-                        && deferred_order
+                        && moves.deferred_order()
                         && !enemy.contains(t.to)
                         && !t.promote
                     {
