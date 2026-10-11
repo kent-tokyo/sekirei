@@ -1118,6 +1118,19 @@ mod tests {
     }
 
     #[test]
+    fn evaluator_byte_validation_rejects_oversized_and_malformed_images() {
+        let oversized = vec![0; MAX_EVALUATOR_BYTES + 1];
+        let error = load_evaluator_bytes_impl(&oversized).unwrap_err();
+        assert_eq!(error.code, "evaluator_too_large");
+        assert!(error.message.contains("at most"));
+
+        let error = load_evaluator_bytes_impl(b"not an evaluator").unwrap_err();
+        assert_eq!(error.code, "invalid_evaluator");
+        assert!(!error.message.is_empty());
+        assert!(EVALUATOR_METADATA.get().is_none());
+    }
+
+    #[test]
     fn analysis_rejects_oversized_inventory_before_board_parsing() {
         for hand in [
             "255r255b255g255s255n255l255p",
