@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- WebAssembly: accept one caller-supplied SEKIRW or HalfKP evaluator byte
+  image after fail-closed validation, expose its exact SHA-256 provenance in
+  load and search results, and document Web Worker recreation for selecting a
+  different immutable evaluator. No weight file is bundled.
 - Floodgate supervision: when a bounded CSA child exits non-zero, persist its
   exit code and terminal reason to runtime status, run manifest, and the
   one-shot completion record. A live game is classified as incomplete and is

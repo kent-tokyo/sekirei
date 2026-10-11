@@ -24,7 +24,7 @@ function analyze(sfen, depth, nodes) {
       'kind', 'scoreCp', 'matePlies', 'winner', 'sideToMove', 'scorePerspective',
       'scoreUnit', 'depth', 'nodes', 'bound', 'aborted', 'abortReason',
       'usedFallback', 'bestMove', 'terminalReason', 'inCheck', 'evaluatorId',
-      'evaluatorVersion', 'engineVersion', 'apiVersion', 'principalVariation',
+      'evaluatorVersion', 'evaluatorWeightSha256', 'engineVersion', 'apiVersion', 'principalVariation',
       'pvSource', 'candidateLineCount',
     ].map(key => [key, result[key]]));
   } finally {
@@ -46,9 +46,13 @@ for (const [side, sign] of [['b', 1], ['w', -1]]) {
     assert.equal(result.bound, 'exact');
     assert.equal(result.evaluatorId, 'material');
     assert.equal(result.evaluatorVersion, 'material-v1');
+    assert.equal(result.evaluatorWeightSha256, undefined);
+    assert.equal(reply.evaluatorId, 'material');
+    assert.equal(reply.evaluatorVersion, 'material-v1');
+    assert.equal(reply.evaluatorWeightSha256, undefined);
     const metadata = JSON.parse(readFileSync(new URL('../crates/sekirei-wasm/pkg/package.json', import.meta.url), 'utf8'));
     assert.equal(result.engineVersion, metadata.version);
-    assert.equal(result.apiVersion, 2);
+    assert.equal(result.apiVersion, 3);
     assert.equal(result.pvSource, 'completed_iteration');
     assert.equal(result.candidateLineCount, 1);
     assert.deepEqual(result.principalVariation, [result.bestMove]);

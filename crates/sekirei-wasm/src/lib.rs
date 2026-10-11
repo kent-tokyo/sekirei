@@ -2,7 +2,9 @@
 //!
 //! The exported API accepts complete SFEN strings and returns either ordinary
 //! JavaScript values or an error object with `code` and `message` fields. It
-//! deliberately exposes no filesystem or external-weight controls. Browser
+//! deliberately exposes no filesystem. Browser-supplied evaluator bytes are
+//! validated completely before one immutable process-wide evaluator is
+//! activated. Browser
 //! search is currently fixed to one worker; callers can inspect that contract
 //! through [`search_capabilities`] and each [`ComputerMove`] result.
 
@@ -22,6 +24,8 @@ use sekirei_core::sfen::{PositionHistory, STARTPOS_SFEN, move_to_usi};
 #[cfg(any(test, target_arch = "wasm32"))]
 use sekirei_core::sfen::{board_to_sfen, move_from_usi};
 use sekirei_core::tt::Tt;
+use sha2::{Digest, Sha256};
+use std::sync::OnceLock;
 use wasm_bindgen::prelude::*;
 
 const MAX_SFEN_BYTES: usize = 512;
@@ -34,6 +38,7 @@ const MAX_MATE_NODES: u32 = 1_000_000;
 const SEARCH_TT_MIB: usize = 4;
 const BROWSER_SEARCH_WORKERS: u32 = 1;
 const BROWSER_MAX_CANDIDATE_LINES: u32 = 1;
+const MAX_EVALUATOR_BYTES: usize = sekirei_core::halfkp::MAX_FILE_BYTES;
 #[cfg(test)]
 const ALREADY_CHECKED_MATE_SFEN: &str = "4k4/2S3S2/3S1S3/4R4/9/9/9/9/4K4 b - 1";
 #[cfg(test)]
@@ -81,6 +86,7 @@ struct SearchResult {
     depth: u32,
     nodes: u32,
     used_fallback: bool,
+    evaluator: EvaluatorMetadata,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -100,6 +106,100 @@ struct PositionResult {
     principal_variation: Vec<String>,
     terminal_reason: Option<&'static str>,
     in_check: bool,
+    evaluator: EvaluatorMetadata,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EvaluatorMetadata {
+    id: &'static str,
+    version: &'static str,
+    weight_sha256: Option<String>,
+}
+
+impl EvaluatorMetadata {
+    const fn material() -> Self {
+        Self {
+            id: "material",
+            version: "material-v1",
+            weight_sha256: None,
+        }
+    }
+
+    fn loaded(format: sekirei_core::nnue::EvalFileFormat, weight_sha256: String) -> Self {
+        let (id, version) = match format {
+            sekirei_core::nnue::EvalFileFormat::Sekirei => ("sekirei-nnue", "SEKIRW01"),
+            sekirei_core::nnue::EvalFileFormat::HalfKp => {
+                ("halfkp", "HalfKP-256x2-32-32-v0x7af32f16")
+            }
+        };
+        Self {
+            id,
+            version,
+            weight_sha256: Some(weight_sha256),
+        }
+    }
+}
+
+static EVALUATOR_METADATA: OnceLock<EvaluatorMetadata> = OnceLock::new();
+
+fn evaluator_metadata() -> EvaluatorMetadata {
+    EVALUATOR_METADATA
+        .get()
+        .cloned()
+        .unwrap_or_else(EvaluatorMetadata::material)
+}
+
+fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(64);
+    for byte in digest {
+        use std::fmt::Write as _;
+        let _ = write!(hex, "{byte:02x}");
+    }
+    hex
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct EvaluatorLoadMetadata {
+    format: &'static str,
+    byte_count: u32,
+    evaluator: EvaluatorMetadata,
+}
+
+fn load_evaluator_bytes_impl(bytes: &[u8]) -> Result<EvaluatorLoadMetadata, ApiError> {
+    if bytes.len() > MAX_EVALUATOR_BYTES {
+        return Err(ApiError::new(
+            "evaluator_too_large",
+            format!("evaluator must be at most {MAX_EVALUATOR_BYTES} bytes"),
+        ));
+    }
+    if EVALUATOR_METADATA.get().is_some() {
+        return Err(ApiError::new(
+            "evaluator_already_loaded",
+            "an evaluator is already loaded; recreate the Web Worker to reset it",
+        ));
+    }
+    let hash = sha256_hex(bytes);
+    let format = sekirei_core::nnue::load_evaluator_bytes(bytes).map_err(|error| {
+        let code = if error.kind() == std::io::ErrorKind::AlreadyExists {
+            "evaluator_already_loaded"
+        } else {
+            "invalid_evaluator"
+        };
+        ApiError::new(code, error.to_string())
+    })?;
+    let evaluator = EvaluatorMetadata::loaded(format, hash);
+    EVALUATOR_METADATA.set(evaluator.clone()).map_err(|_| {
+        ApiError::new(
+            "evaluator_already_loaded",
+            "an evaluator is already loaded; recreate the Web Worker to reset it",
+        )
+    })?;
+    Ok(EvaluatorLoadMetadata {
+        format: format.as_str(),
+        byte_count: bytes.len() as u32,
+        evaluator,
+    })
 }
 
 fn side_name(side: Color) -> &'static str {
@@ -226,6 +326,7 @@ fn analyze_position_impl(
         principal_variation: Vec::new(),
         terminal_reason: None,
         in_check,
+        evaluator: evaluator_metadata(),
     };
     if generate_legal_moves(&mut board).is_empty() {
         result.kind = "terminal";
@@ -446,6 +547,7 @@ fn computer_move_impl(
         depth: info.depth,
         nodes: info.nodes.min(u64::from(u32::MAX)) as u32,
         used_fallback,
+        evaluator: evaluator_metadata(),
     })
 }
 
@@ -594,16 +696,22 @@ impl PositionAnalysis {
         self.result.in_check
     }
 
-    /// This browser build uses built-in material evaluation only.
-    #[wasm_bindgen(getter, js_name = evaluatorId, unchecked_return_type = "'material'")]
+    /// Evaluator that produced this result.
+    #[wasm_bindgen(getter, js_name = evaluatorId)]
     pub fn evaluator_id(&self) -> String {
-        "material".to_owned()
+        self.result.evaluator.id.to_owned()
     }
 
-    /// Version of the built-in material values; no weight file is loaded.
+    /// Stable evaluator format/version label.
     #[wasm_bindgen(getter, js_name = evaluatorVersion)]
     pub fn evaluator_version(&self) -> String {
-        "material-v1".to_owned()
+        self.result.evaluator.version.to_owned()
+    }
+
+    /// SHA-256 of the exact loaded weight bytes, absent for material.
+    #[wasm_bindgen(getter, js_name = evaluatorWeightSha256)]
+    pub fn evaluator_weight_sha256(&self) -> Option<String> {
+        self.result.evaluator.weight_sha256.clone()
     }
 
     /// Cargo package version (candidate builds also need source provenance).
@@ -615,7 +723,7 @@ impl PositionAnalysis {
     /// Contract schema version, separate from engine and evaluator versions.
     #[wasm_bindgen(getter, js_name = apiVersion)]
     pub fn api_version(&self) -> u32 {
-        2
+        3
     }
 }
 
@@ -658,6 +766,67 @@ impl ComputerMove {
     #[wasm_bindgen(getter, js_name = effectiveWorkers)]
     pub fn effective_workers(&self) -> u32 {
         BROWSER_SEARCH_WORKERS
+    }
+
+    /// Evaluator that produced this move and score.
+    #[wasm_bindgen(getter, js_name = evaluatorId)]
+    pub fn evaluator_id(&self) -> String {
+        self.result.evaluator.id.to_owned()
+    }
+
+    /// Stable evaluator format/version label.
+    #[wasm_bindgen(getter, js_name = evaluatorVersion)]
+    pub fn evaluator_version(&self) -> String {
+        self.result.evaluator.version.to_owned()
+    }
+
+    /// SHA-256 of the exact loaded weight bytes, absent for material.
+    #[wasm_bindgen(getter, js_name = evaluatorWeightSha256)]
+    pub fn evaluator_weight_sha256(&self) -> Option<String> {
+        self.result.evaluator.weight_sha256.clone()
+    }
+}
+
+/// Metadata returned after one evaluator image has been validated and loaded.
+#[wasm_bindgen]
+pub struct EvaluatorLoadResult {
+    metadata: EvaluatorLoadMetadata,
+}
+
+#[wasm_bindgen]
+impl EvaluatorLoadResult {
+    /// Parsed evaluator format.
+    #[wasm_bindgen(getter)]
+    pub fn format(&self) -> String {
+        self.metadata.format.to_owned()
+    }
+
+    /// Number of bytes hashed, validated, and activated.
+    #[wasm_bindgen(getter, js_name = byteCount)]
+    pub fn byte_count(&self) -> u32 {
+        self.metadata.byte_count
+    }
+
+    /// SHA-256 of the exact input bytes.
+    #[wasm_bindgen(getter, js_name = weightSha256)]
+    pub fn weight_sha256(&self) -> String {
+        self.metadata
+            .evaluator
+            .weight_sha256
+            .clone()
+            .expect("loaded evaluators always have a hash")
+    }
+
+    /// Stable evaluator identifier used by search results.
+    #[wasm_bindgen(getter, js_name = evaluatorId)]
+    pub fn evaluator_id(&self) -> String {
+        self.metadata.evaluator.id.to_owned()
+    }
+
+    /// Stable evaluator format/version label used by search results.
+    #[wasm_bindgen(getter, js_name = evaluatorVersion)]
+    pub fn evaluator_version(&self) -> String {
+        self.metadata.evaluator.version.to_owned()
     }
 }
 
@@ -704,6 +873,28 @@ impl SearchCapabilities {
     /// MultiPV is not exposed by the current browser analysis contract.
     #[wasm_bindgen(getter, js_name = multiPvSupported)]
     pub fn multi_pv_supported(&self) -> bool {
+        false
+    }
+
+    /// Largest evaluator byte image accepted before format validation.
+    #[wasm_bindgen(getter, js_name = maxEvaluatorBytes)]
+    pub fn max_evaluator_bytes(&self) -> u32 {
+        MAX_EVALUATOR_BYTES as u32
+    }
+
+    /// Evaluator formats accepted by [`load_evaluator`].
+    #[cfg(target_arch = "wasm32")]
+    #[wasm_bindgen(getter, js_name = supportedEvaluatorFormats, unchecked_return_type = "string[]")]
+    pub fn supported_evaluator_formats(&self) -> Array {
+        let formats = Array::new();
+        formats.push(&JsValue::from_str("SEKIRW01"));
+        formats.push(&JsValue::from_str("HalfKP 256x2-32-32"));
+        formats
+    }
+
+    /// Evaluators are immutable for the life of one WebAssembly instance.
+    #[wasm_bindgen(getter, js_name = evaluatorReloadSupported)]
+    pub fn evaluator_reload_supported(&self) -> bool {
         false
     }
 }
@@ -820,6 +1011,18 @@ pub fn search_capabilities() -> SearchCapabilities {
     SearchCapabilities
 }
 
+/// Validate and activate one evaluator supplied by the browser as bytes.
+///
+/// Loading is fail-closed and one-shot. A rejected image leaves material
+/// evaluation active. After a successful load, recreate the Web Worker (and
+/// therefore this WebAssembly instance) to use another evaluator.
+#[wasm_bindgen(js_name = loadEvaluator)]
+pub fn load_evaluator(bytes: &[u8]) -> Result<EvaluatorLoadResult, JsValue> {
+    load_evaluator_bytes_impl(bytes)
+        .map(|metadata| EvaluatorLoadResult { metadata })
+        .map_err(ApiError::into_js)
+}
+
 /// Return the standard shogi starting position as SFEN.
 #[wasm_bindgen(js_name = startSfen)]
 pub fn start_sfen() -> String {
@@ -869,12 +1072,13 @@ pub fn apply_move(sfen: &str, usi_move: &str) -> Result<String, JsValue> {
     apply_move_impl(sfen, usi_move).map_err(ApiError::into_js)
 }
 
-/// Select one legal move using material evaluation and bounded sequential search.
+/// Select one legal move using the active evaluator and bounded sequential search.
 ///
 /// `max_depth` must be in `1..=8`; `max_nodes` must be in `1..=100000`.
-/// No external evaluation weights or filesystem access are exposed. Search is
-/// fixed to one worker; inspect [`search_capabilities`] before presenting any
-/// worker-count UI and read `effectiveWorkers` from the returned result.
+/// Evaluator bytes may be loaded once through [`load_evaluator`]; no filesystem
+/// access is exposed. Search is fixed to one worker; inspect
+/// [`search_capabilities`] before presenting any worker-count UI and read
+/// `effectiveWorkers` from the returned result.
 #[wasm_bindgen(js_name = computerMove)]
 pub fn computer_move(sfen: &str, max_depth: u32, max_nodes: u32) -> Result<ComputerMove, JsValue> {
     computer_move_impl(sfen, max_depth, max_nodes)
@@ -911,6 +1115,19 @@ mod tests {
             );
             sfen = apply_move_impl(&sfen, mv).unwrap();
         }
+    }
+
+    #[test]
+    fn evaluator_byte_validation_rejects_oversized_and_malformed_images() {
+        let oversized = vec![0; MAX_EVALUATOR_BYTES + 1];
+        let error = load_evaluator_bytes_impl(&oversized).unwrap_err();
+        assert_eq!(error.code, "evaluator_too_large");
+        assert!(error.message.contains("at most"));
+
+        let error = load_evaluator_bytes_impl(b"not an evaluator").unwrap_err();
+        assert_eq!(error.code, "invalid_evaluator");
+        assert!(!error.message.is_empty());
+        assert!(EVALUATOR_METADATA.get().is_none());
     }
 
     #[test]
@@ -1181,6 +1398,11 @@ mod tests {
         assert!(!capabilities.shared_array_buffer_required());
         assert_eq!(capabilities.max_candidate_lines(), 1);
         assert!(!capabilities.multi_pv_supported());
+        assert_eq!(
+            capabilities.max_evaluator_bytes(),
+            MAX_EVALUATOR_BYTES as u32
+        );
+        assert!(!capabilities.evaluator_reload_supported());
 
         let result = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
         let repeated = computer_move(STARTPOS_SFEN, 1, 10_000).unwrap();
@@ -1216,8 +1438,12 @@ mod tests {
         assert!(!analysis.in_check());
         assert_eq!(analysis.evaluator_id(), "material");
         assert_eq!(analysis.evaluator_version(), "material-v1");
+        assert_eq!(analysis.evaluator_weight_sha256(), None);
         assert_eq!(analysis.engine_version(), env!("CARGO_PKG_VERSION"));
-        assert_eq!(analysis.api_version(), 2);
+        assert_eq!(analysis.api_version(), 3);
+
+        let unknown = analyze_position(STARTPOS_SFEN, 8, 1).unwrap();
+        assert_eq!(unknown.pv_source(), "none");
 
         let bounded = computer_move(STARTPOS_SFEN, 8, 1).unwrap();
         let bounded_native = computer_move_impl(STARTPOS_SFEN, 8, 1).unwrap();
@@ -1226,6 +1452,9 @@ mod tests {
         assert_eq!(bounded.score(), bounded_native.score);
         assert_eq!(bounded.depth(), bounded_native.depth);
         assert_eq!(bounded.nodes(), bounded_native.nodes);
+        assert_eq!(bounded.evaluator_id(), "material");
+        assert_eq!(bounded.evaluator_version(), "material-v1");
+        assert_eq!(bounded.evaluator_weight_sha256(), None);
 
         let mate_in_one = analyze_mate_in_one(VALID_MATE_SFEN).unwrap();
         let mate_in_one_native = analyze_mate_in_one_impl(VALID_MATE_SFEN).unwrap();
@@ -1369,8 +1598,9 @@ mod browser_tests {
             assert_eq!(result.score_unit(), "cp");
             assert_eq!(result.evaluator_id(), "material");
             assert_eq!(result.evaluator_version(), "material-v1");
+            assert_eq!(result.evaluator_weight_sha256(), None);
             assert_eq!(result.engine_version(), env!("CARGO_PKG_VERSION"));
-            assert_eq!(result.api_version(), 2);
+            assert_eq!(result.api_version(), 3);
             assert_eq!(result.bound(), "exact");
             assert_eq!(result.pv_source(), "completed_iteration");
             assert_eq!(result.candidate_line_count(), 1);
@@ -1455,6 +1685,11 @@ mod browser_tests {
         assert!(!capabilities.shared_array_buffer_required());
         assert_eq!(capabilities.max_candidate_lines(), 1);
         assert!(!capabilities.multi_pv_supported());
+        assert_eq!(
+            capabilities.max_evaluator_bytes(),
+            MAX_EVALUATOR_BYTES as u32
+        );
+        assert!(!capabilities.evaluator_reload_supported());
 
         let invalid = analyze_mate_in_one(ALREADY_CHECKED_MATE_SFEN)
             .expect("parseable invalid problem must return an analysis");
