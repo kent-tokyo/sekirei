@@ -568,6 +568,93 @@ fn score_to_usi(score: i32) -> String {
     }
 }
 
+fn emit_lazy_smp_diagnostics(info: &SearchResult) {
+    if info.worker_stats.is_empty() {
+        return;
+    }
+    let total_worker_nodes = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.nodes)
+        .sum::<u64>();
+    let selected_index = info
+        .worker_stats
+        .iter()
+        .position(|worker| worker.selected)
+        .expect("Lazy SMP diagnostics must identify the selected worker");
+    let selected = info.worker_stats[selected_index];
+    let selected_share_permille = selected
+        .nodes
+        .saturating_mul(1000)
+        .checked_div(total_worker_nodes)
+        .unwrap_or(0);
+    let agreement = info
+        .worker_stats
+        .iter()
+        .filter(|worker| worker.best_move == selected.best_move)
+        .count();
+    // This is an end-to-end worker-duration spread, not a timestamped
+    // measurement from the instant the shared abort flag was raised.
+    let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
+    let max_elapsed_ms = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.elapsed.as_millis())
+        .max()
+        .unwrap_or(main_elapsed_ms);
+    let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
+    let summary = info
+        .worker_stats
+        .iter()
+        .enumerate()
+        .map(|(i, worker)| {
+            let marker = if worker.selected { "*" } else { "" };
+            format!(
+                "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}",
+                worker.depth,
+                worker.nodes,
+                worker.score,
+                worker.elapsed.as_millis(),
+                u8::from(worker.aborted),
+                worker.abort_reason,
+                worker.tt_probes,
+                worker.tt_hits,
+                worker.tt_stores,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    println!(
+        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
+        info.worker_stats.len()
+    );
+}
+
+fn emit_lazy_smp_tt_diagnostics(info: &SearchResult) {
+    let Some(writes) = info.lazy_tt_writes else {
+        return;
+    };
+    let probes = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.tt_probes)
+        .sum::<u64>();
+    let hits = info
+        .worker_stats
+        .iter()
+        .map(|worker| worker.tt_hits)
+        .sum::<u64>();
+    println!(
+        "info string lazy_smp_tt probes {probes} hits {hits} attempted {} committed {} same_hash {} equal_depth {} shallower_rejected {} collision_overwrites {}",
+        writes.attempted,
+        writes.committed,
+        writes.same_hash,
+        writes.equal_depth_overwrites,
+        writes.shallower_rejections,
+        writes.collision_overwrites,
+    );
+}
+
 /// Emit the complete response for one search generation.  Keeping this in one
 /// place prevents `go`, `stop`, and `ponderhit` from rendering a completed
 /// result with subtly different score/PV/ponder semantics.
@@ -579,85 +666,8 @@ fn emit_search_result(
 ) {
     let elapsed_ms = info.elapsed.as_millis().max(1) as u64;
     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
-    if !info.worker_stats.is_empty() {
-        let total_worker_nodes = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.nodes)
-            .sum::<u64>();
-        let selected_index = info
-            .worker_stats
-            .iter()
-            .position(|worker| worker.selected)
-            .expect("Lazy SMP diagnostics must identify the selected worker");
-        let selected = info.worker_stats[selected_index];
-        let selected_share_permille = selected
-            .nodes
-            .saturating_mul(1000)
-            .checked_div(total_worker_nodes)
-            .unwrap_or(0);
-        let agreement = info
-            .worker_stats
-            .iter()
-            .filter(|worker| worker.best_move == selected.best_move)
-            .count();
-        // This is an end-to-end worker-duration spread, not a timestamped
-        // measurement from the instant the shared abort flag was raised.
-        let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
-        let max_elapsed_ms = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.elapsed.as_millis())
-            .max()
-            .unwrap_or(main_elapsed_ms);
-        let stop_lag_ms = max_elapsed_ms.saturating_sub(main_elapsed_ms);
-        let summary = info
-            .worker_stats
-            .iter()
-            .enumerate()
-            .map(|(i, worker)| {
-                let marker = if worker.selected { "*" } else { "" };
-                format!(
-                    "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}",
-                    worker.depth,
-                    worker.nodes,
-                    worker.score,
-                    worker.elapsed.as_millis(),
-                    u8::from(worker.aborted),
-                    worker.abort_reason,
-                    worker.tt_probes,
-                    worker.tt_hits,
-                    worker.tt_stores,
-                )
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        println!(
-            "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
-            info.worker_stats.len()
-        );
-    }
-    if let Some(writes) = info.lazy_tt_writes {
-        let probes = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.tt_probes)
-            .sum::<u64>();
-        let hits = info
-            .worker_stats
-            .iter()
-            .map(|worker| worker.tt_hits)
-            .sum::<u64>();
-        println!(
-            "info string lazy_smp_tt probes {probes} hits {hits} attempted {} committed {} same_hash {} equal_depth {} shallower_rejected {} collision_overwrites {}",
-            writes.attempted,
-            writes.committed,
-            writes.same_hash,
-            writes.equal_depth_overwrites,
-            writes.shallower_rejections,
-            writes.collision_overwrites,
-        );
-    }
+    emit_lazy_smp_diagnostics(&info);
+    emit_lazy_smp_tt_diagnostics(&info);
     if let Some(root_safety) = info.root_safety {
         println!(
             "info string root_mate_safety mate1_cache_hits {} blunder_cache_hits {} mate1_nodes {} blunder_nodes {}",

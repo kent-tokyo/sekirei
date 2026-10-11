@@ -130,61 +130,26 @@ impl LazySmpSearcher {
         flags: u32,
         total_hash_mb: usize,
     ) -> Self {
-        let workers = workers.max(1);
-        let share_tt = flags & LAZY_ISOLATED_TT == 0;
-        let worker_hash_mb = if share_tt {
-            total_hash_mb
-        } else {
-            (total_hash_mb / workers).max(1)
-        };
-        let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let persistent = if flags & LAZY_PERSISTENT != 0 {
-            (0..workers)
-                .map(|index| {
-                    let worker_tt = if share_tt {
-                        tt.clone()
-                    } else {
-                        Tt::new(worker_hash_mb)
-                    };
-                    let mut searcher = Searcher::with_abort_flag(worker_tt, external_abort.clone());
-                    searcher.set_depth_skew(Self::skew(flags, index));
-                    searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
-                    searcher
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        Self {
-            tt,
-            workers,
-            share_tt,
-            hash_mb: worker_hash_mb,
-            external_abort,
-            flags,
-            persistent,
-            diagnostics: Vec::new(),
-            tt_write_stats: None,
-        }
+        Self::from_parts(tt, workers, flags, total_hash_mb, Vec::new(), None)
     }
 
-    /// Create a Lazy SMP searcher with counters for worker-local TT probes and
-    /// shared-TT write topology. This deliberately remains a separate
-    /// constructor so normal searches do not execute per-node atomics.
-    pub fn diagnostic(workers: usize, flags: u32, total_hash_mb: usize) -> Self {
+    fn from_parts(
+        tt: Arc<Tt>,
+        workers: usize,
+        flags: u32,
+        total_hash_mb: usize,
+        diagnostics: Vec<Arc<SearchDiagnostics>>,
+        tt_write_stats: Option<Arc<TtWriteStats>>,
+    ) -> Self {
         let workers = workers.max(1);
+        debug_assert!(diagnostics.is_empty() || diagnostics.len() == workers);
         let share_tt = flags & LAZY_ISOLATED_TT == 0;
         let worker_hash_mb = if share_tt {
             total_hash_mb
         } else {
             (total_hash_mb / workers).max(1)
         };
-        let tt_write_stats = share_tt.then(|| Arc::new(TtWriteStats::default()));
-        let tt = Tt::new_with_stats(total_hash_mb, tt_write_stats.clone());
         let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let diagnostics: Vec<_> = (0..workers)
-            .map(|_| Arc::new(SearchDiagnostics::counters_only()))
-            .collect();
         let persistent = if flags & LAZY_PERSISTENT != 0 {
             (0..workers)
                 .map(|index| {
@@ -193,14 +158,13 @@ impl LazySmpSearcher {
                     } else {
                         Tt::new(worker_hash_mb)
                     };
-                    let mut searcher = Searcher::with_abort_flag_and_diagnostics(
+                    Self::worker_searcher(
                         worker_tt,
                         external_abort.clone(),
-                        diagnostics[index].clone(),
-                    );
-                    searcher.set_depth_skew(Self::skew(flags, index));
-                    searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
-                    searcher
+                        diagnostics.get(index).cloned(),
+                        flags,
+                        index,
+                    )
                 })
                 .collect()
         } else {
@@ -219,8 +183,46 @@ impl LazySmpSearcher {
         }
     }
 
+    /// Create a Lazy SMP searcher with counters for worker-local TT probes and
+    /// shared-TT write topology. This deliberately remains a separate
+    /// constructor so normal searches do not execute per-node atomics.
+    pub fn diagnostic(workers: usize, flags: u32, total_hash_mb: usize) -> Self {
+        let workers = workers.max(1);
+        let share_tt = flags & LAZY_ISOLATED_TT == 0;
+        let tt_write_stats = share_tt.then(|| Arc::new(TtWriteStats::default()));
+        let tt = Tt::new_with_stats(total_hash_mb, tt_write_stats.clone());
+        let diagnostics: Vec<_> = (0..workers)
+            .map(|_| Arc::new(SearchDiagnostics::counters_only()))
+            .collect();
+        Self::from_parts(
+            tt,
+            workers,
+            flags,
+            total_hash_mb,
+            diagnostics,
+            tt_write_stats,
+        )
+    }
+
     fn skew(flags: u32, index: usize) -> u32 {
         u32::from(flags & LAZY_DEPTH_SKEW != 0 && index % 2 == 1)
+    }
+
+    fn worker_searcher(
+        tt: Arc<Tt>,
+        external_abort: Arc<std::sync::atomic::AtomicBool>,
+        diagnostics: Option<Arc<SearchDiagnostics>>,
+        flags: u32,
+        index: usize,
+    ) -> Searcher {
+        let mut searcher = if let Some(diagnostics) = diagnostics {
+            Searcher::with_abort_flag_and_diagnostics(tt, external_abort, diagnostics)
+        } else {
+            Searcher::with_abort_flag(tt, external_abort)
+        };
+        searcher.set_depth_skew(Self::skew(flags, index));
+        searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
+        searcher
     }
 
     /// Create a diagnostic searcher whose workers use isolated TT instances.
@@ -303,17 +305,13 @@ impl LazySmpSearcher {
                     } else {
                         Tt::new(self.hash_mb)
                     };
-                    let mut searcher = if let Some(observer) = diagnostics {
-                        Searcher::with_abort_flag_and_diagnostics(
-                            worker_tt,
-                            self.external_abort.clone(),
-                            observer.clone(),
-                        )
-                    } else {
-                        Searcher::with_abort_flag(worker_tt, self.external_abort.clone())
-                    };
-                    searcher.set_depth_skew(Self::skew(self.flags, index));
-                    searcher.set_ybw_split(self.flags & LAZY_NO_YBW == 0);
+                    let searcher = Self::worker_searcher(
+                        worker_tt,
+                        self.external_abort.clone(),
+                        diagnostics.cloned(),
+                        self.flags,
+                        index,
+                    );
                     searcher.search_with_history(&mut worker_board, config, history)
                 };
                 if index == 0 && self.workers > 1 && self.flags & LAZY_MAIN_STOPS != 0 {
