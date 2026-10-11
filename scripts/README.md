@@ -204,6 +204,11 @@ that either revision is stronger.
 Most Python tools use only the standard library and have a focused
 `test_<tool>.py`. After an edit, run that focused test, then:
 
+Shared byte hashing, canonical JSON hashing, and atomic JSON replacement live
+in `sekirei_tools.artifacts`. Maintained release and gate entry points should
+reuse these primitives; historical one-off experiment scripts remain frozen
+until their archived evidence no longer depends on their exact behavior.
+
 ```bash
 python3 scripts/check_documentation_references.py
 python3 scripts/check_public_surface.py
