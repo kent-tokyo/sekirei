@@ -15,7 +15,9 @@ from nps_threads import (  # noqa: E402
     go_command,
     parse_bestmove,
     parse_lazy_smp,
+    parse_lazy_smp_overlap,
     parse_lazy_smp_tt,
+    summarize_lazy_overlap,
     summarize_lazy_tt,
 )
 
@@ -154,6 +156,28 @@ class ThreadOptionsTest(unittest.TestCase):
             },
         )
 
+    def test_lazy_smp_overlap_diagnostics_are_parsed(self):
+        diagnostics = parse_lazy_smp_overlap(
+            [
+                "info string lazy_smp_overlap sample_rate 256 visits 100 "
+                "unique 40 within_worker_revisits 35 cross_worker_visits 25 "
+                "shared_fingerprints 12 dropped 0"
+            ]
+        )
+
+        self.assertEqual(
+            diagnostics,
+            {
+                "sample_rate": 256,
+                "visits": 100,
+                "unique": 40,
+                "within_worker_revisits": 35,
+                "cross_worker_visits": 25,
+                "shared_fingerprints": 12,
+                "dropped": 0,
+            },
+        )
+
     def test_bestmove_parser_uses_terminal_response(self):
         self.assertEqual(
             parse_bestmove(["info depth 4 pv 7g7f", "bestmove 7g7f ponder 3c3d"]),
@@ -211,6 +235,43 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertEqual(summary["hit_rate"], 0.5)
         self.assertEqual(summary["same_hash_rate"], 0.5)
         self.assertEqual(summary["collision_rate"], 0.05)
+
+    def test_overlap_summary_pools_counts_before_computing_rates(self):
+        summary = summarize_lazy_overlap(
+            [
+                {
+                    "lazy_smp_overlap": {
+                        "sample_rate": 256,
+                        "visits": 40,
+                        "unique": 20,
+                        "within_worker_revisits": 10,
+                        "cross_worker_visits": 10,
+                        "shared_fingerprints": 5,
+                        "dropped": 0,
+                    }
+                },
+                {
+                    "lazy_smp_overlap": {
+                        "sample_rate": 256,
+                        "visits": 60,
+                        "unique": 30,
+                        "within_worker_revisits": 12,
+                        "cross_worker_visits": 18,
+                        "shared_fingerprints": 9,
+                        "dropped": 1,
+                    }
+                },
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["visits"], 100)
+        self.assertEqual(summary["unique"], 50)
+        self.assertEqual(summary["cross_worker_visit_rate"], 0.28)
+        self.assertEqual(summary["shared_fingerprint_rate"], 0.28)
+        self.assertEqual(summary["within_worker_revisit_rate"], 0.22)
+        self.assertEqual(summary["drop_rate"], 0.01)
 
 
 if __name__ == "__main__":

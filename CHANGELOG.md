@@ -39,6 +39,11 @@ preserves older per-change notes.
   local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
   opening-corpus, candidate, and local raw-archive hashes. The weight remains
   unbundled and the material evaluator remains the default.
+- Search diagnostics: estimate within-worker and cross-worker repeated
+  position work with a bounded, opt-in Lazy SMP sampler, report it through the
+  thread-scaling tool, and add a disabled depth-ladder experiment. Shared TT
+  reduced sampled overlap substantially; the first depth-ladder match was
+  neutral, so no playing default changed.
 
 ## [0.3.72] – 2026-10-11
 

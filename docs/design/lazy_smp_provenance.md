@@ -82,3 +82,16 @@ supplied the selected result in 28 of 40 shared-TT searches and none of the
 isolated controls. Worker-duration spread was 0 ms at millisecond resolution
 in every sample. These results support retaining TT sharing, but they do not
 measure Elo or identify which individual TT hits crossed worker boundaries.
+
+On 2026-10-12, the diagnostic path gained a bounded 1/256 node sampler that
+distinguishes revisits by the same worker from visits by another worker. The
+ordinary search path does not allocate the sampler or execute its atomics.
+The four-worker shared-TT measurement estimated 22.3% cross-worker visits,
+versus 43.5% for the isolated-TT control. See the
+[work-overlap report](../experiments/lazy_smp_work_overlap_v0.3.72/README.md)
+for the fixed conditions and claim boundary.
+
+`LazyFlags` bit 256 is a diagnostic-only depth-ladder experiment: with bit 4
+also enabled, four workers use depth offsets `(0, 1, 2, 3)` instead of
+`(0, 1, 0, 1)`. It is disabled by default. Its first 64-game material screen
+was neutral, so it is not strength evidence and was not adopted.

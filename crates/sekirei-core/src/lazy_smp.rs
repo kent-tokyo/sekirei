@@ -12,6 +12,7 @@ use std::time::{Duration, Instant};
 use crate::board::Board;
 use crate::search::{
     SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
+    WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -33,6 +34,38 @@ pub struct LazySmpInfo {
     /// Shared-TT write topology for this search when opt-in diagnostics are
     /// enabled. Isolated-TT controls leave this as `None`.
     pub tt_writes: Option<TtWriteSnapshot>,
+    /// Sampled node overlap across workers when opt-in diagnostics are enabled.
+    pub work_overlap: Option<LazySmpWorkOverlap>,
+}
+
+/// Diagnostic-only estimate of repeated position work across Lazy SMP workers.
+/// Hashes are sampled at 1/256 and stored in a bounded fingerprint table;
+/// `dropped` reports samples that could not be placed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpWorkOverlap {
+    /// Sampled main-search and quiescence visits across every worker.
+    pub sampled_visits: u64,
+    /// Distinct sampled position fingerprints retained by the bounded table.
+    pub unique_fingerprints: u64,
+    /// Revisits by the worker that first observed the fingerprint.
+    pub within_worker_revisits: u64,
+    /// Visits by workers other than the fingerprint's first observer.
+    pub cross_worker_visits: u64,
+    /// Distinct fingerprints observed by at least two workers.
+    pub shared_fingerprints: u64,
+    /// Samples dropped after all bounded open-addressing probes were occupied.
+    pub dropped: u64,
+}
+
+fn work_overlap_snapshot(value: WorkOverlapSnapshot) -> LazySmpWorkOverlap {
+    LazySmpWorkOverlap {
+        sampled_visits: value.sampled_visits,
+        unique_fingerprints: value.unique_fingerprints,
+        within_worker_revisits: value.within_worker_revisits,
+        cross_worker_visits: value.cross_worker_visits,
+        shared_fingerprints: value.shared_fingerprints,
+        dropped: value.dropped,
+    }
 }
 
 /// Compact per-worker result for Lazy SMP diagnostics.
@@ -81,6 +114,8 @@ pub struct LazySmpSearcher {
     diagnostics: Vec<Arc<SearchDiagnostics>>,
     /// Shared-TT write observer used only by opt-in scaling diagnostics.
     tt_write_stats: Option<Arc<TtWriteStats>>,
+    /// Shared sampled-work observer used only by opt-in scaling diagnostics.
+    work_overlap_stats: Option<Arc<WorkOverlapStats>>,
 }
 
 /// Keep one searcher per worker across searches (history tables persist
@@ -105,6 +140,10 @@ pub const LAZY_TIE_FIRST: u32 = 64;
 /// Give each worker a private TT. This is a diagnostic control for measuring
 /// the causal value of TT sharing and is not part of the default policy.
 pub const LAZY_ISOLATED_TT: u32 = 128;
+/// With [`LAZY_DEPTH_SKEW`], use a four-worker depth ladder (0, 1, 2, 3)
+/// instead of two identical parity groups (0, 1, 0, 1). This is an
+/// experimental diversity control and is not part of the default policy.
+pub const LAZY_DEPTH_LADDER: u32 = 256;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -130,7 +169,7 @@ impl LazySmpSearcher {
         flags: u32,
         total_hash_mb: usize,
     ) -> Self {
-        Self::from_parts(tt, workers, flags, total_hash_mb, Vec::new(), None)
+        Self::from_parts(tt, workers, flags, total_hash_mb, Vec::new(), None, None)
     }
 
     fn from_parts(
@@ -140,6 +179,7 @@ impl LazySmpSearcher {
         total_hash_mb: usize,
         diagnostics: Vec<Arc<SearchDiagnostics>>,
         tt_write_stats: Option<Arc<TtWriteStats>>,
+        work_overlap_stats: Option<Arc<WorkOverlapStats>>,
     ) -> Self {
         let workers = workers.max(1);
         debug_assert!(diagnostics.is_empty() || diagnostics.len() == workers);
@@ -180,6 +220,7 @@ impl LazySmpSearcher {
             persistent,
             diagnostics,
             tt_write_stats,
+            work_overlap_stats,
         }
     }
 
@@ -191,8 +232,14 @@ impl LazySmpSearcher {
         let share_tt = flags & LAZY_ISOLATED_TT == 0;
         let tt_write_stats = share_tt.then(|| Arc::new(TtWriteStats::default()));
         let tt = Tt::new_with_stats(total_hash_mb, tt_write_stats.clone());
+        let work_overlap_stats = Arc::new(WorkOverlapStats::new());
         let diagnostics: Vec<_> = (0..workers)
-            .map(|_| Arc::new(SearchDiagnostics::counters_only()))
+            .map(|index| {
+                Arc::new(SearchDiagnostics::parallel_worker(
+                    work_overlap_stats.clone(),
+                    index,
+                ))
+            })
             .collect();
         Self::from_parts(
             tt,
@@ -201,11 +248,18 @@ impl LazySmpSearcher {
             total_hash_mb,
             diagnostics,
             tt_write_stats,
+            Some(work_overlap_stats),
         )
     }
 
     fn skew(flags: u32, index: usize) -> u32 {
-        u32::from(flags & LAZY_DEPTH_SKEW != 0 && index % 2 == 1)
+        if flags & LAZY_DEPTH_SKEW == 0 {
+            0
+        } else if flags & LAZY_DEPTH_LADDER != 0 {
+            (index % 4) as u32
+        } else {
+            (index % 2) as u32
+        }
     }
 
     fn worker_searcher(
@@ -290,6 +344,9 @@ impl LazySmpSearcher {
             Some(board.hash())
         );
         let started = Instant::now();
+        if let Some(stats) = &self.work_overlap_stats {
+            stats.reset();
+        }
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
             .into_par_iter()
@@ -368,6 +425,10 @@ impl LazySmpSearcher {
                 .as_ref()
                 .zip(tt_before)
                 .map(|(stats, before)| tt_write_delta(stats.snapshot(), before)),
+            work_overlap: self
+                .work_overlap_stats
+                .as_ref()
+                .map(|stats| work_overlap_snapshot(stats.snapshot())),
         }
     }
 }
@@ -536,6 +597,20 @@ mod tests {
     }
 
     #[test]
+    fn depth_ladder_diversifies_four_workers_without_changing_default_skew() {
+        let default = (0..4)
+            .map(|worker| LazySmpSearcher::skew(LAZY_DEPTH_SKEW, worker))
+            .collect::<Vec<_>>();
+        let ladder = (0..8)
+            .map(|worker| LazySmpSearcher::skew(LAZY_DEPTH_SKEW | LAZY_DEPTH_LADDER, worker))
+            .collect::<Vec<_>>();
+
+        assert_eq!(default, [0, 1, 0, 1]);
+        assert_eq!(ladder, [0, 1, 2, 3, 0, 1, 2, 3]);
+        assert_eq!(LazySmpSearcher::skew(LAZY_DEPTH_LADDER, 3), 0);
+    }
+
+    #[test]
     fn vote_prefers_the_move_most_workers_agree_on() {
         // One deeper worker alone against three agreeing workers.
         let picked = select_by_vote(vec![
@@ -684,5 +759,9 @@ mod tests {
                 .sum::<u64>()
                 > 0
         );
+        let overlap = result
+            .work_overlap
+            .expect("opt-in diagnostics must report sampled work overlap");
+        assert!(overlap.dropped <= overlap.sampled_visits);
     }
 }
