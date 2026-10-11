@@ -3,15 +3,15 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.70-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.70)
+[![Release](https://img.shields.io/badge/release-v0.3.71-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.71)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.70`では、
-USI対局ランナーの応答期限とFischer時計の計算を安全にし、依存関係と
-NNUE候補の証拠を更新しました。この版では棋力向上を主張していません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.3.71`では、
+探索、通信、学習の長い処理を小さな単位へ分割し、Rustエンジン／ライブラリの
+カバレッジ基準を98%へ引き上げました。この版では棋力向上を主張していません。
 
 ## まず動かす
 
@@ -64,8 +64,8 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、合法なPVを返す上限付き1ワーカー駒得探索、最短詰み解析を
-提供します。ビルド済みのv0.3.70 ESモジュールパッケージは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.70/sekirei-wasm-0.3.70.tgz)
+提供します。ビルド済みのv0.3.71 ESモジュールパッケージは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.71/sekirei-wasm-0.3.71.tgz)
 から取得できます。
 
 ## ビルドと検証
@@ -79,7 +79,7 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
-必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを95%以上に
+必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に
 固定します。ベンチマーク、ゲート、リリース、学習の各ツールは
 [スクリプト索引](scripts/README.md)を参照してください。処理単位の時間は
 総合速度や棋力順位を示しません。

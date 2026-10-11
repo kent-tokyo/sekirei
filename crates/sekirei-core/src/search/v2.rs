@@ -2007,3 +2007,60 @@ fn node(
     }
     best_value
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    #[test]
+    fn reduction_and_history_helpers_cover_split_tables_and_aging() {
+        let table = reduction_table(p::V2_RED_SCALE());
+        assert!(base_reduction(&table, false, 100, 300) >= base_reduction(&table, true, 100, 300));
+        assert_eq!(lmp_limit(2, false), lmp_limit(2, true) / 2);
+
+        let mut data = Data::new();
+        let i = OFF + 6;
+        let pt = 3;
+        data.cont_split = 1;
+        data.cont.resize(4 * PT_NB * PT_NB, 0);
+        data.ss[i - 1].pt = 1;
+        data.ss[i - 1].in_check = true;
+        data.ss[i - 1].capture = true;
+        let split_index = data.cont_index(&data.ss[i - 1], pt);
+        assert!(split_index >= 3 * PT_NB * PT_NB);
+        data.cont[split_index] = 16;
+        assert_eq!(data.cont_at(i, 1, pt), 16);
+        assert_eq!(data.cont_at(i, 2, pt), 0);
+        assert_eq!(data.cont_score(i, pt), 16);
+
+        data.ss[i].in_check = true;
+        data.update_cont(i, pt, 1_024);
+        assert!(data.cont[split_index] > 16);
+
+        let mut board = Board::startpos();
+        let quiet = generate_legal_moves(&mut board)
+            .into_iter()
+            .find(|m| board.piece_at(m.to).is_none())
+            .expect("start position has a quiet move");
+        data.update_quiet(i, 0, board.side_to_move, quiet, 0, 512);
+        assert_ne!(data.main[ft_key(board.side_to_move, quiet)], 0);
+        assert_ne!(data.low[ft_key(board.side_to_move, quiet)], 0);
+
+        let mut capture_board = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        let capture = generate_legal_captures(&mut capture_board)[0];
+        assert_eq!(data.capt_score(&capture_board, Color::Black, capture), 0);
+        data.update_capture(&capture_board, Color::Black, capture, 256);
+        assert!(data.capt_score(&capture_board, Color::Black, capture) > 0);
+
+        data.main[0] = 16;
+        data.corr_cont[0] = 16;
+        data.age(8);
+        assert_eq!(data.main[0], 8);
+        // Evaluation-correction history is deliberately cleared rather than
+        // aged by `age`; `clear` must reset both families.
+        data.clear();
+        assert_eq!(data.main[0], 0);
+        assert_eq!(data.corr_cont[0], 0);
+    }
+}

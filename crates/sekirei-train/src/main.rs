@@ -15,6 +15,7 @@
 //!   <http://wdoor.c.u-tokyo.ac.jp/shogi/>
 //! Extract .csa files into a directory and pass it as --games.
 
+mod artifact_io;
 mod book;
 mod csa;
 mod diagnostics;
@@ -27,9 +28,8 @@ mod trainer;
 use std::collections::{BTreeMap, HashMap};
 use std::fmt::Display;
 use std::fs::{self, File};
-use std::io::{self, BufWriter, Read, Write};
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use sekirei_core::board::Board;
@@ -41,13 +41,12 @@ use sekirei_core::{
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use artifact_io::{copy_atomic, write_atomic, write_atomic_stream};
 use csa::{CsaGame, parse_csa};
 use exporter::export_game;
 use positions::load_positions;
 use scored::load_scored;
 use trainer::{ConflictMaskLayer, FreezeLayer, LrSchedule, ReplayComponent, Trainer};
-
-static SIDECARE_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 // ---- CLI argument parsing ----
 
@@ -2181,47 +2180,6 @@ fn save_weight_snapshots(checkpoint: &Path, snapshots: &[(u64, trainer::TrainWei
     }
 }
 
-/// Write checkpoint sidecars without exposing a truncated metadata file when
-/// the trainer is interrupted during serialization or flushing.
-fn write_atomic_stream<F>(path: &Path, write: F) -> io::Result<()>
-where
-    F: FnOnce(&mut BufWriter<File>) -> io::Result<()>,
-{
-    let file_name = path.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "checkpoint metadata path must name a file",
-        )
-    })?;
-    let temp_path = path.with_file_name(format!(
-        ".{}.tmp-{}-{}",
-        file_name.to_string_lossy(),
-        std::process::id(),
-        SIDECARE_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let write_result = (|| -> io::Result<()> {
-        let file = File::create(&temp_path)?;
-        let mut out = BufWriter::new(file);
-        write(&mut out)?;
-        out.flush()?;
-        let file = out.into_inner().map_err(|error| error.into_error())?;
-        file.sync_all()
-    })();
-    if let Err(error) = write_result {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error);
-    }
-    if let Err(error) = fs::rename(&temp_path, path) {
-        let _ = fs::remove_file(&temp_path);
-        return Err(error);
-    }
-    Ok(())
-}
-
-fn write_atomic(path: &Path, contents: &[u8]) -> io::Result<()> {
-    write_atomic_stream(path, |out| out.write_all(contents))
-}
-
 /// A binary `SEKIRW01` checkpoint intentionally has no semantic tag so old
 /// engines remain able to read it.  Residual candidates therefore carry this
 /// adjacent, atomically-written declaration; consumers must default missing
@@ -2241,35 +2199,6 @@ fn save_output_mode_sidecar(output: &Path, mode: NnueOutput) -> io::Result<()> {
     }))
     .map_err(io::Error::other)?;
     write_atomic(&path, &bytes)
-}
-
-/// Copy a completed checkpoint into its stable selection path without ever
-/// exposing a partially copied `.best.bin`. The source is already an
-/// atomically-written checkpoint, so only the destination needs a temporary
-/// sibling, flush, and rename.
-fn copy_atomic(source: &Path, destination: &Path) -> io::Result<u64> {
-    let file_name = destination.file_name().ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "checkpoint destination path must name a file",
-        )
-    })?;
-    let temp_path = destination.with_file_name(format!(
-        ".{}.tmp-{}-{}",
-        file_name.to_string_lossy(),
-        std::process::id(),
-        SIDECARE_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed)
-    ));
-    let result = (|| -> io::Result<u64> {
-        let copied = fs::copy(source, &temp_path)?;
-        File::open(&temp_path)?.sync_all()?;
-        fs::rename(&temp_path, destination)?;
-        Ok(copied)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temp_path);
-    }
-    result
 }
 
 #[allow(clippy::too_many_arguments)]

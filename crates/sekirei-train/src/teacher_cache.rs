@@ -202,6 +202,39 @@ mod tests {
     }
 
     #[test]
+    fn missing_file_and_incomplete_native_or_analysis_rows_are_ignored() {
+        assert!(load(Path::new("missing-teacher-cache.jsonl"), 4, "material").is_empty());
+        let mut f = NamedTempFile::new().unwrap();
+        writeln!(f).unwrap();
+        writeln!(f, r#"{{"label_depth":4,"score_cp":1}}"#).unwrap();
+        writeln!(f, r#"{{"sfen":"{SFEN_A}","score_cp":1}}"#).unwrap();
+        writeln!(
+            f,
+            r#"{{"sfen":"{SFEN_A}","settings":{{"depth":4}},"lines":[]}}"#
+        )
+        .unwrap();
+        writeln!(f, r#"{{"sfen":"{SFEN_A}","lines":[{{"score_cp":1}}]}}"#).unwrap();
+        assert!(load(f.path(), 4, "material").is_empty());
+    }
+
+    #[test]
+    fn atomic_write_cleans_up_after_create_and_rename_failures() {
+        let root = tempfile::tempdir().unwrap();
+        let entries = HashMap::from([(SFEN_A.to_string(), 1)]);
+        assert!(
+            write(
+                &root.path().join("missing/out.jsonl"),
+                &entries,
+                4,
+                "material"
+            )
+            .is_err()
+        );
+        assert!(write(root.path(), &entries, 4, "material").is_err());
+        assert_eq!(fs::read_dir(root.path()).unwrap().count(), 0);
+    }
+
+    #[test]
     fn analysis_record_v1_can_seed_a_matching_depth_cache() {
         let mut f = NamedTempFile::new().unwrap();
         writeln!(

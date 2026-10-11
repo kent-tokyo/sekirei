@@ -32,18 +32,18 @@ write a versioned, atomic result artifact without scraping stdout.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import math
 import os
 import re
 import subprocess
 import sys
-import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+
+from sekirei_tools.artifacts import atomic_write_json, canonical_json_sha256, file_sha256
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
@@ -70,12 +70,8 @@ def file_identity(path: str | Path | None) -> dict[str, object] | None:
     identity: dict[str, object] = {"path": str(candidate), "exists": candidate.is_file()}
     if not candidate.is_file():
         return identity
-    digest = hashlib.sha256()
     try:
-        with candidate.open("rb") as source:
-            for chunk in iter(lambda: source.read(1024 * 1024), b""):
-                digest.update(chunk)
-        identity.update({"sha256": digest.hexdigest(), "size_bytes": candidate.stat().st_size})
+        identity.update({"sha256": file_sha256(candidate), "size_bytes": candidate.stat().st_size})
     except OSError as error:
         identity["identity_error"] = f"{type(error).__name__}: {error}"
     return identity
@@ -129,32 +125,9 @@ def runner_identity() -> dict[str, object]:
     return identity
 
 
-def atomic_write_json(path: Path, payload: dict[str, object]) -> None:
-    """Write one result artifact atomically in the destination directory."""
-    path = path.expanduser().resolve()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w", encoding="utf-8", dir=path.parent, prefix=f".{path.name}.", delete=False
-        ) as output:
-            temporary = Path(output.name)
-            json.dump(payload, output, ensure_ascii=False, indent=2, sort_keys=True)
-            output.write("\n")
-            output.flush()
-            os.fsync(output.fileno())
-        os.replace(temporary, path)
-    finally:
-        if temporary is not None and temporary.exists():
-            temporary.unlink()
-
-
 def canonical_sha256(value: object) -> str:
     """Hash one JSON value with the repository's stable compact encoding."""
-    encoded = json.dumps(
-        value, ensure_ascii=False, sort_keys=True, separators=(",", ":")
-    ).encode("utf-8")
-    return hashlib.sha256(encoded).hexdigest()
+    return canonical_json_sha256(value)
 
 
 def load_gate_observation_declaration(path: str | Path) -> dict[str, object]:

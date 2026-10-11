@@ -4681,9 +4681,58 @@ mod tests {
     }
 
     #[test]
+    fn quiet_game_sampling_skips_check_and_capture_positions() {
+        fn one_move_game(sfen: &str, usi: &str) -> CsaGame {
+            let board = Board::from_sfen(sfen).expect("fixture SFEN must be valid");
+            let mv =
+                sekirei_core::sfen::move_from_usi(usi, &board).expect("fixture move must be legal");
+            CsaGame {
+                initial_board: board,
+                moves: vec![mv],
+                result: GameResult::Unknown,
+                black_rate: None,
+                white_rate: None,
+            }
+        }
+
+        let in_check = one_move_game("4k4/9/9/9/4r4/9/9/9/4K4 b - 1", "5i4i");
+        let capture = one_move_game("4k4/9/9/9/4p4/4R4/9/9/4K4 b - 1", "5f5e");
+        let mut trainer = Trainer::new(19, 0.5);
+        let mut cache = HashMap::new();
+
+        for game in [&in_check, &capture] {
+            trainer.train_game(
+                0,
+                game,
+                1,
+                true,
+                0,
+                1,
+                &HashMap::new(),
+                false,
+                None,
+                1_200.0,
+                &mut cache,
+            );
+            let stats = trainer.eval_game(game, 1, true, 0, 1, None, 1_200.0, &mut cache);
+            assert_eq!(stats.count, 0);
+        }
+
+        assert_eq!(trainer.total_count, 0);
+        assert!(cache.is_empty());
+    }
+
+    #[test]
     fn reset_epoch_stats_clears_every_accumulator_and_reseeds_sampling() {
         let board = Board::startpos();
         let mut trainer = Trainer::new(14, 0.5);
+        assert_eq!(trainer.avg_loss(), 0.0);
+        // Keep this fixture independent of the active feature layout.  A value
+        // exactly on the clipping boundary can be pulled below it by the
+        // randomly initialized active feature weights.
+        trainer.weights.ft_bias[0] = 10_000.0;
+        trainer.trace_positions = [1u64].into_iter().collect();
+        trainer.weight_snapshot_trace = true;
         trainer.diagnostic_rate_matched_mask_count = 1;
         trainer.diagnostic_rate_matched_mask_total = 2;
         trainer.diagnostic_rate_matched_mask_seed = 3;
@@ -4698,6 +4747,9 @@ mod tests {
         );
         assert!(trainer.total_count > 0);
         assert!(trainer.l2_sample_count > 0);
+        assert_eq!(trainer.weight_snapshots.len(), 1);
+        assert!(trainer.ft_ever_saturated[0]);
+        assert_eq!(trainer.ft_sat_count[0], 1);
 
         trainer.reset_epoch_stats();
 

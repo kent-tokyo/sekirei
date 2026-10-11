@@ -121,6 +121,18 @@ mod tests {
     use super::*;
     use crate::csa::parse_csa;
 
+    struct FailingWriter;
+
+    impl Write for FailingWriter {
+        fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+            Err(io::Error::other("intentional writer failure"))
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
     #[test]
     fn generated_book_records_lineprior_schema_and_build_config() {
         let game = parse_csa("V2.2\nPI\n+7776FU\n%TORYO\n").expect("valid CSA");
@@ -143,5 +155,37 @@ mod tests {
             report.config_fingerprint,
             lineprior::build_config_fingerprint(&report.config)
         );
+    }
+
+    #[test]
+    fn every_game_result_and_mover_perspective_builds_observations() {
+        let parsed = parse_csa("V2.2\nPI\n+7776FU\n-3334FU\n%CHUDAN\n").unwrap();
+        let games: Vec<_> = [
+            GameResult::BlackWin,
+            GameResult::WhiteWin,
+            GameResult::Draw,
+            GameResult::Unknown,
+        ]
+        .into_iter()
+        .map(|result| CsaGame {
+            initial_board: parsed.initial_board.clone(),
+            moves: parsed.moves.clone(),
+            result,
+            black_rate: None,
+            white_rate: None,
+        })
+        .collect();
+
+        let mut output = Vec::new();
+        let report = build_book(&games, 2, 1, &mut output).unwrap();
+        assert_eq!(report.observation_count, 8);
+        assert!(!output.is_empty());
+    }
+
+    #[test]
+    fn output_failure_is_reported_without_a_partial_success() {
+        let game = parse_csa("V2.2\nPI\n+7776FU\n%TORYO\n").unwrap();
+        let error = build_book(&[game], 1, 1, &mut FailingWriter).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
     }
 }

@@ -7,17 +7,22 @@ engine strength, evaluator quality, clocks, or Elo from a CSA/sidecar pair.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import platform
 import shutil
 import subprocess
 from pathlib import Path
 
+from sekirei_tools.artifacts import atomic_write_json, file_sha256
+
 from validate_analysis_record import validate_lines
 
 
 SCHEMA = "sekirei.floodgate-review-manifest.v1"
+
+# Keep the script's small test/import API stable while sharing the
+# implementation with the other maintained artifact entry points.
+sha256 = file_sha256
 
 
 def detect_toolchain() -> str:
@@ -34,14 +39,6 @@ def detect_hardware() -> str:
     info = platform.uname()
     values = [info.system, info.release, info.machine]
     return " ".join(value for value in values if value) or "unknown"
-
-
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for block in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(block)
-    return digest.hexdigest()
 
 
 def jsonl_records(path: Path) -> list[dict]:
@@ -102,14 +99,14 @@ def pair_record(csa: Path, sidecar: Path, root: Path) -> dict:
         "csa": {
             "path": csa.relative_to(root).as_posix(),
             "bytes": csa.stat().st_size,
-            "sha256": sha256(csa),
+            "sha256": file_sha256(csa),
             "moves": len(csa_records),
             "result": csa_result,
         },
         "analysis": {
             "path": sidecar.relative_to(root).as_posix(),
             "bytes": sidecar.stat().st_size,
-            "sha256": sha256(sidecar),
+            "sha256": file_sha256(sidecar),
             "schema": header.get("schema"),
             "engine_version": header.get("engine_version"),
             "color": header.get("color"),
@@ -148,7 +145,7 @@ def provenance(root: Path, binary: Path | None, weights: Path | None,
             "status": "present",
             "path": path.relative_to(root).as_posix(),
             "bytes": path.stat().st_size,
-            "sha256": sha256(path),
+            "sha256": file_sha256(path),
         }
 
     return {
@@ -171,8 +168,8 @@ def preserve_files(root: Path, paths: list[Path], destination: Path) -> dict:
             raise ValueError(f"preservation target is the source: {source}")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(source, target)
-        source_hash = sha256(source)
-        target_hash = sha256(target)
+        source_hash = file_sha256(source)
+        target_hash = file_sha256(target)
         status = "verified" if source.stat().st_size == target.stat().st_size and source_hash == target_hash else "invalid"
         files.append({
             "source": relative.as_posix(),
@@ -302,8 +299,7 @@ def main() -> int:
         run_contract,
         under_root(args.preserve_dir),
     )
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(args.output, manifest)
     print(f"Floodgate review manifest written: {args.output}")
     return 0
 

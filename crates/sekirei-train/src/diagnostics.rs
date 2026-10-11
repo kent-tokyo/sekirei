@@ -899,7 +899,37 @@ pub fn vector_cosine_similarity(a: &[f32], b: &[f32]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::trainer::ConflictGroupStats;
     use sekirei_core::nnue::{L1, L2};
+
+    #[test]
+    fn conflict_group_summary_covers_empty_and_accumulated_groups() {
+        let empty = build_conflict_group_summary(&ConflictGroupStats::default());
+        assert_eq!(empty.count, 0);
+        assert_eq!(empty.new_dead_ft_mean, 0.0);
+        assert_eq!(empty.new_dead_l2_mean, 0.0);
+
+        let summary = build_conflict_group_summary(&ConflictGroupStats {
+            count: 2,
+            cp_residual_abs_sum: 4.0,
+            cp_residual_abs_sq_sum: 10.0,
+            wdl_residual_abs_sum: 2.0,
+            wdl_residual_abs_sq_sum: 2.5,
+            ft_grad_norm_sum: 6.0,
+            ft_grad_norm_sq_sum: 20.0,
+            l2_grad_norm_sum: 8.0,
+            l2_grad_norm_sq_sum: 34.0,
+            new_dead_ft_sum: 6,
+            new_dead_l2_sum: 4,
+        });
+        assert_eq!(summary.count, 2);
+        assert_eq!(summary.cp_residual_abs_mean, 2.0);
+        assert_eq!(summary.wdl_residual_abs_mean, 1.0);
+        assert_eq!(summary.ft_grad_norm_mean, 3.0);
+        assert_eq!(summary.l2_grad_norm_mean, 4.0);
+        assert_eq!(summary.new_dead_ft_mean, 3.0);
+        assert_eq!(summary.new_dead_l2_mean, 2.0);
+    }
 
     #[test]
     fn ratio_of_empty_slice_is_zero() {

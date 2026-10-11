@@ -8,6 +8,9 @@ use crate::piece::PieceKind;
 use crate::square::{Direction, Square};
 use std::cell::RefCell;
 
+mod threats;
+pub(crate) use threats::{attacks_by_class, threat_class};
+
 // ---- Attack detection ----
 
 /// Returns true if `sq` is attacked by any piece belonging to `by`
@@ -3912,6 +3915,28 @@ mod move_buffer_tests {
         board.undo_move_for_search(token);
         assert_eq!(board.pawn_files(Color::Black), original);
     }
+
+    #[test]
+    fn kingless_diagnostic_positions_fail_closed_without_inventing_checks() {
+        let board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b R 1").unwrap();
+        let drop = Move::drop(Square::from_shogi(5, 5), PieceKind::Hisha);
+
+        assert!(!move_gives_direct_check(&board, drop));
+        assert!(
+            CheckSquares::new(&board)
+                .0
+                .iter()
+                .all(|squares| squares.is_empty())
+        );
+        assert!(discovered_check_candidates(&board).is_empty());
+        assert!(!king_destination_is_safe(&board, Color::Black, drop));
+        assert!(!pawn_drop_has_king_escape(
+            &board,
+            Color::Black,
+            Square::from_shogi(5, 5)
+        ));
+        assert_eq!(diagnostic_king_safety_scan(&board), 0);
+    }
 }
 
 #[cfg(test)]
@@ -4507,85 +4532,81 @@ fn king_can_step_away(board: &Board, color: Color, ksq: Square) -> bool {
     false
 }
 
-/// Value class of a piece for move-ordering threats: 0 pawn, 1 lance and
-/// knight, 2 silver, 3 gold and the promoted minor pieces, 4 bishop, 5 rook,
-/// 6 horse and dragon, 7 king.
-#[inline]
-pub(crate) const fn threat_class(kind: PieceKind) -> usize {
-    match kind {
-        PieceKind::Fu => 0,
-        PieceKind::Kyou | PieceKind::Kei => 1,
-        PieceKind::Gin => 2,
-        PieceKind::Kin
-        | PieceKind::Tokin
-        | PieceKind::Narikyo
-        | PieceKind::Narikei
-        | PieceKind::Narigin => 3,
-        PieceKind::Kaku => 4,
-        PieceKind::Hisha => 5,
-        PieceKind::Uma | PieceKind::Ryu => 6,
-        PieceKind::Ou => 7,
-    }
-}
-
-/// Squares attacked by `color`'s pieces up to each value class: entry `c`
-/// is the union over the classes `0..=c` of [`threat_class`] (kings left
-/// out). A piece of class `k > 0` standing on a square of entry `k - 1` can
-/// be taken by a cheaper piece.
-pub(crate) fn attacks_by_class(board: &Board, color: Color) -> [Bitboard; 7] {
-    let occ = board.occ();
-    let c = color.index();
-    let lance_dir = match color {
-        Color::Black => 0,
-        Color::White => 1,
-    };
-    let step = |bb: Bitboard, table: &[Bitboard; Square::NUM]| {
-        let mut bb = bb;
-        let mut out = Bitboard::EMPTY;
-        while let Some(sq) = bb.pop_lsb() {
-            out |= table[sq.index() as usize];
-        }
-        out
-    };
-    let slide = |bb: Bitboard, dirs: std::ops::Range<usize>| {
-        let mut bb = bb;
-        let mut out = Bitboard::EMPTY;
-        while let Some(sq) = bb.pop_lsb() {
-            for d in dirs.clone() {
-                out |= sliding_attacks_index(sq, occ, d);
-            }
-        }
-        out
-    };
-    let pawn = step(board.pieces(color, PieceKind::Fu), &PAWN_ATTACKS[c]);
-    let minor = slide(
-        board.pieces(color, PieceKind::Kyou),
-        lance_dir..lance_dir + 1,
-    ) | step(board.pieces(color, PieceKind::Kei), &KNIGHT_ATTACKS[c]);
-    let silver = step(board.pieces(color, PieceKind::Gin), &SILVER_ATTACKS[c]);
-    let gold = step(board.gold_like(color), &GOLD_ATTACKS[c]);
-    let horse = board.pieces(color, PieceKind::Uma);
-    let dragon = board.pieces(color, PieceKind::Ryu);
-    let bishop = slide(board.pieces(color, PieceKind::Kaku), 4..8);
-    let rook = slide(board.pieces(color, PieceKind::Hisha), 0..4);
-    let promoted = slide(horse, 4..8)
-        | step(horse, &ORTHOGONAL_STEP_ATTACKS)
-        | slide(dragon, 0..4)
-        | step(dragon, &DIAGONAL_STEP_ATTACKS);
-    let mut out = [Bitboard::EMPTY; 7];
-    out[0] = pawn;
-    out[1] = out[0] | minor;
-    out[2] = out[1] | silver;
-    out[3] = out[2] | gold;
-    out[4] = out[3] | bishop;
-    out[5] = out[4] | rook;
-    out[6] = out[5] | promoted;
-    out
-}
-
 #[cfg(test)]
 mod diagnostic_coverage_tests {
     use super::*;
+
+    #[derive(Default)]
+    struct DefaultSink(Vec<Move>);
+
+    impl MoveSink for DefaultSink {
+        fn clear(&mut self) {
+            self.0.clear();
+        }
+
+        fn push(&mut self, m: Move) {
+            self.0.push(m);
+        }
+    }
+
+    fn exercise_sink(sink: &mut impl MoveSink) {
+        let from = Square::from_shogi(5, 4);
+        let plain = Square::from_shogi(5, 5);
+        let zone = Square::from_shogi(5, 3);
+        let forced = Square::from_shogi(5, 1);
+
+        sink.clear();
+        sink.push(Move::normal(from, plain, PieceKind::Gin, false));
+        sink.push_normal(from, zone, PieceKind::Gin, true);
+        sink.push_drop(plain, PieceKind::Kin);
+        sink.push_plain_targets(
+            from,
+            PieceKind::Gin,
+            Bitboard::from_square(plain) | Bitboard::from_square(zone),
+        );
+        sink.push_drop_targets(
+            PieceKind::Kaku,
+            Bitboard::from_square(plain) | Bitboard::from_square(zone),
+        );
+        let mut promotable = Bitboard::from_square(plain)
+            | Bitboard::from_square(zone)
+            | Bitboard::from_square(forced);
+        sink.push_promotable_targets_with_masks(
+            from,
+            PieceKind::Fu,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::STUCK_FU_KYOU_BLACK,
+            &mut promotable,
+        );
+
+        let mut none = Bitboard::EMPTY;
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut none,
+            sink,
+        );
+        let mut outside = Bitboard::from_square(plain);
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut outside,
+            sink,
+        );
+        let mut inside = Bitboard::from_square(zone);
+        push_promotable_targets_fast(
+            from,
+            PieceKind::Gin,
+            Bitboard::PROMOTE_BLACK,
+            Bitboard::EMPTY,
+            &mut inside,
+            sink,
+        );
+    }
 
     const ALL_KINDS: [PieceKind; 14] = [
         PieceKind::Fu,
@@ -4639,6 +4660,33 @@ mod diagnostic_coverage_tests {
             }
             assert_eq!(board.hash(), before);
         }
+    }
+
+    #[test]
+    fn every_move_sink_contract_handles_plain_drop_and_promotion_batches() {
+        let mut default = DefaultSink::default();
+        exercise_sink(&mut default);
+        assert!(default.0.len() >= 12);
+
+        let mut packed = PackedMoveList::default();
+        exercise_sink(&mut packed);
+        assert!(packed.len() >= 12);
+        assert!(packed.as_slice().iter().all(|mv| mv.to_move().is_some()));
+
+        let mut narrow = NarrowMoveList::default();
+        exercise_sink(&mut narrow);
+        assert!(narrow.len() >= 12);
+        assert_eq!(narrow.as_mut_slice().len(), narrow.as_slice().len());
+
+        let mut fixed = FixedMoveList::default();
+        exercise_sink(&mut fixed);
+        assert!(fixed.len() >= 12);
+
+        let mut counter = MoveCounter::default();
+        exercise_sink(&mut counter);
+        assert!(counter.count >= 12);
+        counter.clear();
+        assert_eq!(counter.count, 0);
     }
 
     #[test]

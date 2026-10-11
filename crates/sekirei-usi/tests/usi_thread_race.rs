@@ -304,6 +304,38 @@ fn position_discards_a_completed_ponder_result() {
 }
 
 #[test]
+fn ponderhit_publishes_a_completed_forced_mate_exactly_once() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1");
+    send(&mut stdin, "go ponder depth 1");
+    std::thread::sleep(Duration::from_millis(250));
+    send(&mut stdin, "ponderhit");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove ") && !line.ends_with("resign"),
+        Duration::from_secs(5),
+    );
+    std::thread::sleep(Duration::from_millis(50));
+    let late: Vec<_> = rx.try_iter().collect();
+    assert!(
+        late.iter().all(|line| !line.starts_with("bestmove ")),
+        "completed ponder result was published more than once: {late:?}"
+    );
+
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for completed ponder test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn usinewgame_discards_an_inflight_ponder_result() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");

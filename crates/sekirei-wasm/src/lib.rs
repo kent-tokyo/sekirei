@@ -6,7 +6,9 @@
 //! search is currently fixed to one worker; callers can inspect that contract
 //! through [`search_capabilities`] and each [`ComputerMove`] result.
 
-use js_sys::{Array, Object, Reflect};
+#[cfg(target_arch = "wasm32")]
+use js_sys::Array;
+use js_sys::{Object, Reflect};
 use sekirei_core::board::Board;
 use sekirei_core::color::Color;
 use sekirei_core::mate::{
@@ -16,13 +18,14 @@ use sekirei_core::mate::{
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::piece::PieceKind;
 use sekirei_core::search::{MATE_SCORE, SearchConfig, Searcher};
-use sekirei_core::sfen::{
-    PositionHistory, STARTPOS_SFEN, board_to_sfen, move_from_usi, move_to_usi,
-};
+use sekirei_core::sfen::{PositionHistory, STARTPOS_SFEN, move_to_usi};
+#[cfg(any(test, target_arch = "wasm32"))]
+use sekirei_core::sfen::{board_to_sfen, move_from_usi};
 use sekirei_core::tt::Tt;
 use wasm_bindgen::prelude::*;
 
 const MAX_SFEN_BYTES: usize = 512;
+#[cfg(any(test, target_arch = "wasm32"))]
 const MAX_MOVE_BYTES: usize = 8;
 const MAX_SEARCH_DEPTH: u32 = 8;
 const MAX_SEARCH_NODES: u32 = 100_000;
@@ -297,6 +300,7 @@ fn parse_board(sfen: &str) -> Result<Board, ApiError> {
     Board::from_sfen(sfen).map_err(|message| ApiError::new("invalid_sfen", message))
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn legal_move_strings(sfen: &str) -> Result<Vec<String>, ApiError> {
     let mut board = parse_board(sfen)?;
     let mut moves = generate_legal_moves(&mut board)
@@ -373,6 +377,7 @@ fn analyze_mate_impl(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateRe
     })
 }
 
+#[cfg(any(test, target_arch = "wasm32"))]
 fn apply_move_impl(sfen: &str, usi_move: &str) -> Result<String, ApiError> {
     if usi_move.len() > MAX_MOVE_BYTES {
         return Err(ApiError::new(
@@ -550,6 +555,7 @@ impl PositionAnalysis {
 
     /// Legal primary PV from the same completed iteration as score and depth.
     /// A fallback move is deliberately not represented as a completed line.
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(getter, js_name = principalVariation, unchecked_return_type = "string[]")]
     pub fn principal_variation(&self) -> Array {
         let array = Array::new();
@@ -735,6 +741,7 @@ impl MateAnalysis {
     }
 
     /// Every first move that forces mate at the shortest proven length.
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
     pub fn solutions(&self) -> Array {
         let array = Array::new();
@@ -790,6 +797,7 @@ impl MateInOneAnalysis {
     }
 
     /// Every legal mate-in-one move, sorted in USI notation.
+    #[cfg(target_arch = "wasm32")]
     #[wasm_bindgen(getter, unchecked_return_type = "string[]")]
     pub fn solutions(&self) -> Array {
         let array = Array::new();
@@ -819,6 +827,7 @@ pub fn start_sfen() -> String {
 }
 
 /// Return every legal move for `sfen`, sorted in USI notation.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = legalMoves)]
 pub fn legal_moves(sfen: &str) -> Result<Array, JsValue> {
     let array = Array::new();
@@ -854,6 +863,7 @@ pub fn analyze_mate(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateAna
 }
 
 /// Validate and apply one USI move, returning the resulting SFEN.
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen(js_name = applyMove)]
 pub fn apply_move(sfen: &str, usi_move: &str) -> Result<String, JsValue> {
     apply_move_impl(sfen, usi_move).map_err(ApiError::into_js)
@@ -1104,6 +1114,24 @@ mod tests {
 
         let move_error = apply_move_impl(STARTPOS_SFEN, "7g7z").unwrap_err();
         assert_eq!(move_error.code, "invalid_move");
+
+        let oversized_sfen = "x".repeat(MAX_SFEN_BYTES + 1);
+        assert_eq!(
+            parse_board(&oversized_sfen).err().unwrap().code,
+            "input_too_large"
+        );
+        assert_eq!(
+            validate_analysis_inventory(&oversized_sfen)
+                .unwrap_err()
+                .code,
+            "input_too_large"
+        );
+        assert_eq!(
+            apply_move_impl(STARTPOS_SFEN, &"7".repeat(MAX_MOVE_BYTES + 1))
+                .unwrap_err()
+                .code,
+            "input_too_large"
+        );
     }
 
     #[test]
@@ -1131,6 +1159,17 @@ mod tests {
                 .contains(&result.best_move)
         );
         assert!(result.nodes <= 10_000);
+
+        let node_limited = computer_move_impl(STARTPOS_SFEN, MAX_SEARCH_DEPTH, 1).unwrap();
+        assert!(
+            legal_move_strings(STARTPOS_SFEN)
+                .unwrap()
+                .contains(&node_limited.best_move)
+        );
+
+        let terminal = apply_move_impl(VALID_MATE_SFEN, "5e5c+").unwrap();
+        let error = computer_move_impl(&terminal, 1, 1_000).unwrap_err();
+        assert_eq!(error.code, "terminal_position");
     }
 
     #[test]

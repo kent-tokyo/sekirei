@@ -131,6 +131,17 @@ mod tests {
     }
 
     #[test]
+    fn unreadable_empty_and_incomplete_rows_are_ignored() {
+        assert!(load_scored(Path::new("missing-scored-file.jsonl"), 0.0).is_empty());
+        let f = write_jsonl(&[
+            "",
+            r#"{"other":"missing key","stability_score":0.5}"#,
+            r#"{"sample_id":"missing score"}"#,
+        ]);
+        assert!(load_scored(f.path(), 0.0).is_empty());
+    }
+
+    #[test]
     fn test_min_stability_filter() {
         let f = write_jsonl(&[
             r#"{"sample_id":"high","stability_score":0.9}"#,

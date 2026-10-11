@@ -252,3 +252,57 @@ fn atomic_write(path: &Path, temporary_extension: &str, bytes: &[u8]) -> io::Res
     }
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn checkpoint_validation_rejects_schema_shape_and_non_finite_state() {
+        let weights = TrainWeights::new_seeded(7, 0.5);
+
+        let mut state = weights.adam_checkpoint();
+        state.schema = "unknown".to_string();
+        assert!(TrainWeights::from_adam_checkpoint(state).is_err());
+
+        let mut state = weights.adam_checkpoint();
+        state.ft.pop();
+        assert!(TrainWeights::from_adam_checkpoint(state).is_err());
+
+        let mut state = weights.adam_checkpoint();
+        state.out_bias = f32::NAN;
+        assert!(TrainWeights::from_adam_checkpoint(state).is_err());
+    }
+
+    #[test]
+    fn resume_validation_rejects_schema_and_empty_fingerprint() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("resume.json");
+        let weights = TrainWeights::new_seeded(11, 0.5);
+        for (schema, fingerprint) in [("unknown", "recipe"), (RESUME_SCHEMA, "")] {
+            let state = ResumeCheckpoint {
+                schema: schema.to_string(),
+                version: 1,
+                epoch_completed: 0,
+                next_game_index: 0,
+                config_fingerprint: fingerprint.to_string(),
+                teacher_cache: HashMap::new(),
+                optimizer: weights.adam_checkpoint(),
+            };
+            fs::write(&path, serde_json::to_vec(&state).unwrap()).unwrap();
+            assert!(TrainWeights::load_resume_checkpoint(&path).is_err());
+        }
+    }
+
+    #[test]
+    fn atomic_checkpoint_failure_removes_temporary_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("missing").join("weights.json");
+        assert!(
+            TrainWeights::new_seeded(13, 0.5)
+                .save_adam_checkpoint(&path)
+                .is_err()
+        );
+        assert!(!path.with_extension("adam.json.tmp").exists());
+    }
+}

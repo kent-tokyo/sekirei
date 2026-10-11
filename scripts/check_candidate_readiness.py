@@ -4,10 +4,11 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess
 from pathlib import Path
+
+from sekirei_tools.artifacts import atomic_write_json, file_sha256
 
 
 SFENS = [
@@ -28,14 +29,6 @@ def probe_passes(payload: dict) -> bool:
     )
 
 
-def sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)
@@ -44,7 +37,7 @@ def main() -> None:
     args = parser.parse_args()
     manifest = json.loads(args.manifest.read_text(encoding="utf-8"))
     candidate = Path(manifest["candidate"]["path"])
-    hash_ok = candidate.is_file() and sha256(candidate) == manifest["candidate"]["sha256"]
+    hash_ok = candidate.is_file() and file_sha256(candidate) == manifest["candidate"]["sha256"]
     probe = {"passed": False, "error": None}
     if hash_ok and args.binary.is_file():
         command = [str(args.binary), str(candidate), "--strict", "--json"]
@@ -77,8 +70,7 @@ def main() -> None:
         "ready_for_strength_gate": hash_ok and bool(probe.get("passed")) and "calibration" in manifest,
         "strength_claim": False,
     }
-    args.output.parent.mkdir(parents=True, exist_ok=True)
-    args.output.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    atomic_write_json(args.output, report)
     print(json.dumps(report, ensure_ascii=False, indent=2))
 
 

@@ -384,6 +384,39 @@ mod tests {
     }
 
     #[test]
+    fn serializer_covers_every_piece_code_for_both_colors() {
+        let kinds = [
+            PieceKind::Fu,
+            PieceKind::Kyou,
+            PieceKind::Kei,
+            PieceKind::Gin,
+            PieceKind::Kin,
+            PieceKind::Kaku,
+            PieceKind::Hisha,
+            PieceKind::Ou,
+            PieceKind::Tokin,
+            PieceKind::Narikyo,
+            PieceKind::Narikei,
+            PieceKind::Narigin,
+            PieceKind::Uma,
+            PieceKind::Ryu,
+        ];
+        let codes = [
+            "FU", "KY", "KE", "GI", "KI", "KA", "HI", "OU", "TO", "NY", "NK", "NG", "UM", "RY",
+        ];
+        for (kind, code) in kinds.into_iter().zip(codes) {
+            let mv = Move {
+                from: Some(Square::from_shogi(7, 7)),
+                to: Square::from_shogi(7, 6),
+                piece_kind: kind,
+                promote: false,
+            };
+            assert_eq!(move_to_csa(mv, Color::Black), format!("+7776{code}"));
+            assert_eq!(move_to_csa(mv, Color::White), format!("-7776{code}"));
+        }
+    }
+
+    #[test]
     fn csa_position_rejects_incomplete_and_invalid_setups() {
         assert!(board_from_csa_position(&["+".into()]).is_err());
 
@@ -398,5 +431,62 @@ mod tests {
         let mut missing_side = start_position();
         missing_side.retain(|line| line != "+");
         assert!(board_from_csa_position(&missing_side).is_err());
+    }
+
+    #[test]
+    fn csa_position_rejects_malformed_rows_and_accepts_compact_hands() {
+        let mut short_hand = start_position();
+        short_hand.push("P+FU".into());
+        assert!(board_from_csa_position(&short_hand).is_err());
+
+        let mut doubled_hand = start_position();
+        doubled_hand.push("P+02FU".into());
+        let parsed = board_from_csa_position(&doubled_hand).expect("valid counted hand");
+        assert_eq!(parsed.hand(Color::Black).get(PieceKind::Fu), 2);
+
+        let mut ignored_rank = start_position();
+        ignored_rank.insert(0, "P0+FU".into());
+        assert!(board_from_csa_position(&ignored_rank).is_ok());
+
+        let mut malformed_cell = start_position();
+        malformed_cell[3] = "P4  X *  *  *  *  *  *  *  *".into();
+        assert!(board_from_csa_position(&malformed_cell).is_err());
+
+        let mut malformed_color = start_position();
+        malformed_color[3] = "P4*FU *  *  *  *  *  *  *  *".into();
+        assert!(board_from_csa_position(&malformed_color).is_err());
+
+        let mut compact = start_position();
+        compact.extend(["+02FU".into(), "-01KA".into()]);
+        let parsed = board_from_csa_position(&compact).expect("valid compact hand syntax");
+        assert_eq!(parsed.hand(Color::Black).get(PieceKind::Fu), 2);
+        assert_eq!(parsed.hand(Color::White).get(PieceKind::Kaku), 1);
+
+        for invalid in ["+xxFU", "+01XX", "+01OU"] {
+            let mut lines = start_position();
+            lines.push(invalid.into());
+            assert!(
+                board_from_csa_position(&lines).is_err(),
+                "accepted {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn promoted_position_cells_round_trip_through_sfen() {
+        let lines = [
+            "P1 *  *  *  * -OU *  *  *  *",
+            "P2 *  *  *  *  *  *  *  *  *",
+            "P3 *  *  *  *  *  *  *  *  *",
+            "P4 *  *  *  *  *  *  *  *  *",
+            "P5+TO+NY+NK+NG+UM+RY *  *  *",
+            "P6 *  *  *  *  *  *  *  *  *",
+            "P7 *  *  *  *  *  *  *  *  *",
+            "P8 *  *  *  *  *  *  *  *  *",
+            "P9 *  *  *  * +OU *  *  *  *",
+            "+",
+        ]
+        .map(str::to_owned);
+        assert!(board_from_csa_position(&lines).is_ok());
     }
 }

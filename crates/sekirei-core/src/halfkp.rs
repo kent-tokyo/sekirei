@@ -65,22 +65,18 @@ const WEIGHT_SCALE_BITS: u32 = 6;
 // recomputed here so a file with a different architecture is rejected
 // before any parameter is interpreted.
 
-const fn affine_hash(outputs: u32, previous: u32) -> u32 {
-    0xCC03_DAE4u32.wrapping_add(outputs) ^ (previous >> 1) ^ (previous << 31)
-}
-
-const fn clipped_relu_hash(previous: u32) -> u32 {
-    0x538D_24C7u32.wrapping_add(previous)
-}
-
 /// Hash of the feature-transformer section.
 pub const TRANSFORMER_HASH: u32 = (0x5D69_D5B9u32 ^ 1) ^ (2 * HALF_DIMS as u32);
 /// Hash of the dense-network section.
 pub const NETWORK_HASH: u32 = {
     let input_slice = 0xEC42_E90Du32 ^ (2 * HALF_DIMS as u32);
-    let hidden1 = clipped_relu_hash(affine_hash(HIDDEN as u32, input_slice));
-    let hidden2 = clipped_relu_hash(affine_hash(HIDDEN as u32, hidden1));
-    affine_hash(1, hidden2)
+    let hidden1_affine =
+        0xCC03_DAE4u32.wrapping_add(HIDDEN as u32) ^ (input_slice >> 1) ^ (input_slice << 31);
+    let hidden1 = 0x538D_24C7u32.wrapping_add(hidden1_affine);
+    let hidden2_affine =
+        0xCC03_DAE4u32.wrapping_add(HIDDEN as u32) ^ (hidden1 >> 1) ^ (hidden1 << 31);
+    let hidden2 = 0x538D_24C7u32.wrapping_add(hidden2_affine);
+    0xCC03_DAE4u32.wrapping_add(1) ^ (hidden2 >> 1) ^ (hidden2 << 31)
 };
 /// Hash stored in the file header.
 pub const FILE_HASH: u32 = TRANSFORMER_HASH ^ NETWORK_HASH;
@@ -1184,6 +1180,60 @@ mod tests {
         let mut trailing = bytes;
         trailing.push(0);
         assert!(HalfKpNetwork::from_bytes(&trailing).is_err());
+    }
+
+    #[test]
+    fn small_contract_boundaries_cover_debug_features_headers_and_file_probe() {
+        assert!(format!("{:?}", *NET).contains("HalfKpNetwork"));
+        assert!(
+            hand_feature(
+                Square::from_shogi(5, 9),
+                PieceKind::Fu,
+                0,
+                Color::Black,
+                Color::Black,
+            )
+            .is_none()
+        );
+        assert!(
+            hand_feature(
+                Square::from_shogi(5, 9),
+                PieceKind::Ou,
+                1,
+                Color::Black,
+                Color::Black,
+            )
+            .is_none()
+        );
+
+        let mut oversized_header = Vec::new();
+        oversized_header.extend_from_slice(&FILE_VERSION.to_le_bytes());
+        oversized_header.extend_from_slice(&FILE_HASH.to_le_bytes());
+        oversized_header.extend_from_slice(&((MAX_ARCHITECTURE_BYTES + 1) as u32).to_le_bytes());
+        let error = HalfKpNetwork::from_bytes(&oversized_header).unwrap_err();
+        assert_eq!(error.kind(), ErrorKind::InvalidData);
+        assert!(error.to_string().contains("too long"));
+
+        let root = std::env::temp_dir().join(format!(
+            "sekirei_halfkp_boundaries_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        let short = root.join("short.bin");
+        fs::write(&short, [0u8; 3]).unwrap();
+        assert!(!is_halfkp_file(&short).unwrap());
+        assert!(is_halfkp_file(&root).is_err());
+
+        let mut default_acc = HalfKpAcc::default();
+        assert!(default_acc.dirty.iter().all(|dirty| *dirty));
+        default_acc.add_hand(&NET, PieceKind::Ou, 1, Color::Black);
+        default_acc.remove_hand(&NET, PieceKind::Ou, 1, Color::Black);
+        assert!(default_acc.dirty.iter().all(|dirty| *dirty));
+        fs::remove_dir_all(root).unwrap();
     }
 
     fn acc_for(board: &crate::board::Board) -> HalfKpAcc {

@@ -63,6 +63,9 @@ mod tests {
     #[test]
     fn elo_50pct_is_zero() {
         assert!(elo_diff(5, 0, 5).abs() < 0.01);
+        assert_eq!(elo_diff(0, 0, 0), 0.0);
+        assert!(elo_ci(1, 0, 0).is_infinite());
+        assert_eq!(los(1, 0, 0), 0.5);
     }
 
     #[test]

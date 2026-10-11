@@ -628,6 +628,8 @@ done
             None,
             "untrusted clock fields must not overflow the match runner"
         );
+        assert!(deadline_after(Duration::MAX).is_err());
+        assert_eq!(parse_byoyomi_ms("go btime 10 wtime 10"), None);
     }
 
     use super::*;
@@ -707,6 +709,26 @@ done
             .initialize(&options)
             .expect_err("EvalFile acknowledgement is required");
         assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn initialize_fails_closed_when_nnue_mode_acknowledgement_is_missing() {
+        let script = r#"
+while IFS= read -r line; do
+  case "$line" in
+    usi) echo "option name NnueOutput type combo default absolute var absolute"; echo "usiok" ;;
+    isready) echo "readyok" ;;
+    quit) exit 0 ;;
+  esac
+done
+"#;
+        let options = vec!["NnueOutput=absolute".to_string()];
+        let mut engine = launch_shell(script, &options);
+        assert_eq!(
+            engine.initialize(&options).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
     }
 
     #[cfg(unix)]
@@ -860,6 +882,18 @@ done
             !info.is_completed_primary(),
             "a bound is not a completed score and must not survive a stop"
         );
+    }
+
+    #[test]
+    fn standalone_bounds_and_malformed_scores_remain_partial() {
+        let bound = parse_search_info("info depth 4 score cp 12 upperbound").unwrap();
+        assert_eq!(bound.bound.as_deref(), Some("upperbound"));
+        let standalone = parse_search_info("info depth 5 lowerbound nodes 17").unwrap();
+        assert_eq!(standalone.bound.as_deref(), Some("lowerbound"));
+        assert_eq!(standalone.nodes, Some(17));
+        let malformed = parse_search_info("info depth 4 score unknown value pv 7g7f").unwrap();
+        assert_eq!(malformed.score_cp, None);
+        assert!(!malformed.completed_iteration);
     }
 
     #[test]

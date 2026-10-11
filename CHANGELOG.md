@@ -6,6 +6,24 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.71] – 2026-10-11
+
+- CSA: terminate an authenticated bounded client generation with a non-zero
+  exit after `run_error`. The one-shot supervisor records the terminal reason
+  and completed-attempt count without restarting or inventing a result.
+- Coverage: raise the reusable Rust engine/library line-coverage contract from
+  95% to 98% without widening the exclusion list. Add behavioral coverage for
+  search, rules, protocol, trainer, and native WASM paths; browser-only
+  JavaScript conversions remain covered by the WebAssembly browser job.
+- Refactoring: separate CSA framing and time control, USI search lifecycle and
+  `go` parsing, match clock rules, search path state, move ordering, pruning,
+  TT probes, and atomic trainer output into smaller tested units. Fixed-budget
+  search results remain unchanged by the search refactors.
+- Documentation: align the English and Japanese entry points, current contract
+  index, WebAssembly API, analysis benchmark, mobile notes, and script index
+  with v0.3.71 and the 98% coverage gate. Historical experiment and release
+  records retain their original scope.
+
 ## [0.3.70] – 2026-10-11
 
 - Match runner: enforce one absolute deadline for each USI handshake, readiness

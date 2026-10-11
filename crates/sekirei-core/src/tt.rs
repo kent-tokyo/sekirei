@@ -603,6 +603,30 @@ mod tests {
     }
 
     #[test]
+    fn replacement_layouts_cover_direct_generation_and_bucket_collisions() {
+        let stats = Arc::new(TtWriteStats::default());
+        let direct = Tt::new_with_layout(1, Some(stats.clone()), 2);
+        let hash = 0x1234_5678;
+        direct.store(hash, entry(8, Bound::Lower, None));
+        direct.store(hash, entry(1, Bound::Upper, None));
+        assert_eq!(direct.probe(hash).unwrap().depth, 8);
+        direct.store(hash, entry(1, Bound::Exact, None));
+        assert_eq!(direct.probe(hash).unwrap().depth, 1);
+        direct.store(hash + direct.len() as u64, entry(3, Bound::Lower, None));
+        assert_eq!(direct.probe(hash + direct.len() as u64).unwrap().depth, 3);
+        assert!(!direct.is_empty());
+        assert_eq!((floor_pow2(0), floor_pow2(3)), (1, 2));
+        assert!(stats.snapshot().shallower_rejections > 0);
+
+        let bucket_stats = Arc::new(TtWriteStats::default());
+        let bucket = Tt::new_with_layout(1, Some(bucket_stats.clone()), 3);
+        for index in 0..5u64 {
+            bucket.store(0x80 + (index << 24), entry(2, Bound::Exact, None));
+        }
+        assert!(bucket_stats.snapshot().collision_overwrites > 0);
+    }
+
+    #[test]
     fn bucket_layout_replaces_an_entry_of_an_older_search_first() {
         let tt = Tt::new_with_layout(1, None, 3);
         let hashes: Vec<u64> = (0..5).map(|i| 0x80 + (i << 24)).collect();

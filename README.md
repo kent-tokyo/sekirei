@@ -3,16 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.70-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.70)
+[![Release](https://img.shields.io/badge/release-v0.3.71-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.71)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.3.70` bounds
-USI match-runner deadlines and Fischer-clock arithmetic, and refreshes
-dependency and NNUE-candidate evidence. It does not claim a playing-strength
-gain.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.3.71` splits
+large search, protocol, and training paths into smaller tested units and raises
+the Rust engine/library coverage contract to 98%. It does not claim a
+playing-strength gain.
 
 ## Quick start
 
@@ -67,9 +67,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker material search with a
-legal PV, and bounded shortest-mate analysis. The prebuilt v0.3.70 ES-module
+legal PV, and bounded shortest-mate analysis. The prebuilt v0.3.71 ES-module
 package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.70/sekirei-wasm-0.3.70.tgz).
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.71/sekirei-wasm-0.3.71.tgz).
 
 ## Build and verify
 
@@ -82,7 +82,7 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 ```
 
 The coverage command requires `cargo-llvm-cov 0.8.7`,
-`llvm-tools-preview`, and `jq`. It enforces at least 95% line coverage for
+`llvm-tools-preview`, and `jq`. It enforces at least 98% line coverage for
 reusable Rust code and the shipped USI runtime. See the
 [script index](scripts/README.md) for benchmark, gate, release, and training
 tools. Component timings are not overall speed or strength rankings.
