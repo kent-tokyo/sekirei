@@ -38,6 +38,7 @@ mod book;
 mod book_log;
 mod go;
 mod invariant;
+mod session;
 #[cfg(feature = "opening-book")]
 use book::{Book, BookProvenance};
 #[cfg(feature = "opening-book")]
@@ -45,6 +46,11 @@ use book_log::{BookDecisionLogger, DecisionContext};
 use invariant::DiagCtx;
 #[cfg(feature = "opening-book")]
 use sekirei_core::sfen::board_to_sfen;
+use session::{
+    abort_and_join as abort_and_join_inflight_search,
+    invalidate_and_join as invalidate_and_join_inflight_search,
+    mutate_after_join as mutate_evaluator_after_join,
+};
 
 // ---- Engine identity ----
 
@@ -677,50 +683,6 @@ fn emit_search_result(
 }
 
 // ---- Main loop ----
-
-/// Abort and join any in-flight search thread before mutating shared search
-/// state. Shared by `go`, `usinewgame`, and every `setoption` branch that
-/// rebuilds `searcher` (`Hash`, `SpecTopN`) -- extracted after `setoption
-/// Hash` was found missing this exact sequence (issue #10; `SpecTopN`,
-/// issue #9, needs the identical sequence for the same reason: rebuilding
-/// the searcher's dedicated pool out from under an in-flight search thread
-/// is safe for the search itself, which holds its own `Arc` clone, but
-/// leaves nothing blocking the main loop from answering the next command
-/// before that thread's `bestmove` has actually been printed).
-fn abort_and_join_inflight_search(
-    search_abort: &mut Option<Arc<AtomicBool>>,
-    search_handle: &mut Option<JoinHandle<()>>,
-) {
-    if let Some(a) = search_abort.take() {
-        a.store(true, Ordering::Relaxed);
-    }
-    if let Some(h) = search_handle.take() {
-        h.join().ok();
-    }
-}
-
-/// Supersede the current USI question and join its worker without allowing a
-/// late `bestmove` or retained ponder result to cross the command boundary.
-fn invalidate_and_join_inflight_search(
-    search_generation: &AtomicU64,
-    search_abort: &mut Option<Arc<AtomicBool>>,
-    search_handle: &mut Option<JoinHandle<()>>,
-) {
-    search_generation.fetch_add(1, Ordering::AcqRel);
-    abort_and_join_inflight_search(search_abort, search_handle);
-}
-
-/// Change process-wide evaluator state only after an in-flight search can no
-/// longer observe it. Keeping the mutation in this helper makes the ordering
-/// explicit and directly testable without relying on scheduler timing.
-fn mutate_evaluator_after_join<T>(
-    search_abort: &mut Option<Arc<AtomicBool>>,
-    search_handle: &mut Option<JoinHandle<()>>,
-    mutate: impl FnOnce() -> T,
-) -> T {
-    abort_and_join_inflight_search(search_abort, search_handle);
-    mutate()
-}
 
 /// Initialize Rayon's process-global pool before the first search, with a
 /// stack budget sufficient for the engine's supported recursive search depth.
