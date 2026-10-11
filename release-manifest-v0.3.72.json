@@ -1,0 +1,77 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.72",
+  "commit": "d7837ae849e115aa51f677402f6c60021b6209ac",
+  "branch_at_release": "main",
+  "candidate_state": "verified release candidate awaiting publication",
+  "packages": {
+    "sekirei": "0.3.72",
+    "sekirei-core": "0.3.72",
+    "sekirei-bench": "0.3.72",
+    "sekirei-csa": "0.3.72",
+    "sekirei-match-runner": "0.3.72",
+    "sekirei-train": "0.3.72"
+  },
+  "dependencies": {
+    "lineprior": "0.12.4",
+    "shogiesa-core": "0.11.3",
+    "veridict": "0.19.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "9329af627f0d1d4f3e09b661b0c5337ce3125cbd42fe2a49eb388a906f2d2ede"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.72",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.72.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.72/sekirei-wasm-0.3.72.tgz",
+    "sha256": "b6d1fcd28747faf04ef8abc4613c22a9d0b9828f52c8586de745c65d304be503",
+    "size": 451727,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace release tests, Clippy with warnings denied, rustfmt, the optional opening-book build and tests, a native material-only USI smoke, the 98% hosted coverage gate, hosted browser WebAssembly tests, local WebAssembly package generation, package metadata validation, and CodeQL passed. Opt-in Lazy SMP diagnostics report worker-local TT activity and shared-table write topology without changing the default search path. Bounded CSA runs may reconnect after post-game transport closure while preserving completed-game progress. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.72."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "Lazy SMP counters are opt-in diagnostics with relaxed atomic overhead and must not be used as the NPS timing baseline.",
+    "The post-game CSA reconnect path improves bounded-run continuity but does not prove playing-strength improvement.",
+    "The optional v0.3.38 checkpoint and its material-baseline recommendation remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
