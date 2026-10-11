@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Dependencies: update the training-only `shogiesa-core` contract to 0.11.4
+  and verify label manifests, input positions, and output observations through
+  its typed verifier before Quietset or training consumes them. Complete
+  provenance is required unless an explicit compatibility mode is selected;
+  the default USI engine remains independent of shogiesa.
 - NNUE evidence: record the pinned v0.3.68 material-gate PASS results for the
   local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
   opening-corpus, candidate, and local raw-archive hashes. The weight remains
