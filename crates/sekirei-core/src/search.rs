@@ -203,6 +203,38 @@ pub struct SearchIteration {
     pub root_mate_blunder_nodes: Option<u64>,
 }
 
+/// One ranked root candidate from a fully completed MultiPV iteration.
+#[derive(Clone, Debug)]
+pub struct MultiPvCandidate {
+    /// One-based rank within this iteration.
+    pub rank: u32,
+    /// Legal root move represented by this candidate.
+    pub root_move: Move,
+    /// Root score from the side-to-move perspective.
+    pub score: i32,
+    /// Proof status returned by the candidate's root search.
+    pub bound: SearchBound,
+    /// Legal PV prefix captured before another candidate can replace TT data.
+    pub pv: Vec<Move>,
+}
+
+/// Ranked candidates from one fully completed iterative-deepening pass.
+#[derive(Clone, Debug)]
+pub struct MultiPvIteration {
+    /// Completed root depth shared by every candidate.
+    pub depth: u32,
+    /// Cumulative nodes consumed by the whole request through this pass.
+    pub nodes: u64,
+    /// Unique candidates in rank order.
+    pub candidates: Vec<MultiPvCandidate>,
+}
+
+#[derive(Default)]
+struct SearchTraces<'a> {
+    iterations: Option<&'a mut Vec<SearchIteration>>,
+    multi_pv: Option<&'a mut Vec<MultiPvIteration>>,
+}
+
 /// Result for one explicitly requested root move in a diagnostic comparison.
 ///
 /// This is separate from [`SearchInfo`]: normal search remains a
@@ -1117,7 +1149,7 @@ impl Searcher {
     /// Call [`Self::reset_abort_flag`] before reusing a searcher after an abort.
     pub fn search(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
         let history = PositionHistory::initial(board.hash());
-        self.search_impl(board, config, None, true, &history, None)
+        self.search_impl(board, config, None, true, &history, SearchTraces::default())
     }
 
     /// Search a position together with its already-played game history.
@@ -1135,7 +1167,7 @@ impl Searcher {
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
         );
-        self.search_impl(board, config, None, true, history, None)
+        self.search_impl(board, config, None, true, history, SearchTraces::default())
     }
 
     /// Run a normal history-aware search and retain each completed iteration.
@@ -1154,7 +1186,44 @@ impl Searcher {
             Some(board.hash())
         );
         let mut trace = Vec::new();
-        let info = self.search_impl(board, config, None, true, history, Some(&mut trace));
+        let info = self.search_impl(
+            board,
+            config,
+            None,
+            true,
+            history,
+            SearchTraces {
+                iterations: Some(&mut trace),
+                multi_pv: None,
+            },
+        );
+        (info, trace)
+    }
+
+    /// Run bounded MultiPV search and retain only fully completed candidate
+    /// sets. All candidates share one budget and one completed root depth.
+    pub fn search_multi_pv_with_history_trace(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SearchInfo, Vec<MultiPvIteration>) {
+        debug_assert_eq!(
+            history.entries().last().map(|entry| entry.hash),
+            Some(board.hash())
+        );
+        let mut trace = Vec::new();
+        let info = self.search_impl(
+            board,
+            config,
+            None,
+            true,
+            history,
+            SearchTraces {
+                iterations: None,
+                multi_pv: Some(&mut trace),
+            },
+        );
         (info, trace)
     }
 
@@ -1171,7 +1240,7 @@ impl Searcher {
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
         );
-        self.search_impl(board, config, None, false, history, None)
+        self.search_impl(board, config, None, false, history, SearchTraces::default())
     }
 
     /// Diagnostic counterpart to [`Self::search_with_history_trace`] with the
@@ -1187,7 +1256,17 @@ impl Searcher {
             Some(board.hash())
         );
         let mut trace = Vec::new();
-        let info = self.search_impl(board, config, None, false, history, Some(&mut trace));
+        let info = self.search_impl(
+            board,
+            config,
+            None,
+            false,
+            history,
+            SearchTraces {
+                iterations: Some(&mut trace),
+                multi_pv: None,
+            },
+        );
         (info, trace)
     }
 
@@ -1200,7 +1279,14 @@ impl Searcher {
     /// drops; it must not be used to choose a production USI move.
     pub fn search_for_teacher(&self, board: &mut Board, config: SearchConfig) -> SearchInfo {
         let history = PositionHistory::initial(board.hash());
-        self.search_impl(board, config, None, false, &history, None)
+        self.search_impl(
+            board,
+            config,
+            None,
+            false,
+            &history,
+            SearchTraces::default(),
+        )
     }
 
     /// Search while fixing the root move to `root_move`.
@@ -1248,7 +1334,14 @@ impl Searcher {
                 pv: Vec::new(),
             };
         }
-        self.search_impl(board, config, Some(root_move), true, history, None)
+        self.search_impl(
+            board,
+            config,
+            Some(root_move),
+            true,
+            history,
+            SearchTraces::default(),
+        )
     }
 
     /// Search an explicit set of legal root candidates independently.
@@ -1305,7 +1398,7 @@ impl Searcher {
         root_move: Option<Move>,
         root_mate_safety: bool,
         history: &PositionHistory,
-        mut iteration_trace: Option<&mut Vec<SearchIteration>>,
+        mut traces: SearchTraces<'_>,
     ) -> SearchInfo {
         if p::HIST_KEEP() == 0 {
             self.history.clear();
@@ -1333,6 +1426,7 @@ impl Searcher {
         let mut done_depth = 0;
         let mut prev_best: Option<Move> = None;
         let mut bound = SearchBound::Unknown;
+        let mut best_pv = Vec::new();
         let mut root_mate_safety_cache = RootMateSafetyCache::default();
         let history = &SearchHistory::root(history);
         // TM_MODE 1: completed iterations with an unchanged best move, and
@@ -1345,39 +1439,87 @@ impl Searcher {
             if depth > config.max_depth {
                 break;
             }
-            let (m, score, root_bound) = root_search(
-                &state,
-                board,
-                depth,
-                best_score,
-                &[],
-                root_move,
-                root_mate_safety,
-                history,
-                Some(&mut root_mate_safety_cache),
-            );
+            let requested_lines = if root_move.is_some() || traces.multi_pv.is_none() {
+                1
+            } else {
+                config.multi_pv.max(1)
+            };
+            let mut excluded = Vec::new();
+            let mut candidates = Vec::new();
+            let mut primary = None;
+            for rank in 1..=requested_lines {
+                let candidate = root_search(
+                    &state,
+                    board,
+                    depth,
+                    best_score,
+                    &excluded,
+                    root_move,
+                    root_mate_safety,
+                    history,
+                    Some(&mut root_mate_safety_cache),
+                );
+                if rank == 1 {
+                    primary = Some(candidate);
+                }
+                if state.budget.should_abort() {
+                    break;
+                }
+                let Some(root_move) = candidate.0 else {
+                    break;
+                };
+                let pv = extract_pv(&self.tt, board, Some(root_move), depth);
+                candidates.push(MultiPvCandidate {
+                    rank,
+                    root_move,
+                    score: candidate.1,
+                    bound: candidate.2,
+                    pv,
+                });
+                excluded.push(root_move);
+            }
 
             if state.budget.should_abort() {
                 // The interrupted iteration only reports a move whose search
                 // at this depth completed inside the window (the previous
                 // best failed low or was beaten), so it is the better choice.
-                if depth > 1 && m.is_some() {
-                    best_move = m;
+                let interrupted_move = primary.and_then(|candidate| candidate.0);
+                if depth > 1 && interrupted_move.is_some() {
+                    best_move = interrupted_move;
                 }
                 break;
+            }
+
+            let Some((m, score, root_bound)) = primary else {
+                break;
+            };
+            if let Some(trace) = traces.multi_pv.as_deref_mut()
+                && !candidates.is_empty()
+            {
+                trace.push(MultiPvIteration {
+                    depth,
+                    nodes: state.budget.nodes(),
+                    candidates: candidates.clone(),
+                });
             }
 
             best_move = m.or(best_move);
             best_score = score;
             done_depth = depth;
             bound = root_bound;
+            if let Some(candidate) = candidates.first() {
+                best_pv.clone_from(&candidate.pv);
+            }
 
-            if let Some(trace) = iteration_trace.as_deref_mut() {
+            if let Some(trace) = traces.iterations.as_deref_mut() {
                 let diagnostics = state
                     .diagnostics
                     .as_ref()
                     .map(|observer| observer.snapshot());
-                let pv = extract_pv(&self.tt, board, best_move, depth);
+                let pv = candidates
+                    .first()
+                    .map(|candidate| candidate.pv.clone())
+                    .unwrap_or_else(|| extract_pv(&self.tt, board, best_move, depth));
                 trace.push(SearchIteration {
                     depth,
                     best_move,
@@ -1436,7 +1578,11 @@ impl Searcher {
                 best_score = evaluate_for_search(&state, board);
             }
         }
-        let pv = extract_pv(&self.tt, board, best_move, done_depth);
+        let pv = if best_pv.is_empty() {
+            extract_pv(&self.tt, board, best_move, done_depth)
+        } else {
+            best_pv
+        };
 
         let aborted = state.budget.should_abort();
         let completed_bound = bound;
@@ -5014,6 +5160,86 @@ mod see_tests {
                 "depth two must reuse complete depth-one root mate safety facts"
             );
         }
+    }
+
+    #[test]
+    fn multi_pv_trace_ranks_unique_candidates_under_one_budget() {
+        let mut board = Board::startpos();
+        let original_hash = board.hash();
+        let history = PositionHistory::initial(original_hash);
+        let searcher = Searcher::new(Tt::new(1));
+        let (info, trace) = searcher.search_multi_pv_with_history_trace(
+            &mut board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(100_000),
+                multi_pv: 3,
+                ..SearchConfig::default()
+            },
+            &history,
+        );
+        let completed = trace.last().expect("at least depth one must complete");
+        assert_eq!(completed.depth, info.depth);
+        assert_eq!(completed.candidates.len(), 3);
+        assert_eq!(completed.candidates[0].root_move, info.best_move.unwrap());
+        assert_eq!(completed.candidates[0].score, info.score);
+        assert_eq!(completed.candidates[0].pv, info.pv);
+        assert_eq!(completed.nodes, info.nodes);
+        for (index, candidate) in completed.candidates.iter().enumerate() {
+            assert_eq!(candidate.rank, index as u32 + 1);
+            assert_eq!(candidate.pv.first(), Some(&candidate.root_move));
+            assert!(candidate.bound != SearchBound::Unknown);
+            assert!(
+                !completed.candidates[..index]
+                    .iter()
+                    .any(|earlier| earlier.root_move == candidate.root_move)
+            );
+        }
+        assert_eq!(board.hash(), original_hash);
+
+        let mut limited = Board::startpos();
+        let limited_history = PositionHistory::initial(limited.hash());
+        let (cutoff, no_trace) = Searcher::new(Tt::new(1)).search_multi_pv_with_history_trace(
+            &mut limited,
+            SearchConfig {
+                max_depth: 8,
+                node_limit: Some(1),
+                multi_pv: 3,
+                ..SearchConfig::default()
+            },
+            &limited_history,
+        );
+        assert!(cutoff.aborted);
+        assert_eq!(cutoff.depth, 0);
+        assert!(no_trace.is_empty());
+
+        // `multi_pv` remains inert for the existing single-result API; only
+        // the explicit trace entry point opts into the additional root work.
+        let mut single_board = Board::startpos();
+        let single = Searcher::new(Tt::new(1)).search(
+            &mut single_board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(100_000),
+                multi_pv: 1,
+                ..SearchConfig::default()
+            },
+        );
+        let mut unchanged_board = Board::startpos();
+        let unchanged = Searcher::new(Tt::new(1)).search(
+            &mut unchanged_board,
+            SearchConfig {
+                max_depth: 2,
+                node_limit: Some(100_000),
+                multi_pv: 3,
+                ..SearchConfig::default()
+            },
+        );
+        assert_eq!(unchanged.best_move, single.best_move);
+        assert_eq!(unchanged.score, single.score);
+        assert_eq!(unchanged.depth, single.depth);
+        assert_eq!(unchanged.nodes, single.nodes);
+        assert_eq!(unchanged.pv, single.pv);
     }
 
     #[test]

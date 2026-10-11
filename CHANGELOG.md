@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- WebAssembly: add bounded sequential MultiPV analysis for up to four unique
+  root moves under one shared node budget. Ranked candidates expose typed
+  score, bound, depth, node, cutoff, and legal PV provenance only from fully
+  completed iterations; interrupted and terminal requests never fabricate
+  lines.
 - WebAssembly: accept one caller-supplied SEKIRW or HalfKP evaluator byte
   image after fail-closed validation, expose its exact SHA-256 provenance in
   load and search results, and document Web Worker recreation for selecting a

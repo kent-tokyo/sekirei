@@ -55,6 +55,9 @@ jobs:
           grep -Fq 'readonly uniqueSolution: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export function analyzePosition' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export function analyzePositionMultiPv' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export class MultiPvCandidateAnalysis' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export class MultiPvPositionAnalysis' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export function loadEvaluator' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly kind: 'cp' | 'mate' | 'terminal' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
