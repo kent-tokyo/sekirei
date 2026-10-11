@@ -10,6 +10,11 @@ preserves older per-change notes.
   exit code and terminal reason to runtime status, run manifest, and the
   one-shot completion record. A live game is classified as incomplete and is
   never added to the completed-game count.
+- Dependencies: update the training-only `shogiesa-core` contract to 0.11.4
+  and verify label manifests, input positions, and output observations through
+  its typed verifier before Quietset or training consumes them. Complete
+  provenance is required unless an explicit compatibility mode is selected;
+  the default USI engine remains independent of shogiesa.
 - NNUE evidence: record the pinned v0.3.68 material-gate PASS results for the
   local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
   opening-corpus, candidate, and local raw-archive hashes. The weight remains

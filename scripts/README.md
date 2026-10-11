@@ -8,13 +8,16 @@ manifest with the result.
 The workspace pins `lineprior 0.12.4`. The default USI runtime excludes it;
 only `sekirei-train` and an explicitly enabled `sekirei/opening-book` feature
 use it. The data-pipeline wrappers have been checked with the external
-`shogiesa 0.11.3` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.3`
+`shogiesa 0.11.4` CLI. `sekirei-train` alone depends on `shogiesa-core 0.11.4`
 for the typed JSONL contract; the default USI engine, search core, CSA client,
 and match runner do not.
 
 The shogiesa/Quietset wrappers are diagnostic only; Sekirei's internal
-`--label-*` search remains the teacher. Validation covers schema, depth,
-provenance, cache accounting, and hashes.
+`--label-*` search remains the teacher. Before Quietset runs, the
+`verify-shogiesa-label-run` helper applies shogiesa's typed manifest and
+artifact verifier to the exact positions and observations streams. Complete
+digest provenance is the default; compatibility mode must be explicit.
+Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 
 ## Release and public boundary
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Redo quietset B/C experiment with full game coverage at depths 2,4.
 #
-# Verified against: shogiesa 0.11.3 (github.com/kent-tokyo/shogiesa,
+# Verified against: shogiesa 0.11.4 (github.com/kent-tokyo/shogiesa,
 # schema_version 11), quietset-cli 0.16.0. Both tools now support --version
 # (check that first if this script breaks); if this script breaks on
 # `label`/`score` output shape, check for a schema change against those
@@ -57,6 +57,7 @@ JOBS=${JOBS:-$(( $(sysctl -n hw.ncpu 2>/dev/null || echo 4) - 2 ))}
 [ "$JOBS" -lt 1 ] && JOBS=1
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RUN_DIR="data/runs/bc_redo_$TIMESTAMP"
+TYPED_VERIFIER=${TYPED_VERIFIER:-./target/release/verify-shogiesa-label-run}
 
 # Prune old completed runs' stage1-3 intermediates (multi-GB raw extracts)
 # before adding a new one -- see scripts/cleanup_runs.sh. Safe by default:
@@ -142,7 +143,9 @@ fi
 DIAGNOSTIC_CONTRACT="$RUN_DIR/stage2/diagnostic_contract.json"
 DIAGNOSTIC_MANIFEST_SHA=$(python3 "$(dirname "$0")/validate_shogiesa_diagnostic_contract.py" \
   --shogiesa "$SHOGIESA" \
+  --typed-verifier "$TYPED_VERIFIER" \
   --manifest "$RUN_DIR/stage2/label_manifest.json" \
+  --positions "$RUN_DIR/stage1/positions.jsonl" \
   --observations "$RUN_DIR/stage2/observations.jsonl" \
   --depths 2,4 \
   --label-depth "$LABEL_DEPTH" \

@@ -100,8 +100,8 @@ python3 scripts/run_local_selfplay.py --games 1000 \
 認証情報は実行時だけ渡してください。
 
 NNUE学習の引数は`cargo run --release -p sekirei-train -- --help`で確認できます。
-学習側は`lineprior 0.12.4`と`shogiesa-core 0.11.3`を固定し、外部ラッパーは
-`shogiesa 0.11.3`で確認しています。データと重みはGit外に保存します。
+学習側は`lineprior 0.12.4`と`shogiesa-core 0.11.4`を固定し、外部ラッパーは
+`shogiesa 0.11.4`で確認しています。データと重みはGit外に保存します。
 レシピ、ハッシュ、再開条件、対局単位の分割条件は
 [スクリプト索引](scripts/README.md)にまとめています。
 

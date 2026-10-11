@@ -10,7 +10,6 @@ enough to hash and attach to the trainer metadata.
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import re
 import subprocess
@@ -18,22 +17,13 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SUPPORTED_SHOGIESA_VERSIONS = {"0.11.3"}
-SUPPORTED_MANIFEST_SCHEMA_VERSION = 1
+SUPPORTED_SHOGIESA_VERSIONS = {"0.11.4"}
 SUPPORTED_SCHEMA_VERSION = 11
 TEACHER_SOURCE = "sekirei_internal_search"
 
 
 class ContractError(ValueError):
     pass
-
-
-def sha256_file(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for chunk in iter(lambda: source.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def parse_depths(value: str) -> list[int]:
@@ -71,49 +61,76 @@ def read_version(executable: str) -> str:
     return parse_version_output(completed.stdout or completed.stderr)
 
 
-def load_object(path: Path, description: str) -> dict[str, Any]:
+def run_typed_verifier(
+    executable: str,
+    manifest_path: Path,
+    positions_path: Path,
+    observations_path: Path,
+    allow_incomplete_provenance: bool,
+) -> dict[str, Any]:
+    command = [
+        executable,
+        "--manifest",
+        str(manifest_path),
+        "--positions",
+        str(positions_path),
+        "--observations",
+        str(observations_path),
+    ]
+    if allow_incomplete_provenance:
+        command.append("--allow-incomplete-provenance")
+    completed = subprocess.run(command, check=False, capture_output=True, text=True)
+    if completed.returncode != 0:
+        detail = completed.stderr.strip() or completed.stdout.strip()
+        raise ContractError(
+            f"typed shogiesa artifact verification failed with exit code "
+            f"{completed.returncode}: {detail}"
+        )
     try:
-        value = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
-        raise ContractError(f"cannot read {description} {path}: {error}") from error
+        value = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise ContractError(f"typed verifier returned invalid JSON: {error}") from error
     if not isinstance(value, dict):
-        raise ContractError(f"{description} must be a JSON object")
+        raise ContractError("typed verifier report must be a JSON object")
     return value
 
 
-def validate_manifest(
-    manifest: dict[str, Any], version: str, expected_depths: list[int]
+def validate_typed_report(
+    report: dict[str, Any], version: str, expected_depths: list[int]
 ) -> dict[str, int | float | None]:
-    if manifest.get("shogiesa_version") != version:
-        raise ContractError("manifest shogiesa_version does not match the executable")
-    if manifest.get("manifest_schema_version") != SUPPORTED_MANIFEST_SCHEMA_VERSION:
+    for field in ("manifest_sha256", "dataset_sha256", "output_sha256"):
+        value = report.get(field)
+        if not isinstance(value, str) or len(value) != 64:
+            raise ContractError(f"typed verifier report has invalid {field}")
+    if report.get("provenance") not in {"complete", "incomplete"}:
+        raise ContractError("typed verifier report has invalid provenance")
+    if not isinstance(report.get("missing_digests"), list):
+        raise ContractError("typed verifier report has invalid missing_digests")
+    if not isinstance(report.get("output"), dict):
+        raise ContractError("typed verifier report has no output summary")
+    if report.get("shogiesa_version") != version:
+        raise ContractError("verified manifest shogiesa_version does not match the executable")
+    if report.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
         raise ContractError(
-            "unsupported manifest_schema_version "
-            f"{manifest.get('manifest_schema_version')!r}"
+            f"unsupported manifest schema_version {report.get('schema_version')!r}"
         )
-    if manifest.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
-        raise ContractError(
-            f"unsupported manifest schema_version {manifest.get('schema_version')!r}"
-        )
-    if manifest.get("command") != "label":
-        raise ContractError("shogiesa manifest command must be 'label'")
-    if manifest.get("depths") != expected_depths:
+    if report.get("depths") != expected_depths:
         raise ContractError("manifest depths do not match the requested diagnostic depths")
-    if manifest.get("requested_depth_underreach") != 0:
+    if report.get("requested_depth_underreach") != 0:
         raise ContractError("manifest records under-reached non-mate depth requests")
-    if manifest.get("requested_depth_total", 0) <= 0:
+    if report.get("requested_depth_total", 0) <= 0:
         raise ContractError("manifest has no requested-depth provenance")
-    options = manifest.get("engine_options")
+    options = report.get("engine_options")
     if not isinstance(options, list) or "UseBook=false" not in options:
         raise ContractError("diagnostic label run must record engine option UseBook=false")
     return {
-        "records_read": manifest.get("records_read"),
-        "records_kept": manifest.get("records_kept"),
-        "cache_hits": manifest.get("cache_hits"),
-        "cache_misses": manifest.get("cache_misses"),
-        "cache_hit_rate": manifest.get("cache_hit_rate"),
-        "requested_depth_total": manifest.get("requested_depth_total"),
-        "requested_depth_underreach": manifest.get("requested_depth_underreach"),
+        "records_read": report.get("records_read"),
+        "records_kept": report.get("records_kept"),
+        "cache_hits": report.get("cache_hits"),
+        "cache_misses": report.get("cache_misses"),
+        "cache_hit_rate": report.get("cache_hit_rate"),
+        "requested_depth_total": report.get("requested_depth_total"),
+        "requested_depth_underreach": report.get("requested_depth_underreach"),
     }
 
 
@@ -139,10 +156,6 @@ def validate_observations(path: Path, expected_depths: list[int]) -> dict[str, i
                 ) from error
             if not isinstance(record, dict):
                 raise ContractError(f"observations line {line_number}: expected object")
-            if record.get("schema_version") != SUPPORTED_SCHEMA_VERSION:
-                raise ContractError(
-                    f"observations line {line_number}: unsupported schema_version"
-                )
             row_observations = record.get("observations")
             if not isinstance(row_observations, list) or not row_observations:
                 raise ContractError(
@@ -216,23 +229,32 @@ def validate_observations(path: Path, expected_depths: list[int]) -> dict[str, i
 def build_contract(
     *,
     version: str,
+    verifier_executable: str,
     manifest_path: Path,
+    positions_path: Path,
     observations_path: Path,
     expected_depths: list[int],
     label_depth: int,
     depth_mismatch_reason: str | None,
     label_elapsed_seconds: int | None,
+    allow_incomplete_provenance: bool = False,
 ) -> dict[str, Any]:
     if label_depth != max(expected_depths) and not depth_mismatch_reason:
         raise ContractError(
             "internal label depth differs from the deepest diagnostic depth; "
             "supply --depth-mismatch-reason to record an intentional mismatch"
         )
-    manifest = load_object(manifest_path, "shogiesa manifest")
-    manifest_stats = validate_manifest(manifest, version, expected_depths)
-    observation_stats = validate_observations(observations_path, expected_depths)
-    if manifest_stats["requested_depth_total"] != observation_stats["requested_depth_total"]:
-        raise ContractError("manifest and observations disagree on requested-depth coverage")
+    verification = run_typed_verifier(
+        verifier_executable,
+        manifest_path,
+        positions_path,
+        observations_path,
+        allow_incomplete_provenance,
+    )
+    manifest_stats = validate_typed_report(verification, version, expected_depths)
+    observation_policy_stats = validate_observations(observations_path, expected_depths)
+    observation_stats = dict(verification["output"])
+    observation_stats["mate_observations"] = observation_policy_stats["mate_observations"]
     return {
         "contract_schema_version": 1,
         "mode": "diagnostic-weighting",
@@ -246,9 +268,13 @@ def build_contract(
         "sekirei_internal_label_depth": label_depth,
         "depth_mismatch_reason": depth_mismatch_reason,
         "shogiesa_manifest": str(manifest_path),
-        "shogiesa_manifest_sha256": sha256_file(manifest_path),
+        "shogiesa_manifest_sha256": verification["manifest_sha256"],
+        "positions": str(positions_path),
+        "positions_sha256": verification["dataset_sha256"],
         "observations": str(observations_path),
-        "observations_sha256": sha256_file(observations_path),
+        "observations_sha256": verification["output_sha256"],
+        "artifact_provenance": verification["provenance"],
+        "missing_artifact_digests": verification["missing_digests"],
         "shogiesa_label_elapsed_seconds": label_elapsed_seconds,
         "shogiesa_manifest_stats": manifest_stats,
         "observation_stats": observation_stats,
@@ -258,14 +284,17 @@ def build_contract(
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--shogiesa", required=True)
+    parser.add_argument("--typed-verifier")
     parser.add_argument("--version-only", action="store_true")
     parser.add_argument("--manifest", type=Path)
+    parser.add_argument("--positions", type=Path)
     parser.add_argument("--observations", type=Path)
     parser.add_argument("--depths")
     parser.add_argument("--label-depth", type=int)
     parser.add_argument("--depth-mismatch-reason")
     parser.add_argument("--label-elapsed-seconds", type=int)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--allow-incomplete-provenance", action="store_true")
     args = parser.parse_args()
     try:
         version = read_version(args.shogiesa)
@@ -274,7 +303,9 @@ def main() -> int:
             return 0
         required = {
             "--manifest": args.manifest,
+            "--positions": args.positions,
             "--observations": args.observations,
+            "--typed-verifier": args.typed_verifier,
             "--depths": args.depths,
             "--label-depth": args.label_depth,
             "--output": args.output,
@@ -284,12 +315,15 @@ def main() -> int:
             raise ContractError(f"missing required arguments: {', '.join(missing)}")
         contract = build_contract(
             version=version,
+            verifier_executable=args.typed_verifier,
             manifest_path=args.manifest,
+            positions_path=args.positions,
             observations_path=args.observations,
             expected_depths=parse_depths(args.depths),
             label_depth=args.label_depth,
             depth_mismatch_reason=args.depth_mismatch_reason,
             label_elapsed_seconds=args.label_elapsed_seconds,
+            allow_incomplete_provenance=args.allow_incomplete_provenance,
         )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(
