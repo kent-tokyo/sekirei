@@ -82,6 +82,7 @@ pub mod params;
 mod path;
 mod pruning;
 mod root_safety;
+mod static_pruning;
 mod tt_probe;
 mod v2;
 use child_search::pvs_child;
@@ -101,13 +102,14 @@ use move_order::{
 use node::NodeKey;
 use params as p;
 use path::{
-    ContMoves, current_move_at, cut_at, doubles_at, record_static_eval, restore_stack_path,
-    set_current_move, set_cut, set_doubles, stack_path,
+    ContMoves, current_move_at, cut_at, doubles_at, restore_stack_path, set_current_move, set_cut,
+    set_doubles, stack_path,
 };
 use pruning::{nmp_eval_allows, null_move_pruning, probcut};
 use root_safety::{RootMateSafetyCache, RootSafety, root_mate_safety_filter};
 #[cfg(test)]
 use root_safety::{may_give_check, safe_root_moves};
+use static_pruning::{prepare_node_evaluation, reverse_futility_score};
 use tt_probe::TtProbe;
 
 // ============================================================
@@ -1995,9 +1997,6 @@ fn alpha_beta(
     // Countermove: best quiet response to the opponent's previous move
     let countermove = prev_mv.and_then(|pm| state.countermoves.get(stm.flip(), pm));
 
-    // Static eval — computed once per node for RFP, razoring and futility.
-    // Skipped when in check (position is not "quiet") or deeper than
-    // STATIC_EVAL_MAX_DEPTH (7 by default; unused there).
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     // A mate in one for the side to move ends the node. Checking it here also
     // makes null-move and reduced searches see the opponent's mating threats.
@@ -2010,23 +2009,18 @@ fn alpha_beta(
         }
         return MATE_SCORE - (ply as i32 + 1);
     }
-    let raw_eval: Option<i32> = if !in_check && depth <= p::STATIC_EVAL_MAX_DEPTH() as u32 {
-        Some(evaluate_for_search(state, board))
-    } else {
-        None
-    };
-    // The static evaluation corrected by what earlier searches found in
-    // positions with the same pawns, hands or king squares.
-    let static_eval = raw_eval.map(|se| {
-        let keys = CorrKeys::of(board, stm);
-        let corrected =
-            (se + state.history.correction(keys)).clamp(-(MATE_SCORE - 2000), MATE_SCORE - 2000);
-        node.set_correction(keys, corrected);
-        corrected
-    });
-    // Improving: the static eval beats the one two plies earlier (same side
-    // to move). Unknown evals (in check, or not computed) count as improving.
-    let improving = record_static_eval(ply, static_eval);
+    let evaluation = prepare_node_evaluation(
+        state,
+        board,
+        stm,
+        depth,
+        ply,
+        in_check,
+        tt.bound_score,
+        &mut node,
+    );
+    let static_eval = evaluation.value;
+    let improving = evaluation.improving;
     if let Some(c) = state.counters()
         && skip_move.is_none()
     {
@@ -2037,61 +2031,24 @@ fn alpha_beta(
             in_check,
         );
     }
-    // EVAL_TT: a TT bound beyond the static eval refines it for pruning.
-    let static_eval = if p::EVAL_TT() != 0 {
-        static_eval.map(|se| match tt.bound_score {
-            Some((bound, v))
-                if v.abs() < MATE_SCORE - 2000
-                    && match bound {
-                        Bound::Exact => true,
-                        Bound::Lower => v > se,
-                        Bound::Upper => v < se,
-                    } =>
-            {
-                v
-            }
-            _ => se,
-        })
-    } else {
-        static_eval
-    };
     let doubles = doubles_at(ply);
     set_doubles(ply + 1, doubles);
 
-    // Reverse Futility Pruning: if a rough lower bound already beats beta, return early.
-    // RFP_GUARD: only at non-PV nodes whose TT move (if any) is a capture,
-    // returning a score between beta and the static eval.
-    let rfp_guard = p::RFP_GUARD() != 0;
-    if let Some(se) = static_eval
-        && depth <= p::RFP_MAX_DEPTH() as u32
-        && beta.abs() < MATE_SCORE - 1000
-        && !(tt_pv && p::TT_PV_MODE() & 2 != 0)
-        && (!rfp_guard
-            || (beta - alpha == 1
-                && tt_mv.is_none_or(|t| t.from.is_some() && board.piece_at(t.to).is_some())))
-        && se
-            - (p::RFP_MARGIN()
-                - if improving {
-                    p::RFP_IMPROVING_BONUS()
-                } else {
-                    0
-                })
-                * depth as i32
-            >= beta
-    {
+    if let Some(score) = reverse_futility_score(
+        board,
+        static_eval,
+        improving,
+        depth,
+        alpha,
+        beta,
+        tt_pv,
+        tt_mv,
+    ) {
         if let Some(d) = state.counters() {
             d.exit(3);
             d.at_depth(entry_depth, 3);
         }
-        return if rfp_guard {
-            (2 * beta + se) / 3
-        } else {
-            match p::RFP_DAMP() {
-                0 => se,
-                1 => (se + beta) / 2,
-                _ => (se + 2 * beta) / 3,
-            }
-        };
+        return score;
     }
 
     // Razoring: far below alpha at shallow non-PV depth, trust quiescence.
