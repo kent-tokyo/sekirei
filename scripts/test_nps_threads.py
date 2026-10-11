@@ -9,7 +9,15 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from nps_threads import Usi, engine_options, parse_lazy_smp  # noqa: E402
+from nps_threads import (  # noqa: E402
+    Usi,
+    engine_options,
+    go_command,
+    parse_bestmove,
+    parse_lazy_smp,
+    parse_lazy_smp_tt,
+    summarize_lazy_tt,
+)
 
 
 class ThreadOptionsTest(unittest.TestCase):
@@ -21,6 +29,7 @@ class ThreadOptionsTest(unittest.TestCase):
             fv_scale=24,
             hash=64,
             option=[],
+            lazy_diagnostics=False,
         )
 
     def test_material_only_sekirei_omits_evalfile(self):
@@ -47,8 +56,10 @@ class ThreadOptionsTest(unittest.TestCase):
             [
                 "info string lazy_smp selected w2 node_share_permille 268 "
                 "move_agreement 3/4 stop_lag_ms 2 "
-                "w0:d20:n10:s1:t300:x1:aexternal,w1:d20:n11:s2:t301:x1:aexternal,"
-                "w2*:d21:n12:s3:t302:x0:acompleted,w3:d20:n12:s3:t301:x1:aexternal"
+                "w0:d20:n10:s1:t300:x1:aexternal:p30:h20:r10,"
+                "w1:d20:n11:s2:t301:x1:aexternal:p31:h21:r11,"
+                "w2*:d21:n12:s3:t302:x0:acompleted:p32:h22:r12,"
+                "w3:d20:n12:s3:t301:x1:aexternal:p33:h23:r13"
             ]
         )
 
@@ -60,11 +71,146 @@ class ThreadOptionsTest(unittest.TestCase):
                 "move_agreement": 3,
                 "workers": 4,
                 "stop_lag_ms": 2,
+                "worker_stats": [
+                    {
+                        "worker": 0,
+                        "selected": False,
+                        "depth": 20,
+                        "nodes": 10,
+                        "score": 1,
+                        "elapsed_ms": 300,
+                        "aborted": True,
+                        "abort_reason": "external",
+                        "tt_probes": 30,
+                        "tt_hits": 20,
+                        "tt_stores": 10,
+                    },
+                    {
+                        "worker": 1,
+                        "selected": False,
+                        "depth": 20,
+                        "nodes": 11,
+                        "score": 2,
+                        "elapsed_ms": 301,
+                        "aborted": True,
+                        "abort_reason": "external",
+                        "tt_probes": 31,
+                        "tt_hits": 21,
+                        "tt_stores": 11,
+                    },
+                    {
+                        "worker": 2,
+                        "selected": True,
+                        "depth": 21,
+                        "nodes": 12,
+                        "score": 3,
+                        "elapsed_ms": 302,
+                        "aborted": False,
+                        "abort_reason": "completed",
+                        "tt_probes": 32,
+                        "tt_hits": 22,
+                        "tt_stores": 12,
+                    },
+                    {
+                        "worker": 3,
+                        "selected": False,
+                        "depth": 20,
+                        "nodes": 12,
+                        "score": 3,
+                        "elapsed_ms": 301,
+                        "aborted": True,
+                        "abort_reason": "external",
+                        "tt_probes": 33,
+                        "tt_hits": 23,
+                        "tt_stores": 13,
+                    },
+                ],
             },
         )
 
     def test_malformed_lazy_smp_diagnostics_are_ignored(self):
         self.assertIsNone(parse_lazy_smp(["info string lazy_smp selected nope"]))
+
+    def test_lazy_smp_tt_diagnostics_are_parsed(self):
+        diagnostics = parse_lazy_smp_tt(
+            [
+                "info string lazy_smp_tt probes 100 hits 61 attempted 40 "
+                "committed 35 same_hash 20 equal_depth 4 shallower_rejected 3 "
+                "collision_overwrites 11"
+            ]
+        )
+
+        self.assertEqual(
+            diagnostics,
+            {
+                "probes": 100,
+                "hits": 61,
+                "attempted": 40,
+                "committed": 35,
+                "same_hash": 20,
+                "equal_depth": 4,
+                "shallower_rejected": 3,
+                "collision_overwrites": 11,
+            },
+        )
+
+    def test_bestmove_parser_uses_terminal_response(self):
+        self.assertEqual(
+            parse_bestmove(["info depth 4 pv 7g7f", "bestmove 7g7f ponder 3c3d"]),
+            "7g7f",
+        )
+
+    def test_lazy_diagnostics_option_is_explicit(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.lazy_diagnostics = True
+
+        self.assertIn("LazyDiagnostics=true", engine_options(args, 4))
+
+    def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
+        self.assertEqual(
+            go_command(argparse.Namespace(depth=None, movetime=300)), "go movetime 300"
+        )
+        self.assertEqual(
+            go_command(argparse.Namespace(depth=12, movetime=300)), "go depth 12"
+        )
+
+    def test_tt_summary_pools_counts_before_computing_rates(self):
+        summary = summarize_lazy_tt(
+            [
+                {
+                    "lazy_smp_tt": {
+                        "probes": 10,
+                        "hits": 4,
+                        "attempted": 5,
+                        "committed": 4,
+                        "same_hash": 2,
+                        "equal_depth": 0,
+                        "shallower_rejected": 1,
+                        "collision_overwrites": 1,
+                    }
+                },
+                {
+                    "lazy_smp_tt": {
+                        "probes": 30,
+                        "hits": 16,
+                        "attempted": 15,
+                        "committed": 14,
+                        "same_hash": 8,
+                        "equal_depth": 0,
+                        "shallower_rejected": 1,
+                        "collision_overwrites": 0,
+                    }
+                },
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["probes"], 40)
+        self.assertEqual(summary["hits"], 20)
+        self.assertEqual(summary["hit_rate"], 0.5)
+        self.assertEqual(summary["same_hash_rate"], 0.5)
+        self.assertEqual(summary["collision_rate"], 0.05)
 
 
 if __name__ == "__main__":

@@ -10,9 +10,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::board::Board;
-use crate::search::{SearchConfig, SearchInfo, Searcher};
+use crate::search::{
+    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
+};
 use crate::sfen::PositionHistory;
-use crate::tt::Tt;
+use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
 
 /// Result of an independent-worker Lazy SMP search.
 pub struct LazySmpInfo {
@@ -28,6 +30,9 @@ pub struct LazySmpInfo {
     pub workers: usize,
     /// Wall-clock duration of the whole worker group.
     pub elapsed: Duration,
+    /// Shared-TT write topology for this search when opt-in diagnostics are
+    /// enabled. Isolated-TT controls leave this as `None`.
+    pub tt_writes: Option<TtWriteSnapshot>,
 }
 
 /// Compact per-worker result for Lazy SMP diagnostics.
@@ -49,6 +54,13 @@ pub struct LazySmpWorkerInfo {
     pub aborted: bool,
     /// Stop source reported by the worker search.
     pub abort_reason: &'static str,
+    /// Transposition-table probes performed by this worker. Zero when
+    /// opt-in Lazy SMP diagnostics are disabled.
+    pub tt_probes: u64,
+    /// Transposition-table hits observed by this worker.
+    pub tt_hits: u64,
+    /// Transposition-table store attempts made by this worker.
+    pub tt_stores: u64,
 }
 
 /// Independent root-search workers sharing a lock-free transposition table.
@@ -65,6 +77,10 @@ pub struct LazySmpSearcher {
     /// history carries over from one search to the next, as in the
     /// single-worker searcher.
     persistent: Vec<Searcher>,
+    /// Per-worker counters used only by opt-in scaling diagnostics.
+    diagnostics: Vec<Arc<SearchDiagnostics>>,
+    /// Shared-TT write observer used only by opt-in scaling diagnostics.
+    tt_write_stats: Option<Arc<TtWriteStats>>,
 }
 
 /// Keep one searcher per worker across searches (history tables persist
@@ -147,6 +163,59 @@ impl LazySmpSearcher {
             external_abort,
             flags,
             persistent,
+            diagnostics: Vec::new(),
+            tt_write_stats: None,
+        }
+    }
+
+    /// Create a Lazy SMP searcher with counters for worker-local TT probes and
+    /// shared-TT write topology. This deliberately remains a separate
+    /// constructor so normal searches do not execute per-node atomics.
+    pub fn diagnostic(workers: usize, flags: u32, total_hash_mb: usize) -> Self {
+        let workers = workers.max(1);
+        let share_tt = flags & LAZY_ISOLATED_TT == 0;
+        let worker_hash_mb = if share_tt {
+            total_hash_mb
+        } else {
+            (total_hash_mb / workers).max(1)
+        };
+        let tt_write_stats = share_tt.then(|| Arc::new(TtWriteStats::default()));
+        let tt = Tt::new_with_stats(total_hash_mb, tt_write_stats.clone());
+        let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let diagnostics: Vec<_> = (0..workers)
+            .map(|_| Arc::new(SearchDiagnostics::counters_only()))
+            .collect();
+        let persistent = if flags & LAZY_PERSISTENT != 0 {
+            (0..workers)
+                .map(|index| {
+                    let worker_tt = if share_tt {
+                        tt.clone()
+                    } else {
+                        Tt::new(worker_hash_mb)
+                    };
+                    let mut searcher = Searcher::with_abort_flag_and_diagnostics(
+                        worker_tt,
+                        external_abort.clone(),
+                        diagnostics[index].clone(),
+                    );
+                    searcher.set_depth_skew(Self::skew(flags, index));
+                    searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
+                    searcher
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        Self {
+            tt,
+            workers,
+            share_tt,
+            hash_mb: worker_hash_mb,
+            external_abort,
+            flags,
+            persistent,
+            diagnostics,
+            tt_write_stats,
         }
     }
 
@@ -219,10 +288,13 @@ impl LazySmpSearcher {
             Some(board.hash())
         );
         let started = Instant::now();
-        let results: Vec<SearchInfo> = (0..self.workers)
+        let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
+        let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
             .into_par_iter()
             .map(|index| {
                 let mut worker_board = board.clone();
+                let diagnostics = self.diagnostics.get(index);
+                let before = diagnostics.map(|observer| observer.snapshot());
                 let info = if let Some(searcher) = self.persistent.get(index) {
                     searcher.search_with_history(&mut worker_board, config, history)
                 } else {
@@ -231,8 +303,15 @@ impl LazySmpSearcher {
                     } else {
                         Tt::new(self.hash_mb)
                     };
-                    let mut searcher =
-                        Searcher::with_abort_flag(worker_tt, self.external_abort.clone());
+                    let mut searcher = if let Some(observer) = diagnostics {
+                        Searcher::with_abort_flag_and_diagnostics(
+                            worker_tt,
+                            self.external_abort.clone(),
+                            observer.clone(),
+                        )
+                    } else {
+                        Searcher::with_abort_flag(worker_tt, self.external_abort.clone())
+                    };
                     searcher.set_depth_skew(Self::skew(self.flags, index));
                     searcher.set_ybw_split(self.flags & LAZY_NO_YBW == 0);
                     searcher.search_with_history(&mut worker_board, config, history)
@@ -242,14 +321,17 @@ impl LazySmpSearcher {
                     self.external_abort
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                info
+                let counters = diagnostics
+                    .zip(before)
+                    .map(|(observer, before)| diagnostics_delta(observer.snapshot(), before));
+                (info, counters)
             })
             .collect();
 
-        let total_nodes = results.iter().map(|info| info.nodes).sum();
+        let total_nodes = results.iter().map(|(info, _)| info.nodes).sum();
         let mut worker_results: Vec<LazySmpWorkerInfo> = results
             .iter()
-            .map(|info| LazySmpWorkerInfo {
+            .map(|(info, diagnostics)| LazySmpWorkerInfo {
                 selected: false,
                 best_move: info.best_move,
                 score: info.score,
@@ -258,9 +340,15 @@ impl LazySmpSearcher {
                 elapsed: info.elapsed,
                 aborted: info.aborted,
                 abort_reason: info.abort_reason,
+                tt_probes: diagnostics.map_or(0, |snapshot| snapshot.tt_probes),
+                tt_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_hits),
+                tt_stores: diagnostics.map_or(0, |snapshot| snapshot.tt_stores),
             })
             .collect();
-        let result = select_worker_result(results, self.flags);
+        let result = select_worker_result(
+            results.into_iter().map(|(info, _)| info).collect(),
+            self.flags,
+        );
         let selected_worker = worker_results
             .iter()
             .position(|worker| {
@@ -277,7 +365,41 @@ impl LazySmpSearcher {
             worker_results,
             workers: self.workers,
             elapsed: started.elapsed(),
+            tt_writes: self
+                .tt_write_stats
+                .as_ref()
+                .zip(tt_before)
+                .map(|(stats, before)| tt_write_delta(stats.snapshot(), before)),
         }
+    }
+}
+
+fn diagnostics_delta(
+    after: SearchDiagnosticsSnapshot,
+    before: SearchDiagnosticsSnapshot,
+) -> SearchDiagnosticsSnapshot {
+    SearchDiagnosticsSnapshot {
+        tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
+        tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
+        tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
+        ..SearchDiagnosticsSnapshot::default()
+    }
+}
+
+fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSnapshot {
+    TtWriteSnapshot {
+        attempted: after.attempted.saturating_sub(before.attempted),
+        committed: after.committed.saturating_sub(before.committed),
+        same_hash: after.same_hash.saturating_sub(before.same_hash),
+        equal_depth_overwrites: after
+            .equal_depth_overwrites
+            .saturating_sub(before.equal_depth_overwrites),
+        shallower_rejections: after
+            .shallower_rejections
+            .saturating_sub(before.shallower_rejections),
+        collision_overwrites: after
+            .collision_overwrites
+            .saturating_sub(before.collision_overwrites),
     }
 }
 
@@ -521,6 +643,48 @@ mod tests {
                 .iter()
                 .map(|worker| worker.nodes)
                 .sum::<u64>()
+        );
+        assert!(result.tt_writes.is_none());
+        assert!(
+            result
+                .worker_results
+                .iter()
+                .all(|worker| worker.tt_probes == 0 && worker.tt_stores == 0)
+        );
+    }
+
+    #[test]
+    fn opt_in_diagnostics_report_worker_probes_and_shared_tt_writes() {
+        let searcher = LazySmpSearcher::diagnostic(2, LAZY_DEFAULT_FLAGS, 1);
+        let result = searcher.search(
+            &Board::startpos(),
+            SearchConfig {
+                max_depth: 5,
+                node_limit: Some(2_000),
+                ..SearchConfig::default()
+            },
+        );
+
+        let writes = result
+            .tt_writes
+            .expect("shared diagnostic TT must report write topology");
+        assert!(writes.attempted > 0);
+        assert!(writes.committed > 0);
+        assert!(
+            result
+                .worker_results
+                .iter()
+                .map(|worker| worker.tt_probes)
+                .sum::<u64>()
+                > 0
+        );
+        assert!(
+            result
+                .worker_results
+                .iter()
+                .map(|worker| worker.tt_stores)
+                .sum::<u64>()
+                > 0
         );
     }
 }
