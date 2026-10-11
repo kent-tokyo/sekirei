@@ -316,7 +316,18 @@ impl LazySmpSearcher {
 
     /// Age the shared TT entries of earlier searches (call once per `go`).
     pub fn new_search(&self) {
-        self.tt.new_search();
+        if self.share_tt {
+            // Every persistent worker points at this table, so advance it
+            // exactly once rather than once per worker.
+            self.tt.new_search();
+        } else {
+            // Isolated non-persistent workers allocate a fresh table for every
+            // search. Persistent isolated workers keep one table each and
+            // therefore need their generations advanced individually.
+            for searcher in &self.persistent {
+                searcher.new_search();
+            }
+        }
     }
 
     /// Probe the shared TT for a ponder move after the selected move.
@@ -666,6 +677,37 @@ mod tests {
         assert_eq!(isolated.hash_mb, 4);
         assert_eq!(shared.persistent.len(), 2);
         assert_eq!(isolated.persistent.len(), 2);
+    }
+
+    #[test]
+    fn new_search_ages_shared_and_persistent_isolated_tables_once() {
+        let shared_tt = Tt::new(1);
+        let shared =
+            LazySmpSearcher::with_flags_and_hash_mb(shared_tt.clone(), 2, LAZY_DEFAULT_FLAGS, 1);
+        shared.new_search();
+        assert_eq!(shared_tt.search_count(), 1);
+        assert!(
+            shared
+                .persistent
+                .iter()
+                .all(|searcher| searcher.tt_search_count() == 1)
+        );
+
+        let unused_front_tt = Tt::new(1);
+        let isolated = LazySmpSearcher::with_flags_and_hash_mb(
+            unused_front_tt.clone(),
+            2,
+            LAZY_DEFAULT_FLAGS | LAZY_ISOLATED_TT,
+            2,
+        );
+        isolated.new_search();
+        assert_eq!(unused_front_tt.search_count(), 0);
+        assert!(
+            isolated
+                .persistent
+                .iter()
+                .all(|searcher| searcher.tt_search_count() == 1)
+        );
     }
 
     #[test]

@@ -275,6 +275,7 @@ impl SearchBackend {
         }
         match self {
             Self::Sequential(s) => s.searcher.new_search(),
+            Self::Speculative(s) => s.new_search(),
             Self::LazySmp(s) => s.new_search(),
             _ => {}
         }

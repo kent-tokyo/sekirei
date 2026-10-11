@@ -1306,6 +1306,11 @@ impl Searcher {
         self.tt.new_search();
     }
 
+    #[cfg(test)]
+    pub(crate) fn tt_search_count(&self) -> u64 {
+        self.tt.search_count()
+    }
+
     /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
     pub fn set_depth_skew(&mut self, skew: u32) {
         self.depth_skew = skew;
@@ -3557,6 +3562,15 @@ impl SpeculativeSearcher {
         }
         self.history.clear();
         self.countermoves.clear();
+    }
+
+    /// Age transposition-table entries written by earlier searches.
+    ///
+    /// This mirrors [`Searcher::new_search`]. Without it, bucket replacement
+    /// cannot prefer the current search over equally deep entries left by an
+    /// earlier `go` command.
+    pub fn new_search(&self) {
+        self.tt.new_search();
     }
 
     /// Run iterative-deepening search with preemptive speculative parallelism on
@@ -6570,6 +6584,18 @@ mod regression_tests {
             "mate found at the shallower ply ({score_shallow}) must score higher than the \
              identical mate found 2 plies deeper ({score_deep})"
         );
+    }
+
+    #[test]
+    fn speculative_new_search_advances_tt_generation() {
+        let tt = Tt::new(1);
+        let searcher = SpeculativeSearcher::new(tt.clone(), 0);
+
+        assert_eq!(tt.search_count(), 0);
+        searcher.new_search();
+        assert_eq!(tt.search_count(), 1);
+        searcher.new_search();
+        assert_eq!(tt.search_count(), 2);
     }
 
     // Note: SpeculativeSearcher.search()'s reported score comes from the same
