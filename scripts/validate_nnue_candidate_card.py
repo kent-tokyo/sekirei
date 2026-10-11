@@ -86,15 +86,85 @@ def validate(card: dict) -> list[str]:
     ):
         errors.append("candidate_relative_evidence.contract")
 
-    material_gate = card.get("material_gate")
-    if not isinstance(material_gate, dict) or material_gate.get("status") != "NOT_RUN":
-        errors.append("material_gate")
+    errors.extend(validate_material_gate(card, artifact))
     if not isinstance(card.get("evidence_gaps"), list) or not card["evidence_gaps"]:
         errors.append("evidence_gaps")
 
     estimate = card.get("derived_estimates")
     if not isinstance(estimate, dict) or estimate.get("directly_measured") is not False:
         errors.append("derived_estimates")
+    return errors
+
+
+def validate_material_gate(card: dict, artifact: dict) -> list[str]:
+    gate = card.get("material_gate")
+    if not isinstance(gate, dict):
+        return ["material_gate"]
+    status = gate.get("status")
+    if status == "NOT_RUN":
+        if gate.get("required_before_distribution_recommendation") not in (None, True):
+            return ["material_gate.not_run"]
+        return []
+    if status != "PASS":
+        return ["material_gate.status"]
+
+    errors: list[str] = []
+    protocol = gate.get("protocol")
+    if not isinstance(protocol, dict) or (
+        protocol.get("method") != "paired trinomial SPRT"
+        or protocol.get("elo0") != 0
+        or protocol.get("elo1") != 20
+        or protocol.get("alpha") != 0.05
+        or protocol.get("beta") != 0.05
+        or protocol.get("complete_colour_swapped_pairs_required") is not True
+    ):
+        errors.append("material_gate.protocol")
+    if gate.get("required_before_distribution_recommendation") is not False:
+        errors.append("material_gate.requirement")
+    if gate.get("candidate_sha256") != artifact.get("sha256"):
+        errors.append("material_gate.candidate_sha256")
+    engine = gate.get("engine")
+    if not isinstance(engine, dict) or not SHA256.fullmatch(engine.get("sha256", "")):
+        errors.append("material_gate.engine")
+    if not SHA256.fullmatch(gate.get("opening_corpus_sha256", "")):
+        errors.append("material_gate.opening_corpus_sha256")
+
+    conditions = gate.get("conditions")
+    if not isinstance(conditions, list) or not conditions:
+        errors.append("material_gate.conditions")
+    else:
+        for index, condition in enumerate(conditions):
+            if not isinstance(condition, dict) or (
+                not isinstance(condition.get("byoyomi_ms"), int)
+                or condition["byoyomi_ms"] <= 0
+                or not isinstance(condition.get("pairs"), int)
+                or condition["pairs"] <= 0
+                or condition.get("games") != condition["pairs"] * 2
+                or condition.get("games")
+                != condition.get("wins", 0)
+                + condition.get("draws", 0)
+                + condition.get("losses", 0)
+                or not isinstance(condition.get("llr"), (int, float))
+                or not isinstance(condition.get("upper_bound"), (int, float))
+                or condition["llr"] < condition["upper_bound"]
+                or not isinstance(condition.get("evidence"), str)
+                or not condition["evidence"].startswith("docs/experiments/")
+            ):
+                errors.append(f"material_gate.conditions[{index}]")
+
+    archives = gate.get("raw_evidence_archives")
+    if not isinstance(archives, list) or not archives:
+        errors.append("material_gate.raw_evidence_archives")
+    else:
+        for index, archive in enumerate(archives):
+            if not isinstance(archive, dict) or (
+                not SHA256.fullmatch(archive.get("sha256", ""))
+                or archive.get("repository_status") != "local_only"
+            ):
+                errors.append(f"material_gate.raw_evidence_archives[{index}]")
+    scope = gate.get("scope")
+    if not isinstance(scope, str) or "not a default-adoption decision" not in scope:
+        errors.append("material_gate.scope")
     return errors
 
 

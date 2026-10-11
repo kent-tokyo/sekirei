@@ -36,9 +36,13 @@ when redistributing or adapting the artifact.
 boundary are recorded in
 [`candidates/sekirei-halfkp-r3.json`](candidates/sekirei-halfkp-r3.json).
 The binary is not stored in Git, bundled, selected by default, or recommended
-for distribution. The recorded 480-game result is against `nn_r2`, not against
-material evaluation; the chained estimate against `gen9` is not a direct
-measurement.
+for distribution. In addition to the 480-game result against `nn_r2`, it passed
+two pinned v0.3.68 material gates at 500 ms and 1 second per move. Those local
+results do not establish compatibility with current main, an external rating,
+or a default-adoption decision; the chained estimate against `gen9` is not a
+direct measurement. See the
+[`nn_r3` gate record](../docs/experiments/nnue_r3_material_gate_v0.3.68/README.md)
+for the exact conditions and evidence boundary.
 
 If the local artifact is available, verify it before any diagnostic:
 

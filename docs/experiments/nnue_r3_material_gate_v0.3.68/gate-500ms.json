@@ -1,0 +1,22 @@
+{
+  "schema": "sekirei.nnue-material-gate-result.v1",
+  "engine_tag": "v0.3.68",
+  "engine_commit": "6b00f0eaea9b3bc1153c25f4b6ddcd33a0cfdbc7",
+  "byoyomi_ms": 500,
+  "threads": 1,
+  "pairs": 36,
+  "games": 72,
+  "candidate_wins": 63,
+  "draws": 0,
+  "material_wins": 9,
+  "sprt": {
+    "method": "paired trinomial",
+    "elo0": 0,
+    "elo1": 20,
+    "alpha": 0.05,
+    "beta": 0.05,
+    "llr": 3.050456,
+    "upper_bound": 2.944439,
+    "verdict": "PASS"
+  }
+}

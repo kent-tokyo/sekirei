@@ -87,6 +87,85 @@ class CandidateCardTests(unittest.TestCase):
         self.assertIn("artifact.bytes", errors)
         self.assertIn("artifact.sha256", errors)
 
+    def test_passed_material_gate_is_accepted_without_authorizing_distribution(self) -> None:
+        card, _ = fixture()
+        card["material_gate"] = {
+            "status": "PASS",
+            "required_before_distribution_recommendation": False,
+            "protocol": {
+                "method": "paired trinomial SPRT",
+                "elo0": 0,
+                "elo1": 20,
+                "alpha": 0.05,
+                "beta": 0.05,
+                "complete_colour_swapped_pairs_required": True,
+            },
+            "engine": {"sha256": "1" * 64},
+            "candidate_sha256": card["artifact"]["sha256"],
+            "opening_corpus_sha256": "2" * 64,
+            "conditions": [
+                {
+                    "byoyomi_ms": 500,
+                    "pairs": 2,
+                    "games": 4,
+                    "wins": 3,
+                    "draws": 0,
+                    "losses": 1,
+                    "llr": 3.0,
+                    "upper_bound": 2.94,
+                    "evidence": "docs/experiments/gate/result.json",
+                }
+            ],
+            "raw_evidence_archives": [
+                {
+                    "sha256": "3" * 64,
+                    "repository_status": "local_only",
+                }
+            ],
+            "scope": "Local evidence; not a default-adoption decision.",
+        }
+        self.assertEqual(MODULE.validate(card), [])
+        self.assertFalse(card["distribution"]["bundled"])
+        self.assertFalse(card["distribution"]["default_evaluator"])
+
+    def test_material_gate_rejects_hash_and_incomplete_pair_counts(self) -> None:
+        card, _ = fixture()
+        card["material_gate"] = {
+            "status": "PASS",
+            "required_before_distribution_recommendation": False,
+            "protocol": {
+                "method": "paired trinomial SPRT",
+                "elo0": 0,
+                "elo1": 20,
+                "alpha": 0.05,
+                "beta": 0.05,
+                "complete_colour_swapped_pairs_required": True,
+            },
+            "engine": {"sha256": "1" * 64},
+            "candidate_sha256": "0" * 64,
+            "opening_corpus_sha256": "2" * 64,
+            "conditions": [
+                {
+                    "byoyomi_ms": 500,
+                    "pairs": 2,
+                    "games": 3,
+                    "wins": 2,
+                    "draws": 0,
+                    "losses": 1,
+                    "llr": 2.0,
+                    "upper_bound": 2.94,
+                    "evidence": "local/result.json",
+                }
+            ],
+            "raw_evidence_archives": [],
+            "scope": "Local evidence.",
+        }
+        errors = MODULE.validate(card)
+        self.assertIn("material_gate.candidate_sha256", errors)
+        self.assertIn("material_gate.conditions[0]", errors)
+        self.assertIn("material_gate.raw_evidence_archives", errors)
+        self.assertIn("material_gate.scope", errors)
+
 
 if __name__ == "__main__":
     unittest.main()
