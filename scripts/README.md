@@ -166,7 +166,9 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
 may recover an authenticated transport close up to three times in-process;
 protocol, recording, and mid-game failures remain terminal. Exhausted recovery
 is recorded as `post_game_reconnect_exhausted` without discarding completed
-records. For launchd, use the one-shot template with `KeepAlive` disabled.
+records. A non-zero one-shot child exit is also persisted to status and the
+run manifest; an active game is retained as an uncounted `incomplete_game`.
+For launchd, use the one-shot template with `KeepAlive` disabled.
 
 Before tournament deployment, run the loopback-only two-process rehearsal:
 

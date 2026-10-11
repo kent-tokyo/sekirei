@@ -22,6 +22,23 @@ bounded = base()
 bounded.update({"keep_alive": True, "max_games": 5, "completed_attempts": 5,
                 "terminal_stop_reason": "max_games_reached"})
 assert validate(bounded) == []
+failed = base()
+failed.update({
+    "status": "failed",
+    "completed_attempts": 2,
+    "max_games": 10,
+    "terminal_stop_reason": "child_exited_before_max_games",
+    "child_exit_code": 3,
+    "incomplete_game": {
+        "game_id": "g-live",
+        "classification": "incomplete",
+        "counted": False,
+        "last_client_state": "in_game",
+    },
+})
+assert validate(failed) == []
+failed["incomplete_game"]["counted"] = True
+assert "incomplete_game" in validate(failed)
 invalid_limit = base()
 invalid_limit["max_games"] = 0
 assert "max_games" in validate(invalid_limit)

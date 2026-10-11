@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Floodgate supervision: when a bounded CSA child exits non-zero, persist its
+  exit code and terminal reason to runtime status, run manifest, and the
+  one-shot completion record. A live game is classified as incomplete and is
+  never added to the completed-game count.
 - Dependencies: update the training-only `shogiesa-core` contract to 0.11.4
   and verify label manifests, input positions, and output observations through
   its typed verifier before Quietset or training consumes them. Complete

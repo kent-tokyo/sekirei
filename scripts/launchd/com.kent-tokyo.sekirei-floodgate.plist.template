@@ -19,6 +19,7 @@
 <string>--game</string><string>floodgate-300-10F</string>
 <string>--record-dir</string><string>__RECORD_DIR__</string>
 <string>--analysis-dir</string><string>__ANALYSIS_DIR__</string>
+<string>--run-manifest</string><string>__STATE_DIR__/run-manifest.json</string>
 <string>--status-file</string><string>__STATE_DIR__/client-status.json</string>
 <string>--eval</string><string>__EVAL_MODE__</string>
 <string>--loop</string><string>--max-games</string><string>__MAX_GAMES__</string>

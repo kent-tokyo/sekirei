@@ -16,6 +16,7 @@ def test_launchd_template_is_valid_and_secret_free():
     assert "__FLOODGATE_USER__" in arguments
     assert "__EVAL_MODE__" in arguments
     assert "--client-status-file" in arguments
+    assert "--run-manifest" in arguments
     assert "--max-log-bytes" in arguments
     assert "--one-shot" in arguments
     assert "--loop" in arguments
