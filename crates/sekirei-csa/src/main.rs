@@ -91,18 +91,15 @@ fn run() -> i32 {
                         eprintln!("[csa] terminal client error: {e}");
                         return 3;
                     }
-                    attempts += 1;
-                    write_runtime_status_progress(
-                        &config,
-                        "client_error",
-                        Some("run_error"),
-                        completed_attempts,
-                        None,
-                    );
-                    eprintln!("[csa] connection error: {e}");
-                    if !config.keep_alive {
-                        return 1;
-                    }
+                    client.mark_run_error(completed_attempts);
+                    // A failure after authentication is terminal for this
+                    // process generation.  Retrying inside `--loop` used to
+                    // leave bounded one-shot runs alive indefinitely after
+                    // their status had already become `client_error`.
+                    // Supervisors may decide whether a new generation is
+                    // appropriate; this process must exit non-zero now.
+                    eprintln!("[csa] run error: {e}");
+                    return 1;
                 }
             },
             Err(e) => {

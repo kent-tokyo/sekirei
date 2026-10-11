@@ -164,6 +164,89 @@ def test_actual_client_connection_loss_is_bounded_by_supervisor():
         assert status["event"] in {"eof", "run_error", "connect_error"}
 
 
+def test_bounded_actual_client_run_error_exits_and_completes_one_shot():
+    """A bounded client's post-game EOF must terminate, not reconnect in place."""
+    listener = socket.socket()
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    port = listener.getsockname()[1]
+    server_error = []
+
+    def serve():
+        try:
+            connection, _ = listener.accept()
+            with connection, connection.makefile("rwb") as stream:
+                assert stream.readline().decode().startswith("LOGIN test ")
+                stream.write(b"LOGIN: test OK\n")
+                stream.flush()
+                for game_number in range(1, 4):
+                    assert stream.readline().decode().startswith("%%GAME offline-run-error")
+                    game_id = f"offline-run-error-{game_number}"
+                    stream.write(
+                        (
+                            f"Game_ID:{game_id}\nYour_Turn:+\nTotal_Time:1\nByoyomi:1\n"
+                            f"END Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:{game_id}\n"
+                        ).encode()
+                    )
+                    stream.flush()
+                    assert stream.readline().decode().startswith(f"AGREE:{game_id}")
+                    move = stream.readline().decode().strip()
+                    assert move.startswith("+")
+                    stream.write((move + ",T0\n#WIN\n").encode())
+                    stream.flush()
+                # Accept the fourth request, then close the authenticated
+                # session.  This makes CsaClient::run return an error after
+                # three completed attempts.
+                assert stream.readline().decode().startswith("%%GAME offline-run-error")
+        except Exception as error:  # pragma: no cover - reported by the parent assertion
+            server_error.append(error)
+        finally:
+            listener.close()
+
+    server = threading.Thread(target=serve)
+    server.start()
+    with tempfile.TemporaryDirectory(prefix="sekirei-client-run-error-") as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        record_dir = root / "records"
+        command = [
+            str(ROOT / "target/debug/sekirei-csa"),
+            "--server", "127.0.0.1", "--port", str(port),
+            "--user", "test", "--password", "secret",
+            "--eval", "material", "--depth", "1", "--hash", "1",
+            "--game", "offline-run-error", "--record-dir", str(record_dir),
+            "--status-file", str(status_file), "--loop", "--max-games", "10",
+        ]
+        result = supervisor.run(
+            command, state_dir, root / "stop", max_restarts=5, restart_window=60.0,
+            restart_delay=0.0, poll_seconds=0.01, client_status_file=status_file,
+            client_status_max_age=2.0, max_log_bytes=4096, one_shot=True,
+        )
+        server.join(timeout=5.0)
+        assert not server.is_alive()
+        assert not server_error, server_error
+        assert result == 0
+        status = json.loads(status_file.read_text())
+        assert status["state"] == "client_error"
+        assert status["event"] == "run_error"
+        assert status["completed_attempts"] == 3
+        assert status["terminal_stop_reason"] == "run_error"
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "run_error"
+        assert completion["completed_attempts"] == 3
+        assert completion["max_games"] == 10
+        assert completion["child_exit_code"] == 1
+        records = list(record_dir.glob("*.csa"))
+        assert len(records) == 3
+        assert all("#WIN" in path.read_text() for path in records)
+        events = [json.loads(line) for line in (state_dir / "events.jsonl").read_text().splitlines()]
+        assert [event["kind"] for event in events].count("started") == 1
+        assert [event["kind"] for event in events].count("exited") == 1
+        assert all(event["kind"] != "restart_scheduled" for event in events)
+        assert events[-1]["kind"] == "one_shot_complete"
+
+
 def test_actual_client_explicit_stop_does_not_restart_or_fabricate_result():
     """Stopping a live real client must be terminal and result-neutral."""
     listener = socket.socket()
@@ -319,6 +402,7 @@ def test_actual_client_record_failure_is_not_a_loss_or_restart():
 if __name__ == "__main__":
     test_actual_client_completes_one_offline_game()
     test_actual_client_connection_loss_is_bounded_by_supervisor()
+    test_bounded_actual_client_run_error_exits_and_completes_one_shot()
     test_actual_client_explicit_stop_does_not_restart_or_fabricate_result()
     test_actual_client_record_failure_is_not_a_loss_or_restart()
     print("PASS")

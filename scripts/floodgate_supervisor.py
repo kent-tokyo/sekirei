@@ -368,6 +368,8 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                 terminal_reason = "max_games_reached"
             elif kind == "explicit_stop":
                 terminal_reason = "explicit_stop"
+            elif isinstance(reported_reason, str) and reported_reason:
+                terminal_reason = reported_reason
             elif max_games is not None and completed_attempts < max_games:
                 terminal_reason = "child_exited_before_max_games"
             else:
