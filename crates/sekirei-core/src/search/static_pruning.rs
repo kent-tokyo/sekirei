@@ -109,3 +109,56 @@ pub(super) fn reverse_futility_score(
         }
     })
 }
+
+/// At a shallow null-window node far below alpha, ask quiescence whether the
+/// position still fails low. The callback is evaluated only when the razor
+/// margin is crossed.
+pub(super) fn razoring_score(
+    static_eval: Option<i32>,
+    depth: u32,
+    alpha: i32,
+    beta: i32,
+    mut quiescence_probe: impl FnMut(i32, i32) -> i32,
+) -> Option<i32> {
+    let eval = static_eval?;
+    if depth > 2
+        || beta - alpha != 1
+        || alpha.abs() >= MATE_SCORE - 1000
+        || eval + p::RAZOR_MARGIN_BASE() + p::RAZOR_MARGIN_PER_DEPTH() * depth as i32 > alpha
+    {
+        return None;
+    }
+    let score = quiescence_probe(alpha, alpha + 1);
+    (score <= alpha).then_some(score)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::cell::Cell;
+
+    use super::razoring_score;
+
+    #[test]
+    fn razoring_calls_quiescence_only_after_crossing_the_margin() {
+        let calls = Cell::new(0);
+        let skipped = razoring_score(Some(-100_000), 3, 0, 1, |_, _| {
+            calls.set(calls.get() + 1);
+            -1
+        });
+        assert_eq!(skipped, None);
+        assert_eq!(calls.get(), 0);
+
+        let accepted = razoring_score(Some(-100_000), 2, 0, 1, |lo, hi| {
+            calls.set(calls.get() + 1);
+            assert_eq!((lo, hi), (0, 1));
+            -4
+        });
+        assert_eq!(accepted, Some(-4));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[test]
+    fn razoring_keeps_searching_when_quiescence_raises_alpha() {
+        assert_eq!(razoring_score(Some(-100_000), 2, 0, 1, |_, _| 1), None);
+    }
+}

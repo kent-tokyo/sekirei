@@ -109,7 +109,7 @@ use pruning::{nmp_eval_allows, null_move_pruning, probcut};
 use root_safety::{RootMateSafetyCache, RootSafety, root_mate_safety_filter};
 #[cfg(test)]
 use root_safety::{may_give_check, safe_root_moves};
-use static_pruning::{prepare_node_evaluation, reverse_futility_score};
+use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;
 
 // ============================================================
@@ -2051,30 +2051,14 @@ fn alpha_beta(
         return score;
     }
 
-    // Razoring: far below alpha at shallow non-PV depth, trust quiescence.
-    if let Some(se) = static_eval
-        && depth <= 2
-        && beta - alpha == 1
-        && alpha.abs() < MATE_SCORE - 1000
-        && se + p::RAZOR_MARGIN_BASE() + p::RAZOR_MARGIN_PER_DEPTH() * depth as i32 <= alpha
-    {
-        let v = quiescence(
-            state,
-            board,
-            alpha,
-            alpha + 1,
-            ply,
-            0,
-            Some(in_check),
-            history,
-        );
-        if v <= alpha {
-            if let Some(d) = state.counters() {
-                d.exit(4);
-                d.at_depth(entry_depth, 2);
-            }
-            return v;
+    if let Some(score) = razoring_score(static_eval, depth, alpha, beta, |lo, hi| {
+        quiescence(state, board, lo, hi, ply, 0, Some(in_check), history)
+    }) {
+        if let Some(d) = state.counters() {
+            d.exit(4);
+            d.at_depth(entry_depth, 2);
         }
+        return score;
     }
 
     // ProbCut (not inside a singular search).
