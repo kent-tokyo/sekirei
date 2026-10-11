@@ -82,12 +82,17 @@ static LMR_REDUCTION_TABLE: OnceLock<Box<[[u8; 600]]>> = OnceLock::new();
 
 mod heuristics;
 pub mod params;
+mod path;
 mod v2;
 use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
     pack_killer,
 };
 use params as p;
+use path::{
+    ContMoves, current_move_at, cut_at, doubles_at, record_static_eval, restore_stack_path,
+    set_current_move, set_cut, set_doubles, stack_path,
+};
 
 // ============================================================
 // Public API
@@ -2498,207 +2503,6 @@ fn repetition_score(outcome: RepetitionOutcome, side_to_move: Color, ply: u32) -
     }
 }
 
-/// One ply of the current search path.
-#[derive(Clone, Copy)]
-struct Frame {
-    /// Static evaluation of the node at this ply; `i32::MIN` when it was not
-    /// computed (in check, or deeper than the pruning that uses it).
-    static_eval: i32,
-    /// Move played from this ply into the child being searched; `None` for a
-    /// null move.
-    current_move: Option<Move>,
-    /// Double singular extensions on the path from the root to this ply.
-    doubles: u8,
-    /// The node at this ply is an expected cut node (set by the parent).
-    cut: bool,
-}
-
-impl Frame {
-    const EMPTY: Frame = Frame {
-        static_eval: i32::MIN,
-        current_move: None,
-        doubles: 0,
-        cut: false,
-    };
-}
-
-/// Double extensions on the path to `ply`.
-#[inline]
-fn doubles_at(ply: u32) -> u8 {
-    STACK.with(|stack| stack.borrow()[stack_index(ply)].doubles)
-}
-
-/// Set the double-extension count the children of the node at `ply - 1`
-/// start from.
-#[inline]
-fn set_doubles(ply: u32, n: u8) {
-    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].doubles = n);
-}
-
-/// Whether the parent marked the node at `ply` as an expected cut node.
-#[inline]
-fn cut_at(ply: u32) -> bool {
-    STACK.with(|stack| stack.borrow()[stack_index(ply)].cut)
-}
-
-/// Mark the node the parent at `ply - 1` searches next as an expected cut
-/// node (or not).
-#[inline]
-fn set_cut(ply: u32, cut: bool) {
-    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].cut = cut);
-}
-
-/// Per-thread search stack indexed by ply. A young-brothers worker copies
-/// the frames up to the split ply from the thread that split (see
-/// `stack_path`/`restore_stack_path`), so the frames above it describe the
-/// same path.
-const STACK_LEN: usize = 256;
-thread_local! {
-    static STACK: std::cell::RefCell<[Frame; STACK_LEN]> =
-        const { std::cell::RefCell::new([Frame::EMPTY; STACK_LEN]) };
-}
-
-#[inline]
-fn stack_index(ply: u32) -> usize {
-    (ply as usize).min(STACK_LEN - 1)
-}
-
-/// Record the move searched next from `ply` (`None`: a null move).
-#[inline]
-fn set_current_move(ply: u32, m: Option<Move>) {
-    STACK.with(|stack| stack.borrow_mut()[stack_index(ply)].current_move = m);
-}
-
-/// The move being searched from `ply` (`None`: none recorded, or a null move).
-#[inline]
-fn current_move_at(ply: u32) -> Option<Move> {
-    STACK.with(|stack| stack.borrow()[stack_index(ply)].current_move)
-}
-
-/// Record the static evaluation at `ply` and report whether it improves on
-/// the one two plies earlier (same side to move). Unknown evaluations (in
-/// check, or not computed) count as improving.
-#[inline]
-fn record_static_eval(ply: u32, static_eval: Option<i32>) -> bool {
-    STACK.with(|stack| {
-        let mut stack = stack.borrow_mut();
-        let p = stack_index(ply);
-        stack[p].static_eval = static_eval.unwrap_or(i32::MIN);
-        match static_eval {
-            Some(se) if p >= 2 && stack[p - 2].static_eval != i32::MIN => {
-                se > stack[p - 2].static_eval
-            }
-            _ => true,
-        }
-    })
-}
-
-/// The frames from the root to `ply`, for a worker thread that continues
-/// this path.
-fn stack_path(ply: u32) -> Vec<Frame> {
-    STACK.with(|stack| stack.borrow()[..=stack_index(ply)].to_vec())
-}
-
-/// Install a path taken with `stack_path` on this thread.
-fn restore_stack_path(path: &[Frame]) {
-    STACK.with(|stack| stack.borrow_mut()[..path.len()].copy_from_slice(path));
-}
-
-/// Row offsets of the continuation moves in the continuation and follow-up
-/// tables (see [`ContMoves::rows`]).
-struct ContRows {
-    prev: Option<usize>,
-    own2: Option<usize>,
-    own4: Option<usize>,
-    opp3: Option<usize>,
-    own6: Option<usize>,
-}
-
-/// The earlier moves a node's history lookups are keyed on: the opponent's
-/// last move and the side's own moves two and four plies back.
-#[derive(Clone, Copy, Default)]
-struct ContMoves {
-    prev: Option<Move>,
-    own2: Option<Move>,
-    own4: Option<Move>,
-    /// The opponent's move three plies earlier (`CONT3_*`).
-    opp3: Option<Move>,
-    /// The side's own move six plies earlier (`CONT6_*`).
-    own6: Option<Move>,
-}
-
-impl ContMoves {
-    /// The moves before the node at `ply`; `prev` is its parent's move.
-    #[inline]
-    fn at(ply: u32, prev: Option<Move>) -> Self {
-        let back = |n: u32| {
-            ply.checked_sub(n)
-                .and_then(|q| STACK.with(|stack| stack.borrow()[stack_index(q)].current_move))
-        };
-        ContMoves {
-            prev,
-            own2: back(2),
-            own4: back(4),
-            opp3: if p::CONT3_WEIGHT() + p::CONT3_UPDATE() > 0 {
-                back(3)
-            } else {
-                None
-            },
-            own6: if p::CONT6_WEIGHT() + p::CONT6_UPDATE() > 0 {
-                back(6)
-            } else {
-                None
-            },
-        }
-    }
-
-    /// Table rows of the continuation moves for `stm`, for scoring many
-    /// moves of one node with [`ContMoves::score_keyed`].
-    #[inline]
-    fn rows(&self, stm: Color) -> ContRows {
-        let row = |prev: Option<Move>| prev.map(|prev| HistoryTable::cont_row(stm, prev));
-        ContRows {
-            prev: row(self.prev),
-            own2: row(self.own2),
-            own4: row(self.own4),
-            opp3: row(self.opp3),
-            own6: row(self.own6),
-        }
-    }
-
-    /// [`ContMoves::score`] from the rows of [`ContMoves::rows`] and the
-    /// move's key (`HistoryTable::key`); the same value.
-    #[inline]
-    fn score_keyed(history: &HistoryTable, rows: &ContRows, key: usize) -> i32 {
-        let cont = |row: Option<usize>| row.map_or(0, |r| history.cont_at(r + key));
-        let follow = |row: Option<usize>| row.map_or(0, |r| history.follow_at(r + key));
-        let mut s = cont(rows.prev)
-            + follow(rows.own2) * p::CONT2_WEIGHT() / 16
-            + follow(rows.own4) * p::CONT4_WEIGHT() / 16;
-        if rows.opp3.is_some() {
-            s += cont(rows.opp3) * p::CONT3_WEIGHT() / 16;
-        }
-        if rows.own6.is_some() {
-            s += follow(rows.own6) * p::CONT6_WEIGHT() / 16;
-        }
-        s
-    }
-
-    /// Add `delta` to the continuation entries of `m`.
-    #[inline]
-    fn update(&self, history: &HistoryTable, stm: Color, m: Move, delta: i32) {
-        history.cont_add(stm, self.prev, m, delta);
-        history.follow_add(stm, self.own2, m, delta * p::CONT2_UPDATE() / 16);
-        history.follow_add(stm, self.own4, m, delta * p::CONT4_UPDATE() / 16);
-        if self.opp3.is_some() && p::CONT3_UPDATE() > 0 {
-            history.cont_add(stm, self.opp3, m, delta * p::CONT3_UPDATE() / 16);
-        }
-        if self.own6.is_some() && p::CONT6_UPDATE() > 0 {
-            history.follow_add(stm, self.own6, m, delta * p::CONT6_UPDATE() / 16);
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 fn alpha_beta(
     state: &Arc<SearchState>,
@@ -5036,9 +4840,7 @@ impl LmrContext {
     /// follow-up.
     #[inline]
     fn history_of(&self, history: &HistoryTable, stm: Color, m: Move) -> i32 {
-        history.get(stm, m)
-            + history.cont_get(stm, self.cont.prev, m)
-            + history.follow_get(stm, self.cont.own2, m)
+        self.cont.primary_score(history, stm, m)
     }
 }
 
