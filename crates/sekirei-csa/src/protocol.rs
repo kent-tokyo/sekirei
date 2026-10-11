@@ -26,134 +26,12 @@ use sekirei_core::{
 
 use crate::moves::{board_from_csa_position, csa_to_move, is_csa_move_token, move_to_csa};
 
+mod time_control;
+
+use time_control::{CsaTimeControl, ParsedTimeControl};
+
 const MAX_CSA_LINE_BYTES: usize = 64 * 1024;
 const TOURNAMENT_MAX_PLIES: usize = 512;
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct ParsedTimeControl {
-    total_time_ms: Option<u64>,
-    byoyomi_ms: Option<u64>,
-    increment_ms: Option<u64>,
-}
-
-#[derive(Debug)]
-struct CsaTimeControl {
-    unit_ms: u64,
-    unit_seen: bool,
-    total_time: Option<u64>,
-    byoyomi: Option<u64>,
-    increment: Option<u64>,
-}
-
-impl Default for CsaTimeControl {
-    fn default() -> Self {
-        Self {
-            // CSA 1.2.1 defaults to one second when Time_Unit is omitted.
-            unit_ms: 1_000,
-            unit_seen: false,
-            total_time: None,
-            byoyomi: None,
-            increment: None,
-        }
-    }
-}
-
-impl CsaTimeControl {
-    fn apply(&mut self, line: &str) -> io::Result<bool> {
-        if let Some(value) = line.strip_prefix("Time_Unit:") {
-            if self.unit_seen {
-                return Err(io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "duplicate CSA Time_Unit field",
-                ));
-            }
-            self.unit_ms = parse_time_unit_ms(value)?;
-            self.unit_seen = true;
-        } else if let Some(value) = line.strip_prefix("Total_Time:") {
-            set_once(&mut self.total_time, parse_decimal(value)?, "Total_Time")?;
-        } else if let Some(value) = line.strip_prefix("Byoyomi:") {
-            set_once(&mut self.byoyomi, parse_decimal(value)?, "Byoyomi")?;
-        } else if let Some(value) = line.strip_prefix("Increment:") {
-            set_once(&mut self.increment, parse_decimal(value)?, "Increment")?;
-        } else {
-            return Ok(false);
-        }
-        Ok(true)
-    }
-
-    fn finish(self) -> io::Result<ParsedTimeControl> {
-        let convert = |name: &str, value: Option<u64>| -> io::Result<Option<u64>> {
-            value
-                .map(|value| {
-                    value.checked_mul(self.unit_ms).ok_or_else(|| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidData,
-                            format!("{name} overflows milliseconds"),
-                        )
-                    })
-                })
-                .transpose()
-        };
-        Ok(ParsedTimeControl {
-            total_time_ms: convert("Total_Time", self.total_time)?,
-            byoyomi_ms: convert("Byoyomi", self.byoyomi)?,
-            increment_ms: convert("Increment", self.increment)?,
-        })
-    }
-}
-
-fn parse_decimal(value: &str) -> io::Result<u64> {
-    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "CSA time value must contain decimal digits only",
-        ));
-    }
-    value.parse().map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "CSA time value is outside the supported range",
-        )
-    })
-}
-
-fn parse_time_unit_ms(value: &str) -> io::Result<u64> {
-    let (digits, multiplier) = if let Some(digits) = value.strip_suffix("msec") {
-        (digits, 1)
-    } else if let Some(digits) = value.strip_suffix("sec") {
-        (digits, 1_000)
-    } else if let Some(digits) = value.strip_suffix("min") {
-        (digits, 60_000)
-    } else {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "unsupported CSA Time_Unit",
-        ));
-    };
-    let amount = parse_decimal(digits)?;
-    if amount == 0 {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "CSA Time_Unit must be positive",
-        ));
-    }
-    amount.checked_mul(multiplier).ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            "CSA Time_Unit overflows milliseconds",
-        )
-    })
-}
-
-fn set_once(slot: &mut Option<u64>, value: u64, name: &str) -> io::Result<()> {
-    if slot.replace(value).is_some() {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("duplicate CSA {name} field"),
-        ));
-    }
-    Ok(())
-}
 
 fn parse_our_color(value: &str) -> io::Result<Color> {
     match value {
@@ -1915,12 +1793,13 @@ fn parse_time_from_echo(line: &str) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use super::time_control::{CsaTimeControl, parse_decimal, parse_time_unit_ms};
     use super::{
-        Color, Config, CsaClient, CsaLineReader, CsaTimeControl, EvaluationMode, GameRecord,
-        GameResult, MAX_CSA_LINE_BYTES, RecordMetadata, RootCandidateRecord, ServerLine,
-        TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
-        classify_server_line, parse_game_end, parse_our_color, parse_time_from_echo,
-        update_run_manifest_game, update_run_manifest_progress, write_runtime_status_progress,
+        Color, Config, CsaClient, CsaLineReader, EvaluationMode, GameRecord, GameResult,
+        MAX_CSA_LINE_BYTES, RecordMetadata, RootCandidateRecord, ServerLine, TOURNAMENT_MAX_PLIES,
+        ThinkResult, advance_tournament_ply, bare_server_move, classify_server_line,
+        parse_game_end, parse_our_color, parse_time_from_echo, update_run_manifest_game,
+        update_run_manifest_progress, write_runtime_status_progress,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
@@ -2067,18 +1946,18 @@ mod tests {
     #[test]
     fn time_control_and_manifest_fail_closed_on_every_ambiguous_boundary() {
         for (unit, expected) in [("2sec", 2_000), ("3min", 180_000), ("4msec", 4)] {
-            assert_eq!(super::parse_time_unit_ms(unit).unwrap(), expected);
+            assert_eq!(parse_time_unit_ms(unit).unwrap(), expected);
         }
         for unit in ["", "1hour", "0sec", "18446744073709551615min"] {
             assert_eq!(
-                super::parse_time_unit_ms(unit).unwrap_err().kind(),
+                parse_time_unit_ms(unit).unwrap_err().kind(),
                 io::ErrorKind::InvalidData,
                 "{unit}"
             );
         }
         for value in ["", "-1", " 1", "18446744073709551616"] {
             assert_eq!(
-                super::parse_decimal(value).unwrap_err().kind(),
+                parse_decimal(value).unwrap_err().kind(),
                 io::ErrorKind::InvalidData,
                 "{value}"
             );
