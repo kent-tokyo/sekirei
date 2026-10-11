@@ -55,10 +55,14 @@ jobs:
           grep -Fq 'readonly uniqueSolution: boolean;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly solutions: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'export function analyzePosition' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'export function loadEvaluator' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly kind: 'cp' | 'mate' | 'terminal' | 'unknown';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly scoreCp: number | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly scorePerspective: 'sideToMove';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly evaluatorVersion: string;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly evaluatorWeightSha256: string | undefined;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly maxEvaluatorBytes: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
+          grep -Fq 'readonly supportedEvaluatorFormats: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly principalVariation: string[];' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq "readonly pvSource: 'completed_iteration' | 'none';" crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
           grep -Fq 'readonly candidateLineCount: number;' crates/sekirei-wasm/pkg/sekirei_wasm.d.ts
@@ -70,7 +74,9 @@ jobs:
           python3 scripts/check_wasm_package_metadata.py \
             --archive "crates/sekirei-wasm/pkg-dist/sekirei-wasm-${version}.tgz"
       - name: Generated JavaScript analysis contract
-        run: node scripts/test_wasm_position_analysis.mjs
+        run: |
+          node scripts/test_wasm_position_analysis.mjs
+          node scripts/test_wasm_evaluator_load.mjs
 
   test:
     runs-on: ubuntu-latest

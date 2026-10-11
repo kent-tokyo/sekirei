@@ -884,6 +884,7 @@ version = "0.3.72"
 dependencies = [
  "js-sys",
  "sekirei-core",
+ "sha2 0.10.9",
  "wasm-bindgen",
  "wasm-bindgen-test",
 ]

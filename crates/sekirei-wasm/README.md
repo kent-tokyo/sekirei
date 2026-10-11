@@ -37,12 +37,19 @@ import init, {
   applyMove,
   computerMove,
   analyzePosition,
+  loadEvaluator,
   searchCapabilities,
 } from "./pkg/sekirei_wasm.js";
 
 await init();
 const capabilities = searchCapabilities();
 console.log(capabilities.effectiveWorkers); // 1
+// Optional, one-shot evaluator loading. Run this before creating any board.
+// The caller is responsible for the weight file's source and license.
+const weightBytes = new Uint8Array(await (await fetch("./weights.bin")).arrayBuffer());
+const loaded = loadEvaluator(weightBytes);
+console.log(loaded.evaluatorId, loaded.weightSha256);
+loaded.free();
 let sfen = startSfen();
 console.log(legalMoves(sfen));
 sfen = applyMove(sfen, "7g7f");
@@ -88,7 +95,8 @@ It returns a `PositionAnalysis` wasm-bindgen object; call `free()` when done.
 | `aborted`, `abortReason`, `nodes` | Node exhaustion, optional `node_limit`, and total nodes including a partial deeper pass |
 | `usedFallback` | No iteration completed, but a legal fallback move exists |
 | `terminalReason`, `inCheck` | Optional `checkmate`/`no_moves`, and whether the moving king is in check |
-| `evaluatorId`, `evaluatorVersion`, `engineVersion`, `apiVersion` | `material`, `material-v1`, Cargo version, and contract schema `2` |
+| `evaluatorId`, `evaluatorVersion`, `evaluatorWeightSha256` | Actual evaluator identity and exact input-byte hash; material has no hash |
+| `engineVersion`, `apiVersion` | Cargo version and contract schema `3` |
 
 An interruption **after** a shallow pass can still return its completed score
 and bound with `aborted = true`. `bound` describes that score, not the later
@@ -116,12 +124,28 @@ guards packed hand storage and later captures from oversized-input traps.
 The moving king may be in check.
 The existing rule and move-selection APIs retain their original contracts.
 
-The same depth 1–8, nodes 1–100,000, material-only, sequential one-worker,
+The same depth 1–8, nodes 1–100,000, sequential one-worker,
 4 MiB TT limits apply. Run synchronous analysis in an application Web Worker
 for responsive UI; worker orchestration is outside this API. There are no
-weight files or weight hashes in this build. Cache clients should include
+weight files bundled in this build. Cache clients should include
 the schema, evaluator and engine identities, search limits, and package/source
 hash: a candidate can share a Cargo version with a prior release.
+
+## Browser evaluator loading
+
+`loadEvaluator(Uint8Array)` accepts complete `SEKIRW01` or
+`HalfKP 256x2-32-32` images. It validates the format, exact size, numeric
+values, and the advertised maximum before changing evaluator state. Success
+returns the format, byte count, evaluator ID/version, and SHA-256 of the exact
+input bytes. Rejected input throws `invalid_evaluator` or
+`evaluator_too_large` and leaves material evaluation active.
+
+Loading is deliberately one-shot for each WebAssembly instance. A second
+load throws `evaluator_already_loaded`; terminate and recreate the application
+Web Worker to select another checkpoint. `searchCapabilities()` publishes the
+accepted formats, maximum byte count, and `evaluatorReloadSupported = false`.
+The package does not fetch or redistribute weights, and this API does not make
+a playing-strength claim for any checkpoint.
 
 ## Mate-in-one validation
 
@@ -153,7 +177,8 @@ intermediate SFEN to inspect later attacking turns with the same contract.
 
 ## Browser search contract
 
-- Built-in material evaluation only; no external weights are loaded.
+- Built-in material evaluation until the caller explicitly loads one validated
+  evaluator byte image. No filesystem API or weight file is bundled.
 - Sequential search only. `searchCapabilities()` reports `maxWorkers = 1`,
   `effectiveWorkers = 1`, `workerThreadsSupported = false`, and
   `sharedArrayBufferRequired = false`. It also reports

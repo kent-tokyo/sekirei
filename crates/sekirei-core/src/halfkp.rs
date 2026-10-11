@@ -56,6 +56,8 @@ pub const DEFAULT_FV_SCALE: i32 = 16;
 pub const MAX_EVAL: i32 = 30_000;
 /// Largest accepted architecture descriptor.
 const MAX_ARCHITECTURE_BYTES: usize = 4_096;
+/// Largest complete HalfKP file accepted by this parser.
+pub const MAX_FILE_BYTES: usize = file_len(MAX_ARCHITECTURE_BYTES);
 /// Right shift applied to hidden-layer sums before clipping.
 const WEIGHT_SCALE_BITS: u32 = 6;
 
@@ -630,6 +632,13 @@ pub fn is_halfkp_file(path: &Path) -> io::Result<bool> {
         Err(e) if e.kind() == ErrorKind::UnexpectedEof => Ok(false),
         Err(e) => Err(e),
     }
+}
+
+/// True when an in-memory image starts with the supported HalfKP version.
+pub fn is_halfkp_bytes(bytes: &[u8]) -> bool {
+    bytes
+        .get(..4)
+        .is_some_and(|head| u32::from_le_bytes(head.try_into().unwrap()) == FILE_VERSION)
 }
 
 /// Read and validate a network file without activating it.

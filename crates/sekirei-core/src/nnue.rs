@@ -244,6 +244,20 @@ pub fn load_weights(path: &Path) -> io::Result<()> {
         ));
     }
     let w = read_weights(path)?;
+    install_weights(w)
+}
+
+/// Activate a validated in-memory SEKIRW checkpoint.
+///
+/// Like [`load_weights`], this succeeds at most once per process and refuses
+/// to replace an active HalfKP evaluator.
+pub fn install_weights(w: NnueWeights) -> io::Result<()> {
+    if crate::halfkp::is_active() {
+        return Err(io::Error::new(
+            io::ErrorKind::AlreadyExists,
+            "a HalfKP network is already loaded for this process",
+        ));
+    }
     if WEIGHTS.set(w).is_ok() {
         NNUE_ACTIVE.store(true, Ordering::Relaxed);
         Ok(())
@@ -288,6 +302,22 @@ pub fn load_evaluator(path: &Path) -> io::Result<EvalFileFormat> {
     }
 }
 
+/// Validate and activate an evaluator supplied as one complete byte image.
+///
+/// Parsing is side-effect free. Process-wide evaluator state changes only
+/// after the entire image has passed format, size, and numeric validation.
+pub fn load_evaluator_bytes(bytes: &[u8]) -> io::Result<EvalFileFormat> {
+    if crate::halfkp::is_halfkp_bytes(bytes) {
+        let network = crate::halfkp::HalfKpNetwork::from_bytes(bytes)?;
+        crate::halfkp::install_network(network)?;
+        Ok(EvalFileFormat::HalfKp)
+    } else {
+        let weights = read_weights_from_bytes(bytes)?;
+        install_weights(weights)?;
+        Ok(EvalFileFormat::Sekirei)
+    }
+}
+
 /// Parses a SEKIRW01 (or legacy JANOSW03) binary weights file into an
 /// owned `NnueWeights`, without touching the global `WEIGHTS`/`NNUE_ACTIVE`
 /// statics `load_weights` populates.
@@ -302,20 +332,23 @@ pub fn load_evaluator(path: &Path) -> io::Result<EvalFileFormat> {
 /// baseline while scoring the loaded checkpoint as the candidate) needs
 /// this side-effect-free path instead of `load_weights`.
 pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
+    read_weights_from_bytes(&std::fs::read(path)?)
+}
+
+/// Exact byte length of the SEKIRW checkpoint accepted by this build.
+pub const fn weights_file_len() -> usize {
+    8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4
+}
+
+/// Parse a complete SEKIRW checkpoint without activating it.
+pub fn read_weights_from_bytes(data: &[u8]) -> io::Result<NnueWeights> {
     #[cfg(not(feature = "king_relative_b_small"))]
     const MAGIC: &[u8] = b"SEKIRW01";
     #[cfg(feature = "king_relative_b_small")]
     const MAGIC: &[u8] = b"SEKIRW02";
     #[cfg(not(feature = "king_relative_b_small"))]
     const MAGIC_LEGACY: &[u8] = b"JANOSW03";
-    let ft_bytes = INPUT * L1 * 2;
-    let bias_bytes = L1 * 2;
-    let l2_bytes = 2 * L1 * L2 * 4;
-    let l2b_bytes = L2 * 4;
-    let out_bytes = L2 * 4;
-    let expected = 8 + ft_bytes + bias_bytes + l2_bytes + l2b_bytes + out_bytes + 4;
-
-    let data = std::fs::read(path)?;
+    let expected = weights_file_len();
 
     if data.len() != expected {
         return Err(Error::new(
@@ -397,8 +430,18 @@ pub fn read_weights(path: &Path) -> io::Result<NnueWeights> {
 
 /// Serialise weights to a binary file in SEKIRW01 format.
 pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
+    let data = weights_to_bytes(w)?;
+
+    // Write beside the destination and rename only after the complete file is
+    // durable in the filesystem namespace. A killed trainer must not leave a
+    // valid-looking partial checkpoint behind.
+    atomic_write(path, &data)
+}
+
+/// Serialize a validated SEKIRW checkpoint to one in-memory byte image.
+pub fn weights_to_bytes(w: &NnueWeights) -> io::Result<Vec<u8>> {
     w.validate_finite()?;
-    let capacity = 8 + INPUT * L1 * 2 + L1 * 2 + 2 * L1 * L2 * 4 + L2 * 4 + L2 * 4 + 4;
+    let capacity = weights_file_len();
     let mut data = Vec::with_capacity(capacity);
 
     #[cfg(not(feature = "king_relative_b_small"))]
@@ -425,7 +468,11 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
         data.extend_from_slice(&v.to_le_bytes());
     }
     data.extend_from_slice(&w.out_bias.to_le_bytes());
+    debug_assert_eq!(data.len(), weights_file_len());
+    Ok(data)
+}
 
+fn atomic_write(path: &Path, data: &[u8]) -> io::Result<()> {
     // Write beside the destination and rename only after the complete file is
     // durable in the filesystem namespace. A killed trainer must not leave a
     // truncated artifact at the path consumed by the engine.
@@ -445,7 +492,7 @@ pub fn save_weights(w: &NnueWeights, path: &Path) -> io::Result<()> {
 
     let write_result = (|| -> io::Result<()> {
         let mut file = std::fs::File::create(&temp_path)?;
-        file.write_all(&data)?;
+        file.write_all(data)?;
         file.sync_all()
     })();
     if let Err(error) = write_result {
