@@ -164,6 +164,26 @@ mod tests {
     fn disabled_logger_does_not_create_a_file() {
         let logger = BookDecisionLogger::default();
         assert!(!logger.enabled());
+        logger
+            .decision(DecisionContext {
+                experiment_id: logger.experiment_id(),
+                game_counter: 1,
+                decision_counter: 1,
+                ply: 0,
+                sfen: "state",
+                use_book: false,
+                book_max_ply: 0,
+                book_min_confidence: 0.0,
+                book_sha256: None,
+                book_schema_version: None,
+                book_producer_version: None,
+                build_config_fingerprint: None,
+                candidates: &[],
+                selected_action: None,
+                action_source: "search",
+                fallback_reason: Some("disabled"),
+            })
+            .unwrap();
         logger.terminal(1, "draw").unwrap();
     }
 

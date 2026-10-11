@@ -136,3 +136,23 @@ pub(crate) fn parse(
         multi_pv,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn zero_increment_percentage_restores_the_combined_clock_budget() {
+        let config = parse(
+            "btime 60000 wtime 60000 binc 3000 winc 3000 movestogo 30",
+            Color::Black,
+            0,
+            false,
+            1,
+            0,
+        );
+
+        assert_eq!(config.time_limit, Some(Duration::from_millis(3150)));
+        assert_eq!(config.soft_limit, Some(Duration::from_millis(1680)));
+    }
+}
