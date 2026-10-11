@@ -39,6 +39,17 @@ preserves older per-change notes.
   local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
   opening-corpus, candidate, and local raw-archive hashes. The weight remains
   unbundled and the material evaluator remains the default.
+- Search: advance TT generations for speculative searches and for every
+  persistent isolated Lazy SMP worker. Four-slot replacement now ages entries
+  consistently across all alpha-beta backends instead of retaining stale
+  equal-depth entries indefinitely in those modes.
+- Match runner: gracefully reap engine children at normal shutdown, force and
+  reap engines that ignore `quit`, and kill a launched child before exiting on
+  a failed USI initialization. The thread-scaling diagnostic also waits after
+  its forced-kill fallback. Match completion, startup failure, and diagnostic
+  timeout paths no longer leave orphan or zombie engine processes. Opening
+  corpora also accept the documented `startpos` token instead of validating
+  every line as raw SFEN.
 - Search diagnostics: estimate within-worker and cross-worker repeated
   position work with a bounded, opt-in Lazy SMP sampler, report it through the
   thread-scaling tool, and add a disabled depth-ladder experiment. Shared TT

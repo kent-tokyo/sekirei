@@ -2,6 +2,7 @@
 """Unit tests for explicit evaluator and thread-scaling options."""
 
 import argparse
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -52,6 +53,19 @@ class ThreadOptionsTest(unittest.TestCase):
         binary = Path("target/release/sekirei").resolve()
         self.assertEqual(popen.call_args.args[0], [str(binary)])
         self.assertEqual(popen.call_args.kwargs["cwd"], str(binary.parent))
+
+    def test_quit_reaps_an_engine_that_does_not_exit_in_time(self):
+        with patch("nps_threads.subprocess.Popen") as popen:
+            process = popen.return_value
+            process.wait.side_effect = [
+                subprocess.TimeoutExpired("sekirei", 5),
+                0,
+            ]
+            engine = Usi("target/release/sekirei", {})
+            engine.quit()
+
+        process.kill.assert_called_once_with()
+        self.assertEqual(process.wait.call_count, 2)
 
     def test_lazy_smp_diagnostics_are_parsed(self):
         diagnostics = parse_lazy_smp(

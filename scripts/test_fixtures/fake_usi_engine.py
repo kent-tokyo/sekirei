@@ -41,6 +41,7 @@ for line in iter(sys.stdin.readline, ""):
     line = line.strip()
     if line == "usi":
         print(f"id name FakeEngine-{mode}")
+        print("option name Threads type spin default 1 min 1 max 128")
         print("usiok")
         sys.stdout.flush()
     elif line == "isready":

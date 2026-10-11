@@ -78,9 +78,17 @@ class Usi:
     def quit(self) -> None:
         try:
             self.send("quit")
+        except Exception:
+            pass
+        try:
             self.proc.wait(timeout=5)
         except Exception:
-            self.proc.kill()
+            # `kill` alone leaves a zombie until the Python runner exits.
+            # Always wait after the fallback termination as well.
+            try:
+                self.proc.kill()
+            finally:
+                self.proc.wait()
 
 
 def parse_info(lines: list[str]) -> tuple[int, int, int]:

@@ -362,25 +362,17 @@ const fn csa_piece_name(kind: PieceKind) -> &'static str {
     }
 }
 
-/// A `go()` failure is a time forfeit when the engine simply didn't answer
-/// within its byoyomi+grace deadline (still alive, just too slow) -- distinct
-/// from the reader thread ending because the process died/closed its pipe
-/// (`engine::map_recv_result` maps that to a different io::ErrorKind
-/// specifically so this distinction is possible). A pure function so the
-/// branch itself is directly unit-testable without spawning a process.
 /// Launch an engine and run its `usi`/`setoption`/`isready` handshake, or
-/// exit -- used both for the initial launch and to replace a retired engine
-/// process mid-run (see the `IllegalMove`/`EngineError` handling in `main`).
-fn launch_and_init(path: &str, args: &[String], options: &[String]) -> UsiEngine {
-    let mut e = UsiEngine::launch(path, args, options).unwrap_or_else(|e| {
-        eprintln!("failed to launch engine {path}: {e}");
-        std::process::exit(1);
-    });
-    e.initialize(options).unwrap_or_else(|e| {
-        eprintln!("engine {path} init failed: {e}");
-        std::process::exit(1);
-    });
-    e
+/// return the failure after reaping the launched child. Used both for the
+/// initial launch and to replace a retired engine process mid-run (see the
+/// `IllegalMove`/`EngineError` handling in `main`).
+fn launch_and_init(path: &str, args: &[String], options: &[String]) -> std::io::Result<UsiEngine> {
+    let mut e = UsiEngine::launch(path, args, options)?;
+    if let Err(error) = e.initialize(options) {
+        e.kill();
+        return Err(error);
+    }
+    Ok(e)
 }
 
 fn now_ms() -> u128 {
@@ -1049,9 +1041,9 @@ fn load_positions(path: &Path) -> Result<Vec<String>, String> {
         if sfen.is_empty() || sfen.starts_with('#') {
             continue;
         }
-        parse_position_cmd(&format!("sfen {sfen}")).map_err(|error| {
+        parse_start_position(sfen).map_err(|error| {
             format!(
-                "invalid SFEN in {} at line {}: {error}",
+                "invalid start position in {} at line {}: {error}",
                 path.display(),
                 index + 1
             )
@@ -1935,8 +1927,17 @@ fn main() {
     };
     let mut rng = Lcg(0x_dead_beef_cafe_0001);
 
-    let mut e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1);
-    let mut e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2);
+    let mut e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1)
+        .unwrap_or_else(|error| {
+            eprintln!("engine {} init failed: {error}", args.engine1_path);
+            std::process::exit(1);
+        });
+    let mut e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2)
+        .unwrap_or_else(|error| {
+            eprintln!("engine {} init failed: {error}", args.engine2_path);
+            e1.kill();
+            std::process::exit(1);
+        });
 
     let e1_label = engine_display_label(&e1.name, &args.args1);
     let e2_label = engine_display_label(&e2.name, &args.args2);
@@ -2046,7 +2047,14 @@ fn main() {
                     e1.pid()
                 );
                 e1.kill();
-                e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1);
+                e1 = launch_and_init(&args.engine1_path, &args.args1, &args.engine_options1)
+                    .unwrap_or_else(|error| {
+                        fatal_protocol_error(
+                            &mut e1,
+                            &mut e2,
+                            &format!("replacement e1 initialization failed: {error}"),
+                        )
+                    });
             }
             if e2_at_fault {
                 eprintln!(
@@ -2054,7 +2062,14 @@ fn main() {
                     e2.pid()
                 );
                 e2.kill();
-                e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2);
+                e2 = launch_and_init(&args.engine2_path, &args.args2, &args.engine_options2)
+                    .unwrap_or_else(|error| {
+                        fatal_protocol_error(
+                            &mut e1,
+                            &mut e2,
+                            &format!("replacement e2 initialization failed: {error}"),
+                        )
+                    });
             }
         }
 
@@ -2315,6 +2330,13 @@ fn main() {
 mod tests {
     use super::*;
 
+    #[cfg(unix)]
+    #[test]
+    fn launch_and_init_returns_an_error_when_the_child_exits_during_handshake() {
+        let args = vec!["-c".to_string(), "read line; exit 0".to_string()];
+        assert!(launch_and_init("/bin/sh", &args, &[]).is_err());
+    }
+
     #[test]
     fn gameover_results_are_from_each_engine_perspective() {
         assert_eq!(gameover_results(Outcome::E1Win), ("win", "lose"));
@@ -2347,6 +2369,20 @@ mod tests {
         let error = load_positions(&path).unwrap_err();
         let _ = fs::remove_file(path);
         assert!(error.contains("at line 3"), "unexpected error: {error}");
+    }
+
+    #[test]
+    fn opening_loader_accepts_startpos_and_raw_sfen() {
+        let path = std::env::temp_dir().join(format!(
+            "sekirei-match-valid-openings-{}-{}.sfen",
+            std::process::id(),
+            now_ms()
+        ));
+        let sfen = "4k4/9/9/9/9/9/9/9/4K4 w - 1";
+        fs::write(&path, format!("startpos\n{sfen}\n")).unwrap();
+        let positions = load_positions(&path).unwrap();
+        let _ = fs::remove_file(path);
+        assert_eq!(positions, ["startpos", sfen]);
     }
 
     #[test]
