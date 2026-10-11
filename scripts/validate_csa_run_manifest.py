@@ -17,7 +17,7 @@ def validate(document: dict, finalized: bool = False) -> list[str]:
     errors = []
     if document.get("schema") != SCHEMA:
         errors.append("schema")
-    if document.get("status") not in {"active", "finalized"}:
+    if document.get("status") not in {"active", "finalized", "failed"}:
         errors.append("status")
     for key in REQUIRED:
         if key not in document:
@@ -44,6 +44,13 @@ def validate(document: dict, finalized: bool = False) -> list[str]:
     if "terminal_stop_reason" in document and document["terminal_stop_reason"] is not None \
             and not isinstance(document["terminal_stop_reason"], str):
         errors.append("terminal_stop_reason")
+    incomplete = document.get("incomplete_game")
+    if incomplete is not None:
+        if not isinstance(incomplete, dict) \
+                or incomplete.get("classification") != "incomplete" \
+                or incomplete.get("counted") is not False \
+                or not isinstance(incomplete.get("game_id"), str):
+            errors.append("incomplete_game")
     if "games" in document:
         games = document["games"]
         if not isinstance(games, list) or not games:

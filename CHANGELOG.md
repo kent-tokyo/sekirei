@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Floodgate supervision: when a bounded CSA child exits non-zero, persist its
+  exit code and terminal reason to runtime status, run manifest, and the
+  one-shot completion record. A live game is classified as incomplete and is
+  never added to the completed-game count.
 - NNUE evidence: record the pinned v0.3.68 material-gate PASS results for the
   local `nn_r3` candidate at 500 ms and 1 second per move, including engine,
   opening-corpus, candidate, and local raw-archive hashes. The weight remains

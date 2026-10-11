@@ -359,6 +359,76 @@ def test_one_shot_preserves_reported_run_error_terminal_reason():
         assert events[-1]["kind"] == "one_shot_complete"
 
 
+def test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_game():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        manifest_file = root / "run-manifest.json"
+        record_dir = root / "records"
+        record_dir.mkdir()
+        partial_record = record_dir / "live-game.csa"
+        partial_record.write_text("V2.2\nN+sekirei\nN-opponent\n+7776FU\n", encoding="utf-8")
+        manifest_file.write_text(json.dumps({
+            "schema": "sekirei.csa-run-manifest.v1",
+            "status": "active",
+            "completed_attempts": 2,
+            "max_games": 10,
+            "games": [{"game_id": "completed-1"}, {"game_id": "completed-2"}],
+        }), encoding="utf-8")
+        code = (
+            "import json, os, pathlib, time; "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'in_game','event':'start','timestamp_ms':int(time.time()*1000),"
+            "'pid':os.getpid(),'session_id':'session-live','active_game_id':'live-game',"
+            "'completed_attempts':2,'max_games':10,'terminal_stop_reason':None})); "
+            "time.sleep(0.08); raise SystemExit(3)"
+        )
+        result = supervisor.run(
+            [sys.executable, "-c", code, "--run-manifest", str(manifest_file)],
+            state_dir,
+            root / "stop",
+            max_restarts=5,
+            restart_window=60.0,
+            restart_delay=0.0,
+            poll_seconds=0.01,
+            client_status_file=status_file,
+            client_status_max_age=2.0,
+            one_shot=True,
+        )
+        assert result == 0
+
+        status = json.loads(status_file.read_text())
+        assert status["state"] == "client_error"
+        assert status["event"] == "child_exit"
+        assert status["completed_attempts"] == 2
+        assert status["child_exit_code"] == 3
+        assert status["incomplete_game"] == {
+            "game_id": "live-game",
+            "classification": "incomplete",
+            "counted": False,
+            "last_client_state": "in_game",
+        }
+
+        manifest = json.loads(manifest_file.read_text())
+        assert manifest["status"] == "failed"
+        assert manifest["completed_attempts"] == 2
+        assert [game["game_id"] for game in manifest["games"]] == ["completed-1", "completed-2"]
+        assert manifest["incomplete_game"]["game_id"] == "live-game"
+        assert manifest["incomplete_game"]["counted"] is False
+
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["completed_attempts"] == 2
+        assert completion["child_exit_code"] == 3
+        assert completion["incomplete_game"]["classification"] == "incomplete"
+        assert completion["persistence_errors"] == []
+        assert partial_record.read_text(encoding="utf-8").endswith("+7776FU\n")
+        events = [json.loads(line) for line in (state_dir / "events.jsonl").read_text().splitlines()]
+        assert all(event["kind"] != "restart_scheduled" for event in events)
+        assert events[-1]["kind"] == "one_shot_complete"
+
+
 def test_runtime_explicit_stop_before_start_does_not_spawn_child():
     with tempfile.TemporaryDirectory() as directory:
         state_dir = Path(directory) / "state"
@@ -497,6 +567,7 @@ if __name__ == "__main__":
     test_one_shot_records_interrupted_zero_game_session_and_never_respawns()
     test_one_shot_preserves_normal_max_games_terminal_reason()
     test_one_shot_preserves_reported_run_error_terminal_reason()
+    test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_game()
     test_runtime_explicit_stop_before_start_does_not_spawn_child()
     test_runtime_rejects_a_second_supervisor_for_the_same_state_directory()
     test_runtime_normal_exit_is_not_restarted()

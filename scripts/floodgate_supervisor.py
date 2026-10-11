@@ -53,6 +53,81 @@ def write_json(path: Path, value: dict) -> None:
     temporary.replace(path)
 
 
+def command_path_option(command: list[str], option: str) -> Path | None:
+    """Return one path-valued child option, rejecting ambiguous duplicates."""
+    indexes = [index for index, value in enumerate(command) if value == option]
+    if not indexes:
+        return None
+    if len(indexes) != 1 or indexes[0] + 1 >= len(command):
+        raise ValueError(f"child command must contain at most one complete {option} option")
+    return Path(command[indexes[0] + 1])
+
+
+def persist_child_terminal_diagnostics(
+        status_path: Path | None,
+        manifest_path: Path | None,
+        observation: dict[str, object] | None,
+        terminal_reason: str,
+        returncode: int | None,
+        kind: str) -> tuple[dict[str, object] | None, list[str]]:
+    """Make a non-zero child exit durable even when the client died mid-game."""
+    active_game_id = observation.get("active_game_id") if observation else None
+    client_state = observation.get("state") if observation else None
+    incomplete = None
+    if isinstance(active_game_id, str) and active_game_id:
+        incomplete = {
+            "game_id": active_game_id,
+            "classification": "incomplete",
+            "counted": False,
+            "last_client_state": client_state,
+        }
+    errors: list[str] = []
+    terminal_ms = time.time_ns() // 1_000_000
+
+    if status_path is not None:
+        try:
+            status = json.loads(status_path.read_text(encoding="utf-8"))
+            if not isinstance(status, dict):
+                raise ValueError("runtime status is not an object")
+            existing_event = status.get("event")
+            existing_terminal = status.get("terminal_stop_reason")
+            status.update({
+                "state": "client_error",
+                "event": (
+                    existing_event
+                    if isinstance(existing_terminal, str) and existing_terminal
+                    else "child_exit"
+                ),
+                "timestamp_ms": terminal_ms,
+                "terminal_stop_reason": terminal_reason,
+                "child_exit_code": returncode,
+                "exit_kind": kind,
+                "incomplete_game": incomplete,
+            })
+            write_json(status_path, status)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            errors.append(f"status: {error}")
+
+    if manifest_path is not None:
+        try:
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if not isinstance(manifest, dict):
+                raise ValueError("run manifest is not an object")
+            manifest.update({
+                "status": "failed",
+                "terminal_stop_reason": terminal_reason,
+                "terminal_timestamp_ms": terminal_ms,
+                "child_exit_code": returncode,
+                "exit_kind": kind,
+                "incomplete_game": incomplete,
+            })
+            write_json(manifest_path, manifest)
+        except (OSError, ValueError, json.JSONDecodeError) as error:
+            errors.append(f"run_manifest: {error}")
+
+    return incomplete, errors
+
+
 def acquire_instance_lock(path: Path):
     """Keep one supervisor for a state directory, without deleting the lock."""
     lock = path.open("a+")
@@ -196,6 +271,7 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
     events_path = state_dir / "events.jsonl"
     state_path = state_dir / "state.json"
     one_shot_completion_path = state_dir / "one-shot-complete.json"
+    run_manifest_path = command_path_option(command, "--run-manifest")
     restart_times: deque[float] = deque()
     restart_count = 0
 
@@ -374,6 +450,17 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                 terminal_reason = "child_exited_before_max_games"
             else:
                 terminal_reason = "child_exited"
+            incomplete_game = None
+            persistence_errors: list[str] = []
+            if returncode not in {None, 0}:
+                incomplete_game, persistence_errors = persist_child_terminal_diagnostics(
+                    client_status_file,
+                    run_manifest_path,
+                    latest_observation,
+                    terminal_reason,
+                    returncode,
+                    kind,
+                )
             completion = {
                 "schema": "sekirei.floodgate-one-shot.v1",
                 "timestamp": time.time(),
@@ -382,6 +469,8 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                 "max_games": max_games,
                 "child_exit_code": returncode,
                 "exit_kind": kind,
+                "incomplete_game": incomplete_game,
+                "persistence_errors": persistence_errors,
             }
             write_json(one_shot_completion_path, completion)
             event("one_shot_complete", **completion,
