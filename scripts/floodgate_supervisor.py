@@ -22,7 +22,7 @@ NON_RESTARTABLE_EXIT_KINDS = {"exit_2", "exit_3", "exit_64"}
 CLIENT_STATUS_SCHEMA = "sekirei.csa-runtime-status.v1"
 CLIENT_STATUS_STATES = {
     "connecting", "authenticated", "waiting_for_game", "in_game", "receiving",
-    "game_finished", "connection_error", "client_error", "stopped",
+    "game_finished", "reconnecting", "connection_error", "client_error", "stopped",
 }
 
 

@@ -166,11 +166,32 @@ pub fn write_runtime_status_progress(
         state,
         event,
         &RuntimeStatusDetails {
+            session_id: Some(format!("{}-{}", std::process::id(), current_timestamp_ms())),
             completed_attempts,
             terminal_stop_reason: terminal_stop_reason.map(str::to_owned),
             ..RuntimeStatusDetails::default()
         },
     );
+}
+
+/// Publish the terminal result of an exhausted bounded reconnect and mirror
+/// it into the run manifest when one is active.
+pub fn write_reconnect_exhausted_progress(
+    config: &Config,
+    completed_attempts: u32,
+) -> io::Result<()> {
+    const REASON: &str = "post_game_reconnect_exhausted";
+    write_runtime_status_progress(
+        config,
+        "client_error",
+        Some("reconnect_exhausted"),
+        completed_attempts,
+        Some(REASON),
+    );
+    if let Some(path) = config.run_manifest.as_deref() {
+        update_run_manifest_progress(path, config.max_games, completed_attempts, Some(REASON))?;
+    }
+    Ok(())
 }
 
 fn current_timestamp_ms() -> u128 {
@@ -457,6 +478,42 @@ impl CsaClient {
         self.status_details.completed_attempts = completed_attempts;
         self.status_details.terminal_stop_reason = Some("run_error".into());
         self.set_status("client_error", Some("run_error"));
+    }
+
+    /// A bounded run may reconnect only at a game boundary after a transport
+    /// failure. Protocol, recording, and in-game failures remain terminal.
+    pub fn can_reconnect_after_run_error(&self, error: &io::Error) -> bool {
+        self.config.keep_alive
+            && self.config.max_games.is_some()
+            && self.status_details.active_game_id.is_none()
+            && self.status_state != "client_error"
+            && matches!(
+                error.kind(),
+                io::ErrorKind::UnexpectedEof
+                    | io::ErrorKind::ConnectionAborted
+                    | io::ErrorKind::ConnectionReset
+                    | io::ErrorKind::BrokenPipe
+                    | io::ErrorKind::NotConnected
+                    | io::ErrorKind::TimedOut
+            )
+    }
+
+    /// Preserve completed progress while a bounded post-game reconnect is in
+    /// flight. This is deliberately non-terminal so a reachable server can
+    /// continue the same process-wide batch.
+    pub fn mark_reconnect_pending(&mut self, completed_attempts: u32) {
+        self.status_details.completed_attempts = completed_attempts;
+        self.status_details.terminal_stop_reason = None;
+        self.set_status("reconnecting", Some("post_game_disconnect"));
+    }
+
+    /// Record a distinct terminal outcome when bounded recovery cannot
+    /// re-establish a usable session.
+    pub fn mark_reconnect_exhausted(&mut self, completed_attempts: u32) -> io::Result<()> {
+        self.status_details.completed_attempts = completed_attempts;
+        self.status_details.terminal_stop_reason = Some("post_game_reconnect_exhausted".into());
+        self.set_status("client_error", Some("reconnect_exhausted"));
+        self.update_progress(completed_attempts, Some("post_game_reconnect_exhausted"))
     }
 
     // ---- Private ----
@@ -1699,8 +1756,8 @@ mod tests {
         TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
         classify_server_line, game_result_name, json_string, parse_game_end, parse_our_color,
         parse_time_from_echo, pv_to_csa, root_candidates_json, score_kind,
-        update_run_manifest_game, update_run_manifest_progress, write_runtime_status_progress,
-        write_runtime_status_snapshot,
+        update_run_manifest_game, update_run_manifest_progress, write_reconnect_exhausted_progress,
+        write_runtime_status_progress, write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
@@ -2006,8 +2063,37 @@ mod tests {
         let mut completed = 0;
         client.run(&mut completed).unwrap();
         assert_eq!(client.status_state, "stopped");
-        client.mark_run_error(2);
+        client.config.keep_alive = true;
+        client.config.max_games = Some(3);
+        assert!(client.can_reconnect_after_run_error(&io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "boundary eof"
+        )));
+        client.status_details.active_game_id = Some("active".into());
+        assert!(!client.can_reconnect_after_run_error(&io::Error::new(
+            io::ErrorKind::UnexpectedEof,
+            "in-game eof"
+        )));
+        client.status_details.active_game_id = None;
+        assert!(!client.can_reconnect_after_run_error(&io::Error::new(
+            io::ErrorKind::InvalidData,
+            "protocol error"
+        )));
+        client.mark_reconnect_pending(2);
+        assert_eq!(client.status_state, "reconnecting");
+        assert_eq!(client.status_details.completed_attempts, 2);
+        assert_eq!(client.status_details.terminal_stop_reason, None);
+        client.mark_reconnect_exhausted(2).unwrap();
         assert!(client.has_terminal_client_error());
+        assert_eq!(
+            client.status_details.terminal_stop_reason.as_deref(),
+            Some("post_game_reconnect_exhausted")
+        );
+        client.mark_run_error(3);
+        assert_eq!(
+            client.status_details.terminal_stop_reason.as_deref(),
+            Some("run_error")
+        );
         client.send_login().unwrap();
         let mut login = String::new();
         BufReader::new(server.try_clone().unwrap())
@@ -3719,6 +3805,7 @@ mod tests {
         let config = Config {
             game_id: "floodgate-180-2F".into(),
             max_games: Some(14),
+            run_manifest: Some(manifest.clone()),
             status_file: Some(status.clone()),
             status_journal: Some(journal.clone()),
             ..Config::default()
@@ -3733,9 +3820,28 @@ mod tests {
             Some("max_games_reached"),
         );
         let snapshot: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(status).unwrap()).unwrap();
+            serde_json::from_str(&fs::read_to_string(&status).unwrap()).unwrap();
         assert_eq!(snapshot["completed_attempts"], 14);
-        assert_eq!(fs::read_to_string(journal).unwrap().lines().count(), 2);
+        assert_eq!(fs::read_to_string(&journal).unwrap().lines().count(), 2);
+
+        write_reconnect_exhausted_progress(&config, 3).unwrap();
+        let exhausted: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&status).unwrap()).unwrap();
+        assert_eq!(exhausted["state"], "client_error");
+        assert_eq!(exhausted["event"], "reconnect_exhausted");
+        assert_eq!(exhausted["completed_attempts"], 3);
+        assert_eq!(
+            exhausted["terminal_stop_reason"],
+            "post_game_reconnect_exhausted"
+        );
+        assert_eq!(fs::read_to_string(&journal).unwrap().lines().count(), 3);
+        let exhausted_manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+        assert_eq!(exhausted_manifest["completed_attempts"], 3);
+        assert_eq!(
+            exhausted_manifest["terminal_stop_reason"],
+            "post_game_reconnect_exhausted"
+        );
 
         let initial = vec!["PI".to_string(), "+".to_string()];
         update_run_manifest_game(
