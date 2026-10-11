@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- CSA: let bounded multi-game runs reconnect up to three times after a
+  post-game transport close while preserving completed-game progress. Failed
+  recovery is recorded as `post_game_reconnect_exhausted`; mid-game, protocol,
+  and recording failures remain terminal.
+
 ## [0.3.71] – 2026-10-11
 
 - CSA: terminate an authenticated bounded client generation with a non-zero

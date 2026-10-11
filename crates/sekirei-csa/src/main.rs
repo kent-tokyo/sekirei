@@ -29,7 +29,12 @@ mod protocol;
 
 use std::time::Duration;
 
-use protocol::{Config, CsaClient, EvaluationMode, write_runtime_status_progress};
+use protocol::{
+    Config, CsaClient, EvaluationMode, write_reconnect_exhausted_progress,
+    write_runtime_status_progress,
+};
+
+const POST_GAME_RECONNECT_LIMIT: u32 = 3;
 
 fn main() {
     let exit_code = run();
@@ -68,8 +73,11 @@ fn run() -> i32 {
     }
 
     let mut attempts = 0u32;
+    let mut post_game_reconnect_attempts = 0u32;
+    let mut recovering_post_game_disconnect = false;
     let mut completed_attempts = config.initial_completed_attempts;
     loop {
+        let completed_before_connection = completed_attempts;
         match CsaClient::connect_with_progress(config.clone(), completed_attempts) {
             Ok(mut client) => match client.run(&mut completed_attempts) {
                 Ok(()) => {
@@ -90,6 +98,43 @@ fn run() -> i32 {
                     if client.has_terminal_client_error() {
                         eprintln!("[csa] terminal client error: {e}");
                         return 3;
+                    }
+                    let made_progress = completed_attempts > completed_before_connection;
+                    let retryable_boundary = client.can_reconnect_after_run_error(&e)
+                        && (made_progress || recovering_post_game_disconnect)
+                        && config
+                            .max_games
+                            .is_some_and(|limit| completed_attempts < limit);
+                    if retryable_boundary {
+                        if made_progress {
+                            post_game_reconnect_attempts = 0;
+                        }
+                        if let Some(next_attempt) = next_post_game_reconnect_attempt(
+                            post_game_reconnect_attempts,
+                            POST_GAME_RECONNECT_LIMIT,
+                        ) {
+                            post_game_reconnect_attempts = next_attempt;
+                            recovering_post_game_disconnect = true;
+                            attempts = 0;
+                            client.mark_reconnect_pending(completed_attempts);
+                            eprintln!(
+                                "[csa] post-game connection error: {e}; reconnecting \
+                                 ({post_game_reconnect_attempts}/{POST_GAME_RECONNECT_LIMIT})"
+                            );
+                            continue;
+                        }
+                        if let Err(status_error) =
+                            client.mark_reconnect_exhausted(completed_attempts)
+                        {
+                            eprintln!(
+                                "[csa] reconnect terminal status unavailable: {status_error}"
+                            );
+                        }
+                        eprintln!(
+                            "[csa] post-game reconnect exhausted after \
+                             {POST_GAME_RECONNECT_LIMIT} attempts: {e}"
+                        );
+                        return 1;
                     }
                     client.mark_run_error(completed_attempts);
                     // A failure after authentication is terminal for this
@@ -115,13 +160,42 @@ fn run() -> i32 {
                     return 3;
                 }
                 attempts += 1;
-                write_runtime_status_progress(
-                    &config,
-                    "connection_error",
-                    Some("connect_error"),
-                    completed_attempts,
-                    None,
-                );
+                if recovering_post_game_disconnect {
+                    if let Some(next_attempt) = next_post_game_reconnect_attempt(
+                        post_game_reconnect_attempts,
+                        POST_GAME_RECONNECT_LIMIT,
+                    ) {
+                        post_game_reconnect_attempts = next_attempt;
+                        write_runtime_status_progress(
+                            &config,
+                            "reconnecting",
+                            Some("connect_error"),
+                            completed_attempts,
+                            None,
+                        );
+                    } else {
+                        if let Err(status_error) =
+                            write_reconnect_exhausted_progress(&config, completed_attempts)
+                        {
+                            eprintln!(
+                                "[csa] reconnect terminal status unavailable: {status_error}"
+                            );
+                        }
+                        eprintln!(
+                            "[csa] post-game reconnect exhausted after \
+                             {POST_GAME_RECONNECT_LIMIT} attempts: {e}"
+                        );
+                        return 1;
+                    }
+                } else {
+                    write_runtime_status_progress(
+                        &config,
+                        "connection_error",
+                        Some("connect_error"),
+                        completed_attempts,
+                        None,
+                    );
+                }
                 eprintln!("[csa] connect failed (attempt {attempts}): {e}");
                 if !config.keep_alive {
                     return 1;
@@ -136,6 +210,11 @@ fn run() -> i32 {
         eprintln!("[csa] retrying in {wait}s…");
         std::thread::sleep(Duration::from_secs(wait));
     }
+}
+
+fn next_post_game_reconnect_attempt(current: u32, limit: u32) -> Option<u32> {
+    let next = current.saturating_add(1);
+    (next <= limit).then_some(next)
 }
 
 fn parse_args() -> Result<Config, String> {
@@ -422,7 +501,7 @@ fn print_usage() {
 
 #[cfg(test)]
 mod tests {
-    use super::{Config, EvaluationMode, write_run_manifest};
+    use super::{Config, EvaluationMode, next_post_game_reconnect_attempt, write_run_manifest};
     use std::fs;
 
     #[test]
@@ -453,6 +532,15 @@ mod tests {
         assert!(text.contains("deferred_to_finalize_csa_run_manifest"));
         assert!(!text.contains("must-not-be-recorded"));
         fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn post_game_reconnect_budget_is_bounded() {
+        assert_eq!(next_post_game_reconnect_attempt(0, 3), Some(1));
+        assert_eq!(next_post_game_reconnect_attempt(1, 3), Some(2));
+        assert_eq!(next_post_game_reconnect_attempt(2, 3), Some(3));
+        assert_eq!(next_post_game_reconnect_attempt(3, 3), None);
+        assert_eq!(next_post_game_reconnect_attempt(u32::MAX, 3), None);
     }
 
     #[test]

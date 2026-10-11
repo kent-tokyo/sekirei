@@ -159,8 +159,11 @@ sekirei-csa --loop --max-games 5 --eval nnue --weights /path/to/weights.bin \
   --status-file data/floodgate/run/status.json
 ```
 
-`--max-games` persists across reconnects. For launchd, use the one-shot
-template with `KeepAlive` disabled.
+`--max-games` persists across reconnects. After a completed game, the client
+may recover an authenticated transport close up to three times in-process;
+protocol, recording, and mid-game failures remain terminal. Exhausted recovery
+is recorded as `post_game_reconnect_exhausted` without discarding completed
+records. For launchd, use the one-shot template with `KeepAlive` disabled.
 
 Before tournament deployment, run the loopback-only two-process rehearsal:
 
