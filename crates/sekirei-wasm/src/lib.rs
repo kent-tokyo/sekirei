@@ -2082,7 +2082,7 @@ mod browser_tests {
             assert_eq!(result.evaluator_version(), "material-v1");
             assert_eq!(result.evaluator_weight_sha256(), None);
             assert_eq!(result.engine_version(), env!("CARGO_PKG_VERSION"));
-            assert_eq!(result.api_version(), 3);
+            assert_eq!(result.api_version(), 4);
             assert_eq!(result.bound(), "exact");
             assert_eq!(result.pv_source(), "completed_iteration");
             assert_eq!(result.candidate_line_count(), 1);
