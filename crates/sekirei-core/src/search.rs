@@ -82,6 +82,7 @@ pub mod params;
 mod path;
 mod pruning;
 mod root_safety;
+mod singular;
 mod static_pruning;
 mod tt_probe;
 mod v2;
@@ -109,6 +110,7 @@ use pruning::{nmp_eval_allows, null_move_pruning, probcut};
 use root_safety::{RootMateSafetyCache, RootSafety, root_mate_safety_filter};
 #[cfg(test)]
 use root_safety::{may_give_check, safe_root_moves};
+use singular::{SingularContext, SingularOutcome};
 use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;
 
@@ -2209,79 +2211,24 @@ fn alpha_beta(
 
     let is_pv = beta - alpha > 1;
 
-    // Singular Extension: check whether the TT move is clearly the best in this position.
-    // If all other moves fail below (tt_score - SE_MARGIN), the TT move is "singular" and
-    // we extend its search by one ply.
-    let sing_ext = if let Some(se_score) = tt_se_score.filter(|_| {
-        skip_move.is_none()
-            && depth >= p::SE_MIN_DEPTH() as u32
-            && (!in_check || p::SE_IN_CHECK() != 0)
-            && tt_mv.is_some()
-            && tt_se_depth >= (depth as u8).saturating_sub(3)
-    }) {
-        let se_beta =
-            (se_score - p::SE_MARGIN() - p::SE_MARGIN_PER_DEPTH() * depth as i32).max(alpha);
-        let sval = alpha_beta(
-            state,
-            board,
-            se_beta - 1,
-            se_beta,
-            depth / 2,
-            ply,
-            false,
-            prev_mv,
-            tt_mv,
-            Some(in_check),
-            history,
-        );
-        if !is_pv && p::MULTICUT() == 1 && sval >= se_beta && se_beta >= beta {
-            return se_beta;
-        }
-        // Not singular, and even without the TT move the reduced search
-        // reaches beta: several moves cut, so the node is assumed to cut.
-        if !is_pv
-            && p::MULTICUT() == 2
-            && sval >= se_beta
-            && sval >= beta
-            && sval.abs() < MATE_SCORE - 1000
-        {
-            return sval;
-        }
-        let ext_max = p::SE_EXT_MAX();
-        if sval < se_beta && ext_max == 0 {
-            // 1 if the TT move is singular; 2 when clearly so at a non-PV node.
-            let double = p::SE_DOUBLE_MARGIN();
-            1 + i32::from(
-                double > 0
-                    && !is_pv
-                    && doubles < p::SE_MAX_DOUBLES() as u8
-                    && sval < se_beta - double,
-            )
-        } else if sval < se_beta {
-            let quiet = tt_mv.is_some_and(|m| !m.promote && board.piece_at(m.to).is_none());
-            let margin = |base: i32, pv: i32, q: i32| {
-                base + if is_pv { pv } else { 0 } - if quiet { q } else { 0 }
-            };
-            let m2 = margin(p::SE_M2_BASE(), p::SE_M2_PV(), p::SE_M2_QUIET());
-            let m3 = margin(p::SE_M3_BASE(), p::SE_M3_PV(), p::SE_M3_QUIET());
-            let multi = doubles < p::SE_MAX_DOUBLES() as u8;
-            let mut ext = 1;
-            if multi && ext_max >= 2 && sval < se_beta - m2 {
-                ext += 1;
-                if ext_max >= 3 && sval < se_beta - m3 {
-                    ext += 1;
-                }
-            }
-            ext
-        } else if se_score >= beta {
-            -p::SE_NEG_TT()
-        } else if cut_node {
-            -p::SE_NEG_CUT()
-        } else {
-            0
-        }
-    } else {
-        0
+    let singular = SingularContext {
+        alpha,
+        beta,
+        depth,
+        ply,
+        prev_move: prev_mv,
+        excluded_move: skip_move,
+        in_check,
+        tt_move: tt_mv,
+        tt_score: tt_se_score,
+        tt_depth: tt_se_depth,
+        pv: is_pv,
+        cut: cut_node,
+        double_extensions: doubles,
+    };
+    let sing_ext = match singular.probe(state, board, history) {
+        SingularOutcome::Extension(extension) => extension,
+        SingularOutcome::Cutoff(score) => return score,
     };
 
     // Quiet moves tried so far — used to apply history malus on beta cutoff.
