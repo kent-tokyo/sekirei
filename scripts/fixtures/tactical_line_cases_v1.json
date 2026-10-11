@@ -1,0 +1,48 @@
+{
+  "schema": "sekirei.tactical-line-cases.v1",
+  "cases": [
+    {
+      "id": "user-photo-question-2",
+      "source": {
+        "kind": "user_provided_position",
+        "description": "Question 2 position; the publication title and edition were not identified",
+        "reference_is_oracle": false
+      },
+      "sfen": "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/1sP3P2/P3PG1RP/1P1P2N2/1SG2+B3/LN2K3L b P3p 1",
+      "stages": [
+        {
+          "id": "first-move",
+          "kind": "first_move",
+          "moves": [],
+          "expected_sfen": "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/1sP3P2/P3PG1RP/1P1P2N2/1SG2+B3/LN2K3L b P3p 1",
+          "candidates": ["8g8f"],
+          "reference_moves": ["8g8f"]
+        },
+        {
+          "id": "reply-after-8g8f",
+          "kind": "reply",
+          "moves": ["8g8f"],
+          "expected_sfen": "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/1sP3P2/PP2PG1RP/3P2N2/1SG2+B3/LN2K3L w P3p 2",
+          "candidates": ["P*8g", "8e8f"],
+          "reference_moves": ["P*8g"]
+        },
+        {
+          "id": "response-after-P-8g",
+          "kind": "response",
+          "moves": ["8g8f", "P*8g"],
+          "expected_sfen": "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/1sP3P2/PP2PG1RP/1p1P2N2/1SG2+B3/LN2K3L b P2p 3",
+          "candidates": [],
+          "reference_moves": []
+        },
+        {
+          "id": "response-after-8e8f",
+          "kind": "response",
+          "moves": ["8g8f", "8e8f"],
+          "expected_sfen": "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/2P3P2/Ps2PG1RP/3P2N2/1SG2+B3/LN2K3L b P4p 3",
+          "candidates": [],
+          "reference_moves": []
+        }
+      ]
+    }
+  ]
+}

@@ -3468,6 +3468,7 @@ impl SpeculativeSearcher {
         let mut spec_total = 0u32;
         let mut prev_best: Option<Move> = None;
         let mut pv_list: Vec<(Move, i32)> = Vec::new();
+        let mut best_pv = Vec::new();
         let mut bestmove_changes = 0u32;
         let use_spec = config.multi_pv == 1;
 
@@ -3533,6 +3534,11 @@ impl SpeculativeSearcher {
                 best_move = m.or(best_move);
                 best_score = score;
                 done_depth = depth;
+                // Capture the primary line while the TT still represents this
+                // completed iteration. A later, interrupted iteration may
+                // replace exact child entries, but must not detach the score,
+                // depth, and best move above from the PV that explained them.
+                best_pv = extract_pv(&self.tt, board, best_move, depth);
             }
 
             if score.abs() >= MATE_SCORE - 1000 {
@@ -3567,7 +3573,11 @@ impl SpeculativeSearcher {
 
         state.budget.abort_now();
 
-        let pv = extract_pv(&self.tt, board, best_move, done_depth);
+        let pv = if best_pv.is_empty() {
+            extract_pv(&self.tt, board, best_move, done_depth)
+        } else {
+            best_pv
+        };
         SpecSearchInfo {
             best_move,
             score: best_score,
@@ -5527,6 +5537,61 @@ mod see_tests {
             generate_legal_moves(&mut speculative_board).contains(&speculative_move),
             "speculative fallback must be legal"
         );
+        assert_eq!(speculative.depth, 0);
+        assert!(
+            speculative.pv.is_empty(),
+            "a depth-zero fallback must not invent a completed PV"
+        );
+    }
+
+    #[test]
+    fn speculative_search_preserves_completed_pv_after_deeper_node_abort() {
+        const SFEN: &str =
+            "ln2k1snl/1r+b1g1g2/2p1p1pp1/p2S1p2p/1sP3P2/P3PG1RP/1P1P2N2/1SG2+B3/LN2K3L b P3p 1";
+        let config = SearchConfig {
+            max_depth: 99,
+            time_limit: None,
+            node_limit: Some(100_000),
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let mut limited_board = Board::from_sfen(SFEN).expect("fixture SFEN must parse");
+        let limited_hash = limited_board.hash();
+        let limited = SpeculativeSearcher::new(Tt::new(8), 0).search(&mut limited_board, config);
+
+        assert_eq!(limited.nodes, 100_000);
+        assert!(limited.depth > 0, "the fixture must complete an iteration");
+        assert!(
+            limited.pv.len() > 1,
+            "the completed iteration must retain a useful continuation"
+        );
+        assert_eq!(limited.pv.first().copied(), limited.best_move);
+        assert_eq!(limited_board.hash(), limited_hash);
+
+        let mut complete_board = Board::from_sfen(SFEN).expect("fixture SFEN must parse");
+        let complete = SpeculativeSearcher::new(Tt::new(8), 0).search(
+            &mut complete_board,
+            SearchConfig {
+                max_depth: limited.depth,
+                time_limit: None,
+                node_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+            },
+        );
+        assert_eq!(complete.depth, limited.depth);
+        assert_eq!(complete.best_move, limited.best_move);
+        assert_eq!(complete.score, limited.score);
+        assert_eq!(complete.pv, limited.pv);
+
+        let mut replay = Board::from_sfen(SFEN).expect("fixture SFEN must parse");
+        for mv in limited.pv {
+            assert!(
+                generate_legal_moves(&mut replay).contains(&mv),
+                "every saved PV move must remain legal from the requested SFEN"
+            );
+            replay.do_move(mv);
+        }
     }
 
     #[test]
