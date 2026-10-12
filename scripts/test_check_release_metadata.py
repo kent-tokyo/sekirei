@@ -19,10 +19,17 @@ def test_release_manifest_path_is_version_specific(tmp_path):
     assert metadata.release_manifest_path("0.3.36", tmp_path).name == "release-manifest-v0.3.36.json"
 
 
+def test_wasm_crate_participates_in_release_version_contract():
+    assert "sekirei-wasm" in metadata.WORKSPACE_MANIFESTS
+    assert "sekirei-wasm" not in metadata.PUBLISHED_MANIFESTS
+    assert metadata.WORKSPACE_MANIFESTS["sekirei-wasm"] == metadata.WASM_MANIFEST
+
+
 if __name__ == "__main__":
     test_matching_tag_is_exact()
     from tempfile import TemporaryDirectory
 
     with TemporaryDirectory() as directory:
         test_release_manifest_path_is_version_specific(Path(directory))
+    test_wasm_crate_participates_in_release_version_contract()
     print("PASS")

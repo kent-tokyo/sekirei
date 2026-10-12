@@ -64,6 +64,22 @@ class ReleaseManifestTests(unittest.TestCase):
         self.assertIn("publish", validate(document))
         self.assertEqual(validate(document, allow_planned_publish=True), [])
 
+    def test_v040_requires_versioned_wasm_release_evidence(self):
+        document = json.loads(FIXTURE.read_text())
+        document["release"] = "v0.4.0"
+        document["packages"] = {name: "0.4.0" for name in PACKAGES}
+        document["publish"] = {
+            "workflow_run": None,
+            "registry": "crates.io",
+            "status": "planned",
+            "crates": sorted(PACKAGES),
+        }
+        document.pop("webassembly", None)
+        errors = validate(document, allow_planned_publish=True)
+        self.assertIn("webassembly.package", errors)
+        self.assertIn("webassembly.version", errors)
+        self.assertIn("webassembly.sha256", errors)
+
     def test_rejects_schema_and_diagnostic_classification(self):
         doc = json.loads(FIXTURE.read_text())
         doc["schema"] = "wrong"
