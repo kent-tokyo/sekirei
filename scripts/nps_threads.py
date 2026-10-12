@@ -125,6 +125,12 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
                 "selected_node_share_permille": node_share_permille,
                 "move_agreement": int(agreement),
                 "workers": int(workers),
+                "discarded_root_nodes": int(
+                    parts[parts.index("discarded_root_nodes") + 1]
+                ),
+                "divergent_discarded_nodes": int(
+                    parts[parts.index("divergent_discarded_nodes") + 1]
+                ),
                 "stop_lag_ms": stop_lag_ms,
             }
             summary = parts[-1]
@@ -202,6 +208,12 @@ def parse_lazy_smp_overlap(lines: list[str]) -> dict[str, int] | None:
         "cross_worker_visits",
         "shared_fingerprints",
         "dropped",
+        "tt_sampled_stores",
+        "tt_sampled_hits",
+        "tt_local_hits",
+        "tt_foreign_hits",
+        "tt_unknown_hits",
+        "tt_dropped_stores",
     )
     for line in reversed(lines):
         if not line.startswith(prefix):
@@ -267,6 +279,12 @@ def summarize_lazy_overlap(rows: list[dict]) -> dict[str, float | int] | None:
             "cross_worker_visits",
             "shared_fingerprints",
             "dropped",
+            "tt_sampled_stores",
+            "tt_sampled_hits",
+            "tt_local_hits",
+            "tt_foreign_hits",
+            "tt_unknown_hits",
+            "tt_dropped_stores",
         )
     }
     totals["sample_rate"] = diagnostics[0]["sample_rate"]
@@ -280,6 +298,36 @@ def summarize_lazy_overlap(rows: list[dict]) -> dict[str, float | int] | None:
         totals["visits"], 1
     )
     totals["drop_rate"] = totals["dropped"] / max(totals["visits"], 1)
+    known_hits = totals["tt_local_hits"] + totals["tt_foreign_hits"]
+    totals["foreign_tt_hit_rate"] = totals["tt_foreign_hits"] / max(known_hits, 1)
+    totals["tt_unknown_hit_rate"] = totals["tt_unknown_hits"] / max(
+        totals["tt_sampled_hits"], 1
+    )
+    return totals
+
+
+def summarize_lazy_root_work(rows: list[dict]) -> dict[str, float | int] | None:
+    """Pool selected and discarded root work across diagnostic searches."""
+    diagnostics = [row.get("lazy_smp") for row in rows]
+    diagnostics = [item for item in diagnostics if item is not None]
+    if not diagnostics:
+        return None
+    totals: dict[str, float | int] = {
+        "total_nodes": sum(row["nodes"] for row in rows if row.get("lazy_smp")),
+        "discarded_root_nodes": sum(
+            item["discarded_root_nodes"] for item in diagnostics
+        ),
+        "divergent_discarded_nodes": sum(
+            item["divergent_discarded_nodes"] for item in diagnostics
+        ),
+    }
+    total_nodes = int(totals["total_nodes"])
+    discarded = int(totals["discarded_root_nodes"])
+    totals["selected_root_nodes"] = max(total_nodes - discarded, 0)
+    totals["discarded_root_node_rate"] = discarded / max(total_nodes, 1)
+    totals["divergent_discarded_node_rate"] = int(
+        totals["divergent_discarded_nodes"]
+    ) / max(total_nodes, 1)
     return totals
 
 
@@ -391,6 +439,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     lazy_suffix += (
                         f" cross-work {cross_rate:.1%}"
                         f" shared-fp {shared_rate:.1%}"
+                        f" foreign-tt {lazy_smp_overlap['tt_foreign_hits']}"
+                        f"/{max(lazy_smp_overlap['tt_local_hits'] + lazy_smp_overlap['tt_foreign_hits'], 1)}"
                     )
                 print(
                     f"  threads {threads} pos {index:2d} run {repeat + 1}:"
@@ -509,6 +559,31 @@ def main() -> int:
                 f"  {summary['shared_fingerprint_rate']:19.1%}"
                 f"  {summary['within_worker_revisit_rate']:22.1%}"
                 f"  {summary['drop_rate']:7.3%}"
+            )
+        print("Sampled TT reuse (known writer only; diagnostic only)")
+        print("threads  foreign-worker hit  unknown writer  dropped stores")
+        for threads in thread_counts:
+            summary = overlap_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['foreign_tt_hit_rate']:18.1%}"
+                f"  {summary['tt_unknown_hit_rate']:14.1%}"
+                f"  {summary['tt_dropped_stores']:14d}"
+            )
+    root_work_summaries = {
+        threads: summarize_lazy_root_work(results[threads]) for threads in thread_counts
+    }
+    if any(summary is not None for summary in root_work_summaries.values()):
+        print("Root-result disposition (all workers; diagnostic only)")
+        print("threads  discarded root work  divergent discarded work")
+        for threads in thread_counts:
+            summary = root_work_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['discarded_root_node_rate']:19.1%}"
+                f"  {summary['divergent_discarded_node_rate']:25.1%}"
             )
     return 0
 

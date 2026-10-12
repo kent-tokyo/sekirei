@@ -338,7 +338,7 @@ impl Tt {
     }
 
     /// Store into the four-slot bucket of `hash` (`TT_BUCKET` bit 0).
-    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32, flags: u64) {
+    fn store_bucket(&self, key_hash: u64, entry: &TtEntry, mode: i32, flags: u64) -> bool {
         let generation = self.generation_bits();
         let slots = &self.table[(key_hash as usize & self.mask) / BUCKET].0;
         let mut victim = 0;
@@ -349,8 +349,9 @@ impl Tt {
             if key ^ data == key_hash {
                 if let Some(data) = self.same_position_data(data, entry, mode, generation, flags) {
                     self.write(slot, key_hash, data);
+                    return true;
                 }
-                return;
+                return false;
             }
             let value = if data == 0 {
                 i32::MIN
@@ -369,6 +370,7 @@ impl Tt {
             stats.collision_overwrites.fetch_add(1, Ordering::Relaxed);
         }
         self.write(&slots[victim], key_hash, pack(entry) | flags | generation);
+        true
     }
 
     /// Data to write over an entry of the same position, or `None` to keep it.
@@ -416,24 +418,32 @@ impl Tt {
 
     /// Store an entry (depth-preferred: keep deeper results).
     pub fn store(&self, hash: u64, entry: TtEntry) {
-        self.store_flags(hash, entry, 0);
+        let _ = self.store_flags(hash, entry, 0);
     }
 
     /// Store an entry with its PV flag: whether the node was on a principal
     /// variation (or its entry already said so). [`Tt::store`] clears it.
     pub fn store_pv(&self, hash: u64, entry: TtEntry, pv: bool) {
-        self.store_flags(hash, entry, if pv { PV_BIT } else { 0 });
+        let _ = self.store_flags(hash, entry, if pv { PV_BIT } else { 0 });
     }
 
-    fn store_flags(&self, hash: u64, entry: TtEntry, flags: u64) {
+    /// Store an entry and report whether this call committed it.
+    ///
+    /// This is crate-private because only opt-in parallel diagnostics need to
+    /// associate a committed entry with the worker that produced it. The
+    /// ordinary public API deliberately keeps its historical unit return.
+    pub(crate) fn store_pv_with_result(&self, hash: u64, entry: TtEntry, pv: bool) -> bool {
+        self.store_flags(hash, entry, if pv { PV_BIT } else { 0 })
+    }
+
+    fn store_flags(&self, hash: u64, entry: TtEntry, flags: u64) -> bool {
         if let Some(stats) = &self.write_stats {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
         let key_hash = self.key_hash(hash);
         let mode = self.layout();
         if mode & 1 != 0 {
-            self.store_bucket(key_hash, &entry, mode, flags);
-            return;
+            return self.store_bucket(key_hash, &entry, mode, flags);
         }
         let slot = self.slot(hash);
         if mode & 2 != 0 {
@@ -448,13 +458,13 @@ impl Tt {
                     flags,
                 ) {
                     Some(data) => data,
-                    None => return,
+                    None => return false,
                 }
             } else {
                 pack(&entry) | flags | self.generation_bits()
             };
             self.write(slot, key_hash, data);
-            return;
+            return true;
         }
         let existing_data = slot.data.load(Ordering::Relaxed);
         let existing_key = slot.key.load(Ordering::Relaxed);
@@ -473,7 +483,7 @@ impl Tt {
                 if let Some(stats) = &self.write_stats {
                     stats.shallower_rejections.fetch_add(1, Ordering::Relaxed);
                 }
-                return;
+                return false;
             }
             if entry.depth == existing_depth
                 && let Some(stats) = &self.write_stats
@@ -487,6 +497,7 @@ impl Tt {
         if let Some(stats) = &self.write_stats {
             stats.committed.fetch_add(1, Ordering::Relaxed);
         }
+        true
     }
 
     /// Number of slots in the table.
@@ -791,6 +802,46 @@ mod tests {
         assert_eq!(replaced.depth, 12);
         assert_eq!(replaced.score, 20);
         assert_eq!(replaced.bound, Bound::Upper);
+    }
+
+    #[test]
+    fn tracked_store_reports_only_committed_entries() {
+        let tt = Tt::new_with_layout(1, None, 0);
+        let hash = 0x55aa_1234;
+        assert!(tt.store_pv_with_result(
+            hash,
+            TtEntry {
+                score: 10,
+                depth: 8,
+                bound: Bound::Exact,
+                mv: None,
+            },
+            false,
+        ));
+        assert!(!tt.store_pv_with_result(
+            hash,
+            TtEntry {
+                score: 20,
+                depth: 2,
+                bound: Bound::Lower,
+                mv: None,
+            },
+            false,
+        ));
+        assert!(tt.store_pv_with_result(
+            hash,
+            TtEntry {
+                score: 30,
+                depth: 9,
+                bound: Bound::Upper,
+                mv: None,
+            },
+            true,
+        ));
+        assert_eq!(
+            tt.probe_pv(hash).map(|(entry, pv)| (entry.score, pv)),
+            Some((30, true))
+        );
     }
 
     #[test]

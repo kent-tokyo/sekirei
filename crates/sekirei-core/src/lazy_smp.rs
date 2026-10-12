@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 use crate::board::Board;
 use crate::search::{
     SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-    WorkOverlapSnapshot, WorkOverlapStats,
+    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -55,9 +55,26 @@ pub struct LazySmpWorkOverlap {
     pub shared_fingerprints: u64,
     /// Samples dropped after all bounded open-addressing probes were occupied.
     pub dropped: u64,
+    /// Sampled TT stores that committed and were attributed to a worker.
+    pub tt_sampled_stores: u64,
+    /// Sampled TT hits observed by the search workers.
+    pub tt_sampled_hits: u64,
+    /// Sampled hits on entries last committed by the probing worker.
+    pub tt_local_hits: u64,
+    /// Sampled hits on entries last committed by another worker. This is the
+    /// direct estimate of shared-TT results actually reused across workers.
+    pub tt_foreign_hits: u64,
+    /// Sampled hits whose committing worker was not retained by the bounded
+    /// registry (for example, an entry predating this invocation).
+    pub tt_unknown_hits: u64,
+    /// Sampled committed stores that could not be placed in the registry.
+    pub tt_dropped_stores: u64,
 }
 
-fn work_overlap_snapshot(value: WorkOverlapSnapshot) -> LazySmpWorkOverlap {
+fn work_overlap_snapshot(
+    value: WorkOverlapSnapshot,
+    tt_reuse: TtReuseSnapshot,
+) -> LazySmpWorkOverlap {
     LazySmpWorkOverlap {
         sampled_visits: value.sampled_visits,
         unique_fingerprints: value.unique_fingerprints,
@@ -65,6 +82,12 @@ fn work_overlap_snapshot(value: WorkOverlapSnapshot) -> LazySmpWorkOverlap {
         cross_worker_visits: value.cross_worker_visits,
         shared_fingerprints: value.shared_fingerprints,
         dropped: value.dropped,
+        tt_sampled_stores: tt_reuse.sampled_stores,
+        tt_sampled_hits: tt_reuse.sampled_hits,
+        tt_local_hits: tt_reuse.local_hits,
+        tt_foreign_hits: tt_reuse.foreign_hits,
+        tt_unknown_hits: tt_reuse.unknown_hits,
+        tt_dropped_stores: tt_reuse.dropped_stores,
     }
 }
 
@@ -116,6 +139,17 @@ pub struct LazySmpSearcher {
     tt_write_stats: Option<Arc<TtWriteStats>>,
     /// Shared sampled-work observer used only by opt-in scaling diagnostics.
     work_overlap_stats: Option<Arc<WorkOverlapStats>>,
+    /// Shared sampled TT-owner observer used only by opt-in scaling
+    /// diagnostics.
+    tt_reuse_stats: Option<Arc<TtReuseStats>>,
+}
+
+#[derive(Default)]
+struct LazyDiagnosticObservers {
+    workers: Vec<Arc<SearchDiagnostics>>,
+    tt_writes: Option<Arc<TtWriteStats>>,
+    work_overlap: Option<Arc<WorkOverlapStats>>,
+    tt_reuse: Option<Arc<TtReuseStats>>,
 }
 
 /// Keep one searcher per worker across searches (history tables persist
@@ -169,7 +203,13 @@ impl LazySmpSearcher {
         flags: u32,
         total_hash_mb: usize,
     ) -> Self {
-        Self::from_parts(tt, workers, flags, total_hash_mb, Vec::new(), None, None)
+        Self::from_parts(
+            tt,
+            workers,
+            flags,
+            total_hash_mb,
+            LazyDiagnosticObservers::default(),
+        )
     }
 
     fn from_parts(
@@ -177,10 +217,14 @@ impl LazySmpSearcher {
         workers: usize,
         flags: u32,
         total_hash_mb: usize,
-        diagnostics: Vec<Arc<SearchDiagnostics>>,
-        tt_write_stats: Option<Arc<TtWriteStats>>,
-        work_overlap_stats: Option<Arc<WorkOverlapStats>>,
+        observers: LazyDiagnosticObservers,
     ) -> Self {
+        let LazyDiagnosticObservers {
+            workers: diagnostics,
+            tt_writes: tt_write_stats,
+            work_overlap: work_overlap_stats,
+            tt_reuse: tt_reuse_stats,
+        } = observers;
         let workers = workers.max(1);
         debug_assert!(diagnostics.is_empty() || diagnostics.len() == workers);
         let share_tt = flags & LAZY_ISOLATED_TT == 0;
@@ -221,6 +265,7 @@ impl LazySmpSearcher {
             diagnostics,
             tt_write_stats,
             work_overlap_stats,
+            tt_reuse_stats,
         }
     }
 
@@ -233,10 +278,12 @@ impl LazySmpSearcher {
         let tt_write_stats = share_tt.then(|| Arc::new(TtWriteStats::default()));
         let tt = Tt::new_with_stats(total_hash_mb, tt_write_stats.clone());
         let work_overlap_stats = Arc::new(WorkOverlapStats::new());
+        let tt_reuse_stats = Arc::new(TtReuseStats::new());
         let diagnostics: Vec<_> = (0..workers)
             .map(|index| {
                 Arc::new(SearchDiagnostics::parallel_worker(
                     work_overlap_stats.clone(),
+                    tt_reuse_stats.clone(),
                     index,
                 ))
             })
@@ -246,9 +293,12 @@ impl LazySmpSearcher {
             workers,
             flags,
             total_hash_mb,
-            diagnostics,
-            tt_write_stats,
-            Some(work_overlap_stats),
+            LazyDiagnosticObservers {
+                workers: diagnostics,
+                tt_writes: tt_write_stats,
+                work_overlap: Some(work_overlap_stats),
+                tt_reuse: Some(tt_reuse_stats),
+            },
         )
     }
 
@@ -358,6 +408,9 @@ impl LazySmpSearcher {
         if let Some(stats) = &self.work_overlap_stats {
             stats.reset();
         }
+        if let Some(stats) = &self.tt_reuse_stats {
+            stats.reset();
+        }
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
             .into_par_iter()
@@ -439,7 +492,10 @@ impl LazySmpSearcher {
             work_overlap: self
                 .work_overlap_stats
                 .as_ref()
-                .map(|stats| work_overlap_snapshot(stats.snapshot())),
+                .zip(self.tt_reuse_stats.as_ref())
+                .map(|(overlap, reuse)| {
+                    work_overlap_snapshot(overlap.snapshot(), reuse.snapshot())
+                }),
         }
     }
 }

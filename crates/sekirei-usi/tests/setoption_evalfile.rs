@@ -181,7 +181,17 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
     );
     assert!(
         search.iter().any(|line| {
+            line.starts_with("info string lazy_smp_overlap ")
+                && line.contains(" tt_foreign_hits ")
+                && line.contains(" tt_dropped_stores ")
+        }),
+        "missing cross-worker TT reuse diagnostics: {search:?}"
+    );
+    assert!(
+        search.iter().any(|line| {
             line.starts_with("info string lazy_smp selected ")
+                && line.contains(" discarded_root_nodes ")
+                && line.contains(" divergent_discarded_nodes ")
                 && line.contains(":p")
                 && line.contains(":h")
                 && line.contains(":r")
