@@ -11,6 +11,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -31,23 +32,32 @@ def digest(path: Path) -> str:
     return value.hexdigest()
 
 
-def validate_reference(reference: object, root: Path, field: str) -> tuple[list[str], Path | None]:
+def resolve_reference(
+    reference: object, root: Path, field: str
+) -> tuple[list[str], Path | None, str | None]:
     if not isinstance(reference, dict):
-        return [field], None
+        return [field], None, None
     relative = reference.get("path")
     expected = reference.get("sha256")
     if not isinstance(relative, str) or not relative or not SHA256.fullmatch(expected or ""):
-        return [field], None
+        return [field], None, None
     if Path(relative).is_absolute():
-        return [f"{field}.outside_root"], None
+        return [f"{field}.outside_root"], None, None
     root = root.resolve()
     path = (root / relative).resolve()
     try:
         path.relative_to(root)
     except ValueError:
-        return [f"{field}.outside_root"], None
+        return [f"{field}.outside_root"], None, None
     if not path.is_file():
-        return [f"{field}.missing"], path
+        return [f"{field}.missing"], path, expected
+    return [], path, expected
+
+
+def validate_reference(reference: object, root: Path, field: str) -> tuple[list[str], Path | None]:
+    errors, path, expected = resolve_reference(reference, root, field)
+    if errors or path is None or expected is None:
+        return errors, path
     if digest(path) != expected:
         return [f"{field}.sha256"], path
     return [], path
@@ -113,11 +123,9 @@ def validate_v1(card: dict, root: Path) -> list[str]:
 def validate_halfkp_artifact(artifact: object, root: Path) -> tuple[list[str], Path | None]:
     if not isinstance(artifact, dict):
         return ["artifact"], None
-    errors, path = validate_reference(artifact, root, "artifact")
-    if path is None or not path.is_file():
+    errors, path, expected = resolve_reference(artifact, root, "artifact")
+    if errors or path is None or expected is None:
         return errors, path
-    if artifact.get("bytes") != path.stat().st_size:
-        errors.append("artifact.bytes")
     if artifact.get("format") != HALFKP_FORMAT:
         errors.append("artifact.format")
     if artifact.get("version_word") != "0x7AF32F16":
@@ -127,11 +135,19 @@ def validate_halfkp_artifact(artifact: object, root: Path) -> tuple[list[str], P
     if not isinstance(artifact.get("fv_scale"), int) or not 1 <= artifact["fv_scale"] <= 128:
         errors.append("artifact.fv_scale")
     with path.open("rb") as handle:
+        if artifact.get("bytes") != os.fstat(handle.fileno()).st_size:
+            errors.append("artifact.bytes")
         header = handle.read(12)
         if len(header) != 12 or int.from_bytes(header[:4], "little") != HALFKP_VERSION:
             return errors + ["artifact.header"], path
         descriptor_size = int.from_bytes(header[8:12], "little")
         descriptor_bytes = handle.read(descriptor_size)
+        handle.seek(0)
+        value = hashlib.sha256()
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            value.update(chunk)
+        if value.hexdigest() != expected:
+            errors.append("artifact.sha256")
     try:
         descriptor = descriptor_bytes.decode("utf-8")
     except UnicodeDecodeError:
