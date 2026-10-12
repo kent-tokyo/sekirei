@@ -1433,60 +1433,64 @@ fn main() {
                 game_counter += 1;
             }
 
-            "position" => match parse_position_cmd_with_history(rest) {
-                Ok((b, history)) => {
-                    // `position` supersedes an old question. Invalidate its
-                    // publication generation before joining, so an old
-                    // worker cannot emit a stale bestmove in the tiny window
-                    // between command arrival and cooperative cancellation.
-                    invalidate_and_join_inflight_search(
-                        &search_generation,
-                        &mut search_abort,
-                        &mut search_handle,
-                    );
-                    active_ponder = false;
-                    ponder_go_args = None;
-                    ponder_result
-                        .lock()
-                        .expect("ponder result lock poisoned")
-                        .take();
-                    suppress_bm.store(false, Ordering::Relaxed);
-                    board = b;
-                    position_history = history;
-                    // Only gates book lookups (BookMaxPly) -- doesn't need to
-                    // handle every conceivable "position" form, just the
-                    // "startpos moves ..." shape this project's own tooling
-                    // always sends.
-                    #[cfg(feature = "opening-book")]
-                    {
-                        current_ply = rest
-                            .split_whitespace()
-                            .skip_while(|&t| t != "moves")
-                            .skip(1)
-                            .count();
+            "position" => {
+                // `position` supersedes the old question at command arrival,
+                // not only after the replacement position parses.  Parsing a
+                // long move list can take long enough for the old worker to
+                // publish in the meantime, and malformed input must fail
+                // closed instead of leaving the old search alive.
+                invalidate_and_join_inflight_search(
+                    &search_generation,
+                    &mut search_abort,
+                    &mut search_handle,
+                );
+                active_ponder = false;
+                ponder_go_args = None;
+                ponder_result
+                    .lock()
+                    .expect("ponder result lock poisoned")
+                    .take();
+                suppress_bm.store(false, Ordering::Relaxed);
+
+                match parse_position_cmd_with_history(rest) {
+                    Ok((b, history)) => {
+                        board = b;
+                        position_history = history;
+                        // Only gates book lookups (BookMaxPly) -- doesn't need to
+                        // handle every conceivable "position" form, just the
+                        // "startpos moves ..." shape this project's own tooling
+                        // always sends.
+                        #[cfg(feature = "opening-book")]
+                        {
+                            current_ply = rest
+                                .split_whitespace()
+                                .skip_while(|&t| t != "moves")
+                                .skip(1)
+                                .count();
+                        }
+                        last_position_cmd = rest.to_string();
+                        // Must run before any search on this position -- an
+                        // already-desynced board must never be allowed to
+                        // search at all, since its bestmove would be answering
+                        // the wrong question. Panics (stderr diagnostics) on
+                        // mismatch instead of returning, by design. Replays the
+                        // move list independently against a shadow board (not
+                        // just the base SFEN) -- see invariant.rs's
+                        // verify_position_replay doc comment for why.
+                        invariant::verify_position_replay(
+                            rest,
+                            &board,
+                            &invariant::ReplayDiagCtx {
+                                game_counter,
+                                weight_path: weight_path.clone(),
+                                weight_hash,
+                                binary_hash,
+                            },
+                        );
                     }
-                    last_position_cmd = rest.to_string();
-                    // Must run before any search on this position -- an
-                    // already-desynced board must never be allowed to
-                    // search at all, since its bestmove would be answering
-                    // the wrong question. Panics (stderr diagnostics) on
-                    // mismatch instead of returning, by design. Replays the
-                    // move list independently against a shadow board (not
-                    // just the base SFEN) -- see invariant.rs's
-                    // verify_position_replay doc comment for why.
-                    invariant::verify_position_replay(
-                        rest,
-                        &board,
-                        &invariant::ReplayDiagCtx {
-                            game_counter,
-                            weight_path: weight_path.clone(),
-                            weight_hash,
-                            binary_hash,
-                        },
-                    );
+                    Err(e) => eprintln!("position error: {e}"),
                 }
-                Err(e) => eprintln!("position error: {e}"),
-            },
+            }
 
             "go" => {
                 // Abort any in-flight search and join before starting a new one.
