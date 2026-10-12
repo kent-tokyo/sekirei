@@ -6,6 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Changed
+
+- Update the match runner to `veridict` 0.19.2. Existing Elo and pentanomial
+  SPRT gates keep their current behavior; the new paired-Elo fixed-sample
+  metric remains opt-in and is not used by Sekirei's existing gate commands.
+
 ### Fixed
 
 - Preserve the exact mating move found by one-ply mate detection in normal,
