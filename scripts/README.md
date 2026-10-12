@@ -42,6 +42,7 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. `--gate-observation-declaration` validates and carries a prospective, hashed feature/group declaration into that terminal result. Local diagnostic only. |
+| `launch_floodgate_once.py` | Starts one rendered bounded Floodgate LaunchAgent without combining `RunAtLoad=true` and `kickstart`; refuses registered labels and records the single-run acceptance receipt. |
 | `nps_threads.py` | Measures NPS, depth, and repeated-position best-move stability across explicit thread counts for Sekirei or a separately supplied USI engine. It supports wall-time and fixed-depth budgets. For Lazy SMP, it also records selected-worker share, worker agreement, stop-lag, and discarded root-result nodes. `--lazy-diagnostics` adds worker TT hit/store counts, shared-table collision topology, sampled within-/cross-worker position revisits, and the known-writer share of TT hits supplied by another worker; run that counter lane separately because it adds overhead. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
@@ -204,7 +205,24 @@ protocol, recording, and mid-game failures remain terminal. Exhausted recovery
 is recorded as `post_game_reconnect_exhausted` without discarding completed
 records. A non-zero one-shot child exit is also persisted to status and the
 run manifest; an active game is retained as an uncounted `incomplete_game`.
-For launchd, use the one-shot template with `KeepAlive` disabled.
+For launchd, render the one-shot template with `KeepAlive=false` and start it
+through the idempotent helper:
+
+```bash
+python3 scripts/launch_floodgate_once.py \
+  --plist "$HOME/Library/LaunchAgents/com.kent-tokyo.sekirei-floodgate.plist" \
+  --runtime-dir "$HOME/.local/state/sekirei/floodgate/RUN_ID"
+```
+
+The checked-in template has `RunAtLoad=true`, so the helper runs `bootstrap`
+only. Do not follow it with `kickstart -k`. For a custom plist with
+`RunAtLoad=false`, the helper registers it and performs one non-forcing
+`kickstart`. It refuses an already registered label, prints the runtime
+directory, and writes `launchd-start.json`. A bounded run is accepted only
+when `launchctl print` reports `runs = 1`; a duplicate launch remains recorded
+with `accepted=false`. Unload an intentionally stopped old label before using
+a new runtime. The client-side `--max-games` remains the sole cumulative game
+cap; do not wrap launchd or the client in an external restart loop.
 
 Before tournament deployment, run the loopback-only two-process rehearsal:
 

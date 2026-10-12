@@ -17,6 +17,9 @@ preserves older per-change notes.
 
 ### Added
 
+- Add an idempotent bounded-Floodgate LaunchAgent helper that chooses a safe
+  start sequence from `RunAtLoad`, refuses registered labels, records the
+  runtime directory and rejects `launchctl` evidence with `runs != 1`.
 - Add explicit Rust and WebAssembly mate-analysis entry points for tsume
   diagrams that omit the attacking king, while preserving the existing strict
   two-king APIs. Mate results now identify their position policy and expose the
