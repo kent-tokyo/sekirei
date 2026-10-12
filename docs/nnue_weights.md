@@ -135,6 +135,26 @@ strength gate status:  not run | PASS | FAIL | INCONCLUSIVE
 license:               <explicit artifact license>
 ```
 
+For a HalfKP release candidate, use the fail-closed
+`sekirei.nnue-model-card.v2` contract checked by
+`scripts/validate_nnue_release_artifact.py`. In addition to the fields above,
+it requires hashed training-shard and whole-game hold-out manifests, exact raw
+evidence for current-engine one- and four-thread gates, and the full engine
+commit. This validator only checks whether the evidence bundle is complete and
+internally consistent; it does not create evidence or turn an unpublished
+candidate into a strength claim.
+
+Validate the assembled release bundle against the exact source commit:
+
+```bash
+python3 scripts/validate_nnue_release_artifact.py model-card.json \
+  --root /path/to/release-bundle \
+  --expected-engine-commit <full-40-hex-commit>
+```
+
+All referenced files must remain inside the bundle root; absolute paths,
+parent-directory escapes, missing files, and hash mismatches fail validation.
+
 Training can use a separately operated external teacher, but its license and
 the dataset terms must be assessed by the person distributing the resulting
 weights. Sekirei does not convert arbitrary external NNUE formats into its
