@@ -10,6 +10,9 @@ preserves older per-change notes.
 
 - Reset root-move ordering at each search boundary so Rayon scheduling cannot
   leak a previous logical Lazy SMP worker's order into a later `go` command.
+- Invalidate an in-flight search as soon as any `position` command arrives,
+  including malformed replacements, so an old-position `bestmove` cannot
+  cross the USI command boundary while the new position is being parsed.
 
 ## [0.4.0] – 2026-10-12
 

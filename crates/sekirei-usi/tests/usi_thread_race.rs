@@ -270,6 +270,44 @@ fn position_discards_an_inflight_normal_search_without_stale_bestmove() {
 }
 
 #[test]
+fn malformed_position_fails_closed_and_discards_the_inflight_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |line| line == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "isready");
+    recv_line_matching(&rx, |line| line == "readyok", Duration::from_secs(5));
+
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go infinite");
+    std::thread::sleep(Duration::from_millis(50));
+
+    // Even though the replacement is malformed, command arrival invalidates
+    // the old question. A later stop must not publish a move for startpos.
+    send(&mut stdin, "position sfen invalid");
+    send(&mut stdin, "stop");
+    send(&mut stdin, "isready");
+    let lines = recv_until_collect(&rx, |line| line == "readyok", Duration::from_secs(10));
+    assert!(
+        lines.iter().all(|line| !line.starts_with("bestmove ")),
+        "malformed position left the old search alive: {lines:?}"
+    );
+
+    // The last valid board remains usable after the rejected command.
+    send(&mut stdin, "go depth 1");
+    recv_line_matching(
+        &rx,
+        |line| line.starts_with("bestmove "),
+        Duration::from_secs(5),
+    );
+    send(&mut stdin, "quit");
+    let status = child
+        .wait()
+        .expect("failed to wait for malformed-position test");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
 fn position_discards_a_completed_ponder_result() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");
