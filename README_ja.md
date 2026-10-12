@@ -39,7 +39,8 @@ GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定しま�
 外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
 [NNUE重み](docs/nnue_weights.md)にまとめています。未公開候補`nn_r3`は
-駒得評価との正式ゲートが未実施のため、同梱せず、既定評価器にもしていません。
+v0.3.68固定・1スレッドの駒得評価ゲート2件に合格しています。ただし、来歴情報の
+不足と現行mainでの再確認が残るため、同梱せず、既定評価器にもしていません。
 
 ## 構成
 
@@ -80,7 +81,9 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
 必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に
-固定します。ベンチマーク、ゲート、リリース、学習の各ツールは
+固定します。CIではRust/Cargo関連の変更、main更新、リリースタグで実行し、文書だけ、
+または通常のスクリプトだけを変更するPRでは省略します。ベンチマーク、ゲート、
+リリース、学習の各ツールは
 [スクリプト索引](scripts/README.md)を参照してください。処理単位の時間は
 総合速度や棋力順位を示しません。
 

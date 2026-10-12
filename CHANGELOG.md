@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- CI: keep the 98% Rust coverage gate for Rust/Cargo pull requests, every
+  main update, and release tags while skipping documentation-only and ordinary
+  script-only pull requests. Codecov upload now runs as the final step of the
+  same coverage job, without a second runner or artifact hand-off.
 - Search: preserve the primary PV captured at the last completed speculative
   iteration when a later node- or time-limited iteration is interrupted. The
   returned move, score, depth, and PV now remain one consistent snapshot.
