@@ -2556,14 +2556,20 @@ fn alpha_beta(
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, stm));
     // A mate in one for the side to move ends the node. Checking it here also
     // makes null-move and reduced searches see the opponent's mating threats.
-    // A position with a TT entry was scanned when that entry was stored (a
-    // mate in one returns before storing), so the scan is skipped there.
-    if !in_check && skip_move.is_none() && !tt.hit && mate_in_one(board).is_some() {
+    // A mate-in-one result is stored as an exact entry below, so a position
+    // with a TT hit does not need to repeat this scan.
+    if !in_check
+        && skip_move.is_none()
+        && !tt.hit
+        && let Some(mate_move) = mate_in_one(board)
+    {
         if let Some(d) = state.counters() {
             d.exit(2);
             d.at_depth(entry_depth, 6);
         }
-        return MATE_SCORE - (ply as i32 + 1);
+        let score = MATE_SCORE - (ply as i32 + 1);
+        node.store(state, score, Bound::Exact, Some(mate_move));
+        return score;
     }
     let evaluation = prepare_node_evaluation(
         state,
@@ -3347,11 +3353,24 @@ fn quiescence(
     if !in_check {
         // Standing pat must not hide a mate in one at the horizon.
         let qstyle = p::QS_STYLE();
-        if (qply == 0 || qstyle & 2 != 0) && mate_in_one(board).is_some() {
+        if (qply == 0 || qstyle & 2 != 0)
+            && let Some(mate_move) = mate_in_one(board)
+        {
             if let Some(diagnostics) = state.counters() {
                 diagnostics.qsearch[8].fetch_add(1, Ordering::Relaxed);
             }
-            return MATE_SCORE - (ply as i32 + 1);
+            let score = MATE_SCORE - (ply as i32 + 1);
+            store_tt_for_search(
+                state,
+                hash,
+                TtEntry {
+                    score: score_to_tt(score, ply),
+                    depth: 0,
+                    bound: Bound::Exact,
+                    mv: Some(mate_move),
+                },
+            );
+            return score;
         }
         let mut stand_pat = evaluate_for_search(state, board);
         if qstyle & 1 != 0 {
@@ -6771,6 +6790,75 @@ mod regression_tests {
     // reports score == MATE_SCORE - 1 (899_999) at depth 1.
     const MATE_IN_1_SFEN: &str = "k8/2K6/9/9/4R4/9/9/9/9 b - 1";
 
+    #[test]
+    fn completed_mate_pv_keeps_the_final_mating_move() {
+        on_search_stack(|| {
+            let mut board = Board::from_sfen(
+                "l5k1l/4s3p/2np3p1/p1p1+B3P/1p2pp1P1/P1PP1Pr2/1PS1P4/1KG6/LN5+r1 b BGP2g2s2nlp 1",
+            )
+            .unwrap();
+            for move_text in ["P*3c", "3f3c"] {
+                let mv = crate::sfen::move_from_usi(move_text, &board).unwrap();
+                let legal = MoveBuffer::legal(&mut board);
+                assert!(legal.as_slice().contains(&mv));
+                let _ = board.do_move(mv);
+            }
+
+            let info = Searcher::new(Tt::new(128)).search(
+                &mut board,
+                SearchConfig {
+                    max_depth: 7,
+                    ..SearchConfig::default()
+                },
+            );
+            assert_eq!(info.depth, 7);
+            assert!(info.score >= MATE_SCORE - 7);
+            assert_eq!(info.pv.len(), 7, "mate PV must include its terminal move");
+
+            for &mv in &info.pv {
+                let legal = MoveBuffer::legal(&mut board);
+                assert!(
+                    legal.as_slice().contains(&mv),
+                    "PV contains an illegal move"
+                );
+                let _ = board.do_move(mv);
+            }
+            assert!(is_in_check(&board, board.side_to_move));
+            assert!(MoveBuffer::legal(&mut board).is_empty());
+        });
+    }
+
+    #[test]
+    fn quiescence_mate_in_one_stores_exact_move_for_pv_reconstruction() {
+        let mut board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+        let hash = board.hash();
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        let history = PositionHistory::initial(hash);
+        let score = quiescence(
+            &state,
+            &mut board,
+            NEG_INF,
+            POS_INF,
+            0,
+            0,
+            Some(false),
+            &SearchHistory::root(&history),
+        );
+        assert_eq!(score, MATE_SCORE - 1);
+        let entry = tt.probe(hash).expect("mate-in-one must be stored");
+        assert_eq!(entry.bound, Bound::Exact);
+        let mate_move = entry.mv.expect("exact mate entry must retain its move");
+        assert!(
+            MoveBuffer::legal(&mut board)
+                .as_slice()
+                .contains(&mate_move)
+        );
+        let _ = board.do_move(mate_move);
+        assert!(is_in_check(&board, board.side_to_move));
+        assert!(MoveBuffer::legal(&mut board).is_empty());
+    }
+
     // Regression: the mate score formula `-(MATE_SCORE - ply)` was once written
     // with the ply term's sign flipped (`-900_000 - ply`), which made a mate
     // discovered at a *deeper* ply score higher in magnitude than the identical
@@ -6831,6 +6919,12 @@ mod regression_tests {
             "mate found at the shallower ply ({score_shallow}) must score higher than the \
              identical mate found 2 plies deeper ({score_deep})"
         );
+        let entry = state_a
+            .tt
+            .probe(board_a.hash())
+            .expect("alpha-beta mate-in-one must retain an exact TT entry");
+        assert_eq!(entry.bound, Bound::Exact);
+        assert!(entry.mv.is_some(), "exact mate entry must retain its move");
     }
 
     #[test]

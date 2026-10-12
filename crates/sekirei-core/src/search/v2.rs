@@ -727,8 +727,22 @@ fn qs2(
             }
             return sp;
         }
-        if qply == 0 && mate_in_one(board).is_some() {
-            return MATE_SCORE - (ply as i32 + 1);
+        if qply == 0
+            && let Some(mate_move) = mate_in_one(board)
+        {
+            let score = MATE_SCORE - (ply as i32 + 1);
+            store_tt_for_search_pv(
+                state,
+                hash,
+                TtEntry {
+                    score: score_to_tt(score, ply),
+                    depth: 0,
+                    bound: Bound::Exact,
+                    mv: Some(mate_move),
+                },
+                pv,
+            );
+            return score;
         }
         if sp > alpha {
             alpha = sp;
@@ -1045,10 +1059,22 @@ fn node(
         && excluded.is_none()
         && !tt_hit
         && p::V2_DIAG() & 4 == 0
-        && mate_in_one(board).is_some()
+        && let Some(mate_move) = mate_in_one(board)
     {
         diag(state, entry_depth, 6);
-        return MATE_SCORE - (ply as i32 + 1);
+        let score = MATE_SCORE - (ply as i32 + 1);
+        store_tt_for_search_pv(
+            state,
+            hash,
+            TtEntry {
+                score: score_to_tt(score, ply),
+                depth: depth.clamp(0, 255) as u8,
+                bound: Bound::Exact,
+                mv: Some(mate_move),
+            },
+            tt_pv,
+        );
+        return score;
     }
 
     // Static evaluation.

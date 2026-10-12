@@ -6,6 +6,15 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve the exact mating move found by one-ply mate detection in normal,
+  V2, and quiescence searches so completed mate PVs reach the terminal move.
+- Keep bounded DFPN outcomes distinct at the USI boundary: proven mates with
+  unknown distance use `score mate +`, while bounded disproofs and incomplete
+  searches omit a centipawn score and report outcome, limit, abort state, and
+  best-move provenance through `info string` diagnostics.
+
 ### Added
 
 - Add a fail-closed HalfKP release model-card contract that verifies the exact

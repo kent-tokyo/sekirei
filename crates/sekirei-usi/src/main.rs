@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use sekirei_core::{
     board::Board,
     color::Color,
-    dfpn::{DfpnConfig, DfpnOutcome, DfpnSolver},
+    dfpn::{DfpnConfig, DfpnOutcome, DfpnResult, DfpnSolver},
     eval::{
         NnueOutputMode, set_nnue_output_mode, set_nnue_residual_scale_permille,
         validate_nnue_residual_scale_permille,
@@ -131,6 +131,17 @@ struct SearchResult {
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
     root_safety: Option<SearchDiagnosticsSnapshot>,
+    /// Bounded mate-proof status that must not be collapsed into a normal
+    /// centipawn score or a fabricated mate distance.
+    dfpn: Option<DfpnReport>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct DfpnReport {
+    outcome: DfpnOutcome,
+    aborted: bool,
+    limit_depth: u32,
+    best_move_from_proof: bool,
 }
 
 struct SequentialBackend {
@@ -271,6 +282,7 @@ impl SearchBackend {
                 lazy_work_overlap: None,
                 shared_mcts_stats: None,
                 root_safety: None,
+                dfpn: None,
             };
         }
         match self {
@@ -312,6 +324,7 @@ impl SearchBackend {
                     lazy_work_overlap: info.work_overlap,
                     shared_mcts_stats: None,
                     root_safety: None,
+                    dfpn: None,
                 }
             }
             Self::Dfpn(s) => {
@@ -339,25 +352,7 @@ impl SearchBackend {
                     let _ = cancel_tx.send(());
                     let _ = handle.join();
                 }
-                let score = match result.outcome {
-                    DfpnOutcome::Proven => MATE_SCORE - config.max_depth as i32,
-                    DfpnOutcome::Disproven | DfpnOutcome::Unknown => 0,
-                };
-                SearchResult {
-                    best_move: result.best_move.or_else(|| fallback_legal_move(board)),
-                    score,
-                    depth: config.max_depth,
-                    nodes: result.nodes,
-                    elapsed: started.elapsed(),
-                    hashfull: 0,
-                    pv_list: Vec::new(),
-                    pv: result.best_move.into_iter().collect(),
-                    worker_stats: Vec::new(),
-                    lazy_tt_writes: None,
-                    lazy_work_overlap: None,
-                    shared_mcts_stats: None,
-                    root_safety: None,
-                }
+                normalize_dfpn_result(board, config.max_depth, result, started.elapsed())
             }
             Self::SharedMcts(s) => {
                 let started = Instant::now();
@@ -404,6 +399,7 @@ impl SearchBackend {
                         info.transposition_hits,
                     )),
                     root_safety: None,
+                    dfpn: None,
                 }
             }
         }
@@ -425,6 +421,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         lazy_work_overlap: None,
         shared_mcts_stats: None,
         root_safety: None,
+        dfpn: None,
     }
 }
 
@@ -443,6 +440,46 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         lazy_work_overlap: None,
         shared_mcts_stats: None,
         root_safety: None,
+        dfpn: None,
+    }
+}
+
+fn normalize_dfpn_result(
+    board: &Board,
+    limit_depth: u32,
+    result: DfpnResult,
+    elapsed: Duration,
+) -> SearchResult {
+    let proof_move = result.best_move;
+    SearchResult {
+        best_move: proof_move.or_else(|| fallback_legal_move(board)),
+        // Only the dedicated DFPN renderer consumes this value. It emits
+        // `mate +` for a proof with unknown distance and omits `score` for
+        // bounded disproofs and incomplete searches.
+        score: if result.outcome == DfpnOutcome::Proven {
+            MATE_SCORE - 1
+        } else {
+            0
+        },
+        // DFPN is not iterative deepening. The requested boundary is kept in
+        // `DfpnReport` instead of being advertised as a completed depth.
+        depth: 0,
+        nodes: result.nodes,
+        elapsed,
+        hashfull: 0,
+        pv_list: Vec::new(),
+        pv: proof_move.into_iter().collect(),
+        worker_stats: Vec::new(),
+        lazy_tt_writes: None,
+        lazy_work_overlap: None,
+        shared_mcts_stats: None,
+        root_safety: None,
+        dfpn: Some(DfpnReport {
+            outcome: result.outcome,
+            aborted: result.aborted,
+            limit_depth,
+            best_move_from_proof: proof_move.is_some(),
+        }),
     }
 }
 
@@ -574,6 +611,58 @@ fn score_to_usi(score: i32) -> String {
     } else {
         format!("cp {score}")
     }
+}
+
+fn render_dfpn_info(info: &SearchResult, nps: u64, elapsed_ms: u64) -> Option<(String, String)> {
+    let report = info.dfpn?;
+    let outcome = match report.outcome {
+        DfpnOutcome::Proven => "proven",
+        DfpnOutcome::Disproven => "disproven",
+        DfpnOutcome::Unknown => "unknown",
+    };
+    let completed = report.outcome != DfpnOutcome::Unknown && !report.aborted;
+    let distance = if report.outcome == DfpnOutcome::Proven {
+        "unknown"
+    } else {
+        "none"
+    };
+    let bestmove_source = if report.best_move_from_proof {
+        "proof"
+    } else if info.best_move.is_some() {
+        "fallback"
+    } else {
+        "none"
+    };
+    let status = format!(
+        "info string dfpn outcome {outcome} scope bounded distance {distance} limit_depth {} completed {completed} aborted {} bestmove_source {bestmove_source}",
+        report.limit_depth, report.aborted
+    );
+    let search_info = if report.outcome == DfpnOutcome::Proven {
+        let pv = info
+            .pv
+            .iter()
+            .copied()
+            .map(move_to_usi)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let pv_suffix = if pv.is_empty() {
+            String::new()
+        } else {
+            format!(" pv {pv}")
+        };
+        format!(
+            "info depth 0 score mate + nodes {} nps {nps} time {elapsed_ms} hashfull {}{pv_suffix}",
+            info.nodes, info.hashfull
+        )
+    } else {
+        // USI has no standard score token for a bounded no-mate proof or an
+        // incomplete proof search. Omitting it is less misleading than cp 0.
+        format!(
+            "info depth 0 nodes {} nps {nps} time {elapsed_ms} hashfull {}",
+            info.nodes, info.hashfull
+        )
+    };
+    Some((status, search_info))
 }
 
 fn emit_lazy_smp_diagnostics(info: &SearchResult) {
@@ -722,7 +811,10 @@ fn emit_search_result(
             "info string shared_mcts simulations {simulations} arena_nodes {arena_nodes} transposition_hits {transposition_hits}"
         );
     }
-    if info.pv_list.len() > 1 {
+    if let Some((status, search_info)) = render_dfpn_info(&info, nps, elapsed_ms) {
+        println!("{status}");
+        println!("{search_info}");
+    } else if info.pv_list.len() > 1 {
         for (i, &(mv, score)) in info.pv_list.iter().enumerate() {
             println!(
                 "info multipv {} depth {} score {} nodes {} nps {} time {} hashfull {} pv {}",
@@ -1866,6 +1958,95 @@ mod tests {
         assert_eq!(score_to_usi(MATE_SCORE - 1000), "mate 1000");
         assert_eq!(score_to_usi(-(MATE_SCORE - 1000)), "mate -1000");
         assert_eq!(score_to_usi(MATE_SCORE - 1001), "cp 898999");
+    }
+
+    #[test]
+    fn dfpn_proof_does_not_turn_the_requested_limit_into_a_mate_distance() {
+        let search = |max_depth| {
+            let backend = SearchBackend::dfpn();
+            let mut board = Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").unwrap();
+            let history = PositionHistory::initial(board.hash());
+            backend.search(
+                &mut board,
+                SearchConfig {
+                    max_depth,
+                    node_limit: Some(1_000),
+                    ..SearchConfig::default()
+                },
+                &history,
+            )
+        };
+
+        let depth_one = search(1);
+        let depth_two = search(2);
+        for (limit, result) in [(1, depth_one), (2, depth_two)] {
+            let report = result.dfpn.expect("DFPN status must survive the adapter");
+            assert_eq!(report.outcome, DfpnOutcome::Proven);
+            assert_eq!(report.limit_depth, limit);
+            assert_eq!(result.depth, 0);
+            assert!(report.best_move_from_proof);
+            let (status, info) = render_dfpn_info(&result, 1, 1).unwrap();
+            assert!(status.contains("outcome proven"));
+            assert!(status.contains("distance unknown"));
+            assert!(status.contains(&format!("limit_depth {limit}")));
+            assert!(status.contains("bestmove_source proof"));
+            assert!(info.contains("score mate +"));
+            assert!(!info.contains(&format!("score mate {limit}")));
+        }
+    }
+
+    #[test]
+    fn dfpn_unknown_and_disproven_are_not_rendered_as_cp_zero() {
+        let backend = SearchBackend::dfpn();
+        for node_limit in [0, 1] {
+            backend.reset_abort_flag();
+            let mut board = Board::from_sfen("k8/2K6/9/9/4R4/9/9/9/9 b - 1").unwrap();
+            let history = PositionHistory::initial(board.hash());
+            let result = backend.search(
+                &mut board,
+                SearchConfig {
+                    max_depth: 50,
+                    node_limit: Some(node_limit),
+                    ..SearchConfig::default()
+                },
+                &history,
+            );
+            let report = result.dfpn.unwrap();
+            assert_eq!(report.outcome, DfpnOutcome::Unknown);
+            assert!(report.aborted);
+            assert!(!report.best_move_from_proof);
+            assert!(
+                result.best_move.is_some(),
+                "USI still needs a legal fallback"
+            );
+            assert!(
+                result.pv.is_empty(),
+                "fallback must not be presented as proof PV"
+            );
+            let (status, info) = render_dfpn_info(&result, 1, 1).unwrap();
+            assert!(status.contains("outcome unknown"));
+            assert!(status.contains("completed false"));
+            assert!(status.contains("bestmove_source fallback"));
+            assert!(!info.contains("score cp 0"));
+            assert!(!info.contains(" pv "));
+        }
+
+        let mut board = Board::from_sfen("9/9/9/9/9/9/9/9/9 b - 1").unwrap();
+        let history = PositionHistory::initial(board.hash());
+        let result = backend.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 7,
+                node_limit: Some(1_000),
+                ..SearchConfig::default()
+            },
+            &history,
+        );
+        let (status, info) = render_dfpn_info(&result, 1, 1).unwrap();
+        assert!(status.contains("outcome disproven"));
+        assert!(status.contains("completed true"));
+        assert!(status.contains("bestmove_source none"));
+        assert!(!info.contains("score cp 0"));
     }
 
     #[test]
