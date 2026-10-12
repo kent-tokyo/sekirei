@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Documentation: align the mobile contract with the existing one-shot WASM
+  evaluator loader and bounded MultiPV API, and define a preregistered mobile
+  analysis gate that keeps training, internal reference, and final evidence
+  separate.
 - CI: keep the 98% Rust coverage gate for Rust/Cargo pull requests, every
   main update, and release tags while skipping documentation-only and ordinary
   script-only pull requests. Codecov upload now runs as the final step of the

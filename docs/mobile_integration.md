@@ -14,8 +14,10 @@ must either:
 - build an application-specific wrapper around `sekirei-core`.
 
 Browser or WebView clients can use [`sekirei-wasm`](../crates/sekirei-wasm/README.md)
-for stateless SFEN, legal-move, bounded-search, and mate-analysis APIs. That
-package is sequential and material-only; it is not the native NNUE engine.
+for stateless SFEN, legal-move, bounded-search, MultiPV, and mate-analysis APIs.
+The package is sequential and starts with material evaluation, but a caller can
+load one validated SEKIRW or HalfKP evaluator byte image before analysis. It
+does not bundle a weight or expose the native engine's multi-threaded search.
 
 ## Dependency footprint
 
@@ -54,9 +56,10 @@ extrapolated to a phone without direct measurement.
 
 - No official native mobile FFI/bindings.
 - No on-device production validation for the available optional NNUE weight
-  (`docs/nnue_weights.md`). The versioned checkpoint can be supplied through
-  `EvalFile`; material evaluation remains the fallback when it is omitted or
-  cannot be loaded.
+  (`docs/nnue_weights.md`). Native USI loads a versioned checkpoint through
+  `EvalFile`; WebAssembly accepts caller-supplied bytes through
+  `loadEvaluator`. Both surfaces retain material evaluation when no evaluator
+  is loaded, and neither bundles a recommended production checkpoint.
 - No verified on-device (iOS/Android) memory or battery profiling.
 - No published amateur-game analysis benchmark. The format exists in
   [`amateur_analysis_benchmark.md`](amateur_analysis_benchmark.md), but no

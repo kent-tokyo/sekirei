@@ -66,3 +66,26 @@ are recorded as `incomplete`.
 The schema documents the contract; the exporter does not currently run a JSON
 Schema validator. Preserve the manifest and validate records before publishing
 derived metrics.
+
+## Mobile analysis readiness gate
+
+The first mobile gate must use positions from whole amateur games that were
+not used for training, tuning, or candidate selection. Freeze the corpus and
+its SHA-256 before opening results. Run these lanes with one immutable
+evaluator and record its exact byte hash:
+
+1. a deeper native USI reference run;
+2. a native USI run at the proposed mobile node budget; and
+3. a WebAssembly run at the same mobile node budget, with the same evaluator
+   bytes loaded explicitly.
+
+The native reference is an internal consistency reference, not independent
+ground truth. It can measure candidate-move agreement and evaluation
+stability, but cannot establish blunder-detection precision or recall by
+itself. Those metrics require a separately frozen annotation source.
+
+Before the confirmatory run, preregister the corpus, lane settings, accepted
+evaluator hash, minimum usable-record rate, latency budget, top-1/top-3
+agreement thresholds, and treatment of mate, timeout, and incomplete records.
+Report native and WebAssembly latency separately. Do not select a model on
+this corpus and then reuse the same results as its final mobile gate.
