@@ -178,6 +178,7 @@ jobs:
           python3 scripts/test_floodgate_supervisor.py
           python3 scripts/test_floodgate_operation_acceptance.py
           python3 scripts/test_launchd_template.py
+          python3 scripts/test_launch_floodgate_once.py
           python3 scripts/test_validate_floodgate_runtime_status.py
           python3 scripts/test_build_floodgate_diagnostic_corpus.py
           python3 scripts/test_validate_floodgate_diagnostic_corpus.py
