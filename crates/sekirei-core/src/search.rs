@@ -3980,6 +3980,11 @@ mod see_tests {
         );
         stats.reset();
         assert_eq!(stats.snapshot(), WorkOverlapSnapshot::default());
+
+        let counters = SearchDiagnostics::counters_only();
+        assert!(!counters.timing);
+        assert!(counters.per_node);
+        assert!(counters.work_overlap.is_none());
     }
 
     #[test]
@@ -5787,14 +5792,11 @@ mod see_tests {
         // check, so both the fallback result and a completed depth-1 result
         // are valid. In either case the returned move and PV must agree.
         assert!(speculative.depth <= 1);
-        if speculative.depth == 0 {
-            assert!(
-                speculative.pv.is_empty(),
-                "a depth-zero fallback must not invent a completed PV"
-            );
-        } else {
-            assert_eq!(speculative.pv.first().copied(), Some(speculative_move));
-        }
+        assert_eq!(
+            speculative.pv.first().copied(),
+            (speculative.depth > 0).then_some(speculative_move),
+            "the PV must be empty only for a depth-zero fallback"
+        );
     }
 
     #[test]
