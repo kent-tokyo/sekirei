@@ -17,6 +17,11 @@ preserves older per-change notes.
 
 ### Added
 
+- Add explicit Rust and WebAssembly mate-analysis entry points for tsume
+  diagrams that omit the attacking king, while preserving the existing strict
+  two-king APIs. Mate results now identify their position policy and expose the
+  all-legal-defender-reply proof-distance rule separately from Japanese
+  puzzle-convention move counts that may omit futile interpositions.
 - Add a fail-closed HalfKP release model-card contract that verifies the exact
   weight, license, training-shard and whole-game hold-out manifests, raw
   current-engine 1/4-thread gate evidence, and engine commit without bundling

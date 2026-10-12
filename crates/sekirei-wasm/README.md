@@ -34,6 +34,8 @@ import init, {
   legalMoves,
   analyzeMate,
   analyzeMateInOne,
+  analyzeSingleKingMate,
+  analyzeSingleKingMateInOne,
   applyMove,
   computerMove,
   analyzePosition,
@@ -82,6 +84,17 @@ const longerProblem = analyzeMate(
   1_000_000,
 );
 console.log(longerProblem.outcome, longerProblem.shortestMatePly); // mate, 3
+
+const singleKingProblem = analyzeSingleKingMate(
+  "6p1p/5g3/6kBR/9/6Ns1/9/9/9/9 b rb3g3s3n4l16p 1",
+  13,
+  1_000_000,
+);
+console.log(
+  singleKingProblem.positionPolicy, // attacker_king_optional
+  singleKingProblem.distanceRule, // all_legal_defender_replies
+  singleKingProblem.shortestProofPly, // 7
+);
 ```
 
 Rejected input throws an object with stable `code` and human-readable
@@ -188,22 +201,39 @@ checks, promotion choices, drops, nifu, dead-rank restrictions, and
 uchifuzume.
 
 The result exposes `validPosition`, `defenderAlreadyInCheck`, `invalidReason`,
-the sorted USI `solutions`, and `uniqueSolution`. A parseable but invalid
-problem returns `validPosition = false`; malformed SFEN throws the structured
-`invalid_sfen` error.
+the sorted USI `solutions`, `uniqueSolution`, and `positionPolicy`. A parseable
+but invalid problem returns `validPosition = false`; malformed SFEN throws the
+structured `invalid_sfen` error.
+
+`analyzeSingleKingMateInOne(sfen)` is the explicit tsume-diagram variant. It
+uses `positionPolicy = "attacker_king_optional"`: the attacking king may be
+absent, but the defending king must still be present exactly once. Duplicate
+kings and an initially checked defender remain invalid. When the attacking
+king is present, normal self-check and countercheck legality is unchanged.
 
 ## Bounded shortest-mate validation
 
 `analyzeMate(sfen, maxPly, nodeLimit)` searches odd depths in increasing order.
 The attacker plays checking moves only and the defender may choose every legal
-reply. A completed `mate` result contains the shortest mate length and all
-first moves that force mate at that length. `no_mate` means the full requested
-bound was searched. If the node budget expires, the result is `unknown`,
-`aborted` is true, `reason` is `node_limit`, and partial solutions are omitted.
+reply. A completed `mate` result contains the shortest proof distance and all
+first moves that force mate at that distance. `no_mate` means the full
+requested bound was searched, not that the position is unconditionally free
+of mate. If the node budget expires, the result is `unknown`, `aborted` is
+true, `reason` is `node_limit`, and partial solutions are omitted.
 
-The result exposes `validPosition`, `outcome`, `shortestMatePly`, `solutions`,
-`uniqueSolution`, `nodes`, `aborted`, and `reason`. `maxPly` is limited to 1
-through 15 and `nodeLimit` to 1 through 1,000,000. Callers can pass an
+The result exposes `validPosition`, `positionPolicy`, `distanceRule`,
+`outcome`, `shortestProofPly`, the backward-compatible `shortestMatePly`
+alias, `solutions`, `uniqueSolution`, `nodes`, `aborted`, and `reason`.
+`distanceRule` is currently always `all_legal_defender_replies`: it counts
+every legal interposition, including a futile interposition that a published
+Japanese tsume-shogi solution may omit. Sekirei does not currently report a
+separate convention distance with muda-ai removed, and callers must not label
+`shortestProofPly` as that value.
+
+`analyzeSingleKingMate(sfen, maxPly, nodeLimit)` uses the same search and
+distance rule while explicitly allowing the attacking king to be absent. The
+strict `analyzeMate` API continues to require both kings. `maxPly` is limited
+to 1 through 15 and `nodeLimit` to 1 through 1,000,000. Callers can pass an
 intermediate SFEN to inspect later attacking turns with the same contract.
 
 ## Browser search contract

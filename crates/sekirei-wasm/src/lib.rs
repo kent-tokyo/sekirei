@@ -14,8 +14,9 @@ use js_sys::{Object, Reflect};
 use sekirei_core::board::Board;
 use sekirei_core::color::Color;
 use sekirei_core::mate::{
-    MateAnalysisAbortReason, MateInOneInvalidReason, analyze_mate as analyze_core_mate,
-    analyze_mate_in_one as analyze_core_mate_in_one,
+    MateAnalysisAbortReason, MateDistanceRule, MateInOneInvalidReason, MatePositionPolicy,
+    analyze_mate_in_one_with_policy as analyze_core_mate_in_one_with_policy,
+    analyze_mate_with_policy as analyze_core_mate_with_policy,
 };
 use sekirei_core::movegen::{generate_legal_moves, is_in_check};
 use sekirei_core::piece::PieceKind;
@@ -48,6 +49,10 @@ const SHORTEST_THREE_SFEN: &str = "4k4/9/2G3S2/5R3/2GG5/9/9/9/4K4 b - 1";
 #[cfg(test)]
 const UNIQUE_FIVE_SFEN: &str =
     "lnS1k2nl/3sr1G2/2p+Pb3p/p3Sp1p1/PpP2P1P1/5Gp2/LPN2gP1P/2+p+pr1G1L/Kb2S2N1 w P 110";
+#[cfg(test)]
+const SINGLE_KING_SEVEN_SFEN: &str = "6p1p/5g3/6kBR/9/6Ns1/9/9/9/9 b rb3g3s3n4l16p 1";
+#[cfg(test)]
+const FUTILE_INTERPOSITION_NINE_SFEN: &str = "9/6p1k/7P1/6nB1/5R3/7L1/9/9/K8 b rb4g4s3n3l16p 1";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct ApiError {
@@ -526,6 +531,7 @@ fn analyze_position_multi_pv_impl(
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct MateInOneResult {
     valid_position: bool,
+    position_policy: &'static str,
     defender_already_in_check: bool,
     invalid_reason: Option<&'static str>,
     solutions: Vec<String>,
@@ -534,6 +540,8 @@ struct MateInOneResult {
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct MateResult {
     valid_position: bool,
+    position_policy: &'static str,
+    distance_rule: &'static str,
     outcome: &'static str,
     shortest_mate_ply: Option<u32>,
     solutions: Vec<String>,
@@ -565,8 +573,15 @@ fn legal_move_strings(sfen: &str) -> Result<Vec<String>, ApiError> {
 }
 
 fn analyze_mate_in_one_impl(sfen: &str) -> Result<MateInOneResult, ApiError> {
+    analyze_mate_in_one_with_policy_impl(sfen, MatePositionPolicy::RequireBothKings)
+}
+
+fn analyze_mate_in_one_with_policy_impl(
+    sfen: &str,
+    position_policy: MatePositionPolicy,
+) -> Result<MateInOneResult, ApiError> {
     let board = parse_board(sfen)?;
-    let analysis = analyze_core_mate_in_one(&board);
+    let analysis = analyze_core_mate_in_one_with_policy(&board, position_policy);
     let valid_position = analysis.valid_position();
     let defender_already_in_check = analysis.defender_already_in_check();
     let invalid_reason = analysis.invalid_reason.map(MateInOneInvalidReason::code);
@@ -578,6 +593,7 @@ fn analyze_mate_in_one_impl(sfen: &str) -> Result<MateInOneResult, ApiError> {
     solutions.sort_unstable();
     Ok(MateInOneResult {
         valid_position,
+        position_policy: position_policy.code(),
         defender_already_in_check,
         invalid_reason,
         solutions,
@@ -601,9 +617,24 @@ fn validate_mate_limits(max_ply: u32, node_limit: u32) -> Result<(), ApiError> {
 }
 
 fn analyze_mate_impl(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateResult, ApiError> {
+    analyze_mate_with_policy_impl(
+        sfen,
+        max_ply,
+        node_limit,
+        MatePositionPolicy::RequireBothKings,
+    )
+}
+
+fn analyze_mate_with_policy_impl(
+    sfen: &str,
+    max_ply: u32,
+    node_limit: u32,
+    position_policy: MatePositionPolicy,
+) -> Result<MateResult, ApiError> {
     validate_mate_limits(max_ply, node_limit)?;
     let board = parse_board(sfen)?;
-    let analysis = analyze_core_mate(&board, max_ply, u64::from(node_limit));
+    let analysis =
+        analyze_core_mate_with_policy(&board, max_ply, u64::from(node_limit), position_policy);
     let valid_position = analysis.valid_position();
     let outcome = analysis.outcome.code();
     let shortest_mate_ply = analysis.shortest_mate_ply;
@@ -620,6 +651,8 @@ fn analyze_mate_impl(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateRe
         .or_else(|| analysis.abort_reason.map(MateAnalysisAbortReason::code));
     Ok(MateResult {
         valid_position,
+        position_policy: position_policy.code(),
+        distance_rule: MateDistanceRule::AllLegalDefenderReplies.code(),
         outcome,
         shortest_mate_ply,
         solutions,
@@ -1295,6 +1328,18 @@ impl MateAnalysis {
         self.result.valid_position
     }
 
+    /// King-presence policy used to validate the initial position.
+    #[wasm_bindgen(getter, js_name = positionPolicy)]
+    pub fn position_policy(&self) -> String {
+        self.result.position_policy.to_owned()
+    }
+
+    /// Rule used to count the returned proof distance.
+    #[wasm_bindgen(getter, js_name = distanceRule)]
+    pub fn distance_rule(&self) -> String {
+        self.result.distance_rule.to_owned()
+    }
+
     /// `mate`, `no_mate`, or `unknown`.
     #[wasm_bindgen(getter)]
     pub fn outcome(&self) -> String {
@@ -1304,6 +1349,12 @@ impl MateAnalysis {
     /// Shortest proven mate length in plies, when `outcome` is `mate`.
     #[wasm_bindgen(getter, js_name = shortestMatePly)]
     pub fn shortest_mate_ply(&self) -> Option<u32> {
+        self.result.shortest_mate_ply
+    }
+
+    /// Explicit alias for the all-legal-reply proof distance.
+    #[wasm_bindgen(getter, js_name = shortestProofPly)]
+    pub fn shortest_proof_ply(&self) -> Option<u32> {
         self.result.shortest_mate_ply
     }
 
@@ -1349,6 +1400,12 @@ impl MateInOneAnalysis {
     #[wasm_bindgen(getter, js_name = validPosition)]
     pub fn valid_position(&self) -> bool {
         self.result.valid_position
+    }
+
+    /// King-presence policy used to validate the initial position.
+    #[wasm_bindgen(getter, js_name = positionPolicy)]
+    pub fn position_policy(&self) -> String {
+        self.result.position_policy.to_owned()
     }
 
     /// Whether the defending king was already in check in the initial position.
@@ -1428,6 +1485,17 @@ pub fn analyze_mate_in_one(sfen: &str) -> Result<MateInOneAnalysis, JsValue> {
         .map_err(ApiError::into_js)
 }
 
+/// Analyze a mate-in-one tsume diagram that may omit the attacking king.
+///
+/// The defending king remains mandatory and unique. If the attacking king is
+/// present, ordinary self-check and countercheck legality is still enforced.
+#[wasm_bindgen(js_name = analyzeSingleKingMateInOne)]
+pub fn analyze_single_king_mate_in_one(sfen: &str) -> Result<MateInOneAnalysis, JsValue> {
+    analyze_mate_in_one_with_policy_impl(sfen, MatePositionPolicy::AllowMissingAttackerKing)
+        .map(|result| MateInOneAnalysis { result })
+        .map_err(ApiError::into_js)
+}
+
 /// Find the shortest forced mate up to `maxPly` and return all first moves.
 ///
 /// The attacker may play checking moves only; the defender may play every
@@ -1439,6 +1507,27 @@ pub fn analyze_mate(sfen: &str, max_ply: u32, node_limit: u32) -> Result<MateAna
     analyze_mate_impl(sfen, max_ply, node_limit)
         .map(|result| MateAnalysis { result })
         .map_err(ApiError::into_js)
+}
+
+/// Analyze a bounded tsume diagram that may omit the attacking king.
+///
+/// `shortestProofPly` counts every legal defending reply, including futile
+/// interpositions. It is therefore not necessarily the move count printed by
+/// a tsume-shogi problem source that omits such interpositions.
+#[wasm_bindgen(js_name = analyzeSingleKingMate)]
+pub fn analyze_single_king_mate(
+    sfen: &str,
+    max_ply: u32,
+    node_limit: u32,
+) -> Result<MateAnalysis, JsValue> {
+    analyze_mate_with_policy_impl(
+        sfen,
+        max_ply,
+        node_limit,
+        MatePositionPolicy::AllowMissingAttackerKing,
+    )
+    .map(|result| MateAnalysis { result })
+    .map_err(ApiError::into_js)
 }
 
 /// Validate and apply one USI move, returning the resulting SFEN.
@@ -1994,11 +2083,12 @@ mod tests {
 
         let result = analyze_mate_in_one_impl(VALID_MATE_SFEN).unwrap();
         let board = Board::from_sfen(VALID_MATE_SFEN).unwrap();
-        let mut expected = analyze_core_mate_in_one(&board)
-            .solutions
-            .into_iter()
-            .map(move_to_usi)
-            .collect::<Vec<_>>();
+        let mut expected =
+            analyze_core_mate_in_one_with_policy(&board, MatePositionPolicy::RequireBothKings)
+                .solutions
+                .into_iter()
+                .map(move_to_usi)
+                .collect::<Vec<_>>();
         expected.sort_unstable();
         assert_eq!(result.solutions, expected);
         assert!(result.solutions.contains(&"5e5c".to_owned()));
@@ -2012,6 +2102,8 @@ mod tests {
     #[test]
     fn bounded_mate_adapter_reports_shortest_unique_and_unknown_results() {
         let multiple = analyze_mate_impl(VALID_MATE_SFEN, 5, MAX_MATE_NODES).unwrap();
+        assert_eq!(multiple.position_policy, "both_kings_required");
+        assert_eq!(multiple.distance_rule, "all_legal_defender_replies");
         assert_eq!(multiple.outcome, "mate");
         assert_eq!(multiple.shortest_mate_ply, Some(1));
         assert!(!multiple.unique_solution);
@@ -2041,6 +2133,59 @@ mod tests {
         assert!(!cutoff.unique_solution);
         assert!(cutoff.aborted);
         assert_eq!(cutoff.reason, Some("node_limit"));
+    }
+
+    #[test]
+    fn single_king_adapter_is_explicit_and_uses_all_legal_reply_distance() {
+        let strict = analyze_mate_impl(SINGLE_KING_SEVEN_SFEN, 13, MAX_MATE_NODES).unwrap();
+        assert!(!strict.valid_position);
+        assert_eq!(strict.reason, Some("missing_attacker_king"));
+        assert_eq!(strict.position_policy, "both_kings_required");
+
+        let single = analyze_mate_with_policy_impl(
+            SINGLE_KING_SEVEN_SFEN,
+            13,
+            MAX_MATE_NODES,
+            MatePositionPolicy::AllowMissingAttackerKing,
+        )
+        .unwrap();
+        assert!(single.valid_position);
+        assert_eq!(single.position_policy, "attacker_king_optional");
+        assert_eq!(single.distance_rule, "all_legal_defender_replies");
+        assert_eq!(single.outcome, "mate");
+        assert_eq!(single.shortest_mate_ply, Some(7));
+        assert!(!single.solutions.is_empty());
+
+        let public = analyze_single_king_mate(SINGLE_KING_SEVEN_SFEN, 13, MAX_MATE_NODES).unwrap();
+        assert!(public.valid_position());
+        assert_eq!(public.position_policy(), "attacker_king_optional");
+        assert_eq!(public.distance_rule(), "all_legal_defender_replies");
+        assert_eq!(public.shortest_proof_ply(), Some(7));
+        assert_eq!(public.shortest_mate_ply(), public.shortest_proof_ply());
+
+        let cutoff = analyze_mate_with_policy_impl(
+            SINGLE_KING_SEVEN_SFEN,
+            13,
+            1,
+            MatePositionPolicy::AllowMissingAttackerKing,
+        )
+        .unwrap();
+        assert_eq!(cutoff.outcome, "unknown");
+        assert!(cutoff.shortest_mate_ply.is_none());
+        assert!(cutoff.aborted);
+    }
+
+    #[test]
+    fn wasm_distance_rule_does_not_label_futile_interpositions_as_seven_ply() {
+        let bounded = analyze_mate_impl(FUTILE_INTERPOSITION_NINE_SFEN, 7, MAX_MATE_NODES).unwrap();
+        assert_eq!(bounded.outcome, "no_mate");
+        assert!(bounded.shortest_mate_ply.is_none());
+        assert!(!bounded.aborted);
+
+        let proof = analyze_mate_impl(FUTILE_INTERPOSITION_NINE_SFEN, 9, MAX_MATE_NODES).unwrap();
+        assert_eq!(proof.outcome, "mate");
+        assert_eq!(proof.shortest_mate_ply, Some(9));
+        assert_eq!(proof.distance_rule, "all_legal_defender_replies");
     }
 
     #[test]
@@ -2201,6 +2346,7 @@ mod browser_tests {
 
         let mate = analyze_mate_in_one(VALID_MATE_SFEN).expect("mate fixture must be valid");
         assert!(mate.valid_position());
+        assert_eq!(mate.position_policy(), "both_kings_required");
         assert!(
             mate.solutions()
                 .iter()
@@ -2211,7 +2357,17 @@ mod browser_tests {
             .expect("bounded mate fixture must be valid");
         assert_eq!(shortest.outcome(), "mate");
         assert_eq!(shortest.shortest_mate_ply(), Some(3));
+        assert_eq!(shortest.shortest_proof_ply(), Some(3));
+        assert_eq!(shortest.distance_rule(), "all_legal_defender_replies");
+        assert_eq!(shortest.position_policy(), "both_kings_required");
         assert!(!shortest.aborted());
+
+        let single = analyze_single_king_mate(SINGLE_KING_SEVEN_SFEN, 13, MAX_MATE_NODES)
+            .expect("single-king tsume fixture must be accepted explicitly");
+        assert!(single.valid_position());
+        assert_eq!(single.position_policy(), "attacker_king_optional");
+        assert_eq!(single.distance_rule(), "all_legal_defender_replies");
+        assert_eq!(single.shortest_proof_ply(), Some(7));
 
         let unique = analyze_mate(UNIQUE_FIVE_SFEN, 5, MAX_MATE_NODES)
             .expect("unique mate-in-five fixture must be valid");
