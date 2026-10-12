@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Added
+
+- Add a fail-closed HalfKP release model-card contract that verifies the exact
+  weight, license, training-shard and whole-game hold-out manifests, raw
+  current-engine 1/4-thread gate evidence, and engine commit without bundling
+  or selecting an NNUE candidate.
+
 ## [0.3.73] – 2026-10-12
 
 - Search diagnostics: attribute a bounded sample of committed TT entries to
