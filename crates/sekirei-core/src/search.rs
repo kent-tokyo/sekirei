@@ -4240,6 +4240,19 @@ mod see_tests {
         assert_eq!(stats.snapshot(), TtReuseSnapshot::default());
     }
 
+    #[test]
+    fn tt_reuse_sampler_ignores_hashes_outside_the_sample() {
+        let unsampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) != 0)
+            .expect("an unsampled hash must exist");
+        let stats = TtReuseStats::new();
+
+        stats.record_store(unsampled_hash, 0);
+        stats.record_hit(unsampled_hash, 1);
+
+        assert_eq!(stats.snapshot(), TtReuseSnapshot::default());
+    }
+
     /// Restore every tuned search parameter even when this test exits early.
     ///
     /// The test is ignored by default because search parameters are process-wide
