@@ -11,6 +11,8 @@ use sekirei_core::eval::{
     NnueOutputMode, evaluate_with_weights_mode_and_residual_scale, material_score, move_order_score,
 };
 use sekirei_core::external_eval::read_sfnn_header;
+#[cfg(feature = "tune")]
+use sekirei_core::halfkp::{HalfKpAcc, HalfKpNetwork};
 use sekirei_core::hand::Hand;
 use sekirei_core::lazy_smp::{LAZY_VOTE, LazySmpSearcher, select_by_vote, select_worker_result};
 use sekirei_core::mate::{
@@ -25,6 +27,8 @@ use sekirei_core::movegen::{
 use sekirei_core::mv::Move;
 use sekirei_core::nnue::NnueWeights;
 use sekirei_core::perft::perft;
+#[cfg(feature = "tune")]
+use sekirei_core::piece::Piece;
 use sekirei_core::piece::PieceKind;
 use sekirei_core::policy::top_n;
 use sekirei_core::search::{
@@ -706,6 +710,7 @@ fn run_tuned_public_search_matrix() {
         "IIR_MODE",
         "TT_PV_MODE",
         "SE_DEPTH_BUMP",
+        "NNUE_FINNY",
     ];
     let saved = NAMES
         .iter()
@@ -719,6 +724,41 @@ fn run_tuned_public_search_matrix() {
         })
         .collect::<Vec<_>>();
     let _restore = Restore(saved.clone());
+
+    // Cover both the full HalfKP refresh and the king-square cache delta path
+    // without activating a process-global evaluator. This keeps the tune-only
+    // alternative deterministic and isolated from the ordinary NNUE tests.
+    let net = HalfKpNetwork::random(73);
+    let mut mailbox = [None; 81];
+    mailbox[Square::from_shogi(5, 9).index() as usize] = Some(Piece {
+        kind: PieceKind::Ou,
+        color: Color::Black,
+    });
+    mailbox[Square::from_shogi(5, 1).index() as usize] = Some(Piece {
+        kind: PieceKind::Ou,
+        color: Color::White,
+    });
+    mailbox[Square::from_shogi(5, 7).index() as usize] = Some(Piece {
+        kind: PieceKind::Fu,
+        color: Color::Black,
+    });
+    let mut hands = [[0u8; 7]; 2];
+    assert!(sekirei_core::search::params::set("NNUE_FINNY", 0));
+    let mut acc = HalfKpAcc::new();
+    acc.refresh(&net, &mailbox, &hands);
+    assert!(!acc.needs_refresh());
+    acc.remove_piece(&net, Square::from_shogi(5, 7), PieceKind::Fu, Color::Black);
+    acc.add_piece(&net, Square::from_shogi(5, 7), PieceKind::Fu, Color::Black);
+    acc.add_hand(&net, PieceKind::Fu, 1, Color::Black);
+    acc.remove_hand(&net, PieceKind::Fu, 1, Color::Black);
+
+    assert!(sekirei_core::search::params::set("NNUE_FINNY", 1));
+    hands[Color::Black.index()][PieceKind::Fu.index()] = 1;
+    acc.dirty = [true; 2];
+    acc.refresh(&net, &mailbox, &hands);
+    hands[Color::Black.index()][PieceKind::Fu.index()] = 0;
+    acc.dirty = [true; 2];
+    acc.refresh(&net, &mailbox, &hands);
     let configurations: &[&[(&str, i32)]] = &[
         &[
             ("SEARCH_V2", 0),

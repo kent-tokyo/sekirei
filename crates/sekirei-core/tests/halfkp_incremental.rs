@@ -28,11 +28,24 @@ fn assert_matches_refresh(board: &Board) {
 
 #[test]
 fn halfkp_file_is_detected_and_incremental_updates_stay_exact() {
+    // A board created before evaluator activation starts with a dirty HalfKP
+    // accumulator. Direct evaluation must rebuild a private accumulator rather
+    // than depending on process-global activation order.
+    let board_before_activation = Board::startpos();
     let path = temp_network();
     assert!(halfkp::is_halfkp_file(&path).unwrap());
     assert_eq!(load_evaluator(&path).unwrap(), EvalFileFormat::HalfKp);
     std::fs::remove_file(&path).ok();
     assert!(halfkp::is_active());
+    let net = halfkp::active_network().unwrap();
+    assert_eq!(
+        board_before_activation.evaluate_halfkp(net, halfkp::fv_scale()),
+        {
+            let mut refreshed = board_before_activation.clone();
+            refreshed.refresh_acc();
+            refreshed.evaluate_halfkp(net, halfkp::fv_scale())
+        }
+    );
 
     // A second evaluator of either format is rejected.
     assert!(halfkp::install_network(HalfKpNetwork::random(12)).is_err());
