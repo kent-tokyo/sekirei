@@ -6,6 +6,8 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.3.73] – 2026-10-12
+
 - Search diagnostics: attribute a bounded sample of committed TT entries to
   the worker that wrote them, report confirmed local/foreign-worker reuse,
   and separate all discarded root-result nodes from the divergent subset.
