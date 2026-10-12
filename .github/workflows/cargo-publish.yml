@@ -100,6 +100,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ inputs.release_tag }}
+          fetch-depth: 0
 
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
@@ -154,6 +155,15 @@ jobs:
           print(f"All workspace crates and Cargo.lock entries match version {expected_version}")
           PYEOF
 
+      - name: Verify sekirei-core public API compatibility
+        if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') }}
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
+        with:
+          package: sekirei-core
+          baseline-rev: v0.3.73
+          release-type: patch
+          rust-toolchain: manual
+
       - name: Show requested crates and mode
         env:
           CRATES_INPUT: ${{ inputs.crates }}
@@ -180,7 +190,7 @@ jobs:
         run: |
           expected_version="${RELEASE_TAG#v}"
           echo "Polling sparse index for sekirei-core $expected_version (every 10s, max 3m)..."
-          for i in $(seq 1 18); do
+          for _ in $(seq 1 18); do
             if curl -fsS "https://index.crates.io/se/ki/sekirei-core" 2>/dev/null | grep -q "\"vers\":\"$expected_version\""; then
               echo "sekirei-core $expected_version is indexed."
               exit 0
