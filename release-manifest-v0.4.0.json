@@ -1,0 +1,75 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.4.0",
+  "commit": "579d743274a1235cbd6dcc3c8ad62a2a9e22218a",
+  "branch_at_release": "release/v0.4.0-prep",
+  "candidate_state": "planned from the locally verified release-preparation commit",
+  "packages": {
+    "sekirei": "0.4.0",
+    "sekirei-core": "0.4.0",
+    "sekirei-bench": "0.4.0",
+    "sekirei-csa": "0.4.0",
+    "sekirei-match-runner": "0.4.0",
+    "sekirei-train": "0.4.0"
+  },
+  "dependencies": {
+    "lineprior": "0.12.4",
+    "shogiesa-core": "0.11.4",
+    "veridict": "0.19.2"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "2d9903dc122be5c51a4f3ae4ae1599e30b39cea0d7e318bcd72eb01dd37acca3"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.4.0",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.4.0.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.4.0/sekirei-wasm-0.4.0.tgz",
+    "sha256": "24d881c1311bf7778448a21a974922890959733fd3795111fb4af6e5b0e19634",
+    "size": 475666,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace release tests, rustfmt, clippy, opening-book tests, a native material-only USI smoke, and local WebAssembly package generation passed. Version 0.4.0 preserves the v0.3.73 sekirei-core public API and adds fail-closed publication checks for all seven workspace crates and the versioned WebAssembly asset. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.4.0."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "The default material evaluator and search policy remain unchanged from v0.3.73.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}

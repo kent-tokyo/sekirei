@@ -91,6 +91,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-12: Prepare v0.4.0 as a compatibility and operations milestone with all seven workspace versions, v0.3.73 patch-level public API compatibility, a validated planned manifest, and a reproducible WASM asset; do not bundle or adopt an unqualified self-NNUE candidate.
 * 2026-10-12: Release v0.3.73 after verifying opt-in Lazy SMP useful-work diagnostics, process-lifecycle fixes, bounded WebAssembly evaluator and MultiPV contracts, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; keep the default search and evaluator unchanged and make no playing-strength claim.
 * 2026-10-11: Release v0.3.71 after verifying the behavior-preserving refactors, 98% coverage contract, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; make no playing-strength claim.
 * 2026-10-11: Release v0.3.72 after verifying opt-in Lazy SMP diagnostics, bounded CSA post-game reconnects, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; the default search and evaluator remain unchanged.
