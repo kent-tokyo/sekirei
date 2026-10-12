@@ -5782,11 +5782,19 @@ mod see_tests {
             generate_legal_moves(&mut speculative_board).contains(&speculative_move),
             "speculative fallback must be legal"
         );
-        assert_eq!(speculative.depth, 0);
-        assert!(
-            speculative.pv.is_empty(),
-            "a depth-zero fallback must not invent a completed PV"
-        );
+        // A zero deadline is observed cooperatively. On a fast machine the
+        // first (and only) iteration can finish before the next deadline
+        // check, so both the fallback result and a completed depth-1 result
+        // are valid. In either case the returned move and PV must agree.
+        assert!(speculative.depth <= 1);
+        if speculative.depth == 0 {
+            assert!(
+                speculative.pv.is_empty(),
+                "a depth-zero fallback must not invent a completed PV"
+            );
+        } else {
+            assert_eq!(speculative.pv.first().copied(), Some(speculative_move));
+        }
     }
 
     #[test]
