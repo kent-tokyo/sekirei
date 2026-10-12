@@ -24,7 +24,7 @@
 
 use rayon::prelude::*;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering, fence};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering, fence};
 use std::time::Duration;
 use web_time::Instant;
 
@@ -358,6 +358,160 @@ pub struct SearchDiagnostics {
     /// terminal nodes, searched moves, beta cutoffs, depth-cap exits,
     /// mate-in-one exits, delta-pruning exits, and top-level qsearch calls.
     qsearch: [AtomicU64; 11],
+    /// Diagnostic-only sampled node registry shared by Lazy SMP workers.
+    /// Normal searches and ordinary cost profiles leave this detached.
+    work_overlap: Option<WorkOverlapObserver>,
+}
+
+const WORK_SAMPLE_LOG2: u32 = 8;
+const WORK_SAMPLE_SLOTS: usize = 1 << 15;
+const WORK_SAMPLE_PROBES: usize = 8;
+// Sampled fingerprints always have low byte 1, so 2 can reserve a slot while
+// the inserting worker publishes its worker id before the final fingerprint.
+const WORK_SAMPLE_CLAIMED: u64 = 2;
+
+struct WorkSampleSlot {
+    fingerprint: AtomicU64,
+    first_worker: AtomicU32,
+    shared: AtomicBool,
+}
+
+/// Bounded, lock-free sampler for estimating work repeated across Lazy SMP
+/// workers. Only one out of every 256 mixed position hashes is observed, and
+/// each fingerprint gets at most eight open-addressing probes. Saturation is
+/// reported rather than silently treated as overlap.
+pub(crate) struct WorkOverlapStats {
+    slots: Box<[WorkSampleSlot]>,
+    sampled_visits: AtomicU64,
+    unique_fingerprints: AtomicU64,
+    within_worker_revisits: AtomicU64,
+    cross_worker_visits: AtomicU64,
+    shared_fingerprints: AtomicU64,
+    dropped: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct WorkOverlapSnapshot {
+    pub sampled_visits: u64,
+    pub unique_fingerprints: u64,
+    pub within_worker_revisits: u64,
+    pub cross_worker_visits: u64,
+    pub shared_fingerprints: u64,
+    pub dropped: u64,
+}
+
+#[derive(Clone)]
+struct WorkOverlapObserver {
+    stats: Arc<WorkOverlapStats>,
+    worker: u32,
+}
+
+impl WorkOverlapStats {
+    pub(crate) fn new() -> Self {
+        Self {
+            slots: (0..WORK_SAMPLE_SLOTS)
+                .map(|_| WorkSampleSlot {
+                    fingerprint: AtomicU64::new(0),
+                    first_worker: AtomicU32::new(0),
+                    shared: AtomicBool::new(false),
+                })
+                .collect(),
+            sampled_visits: AtomicU64::new(0),
+            unique_fingerprints: AtomicU64::new(0),
+            within_worker_revisits: AtomicU64::new(0),
+            cross_worker_visits: AtomicU64::new(0),
+            shared_fingerprints: AtomicU64::new(0),
+            dropped: AtomicU64::new(0),
+        }
+    }
+
+    /// Reset between searches. The caller guarantees that no worker is still
+    /// using the sampler, just as it does when resetting the shared abort flag.
+    pub(crate) fn reset(&self) {
+        for slot in &self.slots {
+            slot.fingerprint.store(0, Ordering::Relaxed);
+            slot.first_worker.store(0, Ordering::Relaxed);
+            slot.shared.store(false, Ordering::Relaxed);
+        }
+        self.sampled_visits.store(0, Ordering::Relaxed);
+        self.unique_fingerprints.store(0, Ordering::Relaxed);
+        self.within_worker_revisits.store(0, Ordering::Relaxed);
+        self.cross_worker_visits.store(0, Ordering::Relaxed);
+        self.shared_fingerprints.store(0, Ordering::Relaxed);
+        self.dropped.store(0, Ordering::Relaxed);
+    }
+
+    pub(crate) fn snapshot(&self) -> WorkOverlapSnapshot {
+        WorkOverlapSnapshot {
+            sampled_visits: self.sampled_visits.load(Ordering::Relaxed),
+            unique_fingerprints: self.unique_fingerprints.load(Ordering::Relaxed),
+            within_worker_revisits: self.within_worker_revisits.load(Ordering::Relaxed),
+            cross_worker_visits: self.cross_worker_visits.load(Ordering::Relaxed),
+            shared_fingerprints: self.shared_fingerprints.load(Ordering::Relaxed),
+            dropped: self.dropped.load(Ordering::Relaxed),
+        }
+    }
+
+    #[inline]
+    fn record(&self, hash: u64, worker: u32) {
+        let mixed = mix_work_hash(hash);
+        if mixed & ((1 << WORK_SAMPLE_LOG2) - 1) != 0 {
+            return;
+        }
+        self.sampled_visits.fetch_add(1, Ordering::Relaxed);
+        // Sampled mixed hashes have zero low bits, so setting bit zero gives a
+        // non-zero table key without merging two sampled fingerprints.
+        let fingerprint = mixed | 1;
+        let start = (mixed.rotate_right(WORK_SAMPLE_LOG2) as usize) & (WORK_SAMPLE_SLOTS - 1);
+        let worker = worker.saturating_add(1);
+        for probe in 0..WORK_SAMPLE_PROBES {
+            let slot = &self.slots[(start + probe) & (WORK_SAMPLE_SLOTS - 1)];
+            let mut current = slot.fingerprint.load(Ordering::Acquire);
+            if current == 0 {
+                match slot.fingerprint.compare_exchange(
+                    0,
+                    WORK_SAMPLE_CLAIMED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        slot.first_worker.store(worker, Ordering::Relaxed);
+                        slot.fingerprint.store(fingerprint, Ordering::Release);
+                        self.unique_fingerprints.fetch_add(1, Ordering::Relaxed);
+                        return;
+                    }
+                    Err(actual) => current = actual,
+                }
+            }
+            while current == WORK_SAMPLE_CLAIMED {
+                std::hint::spin_loop();
+                current = slot.fingerprint.load(Ordering::Acquire);
+            }
+            if current != fingerprint {
+                continue;
+            }
+            let first = slot.first_worker.load(Ordering::Relaxed);
+            if first == worker {
+                self.within_worker_revisits.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.cross_worker_visits.fetch_add(1, Ordering::Relaxed);
+                if !slot.shared.swap(true, Ordering::Relaxed) {
+                    self.shared_fingerprints.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            return;
+        }
+        self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+#[inline]
+fn mix_work_hash(mut value: u64) -> u64 {
+    value ^= value >> 30;
+    value = value.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    value ^= value >> 27;
+    value = value.wrapping_mul(0x94d0_49bb_1331_11eb);
+    value ^ (value >> 31)
 }
 
 /// Buckets of [`SearchDiagnostics::cut_histogram`]: move 1, 2, 3, 4, 5-6,
@@ -462,6 +616,18 @@ impl Drop for ProfileTimer<'_> {
 }
 
 impl SearchDiagnostics {
+    pub(crate) fn parallel_worker(stats: Arc<WorkOverlapStats>, worker: usize) -> Self {
+        Self {
+            timing: false,
+            per_node: true,
+            work_overlap: Some(WorkOverlapObserver {
+                stats,
+                worker: worker.min(u32::MAX as usize) as u32,
+            }),
+            ..Self::new()
+        }
+    }
+
     /// Create an observer that records per-node counters without wall-clock
     /// timers. This is intended for parallel-scaling diagnostics: atomic
     /// counters still perturb throughput, but avoiding a clock read around
@@ -542,6 +708,14 @@ impl SearchDiagnostics {
             fail_low_nodes: AtomicU64::new(0),
             move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
+            work_overlap: None,
+        }
+    }
+
+    #[inline]
+    fn record_work_sample(&self, hash: u64) {
+        if let Some(observer) = &self.work_overlap {
+            observer.stats.record(hash, observer.worker);
         }
     }
 
@@ -1130,6 +1304,11 @@ impl Searcher {
     /// Age the TT entries of earlier searches (call once per `go`).
     pub fn new_search(&self) {
         self.tt.new_search();
+    }
+
+    #[cfg(test)]
+    pub(crate) fn tt_search_count(&self) -> u64 {
+        self.tt.search_count()
     }
 
     /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
@@ -1870,7 +2049,6 @@ fn root_search(
     } else {
         ordered
     };
-
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let (mut lo, mut hi) = if use_asp {
@@ -2100,6 +2278,7 @@ fn alpha_beta(
     }
     if let Some(diagnostics) = state.counters() {
         diagnostics.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
+        diagnostics.record_work_sample(board.hash());
         if beta - alpha > 1 {
             diagnostics.pv_calls.fetch_add(1, Ordering::Relaxed);
         }
@@ -2874,6 +3053,7 @@ fn quiescence(
     let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
     if let Some(diagnostics) = state.counters() {
         diagnostics.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+        diagnostics.record_work_sample(board.hash());
         diagnostics.qsearch[0].fetch_add(1, Ordering::Relaxed);
         if qply == 0 {
             diagnostics.qsearch[10].fetch_add(1, Ordering::Relaxed);
@@ -3384,6 +3564,15 @@ impl SpeculativeSearcher {
         self.countermoves.clear();
     }
 
+    /// Age transposition-table entries written by earlier searches.
+    ///
+    /// This mirrors [`Searcher::new_search`]. Without it, bucket replacement
+    /// cannot prefer the current search over equally deep entries left by an
+    /// earlier `go` command.
+    pub fn new_search(&self) {
+        self.tt.new_search();
+    }
+
     /// Run iterative-deepening search with preemptive speculative parallelism on
     /// candidate replies, returning the best line plus speculation statistics.
     ///
@@ -3763,8 +3952,69 @@ fn update_quiet_heuristics(
 mod see_tests {
     use super::*;
     use crate::board::Board;
+    use std::sync::Barrier;
     use std::thread;
     use std::time::Instant;
+
+    #[test]
+    fn work_overlap_sampler_separates_local_and_cross_worker_revisits() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
+            .expect("a sampled hash must exist");
+        let stats = WorkOverlapStats::new();
+
+        stats.record(sampled_hash, 0);
+        stats.record(sampled_hash, 0);
+        stats.record(sampled_hash, 1);
+
+        assert_eq!(
+            stats.snapshot(),
+            WorkOverlapSnapshot {
+                sampled_visits: 3,
+                unique_fingerprints: 1,
+                within_worker_revisits: 1,
+                cross_worker_visits: 1,
+                shared_fingerprints: 1,
+                dropped: 0,
+            }
+        );
+        stats.reset();
+        assert_eq!(stats.snapshot(), WorkOverlapSnapshot::default());
+
+        let counters = SearchDiagnostics::counters_only();
+        assert!(!counters.timing);
+        assert!(counters.per_node);
+        assert!(counters.work_overlap.is_none());
+    }
+
+    #[test]
+    fn work_overlap_sampler_claims_one_slot_under_concurrent_first_visit() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
+            .expect("a sampled hash must exist");
+        let workers = 16;
+        let stats = Arc::new(WorkOverlapStats::new());
+        let barrier = Arc::new(Barrier::new(workers));
+
+        thread::scope(|scope| {
+            for worker in 0..workers {
+                let stats = stats.clone();
+                let barrier = barrier.clone();
+                scope.spawn(move || {
+                    barrier.wait();
+                    stats.record(sampled_hash, worker as u32);
+                });
+            }
+        });
+
+        let snapshot = stats.snapshot();
+        assert_eq!(snapshot.sampled_visits, workers as u64);
+        assert_eq!(snapshot.unique_fingerprints, 1);
+        assert_eq!(snapshot.within_worker_revisits, 0);
+        assert_eq!(snapshot.cross_worker_visits, (workers - 1) as u64);
+        assert_eq!(snapshot.shared_fingerprints, 1);
+        assert_eq!(snapshot.dropped, 0);
+    }
 
     /// Restore every tuned search parameter even when this test exits early.
     ///
@@ -5537,10 +5787,15 @@ mod see_tests {
             generate_legal_moves(&mut speculative_board).contains(&speculative_move),
             "speculative fallback must be legal"
         );
-        assert_eq!(speculative.depth, 0);
-        assert!(
-            speculative.pv.is_empty(),
-            "a depth-zero fallback must not invent a completed PV"
+        // A zero deadline is observed cooperatively. On a fast machine the
+        // first (and only) iteration can finish before the next deadline
+        // check, so both the fallback result and a completed depth-1 result
+        // are valid. In either case the returned move and PV must agree.
+        assert!(speculative.depth <= 1);
+        assert_eq!(
+            speculative.pv.first().copied(),
+            (speculative.depth > 0).then_some(speculative_move),
+            "the PV must be empty only for a depth-zero fallback"
         );
     }
 
@@ -6339,6 +6594,18 @@ mod regression_tests {
             "mate found at the shallower ply ({score_shallow}) must score higher than the \
              identical mate found 2 plies deeper ({score_deep})"
         );
+    }
+
+    #[test]
+    fn speculative_new_search_advances_tt_generation() {
+        let tt = Tt::new(1);
+        let searcher = SpeculativeSearcher::new(tt.clone(), 0);
+
+        assert_eq!(tt.search_count(), 0);
+        searcher.new_search();
+        assert_eq!(tt.search_count(), 1);
+        searcher.new_search();
+        assert_eq!(tt.search_count(), 2);
     }
 
     // Note: SpeculativeSearcher.search()'s reported score comes from the same

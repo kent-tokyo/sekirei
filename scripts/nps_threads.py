@@ -78,9 +78,17 @@ class Usi:
     def quit(self) -> None:
         try:
             self.send("quit")
+        except Exception:
+            pass
+        try:
             self.proc.wait(timeout=5)
         except Exception:
-            self.proc.kill()
+            # `kill` alone leaves a zombie until the Python runner exits.
+            # Always wait after the fallback termination as well.
+            try:
+                self.proc.kill()
+            finally:
+                self.proc.wait()
 
 
 def parse_info(lines: list[str]) -> tuple[int, int, int]:
@@ -183,6 +191,29 @@ def parse_lazy_smp_tt(lines: list[str]) -> dict[str, int] | None:
     return None
 
 
+def parse_lazy_smp_overlap(lines: list[str]) -> dict[str, int] | None:
+    """Sampled cross-worker position overlap from the last search."""
+    prefix = "info string lazy_smp_overlap "
+    keys = (
+        "sample_rate",
+        "visits",
+        "unique",
+        "within_worker_revisits",
+        "cross_worker_visits",
+        "shared_fingerprints",
+        "dropped",
+    )
+    for line in reversed(lines):
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix) :].split()
+        try:
+            return {key: int(parts[parts.index(key) + 1]) for key in keys}
+        except (ValueError, IndexError):
+            return None
+    return None
+
+
 def parse_bestmove(lines: list[str]) -> str:
     for line in reversed(lines):
         if line.startswith("bestmove "):
@@ -219,6 +250,36 @@ def summarize_lazy_tt(rows: list[dict]) -> dict[str, float | int] | None:
     totals["collision_rate"] = totals["collision_overwrites"] / max(
         totals["attempted"], 1
     )
+    return totals
+
+
+def summarize_lazy_overlap(rows: list[dict]) -> dict[str, float | int] | None:
+    diagnostics = [row.get("lazy_smp_overlap") for row in rows]
+    diagnostics = [item for item in diagnostics if item is not None]
+    if not diagnostics:
+        return None
+    totals = {
+        key: sum(item[key] for item in diagnostics)
+        for key in (
+            "visits",
+            "unique",
+            "within_worker_revisits",
+            "cross_worker_visits",
+            "shared_fingerprints",
+            "dropped",
+        )
+    }
+    totals["sample_rate"] = diagnostics[0]["sample_rate"]
+    totals["shared_fingerprint_rate"] = totals["shared_fingerprints"] / max(
+        totals["unique"], 1
+    )
+    totals["cross_worker_visit_rate"] = totals["cross_worker_visits"] / max(
+        totals["visits"], 1
+    )
+    totals["within_worker_revisit_rate"] = totals["within_worker_revisits"] / max(
+        totals["visits"], 1
+    )
+    totals["drop_rate"] = totals["dropped"] / max(totals["visits"], 1)
     return totals
 
 
@@ -286,6 +347,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 depth, nodes, nps = parse_info(lines)
                 lazy_smp = parse_lazy_smp(lines)
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
+                lazy_smp_overlap = parse_lazy_smp_overlap(lines)
                 if nps == 0 and elapsed > 0:
                     nps = int(nodes / elapsed)
                 row = {
@@ -302,6 +364,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     row["lazy_smp"] = lazy_smp
                 if lazy_smp_tt is not None:
                     row["lazy_smp_tt"] = lazy_smp_tt
+                if lazy_smp_overlap is not None:
+                    row["lazy_smp_overlap"] = lazy_smp_overlap
                 rows.append(row)
                 lazy_suffix = ""
                 if lazy_smp is not None:
@@ -316,6 +380,17 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     lazy_suffix += (
                         f" tt-hit {hit_rate:.1%}"
                         f" collisions {lazy_smp_tt['collision_overwrites']}"
+                    )
+                if lazy_smp_overlap is not None:
+                    cross_rate = lazy_smp_overlap["cross_worker_visits"] / max(
+                        lazy_smp_overlap["visits"], 1
+                    )
+                    shared_rate = lazy_smp_overlap["shared_fingerprints"] / max(
+                        lazy_smp_overlap["unique"], 1
+                    )
+                    lazy_suffix += (
+                        f" cross-work {cross_rate:.1%}"
+                        f" shared-fp {shared_rate:.1%}"
                     )
                 print(
                     f"  threads {threads} pos {index:2d} run {repeat + 1}:"
@@ -418,6 +493,22 @@ def main() -> int:
                 f"{threads:7d}  {summary['hit_rate']:8.1%}"
                 f"  {summary['same_hash_rate']:16.1%}"
                 f"  {summary['collision_rate']:15.3%}"
+            )
+    overlap_summaries = {
+        threads: summarize_lazy_overlap(results[threads]) for threads in thread_counts
+    }
+    if any(summary is not None for summary in overlap_summaries.values()):
+        print("Sampled work-overlap lane (1/sample-rate positions; diagnostic only)")
+        print("threads  cross-worker visits  shared fingerprints  within-worker revisits  dropped")
+        for threads in thread_counts:
+            summary = overlap_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['cross_worker_visit_rate']:19.1%}"
+                f"  {summary['shared_fingerprint_rate']:19.1%}"
+                f"  {summary['within_worker_revisit_rate']:22.1%}"
+                f"  {summary['drop_rate']:7.3%}"
             )
     return 0
 

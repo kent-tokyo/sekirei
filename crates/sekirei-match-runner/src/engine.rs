@@ -77,6 +77,9 @@ const MOVE_GRACE: Duration = Duration::from_secs(3);
 const MOVE_FALLBACK: Duration = Duration::from_secs(30);
 /// Handshake / generic read timeout.
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(10);
+/// Maximum time to trust a healthy engine to honor `quit` before it is
+/// forcibly terminated. Match completion must never leave an orphan child.
+const SHUTDOWN_GRACE: Duration = Duration::from_millis(500);
 
 impl UsiEngine {
     /// Launch engine at `path` with optional extra `args` (e.g. NNUE weight file).
@@ -143,6 +146,24 @@ impl UsiEngine {
     pub fn kill(&mut self) {
         let _ = self._process.kill();
         let _ = self._process.wait();
+    }
+
+    /// Ask a healthy engine to exit, then force and reap it if it does not.
+    fn shutdown(&mut self) {
+        let _ = self.send("quit");
+        let deadline = Instant::now() + SHUTDOWN_GRACE;
+        loop {
+            match self._process.try_wait() {
+                Ok(Some(_)) => return,
+                Ok(None) if Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Ok(None) | Err(_) => {
+                    self.kill();
+                    return;
+                }
+            }
+        }
     }
 
     /// Read the next output line before one absolute protocol deadline.
@@ -565,7 +586,7 @@ fn rayon_threads_option(options: &[String]) -> Option<&str> {
 
 impl Drop for UsiEngine {
     fn drop(&mut self) {
-        let _ = self.send("quit");
+        self.shutdown();
     }
 }
 
@@ -736,6 +757,26 @@ done
     fn kill_reaps_an_unresponsive_engine() {
         let mut engine = launch_shell("while :; do sleep 1; done", &[]);
         engine.kill();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn graceful_shutdown_forces_and_reaps_an_engine_that_ignores_quit() {
+        let script = r#"
+while IFS= read -r line; do
+  :
+done
+"#;
+        let mut engine = launch_shell(script, &[]);
+        engine.shutdown();
+        assert!(
+            engine
+                ._process
+                .try_wait()
+                .expect("query child status")
+                .is_some(),
+            "shutdown must reap even an engine that ignores quit"
+        );
     }
 
     #[test]

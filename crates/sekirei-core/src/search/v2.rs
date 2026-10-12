@@ -648,6 +648,7 @@ fn qs2(
     let i = ply as usize + OFF;
     if let Some(c) = state.counters() {
         c.quiescence_calls.fetch_add(1, Ordering::Relaxed);
+        c.record_work_sample(board.hash());
     }
     if let Some(outcome) = history.outcome_at_current_position() {
         return repetition_score(outcome, board.side_to_move, ply);
@@ -937,6 +938,7 @@ fn node(
     let i = ply as usize + OFF;
     if let Some(c) = state.counters() {
         c.alpha_beta_calls.fetch_add(1, Ordering::Relaxed);
+        c.record_work_sample(board.hash());
         if pv {
             c.pv_calls.fetch_add(1, Ordering::Relaxed);
         }

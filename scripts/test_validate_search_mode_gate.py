@@ -1,18 +1,35 @@
 #!/usr/bin/env python3
 
 import copy
-import json
+import sys
 import unittest
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_search_mode_gate import validate
 
 
-PLAN = json.loads(
-    Path("results/search_mode_strength_gate_plan_20260909.json").read_text(
-        encoding="utf-8"
-    )
-)
+PLAN = {
+    "schema": "sekirei.search-mode-strength-gate-plan.v1",
+    "purpose": "isolate SearchMode implementation effects with identical binary and weights",
+    "status": "planned",
+    "positions": 99,
+    "games_per_position": 2,
+    "byoyomi_ms": 100,
+    "max_games": 198,
+    "engine1": {
+        "Threads": "1",
+        "SpecTopN": "0",
+        "UseBook": "false",
+        "SearchMode": "Speculative",
+    },
+    "engine2": {
+        "Threads": "1",
+        "SpecTopN": "0",
+        "UseBook": "false",
+        "SearchMode": "LazySMP",
+    },
+}
 
 
 class SearchModePlanTests(unittest.TestCase):

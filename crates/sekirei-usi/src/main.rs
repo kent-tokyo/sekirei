@@ -20,7 +20,7 @@ use sekirei_core::{
         validate_nnue_residual_scale_permille,
     },
     halfkp,
-    lazy_smp::{LAZY_DEFAULT_FLAGS, LazySmpSearcher, LazySmpWorkerInfo},
+    lazy_smp::{LAZY_DEFAULT_FLAGS, LazySmpSearcher, LazySmpWorkOverlap, LazySmpWorkerInfo},
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
     nnue::load_evaluator,
@@ -61,7 +61,7 @@ const DEFAULT_HASH_MB: usize = 64;
 const HASH_MB_RANGE: SpinRange = SpinRange::new(1, 2048);
 const THREADS_RANGE: SpinRange = SpinRange::new(0, 512);
 const SPEC_TOP_N_RANGE: SpinRange = SpinRange::new(0, 512);
-const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 255);
+const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 511);
 const MOVE_OVERHEAD_RANGE: SpinRange = SpinRange::new(0, 5000);
 const INCREMENT_USE_PERCENT_RANGE: SpinRange = SpinRange::new(0, 100);
 const MULTI_PV_RANGE: SpinRange = SpinRange::new(1, 256);
@@ -126,6 +126,7 @@ struct SearchResult {
     pv: Vec<sekirei_core::mv::Move>,
     worker_stats: Vec<LazySmpWorkerInfo>,
     lazy_tt_writes: Option<TtWriteSnapshot>,
+    lazy_work_overlap: Option<LazySmpWorkOverlap>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
@@ -267,12 +268,14 @@ impl SearchBackend {
                 pv: Vec::new(),
                 worker_stats: Vec::new(),
                 lazy_tt_writes: None,
+                lazy_work_overlap: None,
                 shared_mcts_stats: None,
                 root_safety: None,
             };
         }
         match self {
             Self::Sequential(s) => s.searcher.new_search(),
+            Self::Speculative(s) => s.new_search(),
             Self::LazySmp(s) => s.new_search(),
             _ => {}
         }
@@ -306,6 +309,7 @@ impl SearchBackend {
                     pv: result.pv,
                     worker_stats: info.worker_results,
                     lazy_tt_writes: info.tt_writes,
+                    lazy_work_overlap: info.work_overlap,
                     shared_mcts_stats: None,
                     root_safety: None,
                 }
@@ -350,6 +354,7 @@ impl SearchBackend {
                     pv: result.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
                     lazy_tt_writes: None,
+                    lazy_work_overlap: None,
                     shared_mcts_stats: None,
                     root_safety: None,
                 }
@@ -392,6 +397,7 @@ impl SearchBackend {
                     pv: info.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
                     lazy_tt_writes: None,
+                    lazy_work_overlap: None,
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
@@ -416,6 +422,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         pv: info.pv,
         worker_stats: Vec::new(),
         lazy_tt_writes: None,
+        lazy_work_overlap: None,
         shared_mcts_stats: None,
         root_safety: None,
     }
@@ -433,6 +440,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         pv: info.pv,
         worker_stats: Vec::new(),
         lazy_tt_writes: None,
+        lazy_work_overlap: None,
         shared_mcts_stats: None,
         root_safety: None,
     }
@@ -655,6 +663,21 @@ fn emit_lazy_smp_tt_diagnostics(info: &SearchResult) {
     );
 }
 
+fn emit_lazy_smp_overlap_diagnostics(info: &SearchResult) {
+    let Some(overlap) = info.lazy_work_overlap else {
+        return;
+    };
+    println!(
+        "info string lazy_smp_overlap sample_rate 256 visits {} unique {} within_worker_revisits {} cross_worker_visits {} shared_fingerprints {} dropped {}",
+        overlap.sampled_visits,
+        overlap.unique_fingerprints,
+        overlap.within_worker_revisits,
+        overlap.cross_worker_visits,
+        overlap.shared_fingerprints,
+        overlap.dropped,
+    );
+}
+
 /// Emit the complete response for one search generation.  Keeping this in one
 /// place prevents `go`, `stop`, and `ponderhit` from rendering a completed
 /// result with subtly different score/PV/ponder semantics.
@@ -668,6 +691,7 @@ fn emit_search_result(
     let nps = info.nodes.saturating_mul(1000) / elapsed_ms;
     emit_lazy_smp_diagnostics(&info);
     emit_lazy_smp_tt_diagnostics(&info);
+    emit_lazy_smp_overlap_diagnostics(&info);
     if let Some(root_safety) = info.root_safety {
         println!(
             "info string root_mate_safety mate1_cache_hits {} blunder_cache_hits {} mate1_nodes {} blunder_nodes {}",
@@ -1948,11 +1972,19 @@ mod tests {
         );
         assert_eq!(
             parse_spin_option(
-                &["name", "LazyFlags", "value", "128"],
+                &["name", "LazyFlags", "value", "511"],
                 "LazyFlags",
                 LAZY_FLAGS_RANGE,
             ),
-            Ok(128)
+            Ok(511)
+        );
+        assert!(
+            parse_spin_option(
+                &["name", "LazyFlags", "value", "512"],
+                "LazyFlags",
+                LAZY_FLAGS_RANGE,
+            )
+            .is_err()
         );
         assert!(
             parse_spin_option(

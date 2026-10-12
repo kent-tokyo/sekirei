@@ -33,7 +33,7 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
 | `check_halfkp_oracle.py` | Compares `halfkp_oracle` HalfKP scores with a separately executed reference USI engine; see [NNUE weights](../docs/nnue_weights.md#external-halfkp-networks). |
 | `run_ab_match.py` | Fixed-protocol A/B self-play (material-only by default, optional shared HalfKP) or node-limited YaneuraOu ladder. One thread and `SpecTopN=0` remain the defaults; repeatable per-side options support isolated search experiments. `--result-json` atomically writes the shared, fail-closed gate-result schema and must be distinct from the raw JSON and text log. `--gate-observation-declaration` validates and carries a prospective, hashed feature/group declaration into that terminal result. Local diagnostic only. |
-| `nps_threads.py` | Measures NPS, depth, and repeated-position best-move stability across explicit thread counts for Sekirei or a separately supplied USI engine. It supports wall-time and fixed-depth budgets. For Lazy SMP, it also records selected-worker share, worker agreement, and stop-lag. `--lazy-diagnostics` adds worker TT hit/store counts and shared-table collision topology; run that counter lane separately because it adds overhead. Speed diagnostic only. |
+| `nps_threads.py` | Measures NPS, depth, and repeated-position best-move stability across explicit thread counts for Sekirei or a separately supplied USI engine. It supports wall-time and fixed-depth budgets. For Lazy SMP, it also records selected-worker share, worker agreement, and stop-lag. `--lazy-diagnostics` adds worker TT hit/store counts, shared-table collision topology, and sampled within-/cross-worker position revisits; run that counter lane separately because it adds overhead. Speed diagnostic only. |
 | `test_public_contracts.sh` | Lightweight aggregate for the public contract. |
 | `check_rust_coverage.sh` | Runs the default workspace, opening-book tests, isolated tunable-search contracts, a bounded trainer smoke, and native WASM API contracts under `cargo-llvm-cov`; emits LCOV/JSON and fails below the documented 98% engine/library line-coverage contract. |
 
@@ -67,6 +67,11 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
   selected policy bits. `Hash` remains the total memory budget and is divided
   among the private tables; this is a diagnostic setting, not a playing
   default.
+- For the experimental four-worker depth ladder, add 256 while retaining the
+  normal depth-skew bit. This changes offsets from `(0, 1, 0, 1)` to
+  `(0, 1, 2, 3)`. Its initial screen was neutral and it is not a playing
+  default. See the
+  [sampled-overlap report](../docs/experiments/lazy_smp_work_overlap_v0.3.72/README.md).
 
 Historical reports in `benchmark_reports/` apply only to their recorded host,
 revision, corpus, and operation. They are neither general speed rankings nor

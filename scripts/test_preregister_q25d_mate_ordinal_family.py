@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -13,9 +15,20 @@ import preregister_q25d_mate_ordinal_family as q25d
 
 class Q25dFamilyTests(unittest.TestCase):
     def test_changes_the_label_protocol_without_changing_model_shape(self) -> None:
-        root = Path(__file__).resolve().parents[1]
-        family = root / "data/runs/q25c-multipv16-label-family-20260922/family-preregistration.json"
-        result = q25d.build(family)
+        prior = {
+            "schema": q25d.SCHEMA,
+            "status": "frozen_before_score_blind_parent_selection",
+            "external_teacher": {
+                "multipv": 16,
+                "usi_options": {"MultiPV": "16"},
+            },
+            "fixed_training": {"objective": "listwise", "temperature_cp": 100},
+            "fixed_model": {"l1": 256},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            family = Path(directory) / "q25c-family.json"
+            family.write_text(json.dumps(prior), encoding="utf-8")
+            result = q25d.build(family)
         self.assertEqual(result["external_teacher"]["multipv"], 128)
         self.assertEqual(result["fixed_training"]["objective"], "pairwise")
         self.assertEqual(result["fixed_model"]["l1"], 256)
