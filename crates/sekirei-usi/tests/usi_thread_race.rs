@@ -516,13 +516,59 @@ fn dfpn_mode_returns_a_mating_bestmove() {
     send(&mut stdin, "position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1");
     send(&mut stdin, "go depth 1");
 
-    recv_line_matching(
+    let lines = recv_until_collect(
         &rx,
         |l| l.starts_with("bestmove ") && !l.ends_with("resign"),
         Duration::from_secs(5),
     );
+    assert!(lines.iter().any(|line| {
+        line.starts_with("info string dfpn outcome proven ")
+            && line.contains("distance unknown")
+            && line.contains("limit_depth 1")
+            && line.contains("bestmove_source proof")
+    }));
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.starts_with("info depth 0 score mate + "))
+    );
+    assert!(lines.iter().all(|line| !line.contains("score mate 1")));
     send(&mut stdin, "quit");
     let status = child.wait().expect("failed to wait for dfpn engine");
+    assert!(status.success(), "engine exited unsuccessfully: {status}");
+}
+
+#[test]
+fn dfpn_unknown_marks_fallback_and_omits_a_fake_score_and_pv() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+
+    send(&mut stdin, "usi");
+    recv_line_matching(&rx, |l| l == "usiok", Duration::from_secs(5));
+    send(&mut stdin, "setoption name UseBook value false");
+    send(&mut stdin, "setoption name SearchMode value Dfpn");
+    send(&mut stdin, "position sfen k8/2K6/9/9/4R4/9/9/9/9 b - 1");
+    send(&mut stdin, "go nodes 1");
+
+    let lines = recv_until_collect(
+        &rx,
+        |line| line.starts_with("bestmove ") && !line.ends_with("resign"),
+        Duration::from_secs(5),
+    );
+    assert!(lines.iter().any(|line| {
+        line.starts_with("info string dfpn outcome unknown ")
+            && line.contains("completed false")
+            && line.contains("aborted true")
+            && line.contains("bestmove_source fallback")
+    }));
+    let search_info = lines
+        .iter()
+        .find(|line| line.starts_with("info depth 0 nodes "))
+        .expect("unknown DFPN search must emit score-free budget diagnostics");
+    assert!(!search_info.contains(" score "));
+    assert!(!search_info.contains(" pv "));
+
+    send(&mut stdin, "quit");
+    let status = child.wait().expect("failed to wait for dfpn unknown test");
     assert!(status.success(), "engine exited unsuccessfully: {status}");
 }
 
