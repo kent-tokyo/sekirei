@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -15,6 +16,16 @@ ROOT = Path(__file__).resolve().parents[1]
 CRATE = ROOT / "crates" / "sekirei-wasm"
 PACKAGE = CRATE / "pkg"
 LEGAL_FILES = ("LICENSE-MIT", "LICENSE-APACHE", "NOTICE")
+
+
+def wasm_build_environment(source: dict[str, str] | None = None) -> dict[str, str]:
+    """Return a host-independent environment for the wasm32 release build."""
+    environment = dict(os.environ if source is None else source)
+    # The repository's local release profile uses target-cpu=native. Passing a
+    # host CPU to wasm32 can produce a module that wasm-bindgen cannot process.
+    # CI already clears this setting; keep the documented local build identical.
+    environment["RUSTFLAGS"] = ""
+    return environment
 
 
 def main() -> None:
@@ -31,6 +42,7 @@ def main() -> None:
             "--locked",
         ],
         cwd=ROOT,
+        env=wasm_build_environment(),
         check=True,
     )
 

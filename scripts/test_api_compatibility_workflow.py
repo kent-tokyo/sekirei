@@ -107,7 +107,21 @@ class PublishGateTests(unittest.TestCase):
             self.text.index("Publish sekirei-core"),
         )
 
+    def test_release_metadata_is_checked_on_the_exact_tag_before_publish(self) -> None:
+        metadata = self.text.index(
+            "Verify release metadata and planned publication evidence"
+        )
+        self.assertIn("--require-tag", self.text[metadata:])
+        self.assertIn("--require-release-manifest", self.text[metadata:])
+        self.assertIn("--allow-planned-release-manifest", self.text[metadata:])
+        self.assertLess(metadata, self.text.index("Dry-run publish sekirei-core"))
+        self.assertLess(metadata, self.text.index("Publish sekirei-core"))
+
+    def test_version_gate_includes_the_github_release_wasm_crate(self) -> None:
+        self.assertIn(
+            '"sekirei-wasm": "crates/sekirei-wasm/Cargo.toml"', self.text
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
-

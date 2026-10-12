@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.4.0] – 2026-10-12
+
+Version 0.4.0 is a compatibility and operations milestone. It preserves the
+public `sekirei-core` API and the default material evaluator while making the
+mate-analysis, release-evidence, Floodgate supervision, and browser contracts
+explicit. No general playing-strength gain is claimed for this release.
+
 ### Changed
 
 - Update the match runner to `veridict` 0.19.2. Existing Elo and pentanomial

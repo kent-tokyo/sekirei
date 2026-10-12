@@ -12,7 +12,7 @@ from validate_release_manifest import validate as validate_release_manifest
 
 
 ROOT = Path(__file__).resolve().parent.parent
-MANIFESTS = {
+PUBLISHED_MANIFESTS = {
     "sekirei-core": ROOT / "crates/sekirei-core/Cargo.toml",
     "sekirei-bench": ROOT / "crates/sekirei-bench/Cargo.toml",
     "sekirei-csa": ROOT / "crates/sekirei-csa/Cargo.toml",
@@ -20,6 +20,8 @@ MANIFESTS = {
     "sekirei-train": ROOT / "crates/sekirei-train/Cargo.toml",
     "sekirei": ROOT / "crates/sekirei-usi/Cargo.toml",
 }
+WASM_MANIFEST = ROOT / "crates/sekirei-wasm/Cargo.toml"
+WORKSPACE_MANIFESTS = {**PUBLISHED_MANIFESTS, "sekirei-wasm": WASM_MANIFEST}
 
 
 def has_matching_tag(expected: str, tags: list[str]) -> bool:
@@ -51,7 +53,10 @@ def main() -> int:
     )
     args = parser.parse_args()
     errors: list[str] = []
-    packages = {name: tomllib.loads(path.read_text())["package"] for name, path in MANIFESTS.items()}
+    packages = {
+        name: tomllib.loads(path.read_text())["package"]
+        for name, path in WORKSPACE_MANIFESTS.items()
+    }
     versions = {pkg["version"] for pkg in packages.values()}
     licenses = {pkg.get("license") for pkg in packages.values()}
     if len(versions) != 1:
@@ -72,7 +77,7 @@ def main() -> int:
     lock_versions = {
         package["name"]: package["version"]
         for package in lock.get("package", [])
-        if package["name"] in MANIFESTS
+        if package["name"] in WORKSPACE_MANIFESTS
     }
     expected = next(iter(versions), None)
     if args.require_tag and expected:
@@ -90,10 +95,12 @@ def main() -> int:
             tags = completed.stdout.splitlines() if completed.returncode == 0 else []
             if completed.returncode != 0 or not has_matching_tag(expected, tags):
                 errors.append(f"HEAD is not pointed to by v{expected}")
-    missing = sorted(set(MANIFESTS) - set(lock_versions))
+    missing = sorted(set(WORKSPACE_MANIFESTS) - set(lock_versions))
     if missing:
         errors.append(f"Cargo.lock is missing workspace packages: {missing}")
-    mismatched = sorted(name for name in MANIFESTS if lock_versions.get(name) != expected)
+    mismatched = sorted(
+        name for name in WORKSPACE_MANIFESTS if lock_versions.get(name) != expected
+    )
     if mismatched:
         errors.append(f"Cargo.lock versions disagree for: {mismatched}")
 
@@ -142,7 +149,11 @@ def main() -> int:
         for error in errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
-    print(f"release metadata OK: version={expected}, license=MIT OR Apache-2.0, crates={len(MANIFESTS)}")
+    print(
+        "release metadata OK: "
+        f"version={expected}, license=MIT OR Apache-2.0, "
+        f"published_crates={len(PUBLISHED_MANIFESTS)}, workspace_crates={len(WORKSPACE_MANIFESTS)}"
+    )
     return 0
 
 

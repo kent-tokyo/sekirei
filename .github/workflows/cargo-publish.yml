@@ -124,6 +124,7 @@ jobs:
               "sekirei-match-runner": "crates/sekirei-match-runner/Cargo.toml",
               "sekirei-train": "crates/sekirei-train/Cargo.toml",
               "sekirei": "crates/sekirei-usi/Cargo.toml",
+              "sekirei-wasm": "crates/sekirei-wasm/Cargo.toml",
           }
 
           mismatches = []
@@ -154,6 +155,13 @@ jobs:
 
           print(f"All workspace crates and Cargo.lock entries match version {expected_version}")
           PYEOF
+
+      - name: Verify release metadata and planned publication evidence
+        run: >-
+          python3 scripts/check_release_metadata.py
+          --require-tag
+          --require-release-manifest
+          --allow-planned-release-manifest
 
       - name: Verify sekirei-core public API compatibility
         if: ${{ contains(format(',{0},', inputs.crates), ',sekirei-core,') }}

@@ -3,17 +3,18 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.3.73-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.3.73)
+[![Release](https://img.shields.io/badge/release-v0.4.0-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.0)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.3.73` adds
-opt-in Lazy SMP useful-work diagnostics, stricter engine-process cleanup, and
-bounded evaluator/MultiPV contracts for WebAssembly. The default search and
-evaluator are unchanged, so this release does not claim a playing-strength
-gain.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.4.0` freezes the
+current public Rust API, adds explicit normal and single-king mate-analysis
+contracts, strengthens bounded Floodgate supervision, and validates release
+evidence for optional HalfKP models and WebAssembly artifacts. The default
+search and evaluator are unchanged, so this release does not claim a general
+playing-strength gain.
 
 ## Quick start
 
@@ -70,9 +71,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. The prebuilt v0.3.73 ES-module
+analysis. The prebuilt v0.4.0 ES-module
 package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.3.73/sekirei-wasm-0.3.73.tgz).
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.0/sekirei-wasm-0.4.0.tgz).
 
 ## Build and verify
 

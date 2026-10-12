@@ -28,11 +28,14 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
   same check on the exact tag before uploading any crate. The unpublished
   WASM crate remains covered by its generated TypeScript/package contract.
 - `test_api_compatibility_workflow.py` pins the baseline, exact action commit,
-  full-history checkout, package scope, and pre-publish ordering.
+  full-history checkout, package scope, and pre-publish ordering. The publish
+  workflow also verifies the exact tag, all seven workspace versions, the
+  planned release manifest, and the GitHub Release WASM metadata before the
+  first irreversible registry upload.
 
 | Tool | Purpose |
 |---|---|
-| `check_release_metadata.py` | Checks crate versions, lockfile, changelog, README, license files, tag, and release manifest. Use `--allow-planned-release-manifest` only before publication. |
+| `check_release_metadata.py` | Checks all six published crates plus the WASM crate, lockfile, changelog, README, license files, tag, and release manifest. Use `--allow-planned-release-manifest` only before publication. |
 | `check_wasm_package_metadata.py` | Checks that a generated WASM package or `.tgz` has matching README, package, install URL, and asset versions. |
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |

@@ -41,6 +41,24 @@ def validate(doc, *, allow_planned_publish=False):
         and publish.get("workflow_run") is None
     )
     if not (verified_publish or planned_publish): errors.append("publish")
+    webassembly = doc.get("webassembly")
+    release_tuple = tuple(int(value) for value in match.groups()) if match else None
+    if webassembly is not None or (release_tuple is not None and release_tuple >= (0, 4, 0)):
+        webassembly = webassembly if isinstance(webassembly, dict) else {}
+        expected_asset = f"sekirei-wasm-{version}.tgz" if version else None
+        expected_url = (
+            f"https://github.com/kent-tokyo/sekirei/releases/download/{release}/{expected_asset}"
+            if version
+            else None
+        )
+        if webassembly.get("package") != "sekirei-wasm": errors.append("webassembly.package")
+        if webassembly.get("version") != version: errors.append("webassembly.version")
+        if webassembly.get("registry") != "github-release": errors.append("webassembly.registry")
+        if webassembly.get("asset") != expected_asset: errors.append("webassembly.asset")
+        if webassembly.get("url") != expected_url: errors.append("webassembly.url")
+        if not HEX64.fullmatch(webassembly.get("sha256", "")): errors.append("webassembly.sha256")
+        if not isinstance(webassembly.get("size"), int) or webassembly.get("size", 0) < 1: errors.append("webassembly.size")
+        if webassembly.get("npm_registry_status") != "not_published": errors.append("webassembly.npm_registry_status")
     measurement = doc.get("internal_measurement", {})
     if not isinstance(measurement.get("spec_top_n"), int) or measurement["spec_top_n"] < 0 or not isinstance(measurement.get("threads"), int) or measurement["threads"] < 1 or not isinstance(measurement.get("parallel"), int) or measurement["parallel"] < 1 or not isinstance(measurement.get("strength_claim"), bool): errors.append("internal_measurement")
     external = doc.get("external_opponents", {})
