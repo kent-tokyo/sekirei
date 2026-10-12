@@ -106,3 +106,14 @@ criterion. See the
 also enabled, four workers use depth offsets `(0, 1, 2, 3)` instead of
 `(0, 1, 0, 1)`. It is disabled by default. Its first 64-game material screen
 was neutral, so it is not strength evidence and was not adopted.
+
+Root-move ordering is reset at the start of every search. The implementation
+uses thread-local storage only to carry ordering between iterative-deepening
+passes within that search. Without the reset, a Rayon thread could retain the
+order from a different logical Lazy SMP worker or engine instance on a later
+`go`, making results depend on scheduler placement.
+
+Time-capping helper workers at 75% and 50% was screened and rejected before
+SPRT. The stricter cap reduced discarded root-result nodes but also reduced
+median completed depth. See the
+[helper-budget report](../experiments/lazy_smp_helper_budget_v0.4.0/README.md).
