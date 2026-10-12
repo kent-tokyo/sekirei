@@ -6,6 +6,10 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+- Search diagnostics: attribute a bounded sample of committed TT entries to
+  the worker that wrote them, report confirmed local/foreign-worker reuse,
+  and separate all discarded root-result nodes from the divergent subset.
+  The counters remain opt-in and do not change the playing defaults.
 - Documentation: align the mobile contract with the existing one-shot WASM
   evaluator loader and bounded MultiPV API, and define a preregistered mobile
   analysis gate that keeps training, internal reference, and final evidence

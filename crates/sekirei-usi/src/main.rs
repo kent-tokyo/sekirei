@@ -601,6 +601,16 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .iter()
         .filter(|worker| worker.best_move == selected.best_move)
         .count();
+    // Every non-selected root result is discarded by the final selector even
+    // though its TT entries may still have helped another worker. Report both
+    // the complete discarded-root cost and the stricter divergent subset.
+    let discarded_root_nodes = total_worker_nodes.saturating_sub(selected.nodes);
+    let divergent_discarded_nodes = info
+        .worker_stats
+        .iter()
+        .filter(|worker| !worker.selected && worker.best_move != selected.best_move)
+        .map(|worker| worker.nodes)
+        .sum::<u64>();
     // This is an end-to-end worker-duration spread, not a timestamped
     // measurement from the instant the shared abort flag was raised.
     let main_elapsed_ms = info.worker_stats[0].elapsed.as_millis();
@@ -633,7 +643,7 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} stop_lag_ms {stop_lag_ms} {summary}",
+        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} {summary}",
         info.worker_stats.len()
     );
 }
@@ -668,13 +678,19 @@ fn emit_lazy_smp_overlap_diagnostics(info: &SearchResult) {
         return;
     };
     println!(
-        "info string lazy_smp_overlap sample_rate 256 visits {} unique {} within_worker_revisits {} cross_worker_visits {} shared_fingerprints {} dropped {}",
+        "info string lazy_smp_overlap sample_rate 256 visits {} unique {} within_worker_revisits {} cross_worker_visits {} shared_fingerprints {} dropped {} tt_sampled_stores {} tt_sampled_hits {} tt_local_hits {} tt_foreign_hits {} tt_unknown_hits {} tt_dropped_stores {}",
         overlap.sampled_visits,
         overlap.unique_fingerprints,
         overlap.within_worker_revisits,
         overlap.cross_worker_visits,
         overlap.shared_fingerprints,
         overlap.dropped,
+        overlap.tt_sampled_stores,
+        overlap.tt_sampled_hits,
+        overlap.tt_local_hits,
+        overlap.tt_foreign_hits,
+        overlap.tt_unknown_hits,
+        overlap.tt_dropped_stores,
     );
 }
 

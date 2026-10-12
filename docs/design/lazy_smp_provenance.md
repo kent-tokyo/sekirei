@@ -91,6 +91,17 @@ versus 43.5% for the isolated-TT control. See the
 [work-overlap report](../experiments/lazy_smp_work_overlap_v0.3.72/README.md)
 for the fixed conditions and claim boundary.
 
+The same opt-in path now also samples committed TT stores and attributes a
+later sampled hit to the last known committing worker. This distinguishes
+confirmed cross-worker TT reuse from repeated search-tree visits. USI output
+also reports every non-selected worker's root nodes and the divergent subset
+whose final move differs from the selected worker. The first four-worker
+measurement found 45.7% foreign-worker hits among sampled hits with a known
+writer and 75.1% discarded root-result nodes. These figures selected the
+existing root-vote policy for an SPRT; they are not themselves an adoption
+criterion. See the
+[useful-work report](../experiments/lazy_smp_useful_work_v0.3.72/README.md).
+
 `LazyFlags` bit 256 is a diagnostic-only depth-ladder experiment: with bit 4
 also enabled, four workers use depth offsets `(0, 1, 2, 3)` instead of
 `(0, 1, 0, 1)`. It is disabled by default. Its first 64-game material screen

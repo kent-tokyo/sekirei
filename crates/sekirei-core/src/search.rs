@@ -361,6 +361,10 @@ pub struct SearchDiagnostics {
     /// Diagnostic-only sampled node registry shared by Lazy SMP workers.
     /// Normal searches and ordinary cost profiles leave this detached.
     work_overlap: Option<WorkOverlapObserver>,
+    /// Diagnostic-only sampled ownership of committed TT entries. A hit can
+    /// then be classified as local, foreign-worker, or untracked without
+    /// changing the production TT layout.
+    tt_reuse: Option<TtReuseObserver>,
 }
 
 const WORK_SAMPLE_LOG2: u32 = 8;
@@ -374,6 +378,11 @@ struct WorkSampleSlot {
     fingerprint: AtomicU64,
     first_worker: AtomicU32,
     shared: AtomicBool,
+}
+
+struct TtReuseSampleSlot {
+    fingerprint: AtomicU64,
+    last_writer: AtomicU32,
 }
 
 /// Bounded, lock-free sampler for estimating work repeated across Lazy SMP
@@ -390,6 +399,19 @@ pub(crate) struct WorkOverlapStats {
     dropped: AtomicU64,
 }
 
+/// Bounded sampled registry for attributing TT hits to the worker that last
+/// committed the entry. It is attached only to `LazyDiagnostics`; ordinary
+/// searches retain the existing TT memory layout and hot path.
+pub(crate) struct TtReuseStats {
+    slots: Box<[TtReuseSampleSlot]>,
+    sampled_stores: AtomicU64,
+    sampled_hits: AtomicU64,
+    local_hits: AtomicU64,
+    foreign_hits: AtomicU64,
+    unknown_hits: AtomicU64,
+    dropped_stores: AtomicU64,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct WorkOverlapSnapshot {
     pub sampled_visits: u64,
@@ -400,9 +422,25 @@ pub(crate) struct WorkOverlapSnapshot {
     pub dropped: u64,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TtReuseSnapshot {
+    pub sampled_stores: u64,
+    pub sampled_hits: u64,
+    pub local_hits: u64,
+    pub foreign_hits: u64,
+    pub unknown_hits: u64,
+    pub dropped_stores: u64,
+}
+
 #[derive(Clone)]
 struct WorkOverlapObserver {
     stats: Arc<WorkOverlapStats>,
+    worker: u32,
+}
+
+#[derive(Clone)]
+struct TtReuseObserver {
+    stats: Arc<TtReuseStats>,
     worker: u32,
 }
 
@@ -502,6 +540,134 @@ impl WorkOverlapStats {
             return;
         }
         self.dropped.fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+impl TtReuseStats {
+    pub(crate) fn new() -> Self {
+        Self {
+            slots: (0..WORK_SAMPLE_SLOTS)
+                .map(|_| TtReuseSampleSlot {
+                    fingerprint: AtomicU64::new(0),
+                    last_writer: AtomicU32::new(0),
+                })
+                .collect(),
+            sampled_stores: AtomicU64::new(0),
+            sampled_hits: AtomicU64::new(0),
+            local_hits: AtomicU64::new(0),
+            foreign_hits: AtomicU64::new(0),
+            unknown_hits: AtomicU64::new(0),
+            dropped_stores: AtomicU64::new(0),
+        }
+    }
+
+    /// Reset between searches after every worker from the previous search has
+    /// joined. The registry identifies the last sampled writer only within
+    /// one Lazy SMP invocation.
+    pub(crate) fn reset(&self) {
+        for slot in &self.slots {
+            slot.fingerprint.store(0, Ordering::Relaxed);
+            slot.last_writer.store(0, Ordering::Relaxed);
+        }
+        self.sampled_stores.store(0, Ordering::Relaxed);
+        self.sampled_hits.store(0, Ordering::Relaxed);
+        self.local_hits.store(0, Ordering::Relaxed);
+        self.foreign_hits.store(0, Ordering::Relaxed);
+        self.unknown_hits.store(0, Ordering::Relaxed);
+        self.dropped_stores.store(0, Ordering::Relaxed);
+    }
+
+    pub(crate) fn snapshot(&self) -> TtReuseSnapshot {
+        TtReuseSnapshot {
+            sampled_stores: self.sampled_stores.load(Ordering::Relaxed),
+            sampled_hits: self.sampled_hits.load(Ordering::Relaxed),
+            local_hits: self.local_hits.load(Ordering::Relaxed),
+            foreign_hits: self.foreign_hits.load(Ordering::Relaxed),
+            unknown_hits: self.unknown_hits.load(Ordering::Relaxed),
+            dropped_stores: self.dropped_stores.load(Ordering::Relaxed),
+        }
+    }
+
+    #[inline]
+    fn sampled_fingerprint(hash: u64) -> Option<(u64, usize)> {
+        let mixed = mix_work_hash(hash);
+        if mixed & ((1 << WORK_SAMPLE_LOG2) - 1) != 0 {
+            return None;
+        }
+        Some((
+            mixed | 1,
+            (mixed.rotate_right(WORK_SAMPLE_LOG2) as usize) & (WORK_SAMPLE_SLOTS - 1),
+        ))
+    }
+
+    #[inline]
+    fn record_store(&self, hash: u64, worker: u32) {
+        let Some((fingerprint, start)) = Self::sampled_fingerprint(hash) else {
+            return;
+        };
+        self.sampled_stores.fetch_add(1, Ordering::Relaxed);
+        let worker = worker.saturating_add(1);
+        for probe in 0..WORK_SAMPLE_PROBES {
+            let slot = &self.slots[(start + probe) & (WORK_SAMPLE_SLOTS - 1)];
+            let mut current = slot.fingerprint.load(Ordering::Acquire);
+            if current == 0 {
+                match slot.fingerprint.compare_exchange(
+                    0,
+                    WORK_SAMPLE_CLAIMED,
+                    Ordering::AcqRel,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => {
+                        slot.last_writer.store(worker, Ordering::Relaxed);
+                        slot.fingerprint.store(fingerprint, Ordering::Release);
+                        return;
+                    }
+                    Err(actual) => current = actual,
+                }
+            }
+            while current == WORK_SAMPLE_CLAIMED {
+                std::hint::spin_loop();
+                current = slot.fingerprint.load(Ordering::Acquire);
+            }
+            if current == fingerprint {
+                slot.last_writer.store(worker, Ordering::Release);
+                return;
+            }
+        }
+        self.dropped_stores.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[inline]
+    fn record_hit(&self, hash: u64, worker: u32) {
+        let Some((fingerprint, start)) = Self::sampled_fingerprint(hash) else {
+            return;
+        };
+        self.sampled_hits.fetch_add(1, Ordering::Relaxed);
+        let worker = worker.saturating_add(1);
+        for probe in 0..WORK_SAMPLE_PROBES {
+            let slot = &self.slots[(start + probe) & (WORK_SAMPLE_SLOTS - 1)];
+            let mut current = slot.fingerprint.load(Ordering::Acquire);
+            while current == WORK_SAMPLE_CLAIMED {
+                std::hint::spin_loop();
+                current = slot.fingerprint.load(Ordering::Acquire);
+            }
+            if current == 0 {
+                break;
+            }
+            if current != fingerprint {
+                continue;
+            }
+            let writer = slot.last_writer.load(Ordering::Acquire);
+            if writer == worker {
+                self.local_hits.fetch_add(1, Ordering::Relaxed);
+            } else if writer != 0 {
+                self.foreign_hits.fetch_add(1, Ordering::Relaxed);
+            } else {
+                self.unknown_hits.fetch_add(1, Ordering::Relaxed);
+            }
+            return;
+        }
+        self.unknown_hits.fetch_add(1, Ordering::Relaxed);
     }
 }
 
@@ -616,13 +782,22 @@ impl Drop for ProfileTimer<'_> {
 }
 
 impl SearchDiagnostics {
-    pub(crate) fn parallel_worker(stats: Arc<WorkOverlapStats>, worker: usize) -> Self {
+    pub(crate) fn parallel_worker(
+        work_overlap: Arc<WorkOverlapStats>,
+        tt_reuse: Arc<TtReuseStats>,
+        worker: usize,
+    ) -> Self {
+        let worker = worker.min(u32::MAX as usize) as u32;
         Self {
             timing: false,
             per_node: true,
             work_overlap: Some(WorkOverlapObserver {
-                stats,
-                worker: worker.min(u32::MAX as usize) as u32,
+                stats: work_overlap,
+                worker,
+            }),
+            tt_reuse: Some(TtReuseObserver {
+                stats: tt_reuse,
+                worker,
             }),
             ..Self::new()
         }
@@ -709,6 +884,7 @@ impl SearchDiagnostics {
             move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
             work_overlap: None,
+            tt_reuse: None,
         }
     }
 
@@ -716,6 +892,20 @@ impl SearchDiagnostics {
     fn record_work_sample(&self, hash: u64) {
         if let Some(observer) = &self.work_overlap {
             observer.stats.record(hash, observer.worker);
+        }
+    }
+
+    #[inline]
+    fn record_tt_store_origin(&self, hash: u64) {
+        if let Some(observer) = &self.tt_reuse {
+            observer.stats.record_store(hash, observer.worker);
+        }
+    }
+
+    #[inline]
+    fn record_tt_hit_origin(&self, hash: u64) {
+        if let Some(observer) = &self.tt_reuse {
+            observer.stats.record_hit(hash, observer.worker);
         }
     }
 
@@ -1097,6 +1287,7 @@ fn probe_tt_for_search_pv(state: &SearchState, hash: u64) -> Option<(TtEntry, bo
         diagnostics.tt_probes.fetch_add(1, Ordering::Relaxed);
         if entry.is_some() {
             diagnostics.tt_hits.fetch_add(1, Ordering::Relaxed);
+            diagnostics.record_tt_hit_origin(hash);
         }
     }
     entry
@@ -1111,9 +1302,12 @@ fn store_tt_for_search(state: &SearchState, hash: u64, entry: TtEntry) {
 #[inline]
 fn store_tt_for_search_pv(state: &SearchState, hash: u64, entry: TtEntry, pv: bool) {
     let _timer = state.timer(|d| &d.tt_store_ns);
-    state.tt.store_pv(hash, entry, pv);
+    let committed = state.tt.store_pv_with_result(hash, entry, pv);
     if let Some(diagnostics) = state.counters() {
         diagnostics.tt_stores.fetch_add(1, Ordering::Relaxed);
+        if committed {
+            diagnostics.record_tt_store_origin(hash);
+        }
     }
 }
 
@@ -4014,6 +4208,36 @@ mod see_tests {
         assert_eq!(snapshot.cross_worker_visits, (workers - 1) as u64);
         assert_eq!(snapshot.shared_fingerprints, 1);
         assert_eq!(snapshot.dropped, 0);
+    }
+
+    #[test]
+    fn tt_reuse_sampler_attributes_hits_to_the_last_committing_worker() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
+            .expect("a sampled hash must exist");
+        let stats = TtReuseStats::new();
+
+        stats.record_hit(sampled_hash, 0); // No sampled writer yet.
+        stats.record_store(sampled_hash, 0);
+        stats.record_hit(sampled_hash, 0);
+        stats.record_hit(sampled_hash, 1);
+        stats.record_store(sampled_hash, 1);
+        stats.record_hit(sampled_hash, 1);
+        stats.record_hit(sampled_hash, 0);
+
+        assert_eq!(
+            stats.snapshot(),
+            TtReuseSnapshot {
+                sampled_stores: 2,
+                sampled_hits: 5,
+                local_hits: 2,
+                foreign_hits: 2,
+                unknown_hits: 1,
+                dropped_stores: 0,
+            }
+        );
+        stats.reset();
+        assert_eq!(stats.snapshot(), TtReuseSnapshot::default());
     }
 
     /// Restore every tuned search parameter even when this test exits early.
