@@ -40,8 +40,9 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
 256x2-32-32 files use `FV_SCALE` and remain subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. The unpublished `nn_r3` candidate is not bundled or
-selected by default because its material gate has not run.
+the evidence boundary. The unpublished `nn_r3` candidate passed two pinned
+one-worker material gates on v0.3.68, but remains unbundled and non-default
+until the missing provenance and current-main qualification are complete.
 
 ## Components
 
