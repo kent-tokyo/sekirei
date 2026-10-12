@@ -1,0 +1,77 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.3.73",
+  "commit": "ccd553f485d9d2caf678ac8dc7540f94d8a1099f",
+  "branch_at_release": "main",
+  "candidate_state": "planned from the locally verified release candidate",
+  "packages": {
+    "sekirei": "0.3.73",
+    "sekirei-core": "0.3.73",
+    "sekirei-bench": "0.3.73",
+    "sekirei-csa": "0.3.73",
+    "sekirei-match-runner": "0.3.73",
+    "sekirei-train": "0.3.73"
+  },
+  "dependencies": {
+    "lineprior": "0.12.4",
+    "shogiesa-core": "0.11.4",
+    "veridict": "0.19.1"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "f542f50c7a52bc65f71b9d2564264a9e4527af2974fbb68366f0150e1f1a9879"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.3.73",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.3.73.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.3.73/sekirei-wasm-0.3.73.tgz",
+    "sha256": "48b6f4acc4b76e05d3dbf5f37bcf082230c7a3506a38efbdd98638361ad07d86",
+    "size": 475276,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace release build, workspace checks, rustfmt, the 98% Rust coverage gate, a native material-only USI smoke, and local WebAssembly package generation passed before publication. Opt-in Lazy SMP diagnostics now distinguish confirmed worker-local and foreign-worker TT reuse and discarded root work without changing the default search policy. Match-runner process cleanup, bounded WebAssembly evaluator loading, and bounded MultiPV contracts are included. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.3.73."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "Lazy SMP useful-work counters are opt-in diagnostics with sampling and relaxed atomic overhead; counter-enabled runs are not NPS baselines.",
+    "The four-thread LazyFlags vote candidate stopped INCONCLUSIVE at 28 wins, 38 losses, and 2 draws with LLR -0.33, so no playing default changed.",
+    "The optional v0.3.38 checkpoint and the default material evaluator remain unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
