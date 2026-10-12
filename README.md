@@ -84,7 +84,9 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 
 The coverage command requires `cargo-llvm-cov 0.8.7`,
 `llvm-tools-preview`, and `jq`. It enforces at least 98% line coverage for
-reusable Rust code and the shipped USI runtime. See the
+reusable Rust code and the shipped USI runtime. CI runs this gate for
+Rust/Cargo changes, every main update, and release tags; documentation-only
+and ordinary script-only pull requests skip it. See the
 [script index](scripts/README.md) for benchmark, gate, release, and training
 tools. Component timings are not overall speed or strength rankings.
 
