@@ -6,6 +6,11 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Fixed
+
+- Reset root-move ordering at each search boundary so Rayon scheduling cannot
+  leak a previous logical Lazy SMP worker's order into a later `go` command.
+
 ## [0.4.0] – 2026-10-12
 
 Version 0.4.0 is a compatibility and operations milestone. It preserves the

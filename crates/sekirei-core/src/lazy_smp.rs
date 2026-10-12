@@ -532,7 +532,6 @@ fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSna
 /// The result Lazy SMP reports from its workers' results (in worker order)
 /// under the behaviour switches `flags`: worker 0's ([`LAZY_MAIN_RESULT`]),
 /// the vote ([`LAZY_VOTE`]), the deepest with ties to the lowest-numbered
-/// worker ([`LAZY_TIE_FIRST`]), or the deepest with ties to the highest score.
 pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
     let mut results = results.into_iter();
     if flags & LAZY_MAIN_RESULT != 0 {

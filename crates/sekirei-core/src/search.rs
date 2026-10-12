@@ -1773,6 +1773,12 @@ impl Searcher {
         history: &PositionHistory,
         mut traces: SearchTraces<'_>,
     ) -> SearchInfo {
+        // Root ordering belongs to one iterative-deepening invocation. The
+        // state is thread-local for a cheap hot path, but Rayon may schedule a
+        // different logical Lazy SMP worker on the same thread on the next
+        // `go`. Clear it here so ordering cannot leak across searches, engine
+        // instances, or logical workers.
+        reset_root_order_state();
         if p::HIST_KEEP() == 0 {
             self.history.clear();
             self.countermoves.clear();
@@ -2291,6 +2297,14 @@ type RootOrder = (u64, Vec<Move>);
 thread_local! {
     static ROOT_ORDER_STATE: std::cell::RefCell<RootOrder> =
         const { std::cell::RefCell::new((0, Vec::new())) };
+}
+
+fn reset_root_order_state() {
+    ROOT_ORDER_STATE.with(|cell| {
+        let mut state = cell.borrow_mut();
+        state.0 = 0;
+        state.1.clear();
+    });
 }
 
 fn root_search_inner(
@@ -4165,9 +4179,34 @@ fn update_quiet_heuristics(
 mod see_tests {
     use super::*;
     use crate::board::Board;
+    use crate::piece::PieceKind;
+    use crate::square::Square;
     use std::sync::Barrier;
     use std::thread;
     use std::time::Instant;
+
+    #[test]
+    fn root_order_does_not_leak_between_searches_on_the_same_thread() {
+        let stale = Move::drop(Square::from_index(0), PieceKind::Kin);
+        ROOT_ORDER_STATE.with(|cell| *cell.borrow_mut() = (123, vec![stale]));
+
+        let searcher = Searcher::new(Tt::new(1));
+        let mut board = Board::startpos();
+        let result = searcher.search(
+            &mut board,
+            SearchConfig {
+                max_depth: 0,
+                ..SearchConfig::default()
+            },
+        );
+
+        assert!(result.best_move.is_some());
+        ROOT_ORDER_STATE.with(|cell| {
+            let state = cell.borrow();
+            assert_eq!(state.0, 0);
+            assert!(state.1.is_empty());
+        });
+    }
 
     #[test]
     fn work_overlap_sampler_separates_local_and_cross_worker_revisits() {
