@@ -1,0 +1,44 @@
+name: Public API compatibility
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "crates/sekirei-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/api-compatibility.yml"
+      - ".github/workflows/cargo-publish.yml"
+      - "scripts/test_api_compatibility_workflow.py"
+  push:
+    branches: [main]
+    paths:
+      - "crates/sekirei-core/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/api-compatibility.yml"
+      - ".github/workflows/cargo-publish.yml"
+      - "scripts/test_api_compatibility_workflow.py"
+
+permissions:
+  contents: read
+
+env:
+  RUSTFLAGS: ""
+
+jobs:
+  sekirei-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Preserve the v0.3.73 public Rust API for v0.4
+        uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
+        with:
+          package: sekirei-core
+          baseline-rev: v0.3.73
+          release-type: patch
+          rust-toolchain: manual
+

@@ -12,6 +12,10 @@ preserves older per-change notes.
   weight, license, training-shard and whole-game hold-out manifests, raw
   current-engine 1/4-thread gate evidence, and engine commit without bundling
   or selecting an NNUE candidate.
+- Add a v0.4 public Rust API compatibility gate for `sekirei-core`, checked
+  against v0.3.73 before merge and again on the exact release tag before any
+  crates.io upload. The check forces patch-level compatibility so the 0.4
+  version bump cannot silently permit a breaking API change.
 
 ## [0.3.73] – 2026-10-12
 

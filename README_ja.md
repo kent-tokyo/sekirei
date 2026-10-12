@@ -85,7 +85,9 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 固定します。CIではRust/Cargo関連の変更、main更新、リリースタグで実行し、文書だけ、
 または通常のスクリプトだけを変更するPRでは省略します。ベンチマーク、ゲート、
 リリース、学習の各ツールは
-[スクリプト索引](scripts/README.md)を参照してください。処理単位の時間は
+[スクリプト索引](scripts/README.md)を参照してください。公開ライブラリ
+`sekirei-core`のAPIは、マージ前と公開直前にv0.3.73との互換性を確認します。
+0.4へのバージョン更新だけを理由に互換性の破壊を許可しません。処理単位の時間は
 総合速度や棋力順位を示しません。
 
 ## 対局と学習

@@ -21,6 +21,15 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 
 ## Release and public boundary
 
+- `.github/workflows/api-compatibility.yml` runs `cargo-semver-checks` for
+  the only published library crate, `sekirei-core`. It compares against
+  v0.3.73 with `release-type: patch`, so a 0.4 version bump cannot hide a
+  breaking public Rust API change. The crates.io publish workflow repeats the
+  same check on the exact tag before uploading any crate. The unpublished
+  WASM crate remains covered by its generated TypeScript/package contract.
+- `test_api_compatibility_workflow.py` pins the baseline, exact action commit,
+  full-history checkout, package scope, and pre-publish ordering.
+
 | Tool | Purpose |
 |---|---|
 | `check_release_metadata.py` | Checks crate versions, lockfile, changelog, README, license files, tag, and release manifest. Use `--allow-planned-release-manifest` only before publication. |

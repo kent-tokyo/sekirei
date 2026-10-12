@@ -90,7 +90,10 @@ reusable Rust code and the shipped USI runtime. CI runs this gate for
 Rust/Cargo changes, every main update, and release tags; documentation-only
 and ordinary script-only pull requests skip it. See the
 [script index](scripts/README.md) for benchmark, gate, release, and training
-tools. Component timings are not overall speed or strength rankings.
+tools. Changes to the published `sekirei-core` API are checked against
+v0.3.73 before merge and again before publication; the 0.4 version bump does
+not by itself authorize a compatibility break. Component timings are not
+overall speed or strength rankings.
 
 ## Matches and training
 
