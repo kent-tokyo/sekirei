@@ -544,12 +544,26 @@ fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSna
 
 /// The result Lazy SMP reports from its workers' results (in worker order)
 /// under the behaviour switches `flags`: worker 0's ([`LAZY_MAIN_RESULT`]),
-/// the vote ([`LAZY_VOTE`]), the deepest with ties to the lowest-numbered
+/// a proven winning mate, the vote ([`LAZY_VOTE`]), the deepest with ties to
+/// the lowest-numbered worker ([`LAZY_TIE_FIRST`]), or the default deepest
+/// result with score and move tie-breaks.
 pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
-    let mut results = results.into_iter();
     if flags & LAZY_MAIN_RESULT != 0 {
-        results.next()
-    } else if flags & LAZY_VOTE != 0 {
+        return results
+            .into_iter()
+            .next()
+            .expect("Lazy SMP always has at least one worker");
+    }
+
+    if let Some(index) = proven_winning_mate_index(&results) {
+        return results
+            .into_iter()
+            .nth(index)
+            .expect("proven mate index comes from the worker results");
+    }
+
+    let results = results.into_iter();
+    if flags & LAZY_VOTE != 0 {
         return select_by_vote(results.collect());
     } else if flags & LAZY_TIE_FIRST != 0 {
         results.reduce(|left, right| {
@@ -563,6 +577,27 @@ pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo 
         results.reduce(select_result)
     }
     .expect("Lazy SMP always has at least one worker")
+}
+
+/// Return the worker that proved the shortest winning mate.
+///
+/// A completed exact mate is stronger evidence than a deeper heuristic score,
+/// so ordinary Lazy SMP selectors must not discard it merely because another
+/// worker completed one more iteration. [`LAZY_MAIN_RESULT`] remains an
+/// explicit diagnostic exception: that mode promises to return worker 0.
+fn proven_winning_mate_index(results: &[SearchInfo]) -> Option<usize> {
+    let mate_bound = crate::search::MATE_SCORE - 1000;
+    results
+        .iter()
+        .enumerate()
+        .filter(|(_, result)| {
+            result.depth > 0
+                && result.best_move.is_some()
+                && result.completed_bound == crate::search::SearchBound::Exact
+                && result.score >= mate_bound
+        })
+        .max_by_key(|(_, result)| (result.score, result.depth, move_key(result.best_move)))
+        .map(|(index, _)| index)
 }
 
 fn select_result(left: SearchInfo, right: SearchInfo) -> SearchInfo {
@@ -581,17 +616,12 @@ const VOTE_BASE: i64 = 24;
 /// scoring) one supplies the result. A worker that found a mate for the side
 /// to move overrides the vote (the shortest such mate wins), since a proven
 /// win needs no majority.
-pub fn select_by_vote(results: Vec<SearchInfo>) -> SearchInfo {
-    let mate_bound = crate::search::MATE_SCORE - 1000;
-    let winning_mate = results
-        .iter()
-        .filter(|r| r.best_move.is_some() && r.score >= mate_bound)
-        .max_by_key(|r| (r.score, r.depth))
-        .map(|r| (r.score, r.depth, move_key(r.best_move)));
+pub fn select_by_vote(mut results: Vec<SearchInfo>) -> SearchInfo {
+    if let Some(index) = proven_winning_mate_index(&results) {
+        return results.remove(index);
+    }
     let with_move: Vec<&SearchInfo> = results.iter().filter(|r| r.best_move.is_some()).collect();
-    let chosen = if let Some(key) = winning_mate {
-        Some(key)
-    } else if with_move.is_empty() {
+    let chosen = if with_move.is_empty() {
         None
     } else {
         let lowest = with_move
@@ -794,6 +824,30 @@ mod tests {
         let mate = crate::search::MATE_SCORE - 7;
         let picked = select_by_vote(vec![info(2, 100, 12), info(2, 101, 12), info(3, mate, 9)]);
         assert_eq!(picked.score, mate);
+    }
+
+    #[test]
+    fn proven_winning_mate_overrides_a_deeper_heuristic_result() {
+        let mate = crate::search::MATE_SCORE - 7;
+        let results = || vec![info(1, 120, 12), info(2, mate, 9), info(3, 80, 13)];
+        let to = |result: SearchInfo| result.best_move.map(|mv| mv.to.index());
+
+        assert_eq!(to(select_worker_result(results(), 0)), Some(2));
+        assert_eq!(to(select_worker_result(results(), LAZY_TIE_FIRST)), Some(2));
+        assert_eq!(to(select_worker_result(results(), LAZY_VOTE)), Some(2));
+        assert_eq!(
+            to(select_worker_result(results(), LAZY_MAIN_RESULT)),
+            Some(1)
+        );
+    }
+
+    #[test]
+    fn unproven_mate_like_score_does_not_override_depth() {
+        let mut unproven = info(2, crate::search::MATE_SCORE - 7, 9);
+        unproven.completed_bound = SearchBound::Unknown;
+
+        let picked = select_worker_result(vec![info(1, 120, 12), unproven], 0);
+        assert_eq!(picked.best_move.map(|mv| mv.to.index()), Some(1));
     }
 
     #[test]

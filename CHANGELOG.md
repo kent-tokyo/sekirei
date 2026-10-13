@@ -26,6 +26,9 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Prefer a completed exact winning-mate result from any ordinary Lazy SMP
+  worker over a deeper heuristic score. The explicit worker-0-only diagnostic
+  mode keeps its existing result-selection contract.
 - Reset root-move ordering at each search boundary so Rayon scheduling cannot
   leak a previous logical Lazy SMP worker's order into a later `go` command.
 - Invalidate an in-flight search as soon as any `position` command arrives,
