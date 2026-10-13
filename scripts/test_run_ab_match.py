@@ -113,6 +113,10 @@ class SprtTest(unittest.TestCase):
         expected = wins * math.log(p1 / p0) + losses * math.log((1 - p1) / (1 - p0))
         self.assertAlmostEqual(sprt_llr(wins, losses, 0, 0, 10), expected, places=9)
 
+    def test_draw_heavy_llr_matches_veridict_reference(self):
+        # veridict 0.19.2, trinomial BayesElo [0, 10], W/D/L = 500/300/200.
+        self.assertAlmostEqual(sprt_llr(500, 200, 300, 0, 10), 11.0336196488132, places=12)
+
     def test_paired_outcome_uses_net_two_game_score(self):
         self.assertEqual(paired_outcome(1.0, 1.0), "win")
         self.assertEqual(paired_outcome(1.0, 0.0), "draw")
