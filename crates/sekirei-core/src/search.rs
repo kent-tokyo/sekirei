@@ -1428,12 +1428,81 @@ pub struct Searcher {
 pub(crate) struct RootHintChannel {
     generation: AtomicU64,
     packed: AtomicU64,
+    publications: GenerationCounter,
+    eligible_reads: GenerationCounter,
+    applied: GenerationCounter,
 }
 
 #[derive(Clone)]
 struct RootHintEndpoint {
     channel: Arc<RootHintChannel>,
     worker: usize,
+}
+
+#[derive(Clone)]
+struct RootHintOrder {
+    mv: Move,
+    generation: u64,
+    channel: Arc<RootHintChannel>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RootHintSnapshot {
+    pub publications: u64,
+    pub eligible_reads: u64,
+    pub applied: u64,
+}
+
+struct GenerationCounter {
+    packed: AtomicU64,
+}
+
+impl GenerationCounter {
+    const COUNT_BITS: u32 = RootHintChannel::GENERATION_SHIFT;
+    const COUNT_MASK: u64 = (1 << Self::COUNT_BITS) - 1;
+
+    const fn new() -> Self {
+        Self {
+            packed: AtomicU64::new(0),
+        }
+    }
+
+    fn reset(&self, generation: u64) {
+        self.packed
+            .store(generation << Self::COUNT_BITS, Ordering::Relaxed);
+    }
+
+    fn increment(&self, generation: u64) {
+        let mut current = self.packed.load(Ordering::Relaxed);
+        loop {
+            if current >> Self::COUNT_BITS != generation {
+                return;
+            }
+            let count = current & Self::COUNT_MASK;
+            if count == Self::COUNT_MASK {
+                return;
+            }
+            let next = current + 1;
+            match self.packed.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn get(&self, generation: u64) -> u64 {
+        let value = self.packed.load(Ordering::Relaxed);
+        if value >> Self::COUNT_BITS == generation {
+            value & Self::COUNT_MASK
+        } else {
+            0
+        }
+    }
 }
 
 impl RootHintChannel {
@@ -1452,6 +1521,9 @@ impl RootHintChannel {
         Self {
             generation: AtomicU64::new(0),
             packed: AtomicU64::new(0),
+            publications: GenerationCounter::new(),
+            eligible_reads: GenerationCounter::new(),
+            applied: GenerationCounter::new(),
         }
     }
 
@@ -1462,6 +1534,9 @@ impl RootHintChannel {
     pub(crate) fn begin_go(&self) -> u64 {
         let sequence = self.generation.fetch_add(1, Ordering::AcqRel);
         let generation = sequence % Self::GENERATION_MASK + 1;
+        self.publications.reset(generation);
+        self.eligible_reads.reset(generation);
+        self.applied.reset(generation);
         self.packed
             .store(generation << Self::GENERATION_SHIFT, Ordering::Release);
         generation
@@ -1525,7 +1600,10 @@ impl RootHintChannel {
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
-                Ok(_) => return,
+                Ok(_) => {
+                    self.publications.increment(generation);
+                    return;
+                }
                 Err(observed) => current = observed,
             }
         }
@@ -1534,7 +1612,23 @@ impl RootHintChannel {
     fn move_at_least(&self, generation: u64, depth: u32) -> Option<Move> {
         let (hint_generation, hint_depth, _, mv) =
             Self::decode(self.packed.load(Ordering::Acquire))?;
-        (hint_generation == generation && hint_depth >= depth).then_some(mv)
+        if hint_generation != generation || hint_depth < depth {
+            return None;
+        }
+        self.eligible_reads.increment(generation);
+        Some(mv)
+    }
+
+    fn mark_applied(&self, generation: u64) {
+        self.applied.increment(generation);
+    }
+
+    pub(crate) fn snapshot(&self, generation: u64) -> RootHintSnapshot {
+        RootHintSnapshot {
+            publications: self.publications.get(generation),
+            eligible_reads: self.eligible_reads.get(generation),
+            applied: self.applied.get(generation),
+        }
     }
 }
 
@@ -2022,6 +2116,11 @@ impl Searcher {
                         endpoint
                             .channel
                             .move_at_least(root_hint_generation.unwrap_or(0), depth)
+                            .map(|mv| RootHintOrder {
+                                mv,
+                                generation: root_hint_generation.unwrap_or(0),
+                                channel: endpoint.channel.clone(),
+                            })
                     })
                 });
                 let candidate = root_search(
@@ -2343,7 +2442,7 @@ fn root_search(
     history: &SearchHistory<'_>,
     root_order_offset: usize,
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
-    root_hint: Option<Move>,
+    root_hint: Option<RootHintOrder>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
@@ -2465,7 +2564,7 @@ fn root_search(
     };
     let diversified = diversified_root_order(ordered, root_order_offset, reused_iteration_order);
     let ordered: &[Move] = diversified.as_deref().unwrap_or(ordered);
-    let hinted = promote_root_hint(ordered, root_hint);
+    let hinted = apply_root_hint(ordered, root_hint);
     let ordered: &[Move] = hinted.as_deref().unwrap_or(ordered);
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
@@ -2522,6 +2621,16 @@ fn promote_root_hint(ordered: &[Move], hint: Option<Move>) -> Option<Vec<Move>> 
     let hint = promoted.remove(index);
     promoted.insert(0, hint);
     Some(promoted)
+}
+
+fn apply_root_hint(ordered: &[Move], hint: Option<RootHintOrder>) -> Option<Vec<Move>> {
+    let promoted = promote_root_hint(ordered, hint.as_ref().map(|value| value.mv));
+    if promoted.is_some()
+        && let Some(hint) = hint
+    {
+        hint.channel.mark_applied(hint.generation);
+    }
+    promoted
 }
 
 /// ROOT_ORDER: the root position and its move order after the latest root
@@ -4453,6 +4562,10 @@ mod see_tests {
 
         assert_ne!(old_generation, new_generation);
         assert_eq!(channel.move_at_least(new_generation, 1), None);
+        assert_eq!(
+            channel.snapshot(new_generation),
+            RootHintSnapshot::default()
+        );
     }
 
     #[test]
@@ -4470,6 +4583,14 @@ mod see_tests {
 
         channel.publish(generation, 10, 1, tie_winner);
         assert_eq!(channel.move_at_least(generation, 10), Some(tie_winner));
+        assert_eq!(
+            channel.snapshot(generation),
+            RootHintSnapshot {
+                publications: 2,
+                eligible_reads: 2,
+                applied: 0,
+            }
+        );
     }
 
     #[test]
@@ -4517,6 +4638,108 @@ mod see_tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn root_hint_counts_only_order_changes_as_applied() {
+        let channel = Arc::new(RootHintChannel::new());
+        let generation = channel.begin_go();
+        let first = Move::drop(Square::from_index(0), PieceKind::Fu);
+        let hint = Move::drop(Square::from_index(1), PieceKind::Fu);
+        let third = Move::drop(Square::from_index(2), PieceKind::Fu);
+        channel.publish(generation, 3, 1, hint);
+        let hint = channel
+            .move_at_least(generation, 3)
+            .expect("published hint must be eligible");
+
+        assert_eq!(
+            apply_root_hint(
+                &[first, third, hint],
+                Some(RootHintOrder {
+                    mv: hint,
+                    generation,
+                    channel: channel.clone(),
+                }),
+            ),
+            Some(vec![hint, first, third])
+        );
+        assert_eq!(
+            channel.snapshot(generation),
+            RootHintSnapshot {
+                publications: 1,
+                eligible_reads: 1,
+                applied: 1,
+            }
+        );
+
+        assert_eq!(
+            apply_root_hint(
+                &[hint, first, third],
+                Some(RootHintOrder {
+                    mv: hint,
+                    generation,
+                    channel: channel.clone(),
+                }),
+            ),
+            None
+        );
+        assert_eq!(channel.snapshot(generation).applied, 1);
+    }
+
+    #[test]
+    fn stale_root_hint_application_cannot_increment_the_new_generation() {
+        let channel = Arc::new(RootHintChannel::new());
+        let old_generation = channel.begin_go();
+        let first = Move::drop(Square::from_index(0), PieceKind::Fu);
+        let hint = Move::drop(Square::from_index(1), PieceKind::Fu);
+        channel.publish(old_generation, 3, 1, hint);
+        let stale = channel
+            .move_at_least(old_generation, 3)
+            .expect("old-generation hint must initially be eligible");
+        let new_generation = channel.begin_go();
+
+        assert!(
+            apply_root_hint(
+                &[first, stale],
+                Some(RootHintOrder {
+                    mv: stale,
+                    generation: old_generation,
+                    channel: channel.clone(),
+                }),
+            )
+            .is_some()
+        );
+        assert_eq!(
+            channel.snapshot(new_generation),
+            RootHintSnapshot::default()
+        );
+    }
+
+    #[test]
+    fn completed_helper_search_publishes_and_main_search_reads_the_hint() {
+        let channel = Arc::new(RootHintChannel::new());
+        let generation = channel.begin_go();
+        let config = SearchConfig {
+            max_depth: 3,
+            time_limit: None,
+            node_limit: None,
+            soft_limit: None,
+            multi_pv: 1,
+        };
+
+        let mut helper = Searcher::new(Tt::new(4));
+        helper.set_root_hint_channel(channel.clone(), 1);
+        let mut helper_board = Board::startpos();
+        helper.search(&mut helper_board, config);
+        assert!(channel.snapshot(generation).publications > 0);
+
+        let mut main = Searcher::new(Tt::new(4));
+        main.set_root_hint_channel(channel.clone(), 0);
+        let mut main_board = Board::startpos();
+        main.search(&mut main_board, config);
+        let stats = channel.snapshot(generation);
+        assert!(stats.eligible_reads > 0);
+        assert!(stats.applied <= stats.eligible_reads);
     }
 
     #[test]

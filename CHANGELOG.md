@@ -13,7 +13,9 @@ preserves older per-change notes.
   may try a same-or-deeper legal hint first on its next iteration. Scores,
   bounds and PVs are never imported, stale invocations are rejected by an
   atomic generation token, and the playing default remains unchanged pending
-  an independent material-only gate.
+  an independent material-only gate. USI diagnostics report successful
+  publications, eligible reads, and hints that changed the final legal root
+  order.
 - Add diagnostic-only per-worker TT-origin counters for Lazy SMP. Scaling
   reports now show whether the selected root worker reused sampled entries
   written by helpers, without adding counters to normal searches or changing
@@ -46,6 +48,9 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Serialize overlapping searches on one `LazySmpSearcher`; the new root-hint
+  `try_*` diagnostic API instead returns `None` without panicking or mixing
+  invocation generations.
 - Prefer a completed exact winning-mate result from any ordinary Lazy SMP
   worker over a deeper heuristic score. The explicit worker-0-only diagnostic
   mode keeps its existing result-selection contract.

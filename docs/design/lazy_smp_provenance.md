@@ -147,3 +147,11 @@ iteration boundary remains scheduler-dependent. The channel is absent for
 one worker, isolated TT, and the default policy; MultiPV does not consume or
 publish hints. This experiment requires deterministic correctness checks and
 an independent paired material-only SPRT before any default change.
+
+When this bit is active, the USI result includes
+`lazy_smp_root_hint publications P eligible_reads R applied A`. `P` counts
+successful lock-free slot updates, `R` counts same-generation and
+same-or-deeper reads by worker 0, and `A` counts reads that actually moved a
+legal final root candidate to the front. A hint that is already first, too
+shallow, stale, excluded, illegal, or removed by root mate-safety is not
+counted as applied.

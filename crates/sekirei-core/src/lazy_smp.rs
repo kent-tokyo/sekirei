@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    RootHintChannel, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo,
-    Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    RootHintChannel, RootHintSnapshot, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
+    SearchInfo, Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -69,6 +69,20 @@ pub struct LazySmpWorkOverlap {
     pub tt_unknown_hits: u64,
     /// Sampled committed stores that could not be placed in the registry.
     pub tt_dropped_stores: u64,
+}
+
+/// Invocation-scoped evidence for helper-to-main root-order hints.
+///
+/// The counters exist only when [`LAZY_FOREIGN_ROOT_HINT`] is enabled with a
+/// shared transposition table and at least two workers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpRootHintStats {
+    /// Successful helper publications retained by the lock-free hint slot.
+    pub publications: u64,
+    /// Same-generation, same-or-deeper hints read by the main worker.
+    pub eligible_reads: u64,
+    /// Reads that actually moved a legal final root candidate to the front.
+    pub applied: u64,
 }
 
 fn work_overlap_snapshot(
@@ -153,6 +167,43 @@ pub struct LazySmpSearcher {
     /// Invocation-scoped helper-to-main ordering hint. It is present only for
     /// shared-TT searches with at least two workers and the opt-in flag.
     root_hint: Option<Arc<RootHintChannel>>,
+    /// Search-level observers and persistent workers are invocation-scoped.
+    /// Reject overlapping calls instead of mixing their resettable state.
+    search_active: std::sync::atomic::AtomicBool,
+}
+
+struct SearchInvocationGuard<'a> {
+    active: &'a std::sync::atomic::AtomicBool,
+}
+
+impl<'a> SearchInvocationGuard<'a> {
+    fn try_acquire(active: &'a std::sync::atomic::AtomicBool) -> Option<Self> {
+        active
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .ok()
+            .map(|_| Self { active })
+    }
+
+    fn acquire_blocking(active: &'a std::sync::atomic::AtomicBool) -> Self {
+        loop {
+            if let Some(guard) = Self::try_acquire(active) {
+                return guard;
+            }
+            std::thread::yield_now();
+        }
+    }
+}
+
+impl Drop for SearchInvocationGuard<'_> {
+    fn drop(&mut self) {
+        self.active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
 }
 
 #[derive(Default)]
@@ -295,6 +346,7 @@ impl LazySmpSearcher {
             work_overlap_stats,
             tt_reuse_stats,
             root_hint,
+            search_active: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -442,6 +494,33 @@ impl LazySmpSearcher {
         config: SearchConfig,
         history: &PositionHistory,
     ) -> LazySmpInfo {
+        let _invocation = SearchInvocationGuard::acquire_blocking(&self.search_active);
+        self.search_with_history_inner(board, config, history).0
+    }
+
+    /// Try to search and return invocation-bound helper-root-hint diagnostics.
+    ///
+    /// The second tuple member is `None` when the experiment is unavailable.
+    /// Its counters are captured before this invocation returns, so a later or
+    /// overlapping diagnostic search cannot substitute another generation's
+    /// values. The outer `Option` is `None` when any search invocation is
+    /// already active on this searcher.
+    pub fn try_search_with_history_and_root_hint_stats(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> Option<(LazySmpInfo, Option<LazySmpRootHintStats>)> {
+        let _invocation = SearchInvocationGuard::try_acquire(&self.search_active)?;
+        Some(self.search_with_history_inner(board, config, history))
+    }
+
+    fn search_with_history_inner(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (LazySmpInfo, Option<LazySmpRootHintStats>) {
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
@@ -453,9 +532,10 @@ impl LazySmpSearcher {
         if let Some(stats) = &self.tt_reuse_stats {
             stats.reset();
         }
-        if let Some(root_hint) = &self.root_hint {
-            root_hint.begin_go();
-        }
+        let root_hint_generation = self
+            .root_hint
+            .as_ref()
+            .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
             .into_par_iter()
@@ -527,7 +607,7 @@ impl LazySmpSearcher {
             })
             .expect("selected Lazy SMP result must come from one worker");
         worker_results[selected_worker].selected = true;
-        LazySmpInfo {
+        let info = LazySmpInfo {
             result,
             total_nodes,
             worker_results,
@@ -545,7 +625,24 @@ impl LazySmpSearcher {
                 .map(|(overlap, reuse)| {
                     work_overlap_snapshot(overlap.snapshot(), reuse.snapshot())
                 }),
-        }
+        };
+        let root_hint_stats =
+            self.root_hint
+                .as_ref()
+                .zip(root_hint_generation)
+                .map(|(channel, generation)| {
+                    let RootHintSnapshot {
+                        publications,
+                        eligible_reads,
+                        applied,
+                    } = channel.snapshot(generation);
+                    LazySmpRootHintStats {
+                        publications,
+                        eligible_reads,
+                        applied,
+                    }
+                });
+        (info, root_hint_stats)
     }
 }
 
@@ -832,6 +929,90 @@ mod tests {
         assert!(default.root_hint.is_none());
         assert!(one_worker.root_hint.is_none());
         assert!(isolated.root_hint.is_none());
+    }
+
+    #[test]
+    fn invocation_guard_rejects_overlap_and_releases_on_drop() {
+        let active = std::sync::atomic::AtomicBool::new(false);
+        let first = SearchInvocationGuard::try_acquire(&active).expect("first invocation");
+        assert!(SearchInvocationGuard::try_acquire(&active).is_none());
+        drop(first);
+        assert!(SearchInvocationGuard::try_acquire(&active).is_some());
+    }
+
+    #[test]
+    fn blocking_invocation_guard_waits_for_the_active_search() {
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let first = SearchInvocationGuard::try_acquire(&active).expect("first invocation");
+        let worker_active = active.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _guard = SearchInvocationGuard::acquire_blocking(&worker_active);
+            tx.send(()).expect("signal acquired invocation");
+        });
+
+        assert!(
+            rx.recv_timeout(Duration::from_millis(20)).is_err(),
+            "overlapping invocation must wait"
+        );
+        drop(first);
+        rx.recv_timeout(Duration::from_secs(1))
+            .expect("waiting invocation must resume after release");
+        worker.join().expect("blocking invocation worker");
+    }
+
+    #[test]
+    fn root_hint_stats_are_invocation_bound_and_reset_between_searches() {
+        let flags = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
+        let searcher = LazySmpSearcher::with_flags(Tt::new(1), 2, flags);
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (_, first) = searcher
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 2,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("first diagnostic invocation");
+        let first = first.expect("enabled experiment must return one snapshot");
+        assert!(first.applied <= first.eligible_reads);
+
+        let (_, second) = searcher
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 0,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("second diagnostic invocation");
+        assert_eq!(second, Some(LazySmpRootHintStats::default()));
+
+        let disabled = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
+        let (_, stats) = disabled
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 0,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("disabled diagnostic invocation");
+        assert_eq!(stats, None);
     }
 
     #[test]
