@@ -22,6 +22,10 @@ preserves older per-change notes.
 
 ### Changed
 
+- Update `lineprior` to 0.12.6, `shogiesa-core` to 0.11.6, and `veridict`
+  to 0.19.5. The update keeps the existing product boundaries and gate
+  hypotheses while adopting the upstream query, schema, and fail-closed
+  statistical fixes.
 - Update `lineprior` to 0.12.5 and use its allocation-reusing borrowed query
   API for opening-book lookups.
 - Update `shogiesa-core` to 0.11.5 and consume position JSONL through its

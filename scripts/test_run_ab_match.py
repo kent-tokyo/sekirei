@@ -114,7 +114,7 @@ class SprtTest(unittest.TestCase):
         self.assertAlmostEqual(sprt_llr(wins, losses, 0, 0, 10), expected, places=9)
 
     def test_draw_heavy_llr_matches_veridict_reference(self):
-        # veridict 0.19.4, trinomial BayesElo [0, 10], W/D/L = 500/300/200.
+        # veridict 0.19.5, trinomial BayesElo [0, 10], W/D/L = 500/300/200.
         self.assertAlmostEqual(sprt_llr(500, 200, 300, 0, 10), 11.0336196488132, places=12)
 
     def test_paired_outcome_uses_net_two_game_score(self):
