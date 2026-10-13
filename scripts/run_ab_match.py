@@ -19,10 +19,14 @@ Ladder against a node-limited YaneuraOu build (same evaluation file)::
         --games 20 --byoyomi 500
 
 With ``--sprt ELO0,ELO1`` the match stops as soon as a generalized SPRT on the
-game results (logistic Elo, trinomial model, alpha = beta = 0.05) accepts
-H0 (Elo <= ELO0) or H1 (Elo >= ELO1); ``--games`` is then the upper limit::
+game results (BayesElo, trinomial model, alpha = beta = 0.05) accepts H0 or
+H1; ``--games`` is then the upper limit::
 
     python3 scripts/run_ab_match.py selfplay ... --games 2000 --sprt 0,10
+
+Use ``--paired-sprt --games-per-position N`` for same-position,
+opposite-colour pairs.  The LLR is then updated only after both games in a
+pair finish, and each pair is reduced to win/draw/loss by its net score.
 
 Results are local diagnostics, not playing-strength claims. The script only
 starts the external engine as a separate process. Pass ``--result-json`` to
@@ -51,6 +55,7 @@ RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
 GATE_DECLARATION_SCHEMA = "sekirei.gate-observation-declaration.v1"
 OUTCOME_FEATURE_WORDS = ("elo", "verdict", "result", "outcome", "games", "wins", "losses")
 SprtSpec = tuple[float, float, float, float]
+P_EPSILON = 1e-4
 
 
 @dataclass(frozen=True)
@@ -258,22 +263,45 @@ def elo(wins: int, losses: int, draws: int) -> tuple[float, float]:
 def sprt_llr(wins: int, losses: int, draws: int, elo0: float, elo1: float) -> float:
     """Log-likelihood ratio of H1 (Elo = elo1) against H0 (Elo = elo0).
 
-    Uses the normal approximation of the generalized SPRT on the per-game
-    score (win 1, draw 0.5, loss 0), as in Fishtest's trinomial test.
+    Uses the draw-aware generalized trinomial SPRT in the BayesElo
+    parameterization.  This matches veridict's trinomial implementation;
+    ``elo0`` and ``elo1`` are BayesElo hypotheses, not logistic Elo.
     """
     games = wins + losses + draws
-    if games == 0 or wins + draws == 0 or losses + draws == 0:
-        return 0.0
-    score = (wins + 0.5 * draws) / games
-    variance = (wins * (1 - score) ** 2 + losses * score**2 + draws * (0.5 - score) ** 2) / games
-    if variance <= 0:
+    if games == 0:
         return 0.0
 
-    def expected(elo_value: float) -> float:
-        return 1 / (1 + 10 ** (-elo_value / 400))
+    p_win = min(max(wins / games, P_EPSILON), 1.0 - P_EPSILON)
+    p_loss = min(max(losses / games, P_EPSILON), 1.0 - P_EPSILON)
+    draw_elo = 200.0 * math.log10(
+        ((1.0 - p_loss) / p_loss) * ((1.0 - p_win) / p_win)
+    )
 
-    s0, s1 = expected(elo0), expected(elo1)
-    return games * (s1 - s0) * (2 * score - s0 - s1) / (2 * variance)
+    def probabilities(elo_value: float) -> tuple[float, float, float]:
+        win = 1.0 / (1.0 + 10 ** ((-elo_value + draw_elo) / 400.0))
+        loss = 1.0 / (1.0 + 10 ** ((elo_value + draw_elo) / 400.0))
+        return win, 1.0 - win - loss, loss
+
+    p0_win, p0_draw, p0_loss = probabilities(elo0)
+    p1_win, p1_draw, p1_loss = probabilities(elo1)
+    llr = 0.0
+    if wins:
+        llr += wins * math.log(p1_win / p0_win)
+    if draws:
+        llr += draws * math.log(p1_draw / p0_draw)
+    if losses:
+        llr += losses * math.log(p1_loss / p0_loss)
+    return llr
+
+
+def paired_outcome(first_score: float, second_score: float) -> str:
+    """Reduce one colour-reversed two-game pair to win/draw/loss."""
+    total = first_score + second_score
+    if total > 1.0:
+        return "win"
+    if total < 1.0:
+        return "loss"
+    return "draw"
 
 
 def sprt_bounds(alpha: float = 0.05, beta: float = 0.05) -> tuple[float, float]:
@@ -335,6 +363,11 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
     parser.add_argument("--fv-scale", type=int, default=24)
     parser.add_argument("--nodes-limit", type=int, default=0, help="YaneuraOu NodesLimit (0 = none)")
     parser.add_argument("--games", type=int, default=200)
+    parser.add_argument(
+        "--games-per-position",
+        type=int,
+        help="cover every opening with N consecutive colour-alternating games",
+    )
     parser.add_argument("--byoyomi", type=int, default=100, help="milliseconds per move")
     parser.add_argument(
         "--openings", default=str(ROOT / "data/gate/openings_standard.sfen")
@@ -342,6 +375,11 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
     parser.add_argument(
         "--sprt",
         help="ELO0,ELO1: stop early when an SPRT accepts H0 (Elo <= ELO0) or H1 (Elo >= ELO1)",
+    )
+    parser.add_argument(
+        "--paired-sprt",
+        action="store_true",
+        help="update SPRT only after each same-position, opposite-colour two-game pair",
     )
     parser.add_argument(
         "--threads-a", type=int, default=1, help="search threads for engine A (default 1)"
@@ -399,6 +437,8 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("yaneuraou mode needs an explicit --evalfile")
     if args.games <= 0:
         parser.error("--games must be positive")
+    if args.games_per_position is not None and args.games_per_position <= 0:
+        parser.error("--games-per-position must be positive")
     if args.byoyomi <= 0:
         parser.error("--byoyomi must be positive")
     if args.fv_scale <= 0:
@@ -413,6 +453,13 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("--nodes-limit must be non-negative")
     if args.gate_observation_declaration and not args.result_json:
         parser.error("--gate-observation-declaration requires --result-json")
+    if args.paired_sprt:
+        if not args.sprt:
+            parser.error("--paired-sprt requires --sprt")
+        if args.mode != "selfplay":
+            parser.error("--paired-sprt is only supported for selfplay")
+        if args.games_per_position is None or args.games_per_position % 2:
+            parser.error("--paired-sprt requires an even --games-per-position")
     args.gate_observation = None
     if args.gate_observation_declaration:
         try:
@@ -444,6 +491,14 @@ def main() -> int:
     out = Path(args.out_dir)
     out.mkdir(parents=True, exist_ok=True)
     engine2 = args.engine_b if args.mode == "selfplay" else args.yaneuraou
+    openings = opening_identity(args.openings)
+    games_limit = args.games
+    if args.games_per_position is not None:
+        position_count = int(openings["position_count"])
+        if position_count <= 0:
+            print("--games-per-position needs a non-empty opening file", file=sys.stderr)
+            return 2
+        games_limit = position_count * args.games_per_position
     command = [
         args.match_binary,
         "--engine1", args.engine_a,
@@ -454,6 +509,8 @@ def main() -> int:
         "--json", str(out / f"{args.name}.json"),
         "--output", str(out / f"kifu_{args.name}"),
     ]
+    if args.games_per_position is not None:
+        command += ["--games-per-position", str(args.games_per_position)]
     command += sekirei_options(
         "--engine-option1",
         None if material_only else args.evalfile,
@@ -486,6 +543,8 @@ def main() -> int:
     log_path = out / f"{args.name}.log"
     raw_json_path = out / f"{args.name}.json"
     wins = losses = draws = 0
+    pair_wins = pair_losses = pair_draws = 0
+    pending_pair_score: float | None = None
     verdict = ""
     process_code: int | None = None
     launch_error: str | None = None
@@ -508,7 +567,26 @@ def main() -> int:
                 draws += outcome == "Draw"
                 status = f"{wins}-{losses}-{draws}"
                 if sprt:
-                    llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+                    llr_counts = (wins, losses, draws)
+                    if args.paired_sprt:
+                        score = (
+                            1.0
+                            if outcome == "Engine1 Win"
+                            else 0.0
+                            if outcome == "Engine2 Win"
+                            else 0.5
+                        )
+                        if pending_pair_score is None:
+                            pending_pair_score = score
+                            print(status, end="\r", flush=True)
+                            continue
+                        reduced = paired_outcome(pending_pair_score, score)
+                        pending_pair_score = None
+                        pair_wins += reduced == "win"
+                        pair_losses += reduced == "loss"
+                        pair_draws += reduced == "draw"
+                        llr_counts = (pair_wins, pair_losses, pair_draws)
+                    llr = sprt_llr(*llr_counts, sprt[0], sprt[1])
                     status += f" LLR {llr:+.2f} [{sprt[2]:.2f}, {sprt[3]:.2f}]"
                     if llr <= sprt[2] or llr >= sprt[3]:
                         verdict = "H1 accepted" if llr >= sprt[3] else "H0 accepted"
@@ -524,7 +602,7 @@ def main() -> int:
     games_played = wins + losses + draws
     terminal = classify_terminal_status(
         games_played,
-        args.games,
+        games_limit,
         process_code,
         launch_error,
         verdict,
@@ -537,7 +615,12 @@ def main() -> int:
         f"Elo {estimate:+.0f} ± {margin:.0f} (95%, normal approx.); log {log_path}"
     )
     if sprt:
-        llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+        llr_counts = (
+            (pair_wins, pair_losses, pair_draws)
+            if args.paired_sprt
+            else (wins, losses, draws)
+        )
+        llr = sprt_llr(*llr_counts, sprt[0], sprt[1])
         outcome = verdict or "inconclusive (game limit reached)"
         print(f"SPRT Elo [{sprt[0]:g}, {sprt[1]:g}]: LLR {llr:+.2f}, {outcome}")
     if launch_error:
@@ -550,6 +633,11 @@ def main() -> int:
         margin_json = margin if math.isfinite(margin) else None
         sprt_result: dict[str, object] | None = None
         if sprt:
+            llr_counts = (
+                (pair_wins, pair_losses, pair_draws)
+                if args.paired_sprt
+                else (wins, losses, draws)
+            )
             sprt_result = {
                 "elo0": sprt[0],
                 "elo1": sprt[1],
@@ -557,7 +645,14 @@ def main() -> int:
                 "beta": 0.05,
                 "lower_bound": sprt[2],
                 "upper_bound": sprt[3],
-                "llr": sprt_llr(wins, losses, draws, sprt[0], sprt[1]),
+                "variant": "trinomial",
+                "paired_by_position": args.paired_sprt,
+                "llr": sprt_llr(*llr_counts, sprt[0], sprt[1]),
+                "observations": {
+                    "wins": llr_counts[0],
+                    "losses": llr_counts[1],
+                    "draws": llr_counts[2],
+                },
                 "verdict": (
                     "accept_h1"
                     if verdict == "H1 accepted"
@@ -577,7 +672,8 @@ def main() -> int:
             "ci": margin_json,
             "configuration": {
                 "name": args.name,
-                "games_limit": args.games,
+                "games_limit": games_limit,
+                "games_per_position": args.games_per_position,
                 "byoyomi_ms": args.byoyomi,
                 "nodes_limit": args.nodes_limit if args.mode == "yaneuraou" else None,
                 "fv_scale": None if material_only else args.fv_scale,
@@ -589,7 +685,14 @@ def main() -> int:
                 "sprt": (
                     None
                     if sprt is None
-                    else {"elo0": sprt[0], "elo1": sprt[1], "alpha": 0.05, "beta": 0.05}
+                    else {
+                        "elo0": sprt[0],
+                        "elo1": sprt[1],
+                        "alpha": 0.05,
+                        "beta": 0.05,
+                        "variant": "trinomial",
+                        "paired_by_position": args.paired_sprt,
+                    }
                 ),
             },
             "result": {
@@ -626,7 +729,7 @@ def main() -> int:
                     "mode": "material" if material_only else "halfkp",
                     "file": None if material_only else file_identity(args.evalfile),
                 },
-                "openings": opening_identity(args.openings),
+                "openings": openings,
                 "outputs": {
                     "log": file_identity(log_path),
                     "raw_match_json": file_identity(raw_json_path),

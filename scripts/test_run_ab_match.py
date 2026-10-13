@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from run_ab_match import (  # noqa: E402
     classify_terminal_status,
     main,
+    paired_outcome,
     sekirei_options,
     sprt_bounds,
     sprt_llr,
@@ -105,6 +106,19 @@ class SprtTest(unittest.TestCase):
         large = sprt_llr(600, 400, 200, 0, 10)
         self.assertAlmostEqual(large, 10 * small)
 
+    def test_trinomial_llr_reduces_to_wald_without_draws(self):
+        wins, losses = 700, 300
+        p0 = 1 / (1 + 10 ** (0 / 400))
+        p1 = 1 / (1 + 10 ** (-10 / 400))
+        expected = wins * math.log(p1 / p0) + losses * math.log((1 - p1) / (1 - p0))
+        self.assertAlmostEqual(sprt_llr(wins, losses, 0, 0, 10), expected, places=9)
+
+    def test_paired_outcome_uses_net_two_game_score(self):
+        self.assertEqual(paired_outcome(1.0, 1.0), "win")
+        self.assertEqual(paired_outcome(1.0, 0.0), "draw")
+        self.assertEqual(paired_outcome(0.5, 0.5), "draw")
+        self.assertEqual(paired_outcome(0.0, 0.0), "loss")
+
     def test_main_terminates_match_when_sprt_accepts_h1(self):
         # The process emits a result stream which would accept H1 well before
         # its configured 600-game upper bound.  No engine binary is needed.
@@ -153,6 +167,41 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["result"]["sprt"]["verdict"], "accept_h1")
         self.assertTrue(result["evidence"]["complete"])
+
+    def test_paired_sprt_stops_only_after_a_complete_pair(self):
+        lines = ["→ Engine1 Win\n"] * 600
+        process = _FakeMatchProcess(lines)
+        with tempfile.TemporaryDirectory() as directory:
+            openings = Path(directory) / "openings.sfen"
+            openings.write_text("startpos\n", encoding="utf-8")
+            result_path = Path(directory) / "paired_result.json"
+            argv = [
+                "run_ab_match.py",
+                "selfplay",
+                "--engine-a", "candidate",
+                "--engine-b", "baseline",
+                "--games-per-position", "600",
+                "--paired-sprt",
+                "--sprt", "0,10",
+                "--openings", str(openings),
+                "--out-dir", directory,
+                "--result-json", str(result_path),
+            ]
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=process
+            ), patch(
+                "run_ab_match.runner_identity", return_value={"commit": "test", "dirty": False}
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                self.assertEqual(main(), 0)
+            result = json.loads(result_path.read_text())
+
+        self.assertTrue(process.terminated)
+        self.assertEqual(process.lines_read % 2, 0)
+        self.assertTrue(result["result"]["sprt"]["paired_by_position"])
+        observations = result["result"]["sprt"]["observations"]
+        self.assertEqual(observations["wins"], process.lines_read // 2)
+        self.assertEqual(observations["losses"], 0)
+        self.assertEqual(observations["draws"], 0)
 
     def test_main_defaults_to_material_only(self):
         process = _FakeMatchProcess(["→ Draw\n"])

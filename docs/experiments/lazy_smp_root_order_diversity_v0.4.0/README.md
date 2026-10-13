@@ -55,6 +55,11 @@ trinomial SPRT: H0=0 Elo, H1=+10 Elo, alpha=beta=0.05, at most 800 games.
 Only an H1 result from that independent run may justify changing the default.
 H0 rejects the candidate; a capped run is `INCONCLUSIVE`.
 
+The gate runner must use `--paired-sprt` with an even
+`--games-per-position`; this keeps each colour-reversed pair intact and uses
+the same BayesElo trinomial likelihood as veridict.  The older unpaired
+normal-approximation path is not valid evidence for this gate.
+
 ## Reproduction
 
 ```bash
