@@ -182,6 +182,11 @@ pub const LAZY_DEPTH_LADDER: u32 = 256;
 /// worker keeps the normal order, and iterative-deepening feedback replaces
 /// the rotated seed after the first completed root search.
 pub const LAZY_ROOT_ROTATE: u32 = 512;
+/// Preserve the deepest completed iteration, then use every worker's reported
+/// move as a consensus tie-break among moves found at that depth. This avoids
+/// the depth loss possible with [`LAZY_VOTE`] while still using helper output
+/// when equally deep workers disagree.
+pub const LAZY_DEPTH_CONSENSUS: u32 = 1024;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -544,9 +549,10 @@ fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSna
 
 /// The result Lazy SMP reports from its workers' results (in worker order)
 /// under the behaviour switches `flags`: worker 0's ([`LAZY_MAIN_RESULT`]),
-/// a proven winning mate, the vote ([`LAZY_VOTE`]), the deepest with ties to
-/// the lowest-numbered worker ([`LAZY_TIE_FIRST`]), or the default deepest
-/// result with score and move tie-breaks.
+/// a proven winning mate, the vote ([`LAZY_VOTE`]), depth-preserving consensus
+/// ([`LAZY_DEPTH_CONSENSUS`]), the deepest with ties to the lowest-numbered
+/// worker ([`LAZY_TIE_FIRST`]), or the default deepest result with score and
+/// move tie-breaks.
 pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
     if flags & LAZY_MAIN_RESULT != 0 {
         return results
@@ -565,6 +571,8 @@ pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo 
     let results = results.into_iter();
     if flags & LAZY_VOTE != 0 {
         return select_by_vote(results.collect());
+    } else if flags & LAZY_DEPTH_CONSENSUS != 0 {
+        return select_by_depth_consensus(results.collect());
     } else if flags & LAZY_TIE_FIRST != 0 {
         results.reduce(|left, right| {
             if right.depth > left.depth {
@@ -577,6 +585,54 @@ pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo 
         results.reduce(select_result)
     }
     .expect("Lazy SMP always has at least one worker")
+}
+
+/// Keep the deepest completed iteration and use shallower workers only as
+/// supporting votes for the moves reported by deepest workers.
+///
+/// A move not produced at the maximum depth can never win. Among eligible
+/// moves, the number of workers reporting that move is the primary key; the
+/// selected result still comes from a maximum-depth worker, with score and
+/// move order as deterministic tie-breaks. Thus this selector cannot reduce
+/// the completed depth merely to follow a majority of shallower helpers.
+pub fn select_by_depth_consensus(mut results: Vec<SearchInfo>) -> SearchInfo {
+    if let Some(index) = proven_winning_mate_index(&results) {
+        return results.remove(index);
+    }
+
+    let max_depth = results
+        .iter()
+        .map(|result| result.depth)
+        .max()
+        .expect("Lazy SMP always has at least one worker");
+
+    let mut candidates: Vec<(crate::mv::Move, usize)> = Vec::new();
+    for result in results.iter().filter(|result| result.depth == max_depth) {
+        let Some(mv) = result.best_move else {
+            continue;
+        };
+        if candidates.iter().all(|(candidate, _)| *candidate != mv) {
+            let support = results
+                .iter()
+                .filter(|worker| worker.best_move == Some(mv))
+                .count();
+            candidates.push((mv, support));
+        }
+    }
+
+    results
+        .into_iter()
+        .filter(|result| result.depth == max_depth)
+        .max_by_key(|result| {
+            let support = result.best_move.map_or(0, |mv| {
+                candidates
+                    .iter()
+                    .find_map(|(candidate, support)| (*candidate == mv).then_some(*support))
+                    .unwrap_or(0)
+            });
+            (support, result.score, move_key(result.best_move))
+        })
+        .expect("maximum Lazy SMP depth comes from one worker")
 }
 
 /// Return the worker that proved the shortest winning mate.
@@ -756,6 +812,56 @@ mod tests {
     }
 
     #[test]
+    fn depth_consensus_uses_support_without_sacrificing_depth() {
+        let picked = select_by_depth_consensus(vec![
+            info(1, 120, 12),
+            info(2, 100, 12),
+            info(2, 90, 11),
+            info(2, 80, 10),
+        ]);
+
+        assert_eq!(picked.depth, 12);
+        assert_eq!(
+            picked.best_move,
+            Some(Move::drop(Square::from_index(2), PieceKind::Kin))
+        );
+        assert_eq!(picked.score, 100);
+    }
+
+    #[test]
+    fn depth_consensus_cannot_promote_a_shallower_majority() {
+        let picked = select_worker_result(
+            vec![
+                info(1, 120, 12),
+                info(2, 100, 11),
+                info(2, 105, 11),
+                info(2, 98, 11),
+            ],
+            LAZY_DEPTH_CONSENSUS,
+        );
+
+        assert_eq!(picked.depth, 12);
+        assert_eq!(
+            picked.best_move,
+            Some(Move::drop(Square::from_index(1), PieceKind::Kin))
+        );
+    }
+
+    #[test]
+    fn depth_consensus_falls_back_deterministically_without_moves() {
+        let mut first = info(1, 10, 8);
+        first.best_move = None;
+        let mut second = info(2, 20, 8);
+        second.best_move = None;
+
+        let picked = select_by_depth_consensus(vec![first, second]);
+
+        assert_eq!(picked.depth, 8);
+        assert_eq!(picked.score, 20);
+        assert_eq!(picked.best_move, None);
+    }
+
+    #[test]
     fn main_result_and_first_tie_avoid_the_highest_equal_depth_score() {
         let results = || vec![info(1, -100, 9), info(2, 60, 9), info(3, 10, 8)];
         let to = |r: SearchInfo| r.best_move.map(|m| m.to.index());
@@ -835,6 +941,11 @@ mod tests {
         assert_eq!(to(select_worker_result(results(), 0)), Some(2));
         assert_eq!(to(select_worker_result(results(), LAZY_TIE_FIRST)), Some(2));
         assert_eq!(to(select_worker_result(results(), LAZY_VOTE)), Some(2));
+        assert_eq!(
+            to(select_worker_result(results(), LAZY_DEPTH_CONSENSUS)),
+            Some(2)
+        );
+        assert_eq!(to(select_by_depth_consensus(results())), Some(2));
         assert_eq!(
             to(select_worker_result(results(), LAZY_MAIN_RESULT)),
             Some(1)

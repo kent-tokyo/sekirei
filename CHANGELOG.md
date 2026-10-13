@@ -8,6 +8,12 @@ preserves older per-change notes.
 
 ### Added
 
+- Add an opt-in Lazy SMP depth-consensus selector that never chooses a result
+  below the maximum completed worker depth. Other workers only break ties
+  between moves found at that depth; the playing default remains unchanged
+  pending an independent material-only strength gate. A preregistered
+  material-only diagnostic advanced the candidate with selected-depth median
+  18 versus 17 and repeated-bestmove stability 75.0% versus 77.5%.
 - Add an opt-in Lazy SMP root-order diversity flag for one-factor diagnostics.
   Helper workers can start from deterministically rotated root moves while the
   main worker and later iterative-deepening order remain unchanged; the

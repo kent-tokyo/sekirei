@@ -124,3 +124,10 @@ iteration by `n` moves. Once a worker completes a root iteration, its ordinary
 iterative-deepening feedback replaces that seed. The flag is disabled by
 default and is not strength evidence until it passes the fixed diagnostic and
 an independently preregistered material-only SPRT.
+
+`LazyFlags` bit 1024 is an opt-in result-selection experiment. It first fixes
+the eligible set to workers that completed the maximum depth. It then uses all
+workers' reported moves only to break ties between moves in that set. Unlike
+the full vote in bit 16, a majority of shallower workers cannot lower the
+reported completed depth. This bit changes neither worker search nor the
+default policy and requires an independent paired SPRT before adoption.
