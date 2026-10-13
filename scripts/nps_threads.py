@@ -133,6 +133,18 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
                 ),
                 "stop_lag_ms": stop_lag_ms,
             }
+            selected_reuse_keys = (
+                "selected_tt_local_hits",
+                "selected_tt_foreign_hits",
+                "selected_tt_unknown_hits",
+            )
+            if all(key in parts for key in selected_reuse_keys):
+                result.update(
+                    {
+                        key: int(parts[parts.index(key) + 1])
+                        for key in selected_reuse_keys
+                    }
+                )
             summary = parts[-1]
             worker_stats = parse_lazy_workers(summary)
             if worker_stats:
@@ -148,26 +160,33 @@ def parse_lazy_workers(summary: str) -> list[dict[str, int | str | bool]]:
     workers = []
     for raw_worker in summary.split(","):
         fields = raw_worker.split(":")
-        if len(fields) != 10 or not fields[0].startswith("w"):
+        if len(fields) not in (10, 13) or not fields[0].startswith("w"):
             return []
         worker_label = fields[0]
         selected = worker_label.endswith("*")
         try:
-            workers.append(
-                {
-                    "worker": int(worker_label[1:].removesuffix("*")),
-                    "selected": selected,
-                    "depth": int(fields[1].removeprefix("d")),
-                    "nodes": int(fields[2].removeprefix("n")),
-                    "score": int(fields[3].removeprefix("s")),
-                    "elapsed_ms": int(fields[4].removeprefix("t")),
-                    "aborted": fields[5].removeprefix("x") == "1",
-                    "abort_reason": fields[6].removeprefix("a"),
-                    "tt_probes": int(fields[7].removeprefix("p")),
-                    "tt_hits": int(fields[8].removeprefix("h")),
-                    "tt_stores": int(fields[9].removeprefix("r")),
-                }
-            )
+            worker = {
+                "worker": int(worker_label[1:].removesuffix("*")),
+                "selected": selected,
+                "depth": int(fields[1].removeprefix("d")),
+                "nodes": int(fields[2].removeprefix("n")),
+                "score": int(fields[3].removeprefix("s")),
+                "elapsed_ms": int(fields[4].removeprefix("t")),
+                "aborted": fields[5].removeprefix("x") == "1",
+                "abort_reason": fields[6].removeprefix("a"),
+                "tt_probes": int(fields[7].removeprefix("p")),
+                "tt_hits": int(fields[8].removeprefix("h")),
+                "tt_stores": int(fields[9].removeprefix("r")),
+            }
+            if len(fields) == 13:
+                worker.update(
+                    {
+                        "tt_local_hits": int(fields[10].removeprefix("l")),
+                        "tt_foreign_hits": int(fields[11].removeprefix("f")),
+                        "tt_unknown_hits": int(fields[12].removeprefix("u")),
+                    }
+                )
+            workers.append(worker)
         except ValueError:
             return []
     return workers
@@ -331,6 +350,37 @@ def summarize_lazy_root_work(rows: list[dict]) -> dict[str, float | int] | None:
     return totals
 
 
+def summarize_selected_tt_reuse(rows: list[dict]) -> dict[str, float | int] | None:
+    """Pool sampled TT origins for workers whose root result was selected."""
+    diagnostics = [row.get("lazy_smp") for row in rows]
+    diagnostics = [
+        item
+        for item in diagnostics
+        if item is not None and "selected_tt_foreign_hits" in item
+    ]
+    if not diagnostics:
+        return None
+    totals: dict[str, float | int] = {
+        key: sum(item[key] for item in diagnostics)
+        for key in (
+            "selected_tt_local_hits",
+            "selected_tt_foreign_hits",
+            "selected_tt_unknown_hits",
+        )
+    }
+    known = int(totals["selected_tt_local_hits"]) + int(
+        totals["selected_tt_foreign_hits"]
+    )
+    totals["selected_foreign_tt_hit_rate"] = int(
+        totals["selected_tt_foreign_hits"]
+    ) / max(known, 1)
+    sampled = known + int(totals["selected_tt_unknown_hits"])
+    totals["selected_tt_unknown_hit_rate"] = int(
+        totals["selected_tt_unknown_hits"]
+    ) / max(sampled, 1)
+    return totals
+
+
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
     if args.yaneuraou:
         evalfile = Path(args.evalfile).resolve()
@@ -423,6 +473,16 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
                         f" lag {lazy_smp['stop_lag_ms']}ms"
                     )
+                    if "selected_tt_foreign_hits" in lazy_smp:
+                        selected_known_hits = (
+                            lazy_smp["selected_tt_local_hits"]
+                            + lazy_smp["selected_tt_foreign_hits"]
+                        )
+                        lazy_suffix += (
+                            f" selected-foreign-tt"
+                            f" {lazy_smp['selected_tt_foreign_hits']}"
+                            f"/{max(selected_known_hits, 1)}"
+                        )
                 if lazy_smp_tt is not None:
                     hit_rate = lazy_smp_tt["hits"] / max(lazy_smp_tt["probes"], 1)
                     lazy_suffix += (
@@ -584,6 +644,21 @@ def main() -> int:
             print(
                 f"{threads:7d}  {summary['discarded_root_node_rate']:19.1%}"
                 f"  {summary['divergent_discarded_node_rate']:25.1%}"
+            )
+    selected_reuse_summaries = {
+        threads: summarize_selected_tt_reuse(results[threads])
+        for threads in thread_counts
+    }
+    if any(summary is not None for summary in selected_reuse_summaries.values()):
+        print("Selected-worker sampled TT reuse (diagnostic only)")
+        print("threads  foreign-worker hit  unknown writer")
+        for threads in thread_counts:
+            summary = selected_reuse_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['selected_foreign_tt_hit_rate']:18.1%}"
+                f"  {summary['selected_tt_unknown_hit_rate']:14.1%}"
             )
     return 0
 

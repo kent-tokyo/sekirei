@@ -94,8 +94,11 @@ for the fixed conditions and claim boundary.
 The same opt-in path now also samples committed TT stores and attributes a
 later sampled hit to the last known committing worker. This distinguishes
 confirmed cross-worker TT reuse from repeated search-tree visits. USI output
-also reports every non-selected worker's root nodes and the divergent subset
-whose final move differs from the selected worker. The first four-worker
+reports local, foreign-worker, and unknown-writer sampled hits for each worker,
+so measurements can distinguish global sharing from sharing that reached the
+worker whose root result was selected. It also reports every non-selected
+worker's root nodes and the divergent subset whose final move differs from the
+selected worker. The first four-worker
 measurement found 45.7% foreign-worker hits among sampled hits with a known
 writer and 75.1% discarded root-result nodes. These figures selected the
 existing root-vote policy for an SPRT; they are not themselves an adoption

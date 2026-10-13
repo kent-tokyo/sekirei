@@ -21,6 +21,7 @@ from nps_threads import (  # noqa: E402
     summarize_lazy_overlap,
     summarize_lazy_root_work,
     summarize_lazy_tt,
+    summarize_selected_tt_reuse,
 )
 
 
@@ -74,10 +75,12 @@ class ThreadOptionsTest(unittest.TestCase):
                 "info string lazy_smp selected w2 node_share_permille 268 "
                 "move_agreement 3/4 discarded_root_nodes 33 "
                 "divergent_discarded_nodes 10 stop_lag_ms 2 "
-                "w0:d20:n10:s1:t300:x1:aexternal:p30:h20:r10,"
-                "w1:d20:n11:s2:t301:x1:aexternal:p31:h21:r11,"
-                "w2*:d21:n12:s3:t302:x0:acompleted:p32:h22:r12,"
-                "w3:d20:n12:s3:t301:x1:aexternal:p33:h23:r13"
+                "selected_tt_local_hits 7 selected_tt_foreign_hits 5 "
+                "selected_tt_unknown_hits 2 "
+                "w0:d20:n10:s1:t300:x1:aexternal:p30:h20:r10:l8:f3:u1,"
+                "w1:d20:n11:s2:t301:x1:aexternal:p31:h21:r11:l9:f4:u1,"
+                "w2*:d21:n12:s3:t302:x0:acompleted:p32:h22:r12:l7:f5:u2,"
+                "w3:d20:n12:s3:t301:x1:aexternal:p33:h23:r13:l9:f6:u1"
             ]
         )
 
@@ -91,6 +94,9 @@ class ThreadOptionsTest(unittest.TestCase):
                 "discarded_root_nodes": 33,
                 "divergent_discarded_nodes": 10,
                 "stop_lag_ms": 2,
+                "selected_tt_local_hits": 7,
+                "selected_tt_foreign_hits": 5,
+                "selected_tt_unknown_hits": 2,
                 "worker_stats": [
                     {
                         "worker": 0,
@@ -104,6 +110,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 30,
                         "tt_hits": 20,
                         "tt_stores": 10,
+                        "tt_local_hits": 8,
+                        "tt_foreign_hits": 3,
+                        "tt_unknown_hits": 1,
                     },
                     {
                         "worker": 1,
@@ -117,6 +126,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 31,
                         "tt_hits": 21,
                         "tt_stores": 11,
+                        "tt_local_hits": 9,
+                        "tt_foreign_hits": 4,
+                        "tt_unknown_hits": 1,
                     },
                     {
                         "worker": 2,
@@ -130,6 +142,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 32,
                         "tt_hits": 22,
                         "tt_stores": 12,
+                        "tt_local_hits": 7,
+                        "tt_foreign_hits": 5,
+                        "tt_unknown_hits": 2,
                     },
                     {
                         "worker": 3,
@@ -143,6 +158,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 33,
                         "tt_hits": 23,
                         "tt_stores": 13,
+                        "tt_local_hits": 9,
+                        "tt_foreign_hits": 6,
+                        "tt_unknown_hits": 1,
                     },
                 ],
             },
@@ -340,6 +358,35 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertEqual(summary["selected_root_nodes"], 150)
         self.assertEqual(summary["discarded_root_node_rate"], 0.625)
         self.assertEqual(summary["divergent_discarded_node_rate"], 0.25)
+
+    def test_selected_tt_reuse_summary_excludes_unselected_workers(self):
+        summary = summarize_selected_tt_reuse(
+            [
+                {
+                    "lazy_smp": {
+                        "selected_tt_local_hits": 6,
+                        "selected_tt_foreign_hits": 3,
+                        "selected_tt_unknown_hits": 1,
+                    }
+                },
+                {
+                    "lazy_smp": {
+                        "selected_tt_local_hits": 9,
+                        "selected_tt_foreign_hits": 7,
+                        "selected_tt_unknown_hits": 4,
+                    }
+                },
+                {"lazy_smp": {"discarded_root_nodes": 123}},
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["selected_tt_local_hits"], 15)
+        self.assertEqual(summary["selected_tt_foreign_hits"], 10)
+        self.assertEqual(summary["selected_tt_unknown_hits"], 5)
+        self.assertEqual(summary["selected_foreign_tt_hit_rate"], 0.4)
+        self.assertEqual(summary["selected_tt_unknown_hit_rate"], 1 / 6)
 
 
 if __name__ == "__main__":

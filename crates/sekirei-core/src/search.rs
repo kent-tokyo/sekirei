@@ -282,6 +282,11 @@ pub struct SearchDiagnostics {
     tt_probes: AtomicU64,
     tt_hits: AtomicU64,
     tt_stores: AtomicU64,
+    /// Sampled TT hits attributed to this Lazy SMP worker. These counters are
+    /// populated only by [`SearchDiagnostics::parallel_worker`].
+    tt_local_hits: AtomicU64,
+    tt_foreign_hits: AtomicU64,
+    tt_unknown_hits: AtomicU64,
     order_tt: AtomicU64,
     order_killer: AtomicU64,
     order_countermove: AtomicU64,
@@ -410,6 +415,13 @@ pub(crate) struct TtReuseStats {
     foreign_hits: AtomicU64,
     unknown_hits: AtomicU64,
     dropped_stores: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TtReuseOrigin {
+    Local,
+    Foreign,
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -638,10 +650,8 @@ impl TtReuseStats {
     }
 
     #[inline]
-    fn record_hit(&self, hash: u64, worker: u32) {
-        let Some((fingerprint, start)) = Self::sampled_fingerprint(hash) else {
-            return;
-        };
+    fn record_hit(&self, hash: u64, worker: u32) -> Option<TtReuseOrigin> {
+        let (fingerprint, start) = Self::sampled_fingerprint(hash)?;
         self.sampled_hits.fetch_add(1, Ordering::Relaxed);
         let worker = worker.saturating_add(1);
         for probe in 0..WORK_SAMPLE_PROBES {
@@ -660,14 +670,17 @@ impl TtReuseStats {
             let writer = slot.last_writer.load(Ordering::Acquire);
             if writer == worker {
                 self.local_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Local);
             } else if writer != 0 {
                 self.foreign_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Foreign);
             } else {
                 self.unknown_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Unknown);
             }
-            return;
         }
         self.unknown_hits.fetch_add(1, Ordering::Relaxed);
+        Some(TtReuseOrigin::Unknown)
     }
 }
 
@@ -699,6 +712,13 @@ pub struct SearchDiagnosticsSnapshot {
     pub tt_hits: u64,
     /// Number of transposition-table store attempts.
     pub tt_stores: u64,
+    /// Sampled TT hits attributed to this worker by the diagnostic ownership
+    /// registry. Their sum is the sampled-hit count for this worker.
+    pub tt_local_hits: u64,
+    /// Sampled TT hits on entries last committed by another Lazy SMP worker.
+    pub tt_foreign_hits: u64,
+    /// Sampled TT hits whose committing worker was not retained.
+    pub tt_unknown_hits: u64,
     /// Number of moves selected as the TT move.
     pub order_tt: u64,
     /// Number of moves selected by the killer heuristic.
@@ -847,6 +867,9 @@ impl SearchDiagnostics {
             tt_probes: AtomicU64::new(0),
             tt_hits: AtomicU64::new(0),
             tt_stores: AtomicU64::new(0),
+            tt_local_hits: AtomicU64::new(0),
+            tt_foreign_hits: AtomicU64::new(0),
+            tt_unknown_hits: AtomicU64::new(0),
             order_tt: AtomicU64::new(0),
             order_killer: AtomicU64::new(0),
             order_countermove: AtomicU64::new(0),
@@ -904,8 +927,15 @@ impl SearchDiagnostics {
 
     #[inline]
     fn record_tt_hit_origin(&self, hash: u64) {
-        if let Some(observer) = &self.tt_reuse {
-            observer.stats.record_hit(hash, observer.worker);
+        if let Some(observer) = &self.tt_reuse
+            && let Some(origin) = observer.stats.record_hit(hash, observer.worker)
+        {
+            match origin {
+                TtReuseOrigin::Local => &self.tt_local_hits,
+                TtReuseOrigin::Foreign => &self.tt_foreign_hits,
+                TtReuseOrigin::Unknown => &self.tt_unknown_hits,
+            }
+            .fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -1081,6 +1111,9 @@ impl SearchDiagnostics {
             tt_probes: self.tt_probes.load(Ordering::Relaxed),
             tt_hits: self.tt_hits.load(Ordering::Relaxed),
             tt_stores: self.tt_stores.load(Ordering::Relaxed),
+            tt_local_hits: self.tt_local_hits.load(Ordering::Relaxed),
+            tt_foreign_hits: self.tt_foreign_hits.load(Ordering::Relaxed),
+            tt_unknown_hits: self.tt_unknown_hits.load(Ordering::Relaxed),
             order_tt: self.order_tt.load(Ordering::Relaxed),
             order_killer: self.order_killer.load(Ordering::Relaxed),
             order_countermove: self.order_countermove.load(Ordering::Relaxed),
@@ -4326,13 +4359,28 @@ mod see_tests {
             .expect("a sampled hash must exist");
         let stats = TtReuseStats::new();
 
-        stats.record_hit(sampled_hash, 0); // No sampled writer yet.
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Unknown)
+        ); // No sampled writer yet.
         stats.record_store(sampled_hash, 0);
-        stats.record_hit(sampled_hash, 0);
-        stats.record_hit(sampled_hash, 1);
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Local)
+        );
+        assert_eq!(
+            stats.record_hit(sampled_hash, 1),
+            Some(TtReuseOrigin::Foreign)
+        );
         stats.record_store(sampled_hash, 1);
-        stats.record_hit(sampled_hash, 1);
-        stats.record_hit(sampled_hash, 0);
+        assert_eq!(
+            stats.record_hit(sampled_hash, 1),
+            Some(TtReuseOrigin::Local)
+        );
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Foreign)
+        );
 
         assert_eq!(
             stats.snapshot(),
@@ -4357,9 +4405,30 @@ mod see_tests {
         let stats = TtReuseStats::new();
 
         stats.record_store(unsampled_hash, 0);
-        stats.record_hit(unsampled_hash, 1);
+        assert_eq!(stats.record_hit(unsampled_hash, 1), None);
 
         assert_eq!(stats.snapshot(), TtReuseSnapshot::default());
+    }
+
+    #[test]
+    fn parallel_worker_diagnostics_separate_local_foreign_and_unknown_tt_hits() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
+            .expect("a sampled hash must exist");
+        let overlap = Arc::new(WorkOverlapStats::new());
+        let reuse = Arc::new(TtReuseStats::new());
+        let diagnostics = SearchDiagnostics::parallel_worker(overlap, reuse.clone(), 1);
+
+        diagnostics.record_tt_hit_origin(sampled_hash);
+        reuse.record_store(sampled_hash, 0);
+        diagnostics.record_tt_hit_origin(sampled_hash);
+        reuse.record_store(sampled_hash, 1);
+        diagnostics.record_tt_hit_origin(sampled_hash);
+
+        let snapshot = diagnostics.snapshot();
+        assert_eq!(snapshot.tt_local_hits, 1);
+        assert_eq!(snapshot.tt_foreign_hits, 1);
+        assert_eq!(snapshot.tt_unknown_hits, 1);
     }
 
     /// Restore every tuned search parameter even when this test exits early.

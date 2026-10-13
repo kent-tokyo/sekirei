@@ -117,6 +117,14 @@ pub struct LazySmpWorkerInfo {
     pub tt_hits: u64,
     /// Transposition-table store attempts made by this worker.
     pub tt_stores: u64,
+    /// Sampled TT hits on entries last written by this worker.
+    pub tt_local_hits: u64,
+    /// Sampled TT hits on entries last written by another worker. For the
+    /// selected worker this proves that its search consumed helper-authored
+    /// TT data, not that the hit caused the returned move.
+    pub tt_foreign_hits: u64,
+    /// Sampled TT hits whose writer was not retained by the bounded registry.
+    pub tt_unknown_hits: u64,
 }
 
 /// Independent root-search workers sharing a lock-free transposition table.
@@ -480,6 +488,9 @@ impl LazySmpSearcher {
                 tt_probes: diagnostics.map_or(0, |snapshot| snapshot.tt_probes),
                 tt_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_hits),
                 tt_stores: diagnostics.map_or(0, |snapshot| snapshot.tt_stores),
+                tt_local_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_local_hits),
+                tt_foreign_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_foreign_hits),
+                tt_unknown_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_unknown_hits),
             })
             .collect();
         let result = select_worker_result(
@@ -526,6 +537,9 @@ fn diagnostics_delta(
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
+        tt_local_hits: after.tt_local_hits.saturating_sub(before.tt_local_hits),
+        tt_foreign_hits: after.tt_foreign_hits.saturating_sub(before.tt_foreign_hits),
+        tt_unknown_hits: after.tt_unknown_hits.saturating_sub(before.tt_unknown_hits),
         ..SearchDiagnosticsSnapshot::default()
     }
 }

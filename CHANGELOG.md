@@ -8,6 +8,10 @@ preserves older per-change notes.
 
 ### Added
 
+- Add diagnostic-only per-worker TT-origin counters for Lazy SMP. Scaling
+  reports now show whether the selected root worker reused sampled entries
+  written by helpers, without adding counters to normal searches or changing
+  the playing default.
 - Add an opt-in Lazy SMP depth-consensus selector that never chooses a result
   below the maximum completed worker depth. Other workers only break ties
   between moves found at that depth; the playing default remains unchanged

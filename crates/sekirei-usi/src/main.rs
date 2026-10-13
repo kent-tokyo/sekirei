@@ -498,6 +498,9 @@ fn diagnostics_delta(
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
+        tt_local_hits: after.tt_local_hits.saturating_sub(before.tt_local_hits),
+        tt_foreign_hits: after.tt_foreign_hits.saturating_sub(before.tt_foreign_hits),
+        tt_unknown_hits: after.tt_unknown_hits.saturating_sub(before.tt_unknown_hits),
         order_tt: after.order_tt.saturating_sub(before.order_tt),
         order_killer: after.order_killer.saturating_sub(before.order_killer),
         order_countermove: after
@@ -717,7 +720,7 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .map(|(i, worker)| {
             let marker = if worker.selected { "*" } else { "" };
             format!(
-                "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}",
+                "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}:l{}:f{}:u{}",
                 worker.depth,
                 worker.nodes,
                 worker.score,
@@ -727,13 +730,19 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
                 worker.tt_probes,
                 worker.tt_hits,
                 worker.tt_stores,
+                worker.tt_local_hits,
+                worker.tt_foreign_hits,
+                worker.tt_unknown_hits,
             )
         })
         .collect::<Vec<_>>()
         .join(",");
     println!(
-        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} {summary}",
-        info.worker_stats.len()
+        "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} selected_tt_local_hits {} selected_tt_foreign_hits {} selected_tt_unknown_hits {} {summary}",
+        info.worker_stats.len(),
+        selected.tt_local_hits,
+        selected.tt_foreign_hits,
+        selected.tt_unknown_hits,
     );
 }
 
