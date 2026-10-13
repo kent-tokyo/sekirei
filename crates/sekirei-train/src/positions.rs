@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufReader, Read};
 use std::path::Path;
 
 use sekirei_core::board::Board;
@@ -8,8 +8,8 @@ use sekirei_core::color::Color;
 use sekirei_core::sfen::board_to_sfen;
 use sha2::{Digest, Sha256};
 use shogiesa_core::schema::{
-    GameOutcome, Observation, PositionRecord, PositionRecordParseError, SideToMove, StabilityInfo,
-    parse_json_line,
+    GameOutcome, Observation, PositionRecord, PositionRecordJsonlReader, PositionRecordLineError,
+    PositionRecordParseError, SideToMove, StabilityInfo,
 };
 
 use crate::csa::GameResult;
@@ -139,38 +139,32 @@ fn map_record(record: PositionRecord) -> Result<PositionSample, String> {
 /// phase, side, ply, source, or result metadata.
 pub fn load_positions(path: &Path, strict: bool) -> Result<PositionLoadReport, String> {
     let file = File::open(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
-    let mut reader = BufReader::new(HashingReader::new(file));
+    let mut reader = PositionRecordJsonlReader::new(BufReader::new(HashingReader::new(file)));
     let mut report = PositionLoadReport::default();
 
-    let mut raw_line = String::new();
-    let mut line_number = 0usize;
-    loop {
-        raw_line.clear();
-        let read = reader.read_line(&mut raw_line).map_err(|error| {
-            format!(
-                "positions line {}: cannot read JSONL row: {error}",
-                line_number + 1
-            )
-        })?;
-        if read == 0 {
-            break;
-        }
-        line_number += 1;
-        let line = raw_line.trim();
-        if line.is_empty() {
-            continue;
-        }
+    for line in reader.by_ref() {
         report.non_empty_lines += 1;
-
-        let record = match parse_json_line(line) {
-            Ok(record) => record,
-            Err(error) => {
+        let (line_number, record) = match line {
+            Ok(line) => (line.line_number, line.record),
+            Err(PositionRecordLineError::Parse {
+                line_number,
+                source,
+            }) => {
                 if strict {
-                    return Err(format!("positions line {line_number}: {error}"));
+                    return Err(format!("positions line {line_number}: {source}"));
                 }
-                report.record_skip(parse_error_reason(&error));
+                report.record_skip(parse_error_reason(&source));
                 continue;
             }
+            Err(PositionRecordLineError::Read {
+                line_number,
+                source,
+            }) => {
+                return Err(format!(
+                    "positions line {line_number}: cannot read JSONL row: {source}"
+                ));
+            }
+            Err(error) => return Err(error.to_string()),
         };
 
         let schema_version = record.schema_version;
@@ -213,7 +207,7 @@ pub fn load_positions(path: &Path, strict: bool) -> Result<PositionLoadReport, S
         }
     }
 
-    report.sha256 = reader.into_inner().finish();
+    report.sha256 = reader.into_inner().into_inner().finish();
 
     report.print_summary(path);
     Ok(report)
@@ -444,6 +438,22 @@ mod tests {
         let error = validate_positions(file.path()).unwrap_err();
         assert!(error.contains("line 2"));
         assert!(error.contains("invalid SFEN"));
+    }
+
+    #[test]
+    fn streaming_reader_preserves_physical_line_numbers_across_blanks() {
+        let mut file = NamedTempFile::new().unwrap();
+        writeln!(file).unwrap();
+        writeln!(
+            file,
+            "{}",
+            record(STARTPOS_SFEN, "opening", "black", 1, "a")
+        )
+        .unwrap();
+        writeln!(file, "not json").unwrap();
+
+        let error = load_positions(file.path(), true).err().unwrap();
+        assert!(error.contains("line 3"));
     }
 
     #[test]

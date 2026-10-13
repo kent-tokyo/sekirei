@@ -563,9 +563,9 @@ checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
 
 [[package]]
 name = "lineprior"
-version = "0.12.4"
+version = "0.12.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "872a2d813c1b1e9ef66520ba819c46b1c685b16d040b780036e160089629605a"
+checksum = "294f2c74f375ca3cfabc59a051dcc9c187b6dddd52f48a407a488b33574e4b26"
 dependencies = [
  "serde",
  "serde_json",
@@ -977,9 +977,9 @@ checksum = "3d0a7de4ff7c66bf0b6346bda1d530c94a496f8aa3317938923886c58191aa14"
 
 [[package]]
 name = "shogiesa-core"
-version = "0.11.4"
+version = "0.11.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4fca6a9ae0df3a1a24776771468ade50b013970c03946266eb059a4b656cc331"
+checksum = "c5ee67b141741dcd2cf874e3356a066789dcba923dba77b49c5fcc87485721e7"
 dependencies = [
  "serde",
  "serde_json",
@@ -1133,9 +1133,9 @@ checksum = "06abde3611657adf66d383f00b093d7faecc7fa57071cce2578660c9f1010821"
 
 [[package]]
 name = "veridict"
-version = "0.19.2"
+version = "0.19.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d8841bf160b9568b926da67b151dfd27fdd2c1aa7438a59b857d1a33b022d1c7"
+checksum = "fa6ebff713e906da6321cf83f8559d5a36dad31c5a28aa70bc3e331dd667ffd7"
 dependencies = [
  "clap",
  "csv",

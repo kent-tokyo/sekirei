@@ -14,6 +14,16 @@ preserves older per-change notes.
   playing default is unchanged pending an independently preregistered
   material-only strength gate.
 
+### Changed
+
+- Update `lineprior` to 0.12.5 and use its allocation-reusing borrowed query
+  API for opening-book lookups.
+- Update `shogiesa-core` to 0.11.5 and consume position JSONL through its
+  line-numbered bounded-memory reader while preserving exact input hashing.
+- Update `veridict` to 0.19.4 and express SPRT execution policy through the
+  typed `SprtRunOptions` API; existing hypotheses and pairing behavior remain
+  unchanged.
+
 ### Fixed
 
 - Reset root-move ordering at each search boundary so Rayon scheduling cannot
