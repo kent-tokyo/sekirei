@@ -117,3 +117,10 @@ Time-capping helper workers at 75% and 50% was screened and rejected before
 SPRT. The stricter cap reduced discarded root-result nodes but also reduced
 median completed depth. See the
 [helper-budget report](../experiments/lazy_smp_helper_budget_v0.4.0/README.md).
+
+`LazyFlags` bit 512 is an opt-in root-order diversity experiment. Worker 0
+keeps the normal root order; helper worker `n` rotates only its first root
+iteration by `n` moves. Once a worker completes a root iteration, its ordinary
+iterative-deepening feedback replaces that seed. The flag is disabled by
+default and is not strength evidence until it passes the fixed diagnostic and
+an independently preregistered material-only SPRT.

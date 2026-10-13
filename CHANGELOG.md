@@ -6,6 +6,14 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Added
+
+- Add an opt-in Lazy SMP root-order diversity flag for one-factor diagnostics.
+  Helper workers can start from deterministically rotated root moves while the
+  main worker and later iterative-deepening order remain unchanged; the
+  playing default is unchanged pending an independently preregistered
+  material-only strength gate.
+
 ### Fixed
 
 - Reset root-move ordering at each search boundary so Rayon scheduling cannot
