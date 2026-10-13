@@ -15,7 +15,7 @@ use shogiesa_core::manifest::{
     LabelRunVerification, ProvenanceStatus, RunManifestV1, parse_run_manifest_v1, verify_label_run,
 };
 
-const SUPPORTED_SHOGIESA_VERSION: &str = "0.11.5";
+const SUPPORTED_SHOGIESA_VERSION: &str = "0.11.6";
 
 #[derive(Debug)]
 struct Args {
