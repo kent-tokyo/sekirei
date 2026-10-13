@@ -14,7 +14,10 @@ use sekirei_core::external_eval::read_sfnn_header;
 #[cfg(feature = "tune")]
 use sekirei_core::halfkp::{HalfKpAcc, HalfKpNetwork};
 use sekirei_core::hand::Hand;
-use sekirei_core::lazy_smp::{LAZY_VOTE, LazySmpSearcher, select_by_vote, select_worker_result};
+use sekirei_core::lazy_smp::{
+    LAZY_DEPTH_CONSENSUS, LAZY_VOTE, LazySmpSearcher, select_by_depth_consensus, select_by_vote,
+    select_worker_result,
+};
 use sekirei_core::mate::{
     MateAnalysisAbortReason, MateAnalysisOutcome, MateInOneInvalidReason, analyze_mate, solve_mate,
 };
@@ -290,8 +293,13 @@ fn public_lazy_smp_controls_cover_ephemeral_isolated_and_vote_paths() {
         pv: Vec::new(),
     };
     assert_eq!(select_by_vote(vec![empty(1), empty(2)]).score, 2);
+    assert_eq!(select_by_depth_consensus(vec![empty(1), empty(2)]).score, 2);
     assert_eq!(
         select_worker_result(vec![empty(1), empty(2)], LAZY_VOTE).score,
+        2
+    );
+    assert_eq!(
+        select_worker_result(vec![empty(1), empty(2)], LAZY_DEPTH_CONSENSUS).score,
         2
     );
 }

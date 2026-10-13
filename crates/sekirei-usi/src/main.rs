@@ -61,7 +61,7 @@ const DEFAULT_HASH_MB: usize = 64;
 const HASH_MB_RANGE: SpinRange = SpinRange::new(1, 2048);
 const THREADS_RANGE: SpinRange = SpinRange::new(0, 512);
 const SPEC_TOP_N_RANGE: SpinRange = SpinRange::new(0, 512);
-const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 1023);
+const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 2047);
 const MOVE_OVERHEAD_RANGE: SpinRange = SpinRange::new(0, 5000);
 const INCREMENT_USE_PERCENT_RANGE: SpinRange = SpinRange::new(0, 100);
 const MULTI_PV_RANGE: SpinRange = SpinRange::new(1, 256);
@@ -2173,15 +2173,15 @@ mod tests {
         );
         assert_eq!(
             parse_spin_option(
-                &["name", "LazyFlags", "value", "1023"],
+                &["name", "LazyFlags", "value", "2047"],
                 "LazyFlags",
                 LAZY_FLAGS_RANGE,
             ),
-            Ok(1023)
+            Ok(2047)
         );
         assert!(
             parse_spin_option(
-                &["name", "LazyFlags", "value", "1024"],
+                &["name", "LazyFlags", "value", "2048"],
                 "LazyFlags",
                 LAZY_FLAGS_RANGE,
             )
