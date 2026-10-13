@@ -9,6 +9,8 @@ preserves older per-change notes.
 ### Added
 
 - Add an opt-in Lazy SMP helper-root-hint experiment (`LazyFlags` bit 2048).
+- Extend the Lazy SMP scaling harness with fail-closed helper-root-hint transfer
+  metrics and binary/corpus SHA-256 provenance.
   Helpers publish only a fully completed iteration's move and depth; worker 0
   may try a same-or-deeper legal hint first on its next iteration. Scores,
   bounds and PVs are never imported, stale invocations are rejected by an

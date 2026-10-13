@@ -155,3 +155,8 @@ same-or-deeper reads by worker 0, and `A` counts reads that actually moved a
 legal final root candidate to the front. A hint that is already first, too
 shallow, stale, excluded, illegal, or removed by root mate-safety is not
 counted as applied.
+
+The fixed-position measurement contract and advancement rule are recorded in
+[the helper-root-hint experiment](../experiments/lazy_smp_root_hint_v0.4.0/README.md).
+The strict harness rejects missing or malformed invocation records and hashes
+the exact binary and effective position set before a strength gate is opened.
