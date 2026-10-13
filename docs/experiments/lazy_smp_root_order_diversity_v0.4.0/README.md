@@ -1,7 +1,6 @@
 # Lazy SMP initial root-order diversity (v0.4.0 base)
 
-Status: opt-in candidate implemented and screened on 2026-10-13. The playing
-default is unchanged. A fresh-position material-only SPRT is still required.
+Status: rejected for adoption on 2026-10-13. The playing default is unchanged.
 
 ## Candidate
 
@@ -46,19 +45,26 @@ four threads per side, 100 ms per move, `UseBook=false`, and flags 527 versus
 95% interval of plus or minus 126 Elo. This only rules out a very large signal;
 it is not an adoption gate, and the positions overlap the diagnostic corpus.
 
-## Next gate
+## Independent gate outcome
 
-Before starting, freeze a position set that excludes the 20 diagnostic
-positions, the exact binary hash, `Hash=64`, four threads, 300 ms, and
-`UseBook=false`. Compare flags 527 against 15 with colour reversal and paired
-trinomial SPRT: H0=0 Elo, H1=+10 Elo, alpha=beta=0.05, at most 800 games.
-Only an H1 result from that independent run may justify changing the default.
-H0 rejects the candidate; a capped run is `INCONCLUSIVE`.
+The preregistered gate froze binary SHA-256
+`7640b6308d99b2285a9761846ba771c312828f8f8605a0fe20e161b52ee861d5`,
+opening SHA-256
+`9ba0567b60d92270ad758a3bcd9bd746893b8e967c1fb4812d3d3abd511122af`,
+material evaluation, `Hash=64`, four threads, 300 ms, flags 527 versus 15,
+colour reversal, H0=0 Elo, H1=+10 Elo and alpha=beta=0.05.
 
-The gate runner must use `--paired-sprt` with an even
-`--games-per-position`; this keeps each colour-reversed pair intact and uses
-the same BayesElo trinomial likelihood as veridict.  The older unpaired
-normal-approximation path is not valid evidence for this gate.
+At a complete-pair boundary after 210 games, the candidate was 97-7-106
+(-14.9 Elo with an approximate 95% interval of plus or minus 46.5 Elo). The
+105 paired observations were 22 wins, 57 draws and 26 losses, for LLR -0.225
+against boundaries plus or minus 2.944. This was not a statistical H0 verdict.
+
+The run had already lost the game 78 and game 90 kifu artifacts during a
+temporary disk-full condition, so it could no longer become admissible gate
+evidence. It was stopped only after completing the current colour-reversed
+pair and recorded as `partial/error`. With incomplete evidence and no positive
+signal, the candidate is rejected for adoption and will not be rerun or pooled
+with another opening set.
 
 ## Reproduction
 
