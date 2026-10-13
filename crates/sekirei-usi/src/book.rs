@@ -5,9 +5,10 @@
 //! library can't do itself -- mapping its ranked candidate actions back
 //! onto real, currently-legal shogi moves.
 
+use std::cell::RefCell;
 use std::io::Cursor;
 
-use lineprior::{PriorBook, PriorBookMetadata};
+use lineprior::{PriorBook, PriorBookMetadata, QueryScratch};
 use sekirei_core::board::Board;
 use sekirei_core::mv::Move;
 use sekirei_core::sfen::move_from_usi;
@@ -16,6 +17,7 @@ use sha2::{Digest, Sha256};
 
 pub struct Book {
     inner: PriorBook,
+    query_scratch: RefCell<QueryScratch>,
     provenance: BookProvenance,
     sha256: String,
 }
@@ -51,6 +53,7 @@ impl Book {
         };
         Ok(Book {
             inner: loaded.book,
+            query_scratch: RefCell::new(QueryScratch::new()),
             provenance,
             sha256,
         })
@@ -108,10 +111,10 @@ impl Book {
 
     pub fn decision(&self, sfen: &str, board: &Board, min_confidence: f64) -> BookDecision {
         let mut selected = None;
+        let mut query_scratch = self.query_scratch.borrow_mut();
         let candidates = self
             .inner
-            .query(sfen, None)
-            .into_iter()
+            .query_borrowed(sfen, None, &mut query_scratch)
             .enumerate()
             .map(|(rank, action)| {
                 let confidence_pass = action.confidence >= min_confidence;
@@ -122,7 +125,7 @@ impl Book {
                 }
                 BookCandidate {
                     rank: rank + 1,
-                    action: action.action,
+                    action: action.action.clone(),
                     prior: action.prior,
                     confidence: action.confidence,
                     confidence_pass,
@@ -227,6 +230,26 @@ mod tests {
         assert!(decision.candidates[0].confidence_pass);
         assert!(decision.candidates[1].legal);
         assert!(!decision.candidates[1].confidence_pass);
+    }
+
+    #[test]
+    fn repeated_decisions_reuse_lineprior_query_scratch() {
+        let book = load_from(&format!(
+            r#"{{"state":{STARTPOS_SFEN:?},"actions":[{{"action":"7g7f","count":2,"weighted_count":2.0,"success_rate":0.5,"mean_score":0.5,"prior":0.6,"confidence":0.6}},{{"action":"2g2f","count":1,"weighted_count":1.0,"success_rate":0.5,"mean_score":0.5,"prior":0.4,"confidence":0.4}}]}}"#
+        ));
+        let board = Board::startpos();
+
+        assert_eq!(
+            book.decision(STARTPOS_SFEN, &board, 0.0).candidates.len(),
+            2
+        );
+        let capacity = book.query_scratch.borrow().capacity();
+        assert!(capacity >= 2);
+        assert_eq!(
+            book.decision(STARTPOS_SFEN, &board, 0.0).candidates.len(),
+            2
+        );
+        assert_eq!(book.query_scratch.borrow().capacity(), capacity);
     }
 
     #[test]

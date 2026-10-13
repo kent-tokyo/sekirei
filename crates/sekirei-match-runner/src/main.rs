@@ -1277,11 +1277,8 @@ fn veridict_decide(
 /// `--games-per-position` data (paired ids are only emitted in that mode,
 /// see `pair_id`); `Wald` remains unpaired (unvalidated combination).
 ///
-/// veridict 0.15.0 added four trailing `sprt::run` params not yet adopted
-/// here: `failure_policy` (pinned to `ReportOnly`, the pre-existing default
-/// behavior), and `require_complete_pairs`/`min_paired_ids`/`max_paired_ids`
-/// (pinned to `false`/`None`/`None` -- these only have an effect under
-/// `SprtVariant::Pentanomial`, which this function doesn't use).
+/// Execution policy is passed through `SprtRunOptions` so an upstream API
+/// extension cannot silently reorder this gate's fail-closed pairing contract.
 ///
 /// Since veridict 0.19.1, Wald and trinomial reports retain their first
 /// sequential boundary crossing. Callers must use `decision_llr` with the
@@ -1297,15 +1294,17 @@ fn sprt_decide(
     paired_by_id: bool,
 ) -> Result<veridict::sprt::SprtReport, veridict::VeridictError> {
     let config = veridict::sprt::SprtConfig::new(elo0, elo1, alpha, beta)?;
-    veridict::sprt::run(
+    veridict::sprt::run_with_options(
         records.iter().cloned().map(Ok),
         &config,
-        variant,
-        paired_by_id,
-        veridict::FailurePolicy::ReportOnly,
-        false,
-        None,
-        None,
+        veridict::sprt::SprtRunOptions {
+            variant,
+            paired_by_id,
+            failure_policy: veridict::FailurePolicy::ReportOnly,
+            require_complete_pairs: false,
+            min_paired_ids: None,
+            max_paired_ids: None,
+        },
     )
 }
 
@@ -2899,6 +2898,23 @@ mod tests {
                 0.0,
                 0.05,
                 0.05,
+                veridict::sprt::SprtVariant::Wald,
+                false
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn sprt_decide_rejects_error_rates_with_collapsed_bounds() {
+        let records = vec![rec("a", "candidate_win")];
+        assert!(
+            sprt_decide(
+                &records,
+                0.0,
+                20.0,
+                0.5,
+                0.5,
                 veridict::sprt::SprtVariant::Wald,
                 false
             )

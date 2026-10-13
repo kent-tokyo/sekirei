@@ -112,8 +112,8 @@ under ignored `data/runs/`. Same-engine results are regression evidence, not
 Floodgate or human ratings. `sekirei-csa` accepts credentials only at runtime.
 
 For NNUE training, run `cargo run --release -p sekirei-train -- --help`.
-Training pins `lineprior 0.12.4` and `shogiesa-core 0.11.4`; external wrappers
-are checked against `shogiesa 0.11.4`. Data and weights remain outside Git.
+Training pins `lineprior 0.12.5` and `shogiesa-core 0.11.5`; external wrappers
+are checked against `shogiesa 0.11.5`. Data and weights remain outside Git.
 Recipes, hashes, resume rules, and whole-game split requirements are in the
 [script index](scripts/README.md).
 
