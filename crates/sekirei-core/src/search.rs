@@ -1378,6 +1378,10 @@ pub struct Searcher {
     /// Plies added to every iterative-deepening iteration (Lazy SMP helper
     /// workers use 1 so that they search one ply ahead of the main worker).
     depth_skew: u32,
+    /// Deterministic rotation applied to the first root iteration only.
+    /// Lazy SMP can use this to make helpers examine different root moves
+    /// before the shared TT has enough information to diversify them.
+    root_order_offset: usize,
 }
 
 impl Searcher {
@@ -1398,6 +1402,7 @@ impl Searcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
+            root_order_offset: 0,
         }
     }
 
@@ -1420,6 +1425,7 @@ impl Searcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
+            root_order_offset: 0,
         }
     }
 
@@ -1435,6 +1441,7 @@ impl Searcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
+            root_order_offset: 0,
         }
     }
 
@@ -1453,6 +1460,7 @@ impl Searcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
+            root_order_offset: 0,
         }
     }
 
@@ -1467,6 +1475,7 @@ impl Searcher {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
+            root_order_offset: 0,
         }
     }
 
@@ -1508,6 +1517,12 @@ impl Searcher {
     /// Search every iteration `skew` plies deeper (Lazy SMP helper workers).
     pub fn set_depth_skew(&mut self, skew: u32) {
         self.depth_skew = skew;
+    }
+
+    /// Rotate the initial root ordering by `offset` moves. Iterative-deepening
+    /// feedback replaces this seed after the first completed root search.
+    pub fn set_root_order_offset(&mut self, offset: usize) {
+        self.root_order_offset = offset;
     }
 
     /// Enable or disable parallel young-brothers splitting (Lazy SMP workers
@@ -1836,6 +1851,7 @@ impl Searcher {
                     root_move,
                     root_mate_safety,
                     history,
+                    self.root_order_offset,
                     Some(&mut root_mate_safety_cache),
                 );
                 if rank == 1 {
@@ -2131,6 +2147,7 @@ fn root_search(
     root_move: Option<Move>,
     root_mate_safety: bool,
     history: &SearchHistory<'_>,
+    root_order_offset: usize,
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
@@ -2233,6 +2250,7 @@ fn root_search(
     // ROOT_ORDER: the order the previous iterations of this search left
     // (the moves that raised alpha first, best first; the rest as before).
     let reordered;
+    let mut reused_iteration_order = false;
     let ordered: &[Move] = if p::ROOT_ORDER() != 0 || v2_root {
         reordered = ROOT_ORDER_STATE.with(|cell| {
             let st = cell.borrow();
@@ -2240,6 +2258,7 @@ fn root_search(
                 && st.1.len() == ordered.len()
                 && st.1.iter().all(|m| ordered.contains(m))
             {
+                reused_iteration_order = true;
                 st.1.clone()
             } else {
                 ordered.to_vec()
@@ -2249,6 +2268,8 @@ fn root_search(
     } else {
         ordered
     };
+    let diversified = diversified_root_order(ordered, root_order_offset, reused_iteration_order);
+    let ordered: &[Move] = diversified.as_deref().unwrap_or(ordered);
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let (mut lo, mut hi) = if use_asp {
@@ -2305,6 +2326,20 @@ fn reset_root_order_state() {
         state.0 = 0;
         state.1.clear();
     });
+}
+
+fn diversified_root_order(
+    ordered: &[Move],
+    offset: usize,
+    reused_iteration_order: bool,
+) -> Option<Vec<Move>> {
+    if reused_iteration_order || offset == 0 || ordered.len() <= 1 {
+        return None;
+    }
+    let mut diversified = ordered.to_vec();
+    let shift = offset % diversified.len();
+    diversified.rotate_left(shift);
+    Some(diversified)
 }
 
 fn root_search_inner(
@@ -3910,6 +3945,7 @@ impl SpeculativeSearcher {
                     None,
                     true,
                     &SearchHistory::root(history),
+                    0,
                     None,
                 );
                 if state.budget.should_abort() {
@@ -4206,6 +4242,21 @@ mod see_tests {
             assert_eq!(state.0, 0);
             assert!(state.1.is_empty());
         });
+    }
+
+    #[test]
+    fn root_order_diversity_only_rotates_the_initial_seed() {
+        let moves = [
+            Move::drop(Square::from_index(0), PieceKind::Kin),
+            Move::drop(Square::from_index(1), PieceKind::Kin),
+            Move::drop(Square::from_index(2), PieceKind::Kin),
+        ];
+
+        let rotated = diversified_root_order(&moves, 1, false).expect("helper seed rotates");
+        assert_eq!(rotated, [moves[1], moves[2], moves[0]]);
+        assert!(diversified_root_order(&moves, 1, true).is_none());
+        assert!(diversified_root_order(&moves, 0, false).is_none());
+        assert!(diversified_root_order(&moves[..1], 1, false).is_none());
     }
 
     #[test]
@@ -6368,6 +6419,7 @@ mod regression_tests {
             None,
             false,
             &SearchHistory::root(&history),
+            0,
             None,
         );
         assert_eq!(best_move, None);
@@ -6414,6 +6466,7 @@ mod regression_tests {
             Some(forced_root),
             false,
             &SearchHistory::root(&history),
+            0,
             None,
         );
 

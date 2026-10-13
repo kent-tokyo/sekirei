@@ -213,7 +213,7 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
         "setoption name Hash value 0",
         "setoption name Threads value 513",
         "setoption name SpecTopN value 513",
-        "setoption name LazyFlags value 512",
+        "setoption name LazyFlags value 1024",
         "setoption name MoveOverhead value 5001",
         "setoption name IncrementUsePercent value 101",
         "setoption name MultiPV value 257",

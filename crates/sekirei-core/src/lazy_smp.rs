@@ -178,6 +178,10 @@ pub const LAZY_ISOLATED_TT: u32 = 128;
 /// instead of two identical parity groups (0, 1, 0, 1). This is an
 /// experimental diversity control and is not part of the default policy.
 pub const LAZY_DEPTH_LADDER: u32 = 256;
+/// Rotate each helper's initial root order by its worker index. The main
+/// worker keeps the normal order, and iterative-deepening feedback replaces
+/// the rotated seed after the first completed root search.
+pub const LAZY_ROOT_ROTATE: u32 = 512;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -312,6 +316,14 @@ impl LazySmpSearcher {
         }
     }
 
+    fn root_order_offset(flags: u32, index: usize) -> usize {
+        if flags & LAZY_ROOT_ROTATE != 0 {
+            index
+        } else {
+            0
+        }
+    }
+
     fn worker_searcher(
         tt: Arc<Tt>,
         external_abort: Arc<std::sync::atomic::AtomicBool>,
@@ -325,6 +337,7 @@ impl LazySmpSearcher {
             Searcher::with_abort_flag(tt, external_abort)
         };
         searcher.set_depth_skew(Self::skew(flags, index));
+        searcher.set_root_order_offset(Self::root_order_offset(flags, index));
         searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
         searcher
     }
@@ -674,6 +687,17 @@ mod tests {
         assert_eq!(default, [0, 1, 0, 1]);
         assert_eq!(ladder, [0, 1, 2, 3, 0, 1, 2, 3]);
         assert_eq!(LazySmpSearcher::skew(LAZY_DEPTH_LADDER, 3), 0);
+    }
+
+    #[test]
+    fn root_rotation_keeps_main_order_and_offsets_helpers() {
+        let flags = LAZY_DEFAULT_FLAGS | LAZY_ROOT_ROTATE;
+        let offsets = (0..4)
+            .map(|worker| LazySmpSearcher::root_order_offset(flags, worker))
+            .collect::<Vec<_>>();
+
+        assert_eq!(offsets, [0, 1, 2, 3]);
+        assert_eq!(LazySmpSearcher::root_order_offset(LAZY_DEFAULT_FLAGS, 3), 0);
     }
 
     #[test]
