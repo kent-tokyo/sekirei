@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    RootHintChannel, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo,
+    Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -150,6 +150,9 @@ pub struct LazySmpSearcher {
     /// Shared sampled TT-owner observer used only by opt-in scaling
     /// diagnostics.
     tt_reuse_stats: Option<Arc<TtReuseStats>>,
+    /// Invocation-scoped helper-to-main ordering hint. It is present only for
+    /// shared-TT searches with at least two workers and the opt-in flag.
+    root_hint: Option<Arc<RootHintChannel>>,
 }
 
 #[derive(Default)]
@@ -195,6 +198,10 @@ pub const LAZY_ROOT_ROTATE: u32 = 512;
 /// the depth loss possible with [`LAZY_VOTE`] while still using helper output
 /// when equally deep workers disagree.
 pub const LAZY_DEPTH_CONSENSUS: u32 = 1024;
+/// Let helpers publish the move from a fully completed iteration. Worker 0
+/// may try a same-or-deeper hint first on its next root iteration. Only move
+/// ordering is shared; helper scores, bounds and PVs never become results.
+pub const LAZY_FOREIGN_ROOT_HINT: u32 = 2048;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -251,6 +258,9 @@ impl LazySmpSearcher {
             (total_hash_mb / workers).max(1)
         };
         let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let root_hint =
+            (flags & LAZY_FOREIGN_ROOT_HINT != 0 && share_tt && workers > 1 && workers <= 512)
+                .then(|| Arc::new(RootHintChannel::new()));
         let persistent = if flags & LAZY_PERSISTENT != 0 {
             (0..workers)
                 .map(|index| {
@@ -265,6 +275,7 @@ impl LazySmpSearcher {
                         diagnostics.get(index).cloned(),
                         flags,
                         index,
+                        root_hint.clone(),
                     )
                 })
                 .collect()
@@ -283,6 +294,7 @@ impl LazySmpSearcher {
             tt_write_stats,
             work_overlap_stats,
             tt_reuse_stats,
+            root_hint,
         }
     }
 
@@ -343,6 +355,7 @@ impl LazySmpSearcher {
         diagnostics: Option<Arc<SearchDiagnostics>>,
         flags: u32,
         index: usize,
+        root_hint: Option<Arc<RootHintChannel>>,
     ) -> Searcher {
         let mut searcher = if let Some(diagnostics) = diagnostics {
             Searcher::with_abort_flag_and_diagnostics(tt, external_abort, diagnostics)
@@ -352,6 +365,9 @@ impl LazySmpSearcher {
         searcher.set_depth_skew(Self::skew(flags, index));
         searcher.set_root_order_offset(Self::root_order_offset(flags, index));
         searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
+        if let Some(root_hint) = root_hint {
+            searcher.set_root_hint_channel(root_hint, index);
+        }
         searcher
     }
 
@@ -437,6 +453,9 @@ impl LazySmpSearcher {
         if let Some(stats) = &self.tt_reuse_stats {
             stats.reset();
         }
+        if let Some(root_hint) = &self.root_hint {
+            root_hint.begin_go();
+        }
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
             .into_par_iter()
@@ -458,6 +477,7 @@ impl LazySmpSearcher {
                         diagnostics.cloned(),
                         self.flags,
                         index,
+                        self.root_hint.clone(),
                     );
                     searcher.search_with_history(&mut worker_board, config, history)
                 };
@@ -798,6 +818,20 @@ mod tests {
 
         assert_eq!(offsets, [0, 1, 2, 3]);
         assert_eq!(LazySmpSearcher::root_order_offset(LAZY_DEFAULT_FLAGS, 3), 0);
+    }
+
+    #[test]
+    fn foreign_root_hint_requires_multiple_workers_and_a_shared_tt() {
+        let flagged = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
+        let enabled = LazySmpSearcher::with_flags(Tt::new(1), 2, flagged);
+        let default = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
+        let one_worker = LazySmpSearcher::with_flags(Tt::new(1), 1, flagged);
+        let isolated = LazySmpSearcher::with_flags(Tt::new(1), 2, flagged | LAZY_ISOLATED_TT);
+
+        assert!(enabled.root_hint.is_some());
+        assert!(default.root_hint.is_none());
+        assert!(one_worker.root_hint.is_none());
+        assert!(isolated.root_hint.is_none());
     }
 
     #[test]

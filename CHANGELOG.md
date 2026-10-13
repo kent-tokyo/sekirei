@@ -8,6 +8,12 @@ preserves older per-change notes.
 
 ### Added
 
+- Add an opt-in Lazy SMP helper-root-hint experiment (`LazyFlags` bit 2048).
+  Helpers publish only a fully completed iteration's move and depth; worker 0
+  may try a same-or-deeper legal hint first on its next iteration. Scores,
+  bounds and PVs are never imported, stale invocations are rejected by an
+  atomic generation token, and the playing default remains unchanged pending
+  an independent material-only gate.
 - Add diagnostic-only per-worker TT-origin counters for Lazy SMP. Scaling
   reports now show whether the selected root worker reused sampled entries
   written by helpers, without adding counters to normal searches or changing

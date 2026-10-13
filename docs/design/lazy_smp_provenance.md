@@ -134,3 +134,16 @@ workers' reported moves only to break ties between moves in that set. Unlike
 the full vote in bit 16, a majority of shallower workers cannot lower the
 reported completed depth. This bit changes neither worker search nor the
 default policy and requires an independent paired SPRT before adoption.
+
+`LazyFlags` bit 2048 is an opt-in helper-root-hint experiment. A helper may
+publish only the move and depth from a fully completed exact root iteration.
+Worker 0 may move a same-or-deeper hint to the front of its next iteration's
+already legal, non-excluded, mate-safety-filtered root list. It does not trust
+or copy the helper's score, bound or PV. One atomic word carries a generation,
+depth, worker and move, so a delayed publication from an earlier `go` cannot
+repopulate a new invocation. Equal-depth publications use a stable worker and
+move tie-break, although whether a helper finishes before worker 0 reaches an
+iteration boundary remains scheduler-dependent. The channel is absent for
+one worker, isolated TT, and the default policy; MultiPV does not consume or
+publish hints. This experiment requires deterministic correctness checks and
+an independent paired material-only SPRT before any default change.

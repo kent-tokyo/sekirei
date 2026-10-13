@@ -1094,7 +1094,7 @@ mod tests {
     /// existing Searcher under a reproducible node budget.
     #[test]
     fn lazy_smp_one_worker_matches_searcher() {
-        use lazy_smp::LazySmpSearcher;
+        use lazy_smp::{LAZY_DEFAULT_FLAGS, LAZY_FOREIGN_ROOT_HINT, LazySmpSearcher};
         use search::{SearchConfig, Searcher};
         use tt::Tt;
 
@@ -1120,9 +1120,25 @@ mod tests {
             .build()
             .expect("one-thread pool")
             .install(|| LazySmpSearcher::new(Tt::new(16), 1).search(&board, cfg));
+        let hinted = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .build()
+            .expect("one-thread hinted pool")
+            .install(|| {
+                LazySmpSearcher::with_flags(
+                    Tt::new(16),
+                    1,
+                    LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT,
+                )
+                .search(&board, cfg)
+            });
 
         assert_eq!(smp.result.best_move, sequential.best_move);
         assert_eq!(smp.result.score, sequential.score);
+        assert_eq!(hinted.result.best_move, sequential.best_move);
+        assert_eq!(hinted.result.score, sequential.score);
+        assert_eq!(hinted.result.depth, sequential.depth);
+        assert_eq!(hinted.result.nodes, sequential.nodes);
         assert_eq!(smp.result.depth, sequential.depth);
     }
 
