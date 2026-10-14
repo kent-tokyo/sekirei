@@ -15,6 +15,9 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Accept finite fractional wall times and explicitly unavailable optional opening
+  books in the pinned YaneuraOu throughput comparator, while retaining strict
+  artifact, option, counter, and positive-value checks.
 - Preserve match-opening repetition history from legal USI move prefixes in
   runner adjudication and recorded USI/CSA games. Reject prefixes that already
   ended by repetition and avoid duplicate moves keywords. Bare openings remain

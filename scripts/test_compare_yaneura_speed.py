@@ -67,6 +67,39 @@ class SpeedComparisonTest(unittest.TestCase):
         self.assertEqual([row["position"] for row in self.validate(list(reversed(self.rows())))], [0, 1])
         self.validate(self.rows("reference"), "reference")
 
+    def test_current_driver_fractional_elapsed_is_allowed_and_must_be_finite(self):
+        rows = self.rows()
+        rows[0]["elapsed_ms"] = 1000.123
+        rows[1]["elapsed_ms"] = 0.125
+        self.validate(rows)
+        for value in (True, "1000", float("nan"), float("inf"), -0.1, 0.0):
+            rows = self.rows()
+            rows[0]["elapsed_ms"] = value
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "elapsed_ms"):
+                self.validate(rows)
+
+    def test_current_driver_omits_only_unavailable_opening_book_option(self):
+        rows = self.rows()
+        for row in rows:
+            row["provenance"]["opening_book_available"] = False
+            row["provenance"]["options"].remove("UseBook=false")
+        self.validate(rows)
+        rows[0]["provenance"]["options"].remove("LazyDiagnostics=false")
+        with self.assertRaisesRegex(ValueError, "options"):
+            self.validate(rows)
+        for available in (True, None, 0, "missing"):
+            rows = self.rows()
+            if available != "missing":
+                rows[0]["provenance"]["opening_book_available"] = available
+            rows[0]["provenance"]["options"].remove("UseBook=false")
+            with self.subTest(available=available), self.assertRaisesRegex(ValueError, "options"):
+                self.validate(rows)
+        rows = self.rows("reference")
+        rows[0]["provenance"]["opening_book_available"] = False
+        rows[0]["provenance"]["options"].remove("USI_OwnBook=false")
+        with self.assertRaisesRegex(ValueError, "options"):
+            self.validate(rows, "reference")
+
     def test_incomplete_duplicate_or_out_of_range_positions_are_rejected(self):
         cases = [self.rows()[:1], self.rows() + self.rows()[:1]]
         for index in (-1, 2, True, 0):

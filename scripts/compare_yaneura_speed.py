@@ -145,15 +145,24 @@ def validate_rows(rows: list[dict], args: argparse.Namespace, lane: str,
             for worker in workers:
                 if any(value != 0 for key, value in worker.items() if key.startswith("tt_")):
                     raise ValueError("diagnostic counters must be disabled")
-        for key in ("nps", "nodes", "depth", "elapsed_ms"):
+        for key in ("nps", "nodes", "depth"):
             value = row.get(key)
             minimum = 0 if key == "depth" else 1
             if type(value) is not int or value < minimum:
                 raise ValueError(f"invalid {key}: {value!r}")
+        elapsed = row.get("elapsed_ms")
+        if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed <= 0:
+            raise ValueError(f"invalid elapsed_ms: {elapsed!r}")
         if not isinstance(row.get("bestmove"), str) or not row["bestmove"]:
             raise ValueError("missing bestmove")
         provenance = row.get("provenance", {})
         for key, value in expected.items():
+            # Current drivers record the absence of the optional opening-book
+            # feature and omit its unsupported setting. Preserve every other
+            # option check and legacy rows that did send UseBook=false.
+            if (key == "options" and lane == "sekirei"
+                    and provenance.get("opening_book_available") is False):
+                value = [option for option in value if option != "UseBook=false"]
             if provenance.get(key) != value or (
                 key == "counter_overhead_included"
                 and provenance.get(key) is not False
