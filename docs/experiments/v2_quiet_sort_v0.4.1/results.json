@@ -983,9 +983,154 @@
     "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
   },
   "timing": {
-    "status": "blocked_host_busy",
-    "searches_executed": 0,
-    "qualified": false
+    "status": "complete",
+    "searches_executed": 320,
+    "qualified_by_before_after_idle_checks": true,
+    "continuous_host_isolation_established": false,
+    "groups": [
+      {
+        "threads": 1,
+        "category": "all",
+        "blocks": 40,
+        "median_paired_depth_delta_B_minus_A": 0.0,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9631414735348797,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9611583661868781
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9643354967111324
+          }
+        }
+      },
+      {
+        "threads": 1,
+        "category": "quiet",
+        "blocks": 20,
+        "median_paired_depth_delta_B_minus_A": 0.0,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9469613036243433,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9483865270372307
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9452097531418924
+          }
+        }
+      },
+      {
+        "threads": 1,
+        "category": "tactical",
+        "blocks": 20,
+        "median_paired_depth_delta_B_minus_A": 0.0,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9716085084350014,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9756790088978918
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9681140016204579
+          }
+        }
+      },
+      {
+        "threads": 4,
+        "category": "all",
+        "blocks": 40,
+        "median_paired_depth_delta_B_minus_A": 0.0,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9467590846010917,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9386125795131066
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9502117301798371
+          }
+        }
+      },
+      {
+        "threads": 4,
+        "category": "quiet",
+        "blocks": 20,
+        "median_paired_depth_delta_B_minus_A": 0.0,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9490708309821487,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9408763650438049
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9502117301798371
+          }
+        }
+      },
+      {
+        "threads": 4,
+        "category": "tactical",
+        "blocks": 20,
+        "median_paired_depth_delta_B_minus_A": -0.25,
+        "median_paired_wall_nps_ratio_B_over_A": 0.9435544638386302,
+        "directions": {
+          "A_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.9386125795131066
+          },
+          "B_first": {
+            "median_depth_delta_B_minus_A": 0.0,
+            "median_wall_nps_ratio_B_over_A": 0.947734500093412
+          }
+        }
+      }
+    ],
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 320,
+      "pv_moves": 3513,
+      "unique_board_probes": 1218,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-pv.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-attempt",
+          "engine_sha256": {
+            "A": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+            "B": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    },
+    "attempts": [
+      {
+        "name": "quiet-sort-v041-300ms",
+        "status": "blocked_host_busy",
+        "searches": 0,
+        "timing_qualified": false
+      },
+      {
+        "name": "quiet-sort-v041-300ms-idle-attempt",
+        "status": "blocked_host_busy",
+        "searches": 0,
+        "timing_qualified": false
+      },
+      {
+        "name": "quiet-sort-v041-300ms-settled-attempt",
+        "status": "complete",
+        "searches": 320,
+        "timing_qualified": true
+      }
+    ]
   },
   "artifacts": [
     {
@@ -1019,12 +1164,37 @@
     {
       "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/aspiration-v041-activation-preflight/receipt.json",
       "sha256": "19d91ebb8771adf38603004e6694e02b2c6a93c799260f6eaf1ce38c1ffe385b"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-attempt/manifest.json",
+      "sha256": "338978c7a165b1a9d87cbaeec44d11351532c22665c4f718a11222e88421475c"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-attempt/rows.jsonl",
+      "sha256": "3a53ce57230831a537da9889247b714a0893295bd8225e8cfbb963fd9f4b2566"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-attempt/summary.json",
+      "sha256": "530d368db0e43bdc67ad9f30539d71342cf4a672dc4434fbf27af767dfe27e81"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-attempt/positions.input",
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-settled-pv.json",
+      "sha256": "0b055dc878b5ad190f95cd843bfe1e37ac603a8df92aa026f4a72f568a9d79c6"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms-idle-attempt/manifest.json",
+      "sha256": "e490121b70b85227f8811abedeada2569702de175837386369167cf0dd68cd79"
     }
   ],
   "source_change": false,
   "nnue_changed": false,
   "aspiration_queue_changed": false,
   "adopted": false,
-  "interpretation": "Observed isolated policy effect and legal PVs; no qualified timing, useful-depth or strength result.",
-  "effective_search_mode": "LazySMP"
+  "interpretation": "Isolated activity and legal PVs, but no paired useful-depth gain; 4T tactical depth median -0.25. Keep disabled; no strength inference.",
+  "effective_search_mode": "LazySMP",
+  "promotion_decision": "do_not_advance"
 }

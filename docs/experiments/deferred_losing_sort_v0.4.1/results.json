@@ -1,0 +1,571 @@
+{
+  "schema": "sekirei.deferred-losing-sort-screen.v1",
+  "protocol": {
+    "schema": "sekirei.deferred-losing-sort-screen-protocol.v1",
+    "recorded_before_searches": true,
+    "engine_build_commit": "4344202c803963fb0ea45527b8515894ee16e8c8",
+    "engine_sha256": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+    "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+    "factor": "T_V2_EAGER_LOSING_SORT",
+    "A": 1,
+    "B": 0,
+    "T_V2_SORT": 0,
+    "Hash": 64,
+    "MoveOverhead": 0,
+    "LazyFlags": 15,
+    "T_ASP_VOLATILITY": 0,
+    "material_only": true,
+    "positions": 20,
+    "order": "per-position ABBA",
+    "identity_lane": {
+      "threads": [
+        1,
+        4
+      ],
+      "depth": 8,
+      "repeats": 1,
+      "counters": false,
+      "require_1T_identity": true,
+      "observe_4T_nondeterminism": true
+    },
+    "timing_lane": {
+      "threads": [
+        1,
+        4
+      ],
+      "movetime_ms": 300,
+      "repeats": 2,
+      "counters": false,
+      "requires_idle_before_after": true,
+      "maximum_search_completed_attempts": 1,
+      "settle_before_preflight_seconds": 10
+    },
+    "pv_replay_required": true,
+    "strength_claim": false,
+    "aspiration_queue_unchanged": true,
+    "default_change": false
+  },
+  "fixed_depth": {
+    "searches": 160,
+    "one_thread_exact_identity_blocks": 20,
+    "one_thread_blocks": 20,
+    "four_thread_exact_identity_blocks": 0,
+    "four_thread_within_side_nondeterministic_blocks": 20,
+    "four_thread_blocks": 20,
+    "one_thread_positions": [
+      {
+        "position": 0,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "8h4d",
+          "score": [
+            "cp",
+            "2305"
+          ],
+          "pv": [
+            "8h4d",
+            "5a4b",
+            "4d3e",
+            "2d2e",
+            "3e4d",
+            "4a5a",
+            "4d3e"
+          ],
+          "nodes": 2696,
+          "depth": 8
+        }
+      },
+      {
+        "position": 1,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "9g9f",
+          "score": [
+            "cp",
+            "2302"
+          ],
+          "pv": [
+            "9g9f",
+            "9e8e",
+            "7g8e",
+            "8d8e",
+            "1g2e",
+            "N*6f",
+            "G*6a",
+            "5a4a"
+          ],
+          "nodes": 17143,
+          "depth": 8
+        }
+      },
+      {
+        "position": 2,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "6b5b",
+          "score": [
+            "cp",
+            "9"
+          ],
+          "pv": [
+            "6b5b",
+            "1f1e",
+            "7a6b",
+            "5g5f",
+            "5e5f",
+            "8h4d",
+            "6b7a",
+            "5i4i"
+          ],
+          "nodes": 1341,
+          "depth": 8
+        }
+      },
+      {
+        "position": 3,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "2e1g",
+          "score": [
+            "cp",
+            "459"
+          ],
+          "pv": [
+            "2e1g",
+            "1i1g",
+            "N*8g",
+            "9i8h",
+            "8g7i+",
+            "8h7i",
+            "S*5e",
+            "N*5c"
+          ],
+          "nodes": 6719,
+          "depth": 8
+        }
+      },
+      {
+        "position": 4,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "4e4d",
+          "score": [
+            "cp",
+            "169"
+          ],
+          "pv": [
+            "4e4d",
+            "4a4b",
+            "3g3f",
+            "7c7d",
+            "1g1f"
+          ],
+          "nodes": 3956,
+          "depth": 8
+        }
+      },
+      {
+        "position": 5,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "6f6e",
+          "score": [
+            "cp",
+            "-425"
+          ],
+          "pv": [
+            "6f6e",
+            "4d4e",
+            "4f4e",
+            "8e8f",
+            "P*4d",
+            "4c5c",
+            "5i5h",
+            "9e9f"
+          ],
+          "nodes": 35349,
+          "depth": 8
+        }
+      },
+      {
+        "position": 6,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "2d2e",
+          "score": [
+            "cp",
+            "49"
+          ],
+          "pv": [
+            "2d2e",
+            "1g2e",
+            "9c9d",
+            "P*6c",
+            "9d9e",
+            "6c6b+",
+            "7a6b",
+            "9f9e"
+          ],
+          "nodes": 6079,
+          "depth": 8
+        }
+      },
+      {
+        "position": 7,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "4b5c",
+          "score": [
+            "cp",
+            "-121"
+          ],
+          "pv": [
+            "4b5c",
+            "4g5f",
+            "B*2i",
+            "5f6e",
+            "8d8e",
+            "R*8c",
+            "P*6g",
+            "6h6g"
+          ],
+          "nodes": 15482,
+          "depth": 8
+        }
+      },
+      {
+        "position": 8,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "1e1d",
+          "score": [
+            "cp",
+            "202"
+          ],
+          "pv": [
+            "1e1d",
+            "4b3a",
+            "9g9f",
+            "2c2d"
+          ],
+          "nodes": 1756,
+          "depth": 8
+        }
+      },
+      {
+        "position": 9,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "1e1d",
+          "score": [
+            "cp",
+            "928"
+          ],
+          "pv": [
+            "1e1d",
+            "3d3e",
+            "1d1c+",
+            "2a1c",
+            "2e1c+",
+            "1b1c",
+            "1g1c+",
+            "2b1c"
+          ],
+          "nodes": 28475,
+          "depth": 8
+        }
+      },
+      {
+        "position": 10,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "9d9e",
+          "score": [
+            "cp",
+            "465"
+          ],
+          "pv": [
+            "9d9e",
+            "8h7i",
+            "9e9f",
+            "7i4f",
+            "9f9g+",
+            "9i9g",
+            "8b8a",
+            "P*9d"
+          ],
+          "nodes": 7280,
+          "depth": 8
+        }
+      },
+      {
+        "position": 11,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "4f7c",
+          "score": [
+            "cp",
+            "505"
+          ],
+          "pv": [
+            "4f7c",
+            "1f1e",
+            "1b1e",
+            "P*1f",
+            "1e1f",
+            "5h4i",
+            "7c6d",
+            "4h5h"
+          ],
+          "nodes": 10659,
+          "depth": 8
+        }
+      },
+      {
+        "position": 12,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "9g8h",
+          "score": [
+            "cp",
+            "-658"
+          ],
+          "pv": [
+            "9g8h",
+            "5e4f",
+            "8h1a+",
+            "4f1i",
+            "1a2a",
+            "1i2i",
+            "2a1b",
+            "2i3h"
+          ],
+          "nodes": 2854,
+          "depth": 8
+        }
+      },
+      {
+        "position": 13,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "6i7h",
+          "score": [
+            "cp",
+            "-2385"
+          ],
+          "pv": [
+            "6i7h",
+            "7g6h",
+            "7h6h",
+            "2h1i+",
+            "B*5e",
+            "1i5e",
+            "5f5e",
+            "3e3f"
+          ],
+          "nodes": 7669,
+          "depth": 8
+        }
+      },
+      {
+        "position": 14,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "1a1b",
+          "score": [
+            "cp",
+            "9"
+          ],
+          "pv": [
+            "1a1b",
+            "5i4i",
+            "6c6d",
+            "9g9f",
+            "4c4d",
+            "1g1f"
+          ],
+          "nodes": 3723,
+          "depth": 8
+        }
+      },
+      {
+        "position": 15,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "7g8h+",
+          "score": [
+            "cp",
+            "600"
+          ],
+          "pv": [
+            "7g8h+",
+            "4f7c+",
+            "5a4b",
+            "9e9d",
+            "8h7h",
+            "9d9c+",
+            "9b9c",
+            "7c7d"
+          ],
+          "nodes": 4860,
+          "depth": 8
+        }
+      },
+      {
+        "position": 16,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "6f6e",
+          "score": [
+            "cp",
+            "87"
+          ],
+          "pv": [
+            "6f6e",
+            "5c5d",
+            "7g7f",
+            "5d6e",
+            "5h6g",
+            "P*6a",
+            "P*6i",
+            "6a6b"
+          ],
+          "nodes": 2062,
+          "depth": 8
+        }
+      },
+      {
+        "position": 17,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "9g5c+",
+          "score": [
+            "cp",
+            "1249"
+          ],
+          "pv": [
+            "9g5c+",
+            "4d3e",
+            "9e9d",
+            "5e6e",
+            "S*7f",
+            "6e2i",
+            "5c6b",
+            "6a6b"
+          ],
+          "nodes": 13514,
+          "depth": 8
+        }
+      },
+      {
+        "position": 18,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "9c9d",
+          "score": [
+            "cp",
+            "1"
+          ],
+          "pv": [
+            "9c9d",
+            "1g1f",
+            "9a9c",
+            "6h5g",
+            "8b9a",
+            "5h6h",
+            "9a8b"
+          ],
+          "nodes": 2659,
+          "depth": 8
+        }
+      },
+      {
+        "position": 19,
+        "identical_observations": 4,
+        "signature": {
+          "bestmove": "8g9h",
+          "score": [
+            "cp",
+            "-314"
+          ],
+          "pv": [
+            "8g9h",
+            "9i7g",
+            "L*8h",
+            "6f6e",
+            "1a1b",
+            "7g1a+",
+            "8h8i+",
+            "1a1b"
+          ],
+          "nodes": 3240,
+          "depth": 8
+        }
+      }
+    ]
+  },
+  "pv_validation": {
+    "schema": "sekirei.paired-pv-validation.v1",
+    "rows": 160,
+    "pv_moves": 1100,
+    "unique_board_probes": 342,
+    "violations": [],
+    "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+    "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8-pv.legal-moves",
+    "runs": [
+      {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8",
+        "engine_sha256": {
+          "A": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+          "B": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2"
+        },
+        "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+      }
+    ],
+    "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+  },
+  "timing": {
+    "status": "blocked_host_busy",
+    "searches_executed": 0,
+    "speed_gain_established": false
+  },
+  "artifacts": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8/manifest.json",
+      "sha256": "ea366f86dd950778d53192f2f3e81e33bf696425b447336a979d5e6c9ba3cfc1"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8/rows.jsonl",
+      "sha256": "92fa058f674f5a388868e451a3ef36b9918690e4296b33743754429644a17e47"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8/summary.json",
+      "sha256": "d8022324f4ae22e9c4516556c6c74032e7750759112bcfc3aa15df04434510df"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8/positions.input",
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-depth8-pv.json",
+      "sha256": "53146583fcf7dc6273efb0ac707a54094ada760834dfe4f5098632312ba83b9c"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/deferred-losing-sort-v041-300ms/manifest.json",
+      "sha256": "640470958dc93254cab56af3b80dbe93ad173f4cf55768f7ab544e85bde5fbfa"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/deferred-losing-sort-v041-protocol.json",
+      "sha256": "0a955106b0c9e71d4d0e63bffc3423f3aa0b6f4a39acf1abf784aca42c2c23b0"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/aspiration-v041-activation-preflight/receipt.json",
+      "sha256": "19d91ebb8771adf38603004e6694e02b2c6a93c799260f6eaf1ce38c1ffe385b"
+    }
+  ],
+  "search_code_changed": false,
+  "default_changed": false,
+  "nnue_changed": false,
+  "strength_claim": false,
+  "interpretation": "Sample-wise one-worker fixed-depth identity confirmed. Four-worker scheduling remains nondeterministic. No qualified speed gain or strength result."
+}

@@ -37,3 +37,16 @@ After complete diagnostics select at most one active factor for a new paired
 H0=0/H1=10 Elo SPRT, alpha=beta=0.05, hard cap800 games. Invalid records or
 incomplete artifacts invalidate the test. H1 is required for adoption. Do not
 pool factors, previously observed openings or exploratory results.
+
+## Later v0.4.1 screens
+
+The isolated [V2_SORT screen](../v2_quiet_sort_v0.4.1/README.md) completed
+counter-enabled fixed-depth activity/PV checks and a separately qualified
+1T/4T 300ms ABBA run. It established no paired useful-depth benefit and does
+not advance; V2_SORT remains zero. The already queued aspiration candidate
+was not changed.
+
+The separate [deferred losing-sort check](../deferred_losing_sort_v0.4.1/README.md)
+confirmed all 20 one-worker depth-8 signatures on the frozen v0.4.1 engine.
+Its timed run was blocked before searching by compiler load, so no speed gain
+is established. It is not pooled with V2_SORT or earlier blocked runs.

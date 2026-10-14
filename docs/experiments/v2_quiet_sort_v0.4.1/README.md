@@ -53,16 +53,37 @@ or bestmove changes cannot be judged as improvements without an independent
 reference or playing evidence. These are development positions and a shallow
 material screen, not a representative strength estimate.
 
-The planned counter-free 1T/4T, 300ms, two-repeat ABBA lane was blocked by the
-idle-host preflight before any search. Compilation and another CPU-heavy job
-were observed during preparation. No processes were stopped and no allow-busy
-override was used. The blocked attempt remains separate; it yields no NPS,
-completed-depth or order-direction comparison. A later run must use a new
-output directory and retain this record rather than pool/restart it.
+## Completed 300ms screen
 
-V2_SORT stays disabled and does not advance to SPRT. Qualified 300ms paired
-depth benefit, both order directions and quiet/tactical subgroup checks remain
-necessary before any promotion; independent H1 is required for adoption.
+Two attempts were blocked by idle-host preflight before any search, first for
+another CPU-heavy job and then for application rendering. Both manifests and
+zero-row states remain separate. After a ten-second settling delay, the same
+preflight passed and one complete counter-free run executed 320 searches:
+40 ABBA blocks per thread count. Before and after snapshots were idle; this
+is not continuous host isolation. No processes were stopped, no allow-busy
+option was used, and no blocked run was pooled with completed data.
+
+| Workers | Category | Median paired depth B-A | Median paired wall-NPS B/A change |
+| --- | --- | ---: | ---: |
+| 1 | All | 0 | -3.686% |
+| 1 | Quiet | 0 | -5.304% |
+| 1 | Tactical | 0 | -2.839% |
+| 4 | All | 0 | -5.324% |
+| 4 | Quiet | 0 | -5.093% |
+| 4 | Tactical | -0.25 | -5.645% |
+
+Both order-direction depth medians were zero in all groups. All-position
+A-first/B-first wall-NPS changes were -3.884%/-3.566% at one worker and
+-6.139%/-4.979% at four. These are medians over paired block means or
+individual order directions, not differences of pooled arm medians.
+All 3,513 timed PV moves replayed legally, for 4,693 moves across both
+completed lanes. No strength or pure behavior-preserving speed claim follows
+from changed search trees, NPS or this small development sample.
+
+V2_SORT=1 does not advance: no stable useful-depth improvement was established
+and the four-worker tactical subgroup regressed in this screen. It remains
+disabled. The already fixed aspiration strength candidate is unchanged.
+Independent H1 would still be required for adopting any policy candidate.
 
 ## Reproduction
 
@@ -82,5 +103,5 @@ For counter-free timing remove the two diagnostic flags and replace depth 8
 with movetime 300 and threads 1,4. Let the default idle-host guard decide
 whether a timed run can begin. Validate every completed run with
 scripts/validate_paired_pv.py. Full position-paired observations, protocol,
-raw-artifact hashes, build receipt hash and the blocked attempt hash are in
+raw-artifact hashes, build receipt hash and all attempt hashes are in
 results.json. The main checkout's unrelated pending README was preserved.
