@@ -2796,10 +2796,12 @@ mod tests {
     #[test]
     fn fischer_clock_accounting_is_bounded_and_reports_flag_fall() {
         assert_eq!(fischer_clock_after_move(1_000, 100, 900, 50), Some(200));
-        assert_eq!(fischer_clock_after_move(1_000, 100, 1_051, 50), None);
+        assert_eq!(fischer_clock_after_move(500, 1_000, 1_400, 100), Some(100));
+        assert_eq!(fischer_clock_after_move(500, 1_000, 1_601, 100), None);
+        assert_eq!(fischer_clock_after_move(1_000, 100, 1_151, 50), None);
         assert_eq!(
             fischer_clock_after_move(u64::MAX, u64::MAX, 1, 100),
-            Some(u64::MAX),
+            Some(u64::MAX - 1),
             "large CLI clock values must saturate instead of overflowing"
         );
     }
