@@ -9,6 +9,7 @@ import io
 import json
 import math
 import signal
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -22,6 +23,7 @@ from run_ab_match import (  # noqa: E402
     main,
     paired_outcome,
     replay_durable_sprt,
+    runner_identity,
     sekirei_options,
     sprt_bounds,
     sprt_llr,
@@ -84,6 +86,16 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(status.terminal_state, "partial")
         self.assertEqual(status.gate_status, "error")
         self.assertEqual(status.exit_code, 7)
+
+    def test_runner_identity_times_out_fail_closed(self):
+        with patch(
+            "run_ab_match.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(["git"], 5),
+        ):
+            identity = runner_identity()
+
+        self.assertIsNone(identity["commit"])
+        self.assertIsNone(identity["dirty"])
 
     def test_unexpected_process_failure_overrides_a_numerical_sprt_verdict(self):
         status = classify_terminal_status(
@@ -390,9 +402,18 @@ class SprtTest(unittest.TestCase):
 
             counts, _, _ = replay_durable_sprt(raw_json, sprt=sprt, paired=True)
 
+            reordered = [records[0], records[2], records[1], records[3]]
+            raw_json.with_suffix(".jsonl").write_text(
+                "".join(json.dumps(record) + "\n" for record in reordered),
+                encoding="utf-8",
+            )
+            reordered_counts, _, _ = replay_durable_sprt(
+                raw_json, sprt=sprt, paired=True
+            )
+
         self.assertEqual(counts, (1, 1, 0))
         # The same aggregate game totals in W/L/W/L order are two pair draws.
-        self.assertNotEqual(counts, (0, 0, 2))
+        self.assertEqual(reordered_counts, (0, 0, 2))
 
     def test_h1_acceptance_uses_the_real_durable_evidence_validator(self):
         with tempfile.TemporaryDirectory() as directory:

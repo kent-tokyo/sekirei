@@ -76,7 +76,9 @@ preserves older per-change notes.
   colour-pair order, and must exactly match the streamed stop decision.
   `--games` remains a hard cap in cover-all mode; terminal evidence hashes the
   JSONL and every non-empty kifu. Gate verdict sidecars are atomic and a write
-  failure is a gate error rather than a printed warning.
+  failure is a gate error rather than a printed warning. Git provenance probes
+  are time-bounded so a completed match cannot hang indefinitely while writing
+  its terminal result.
   `sekirei-match` now emits each machine-scraped game result only after its
   enabled durable artifacts and incremental snapshot have been committed; a
   write failure stops the runner, so an early SPRT boundary cannot accept an

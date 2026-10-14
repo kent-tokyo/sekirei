@@ -730,13 +730,6 @@ pub struct SearchDiagnosticsSnapshot {
     pub tt_hits: u64,
     /// Number of transposition-table store attempts.
     pub tt_stores: u64,
-    /// Sampled TT hits attributed to this worker by the diagnostic ownership
-    /// registry. Their sum is the sampled-hit count for this worker.
-    pub tt_local_hits: u64,
-    /// Sampled TT hits on entries last committed by another Lazy SMP worker.
-    pub tt_foreign_hits: u64,
-    /// Sampled TT hits whose committing worker was not retained.
-    pub tt_unknown_hits: u64,
     /// Number of moves selected as the TT move.
     pub order_tt: u64,
     /// Number of moves selected by the killer heuristic.
@@ -1141,9 +1134,6 @@ impl SearchDiagnostics {
             tt_probes: self.tt_probes.load(Ordering::Relaxed),
             tt_hits: self.tt_hits.load(Ordering::Relaxed),
             tt_stores: self.tt_stores.load(Ordering::Relaxed),
-            tt_local_hits: self.tt_local_hits.load(Ordering::Relaxed),
-            tt_foreign_hits: self.tt_foreign_hits.load(Ordering::Relaxed),
-            tt_unknown_hits: self.tt_unknown_hits.load(Ordering::Relaxed),
             order_tt: self.order_tt.load(Ordering::Relaxed),
             order_killer: self.order_killer.load(Ordering::Relaxed),
             order_countermove: self.order_countermove.load(Ordering::Relaxed),
@@ -1165,6 +1155,18 @@ impl SearchDiagnostics {
             move_order_sort_ns: self.move_order_sort_ns.load(Ordering::Relaxed),
             quiescence_inclusive_ns: self.quiescence_inclusive_ns.load(Ordering::Relaxed),
             root_mate_safety_ns: self.root_mate_safety_ns.load(Ordering::Relaxed),
+        }
+    }
+    /// Return sampled TT ownership counters for Lazy SMP diagnostics.
+    ///
+    /// Keeping these counters out of [`SearchDiagnosticsSnapshot`] preserves
+    /// that public struct's exhaustive-literal contract across 0.4.x patches.
+    pub(crate) fn tt_reuse_snapshot(&self) -> TtReuseSnapshot {
+        TtReuseSnapshot {
+            local_hits: self.tt_local_hits.load(Ordering::Relaxed),
+            foreign_hits: self.tt_foreign_hits.load(Ordering::Relaxed),
+            unknown_hits: self.tt_unknown_hits.load(Ordering::Relaxed),
+            ..TtReuseSnapshot::default()
         }
     }
 }
@@ -5309,10 +5311,10 @@ mod see_tests {
         reuse.record_store(sampled_hash, 1);
         diagnostics.record_tt_hit_origin(sampled_hash);
 
-        let snapshot = diagnostics.snapshot();
-        assert_eq!(snapshot.tt_local_hits, 1);
-        assert_eq!(snapshot.tt_foreign_hits, 1);
-        assert_eq!(snapshot.tt_unknown_hits, 1);
+        let snapshot = diagnostics.tt_reuse_snapshot();
+        assert_eq!(snapshot.local_hits, 1);
+        assert_eq!(snapshot.foreign_hits, 1);
+        assert_eq!(snapshot.unknown_hits, 1);
     }
 
     /// Restore every tuned search parameter even when this test exits early.

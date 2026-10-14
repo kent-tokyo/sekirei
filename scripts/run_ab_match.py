@@ -136,6 +136,7 @@ def runner_identity() -> dict[str, object]:
             check=True,
             capture_output=True,
             text=True,
+            timeout=5,
         ).stdout.strip()
         identity["dirty"] = bool(
             subprocess.run(
@@ -143,9 +144,10 @@ def runner_identity() -> dict[str, object]:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=5,
             ).stdout.strip()
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         identity["commit"] = None
         identity["dirty"] = None
     return identity

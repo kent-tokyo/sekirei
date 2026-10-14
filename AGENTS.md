@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-14: Integrate the implemented search experiments and measurement evidence into main; retain disabled defaults for candidates without independent H1.
+
 * 2026-10-14: Fix YaneuraOu as the search-strength target; continue isolated search improvements and equal-condition qualification without NNUE retraining or unqualified default adoption.
 
 * 2026-10-14: Target search strength beyond YaneuraOu; qualify against pinned opponent and equal evaluation/time conditions, and distinguish search diagnostics from playing-strength evidence.
