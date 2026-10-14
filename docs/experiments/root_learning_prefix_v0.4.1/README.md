@@ -40,3 +40,28 @@ is claimed from an invalidated run, and no independent ASP candidate is replaced
 The optimization removes allocation/copies by construction; the overall gain
 may be too small to resolve. Adoption of a changed search policy still requires
 independent H1; this change must keep the search behavior unchanged.
+
+## Observations
+
+The clean native tune build at 30a8ab0 has SHA-256
+`5f98a4626be7d6d7e95bd90acd99aa2fc7b390d6a56c68322723f0059117f536`.
+[results.json](results.json) binds the protocol, build receipts and raw evidence.
+Baseline core/USI source equality with parent main was verified before building.
+
+All 20 one-worker ABBA blocks (80 searches) matched bestmove, score/unit/bound,
+PV, nodes and completed depth. The separate 80 four-worker searches had
+within-arm nondeterminism in all 20 blocks and no exact cross-arm blocks; no
+parallel node-identity claim follows. All 1,050 PV moves across 160 searches
+replayed legally through the frozen same-rules tool, with zero violations.
+This is not an independent rule oracle or mate-score proof.
+
+Both permitted 300 ms timing attempts were blocked by unrelated compiler load
+before any search. The second began more than 60 seconds after the first.
+Neither attempt produced rows; no busy-host override, process interruption,
+pooled timing or third attempt was used. Overall NPS and depth improvement
+remain unmeasured. Removing the growing vector is a source-level allocation
+reduction, not proof of a measurable engine speed or playing-strength gain.
+
+Core 361 tests passed with 4 ignored, including existing root fail-high and
+abort/TT regressions. Formatting and workspace Clippy passed. The independent
+aspiration candidate remains unchanged; no NNUE or parameter default changed.
