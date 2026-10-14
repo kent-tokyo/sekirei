@@ -57,3 +57,8 @@ COOP_PERSISTENT=0 held fixed. All 80 depth-10 searches completed, but the forty 
 wait-phase confirmations. Its prospective activation requirement failed, so
 300 ms timing was not started. It stays disabled, does not advance, and does
 not replace the queued independent aspiration candidate.
+
+The separate [advice-latency observer](../cooperative_advice_latency_v0.4.1/README.md)
+measures helper publication phase and worker-0 progress before confirmation.
+It is diagnostics-only, defaults to zero, and does not interrupt main scouts
+or establish a policy candidate. Instrumented timings are unqualified.

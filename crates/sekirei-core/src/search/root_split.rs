@@ -72,6 +72,54 @@ pub struct CooperativeRootStats {
     pub helper_dispatch_delay_us: u64,
 }
 
+/// Diagnostics for helper advice sampled near publication, without changing search policy.
+///
+/// Phase/time/node reads are adjacent observations, not one simultaneous snapshot.
+/// A changed activity epoch is classified as a transition. Waiting node sums
+/// describe per-advice intervals which may overlap; they are not avoided work.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootLatencyStats {
+    /// Eligible helper advice successfully published.
+    pub publications: u64,
+    /// Advice sampled during a main-owned null-window scout, including full-depth re-scouts.
+    pub scout_publications: u64,
+    /// Advice sampled during a main-owned full-window root re-search.
+    pub research_publications: u64,
+    /// Advice sampled during another helper-candidate confirmation.
+    pub confirmation_publications: u64,
+    /// Advice sampled while main was outside a root child.
+    pub idle_publications: u64,
+    /// Advice whose phase sample straddled a main activity transition.
+    pub phase_transition_publications: u64,
+    /// Scout advice with a LOWER bound at least the fixed aspiration-pass beta.
+    pub beta_scout_publications: u64,
+    /// Eligible advice for which worker 0 started confirmation.
+    pub confirmations: u64,
+    /// Sum of publication-to-confirmation-start microseconds.
+    pub confirmation_latency_us_sum: u64,
+    /// Largest publication-to-confirmation-start delay in microseconds.
+    pub confirmation_latency_us_max: u64,
+    /// Sum of private-main node deltas before confirmation starts; intervals may overlap.
+    pub confirmation_main_nodes_sum: u64,
+    /// Largest private-main node delta before confirmation starts.
+    pub confirmation_main_nodes_max: u64,
+    /// Confirmed advice sampled during an owned scout.
+    pub scout_confirmations: u64,
+    /// Summed pre-confirmation main node deltas for scout advice; may overlap.
+    pub scout_delay_nodes_sum: u64,
+    /// Confirmed beta advice sampled during an owned scout.
+    pub beta_scout_confirmations: u64,
+    /// Summed pre-confirmation main node deltas for beta scout advice; may overlap.
+    pub beta_scout_delay_nodes_sum: u64,
+    /// Beta scout advice actually confirmed as a beta cut by worker 0.
+    pub beta_scout_confirmed_cuts: u64,
+    /// Eligible publications minus confirmation starts, after all helpers joined.
+    pub unconfirmed_publications: u64,
+    /// Advice excluded as stale, cancelled, out of range, or at the wrong depth.
+    pub rejected_publications: u64,
+}
+
 /// Evidence for opt-in candidate confirmation while worker 0 awaits its helper.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -86,10 +134,65 @@ pub struct CooperativeRootWaitStats {
     pub waiting_alpha_raises: u64,
     /// Actual blocking time on the private notification receiver, in microseconds.
     pub notification_wait_us: u64,
+    /// Independent opt-in advice-latency evidence; absent when COOP_LATENCY is disabled.
+    pub latency: Option<CooperativeRootLatencyStats>,
+}
+
+#[derive(Default)]
+struct LatencyCounters {
+    publications: AtomicU64,
+    scout_publications: AtomicU64,
+    research_publications: AtomicU64,
+    confirmation_publications: AtomicU64,
+    idle_publications: AtomicU64,
+    phase_transition_publications: AtomicU64,
+    beta_scout_publications: AtomicU64,
+    confirmations: AtomicU64,
+    confirmation_latency_us_sum: AtomicU64,
+    confirmation_latency_us_max: AtomicU64,
+    confirmation_main_nodes_sum: AtomicU64,
+    confirmation_main_nodes_max: AtomicU64,
+    scout_confirmations: AtomicU64,
+    scout_delay_nodes_sum: AtomicU64,
+    beta_scout_confirmations: AtomicU64,
+    beta_scout_delay_nodes_sum: AtomicU64,
+    beta_scout_confirmed_cuts: AtomicU64,
+    rejected_publications: AtomicU64,
+}
+
+impl LatencyCounters {
+    fn snapshot(&self) -> CooperativeRootLatencyStats {
+        let publications = self.publications.load(Ordering::Relaxed);
+        let confirmations = self.confirmations.load(Ordering::Relaxed);
+        CooperativeRootLatencyStats {
+            publications,
+            scout_publications: self.scout_publications.load(Ordering::Relaxed),
+            research_publications: self.research_publications.load(Ordering::Relaxed),
+            confirmation_publications: self.confirmation_publications.load(Ordering::Relaxed),
+            idle_publications: self.idle_publications.load(Ordering::Relaxed),
+            phase_transition_publications: self
+                .phase_transition_publications
+                .load(Ordering::Relaxed),
+            beta_scout_publications: self.beta_scout_publications.load(Ordering::Relaxed),
+            confirmations,
+            confirmation_latency_us_sum: self.confirmation_latency_us_sum.load(Ordering::Relaxed),
+            confirmation_latency_us_max: self.confirmation_latency_us_max.load(Ordering::Relaxed),
+            confirmation_main_nodes_sum: self.confirmation_main_nodes_sum.load(Ordering::Relaxed),
+            confirmation_main_nodes_max: self.confirmation_main_nodes_max.load(Ordering::Relaxed),
+            scout_confirmations: self.scout_confirmations.load(Ordering::Relaxed),
+            scout_delay_nodes_sum: self.scout_delay_nodes_sum.load(Ordering::Relaxed),
+            beta_scout_confirmations: self.beta_scout_confirmations.load(Ordering::Relaxed),
+            beta_scout_delay_nodes_sum: self.beta_scout_delay_nodes_sum.load(Ordering::Relaxed),
+            beta_scout_confirmed_cuts: self.beta_scout_confirmed_cuts.load(Ordering::Relaxed),
+            unconfirmed_publications: publications.saturating_sub(confirmations),
+            rejected_publications: self.rejected_publications.load(Ordering::Relaxed),
+        }
+    }
 }
 
 #[derive(Default)]
 struct Counters {
+    latency: OnceLock<Arc<LatencyCounters>>,
     waiting_confirmations: AtomicU64,
     waiting_confirmation_nodes: AtomicU64,
     waiting_alpha_raises: AtomicU64,
@@ -128,6 +231,7 @@ impl Counters {
             waiting_confirmation_nodes: self.waiting_confirmation_nodes.load(Ordering::Relaxed),
             waiting_alpha_raises: self.waiting_alpha_raises.load(Ordering::Relaxed),
             notification_wait_us: self.notification_wait_us.load(Ordering::Relaxed),
+            latency: self.latency.get().map(|counters| counters.snapshot()),
         }
     }
 
@@ -188,6 +292,7 @@ struct Invocation {
     counters: Arc<Counters>,
     persistent: bool,
     drain: bool,
+    latency: Option<Arc<LatencyCounters>>,
     executor: RefCell<Option<HelperExecutor>>,
 }
 
@@ -217,6 +322,7 @@ impl Activation {
             counters,
             persistent: false,
             drain: false,
+            latency: None,
             executor: RefCell::new(None),
         }))
     }
@@ -256,20 +362,22 @@ impl Searcher {
 
     /// Run the cooperative prototype and also return its optional wait evidence.
     ///
-    /// `COOP_DRAIN` is captured once per invocation. It never changes ordinary
-    /// search or allows an unconfirmed helper score to become the root result.
+    /// `COOP_DRAIN` and the independent diagnostics-only `COOP_LATENCY` are
+    /// captured once per invocation. Neither changes ordinary search or allows
+    /// an unconfirmed helper score to become the root result.
     pub fn search_cooperative_root_with_history_and_wait_stats(
         &self,
         board: &mut Board,
         config: SearchConfig,
         history: &PositionHistory,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
-        self.search_cooperative_root_controls(
+        self.search_cooperative_root_latency_controls(
             board,
             config,
             history,
             p::COOP_PERSISTENT() != 0,
             p::COOP_DRAIN() != 0,
+            p::COOP_LATENCY() != 0,
         )
     }
 
@@ -286,6 +394,7 @@ impl Searcher {
         (info, stats)
     }
 
+    #[cfg(test)]
     fn search_cooperative_root_controls(
         &self,
         board: &mut Board,
@@ -294,11 +403,34 @@ impl Searcher {
         persistent: bool,
         drain: bool,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        self.search_cooperative_root_latency_controls(
+            board, config, history, persistent, drain, false,
+        )
+    }
+
+    fn search_cooperative_root_latency_controls(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        persistent: bool,
+        drain: bool,
+        latency: bool,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
         let counters = Arc::new(Counters::default());
+        let latency = latency.then(|| Arc::new(LatencyCounters::default()));
+        if let Some(latency) = &latency {
+            counters
+                .latency
+                .set(latency.clone())
+                .ok()
+                .expect("fresh latency counters");
+        }
         let invocation = Rc::new(Invocation {
             counters: counters.clone(),
             persistent,
             drain,
+            latency,
             executor: RefCell::new(None),
         });
         let info = {
@@ -347,6 +479,193 @@ struct CandidateSlot {
     ready: AtomicBool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u64)]
+enum MainPhase {
+    Idle = 0,
+    Scout = 1,
+    Research = 2,
+    Confirmation = 3,
+    Transition = 4,
+}
+
+fn sampled_phase(before: u64, after: u64) -> MainPhase {
+    if before != after {
+        return MainPhase::Transition;
+    }
+    match before & 7 {
+        0 => MainPhase::Idle,
+        1 => MainPhase::Scout,
+        2 => MainPhase::Research,
+        3 => MainPhase::Confirmation,
+        _ => MainPhase::Transition,
+    }
+}
+
+#[derive(Default)]
+struct LatencySlot {
+    published_ns: AtomicU64,
+    main_nodes: AtomicU64,
+    phase: AtomicU64,
+    beta_scout: AtomicBool,
+    valid: AtomicBool,
+}
+
+struct LatencyObserver {
+    origin: Instant,
+    main_budget: Arc<Budget>,
+    activity: AtomicU64,
+    depth: u32,
+    hi: i32,
+    slots: Vec<LatencySlot>,
+    counters: Arc<LatencyCounters>,
+}
+
+impl LatencyObserver {
+    fn new(
+        main_budget: Arc<Budget>,
+        depth: u32,
+        hi: i32,
+        moves: usize,
+        counters: Arc<LatencyCounters>,
+    ) -> Self {
+        Self {
+            origin: Instant::now(),
+            main_budget,
+            activity: AtomicU64::new(0),
+            depth,
+            hi,
+            slots: (0..moves).map(|_| LatencySlot::default()).collect(),
+            counters,
+        }
+    }
+
+    fn now_ns(&self) -> u64 {
+        self.origin.elapsed().as_nanos().min(u64::MAX as u128) as u64
+    }
+
+    fn set_phase(&self, phase: MainPhase) {
+        // Main is the only writer. Advancing the epoch distinguishes an ABA
+        // Scout -> Idle -> Scout transition from an unchanged scout.
+        let previous = self.activity.load(Ordering::Relaxed);
+        self.activity.store(
+            ((previous & !7).wrapping_add(8)) | phase as u64,
+            Ordering::Release,
+        );
+    }
+
+    fn enter(&self, phase: MainPhase) -> MainActivity<'_> {
+        self.set_phase(phase);
+        MainActivity(self)
+    }
+
+    fn publish(&self, candidate: RootCandidate) {
+        if candidate.searched_depth != self.depth {
+            self.reject();
+            return;
+        }
+        let before = self.activity.load(Ordering::Acquire);
+        let published_ns = self.now_ns();
+        let main_nodes = self.main_budget.nodes();
+        let after = self.activity.load(Ordering::Acquire);
+        self.record_publication(candidate, before, published_ns, main_nodes, after);
+    }
+
+    fn record_publication(
+        &self,
+        candidate: RootCandidate,
+        before: u64,
+        published_ns: u64,
+        main_nodes: u64,
+        after: u64,
+    ) {
+        let phase = sampled_phase(before, after);
+        let beta_scout = phase == MainPhase::Scout && candidate.score >= self.hi;
+        let slot = &self.slots[candidate.move_index];
+        slot.published_ns.store(published_ns, Ordering::Relaxed);
+        slot.main_nodes.store(main_nodes, Ordering::Relaxed);
+        slot.phase.store(phase as u64, Ordering::Relaxed);
+        slot.beta_scout.store(beta_scout, Ordering::Relaxed);
+        slot.valid.store(true, Ordering::Relaxed);
+        self.counters.publications.fetch_add(1, Ordering::Relaxed);
+        let bucket = match phase {
+            MainPhase::Idle => &self.counters.idle_publications,
+            MainPhase::Scout => &self.counters.scout_publications,
+            MainPhase::Research => &self.counters.research_publications,
+            MainPhase::Confirmation => &self.counters.confirmation_publications,
+            MainPhase::Transition => &self.counters.phase_transition_publications,
+        };
+        bucket.fetch_add(1, Ordering::Relaxed);
+        if beta_scout {
+            self.counters
+                .beta_scout_publications
+                .fetch_add(1, Ordering::Relaxed);
+        }
+    }
+
+    fn reject(&self) {
+        self.counters
+            .rejected_publications
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn confirmation_start(&self, index: usize) -> Option<bool> {
+        // Called only after the legacy ready Acquire and generation/depth
+        // validation. Publication has one owner and occurs once per slot.
+        let slot = &self.slots[index];
+        if !slot.valid.swap(false, Ordering::Relaxed) {
+            return None;
+        }
+        let latency = self
+            .now_ns()
+            .saturating_sub(slot.published_ns.load(Ordering::Relaxed))
+            / 1_000;
+        let nodes = self
+            .main_budget
+            .nodes()
+            .saturating_sub(slot.main_nodes.load(Ordering::Relaxed));
+        self.counters.confirmations.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .confirmation_latency_us_sum
+            .fetch_add(latency, Ordering::Relaxed);
+        self.counters
+            .confirmation_latency_us_max
+            .fetch_max(latency, Ordering::Relaxed);
+        self.counters
+            .confirmation_main_nodes_sum
+            .fetch_add(nodes, Ordering::Relaxed);
+        self.counters
+            .confirmation_main_nodes_max
+            .fetch_max(nodes, Ordering::Relaxed);
+        if slot.phase.load(Ordering::Relaxed) == MainPhase::Scout as u64 {
+            self.counters
+                .scout_confirmations
+                .fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .scout_delay_nodes_sum
+                .fetch_add(nodes, Ordering::Relaxed);
+        }
+        let beta_scout = slot.beta_scout.load(Ordering::Relaxed);
+        if beta_scout {
+            self.counters
+                .beta_scout_confirmations
+                .fetch_add(1, Ordering::Relaxed);
+            self.counters
+                .beta_scout_delay_nodes_sum
+                .fetch_add(nodes, Ordering::Relaxed);
+        }
+        Some(beta_scout)
+    }
+}
+
+struct MainActivity<'a>(&'a LatencyObserver);
+
+impl Drop for MainActivity<'_> {
+    fn drop(&mut self) {
+        self.0.set_phase(MainPhase::Idle);
+    }
+}
+
 struct Generation {
     id: u64,
     alpha: AtomicI32,
@@ -355,6 +674,7 @@ struct Generation {
     participants: AtomicUsize,
     wake: Option<mpsc::SyncSender<()>>,
     helper_finished: AtomicBool,
+    latency: Option<LatencyObserver>,
     candidates: Vec<CandidateSlot>,
 }
 
@@ -373,6 +693,7 @@ impl Generation {
             participants: AtomicUsize::new(0),
             wake,
             helper_finished: AtomicBool::new(false),
+            latency: None,
             candidates: (0..moves).map(|_| CandidateSlot::default()).collect(),
         }
     }
@@ -391,9 +712,15 @@ impl Generation {
 
     fn publish(&self, candidate: RootCandidate) -> bool {
         if candidate.generation != self.id || self.cancel.load(Ordering::Acquire) {
+            if let Some(latency) = &self.latency {
+                latency.reject();
+            }
             return false;
         }
         let Some(slot) = self.candidates.get(candidate.move_index) else {
+            if let Some(latency) = &self.latency {
+                latency.reject();
+            }
             return false;
         };
         slot.alpha_snapshot
@@ -403,6 +730,10 @@ impl Generation {
             .store(candidate.searched_depth, Ordering::Relaxed);
         slot.generation
             .store(candidate.generation, Ordering::Relaxed);
+        if let Some(latency) = &self.latency {
+            latency.publish(candidate);
+        }
+        // Publishes both the legacy advice and its optional separate metadata.
         slot.ready.store(true, Ordering::Release);
         self.notify();
         true
@@ -680,6 +1011,25 @@ fn child(
     score
 }
 
+#[allow(clippy::too_many_arguments)]
+fn main_child(
+    generation: &Generation,
+    phase: MainPhase,
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    mv: Move,
+    depth: u32,
+    alpha: i32,
+    beta: i32,
+    history: &SearchHistory<'_>,
+) -> i32 {
+    let _activity = generation
+        .latency
+        .as_ref()
+        .map(|latency| latency.enter(phase));
+    child(state, board, mv, depth, alpha, beta, history)
+}
+
 struct MainResult {
     alpha: i32,
     best: Option<Move>,
@@ -754,7 +1104,13 @@ impl MainResult {
             counters.alpha_gap_max.fetch_max(gap, Ordering::Relaxed);
             let before_nodes = state.budget.nodes();
             let mv = ordered[candidate.move_index];
-            let mut score = child(
+            let latency_sample = generation
+                .latency
+                .as_ref()
+                .and_then(|latency| latency.confirmation_start(candidate.move_index));
+            let mut score = main_child(
+                generation,
+                MainPhase::Confirmation,
                 state,
                 board,
                 mv,
@@ -764,7 +1120,17 @@ impl MainResult {
                 history,
             );
             if score > self.alpha && score < hi && !state.budget.should_abort() {
-                score = child(state, board, mv, depth - 1, self.alpha, hi, history);
+                score = main_child(
+                    generation,
+                    MainPhase::Confirmation,
+                    state,
+                    board,
+                    mv,
+                    depth - 1,
+                    self.alpha,
+                    hi,
+                    history,
+                );
             }
             let nodes = state.budget.nodes() - before_nodes;
             counters
@@ -778,6 +1144,15 @@ impl MainResult {
             if state.budget.should_abort() {
                 generation.stop();
                 return;
+            }
+            if latency_sample == Some(true) && score >= hi {
+                generation
+                    .latency
+                    .as_ref()
+                    .unwrap()
+                    .counters
+                    .beta_scout_confirmed_cuts
+                    .fetch_add(1, Ordering::Relaxed);
             }
             if score > self.alpha {
                 if waiting {
@@ -867,7 +1242,9 @@ fn run_main(
         } else {
             reduction
         };
-        let mut score = child(
+        let mut score = main_child(
+            generation,
+            MainPhase::Scout,
             main_state,
             board,
             mv,
@@ -877,7 +1254,9 @@ fn run_main(
             history,
         );
         if reduction > 0 && score > result.alpha && !state.budget.should_abort() {
-            score = child(
+            score = main_child(
+                generation,
+                MainPhase::Scout,
                 main_state,
                 board,
                 mv,
@@ -888,7 +1267,17 @@ fn run_main(
             );
         }
         if score > result.alpha && score < hi && !state.budget.should_abort() {
-            score = child(main_state, board, mv, depth - 1, result.alpha, hi, history);
+            score = main_child(
+                generation,
+                MainPhase::Research,
+                main_state,
+                board,
+                mv,
+                depth - 1,
+                result.alpha,
+                hi,
+                history,
+            );
         }
         if !state.budget.should_abort() {
             result.accept(generation, mv, score);
@@ -942,7 +1331,17 @@ pub(super) fn search(
     } else {
         (None, None)
     };
-    let generation = Arc::new(Generation::with_wake(lo, ordered.len(), wake));
+    let mut generation = Generation::with_wake(lo, ordered.len(), wake);
+    generation.latency = invocation.latency.as_ref().map(|counters| {
+        LatencyObserver::new(
+            main_state.budget.clone(),
+            depth,
+            hi,
+            ordered.len(),
+            counters.clone(),
+        )
+    });
+    let generation = Arc::new(generation);
     if state.budget.should_abort() {
         return (None, lo);
     }
@@ -1130,6 +1529,7 @@ mod tests {
             counters,
             persistent: true,
             drain: false,
+            latency: None,
             executor: RefCell::new(None),
         })
     }
@@ -1797,6 +2197,7 @@ mod tests {
                 counters: counters.clone(),
                 persistent: true,
                 drain: true,
+                latency: None,
                 executor: RefCell::new(Some(HelperExecutor {
                     sender: None,
                     worker: None,
@@ -1882,6 +2283,7 @@ mod tests {
                     counters: counters.clone(),
                     persistent,
                     drain: true,
+                    latency: None,
                     executor: RefCell::new(None),
                 });
                 let state = test_state();
@@ -1900,6 +2302,308 @@ mod tests {
                     counters.snapshot().physical_helper_threads_started,
                     counters.snapshot().physical_helper_threads_joined
                 );
+            }
+        });
+    }
+
+    #[test]
+    fn latency_counts_private_main_progress_and_excludes_helper_and_confirmation_nodes() {
+        on_search_stack(|| {
+            for node_limit in [None, Some(119)] {
+                let parent = Arc::new(Budget::new(
+                    None,
+                    node_limit,
+                    Arc::new(AtomicBool::new(false)),
+                ));
+                let main = Arc::new(Budget::cooperative_child(
+                    parent.clone(),
+                    Arc::new(AtomicBool::new(false)),
+                ));
+                let helper =
+                    Budget::cooperative_child(parent.clone(), Arc::new(AtomicBool::new(false)));
+                let mut state = test_state();
+                Arc::get_mut(&mut state).unwrap().budget = main.clone();
+                let counters = Counters::default();
+                let latency = Arc::new(LatencyCounters::default());
+                let mut board = Board::startpos();
+                let hash = board.hash();
+                let acc = board.acc.clone();
+                let ordered = generate_legal_moves(&mut board);
+                let game = PositionHistory::initial(hash);
+                let history = SearchHistory::root(&game);
+                let mut generation = Generation::new(-10_000, ordered.len());
+                generation.latency = Some(LatencyObserver::new(
+                    main.clone(),
+                    2,
+                    -9_999,
+                    ordered.len(),
+                    latency.clone(),
+                ));
+                for _ in 0..7 {
+                    assert!(!main.tick());
+                }
+                let activity = generation.latency.as_ref().unwrap().enter(MainPhase::Scout);
+                assert!(generation.publish(RootCandidate {
+                    alpha_snapshot: -10_000,
+                    generation: generation.id,
+                    move_index: 1,
+                    score: 0,
+                    searched_depth: 2,
+                }));
+                for _ in 0..100 {
+                    assert!(!helper.tick());
+                }
+                for _ in 0..11 {
+                    assert!(!main.tick());
+                }
+                drop(activity);
+                let mut result = MainResult {
+                    alpha: -10_000,
+                    best: None,
+                    raised: Vec::new(),
+                    searched: Vec::new(),
+                };
+                result.confirm_ready(
+                    &generation,
+                    &state,
+                    &mut board,
+                    &ordered,
+                    2,
+                    -9_999,
+                    &history,
+                    &counters,
+                );
+                let snapshot = latency.snapshot();
+                assert_eq!(snapshot.publications, 1);
+                assert_eq!(snapshot.scout_publications, 1);
+                assert_eq!(snapshot.beta_scout_publications, 1);
+                assert_eq!(snapshot.confirmations, 1);
+                assert_eq!(snapshot.confirmation_main_nodes_sum, 11);
+                assert_eq!(snapshot.confirmation_main_nodes_max, 11);
+                assert_eq!(snapshot.scout_delay_nodes_sum, 11);
+                assert_eq!(snapshot.beta_scout_delay_nodes_sum, 11);
+                assert_eq!(
+                    snapshot.beta_scout_confirmed_cuts,
+                    u64::from(node_limit.is_none())
+                );
+                assert_eq!(state.budget.should_abort(), node_limit.is_some());
+                assert_eq!(snapshot.unconfirmed_publications, 0);
+                assert!(counters.snapshot().confirmation_nodes > 0);
+                assert_eq!(main.nodes(), 18 + counters.snapshot().confirmation_nodes);
+                assert_eq!(parent.nodes(), main.nodes() + helper.nodes());
+                assert_eq!(board.hash(), hash);
+                assert_eq!(board.acc, acc);
+            }
+        });
+    }
+
+    #[test]
+    fn latency_phase_epochs_detect_aba_and_activity_unwind_restores_idle() {
+        let budget = Arc::new(Budget::new(None, None, Arc::new(AtomicBool::new(false))));
+        let counters = Arc::new(LatencyCounters::default());
+        let observer = LatencyObserver::new(budget, 2, 100, 5, counters.clone());
+        let first = observer.enter(MainPhase::Scout);
+        let before = observer.activity.load(Ordering::Acquire);
+        drop(first);
+        let second = observer.enter(MainPhase::Scout);
+        let after = observer.activity.load(Ordering::Acquire);
+        assert_eq!(before & 7, after & 7);
+        assert_eq!(sampled_phase(before, after), MainPhase::Transition);
+        drop(second);
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _activity = observer.enter(MainPhase::Confirmation);
+            panic!("main root child unwinds");
+        }));
+        assert!(failed.is_err());
+        let idle = observer.activity.load(Ordering::Acquire);
+        assert_eq!(sampled_phase(idle, idle), MainPhase::Idle);
+        for (index, phase) in [
+            MainPhase::Idle,
+            MainPhase::Scout,
+            MainPhase::Research,
+            MainPhase::Confirmation,
+            MainPhase::Transition,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let packed = 8 | phase as u64;
+            observer.record_publication(
+                RootCandidate {
+                    alpha_snapshot: 0,
+                    generation: 1,
+                    move_index: index,
+                    score: 100,
+                    searched_depth: 2,
+                },
+                packed,
+                observer.now_ns(),
+                0,
+                if phase == MainPhase::Transition {
+                    packed + 8
+                } else {
+                    packed
+                },
+            );
+        }
+        let snapshot = counters.snapshot();
+        assert_eq!(snapshot.publications, 5);
+        assert_eq!(
+            [
+                snapshot.idle_publications,
+                snapshot.scout_publications,
+                snapshot.research_publications,
+                snapshot.confirmation_publications,
+                snapshot.phase_transition_publications
+            ],
+            [1; 5]
+        );
+        assert_eq!(snapshot.beta_scout_publications, 1);
+        assert_eq!(snapshot.unconfirmed_publications, 5);
+        for index in 0..5 {
+            assert_eq!(observer.confirmation_start(index), Some(index == 1));
+        }
+        assert_eq!(observer.confirmation_start(0), None);
+        let completed = counters.snapshot();
+        assert_eq!(completed.confirmations, 5);
+        assert_eq!(completed.unconfirmed_publications, 0);
+        assert_eq!(completed.scout_confirmations, 1);
+        assert_eq!(completed.beta_scout_confirmations, 1);
+    }
+
+    #[test]
+    fn invalid_advice_and_unconfirmed_abort_have_no_latency_confirmation_cost() {
+        on_search_stack(|| {
+            let state = test_state();
+            let latency = Arc::new(LatencyCounters::default());
+            let mut board = Board::startpos();
+            let ordered = generate_legal_moves(&mut board);
+            let game = PositionHistory::initial(board.hash());
+            let history = SearchHistory::root(&game);
+            let mut generation = Generation::new(-10_000, ordered.len());
+            generation.latency = Some(LatencyObserver::new(
+                state.budget.clone(),
+                2,
+                100,
+                ordered.len(),
+                latency.clone(),
+            ));
+            let mut candidate = RootCandidate {
+                alpha_snapshot: -10_000,
+                generation: generation.id,
+                move_index: 1,
+                score: 0,
+                searched_depth: 3,
+            };
+            assert!(generation.publish(candidate)); // legacy behavior, wrong telemetry depth
+            let mut result = MainResult {
+                alpha: -10_000,
+                best: None,
+                raised: Vec::new(),
+                searched: Vec::new(),
+            };
+            let counters = Counters::default();
+            result.confirm_ready(
+                &generation,
+                &state,
+                &mut board,
+                &ordered,
+                2,
+                100,
+                &history,
+                &counters,
+            );
+            candidate.searched_depth = 2;
+            candidate.generation = generation.id + 1;
+            assert!(!generation.publish(candidate));
+            candidate.generation = generation.id;
+            candidate.move_index = ordered.len();
+            assert!(!generation.publish(candidate));
+            candidate.move_index = 1;
+            assert!(generation.publish(candidate));
+            state.budget.abort_now();
+            result.confirm_ready(
+                &generation,
+                &state,
+                &mut board,
+                &ordered,
+                2,
+                100,
+                &history,
+                &counters,
+            );
+            assert!(!generation.publish(candidate));
+            let snapshot = latency.snapshot();
+            assert_eq!(snapshot.publications, 1);
+            assert_eq!(snapshot.idle_publications, 1);
+            assert_eq!(snapshot.rejected_publications, 4);
+            assert_eq!(snapshot.confirmations, 0);
+            assert_eq!(snapshot.unconfirmed_publications, 1);
+            assert_eq!(snapshot.confirmation_main_nodes_sum, 0);
+            assert_eq!(snapshot.confirmation_latency_us_sum, 0);
+        });
+    }
+
+    #[test]
+    fn latency_option_is_independent_of_both_executor_and_wait_controls() {
+        on_search_stack(|| {
+            for persistent in [false, true] {
+                for drain in [false, true] {
+                    for enabled in [false, true] {
+                        let mut board = Board::startpos();
+                        let hash = board.hash();
+                        let acc = board.acc.clone();
+                        let game = PositionHistory::initial(hash);
+                        let (info, root, wait) = Searcher::new(Tt::new(2))
+                            .search_cooperative_root_latency_controls(
+                                &mut board,
+                                SearchConfig {
+                                    max_depth: 3,
+                                    ..SearchConfig::default()
+                                },
+                                &game,
+                                persistent,
+                                drain,
+                                enabled,
+                            );
+                        assert_eq!(wait.enabled, drain);
+                        assert_eq!(wait.latency.is_some(), enabled);
+                        if let Some(latency) = wait.latency {
+                            assert_eq!(
+                                latency.publications + latency.rejected_publications,
+                                root.helper_fail_highs
+                            );
+                            assert_eq!(latency.confirmations, root.main_confirmations);
+                            assert_eq!(
+                                latency.publications,
+                                latency.scout_publications
+                                    + latency.research_publications
+                                    + latency.confirmation_publications
+                                    + latency.idle_publications
+                                    + latency.phase_transition_publications
+                            );
+                            assert_eq!(
+                                latency.unconfirmed_publications,
+                                latency.publications - latency.confirmations
+                            );
+                            assert!(latency.confirmation_main_nodes_max <= root.main_nodes);
+                            assert!(
+                                latency.beta_scout_confirmed_cuts <= root.confirmed_alpha_raises
+                            );
+                        }
+                        assert_eq!(info.depth, 3);
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, acc);
+                        assert_eq!(
+                            root.physical_helper_threads_started,
+                            root.physical_helper_threads_joined
+                        );
+                        for mv in info.pv {
+                            assert!(generate_legal_moves(&mut board).contains(&mv));
+                            board.do_move(mv);
+                        }
+                    }
+                }
             }
         });
     }
