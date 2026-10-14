@@ -57,3 +57,26 @@ COOP_PERSISTENT=0 held fixed. All 80 depth-10 searches completed, but the forty 
 wait-phase confirmations. Its prospective activation requirement failed, so
 300 ms timing was not started. It stays disabled, does not advance, and does
 not replace the queued independent aspiration candidate.
+
+The separate [advice-latency observer](../cooperative_advice_latency_v0.4.1/README.md)
+measures helper publication phase and worker-0 progress before confirmation.
+It is diagnostics-only, defaults to zero, and does not interrupt main scouts
+or establish a policy candidate. Instrumented timings are unqualified.
+
+The separate [cooperative candidate-priority experiment](../cooperative_candidate_priority_v0.4.1/README.md)
+compares the old ascending confirmation pass with highest-observed-ready
+selection plus rescan. It does not interrupt a main child or adopt helper
+scores. Outcome diagnostics classify actual beta cuts by publication phase.
+The flag stays disabled; activity, useful-depth timing and independent H1
+remain separate gates, and the queued aspiration candidate is unchanged.
+
+The priority mechanism screen activated50 reorders with7 alpha raises and1
+verified cut. Its completed300ms run was invalidated by post-run outside load;
+observed median depth delta was0 overall and-0.25 for quiet positions. It does
+not advance and remains disabled. No completed-result retry was performed.
+
+The separate [root-learning prefix check](../root_learning_prefix_v0.4.1/README.md)
+removes a copied move vector without changing learning inputs. All twenty 1T
+fixed-depth ABBA blocks matched exactly; 4T remained nondeterministic and all
+recorded PVs were legal. Both permitted timing attempts blocked before search,
+so no NPS or strength gain is established and no policy candidate was replaced.

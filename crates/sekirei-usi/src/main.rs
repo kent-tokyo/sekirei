@@ -1019,6 +1019,56 @@ fn emit_search_result(
             stats.notification_wait_us,
         );
     }
+    if info
+        .cooperative_root_wait
+        .is_some_and(|stats| stats.priority_enabled)
+    {
+        println!("info string cooperative_root_policy priority 1");
+    }
+    if let Some(stats) = info.cooperative_root_wait.and_then(|stats| stats.latency) {
+        println!(
+            "info string cooperative_root_latency enabled 1 publications {} scout_publications {} research_publications {} confirmation_publications {} idle_publications {} phase_transition_publications {} beta_scout_publications {} confirmations {} confirmation_latency_us_sum {} confirmation_latency_us_max {} confirmation_main_nodes_sum {} confirmation_main_nodes_max {} scout_confirmations {} scout_delay_nodes_sum {} beta_scout_confirmations {} beta_scout_delay_nodes_sum {} beta_scout_confirmed_cuts {} unconfirmed_publications {} rejected_publications {}",
+            stats.publications,
+            stats.scout_publications,
+            stats.research_publications,
+            stats.confirmation_publications,
+            stats.idle_publications,
+            stats.phase_transition_publications,
+            stats.beta_scout_publications,
+            stats.confirmations,
+            stats.confirmation_latency_us_sum,
+            stats.confirmation_latency_us_max,
+            stats.confirmation_main_nodes_sum,
+            stats.confirmation_main_nodes_max,
+            stats.scout_confirmations,
+            stats.scout_delay_nodes_sum,
+            stats.beta_scout_confirmations,
+            stats.beta_scout_delay_nodes_sum,
+            stats.beta_scout_confirmed_cuts,
+            stats.unconfirmed_publications,
+            stats.rejected_publications,
+        );
+    }
+    if let Some(stats) = info.cooperative_root_wait.and_then(|stats| stats.outcomes) {
+        println!(
+            "info string cooperative_root_outcomes enabled 1 scout_confirmations {} research_confirmations {} confirmation_confirmations {} idle_confirmations {} phase_transition_confirmations {} scout_beta_cuts {} research_beta_cuts {} confirmation_beta_cuts {} idle_beta_cuts {} phase_transition_beta_cuts {} priority_choices {} priority_reorders {} reordered_alpha_raises {} reordered_beta_cuts {} reordered_confirmation_nodes {}",
+            stats.scout_confirmations,
+            stats.research_confirmations,
+            stats.confirmation_confirmations,
+            stats.idle_confirmations,
+            stats.phase_transition_confirmations,
+            stats.scout_beta_cuts,
+            stats.research_beta_cuts,
+            stats.confirmation_beta_cuts,
+            stats.idle_beta_cuts,
+            stats.phase_transition_beta_cuts,
+            stats.priority_choices,
+            stats.priority_reorders,
+            stats.reordered_alpha_raises,
+            stats.reordered_beta_cuts,
+            stats.reordered_confirmation_nodes,
+        );
+    }
     for (worker, stats) in info.aspiration_stats.iter().enumerate() {
         let totals: [u64; 10] =
             std::array::from_fn(|column| stats.by_depth.iter().map(|r| r[column]).sum());

@@ -8,6 +8,9 @@ preserves older per-change notes.
 
 ### Changed
 
+- Borrow the completed root-move prefix for V2 history learning, removing
+  a growing vector without changing move order or learning updates.
+
 - Poll empty cooperative root-candidate slots without an atomic swap, retaining
   consuming synchronization and late-publication draining. The root-split mode
   remains opt-in; no measured speed or strength gain is claimed.
@@ -23,6 +26,13 @@ preserves older per-change notes.
   additional epoch-sized clone of accepted positions. Add audit-only operation
   and reproducible ingestion RSS/time comparisons without changing search or
   the evaluator.
+- Add an opt-in highest-ready/rescan cooperative confirmation policy and
+  arrival-phase outcome diagnostics. Worker 0 still verifies every accepted
+  score at full depth; defaults remain disabled pending independent H1.
+
+- Add opt-in cooperative-root advice latency diagnostics using private main-node
+  accounting and phase epochs, with compatible snapshots and USI evidence.
+  Defaults and search policy are unchanged; diagnostics are not strength proof.
 
 - Document a native PGO build qualified with own-only fixed-depth and four-worker
   throughput gates, retaining the compiler-profile corpus and provenance.

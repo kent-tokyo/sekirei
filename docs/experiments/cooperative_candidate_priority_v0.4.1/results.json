@@ -1,0 +1,1303 @@
+{
+  "schema": "sekirei.cooperative-candidate-priority-screen.v1",
+  "built_source": {
+    "source_commit": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+    "source_dirty_before": "",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+    "build_environment": {
+      "RUSTFLAGS": null,
+      "CARGO_ENCODED_RUSTFLAGS": null,
+      "CARGO_BUILD_RUSTFLAGS": null,
+      "LLVM_PROFILE_FILE": null
+    },
+    "build_command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo build --release --offline -p sekirei --features tune",
+    "started_at": "2026-10-14T21:15:54.697815+00:00",
+    "engine_sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+    "source_commit_after": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+    "source_dirty_after": "",
+    "build_log_sha256": "6a12e034703b7d2d872d13343acc6a310d22360442380c85771177390a272611",
+    "completed_at": "2026-10-14T21:19:11.880195+00:00"
+  },
+  "build_receipt": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/receipt.json",
+    "sha256": "388fce3e398ecd9dd327d3aa9fdc23741632f01b546417ff8c948ae48d6d594c",
+    "bytes": 1088
+  },
+  "build_log": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/build.log",
+    "sha256": "6a12e034703b7d2d872d13343acc6a310d22360442380c85771177390a272611",
+    "bytes": 293
+  },
+  "prior_control_receipt": {
+    "artifact": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-latency-build/receipt.json",
+      "sha256": "eb2d82414d40ccb6f82c5b53cf2c4ac270e17c8626ab516055f1737abea7d2d5",
+      "bytes": 1088
+    },
+    "result": {
+      "source_commit": "129074333bcf1bfef1270221d9479fda22610be0",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo build --release --offline -p sekirei --features tune",
+      "started_at": "2026-10-14T20:35:50.139723+00:00",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "engine_sha256": "cb771a3a51613865f7f4b69bc3ef0a52c7550549e138e5db8bc5ceae15d0c894",
+      "source_commit_after": "129074333bcf1bfef1270221d9479fda22610be0",
+      "source_dirty_after": "",
+      "build_log_sha256": "bf1ea0da4f7e3e0828fab69d3a7a7ff68d9f89f2e1f2355fd70ca27cacf3ebef",
+      "completed_at": "2026-10-14T20:38:02.495490+00:00"
+    }
+  },
+  "prospective_protocol_commit": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+  "prospective_protocol": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/docs/experiments/cooperative_candidate_priority_v0.4.1/README.md",
+    "sha256": "c62b96215e061736ffbaa55e26e2cfcd1e950dd8f7dba4adc122089172a4f1a9",
+    "bytes": 5852
+  },
+  "corpus_manifest": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json",
+    "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+    "bytes": 20592
+  },
+  "default_identity": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-14T21:19:11.981694+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/engine-A",
+          "sha256": "cb771a3a51613865f7f4b69bc3ef0a52c7550549e138e5db8bc5ceae15d0c894",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-latency-build/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/engine-B",
+          "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+        }
+      },
+      "source_ref": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "3171d7b9e8344388917c86d07ef2dfd30633fa43eea6fd33b4f0dc9f0f080eb6",
+        "nps_threads.py": "fd71140da12625433f96ad046235b50cdcd47c949344767132ea16a283dbaa8d"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=15",
+        "MoveOverhead=0"
+      ],
+      "A_options": [],
+      "B_options": [],
+      "changed_options": {},
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 52018,
+            "cpu_percent": 92.4,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 52038,
+            "cpu_percent": 96.7,
+            "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+          }
+        ],
+        "load_average": [
+          8.0869140625,
+          6.93212890625,
+          5.828125
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "deee39cb4b4d11233f9be1bfa59d7ad4f7c6b037f8639e4eb264e06c1a7ec59d",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 52140,
+            "cpu_percent": 97.8,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          7.75927734375,
+          6.88330078125,
+          5.8173828125
+        ]
+      }
+    },
+    "artifacts": {
+      "manifest.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/manifest.json",
+        "sha256": "1ec8cfdb080dd867aa42339b5aa81eed03695efdda9cdc8dcd176aad71b6b759",
+        "bytes": 3219
+      },
+      "rows.jsonl": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/rows.jsonl",
+        "sha256": "c4b820da721648051443de55fd4244cc7a67626b602c3137bb9b743640516e45",
+        "bytes": 142961
+      },
+      "summary.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/summary.json",
+        "sha256": "0a6a765d381ae4b54ab1bc1e129c3b19a52f382f28832f1a2ea169fcdfd7a77d",
+        "bytes": 72755
+      },
+      "positions.input": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity/positions.input",
+        "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "bytes": 1556
+      }
+    },
+    "rows": 80,
+    "identity_pass": true
+  },
+  "mechanism": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-14T21:19:22.361516+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/engine-A",
+          "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/engine-B",
+          "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+        }
+      },
+      "source_ref": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "3171d7b9e8344388917c86d07ef2dfd30633fa43eea6fd33b4f0dc9f0f080eb6",
+        "nps_threads.py": "fd71140da12625433f96ad046235b50cdcd47c949344767132ea16a283dbaa8d"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        2
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 10,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=16399",
+        "T_COOP_LATENCY=1",
+        "T_COOP_DRAIN=0",
+        "T_COOP_PERSISTENT=0",
+        "T_ASP_VOLATILITY=0",
+        "T_V2_SORT=0",
+        "MoveOverhead=0"
+      ],
+      "A_options": [
+        "T_COOP_PRIORITY=0"
+      ],
+      "B_options": [
+        "T_COOP_PRIORITY=1"
+      ],
+      "changed_options": {
+        "T_COOP_PRIORITY": [
+          "0",
+          "1"
+        ]
+      },
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": true,
+        "B": true
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": true
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 52140,
+            "cpu_percent": 97.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 52186,
+            "cpu_percent": 98.6,
+            "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+          },
+          {
+            "pid": 52297,
+            "cpu_percent": 86.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          7.6982421875,
+          6.884765625,
+          5.82421875
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "3187b95d0689a276ca0df910b1e17fd1703a4d47adcbd29a7a184970dd674b49",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 52413,
+            "cpu_percent": 99.0,
+            "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+          },
+          {
+            "pid": 52425,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 52428,
+            "cpu_percent": 97.2,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustfmt"
+          },
+          {
+            "pid": 52537,
+            "cpu_percent": 82.8,
+            "command": "(rust-objcopy)"
+          },
+          {
+            "pid": 52541,
+            "cpu_percent": 35.0,
+            "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+          }
+        ],
+        "load_average": [
+          7.28271484375,
+          6.82177734375,
+          5.814453125
+        ]
+      }
+    },
+    "artifacts": {
+      "manifest.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/manifest.json",
+        "sha256": "3afea5a03fdb7cf456120d29053d15ca6ee95243952cf149497439046a5799f2",
+        "bytes": 4230
+      },
+      "rows.jsonl": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/rows.jsonl",
+        "sha256": "fffd3d8141fe21812f1a1c96a8431556239b681671c909c06fd72ba5f7fe9a98",
+        "bytes": 281379
+      },
+      "summary.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/summary.json",
+        "sha256": "52663df7607bdfa134f0fbd38cf5700be22ea3a93d02cec4c53660630830b8a1",
+        "bytes": 362581
+      },
+      "positions.input": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism/positions.input",
+        "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "bytes": 1556
+      }
+    },
+    "rows": 80,
+    "arms": {
+      "A": {
+        "searches": 40,
+        "outcomes": {
+          "scout_confirmations": 48,
+          "research_confirmations": 95,
+          "confirmation_confirmations": 171,
+          "idle_confirmations": 43,
+          "phase_transition_confirmations": 3,
+          "scout_beta_cuts": 2,
+          "research_beta_cuts": 3,
+          "confirmation_beta_cuts": 1,
+          "idle_beta_cuts": 4,
+          "phase_transition_beta_cuts": 0,
+          "priority_choices": 0,
+          "priority_reorders": 0,
+          "reordered_alpha_raises": 0,
+          "reordered_beta_cuts": 0,
+          "reordered_confirmation_nodes": 0
+        },
+        "publications": 372,
+        "unconfirmed_publications": 12,
+        "confirmed_alpha_raises": 45
+      },
+      "B": {
+        "searches": 40,
+        "outcomes": {
+          "scout_confirmations": 41,
+          "research_confirmations": 55,
+          "confirmation_confirmations": 96,
+          "idle_confirmations": 34,
+          "phase_transition_confirmations": 5,
+          "scout_beta_cuts": 3,
+          "research_beta_cuts": 1,
+          "confirmation_beta_cuts": 2,
+          "idle_beta_cuts": 4,
+          "phase_transition_beta_cuts": 1,
+          "priority_choices": 231,
+          "priority_reorders": 50,
+          "reordered_alpha_raises": 7,
+          "reordered_beta_cuts": 1,
+          "reordered_confirmation_nodes": 4157
+        },
+        "publications": 251,
+        "unconfirmed_publications": 20,
+        "confirmed_alpha_raises": 35
+      }
+    },
+    "categories": {
+      "quiet": {
+        "A": {
+          "scout_confirmations": 26,
+          "research_confirmations": 69,
+          "confirmation_confirmations": 138,
+          "idle_confirmations": 25,
+          "phase_transition_confirmations": 1,
+          "scout_beta_cuts": 0,
+          "research_beta_cuts": 3,
+          "confirmation_beta_cuts": 1,
+          "idle_beta_cuts": 1,
+          "phase_transition_beta_cuts": 0,
+          "priority_choices": 0,
+          "priority_reorders": 0,
+          "reordered_alpha_raises": 0,
+          "reordered_beta_cuts": 0,
+          "reordered_confirmation_nodes": 0
+        },
+        "B": {
+          "scout_confirmations": 8,
+          "research_confirmations": 23,
+          "confirmation_confirmations": 73,
+          "idle_confirmations": 25,
+          "phase_transition_confirmations": 1,
+          "scout_beta_cuts": 0,
+          "research_beta_cuts": 1,
+          "confirmation_beta_cuts": 2,
+          "idle_beta_cuts": 4,
+          "phase_transition_beta_cuts": 0,
+          "priority_choices": 130,
+          "priority_reorders": 43,
+          "reordered_alpha_raises": 6,
+          "reordered_beta_cuts": 1,
+          "reordered_confirmation_nodes": 3597
+        }
+      },
+      "tactical": {
+        "A": {
+          "scout_confirmations": 22,
+          "research_confirmations": 26,
+          "confirmation_confirmations": 33,
+          "idle_confirmations": 18,
+          "phase_transition_confirmations": 2,
+          "scout_beta_cuts": 2,
+          "research_beta_cuts": 0,
+          "confirmation_beta_cuts": 0,
+          "idle_beta_cuts": 3,
+          "phase_transition_beta_cuts": 0,
+          "priority_choices": 0,
+          "priority_reorders": 0,
+          "reordered_alpha_raises": 0,
+          "reordered_beta_cuts": 0,
+          "reordered_confirmation_nodes": 0
+        },
+        "B": {
+          "scout_confirmations": 33,
+          "research_confirmations": 32,
+          "confirmation_confirmations": 23,
+          "idle_confirmations": 9,
+          "phase_transition_confirmations": 4,
+          "scout_beta_cuts": 3,
+          "research_beta_cuts": 0,
+          "confirmation_beta_cuts": 0,
+          "idle_beta_cuts": 0,
+          "phase_transition_beta_cuts": 1,
+          "priority_choices": 101,
+          "priority_reorders": 7,
+          "reordered_alpha_raises": 1,
+          "reordered_beta_cuts": 0,
+          "reordered_confirmation_nodes": 560
+        }
+      }
+    },
+    "row_checks": {
+      "root_attribution_valid": true,
+      "actual_priority_matches_arm": true
+    },
+    "activity_pass": true
+  },
+  "timing_attempts": [
+    {
+      "manifest": {
+        "schema": "sekirei.paired-search-manifest.v1",
+        "status": "blocked_host_busy",
+        "started_at_utc": "2026-10-14T21:20:58.521303+00:00",
+        "engines": {
+          "A": {
+            "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt1/engine-A",
+            "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+          },
+          "B": {
+            "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt1/engine-B",
+            "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+          }
+        },
+        "source_ref": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+        "source_ref_verified": false,
+        "measurement_source_sha256": {
+          "paired_search_diagnostics.py": "3171d7b9e8344388917c86d07ef2dfd30633fa43eea6fd33b4f0dc9f0f080eb6",
+          "nps_threads.py": "fd71140da12625433f96ad046235b50cdcd47c949344767132ea16a283dbaa8d"
+        },
+        "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+        "effective_position_count": 20,
+        "threads": [
+          2
+        ],
+        "repeats": 2,
+        "budget": {
+          "depth": null,
+          "movetime_ms": 300
+        },
+        "evaluator": {
+          "kind": "material-only"
+        },
+        "hash_mb": 64,
+        "common_options": [
+          "LazyFlags=16399",
+          "T_COOP_LATENCY=0",
+          "T_COOP_DRAIN=0",
+          "T_COOP_PERSISTENT=0",
+          "T_ASP_VOLATILITY=0",
+          "T_V2_SORT=0",
+          "MoveOverhead=0"
+        ],
+        "A_options": [
+          "T_COOP_PRIORITY=0"
+        ],
+        "B_options": [
+          "T_COOP_PRIORITY=1"
+        ],
+        "changed_options": {
+          "T_COOP_PRIORITY": [
+            "0",
+            "1"
+          ]
+        },
+        "counter_lane": false,
+        "cooperative_latency_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_priority_requested": {
+          "A": false,
+          "B": true
+        },
+        "identity_policy": "require_1T_fixed_depth",
+        "host": {
+          "system": "Darwin",
+          "release": "27.0.0",
+          "machine": "arm64",
+          "cpu_count": 10
+        },
+        "schedule": "per-position ABBA; fresh process every slot",
+        "strength_gate_opened": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 53366,
+              "cpu_percent": 98.9,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 53497,
+              "cpu_percent": 86.0,
+              "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+            }
+          ],
+          "load_average": [
+            5.32470703125,
+            6.1904296875,
+            5.66015625
+          ]
+        },
+        "timing_qualified": false,
+        "configuration_sha256": "177f9abba40ddb614842a048561010ab2c6c40801c30f8f4f0a2dba986416e5a",
+        "error": "timing requires an idle host; no processes stopped"
+      },
+      "artifacts": {
+        "manifest.json": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt1/manifest.json",
+          "sha256": "a075e0e7dc61164624d659c7717856b12b58d960328d9470275f6db41082161f",
+          "bytes": 3145
+        },
+        "positions.input": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt1/positions.input",
+          "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+          "bytes": 1556
+        }
+      },
+      "rows": 0
+    },
+    {
+      "manifest": {
+        "schema": "sekirei.paired-search-manifest.v1",
+        "status": "complete",
+        "started_at_utc": "2026-10-14T21:22:12.403124+00:00",
+        "engines": {
+          "A": {
+            "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/engine-A",
+            "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+          },
+          "B": {
+            "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/engine-B",
+            "sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/engine"
+          }
+        },
+        "source_ref": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+        "source_ref_verified": false,
+        "measurement_source_sha256": {
+          "paired_search_diagnostics.py": "3171d7b9e8344388917c86d07ef2dfd30633fa43eea6fd33b4f0dc9f0f080eb6",
+          "nps_threads.py": "fd71140da12625433f96ad046235b50cdcd47c949344767132ea16a283dbaa8d"
+        },
+        "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+        "effective_position_count": 20,
+        "threads": [
+          2
+        ],
+        "repeats": 2,
+        "budget": {
+          "depth": null,
+          "movetime_ms": 300
+        },
+        "evaluator": {
+          "kind": "material-only"
+        },
+        "hash_mb": 64,
+        "common_options": [
+          "LazyFlags=16399",
+          "T_COOP_LATENCY=0",
+          "T_COOP_DRAIN=0",
+          "T_COOP_PERSISTENT=0",
+          "T_ASP_VOLATILITY=0",
+          "T_V2_SORT=0",
+          "MoveOverhead=0"
+        ],
+        "A_options": [
+          "T_COOP_PRIORITY=0"
+        ],
+        "B_options": [
+          "T_COOP_PRIORITY=1"
+        ],
+        "changed_options": {
+          "T_COOP_PRIORITY": [
+            "0",
+            "1"
+          ]
+        },
+        "counter_lane": false,
+        "cooperative_latency_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_priority_requested": {
+          "A": false,
+          "B": true
+        },
+        "identity_policy": "require_1T_fixed_depth",
+        "host": {
+          "system": "Darwin",
+          "release": "27.0.0",
+          "machine": "arm64",
+          "cpu_count": 10
+        },
+        "schedule": "per-position ABBA; fresh process every slot",
+        "strength_gate_opened": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            4.61669921875,
+            5.7763671875,
+            5.5458984375
+          ]
+        },
+        "timing_qualified": false,
+        "configuration_sha256": "177f9abba40ddb614842a048561010ab2c6c40801c30f8f4f0a2dba986416e5a",
+        "host_activity_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 54437,
+              "cpu_percent": 54.8,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 54501,
+              "cpu_percent": 54.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 54658,
+              "cpu_percent": 53.2,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 54711,
+              "cpu_percent": 87.5,
+              "command": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/debug/deps/train-0bc3bd302051accf"
+            },
+            {
+              "pid": 54730,
+              "cpu_percent": 53.1,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 54787,
+              "cpu_percent": 54.1,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 54855,
+              "cpu_percent": 56.8,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 55066,
+              "cpu_percent": 54.1,
+              "command": "/opt/homebrew/Cellar/node/24.5.0/bin/node"
+            },
+            {
+              "pid": 55074,
+              "cpu_percent": 53.3,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 55208,
+              "cpu_percent": 54.7,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustfmt"
+            },
+            {
+              "pid": 55241,
+              "cpu_percent": 61.8,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 55244,
+              "cpu_percent": 54.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 55257,
+              "cpu_percent": 54.8,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            15.34326171875,
+            8.6025390625,
+            6.6162109375
+          ]
+        }
+      },
+      "artifacts": {
+        "manifest.json": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/manifest.json",
+          "sha256": "32ac80a720d1723fffc80fd102628586c6fec3694b01a30b6ca8163abb459a45",
+          "bytes": 5049
+        },
+        "rows.jsonl": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/rows.jsonl",
+          "sha256": "1d748a83f51033150c7eb8fdcfd4404f11b995ac72b7beda78d5a04b6181e2b6",
+          "bytes": 405237
+        },
+        "summary.json": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/summary.json",
+          "sha256": "f974ef8810af54d6934e85201eec99cb120a5813480b58c937d03247a467b1e1",
+          "bytes": 163422
+        },
+        "positions.input": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2/positions.input",
+          "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+          "bytes": 1556
+        }
+      },
+      "rows": 160,
+      "row_checks": {
+        "root_attribution_valid": true,
+        "actual_priority_matches_arm": true,
+        "observer_absent": true,
+        "row_counter_overhead_false": true
+      },
+      "unqualified_observations": {
+        "all": {
+          "blocks": 40,
+          "median_paired_depth_delta": 0.0,
+          "A_first_depth_delta": 0.0,
+          "B_first_depth_delta": 0.0,
+          "median_paired_wall_nps_ratio": 1.008577551921003
+        },
+        "quiet": {
+          "blocks": 20,
+          "median_paired_depth_delta": -0.25,
+          "A_first_depth_delta": -0.5,
+          "B_first_depth_delta": 0.0,
+          "median_paired_wall_nps_ratio": 1.021489799236519
+        },
+        "tactical": {
+          "blocks": 20,
+          "median_paired_depth_delta": 0.0,
+          "A_first_depth_delta": 0.0,
+          "B_first_depth_delta": 0.0,
+          "median_paired_wall_nps_ratio": 0.9859068648925255
+        }
+      },
+      "paired_blocks": [
+        {
+          "repeat": 0,
+          "position": 0,
+          "category": "quiet",
+          "depth_delta": -2.0,
+          "A_first_depth_delta": -3,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.0565541946922967
+        },
+        {
+          "repeat": 0,
+          "position": 1,
+          "category": "tactical",
+          "depth_delta": -1.0,
+          "A_first_depth_delta": -2,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.0859353521327446
+        },
+        {
+          "repeat": 0,
+          "position": 2,
+          "category": "quiet",
+          "depth_delta": -1.0,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.0114590301543753
+        },
+        {
+          "repeat": 0,
+          "position": 3,
+          "category": "tactical",
+          "depth_delta": 1.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 3,
+          "wall_nps_ratio": 1.2490825809080943
+        },
+        {
+          "repeat": 0,
+          "position": 4,
+          "category": "quiet",
+          "depth_delta": -1.0,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 0.93606221077537
+        },
+        {
+          "repeat": 0,
+          "position": 5,
+          "category": "tactical",
+          "depth_delta": 0,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.0127313396561808
+        },
+        {
+          "repeat": 0,
+          "position": 6,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 1.0659169558610522
+        },
+        {
+          "repeat": 0,
+          "position": 7,
+          "category": "tactical",
+          "depth_delta": 0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.9564518150806078
+        },
+        {
+          "repeat": 0,
+          "position": 8,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 2,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.2068776663759957
+        },
+        {
+          "repeat": 0,
+          "position": 9,
+          "category": "tactical",
+          "depth_delta": 0.0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.9908257651840098
+        },
+        {
+          "repeat": 0,
+          "position": 10,
+          "category": "quiet",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.0826249238930366
+        },
+        {
+          "repeat": 0,
+          "position": 11,
+          "category": "tactical",
+          "depth_delta": -1.5,
+          "A_first_depth_delta": -2,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.1391748325496582
+        },
+        {
+          "repeat": 0,
+          "position": 12,
+          "category": "quiet",
+          "depth_delta": -1.5,
+          "A_first_depth_delta": -2,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.003671762016452
+        },
+        {
+          "repeat": 0,
+          "position": 13,
+          "category": "tactical",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.956567383457422
+        },
+        {
+          "repeat": 0,
+          "position": 14,
+          "category": "quiet",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": -2,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 1.0177164455759924
+        },
+        {
+          "repeat": 0,
+          "position": 15,
+          "category": "tactical",
+          "depth_delta": -1.0,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 0.9634539308904833
+        },
+        {
+          "repeat": 0,
+          "position": 16,
+          "category": "quiet",
+          "depth_delta": 0.0,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 0.9825362400348185
+        },
+        {
+          "repeat": 0,
+          "position": 17,
+          "category": "tactical",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 0.9365253480409366
+        },
+        {
+          "repeat": 0,
+          "position": 18,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.9141136093468593
+        },
+        {
+          "repeat": 0,
+          "position": 19,
+          "category": "tactical",
+          "depth_delta": 0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.0071975899673375
+        },
+        {
+          "repeat": 1,
+          "position": 0,
+          "category": "quiet",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.0488477978393969
+        },
+        {
+          "repeat": 1,
+          "position": 1,
+          "category": "tactical",
+          "depth_delta": 1.0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 2,
+          "wall_nps_ratio": 0.9711427828902431
+        },
+        {
+          "repeat": 1,
+          "position": 2,
+          "category": "quiet",
+          "depth_delta": -1,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 0.9085555869185314
+        },
+        {
+          "repeat": 1,
+          "position": 3,
+          "category": "tactical",
+          "depth_delta": -1,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.1859005342181541
+        },
+        {
+          "repeat": 1,
+          "position": 4,
+          "category": "quiet",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.1394307913572492
+        },
+        {
+          "repeat": 1,
+          "position": 5,
+          "category": "tactical",
+          "depth_delta": 1.5,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": 2,
+          "wall_nps_ratio": 1.0286767170952709
+        },
+        {
+          "repeat": 1,
+          "position": 6,
+          "category": "quiet",
+          "depth_delta": 0.0,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.1064608255587234
+        },
+        {
+          "repeat": 1,
+          "position": 7,
+          "category": "tactical",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 0.9809879646010414
+        },
+        {
+          "repeat": 1,
+          "position": 8,
+          "category": "quiet",
+          "depth_delta": 0,
+          "A_first_depth_delta": -2,
+          "B_first_depth_delta": 2,
+          "wall_nps_ratio": 0.9820016807518726
+        },
+        {
+          "repeat": 1,
+          "position": 9,
+          "category": "tactical",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 0.8974395598868392
+        },
+        {
+          "repeat": 1,
+          "position": 10,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 0.9189400667184162
+        },
+        {
+          "repeat": 1,
+          "position": 11,
+          "category": "tactical",
+          "depth_delta": 0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.0458287014737235
+        },
+        {
+          "repeat": 1,
+          "position": 12,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.222003426668033
+        },
+        {
+          "repeat": 1,
+          "position": 13,
+          "category": "tactical",
+          "depth_delta": 1.5,
+          "A_first_depth_delta": 3,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.852829180143803
+        },
+        {
+          "repeat": 1,
+          "position": 14,
+          "category": "quiet",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": -1,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 1.025263152897046
+        },
+        {
+          "repeat": 1,
+          "position": 15,
+          "category": "tactical",
+          "depth_delta": 1.0,
+          "A_first_depth_delta": 2,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.963225511242319
+        },
+        {
+          "repeat": 1,
+          "position": 16,
+          "category": "quiet",
+          "depth_delta": 0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 1,
+          "wall_nps_ratio": 0.9582888348572831
+        },
+        {
+          "repeat": 1,
+          "position": 17,
+          "category": "tactical",
+          "depth_delta": -0.5,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": -1,
+          "wall_nps_ratio": 1.0099575138746681
+        },
+        {
+          "repeat": 1,
+          "position": 18,
+          "category": "quiet",
+          "depth_delta": 1.0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 2,
+          "wall_nps_ratio": 1.1645241103531225
+        },
+        {
+          "repeat": 1,
+          "position": 19,
+          "category": "tactical",
+          "depth_delta": 0,
+          "A_first_depth_delta": 0,
+          "B_first_depth_delta": 0,
+          "wall_nps_ratio": 0.9646215635834312
+        }
+      ]
+    }
+  ],
+  "timing_attempt3": {
+    "status": "not_started",
+    "reason": "Attempt2 completed; protocol prohibits retry after completed run including post-load invalidation."
+  },
+  "fixed_pv": {
+    "artifact": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-fixed-pv.json",
+      "sha256": "d82e2aaecafb54ed97a6035d77c1f051a5392ee18963d5530fe7b4714cbed36d",
+      "bytes": 1316
+    },
+    "result": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 160,
+      "pv_moves": 1274,
+      "unique_board_probes": 484,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-fixed-pv.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-default-identity",
+          "engine_sha256": {
+            "A": "cb771a3a51613865f7f4b69bc3ef0a52c7550549e138e5db8bc5ceae15d0c894",
+            "B": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        },
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-mechanism",
+          "engine_sha256": {
+            "A": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "B": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "timed_pv": {
+    "artifact": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-pv.json",
+      "sha256": "c099ce3f74b7d4e4e7f07c7d747ccc411cb9224b42f27cada8d0f3b4d170db38",
+      "bytes": 899
+    },
+    "result": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 160,
+      "pv_moves": 1859,
+      "unique_board_probes": 1105,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-pv.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-timed-attempt2",
+          "engine_sha256": {
+            "A": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+            "B": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "local_validation": {
+    "core": {
+      "passed": 361,
+      "ignored": 4,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-full-core.log",
+        "sha256": "6091b70084bd0e717a08245a0fefc7aa9a026998925e93e76a028e6ea5651c20",
+        "bytes": 30525
+      }
+    },
+    "root": {
+      "passed": 37,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-root-tests.log",
+        "sha256": "75e2f224ff6783feccf5e26d84ab4c1dc8e391bde5ff71c138364b7e05d50b96",
+        "bytes": 4142
+      }
+    },
+    "usi_tune": {
+      "passed": 25,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-usi.log",
+        "sha256": "376834bc4eb881ea71f1898e22c18e1b669fecacb84e2789f94940fa012fcfe7",
+        "bytes": 2289
+      }
+    },
+    "python_focused_passed": 51,
+    "fmt": "passed",
+    "tune_clippy": {
+      "result": "passed",
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-clippy.log",
+        "sha256": "e37f308c0f43a9b01a4a98b83b28adbb2c4b41f84d18e62a897f9f83fb0bf79e",
+        "bytes": 302
+      }
+    }
+  },
+  "decision": {
+    "advance": false,
+    "reasons": [
+      "Post-host load check invalidated completed timing.",
+      "Observed overall depth delta0 is below preregistered0.5 and both order directions0 are not positive.",
+      "Observed quiet-subgroup median depth delta-0.25 is negative, also failing the preregistered subgroup requirement."
+    ],
+    "interpretation": "Priority selection activated, but no qualified useful-depth or playing-strength benefit. Keep disabled; no NPS speed claim or scout interruption. Independent aspiration candidate unchanged."
+  }
+}

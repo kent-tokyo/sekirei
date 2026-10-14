@@ -117,7 +117,10 @@ use pruning::{nmp_eval_allows, null_move_pruning, probcut};
 use root_safety::{RootMateSafetyCache, RootSafety, root_mate_safety_filter};
 #[cfg(test)]
 use root_safety::{may_give_check, safe_root_moves};
-pub use root_split::{CooperativeRootStats, CooperativeRootWaitStats};
+pub use root_split::{
+    CooperativeRootLatencyStats, CooperativeRootOutcomeStats, CooperativeRootStats,
+    CooperativeRootWaitStats,
+};
 use singular::{SingularContext, SingularOutcome};
 use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;
@@ -2986,7 +2989,10 @@ fn root_search_inner_tracked(
     // Moves that raised alpha, with their scores (ROOT_ORDER).
     let mut raised: Vec<(Move, i32)> = Vec::new();
     let v2_root = p::SEARCH_V2() != 0 && p::V2_ROOT() != 0;
-    let mut searched: Vec<Move> = Vec::new();
+    // Completed root moves are a prefix: the loop visits ordered moves
+    // without skipping, and records completion only after the abort check.
+    // Borrow that prefix for root learning instead of allocating a copy.
+    let mut searched_len = 0;
 
     for (i, &m) in ordered.iter().enumerate() {
         let mover = board.side_to_move;
@@ -3041,7 +3047,7 @@ fn root_search_inner_tracked(
             break;
         }
         if v2_root {
-            searched.push(m);
+            searched_len = i + 1;
         }
 
         if score > alpha {
@@ -3062,7 +3068,7 @@ fn root_search_inner_tracked(
         && !state.budget.should_abort()
         && let Some(b) = best_move
     {
-        v2::root_learn(state, board, b, &searched, depth);
+        v2::root_learn(state, board, b, &ordered[..searched_len], depth);
     }
     if (p::ROOT_ORDER() != 0 || v2_root) && !state.budget.should_abort() {
         raised.sort_by_key(|&(_, s)| std::cmp::Reverse(s));
