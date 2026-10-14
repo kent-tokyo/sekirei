@@ -159,6 +159,44 @@ pub struct CooperativeRootOutcomeStats {
     pub reordered_confirmation_nodes: u64,
 }
 
+/// Optional evidence for the one-ply cooperative helper root reduction.
+/// Counts attempts, including interrupted probes; completed fail lows exclude aborts.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootHelperLmrStats {
+    /// Late quiet non-checking root probes started one ply shallower.
+    pub reduced_probes: u64,
+    /// Completed reduced probes that exceeded their alpha snapshot.
+    pub reduced_fail_highs: u64,
+    /// Full-depth null-window rechecks started after reduced fail highs.
+    pub full_depth_rechecks: u64,
+    /// Completed full-depth rechecks that still exceeded the same alpha.
+    pub full_depth_fail_highs: u64,
+    /// Completed reduced probes that did not exceed alpha and were not rechecked.
+    pub completed_reduced_fail_lows: u64,
+}
+
+#[derive(Default)]
+struct HelperLmrCounters {
+    reduced_probes: AtomicU64,
+    reduced_fail_highs: AtomicU64,
+    full_depth_rechecks: AtomicU64,
+    full_depth_fail_highs: AtomicU64,
+    completed_reduced_fail_lows: AtomicU64,
+}
+
+impl HelperLmrCounters {
+    fn snapshot(&self) -> CooperativeRootHelperLmrStats {
+        CooperativeRootHelperLmrStats {
+            reduced_probes: self.reduced_probes.load(Ordering::Relaxed),
+            reduced_fail_highs: self.reduced_fail_highs.load(Ordering::Relaxed),
+            full_depth_rechecks: self.full_depth_rechecks.load(Ordering::Relaxed),
+            full_depth_fail_highs: self.full_depth_fail_highs.load(Ordering::Relaxed),
+            completed_reduced_fail_lows: self.completed_reduced_fail_lows.load(Ordering::Relaxed),
+        }
+    }
+}
+
 /// Evidence for opt-in candidate confirmation while worker 0 awaits its helper.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -179,6 +217,10 @@ pub struct CooperativeRootWaitStats {
     pub priority_enabled: bool,
     /// Confirmation outcomes, absent when COOP_LATENCY is disabled.
     pub outcomes: Option<CooperativeRootOutcomeStats>,
+    /// Whether the cooperative helper-only one-ply root reduction was requested.
+    pub helper_lmr_enabled: bool,
+    /// Present only when helper LMR and COOP_LATENCY are both enabled.
+    pub helper_lmr: Option<CooperativeRootHelperLmrStats>,
 }
 
 #[derive(Default)]
@@ -301,6 +343,7 @@ impl LatencyCounters {
 
 #[derive(Default)]
 struct Counters {
+    helper_lmr: OnceLock<HelperLmrCounters>,
     latency: OnceLock<Arc<LatencyCounters>>,
     waiting_confirmations: AtomicU64,
     waiting_confirmation_nodes: AtomicU64,
@@ -351,6 +394,8 @@ impl Counters {
                 .latency
                 .get()
                 .map(|counters| counters.outcomes.snapshot()),
+            helper_lmr_enabled: false,
+            helper_lmr: self.helper_lmr.get().map(HelperLmrCounters::snapshot),
         }
     }
 
@@ -412,6 +457,7 @@ struct Invocation {
     persistent: bool,
     drain: bool,
     priority: bool,
+    helper_lmr: bool,
     latency: Option<Arc<LatencyCounters>>,
     executor: RefCell<Option<HelperExecutor>>,
 }
@@ -443,6 +489,7 @@ impl Activation {
             persistent: false,
             drain: false,
             priority: false,
+            helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
         }))
@@ -483,7 +530,8 @@ impl Searcher {
 
     /// Run the cooperative prototype and also return its optional wait evidence.
     ///
-    /// `COOP_DRAIN`, `COOP_PRIORITY`, and diagnostics-only `COOP_LATENCY` are
+    /// `COOP_DRAIN`, `COOP_PRIORITY`, `COOP_HELPER_LMR`, and diagnostics-only
+    /// `COOP_LATENCY` are
     /// captured once per invocation. Priority couples highest observed ready
     /// LOWER-bound selection with a rescan after each confirmation; no helper
     /// score can become the root result without worker 0 verification.
@@ -493,7 +541,7 @@ impl Searcher {
         config: SearchConfig,
         history: &PositionHistory,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
-        self.search_cooperative_root_priority_controls(
+        self.search_cooperative_root_helper_lmr_controls(
             board,
             config,
             history,
@@ -501,6 +549,7 @@ impl Searcher {
             p::COOP_DRAIN() != 0,
             p::COOP_LATENCY() != 0,
             p::COOP_PRIORITY() != 0,
+            p::COOP_HELPER_LMR() != 0,
         )
     }
 
@@ -546,6 +595,7 @@ impl Searcher {
         )
     }
 
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     fn search_cooperative_root_priority_controls(
         &self,
@@ -557,7 +607,31 @@ impl Searcher {
         latency: bool,
         priority: bool,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        self.search_cooperative_root_helper_lmr_controls(
+            board, config, history, persistent, drain, latency, priority, false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_cooperative_root_helper_lmr_controls(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        persistent: bool,
+        drain: bool,
+        latency: bool,
+        priority: bool,
+        helper_lmr: bool,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
         let counters = Arc::new(Counters::default());
+        if helper_lmr && latency {
+            counters
+                .helper_lmr
+                .set(HelperLmrCounters::default())
+                .ok()
+                .expect("fresh helper LMR counters");
+        }
         let latency = latency.then(|| Arc::new(LatencyCounters::default()));
         if let Some(latency) = &latency {
             counters
@@ -571,6 +645,7 @@ impl Searcher {
             persistent,
             drain,
             priority,
+            helper_lmr,
             latency,
             executor: RefCell::new(None),
         });
@@ -581,11 +656,9 @@ impl Searcher {
         // The TLS context releases its ownership before shutdown. Closing the
         // last sender wakes the idle worker; Drop joins it before this snapshot.
         drop(invocation);
-        (
-            info,
-            counters.snapshot(),
-            counters.wait_snapshot_for(drain, priority),
-        )
+        let mut wait = counters.wait_snapshot_for(drain, priority);
+        wait.helper_lmr_enabled = helper_lmr;
+        (info, counters.snapshot(), wait)
     }
 
     /// Cooperative root search with an initial one-position game history.
@@ -1019,6 +1092,7 @@ struct HelperWork {
     ordered: Arc<[Move]>,
     history: PositionHistory,
     depth: u32,
+    helper_lmr: bool,
 }
 
 struct HelperJob {
@@ -1099,14 +1173,29 @@ fn run_helper(mut work: HelperWork, counters: &Counters) {
             break;
         };
         let before_nodes = work.state.budget.nodes();
-        let score = child(
-            &work.state,
-            &mut work.board,
-            work.ordered[task.move_index],
-            work.depth - 1,
+        let mv = work.ordered[task.move_index];
+        let reduction = if work.helper_lmr {
+            helper_root_reduction(&mut work.board, mv, work.depth, task.move_index)
+        } else {
+            0
+        };
+        let (score, full_depth) = helper_probe(
+            work.depth,
+            reduction,
             task.alpha_snapshot,
-            task.alpha_snapshot + 1,
-            &history,
+            &work.state.budget,
+            counters.helper_lmr.get(),
+            |depth| {
+                child(
+                    &work.state,
+                    &mut work.board,
+                    mv,
+                    depth,
+                    task.alpha_snapshot,
+                    task.alpha_snapshot + 1,
+                    &history,
+                )
+            },
         );
         let probe_nodes = work.state.budget.nodes() - before_nodes;
         if work.state.budget.should_abort() {
@@ -1121,7 +1210,11 @@ fn run_helper(mut work: HelperWork, counters: &Counters) {
         counters
             .helper_completed_nodes
             .fetch_add(probe_nodes, Ordering::Relaxed);
-        counters.helper_probes.fetch_add(1, Ordering::Relaxed);
+        // Keep the legacy counter's full-depth meaning. Reduced fail lows
+        // contribute completed nodes, but have not completed a full-depth probe.
+        if full_depth {
+            counters.helper_probes.fetch_add(1, Ordering::Relaxed);
+        }
         if score > task.alpha_snapshot {
             counters.helper_fail_highs.fetch_add(1, Ordering::Relaxed);
             work.generation.publish(RootCandidate {
@@ -1133,6 +1226,61 @@ fn run_helper(mut work: HelperWork, counters: &Counters) {
             });
         }
     }
+}
+
+fn helper_root_reduction(board: &mut Board, mv: Move, depth: u32, move_index: usize) -> u32 {
+    let quiet = board.piece_at(mv.to).is_none() && !mv.promote;
+    let reduction = root_lmr_reduction(depth, move_index, quiet, true).min(1);
+    if reduction == 0 || is_in_check(board, board.side_to_move) {
+        return 0;
+    }
+    let token = board.do_move(mv);
+    let gives_check = is_in_check(board, board.side_to_move);
+    board.undo_move(token);
+    if gives_check { 0 } else { reduction }
+}
+
+fn helper_probe(
+    depth: u32,
+    reduction: u32,
+    alpha: i32,
+    budget: &Budget,
+    diagnostics: Option<&HelperLmrCounters>,
+    mut search: impl FnMut(u32) -> i32,
+) -> (i32, bool) {
+    if reduction > 0
+        && let Some(counters) = diagnostics
+    {
+        counters.reduced_probes.fetch_add(1, Ordering::Relaxed);
+    }
+    let score = search(depth - 1 - reduction);
+    if reduction == 0 || budget.should_abort() {
+        return (score, reduction == 0);
+    }
+    if score <= alpha {
+        if let Some(counters) = diagnostics {
+            counters
+                .completed_reduced_fail_lows
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        return (score, false);
+    }
+    if let Some(counters) = diagnostics {
+        counters.reduced_fail_highs.fetch_add(1, Ordering::Relaxed);
+        counters.full_depth_rechecks.fetch_add(1, Ordering::Relaxed);
+    }
+    // Advice carries root depth only after this full-depth recheck. Main
+    // still verifies at its latest alpha; reduced fail lows remain selective.
+    let score = search(depth - 1);
+    if score > alpha
+        && !budget.should_abort()
+        && let Some(counters) = diagnostics
+    {
+        counters
+            .full_depth_fail_highs
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    (score, true)
 }
 
 fn participant_state(
@@ -1664,6 +1812,7 @@ pub(super) fn search(
             ordered: Arc::from(ordered),
             history: history.game.clone(),
             depth,
+            helper_lmr: invocation.helper_lmr,
         };
         if invocation.persistent {
             let _cancel_on_drop = CancelOnDrop(&generation);
@@ -1833,6 +1982,7 @@ mod tests {
             persistent: true,
             drain: false,
             priority: false,
+            helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
         })
@@ -1849,7 +1999,250 @@ mod tests {
             ordered: Arc::from(&ordered[..2]),
             history,
             depth,
+            helper_lmr: false,
         }
+    }
+
+    #[test]
+    fn helper_lmr_rechecks_only_completed_reduced_fail_highs_at_full_depth() {
+        for (scores, abort_at, expected_depths, expected_score, full_depth) in [
+            (vec![10], None, vec![4], 10, false),
+            (vec![11, 9], None, vec![4, 5], 9, true),
+            (vec![11, 12], None, vec![4, 5], 12, true),
+            (vec![11], Some(1), vec![4], 11, false),
+            (vec![11, 12], Some(2), vec![4, 5], 12, true),
+        ] {
+            let stop = Arc::new(AtomicBool::new(false));
+            let budget = Budget::new(None, None, stop.clone());
+            let counters = HelperLmrCounters::default();
+            let mut depths = Vec::new();
+            let result = helper_probe(6, 1, 10, &budget, Some(&counters), |depth| {
+                depths.push(depth);
+                if abort_at == Some(depths.len()) {
+                    stop.store(true, Ordering::Relaxed);
+                }
+                scores[depths.len() - 1]
+            });
+            assert_eq!(depths, expected_depths);
+            assert_eq!(result, (expected_score, full_depth));
+            let stats = counters.snapshot();
+            assert_eq!(stats.reduced_probes, 1);
+            assert_eq!(stats.reduced_fail_highs, u64::from(depths.len() == 2));
+            assert_eq!(stats.full_depth_rechecks, stats.reduced_fail_highs);
+            assert_eq!(
+                stats.completed_reduced_fail_lows,
+                u64::from(scores[0] == 10)
+            );
+            assert_eq!(
+                stats.full_depth_fail_highs,
+                u64::from(expected_score == 12 && abort_at.is_none())
+            );
+        }
+        // OFF never performs an extra search or records reduced attempts.
+        let budget = Budget::new(None, None, Arc::new(AtomicBool::new(false)));
+        let counters = HelperLmrCounters::default();
+        let mut depths = Vec::new();
+        assert_eq!(
+            helper_probe(6, 0, 10, &budget, Some(&counters), |depth| {
+                depths.push(depth);
+                11
+            }),
+            (11, true)
+        );
+        assert_eq!(depths, [5]);
+        assert_eq!(
+            counters.snapshot(),
+            CooperativeRootHelperLmrStats::default()
+        );
+    }
+
+    #[test]
+    fn helper_lmr_publishes_only_completed_full_depth_advice_and_keeps_legacy_counts() {
+        on_search_stack(|| {
+            for (score, node_limit) in [(10, None), (-10, None), (10, Some(1)), (10, Some(2))] {
+                let mut state = test_state();
+                Arc::get_mut(&mut state).unwrap().budget = Arc::new(Budget::new(
+                    None,
+                    node_limit,
+                    Arc::new(AtomicBool::new(false)),
+                ));
+                let mut board = Board::startpos();
+                let ordered = generate_legal_moves(&mut board);
+                let index = ordered.len() - 1;
+                let mv = ordered[index];
+                assert_eq!(helper_root_reduction(&mut board, mv, 8, index), 1);
+                let game = PositionHistory::initial(board.hash());
+                let token = board.do_move(mv);
+                let hash = board.hash();
+                board.undo_move(token);
+                // V2 intentionally rejects expected-cut-incompatible TT bounds
+                // at depth <=5. Both child depths here are >5.
+                state.tt.store(
+                    hash,
+                    TtEntry {
+                        score: -score,
+                        depth: 100,
+                        bound: Bound::Exact,
+                        mv: None,
+                    },
+                );
+                let (wake, _notifications) = mpsc::sync_channel(1);
+                let generation = Arc::new(Generation::with_wake(0, ordered.len(), Some(wake)));
+                generation.next.store(index, Ordering::Relaxed);
+                let counters = Counters::default();
+                counters
+                    .helper_lmr
+                    .set(HelperLmrCounters::default())
+                    .ok()
+                    .unwrap();
+                run_helper(
+                    HelperWork {
+                        state: state.clone(),
+                        generation: generation.clone(),
+                        board,
+                        ordered: Arc::from(ordered),
+                        history: game,
+                        depth: 8,
+                        helper_lmr: true,
+                    },
+                    &counters,
+                );
+                let stats = counters.snapshot();
+                let lmr = counters.helper_lmr.get().unwrap().snapshot();
+                assert_eq!(lmr.reduced_probes, 1);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                assert!(generation.helper_finished.load(Ordering::Acquire));
+                assert_eq!(
+                    stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                    state.budget.nodes()
+                );
+                if node_limit.is_some() {
+                    assert!(generation.take(index).is_none());
+                    assert_eq!(stats.helper_probes, 0);
+                    assert_eq!(stats.helper_fail_highs, 0);
+                    assert_eq!(stats.helper_aborted_probes, 1);
+                    assert_eq!(stats.helper_completed_nodes, 0);
+                } else if score > 0 {
+                    let candidate = generation.take(index).unwrap();
+                    assert_eq!(candidate.searched_depth, 8);
+                    assert_eq!(candidate.alpha_snapshot, 0);
+                    assert_eq!(candidate.score, score);
+                    assert_eq!(stats.helper_probes, 1);
+                    assert_eq!(stats.helper_fail_highs, 1);
+                    assert_eq!(lmr.full_depth_rechecks, 1);
+                    assert_eq!(lmr.full_depth_fail_highs, 1);
+                } else {
+                    assert!(generation.take(index).is_none());
+                    assert_eq!(stats.helper_probes, 0);
+                    assert_eq!(lmr.completed_reduced_fail_lows, 1);
+                    assert_eq!(lmr.full_depth_rechecks, 0);
+                    assert!(stats.helper_completed_nodes > 0);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn helper_lmr_excludes_captures_promotions_checks_and_shallow_early_moves() {
+        let mut categories = [0; 4];
+        for sfen in [
+            crate::sfen::STARTPOS_SFEN,
+            "4k4/9/5p3/5R3/9/9/9/9/4K4 b P 1",
+            "4k4/9/9/9/5R3/9/9/9/4K4 b P 1",
+            "4k4/9/9/9/4r4/9/9/9/4K4 b G 1",
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let hash = board.hash();
+            let acc = board.acc.clone();
+            let root_check = is_in_check(&board, board.side_to_move);
+            for mv in generate_legal_moves(&mut board) {
+                let capture = board.piece_at(mv.to).is_some();
+                let token = board.do_move(mv);
+                let gives_check = is_in_check(&board, board.side_to_move);
+                board.undo_move(token);
+                let excluded = capture || mv.promote || root_check || gives_check;
+                categories[0] += usize::from(capture);
+                categories[1] += usize::from(mv.promote);
+                categories[2] += usize::from(root_check);
+                categories[3] += usize::from(gives_check);
+                for depth in [1, 2, 3, 8, 64] {
+                    for index in [0, 2, 3, 63] {
+                        let reduction = helper_root_reduction(&mut board, mv, depth, index);
+                        assert!(reduction <= 1);
+                        if excluded || depth < 3 || index < 3 {
+                            assert_eq!(reduction, 0);
+                        } else {
+                            assert_eq!(
+                                reduction,
+                                root_lmr_reduction(depth, index, true, true).min(1)
+                            );
+                        }
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, acc);
+                    }
+                }
+            }
+        }
+        assert!(
+            categories.iter().all(|count| *count > 0),
+            "missing category: {categories:?}"
+        );
+    }
+
+    #[test]
+    fn helper_lmr_is_independent_of_observation_and_restores_both_executors() {
+        on_search_stack(|| {
+            for persistent in [false, true] {
+                for lmr in [false, true] {
+                    for latency in [false, true] {
+                        for node_limit in [None, Some(80)] {
+                            let searcher = Searcher::new(Tt::new(2));
+                            let mut board = Board::startpos();
+                            let hash = board.hash();
+                            let acc = board.acc.clone();
+                            let history = PositionHistory::initial(hash);
+                            let (info, stats, wait) = searcher
+                                .search_cooperative_root_helper_lmr_controls(
+                                    &mut board,
+                                    SearchConfig {
+                                        max_depth: 4,
+                                        node_limit,
+                                        ..SearchConfig::default()
+                                    },
+                                    &history,
+                                    persistent,
+                                    false,
+                                    latency,
+                                    false,
+                                    lmr,
+                                );
+                            assert_eq!(wait.helper_lmr_enabled, lmr);
+                            assert_eq!(wait.helper_lmr.is_some(), lmr && latency);
+                            assert_eq!(
+                                stats.physical_helper_threads_started,
+                                stats.physical_helper_threads_joined
+                            );
+                            assert_eq!(
+                                stats.helper_nodes,
+                                stats.helper_completed_nodes + stats.helper_aborted_nodes
+                            );
+                            assert!(stats.helper_fail_highs <= stats.helper_probes);
+                            assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+                            if let Some(limit) = node_limit {
+                                assert!(info.nodes >= limit);
+                            }
+                            assert_eq!(board.hash(), hash);
+                            assert_eq!(board.acc, acc);
+                            let mut replay = board.clone();
+                            for mv in info.pv {
+                                assert!(generate_legal_moves(&mut replay).contains(&mv));
+                                replay.do_move(mv);
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     #[test]
@@ -2061,6 +2454,7 @@ mod tests {
                     ordered: Arc::from(&ordered[..2]),
                     history,
                     depth: 2,
+                    helper_lmr: false,
                 };
                 let completion = invocation.dispatch(work).unwrap();
                 completion.recv().unwrap();
@@ -2502,6 +2896,7 @@ mod tests {
                 persistent: true,
                 drain: true,
                 priority: false,
+                helper_lmr: false,
                 latency: None,
                 executor: RefCell::new(Some(HelperExecutor {
                     sender: None,
@@ -2589,6 +2984,7 @@ mod tests {
                     persistent,
                     drain: true,
                     priority: false,
+                    helper_lmr: false,
                     latency: None,
                     executor: RefCell::new(None),
                 });
