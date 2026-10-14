@@ -1,0 +1,75 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.4.1",
+  "commit": "ee2de9bf10a98489c52f977dfa862409a445ace7",
+  "branch_at_release": "codex/release-v0.4.1",
+  "candidate_state": "planned publication from the locally validated release-preparation commit",
+  "packages": {
+    "sekirei": "0.4.1",
+    "sekirei-core": "0.4.1",
+    "sekirei-bench": "0.4.1",
+    "sekirei-csa": "0.4.1",
+    "sekirei-match-runner": "0.4.1",
+    "sekirei-train": "0.4.1"
+  },
+  "dependencies": {
+    "lineprior": "0.12.6",
+    "shogiesa-core": "0.11.6",
+    "veridict": "0.19.5"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "b9899ec91990fa24c2ca4bbebab2455bcf276f1bce1eea94aae3b20ed2836ac4"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.4.1",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.4.1.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.4.1/sekirei-wasm-0.4.1.tgz",
+    "sha256": "021ae67558586957d1dbd61f3d0225a51f412d964df9229cfff025563dc945c4",
+    "size": 529477,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace release tests, rustfmt, clippy, opening-book release tests, a native material-only USI smoke, and local WebAssembly package generation passed. Version 0.4.1 improves fail-closed evidence, search correctness, behavior-preserving HalfKP update throughput, and opt-in Lazy SMP diagnostics without adopting a new default search policy or evaluator. No general playing-strength claim is made.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.4.1."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "New Lazy SMP policies remain opt-in experiments; the default LazyFlags value is unchanged.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
