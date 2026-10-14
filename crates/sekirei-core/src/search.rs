@@ -1416,6 +1416,10 @@ pub struct Searcher {
     /// Lazy SMP can use this to make helpers examine different root moves
     /// before the shared TT has enough information to diversify them.
     root_order_offset: usize,
+    /// Use the full root LMR reduction instead of the usual one-ply relief.
+    /// Lazy SMP may enable this only for helper workers as an opt-in
+    /// experiment; ordinary searches and worker 0 keep the established path.
+    full_root_lmr: bool,
     /// Optional Lazy SMP channel. Helpers publish only fully completed root
     /// iterations; worker 0 may use a same-or-deeper move as ordering advice
     /// on its next iteration. Scores and bounds are deliberately not shared.
@@ -1532,6 +1536,9 @@ impl RootHintChannel {
     /// delayed compare-exchange from an earlier invocation cannot repopulate
     /// the slot after this reset.
     pub(crate) fn begin_go(&self) -> u64 {
+        // The packed representation retains 28 generation bits. LazySmpSearcher
+        // serializes invocations and joins every helper before the next call,
+        // so wrapping cannot make a live hint look current.
         let sequence = self.generation.fetch_add(1, Ordering::AcqRel);
         let generation = sequence % Self::GENERATION_MASK + 1;
         self.publications.reset(generation);
@@ -1651,6 +1658,7 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
             root_hint: None,
         }
     }
@@ -1675,6 +1683,7 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
             root_hint: None,
         }
     }
@@ -1692,6 +1701,7 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
             root_hint: None,
         }
     }
@@ -1712,6 +1722,7 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
             root_hint: None,
         }
     }
@@ -1728,6 +1739,7 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
             root_hint: None,
         }
     }
@@ -1776,6 +1788,17 @@ impl Searcher {
     /// feedback replaces this seed after the first completed root search.
     pub fn set_root_order_offset(&mut self, offset: usize) {
         self.root_order_offset = offset;
+    }
+
+    /// Remove the usual one-ply root-LMR relief. This crate-private control is
+    /// used only by an opt-in Lazy SMP helper experiment.
+    pub(crate) fn set_full_root_lmr(&mut self, enabled: bool) {
+        self.full_root_lmr = enabled;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn full_root_lmr_enabled(&self) -> bool {
+        self.full_root_lmr
     }
 
     /// Connect this searcher to an invocation-scoped Lazy SMP root-hint slot.
@@ -2133,6 +2156,7 @@ impl Searcher {
                     root_mate_safety,
                     history,
                     self.root_order_offset,
+                    self.full_root_lmr,
                     Some(&mut root_mate_safety_cache),
                     root_hint,
                 );
@@ -2441,6 +2465,7 @@ fn root_search(
     root_mate_safety: bool,
     history: &SearchHistory<'_>,
     root_order_offset: usize,
+    full_root_lmr: bool,
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
     root_hint: Option<RootHintOrder>,
 ) -> (Option<Move>, i32, SearchBound) {
@@ -2578,7 +2603,8 @@ fn root_search(
     // so a large swing costs a few re-searches instead of one per step.
     let mut delta = p::ASP_DELTA();
     loop {
-        let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi, history);
+        let (m, score) =
+            root_search_inner(state, board, depth, ordered, lo, hi, history, full_root_lmr);
 
         if state.budget.should_abort() {
             return (m, score, SearchBound::Unknown);
@@ -2663,6 +2689,20 @@ fn diversified_root_order(
     Some(diversified)
 }
 
+#[inline]
+fn root_lmr_reduction(depth: u32, move_index: usize, quiet: bool, full_reduction: bool) -> u32 {
+    if depth < 3 || move_index < 3 || !quiet {
+        return 0;
+    }
+    let base = lmr_base_reduction(depth, move_index + 1);
+    let reduction = if full_reduction {
+        base
+    } else {
+        base.saturating_sub(1)
+    };
+    reduction.min(depth - 2)
+}
+
 fn root_search_inner(
     state: &Arc<SearchState>,
     board: &mut Board,
@@ -2671,6 +2711,7 @@ fn root_search_inner(
     lo: i32,
     hi: i32,
     history: &SearchHistory<'_>,
+    full_root_lmr: bool,
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
     let mut alpha = lo;
@@ -2684,13 +2725,7 @@ fn root_search_inner(
         // Late quiet root moves get a reduced null-window probe first
         // (ROOT_LMR 1: every late move).
         let quiet = p::ROOT_LMR() != 0 || (board.piece_at(m.to).is_none() && !m.promote);
-        let reduce = if depth >= 3 && i >= 3 && quiet {
-            lmr_base_reduction(depth, i + 1)
-                .saturating_sub(1)
-                .min(depth - 2)
-        } else {
-            0
-        };
+        let reduce = root_lmr_reduction(depth, i, quiet, full_root_lmr);
         set_current_move(0, Some(m));
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
@@ -4267,6 +4302,7 @@ impl SpeculativeSearcher {
                     true,
                     &SearchHistory::root(history),
                     0,
+                    false,
                     None,
                     None,
                 );
@@ -6891,6 +6927,33 @@ mod regression_tests {
     use super::*;
     use crate::board::Board;
 
+    #[test]
+    fn full_root_lmr_only_removes_the_late_quiet_relief() {
+        for depth in 1..=16 {
+            for move_index in 0..32 {
+                assert_eq!(root_lmr_reduction(depth, move_index, false, false), 0);
+                assert_eq!(root_lmr_reduction(depth, move_index, false, true), 0);
+
+                let established = root_lmr_reduction(depth, move_index, true, false);
+                let full = root_lmr_reduction(depth, move_index, true, true);
+                assert!(full >= established);
+                assert!(full <= established.saturating_add(1));
+                assert!(full <= depth.saturating_sub(2));
+                if depth < 3 || move_index < 3 {
+                    assert_eq!(established, 0);
+                    assert_eq!(full, 0);
+                }
+            }
+        }
+        assert!(
+            (3..=16).any(|depth| (3..32).any(|move_index| {
+                root_lmr_reduction(depth, move_index, true, true)
+                    > root_lmr_reduction(depth, move_index, true, false)
+            })),
+            "the helper experiment must strengthen at least one root reduction"
+        );
+    }
+
     fn fresh_state(tt: Arc<Tt>) -> Arc<SearchState> {
         Arc::new(SearchState {
             tt,
@@ -6928,6 +6991,7 @@ mod regression_tests {
             NEG_INF,
             -500_000,
             &SearchHistory::root(&history),
+            false,
         );
 
         let entry = tt
@@ -7014,6 +7078,7 @@ mod regression_tests {
             false,
             &SearchHistory::root(&history),
             0,
+            false,
             None,
             None,
         );
@@ -7062,6 +7127,7 @@ mod regression_tests {
             false,
             &SearchHistory::root(&history),
             0,
+            false,
             None,
             None,
         );
@@ -7189,6 +7255,7 @@ mod regression_tests {
             NEG_INF,
             POS_INF,
             &SearchHistory::root(&history),
+            false,
         );
         let genuine = tt
             .probe(hash)
@@ -7214,6 +7281,7 @@ mod regression_tests {
             NEG_INF,
             POS_INF,
             &SearchHistory::root(&history),
+            false,
         );
 
         let after = tt

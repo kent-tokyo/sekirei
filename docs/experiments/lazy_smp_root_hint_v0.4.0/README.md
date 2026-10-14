@@ -15,6 +15,11 @@ The one-factor candidate is `LazyFlags=2063`; the baseline is
 pruning constants, worker count, TT sharing, time management, and final result
 selection stay fixed.
 
+The implementation commit is `a01bc23`; invocation-bound counters were added
+by `845e9aa`, and the fail-closed measurement contract by `58347e2`. A later
+strength run must record its final built commit and binary SHA-256 rather than
+assuming these source commits identify the executable.
+
 ## Diagnostic before the gate
 
 The diagnostic must use material evaluation, four threads, `Hash=64`, no
@@ -35,8 +40,9 @@ SHA-256, evaluator, options, budget, and host. The strict lane rejects a
 missing, duplicate, malformed, overflowing, or inconsistent root-hint line.
 It reports:
 
-- successful helper publications;
-- same-generation, same-or-deeper reads by worker 0;
+- helper publications accepted as slot updates;
+- same-generation, same-or-deeper reads by worker 0, before the final root
+  list is checked;
 - reads that actually changed the final legal root order;
 - searches with at least one publication or application;
 - reads per publication and applications per eligible read.

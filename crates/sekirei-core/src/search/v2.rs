@@ -1405,7 +1405,6 @@ fn node(
     }
     drop(buf);
     list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
-    bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     diag(state, entry_depth, 7);
     if let Some(c) = state.counters() {
         c.loop_nodes[usize::from(tt_move.is_some())].fetch_add(1, Ordering::Relaxed);
@@ -1526,6 +1525,13 @@ fn node(
                 }
                 1 => {
                     stage = 2;
+                    // Losing tactical moves are searched only after every
+                    // winning tactical and quiet move. Delay their ordering
+                    // until this stage so beta cutoffs and pruned quiet stages
+                    // do not pay for a sort whose result is never consumed.
+                    // The saved keys and input order are unchanged, so nodes
+                    // that reach this stage retain the exact move order.
+                    bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
                     if let Some(c) = state.counters() {
                         c.move_stages[3].fetch_add(1, Ordering::Relaxed);
                     }

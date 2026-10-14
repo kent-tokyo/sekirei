@@ -20,6 +20,7 @@ from nps_threads import (  # noqa: E402
     parse_lazy_smp_overlap,
     parse_lazy_smp_root_hint,
     parse_lazy_smp_tt,
+    require_lazy_diagnostic_record,
     summarize_lazy_overlap,
     summarize_lazy_root_hints,
     summarize_lazy_root_work,
@@ -300,6 +301,30 @@ class ThreadOptionsTest(unittest.TestCase):
         args.lazy_diagnostics = True
 
         self.assertIn("LazyDiagnostics=true", engine_options(args, 4))
+
+    def test_required_lazy_diagnostics_enable_the_engine_counters(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.require_lazy_diagnostics = True
+
+        self.assertIn("LazyDiagnostics=true", engine_options(args, 4))
+
+    def test_required_lazy_diagnostics_fail_on_partial_records(self):
+        complete = {
+            "worker_stats": [{"worker": 0, "selected": True}],
+            "selected_tt_local_hits": 1,
+            "selected_tt_foreign_hits": 2,
+            "selected_tt_unknown_hits": 0,
+        }
+        require_lazy_diagnostic_record(complete, {"probes": 3}, {"visits": 4})
+
+        with self.assertRaisesRegex(ValueError, "selected_tt_foreign_hits"):
+            require_lazy_diagnostic_record(
+                {key: value for key, value in complete.items() if key != "selected_tt_foreign_hits"},
+                {"probes": 3},
+                {"visits": 4},
+            )
+        with self.assertRaisesRegex(ValueError, "lazy_smp_overlap"):
+            require_lazy_diagnostic_record(complete, {"probes": 3}, None)
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(

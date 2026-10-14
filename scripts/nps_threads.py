@@ -298,6 +298,33 @@ def parse_bestmove(lines: list[str]) -> str:
     return ""
 
 
+def require_lazy_diagnostic_record(
+    lazy_smp: dict[str, object] | None,
+    lazy_smp_tt: dict[str, int] | None,
+    lazy_smp_overlap: dict[str, int] | None,
+) -> None:
+    """Fail closed when a requested Lazy SMP diagnostic record is incomplete."""
+    missing = []
+    if lazy_smp is None:
+        missing.append("lazy_smp")
+    else:
+        if not lazy_smp.get("worker_stats"):
+            missing.append("lazy_smp.worker_stats")
+        for key in (
+            "selected_tt_local_hits",
+            "selected_tt_foreign_hits",
+            "selected_tt_unknown_hits",
+        ):
+            if key not in lazy_smp:
+                missing.append(f"lazy_smp.{key}")
+    if lazy_smp_tt is None:
+        missing.append("lazy_smp_tt")
+    if lazy_smp_overlap is None:
+        missing.append("lazy_smp_overlap")
+    if missing:
+        raise ValueError("missing required Lazy SMP diagnostics: " + ", ".join(missing))
+
+
 def go_command(args: argparse.Namespace) -> str:
     if args.depth is not None:
         return f"go depth {args.depth}"
@@ -518,7 +545,7 @@ def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
         ]
         if args.evalfile is not None:
             options.insert(0, f"EvalFile={Path(args.evalfile).resolve()}")
-        if args.lazy_diagnostics:
+        if args.lazy_diagnostics or getattr(args, "require_lazy_diagnostics", False):
             options.append("LazyDiagnostics=true")
     return options + list(args.option)
 
@@ -559,6 +586,10 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp = parse_lazy_smp(lines)
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
+                if args.require_lazy_diagnostics:
+                    require_lazy_diagnostic_record(
+                        lazy_smp, lazy_smp_tt, lazy_smp_overlap
+                    )
                 lazy_smp_root_hint = parse_lazy_smp_root_hint(
                     lines, required=args.require_root_hint_diagnostics
                 )
@@ -671,6 +702,14 @@ def main() -> int:
         help="enable opt-in Sekirei Lazy SMP TT counters (adds overhead)",
     )
     parser.add_argument(
+        "--require-lazy-diagnostics",
+        action="store_true",
+        help=(
+            "fail unless every search emits complete Lazy SMP worker, TT, overlap, "
+            "and selected-worker TT-origin diagnostics"
+        ),
+    )
+    parser.add_argument(
         "--require-root-hint-diagnostics",
         action="store_true",
         help=(
@@ -687,6 +726,8 @@ def main() -> int:
         parser.error("--yaneuraou requires --evalfile")
     if args.yaneuraou and args.lazy_diagnostics:
         parser.error("--lazy-diagnostics is Sekirei-only")
+    if args.yaneuraou and args.require_lazy_diagnostics:
+        parser.error("--require-lazy-diagnostics is Sekirei-only")
     if args.yaneuraou and args.require_root_hint_diagnostics:
         parser.error("--require-root-hint-diagnostics is Sekirei-only")
     if args.repeats < 1:
@@ -739,7 +780,9 @@ def main() -> int:
         },
         "started_at_utc": datetime.now(timezone.utc).isoformat(),
         "counter_overhead_included": bool(
-            args.lazy_diagnostics or args.require_root_hint_diagnostics
+            args.lazy_diagnostics
+            or args.require_lazy_diagnostics
+            or args.require_root_hint_diagnostics
         ),
     }
     results: dict[int, list[dict]] = {}
@@ -854,7 +897,7 @@ def main() -> int:
     }
     if any(summary is not None for summary in root_hint_summaries.values()):
         print("Helper-root-hint transfer (diagnostic only)")
-        print("threads  publish/search  apply/search  reads/publication  applied/read")
+        print("threads  accepted/search  apply/search  depth-reads/accepted  applied/read")
         for threads in thread_counts:
             summary = root_hint_summaries[threads]
             if summary is None:
