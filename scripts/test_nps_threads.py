@@ -19,6 +19,7 @@ from nps_threads import (  # noqa: E402
     go_command,
     measure,
     parse_bestmove,
+    parse_cooperative_root_wait,
     parse_lazy_smp,
     parse_lazy_smp_overlap,
     parse_lazy_smp_root_hint,
@@ -394,6 +395,31 @@ class ThreadOptionsTest(unittest.TestCase):
             )
         with self.assertRaisesRegex(ValueError, "lazy_smp_overlap"):
             require_lazy_diagnostic_record(complete, {"probes": 3}, None)
+
+    def test_cooperative_wait_evidence_is_optional_and_bounded(self):
+        root = {"main_confirmations": 3, "confirmation_nodes": 100, "confirmed_alpha_raises": 2}
+        line = ("info string cooperative_root_wait enabled 1 waiting_confirmations 2 "
+                "waiting_confirmation_nodes 80 waiting_alpha_raises 1 notification_wait_us 50")
+        self.assertIsNone(parse_cooperative_root_wait([], cooperative_root=None))
+        parsed = parse_cooperative_root_wait([line], cooperative_root=root)
+        self.assertEqual(parsed, {"enabled": 1, "waiting_confirmations": 2,
+                                 "waiting_confirmation_nodes": 80,
+                                 "waiting_alpha_raises": 1, "notification_wait_us": 50})
+        for bad in ([line, line], [line + " extra 0"], [line.replace("enabled 1", "enabled 0")],
+                    [line.replace("enabled 1", "enabled 2")],
+                    [line.replace("waiting_confirmations 2", "waiting_confirmations 4")],
+                    [line.replace("waiting_confirmation_nodes 80", "waiting_confirmation_nodes 101")],
+                    [line.replace("waiting_alpha_raises 1", "waiting_alpha_raises 3")],
+                    [line.replace("waiting_confirmations 2", "waiting_confirmations 0")],
+                    [line.replace("notification_wait_us 50", "notification_wait_us -1")],
+                    [line.replace("notification_wait_us 50", "notification_wait_us ５０")],
+                    [line.replace("notification_wait_us 50", f"notification_wait_us {1 << 64}")]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_cooperative_root_wait(bad, cooperative_root=root)
+        with self.assertRaisesRegex(ValueError, "requires enabled split"):
+            parse_cooperative_root_wait([line], cooperative_root=None)
+        with self.assertRaisesRegex(ValueError, "confirmed raises"):
+            parse_cooperative_root_wait([line], cooperative_root={**root, "confirmed_alpha_raises": 0})
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(

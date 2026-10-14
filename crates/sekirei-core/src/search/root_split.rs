@@ -10,6 +10,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, mpsc};
+use std::time::Duration;
 use web_time::Instant;
 
 use super::heuristics::{CountermoveTable, HistoryTable, KillerTable};
@@ -55,7 +56,7 @@ pub struct CooperativeRootStats {
     pub helpers_started: u64,
     /// Sum of spawn request to helper closure start, in microseconds.
     pub helper_start_delay_us: u64,
-    /// Sum of time main waits for the helper at join, in microseconds.
+    /// Actual notification/completion/join blocking time, excluding confirmation work, in microseconds.
     pub join_wait_us: u64,
     /// Sum of positive alpha advances since confirmed candidates were probed.
     pub alpha_gap_sum: u64,
@@ -71,8 +72,28 @@ pub struct CooperativeRootStats {
     pub helper_dispatch_delay_us: u64,
 }
 
+/// Evidence for opt-in candidate confirmation while worker 0 awaits its helper.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootWaitStats {
+    /// Whether notification-driven confirmation was requested for this invocation.
+    pub enabled: bool,
+    /// Confirmations started during the wait while the helper was unfinished.
+    pub waiting_confirmations: u64,
+    /// Main nodes in those confirmations, including interrupted confirmations.
+    pub waiting_confirmation_nodes: u64,
+    /// Those confirmations that completed and raised worker 0's alpha.
+    pub waiting_alpha_raises: u64,
+    /// Actual blocking time on the private notification receiver, in microseconds.
+    pub notification_wait_us: u64,
+}
+
 #[derive(Default)]
 struct Counters {
+    waiting_confirmations: AtomicU64,
+    waiting_confirmation_nodes: AtomicU64,
+    waiting_alpha_raises: AtomicU64,
+    notification_wait_us: AtomicU64,
     helper_history: OnceLock<Arc<HistoryTable>>,
     helper_countermoves: OnceLock<Arc<CountermoveTable>>,
     generations: AtomicU64,
@@ -100,6 +121,16 @@ struct Counters {
 }
 
 impl Counters {
+    fn wait_snapshot(&self, enabled: bool) -> CooperativeRootWaitStats {
+        CooperativeRootWaitStats {
+            enabled,
+            waiting_confirmations: self.waiting_confirmations.load(Ordering::Relaxed),
+            waiting_confirmation_nodes: self.waiting_confirmation_nodes.load(Ordering::Relaxed),
+            waiting_alpha_raises: self.waiting_alpha_raises.load(Ordering::Relaxed),
+            notification_wait_us: self.notification_wait_us.load(Ordering::Relaxed),
+        }
+    }
+
     fn snapshot(&self) -> CooperativeRootStats {
         CooperativeRootStats {
             generations: self.generations.load(Ordering::Relaxed),
@@ -156,6 +187,7 @@ thread_local! {
 struct Invocation {
     counters: Arc<Counters>,
     persistent: bool,
+    drain: bool,
     executor: RefCell<Option<HelperExecutor>>,
 }
 
@@ -184,6 +216,7 @@ impl Activation {
         Self::with_invocation(Rc::new(Invocation {
             counters,
             persistent: false,
+            drain: false,
             executor: RefCell::new(None),
         }))
     }
@@ -216,9 +249,31 @@ impl Searcher {
         config: SearchConfig,
         history: &PositionHistory,
     ) -> (SearchInfo, CooperativeRootStats) {
-        self.search_cooperative_root_impl(board, config, history, p::COOP_PERSISTENT() != 0)
+        let (info, stats, _) =
+            self.search_cooperative_root_with_history_and_wait_stats(board, config, history);
+        (info, stats)
     }
 
+    /// Run the cooperative prototype and also return its optional wait evidence.
+    ///
+    /// `COOP_DRAIN` is captured once per invocation. It never changes ordinary
+    /// search or allows an unconfirmed helper score to become the root result.
+    pub fn search_cooperative_root_with_history_and_wait_stats(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        self.search_cooperative_root_controls(
+            board,
+            config,
+            history,
+            p::COOP_PERSISTENT() != 0,
+            p::COOP_DRAIN() != 0,
+        )
+    }
+
+    #[cfg(test)]
     fn search_cooperative_root_impl(
         &self,
         board: &mut Board,
@@ -226,10 +281,24 @@ impl Searcher {
         history: &PositionHistory,
         persistent: bool,
     ) -> (SearchInfo, CooperativeRootStats) {
+        let (info, stats, _) =
+            self.search_cooperative_root_controls(board, config, history, persistent, false);
+        (info, stats)
+    }
+
+    fn search_cooperative_root_controls(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        persistent: bool,
+        drain: bool,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
         let counters = Arc::new(Counters::default());
         let invocation = Rc::new(Invocation {
             counters: counters.clone(),
             persistent,
+            drain,
             executor: RefCell::new(None),
         });
         let info = {
@@ -239,7 +308,7 @@ impl Searcher {
         // The TLS context releases its ownership before shutdown. Closing the
         // last sender wakes the idle worker; Drop joins it before this snapshot.
         drop(invocation);
-        (info, counters.snapshot())
+        (info, counters.snapshot(), counters.wait_snapshot(drain))
     }
 
     /// Cooperative root search with an initial one-position game history.
@@ -284,17 +353,26 @@ struct Generation {
     next: AtomicUsize,
     cancel: Arc<AtomicBool>,
     participants: AtomicUsize,
+    wake: Option<mpsc::SyncSender<()>>,
+    helper_finished: AtomicBool,
     candidates: Vec<CandidateSlot>,
 }
 
 impl Generation {
+    #[cfg(test)]
     fn new(alpha: i32, moves: usize) -> Self {
+        Self::with_wake(alpha, moves, None)
+    }
+
+    fn with_wake(alpha: i32, moves: usize, wake: Option<mpsc::SyncSender<()>>) -> Self {
         Self {
             id: NEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
             alpha: AtomicI32::new(alpha),
             next: AtomicUsize::new(1),
             cancel: Arc::new(AtomicBool::new(false)),
             participants: AtomicUsize::new(0),
+            wake,
+            helper_finished: AtomicBool::new(false),
             candidates: (0..moves).map(|_| CandidateSlot::default()).collect(),
         }
     }
@@ -326,6 +404,7 @@ impl Generation {
         slot.generation
             .store(candidate.generation, Ordering::Relaxed);
         slot.ready.store(true, Ordering::Release);
+        self.notify();
         true
     }
 
@@ -352,6 +431,14 @@ impl Generation {
         })
     }
 
+    fn notify(&self) {
+        if let Some(wake) = &self.wake {
+            // One pending token represents any number of ready slots. Never
+            // block the helper on an idle or already-confirming worker 0.
+            let _ = wake.try_send(());
+        }
+    }
+
     fn stop(&self) {
         self.cancel.store(true, Ordering::Release);
     }
@@ -361,6 +448,17 @@ impl Drop for Generation {
     fn drop(&mut self) {
         self.stop();
         debug_assert_eq!(self.participants.load(Ordering::Acquire), 0);
+    }
+}
+
+struct HelperFinished<'a>(&'a Generation);
+
+impl Drop for HelperFinished<'_> {
+    fn drop(&mut self) {
+        if self.0.wake.is_some() {
+            self.0.helper_finished.store(true, Ordering::Release);
+            self.0.notify();
+        }
     }
 }
 
@@ -459,6 +557,9 @@ impl Drop for HelperExecutor {
 }
 
 fn run_helper(mut work: HelperWork, counters: &Counters) {
+    // Declared first so participation is released before completion is visible,
+    // including when the helper panics before or during its first probe.
+    let _finished = HelperFinished(&work.generation);
     let _participation = Participation::new(&work.generation);
     counters.helpers_started.fetch_add(1, Ordering::Relaxed);
     assert!(work.depth > 0, "root helper jobs require positive depth");
@@ -609,6 +710,24 @@ impl MainResult {
         history: &SearchHistory<'_>,
         counters: &Counters,
     ) {
+        self.confirm_ready_inner(
+            generation, state, board, ordered, depth, hi, history, counters, false,
+        );
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn confirm_ready_inner(
+        &mut self,
+        generation: &Generation,
+        state: &Arc<SearchState>,
+        board: &mut Board,
+        ordered: &[Move],
+        depth: u32,
+        hi: i32,
+        history: &SearchHistory<'_>,
+        counters: &Counters,
+        during_wait: bool,
+    ) {
         for index in 1..ordered.len() {
             if self.alpha >= hi || state.budget.should_abort() {
                 generation.stop();
@@ -622,6 +741,12 @@ impl MainResult {
             }
             // Even if alpha advanced past the helper's reported score, the
             // fail-high was a LOWER bound. It must still be rechecked.
+            let waiting = during_wait && !generation.helper_finished.load(Ordering::Acquire);
+            if waiting {
+                counters
+                    .waiting_confirmations
+                    .fetch_add(1, Ordering::Relaxed);
+            }
             counters.main_confirmations.fetch_add(1, Ordering::Relaxed);
             debug_assert!(self.alpha >= candidate.alpha_snapshot);
             let gap = (i64::from(self.alpha) - i64::from(candidate.alpha_snapshot)).max(0) as u64;
@@ -641,20 +766,66 @@ impl MainResult {
             if score > self.alpha && score < hi && !state.budget.should_abort() {
                 score = child(state, board, mv, depth - 1, self.alpha, hi, history);
             }
+            let nodes = state.budget.nodes() - before_nodes;
             counters
                 .confirmation_nodes
-                .fetch_add(state.budget.nodes() - before_nodes, Ordering::Relaxed);
+                .fetch_add(nodes, Ordering::Relaxed);
+            if waiting {
+                counters
+                    .waiting_confirmation_nodes
+                    .fetch_add(nodes, Ordering::Relaxed);
+            }
             if state.budget.should_abort() {
                 generation.stop();
                 return;
             }
             if score > self.alpha {
+                if waiting {
+                    counters
+                        .waiting_alpha_raises
+                        .fetch_add(1, Ordering::Relaxed);
+                }
                 counters
                     .confirmed_alpha_raises
                     .fetch_add(1, Ordering::Relaxed);
             }
             self.accept(generation, mv, score);
         }
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn drain_while_waiting(
+    result: &mut MainResult,
+    generation: &Generation,
+    notifications: &mpsc::Receiver<()>,
+    main_state: &Arc<SearchState>,
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    ordered: &[Move],
+    depth: u32,
+    hi: i32,
+    history: &SearchHistory<'_>,
+    counters: &Counters,
+) {
+    while !generation.helper_finished.load(Ordering::Acquire) {
+        result.confirm_ready_inner(
+            generation, main_state, board, ordered, depth, hi, history, counters, true,
+        );
+        if result.alpha >= hi || state.budget.should_abort() {
+            generation.stop();
+            break;
+        }
+        if generation.helper_finished.load(Ordering::Acquire) {
+            break;
+        }
+        let started = Instant::now();
+        let _ = notifications.recv_timeout(Duration::from_millis(1));
+        let waited = elapsed_us(started);
+        counters
+            .notification_wait_us
+            .fetch_add(waited, Ordering::Relaxed);
+        counters.join_wait_us.fetch_add(waited, Ordering::Relaxed);
     }
 }
 
@@ -764,7 +935,14 @@ pub(super) fn search(
         raised: Vec::new(),
         searched: Vec::new(),
     };
-    let generation = Arc::new(Generation::new(lo, ordered.len()));
+    // The default control path allocates no notification channel.
+    let (wake, notifications) = if invocation.drain {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        (Some(sender), Some(receiver))
+    } else {
+        (None, None)
+    };
+    let generation = Arc::new(Generation::with_wake(lo, ordered.len(), wake));
     if state.budget.should_abort() {
         return (None, lo);
     }
@@ -804,6 +982,21 @@ pub(super) fn search(
                 &counters,
             );
             if let Some(completion) = completion {
+                if let Some(notifications) = &notifications {
+                    drain_while_waiting(
+                        &mut result,
+                        &generation,
+                        notifications,
+                        &main_state,
+                        state,
+                        board,
+                        ordered,
+                        depth,
+                        hi,
+                        history,
+                        &counters,
+                    );
+                }
                 let wait_start = Instant::now();
                 completion
                     .recv()
@@ -846,6 +1039,21 @@ pub(super) fn search(
                     &counters,
                 );
                 if let Ok(helper) = helper {
+                    if let Some(notifications) = &notifications {
+                        drain_while_waiting(
+                            &mut result,
+                            &generation,
+                            notifications,
+                            &main_state,
+                            state,
+                            board,
+                            ordered,
+                            depth,
+                            hi,
+                            history,
+                            &counters,
+                        );
+                    }
                     let join_start = Instant::now();
                     let joined = helper.join();
                     counters
@@ -921,6 +1129,7 @@ mod tests {
         Rc::new(Invocation {
             counters,
             persistent: true,
+            drain: false,
             executor: RefCell::new(None),
         })
     }
@@ -1411,6 +1620,288 @@ mod tests {
         assert_eq!(next.alpha_snapshot, 20);
         assert_eq!(generation.claim(4).unwrap().move_index, 3);
         assert!(generation.claim(4).is_none());
+    }
+
+    #[test]
+    fn waiting_main_confirms_and_cancels_before_held_helper_finishes() {
+        on_search_stack(|| {
+            let mut board = Board::startpos();
+            let hash = board.hash();
+            let acc = board.acc.clone();
+            let ordered = generate_legal_moves(&mut board);
+            let game = PositionHistory::initial(hash);
+            let history = SearchHistory::root(&game);
+            let state = test_state();
+            let counters = Counters::default();
+            let (wake, notifications) = mpsc::sync_channel(1);
+            let generation = Arc::new(Generation::with_wake(-10_000, ordered.len(), Some(wake)));
+            generation.next.store(ordered.len(), Ordering::Relaxed);
+            let (release, held) = mpsc::sync_channel(1);
+            let publish = std::sync::Barrier::new(2);
+            let mut result = MainResult {
+                alpha: -10_000,
+                best: None,
+                raised: Vec::new(),
+                searched: Vec::new(),
+            };
+            std::thread::scope(|scope| {
+                let helper_generation = generation.clone();
+                let publish_ref = &publish;
+                let helper = scope.spawn(move || {
+                    let _finished = HelperFinished(&helper_generation);
+                    let _participant = Participation::new(&helper_generation);
+                    publish_ref.wait();
+                    assert!(helper_generation.publish(RootCandidate {
+                        alpha_snapshot: -10_000,
+                        generation: helper_generation.id,
+                        move_index: 1,
+                        score: 0,
+                        searched_depth: 2,
+                    }));
+                    held.recv_timeout(Duration::from_secs(5)).unwrap();
+                });
+                struct ReleaseOnDrop(mpsc::SyncSender<()>);
+                impl Drop for ReleaseOnDrop {
+                    fn drop(&mut self) {
+                        let _ = self.0.try_send(());
+                    }
+                }
+                // Release before scope's implicit join if an assertion unwinds.
+                let release = ReleaseOnDrop(release);
+                // Model a publication after the final empty candidate scan,
+                // with another helper child still unfinished.
+                assert!(generation.take(1).is_none());
+                publish.wait();
+                drain_while_waiting(
+                    &mut result,
+                    &generation,
+                    &notifications,
+                    &state,
+                    &state,
+                    &mut board,
+                    &ordered,
+                    2,
+                    -9_999,
+                    &history,
+                    &counters,
+                );
+                assert!(result.alpha >= -9_999);
+                assert_eq!(result.best, Some(ordered[1]));
+                assert!(generation.cancel.load(Ordering::Acquire));
+                assert!(!generation.helper_finished.load(Ordering::Acquire));
+                assert!(!state.budget.should_abort());
+                assert_eq!(counters.wait_snapshot(true).waiting_confirmations, 1);
+                assert_eq!(counters.wait_snapshot(true).waiting_alpha_raises, 1);
+                assert!(counters.wait_snapshot(true).waiting_confirmation_nodes > 0);
+                release.0.send(()).unwrap();
+                helper.join().unwrap();
+            });
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+            assert_eq!(board.hash(), hash);
+            assert_eq!(board.acc, acc);
+        });
+    }
+
+    #[test]
+    fn wake_tokens_coalesce_without_losing_candidates_or_completion() {
+        let (wake, notifications) = mpsc::sync_channel(1);
+        let generation = Generation::with_wake(0, 3, Some(wake));
+        for index in [1, 2] {
+            assert!(generation.publish(RootCandidate {
+                alpha_snapshot: 0,
+                generation: generation.id,
+                move_index: index,
+                score: 1,
+                searched_depth: 2,
+            }));
+        }
+        drop(HelperFinished(&generation));
+        // The bounded channel was already full when completion was signalled.
+        assert!(notifications.try_recv().is_ok());
+        assert!(notifications.try_recv().is_err());
+        assert!(generation.helper_finished.load(Ordering::Acquire));
+        assert!(generation.take(1).is_some());
+        assert!(generation.take(2).is_some());
+    }
+
+    #[test]
+    fn helper_finish_guard_notifies_on_panic_without_ready_candidates() {
+        let (wake, notifications) = mpsc::sync_channel(1);
+        let generation = Generation::with_wake(0, 2, Some(wake));
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _finished = HelperFinished(&generation);
+            let _participant = Participation::new(&generation);
+            panic!("helper fails before publishing advice");
+        }));
+        assert!(failed.is_err());
+        assert!(generation.helper_finished.load(Ordering::Acquire));
+        assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+        assert!(notifications.try_recv().is_ok());
+        assert!(generation.take(1).is_none());
+    }
+
+    #[test]
+    fn waiting_main_observes_external_stop_without_a_notification() {
+        let mut board = Board::startpos();
+        let ordered = generate_legal_moves(&mut board);
+        let game = PositionHistory::initial(board.hash());
+        let history = SearchHistory::root(&game);
+        let external = Arc::new(AtomicBool::new(false));
+        let mut state = test_state();
+        Arc::get_mut(&mut state).unwrap().budget =
+            Arc::new(Budget::new(None, None, external.clone()));
+        let counters = Counters::default();
+        let (wake, notifications) = mpsc::sync_channel(1);
+        let generation = Generation::with_wake(0, ordered.len(), Some(wake));
+        let mut result = MainResult {
+            alpha: 0,
+            best: None,
+            raised: Vec::new(),
+            searched: Vec::new(),
+        };
+        std::thread::scope(|scope| {
+            let helper = scope.spawn(move || external.store(true, Ordering::Release));
+            drain_while_waiting(
+                &mut result,
+                &generation,
+                &notifications,
+                &state,
+                &state,
+                &mut board,
+                &ordered,
+                2,
+                100,
+                &history,
+                &counters,
+            );
+            helper.join().unwrap();
+        });
+        assert!(state.budget.should_abort());
+        assert!(generation.cancel.load(Ordering::Acquire));
+        assert!(!generation.helper_finished.load(Ordering::Acquire));
+        assert!(notifications.try_recv().is_err());
+        assert_eq!(counters.wait_snapshot(true).waiting_confirmations, 0);
+    }
+
+    #[test]
+    fn unavailable_executor_with_draining_never_waits_for_an_unstarted_helper() {
+        on_search_stack(|| {
+            let mut board = Board::startpos();
+            let hash = board.hash();
+            let ordered = generate_legal_moves(&mut board);
+            let game = PositionHistory::initial(hash);
+            let history = SearchHistory::root(&game);
+            let counters = Arc::new(Counters::default());
+            let invocation = Rc::new(Invocation {
+                counters: counters.clone(),
+                persistent: true,
+                drain: true,
+                executor: RefCell::new(Some(HelperExecutor {
+                    sender: None,
+                    worker: None,
+                    counters: counters.clone(),
+                })),
+            });
+            let state = test_state();
+            let result = {
+                let _activation = Activation::with_invocation(invocation.clone());
+                search(&state, &mut board, 2, &ordered, -10_000, 10_000, &history)
+            };
+            drop(invocation);
+            assert!(result.0.is_some());
+            assert_eq!(counters.snapshot().spawn_failures, 1);
+            assert_eq!(counters.snapshot().main_tasks as usize, ordered.len());
+            assert_eq!(counters.wait_snapshot(true).notification_wait_us, 0);
+            assert_eq!(board.hash(), hash);
+        });
+    }
+
+    #[test]
+    fn draining_search_restores_board_pv_and_shared_accounting_in_both_modes() {
+        on_search_stack(|| {
+            for persistent in [false, true] {
+                for node_limit in [None, Some(300)] {
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let game = PositionHistory::initial(hash);
+                    let (info, stats, wait) = Searcher::new(Tt::new(2))
+                        .search_cooperative_root_controls(
+                            &mut board,
+                            SearchConfig {
+                                max_depth: 4,
+                                node_limit,
+                                ..SearchConfig::default()
+                            },
+                            &game,
+                            persistent,
+                            true,
+                        );
+                    assert!(wait.enabled);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    assert!(wait.waiting_confirmations <= stats.main_confirmations);
+                    assert!(wait.waiting_confirmation_nodes <= stats.confirmation_nodes);
+                    assert!(wait.waiting_alpha_raises <= stats.confirmed_alpha_raises);
+                    assert!(wait.notification_wait_us <= stats.join_wait_us);
+                    assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+                    assert_eq!(
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                        stats.helper_nodes
+                    );
+                    assert_eq!(
+                        stats.physical_helper_threads_started,
+                        stats.physical_helper_threads_joined
+                    );
+                    if node_limit.is_some() {
+                        assert!(info.aborted);
+                    }
+                    for mv in info.pv {
+                        assert!(generate_legal_moves(&mut board).contains(&mv));
+                        board.do_move(mv);
+                    }
+                    assert!(!enabled());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn draining_all_fail_low_pass_keeps_aspiration_failure_and_no_root_entry() {
+        on_search_stack(|| {
+            for persistent in [false, true] {
+                let mut board = Board::startpos();
+                let hash = board.hash();
+                let acc = board.acc.clone();
+                let ordered = generate_legal_moves(&mut board);
+                let game = PositionHistory::initial(hash);
+                let history = SearchHistory::root(&game);
+                let counters = Arc::new(Counters::default());
+                let invocation = Rc::new(Invocation {
+                    counters: counters.clone(),
+                    persistent,
+                    drain: true,
+                    executor: RefCell::new(None),
+                });
+                let state = test_state();
+                let result = {
+                    let _activation = Activation::with_invocation(invocation.clone());
+                    search(&state, &mut board, 2, &ordered, 100_000, 100_001, &history)
+                };
+                drop(invocation);
+                assert_eq!(result, (None, 100_000));
+                assert!(state.tt.probe(hash).is_none());
+                assert_eq!(board.hash(), hash);
+                assert_eq!(board.acc, acc);
+                assert_eq!(counters.snapshot().main_confirmations, 0);
+                assert_eq!(counters.wait_snapshot(true).waiting_confirmations, 0);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_started,
+                    counters.snapshot().physical_helper_threads_joined
+                );
+            }
+        });
     }
 
     fn test_state() -> Arc<SearchState> {

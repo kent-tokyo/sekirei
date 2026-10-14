@@ -2,7 +2,7 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from paired_search_diagnostics import schedule, side_changes, summarize, host_activity, validate_counter_workers, main as paired_main
+from paired_search_diagnostics import schedule, side_changes, summarize, host_activity, validate_counter_workers, work_metrics, main as paired_main
 from generate_search_diagnostic import START, apply, decode, encode
 from validate_paired_pv import requests_for_row
 from nps_threads import ROOT_HINT_TRANSFER_KEYS, parse_lazy_smp_root_hint, parse_retirement, parse_search_result, parse_nmp, parse_cooperative_root, parse_aspiration
@@ -57,6 +57,19 @@ class PairedDiagnosticsTests(unittest.TestCase):
             validate_counter_workers({**row, "aspiration": []}, 1)
         two = {key: [{"worker": 0}, {"worker": 1}] for key in row}
         validate_counter_workers(two, 2)
+
+    def test_wait_activity_metrics_do_not_require_regular_lazy_counters(self):
+        baseline = dict(depth=8, nodes=100, wall_nps=1000, elapsed_ms=100)
+        self.assertEqual(work_metrics(baseline), baseline)
+        waiting = dict(enabled=1, waiting_confirmations=2, waiting_confirmation_nodes=30,
+                       waiting_alpha_raises=1, notification_wait_us=500)
+        result = work_metrics({**baseline, "cooperative_root_wait": waiting})
+        self.assertEqual(result["coop_waiting_confirmations"], 2)
+        self.assertEqual(result["coop_waiting_confirmation_nodes"], 30)
+        self.assertEqual(result["coop_waiting_alpha_raises"], 1)
+        self.assertEqual(result["coop_notification_wait_us"], 500)
+        self.assertNotIn("coop_enabled", result)
+        self.assertNotIn("worker0_depth", result)
 
     def test_policy_diagnostic_observes_changed_tree_without_identity_gate(self):
         rows = [dict(repeat=0, threads=1, position=0, side=side, depth=8,

@@ -50,3 +50,9 @@ The separate [deferred losing-sort check](../deferred_losing_sort_v0.4.1/README.
 confirmed all 20 one-worker depth-8 signatures on the frozen v0.4.1 engine.
 Its timed run was blocked before searching by compiler load, so no speed gain
 is established. It is not pooled with V2_SORT or earlier blocked runs.
+
+The opt-in [cooperative wait-drain candidate](../cooperative_root_wait_v0.4.1/README.md)
+is a separate two-worker prototype factor, T_COOP_DRAIN=0/1 with
+COOP_PERSISTENT=0 held fixed. Its prospective protocol requires actual
+wait-phase confirmation evidence before useful-depth timing. It is disabled
+and does not replace the queued independent aspiration candidate.

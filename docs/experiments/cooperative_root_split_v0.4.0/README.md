@@ -83,7 +83,10 @@ opt-in prototype; do not compare its timing against the previous prototype
 as if only the executor changed. The ordinary search path is unchanged.
 
 `helper_start_delay_us` measures spawn request to helper closure entry;
-`join_wait_us` measures main join call to its return. Both are sums, with
+`join_wait_us` measures main join call to its return with COOP_DRAIN=0.
+With opt-in COOP_DRAIN=1 it includes notification/completion blocking and
+excludes candidate confirmation work; see the separate
+[wait-drain protocol](../cooperative_root_wait_v0.4.1/README.md). Both are sums, with
 `helpers_started` as the denominator. Failed spawns are not zero-delay
 samples. Join time can be useful remaining work, so it is not all overhead.
 `alpha_gap_sum` / `alpha_gap_max` measure main alpha minus the original probe
