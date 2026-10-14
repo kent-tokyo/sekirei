@@ -181,6 +181,8 @@ to that decoded stream. Plain input has identical physical and decoded identitie
 The existing resume identity uses the physical hash: recompressing or switching
 codecs requires a new run even if the decoded JSONL is unchanged. Changing only
 memory/disk storage still permits resume.
+The [compression validation](../docs/experiments/positions_compression_v0.4.1/README.md)
+records the six-way audit/training comparisons and local coverage result.
 
 ## NNUE candidates and gates
 

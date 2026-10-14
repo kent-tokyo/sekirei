@@ -62,8 +62,10 @@ run; recreate the corpus with the pinned generator instead of relying on them.
 The CLI tests compare byte-identical final/epoch weights and Adam state across
 storage modes, including a mid-epoch resume from memory into disk with the same
 checkpoint cadence. They also cover invalid records, raw offsets and hashes,
-strict/hash/read failures and audit-output path collisions. Hosted CI, the full
-workspace test suite and the 98% coverage gate have not been run for this branch.
+strict/hash/read failures and audit-output path collisions. These initial checks
+did not include hosted CI, the full workspace test suite or the 98% coverage gate. The later
+[compression validation](../positions_compression_v0.4.1/README.md) records the
+full workspace and coverage results for its own implementation commit.
 
 The disk mode preserves source caps, the existing SFEN split, exact seeded shuffle,
 teacher-cache visibility and resume identity. Its snapshot is stable if the original
@@ -72,5 +74,7 @@ O(N) memory, as does the existing teacher cache. Shuffled disk epochs seek and p
 rows again; their throughput is unmeasured. This is not constant-memory training.
 
 No existing training corpus, hold-out, NNUE weights or candidate jobs were used.
-The HalfKP packed-data trainer is unchanged. Compression readers and Python APIs
-remain separate work. These results make no search or playing-strength claim.
+The HalfKP packed-data trainer is unchanged. Optional compression readers were
+added in the subsequent
+[compression work](../positions_compression_v0.4.1/README.md). Python APIs remain
+separate work. These results make no search or playing-strength claim.

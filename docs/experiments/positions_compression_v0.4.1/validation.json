@@ -1,0 +1,246 @@
+{
+  "schema": "sekirei.positions-compression-validation.v1",
+  "recorded_at_utc": "2026-10-14T21:51:06.956310+00:00",
+  "implementation_commit": "3d1c56e9531dd5790ee2f38d417268b27866dba6",
+  "base_commit": "125a6349fb1d3f625db96ad66fa79b0c28c59350",
+  "build_source_note": "Executables and tests were built from the uncommitted implementation tree, then that unchanged code was committed. Subsequent changes contain only documentation/evidence.",
+  "environment": {
+    "host": {
+      "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+      "cpu": "Apple M4",
+      "logical_cpus": 10
+    },
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "coverage_tool": "cargo-llvm-cov 0.8.7",
+    "env_overrides": {
+      "RUSTFLAGS": null,
+      "CARGO_ENCODED_RUSTFLAGS": null
+    },
+    "sha256": {
+      "Cargo.lock": "7ea3560d59c0833e3bc4c09c65ad5ea9e2eba75190fe4d157ff32cd4bace1066",
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "scripts/test_positions_compression.py": "cac6c70a5350c685c0297f04b5bbfc085119c265c4b97340c0af2f0e591a0949",
+      "scripts/test_positions_ingest.py": "44ca131766d57322ba8fe4794073124b6ad6600b39f78bc77b7f12fe2334fa34",
+      "scripts/benchmark_positions_ingest.py": "187a947b2717ac5e264167a8e3f512f83512f977bbe8ad0262134fefbb3eb3b5",
+      "scripts/check_rust_coverage.sh": "2d13e961a873b2fc4de0a9684d5bead60d53c4175d67e4ba06b2cf14a4f04ef7",
+      "target/release/train": "1702d6a466a68bef4dfcb8c5ca5a66e787c9288d4b80445966fac2634bf2faa8",
+      "target/release/train-positions-default": "7b4d681aeb28ed521f58a83a37fc6be9d6a7c481d1f4fcaea6c8b39be853f5bb"
+    }
+  },
+  "build_and_test_env": {
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "CARGO_PROFILE_TEST_DEBUG": "0",
+    "CARGO_BUILD_JOBS": "2",
+    "RUST_MIN_STACK": "16777216"
+  },
+  "release_profile": {
+    "opt-level": 3,
+    "lto": "thin",
+    "codegen-units": 1,
+    "strip": "debuginfo",
+    "panic": "abort",
+    "rustflags_from_config": [
+      "-C",
+      "target-cpu=native"
+    ]
+  },
+  "binaries": {
+    "default": "target/release/train-positions-default",
+    "positions-gzip,positions-zstd": "target/release/train"
+  },
+  "checks": [
+    {
+      "command": "cargo test --workspace -j 2 -- --test-threads=1",
+      "status": "passed",
+      "passed": 963,
+      "failed": 0,
+      "ignored": 4,
+      "suites": 38,
+      "log": "logs/rust-workspace-default.log.gz"
+    },
+    {
+      "command": "cargo test -p sekirei-train --features positions-gzip,positions-zstd -j 2 -- --test-threads=2",
+      "status": "passed",
+      "passed": 273,
+      "failed": 0,
+      "ignored": 0,
+      "suites": 4,
+      "log": "logs/rust-both-final.log.gz"
+    },
+    {
+      "command": "TRAIN_BIN=\"$PWD/target/release/train-positions-default\" python3 -B scripts/test_positions_ingest.py",
+      "status": "passed",
+      "tests_run": 12,
+      "passed": 12,
+      "skipped": 0,
+      "seconds": 3.531,
+      "log": "logs/cli-ingest-default.log"
+    },
+    {
+      "command": "TRAIN_BIN=\"$PWD/target/release/train-positions-default\" POSITIONS_CODECS= python3 -B scripts/test_positions_compression.py",
+      "status": "passed",
+      "tests_run": 11,
+      "passed": 9,
+      "skipped": 2,
+      "seconds": 0.215,
+      "log": "logs/cli-compression-default.log"
+    },
+    {
+      "command": "TRAIN_BIN=\"$PWD/target/release/train\" python3 -B scripts/test_positions_ingest.py",
+      "status": "passed",
+      "tests_run": 12,
+      "passed": 12,
+      "skipped": 0,
+      "seconds": 2.891,
+      "log": "logs/cli-ingest-both.log"
+    },
+    {
+      "command": "TRAIN_BIN=\"$PWD/target/release/train\" POSITIONS_CODECS=gzip,zstd python3 -B scripts/test_positions_compression.py",
+      "status": "passed",
+      "tests_run": 11,
+      "passed": 11,
+      "skipped": 0,
+      "seconds": 7.077,
+      "log": "logs/cli-compression-both.log"
+    },
+    {
+      "command": "cargo check -p sekirei-train --bin train --features positions-gzip",
+      "status": "passed",
+      "log": "logs/check-gzip.log"
+    },
+    {
+      "command": "cargo check -p sekirei-train --bin train --features positions-zstd",
+      "status": "passed",
+      "log": "logs/check-zstd.log"
+    },
+    {
+      "command": "cargo clippy -p sekirei-train --all-targets --features positions-gzip,positions-zstd -- -D warnings",
+      "status": "passed",
+      "log": "logs/clippy-both.log"
+    },
+    {
+      "command": "cargo build --release -p sekirei-train --bin train",
+      "status": "passed",
+      "log": "logs/build-default.log"
+    },
+    {
+      "command": "cargo build --release -p sekirei-train --bin train --features positions-gzip,positions-zstd",
+      "status": "passed",
+      "log": "logs/build-both.log"
+    },
+    {
+      "command": "cargo fmt --check && cargo clippy --all-targets -- -D warnings (pre-commit hook)",
+      "status": "passed",
+      "log": "logs/commit-checks.log"
+    },
+    {
+      "command": "bash scripts/check_rust_coverage.sh",
+      "status": "passed",
+      "log": "logs/coverage.log"
+    },
+    {
+      "command": "python3 -B scripts/check_documentation_references.py",
+      "status": "passed",
+      "log": "logs/documentation-check.log"
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    },
+    {
+      "command": "Python SHA-256 and gzip roundtrip verification of retained evidence",
+      "status": "passed"
+    }
+  ],
+  "coverage": {
+    "status": "passed",
+    "minimum_lines_percent": 98,
+    "engine_library_lines": {
+      "count": 41553,
+      "covered": 40797,
+      "percent": 98.180636777128
+    },
+    "full_workspace_lines_diagnostic_only": {
+      "count": 53282,
+      "covered": 45899,
+      "percent": 86.14353815547464
+    },
+    "optional_codecs_enabled": false,
+    "exclusions_changed": false,
+    "raw_lcov_sha256": "a594b2b69d653edb583a881df313bb95d278a30ada24a16b4469070be7e9d8ca"
+  },
+  "fixtures": {
+    "large_audit": {
+      "records": 10000,
+      "source": "18-record synthetic training_corpus repeated and truncated",
+      "storage": [
+        "memory",
+        "disk"
+      ],
+      "codecs": [
+        "plain",
+        "gzip",
+        "zstd"
+      ],
+      "compressed_chunk_bytes": 65536,
+      "contract": "All decoded report fields equal; physical hashes and sizes checked separately."
+    },
+    "training": {
+      "input_records": 6,
+      "source_cap": 5,
+      "train_records": 4,
+      "validation_records": 1,
+      "teacher": "material",
+      "label_depth": 1,
+      "seed": 42,
+      "shuffle_seed": 17,
+      "wdl_lambda": 0.3,
+      "resume_checkpoint_every_games": 2,
+      "contract": "Exact final/epoch weights and Adam hashes across six combinations and same-codec memory-to-disk resume; codec changes reject resume."
+    },
+    "ordinary_compressed_zstd": {
+      "encoder": "ruzstd =0.9.1, default-features=false, features=[std,hash], CompressionLevel::Fastest",
+      "decoded_bytes": 544,
+      "encoded_bytes": 306,
+      "decoded_sha256": "152f5da62ea9b1acd355f3e3c0f913b4a0dcd01bc1b30f4fa3db75c0b92cb77d",
+      "encoded_sha256": "febc52ba78496ddfa69b4b487d49bcf9bd18bdeb41a172362e71bee7c92bc018",
+      "checksum": 2499585070
+    }
+  },
+  "environment_note": "The first coverage attempt ran out of temporary disk space during profile collection/merge. Its log is retained. Only this worktree target/debug cache was removed; the complete unchanged coverage gate then passed from a fresh profile set. Existing corpora, jobs and other worktree caches were untouched. After final reports and raw LCOV were verified and retained, this worktree target/llvm-cov-target compilation/profile cache was removed to recover disk space; target/coverage reports and tested release binaries were kept.",
+  "not_run": [
+    "hosted CI",
+    "compressed-input throughput benchmarks",
+    "real-corpus epoch throughput",
+    "strength qualification"
+  ],
+  "scope": "Optional JSONL decoding and audit provenance. No existing corpus, hold-out, NNUE candidate or search-policy changes.",
+  "artifact_sha256": {
+    "coverage/full-workspace-summary.json": "4f8d92d063a0e48fc941f77da7c443717f517326482ca0fa220dfc35f8ab28e5",
+    "coverage/lcov.info.gz": "6ed76957ee6aee584061eff6c9932edf2d78bbf6ad6d6edeaddc14a90782c044",
+    "coverage/summary.json": "6ddae7352799b814cbb8e92a2427f2d2b357794613bc0df80b38ef2a67cae9b5",
+    "logs/build-both.log": "aec8e63a66a0f63486c99ea2775f203c4932995e2503e8783e0ef4520c37e86d",
+    "logs/build-default.log": "7f8efccc2d25b18441c4ae229721ffba05c166e19a2f67a73ab50f8d8267a2e7",
+    "logs/check-gzip.log": "a609ba557d7cd123be805a2206e184c176ce897b06a4fb27fb17dcc17f6405d2",
+    "logs/check-zstd.log": "bd5cdad83de8958f633b7992eb1477c892b363e356934e612512a53c3512d0a0",
+    "logs/cli-compression-both.log": "b8f358ddaad4c4d8bad47925d0af13061bf38962558c14be898ae2094c5f0a4b",
+    "logs/cli-compression-default.log": "e5b78dae91c822adfa9893a86848618f6e006609bfa6bb9dbd70c5ef1e989151",
+    "logs/cli-ingest-both.log": "507049f6e73315642ea465fd94234d76fe90af30f0904dad9e1afd87be4d94e3",
+    "logs/cli-ingest-default.log": "5852bd9a9a3c40f288811a8f0836b341ee0ea432d24d96e7b6a422133f1fc0d5",
+    "logs/clippy-both.log": "7a7b02ff5b8e5d8c68ec1ecc66fc1eab64102c7e85e05cd8ce0d674f0497df63",
+    "logs/commit-checks.log": "b242884694520d9b725f530050466c9031a92ee8af016c70b090ad541ae0f60a",
+    "logs/coverage-disk-exhausted.log": "0f2116c9a0e5248b6561960ed1a437cbd008c1eeb01f99ab06af8f6608760940",
+    "logs/coverage.log": "f3fac5c302c70eb0d990e5b48c59ec8ce576485691851a568aa22395a7338543",
+    "logs/dependencies-both.txt": "a022eaccfeb9edf61be047e080f28e11ed984570933d173efb2dd00c906558e4",
+    "logs/dependencies-default.txt": "843436ce42b6eadabc83fa82bc74598aeb5b0bd4fedca9cedad4b5862ec1a133",
+    "logs/documentation-check.log": "399309939ef4f4212e5da33d73bf5a2876f3aef49d5ae89e243aef0acda6807c",
+    "logs/rust-both-final.log.gz": "5b799731205f42afe0a7d6ac58222ea82aa65b23814c0c53c067ae292a8bb03b",
+    "logs/rust-workspace-default.log.gz": "6f79ba7481fb84b0a05004bd0665de5a6e06f8339158d2fe76cfa2eba977e4fc"
+  },
+  "compressed_log_original_sha256": {
+    "logs/rust-both-final.log.gz": "ff3c2005cbadde626e3af6b034c2dcc91e847475f761530d64ca97eaee39aa95",
+    "logs/rust-workspace-default.log.gz": "b5ec4882daf5c5bec587c726192bb46d758fc9a83311bccc0a1a59d0f251d3ac"
+  }
+}

@@ -1,0 +1,25 @@
+    Checking libc v0.2.186
+    Checking serde_core v1.0.228
+    Checking thiserror v2.0.18
+    Checking errno v0.3.14
+    Checking cpufeatures v0.3.0
+    Checking simd-adler32 v0.3.10
+    Checking adler2 v2.0.1
+    Checking either v1.16.0
+    Checking rayon v1.12.0
+    Checking serde v1.0.228
+    Checking serde_json v1.0.150
+    Checking miniz_oxide v0.9.1
+    Checking rustix v1.1.4
+    Checking sha2 v0.11.0
+    Checking getrandom v0.4.3
+    Checking crc32fast v1.5.2
+    Checking cpufeatures v0.2.17
+    Checking tempfile v3.27.0
+    Checking flate2 v1.1.10
+    Checking sekirei-core v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-core)
+    Checking sha2 v0.10.9
+    Checking shogiesa-core v0.11.6
+    Checking lineprior v0.12.6
+    Checking sekirei-train v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-train)
+    Finished `dev` profile [unoptimized] target(s) in 2.95s

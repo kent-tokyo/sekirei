@@ -1,0 +1,1901 @@
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling sekirei-core v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-core)
+   Compiling sekirei-wasm v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-wasm)
+   Compiling sekirei-train v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-train)
+   Compiling sekirei v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-usi)
+   Compiling sekirei-csa v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-csa)
+   Compiling sekirei-bench v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-bench)
+   Compiling sekirei-match-runner v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-match-runner)
+    Finished `test` profile [unoptimized] target(s) in 32.73s
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/sekirei-5efee59ffafdad07)
+
+running 42 tests
+test go::tests::zero_increment_percentage_restores_the_combined_clock_budget ... ok
+test invariant::tests::file_hash_reports_present_and_missing_inputs ... ok
+test invariant::tests::hash_accumulator_detects_king_sq_only_divergence ... ok
+test invariant::tests::illegal_bestmove_is_detected - should panic ... ok
+test invariant::tests::legal_bestmove_passes_silently ... ok
+test invariant::tests::malformed_base_is_left_to_the_position_handler ... ok
+test invariant::tests::replay_detects_live_board_diverging_after_a_clean_base_match - should panic ... ok
+test invariant::tests::replay_diagnostics_never_touch_stdout ... ok
+test invariant::tests::replay_handles_capture_promotion_and_drop ... ok
+test invariant::tests::replay_rejects_a_malformed_historical_move_token - should panic ... ok
+test invariant::tests::replay_rejects_a_noncanonical_base_sfen - should panic ... ok
+test invariant::tests::replay_sfen_moves_matches_live ... ok
+test invariant::tests::replay_startpos_moves_matches_live ... ok
+test invariant::tests::sfen_moves_internal_sfen_matches ... ok
+test invariant::tests::startpos_moves_internal_sfen_matches ... ok
+test invariant::tests::usinewgame_reset_matches_fresh_startpos ... ok
+test tests::backend_adjudicates_draw_and_both_perpetual_check_perspectives ... ok
+test tests::byoyomi_hard_within_overhead ... ok
+test tests::check_option_parser_accepts_only_explicit_boolean_values ... ok
+test tests::dfpn_proof_does_not_turn_the_requested_limit_into_a_mate_distance ... ok
+test tests::dfpn_unknown_and_disproven_are_not_rendered_as_cp_zero ... ok
+test tests::evaluator_mutation_happens_after_inflight_search_has_joined ... ok
+test tests::every_backend_supports_common_lifecycle_operations ... ok
+test tests::infinite_go_has_no_limits ... ok
+test tests::lazy_root_hint_diagnostic_line_is_stable ... ok
+test tests::malformed_clock_value_is_ignored_without_panicking ... ok
+test tests::malformed_nodes_value_is_ignored_without_panicking ... ok
+test tests::movetime_overhead_deducted ... ok
+test tests::multipv_value_reaches_search_config ... ok
+test tests::nodes_value_reaches_search_config_without_a_time_limit ... ok
+test tests::oversized_clock_values_do_not_overflow_time_budget_arithmetic ... ok
+test tests::parse_go_binc_winc ... ok
+test tests::parse_go_byoyomi_only ... ok
+test tests::parse_go_movestogo ... ok
+test tests::parse_go_soft_less_than_hard ... ok
+test tests::pondering_no_limits ... ok
+test tests::score_to_usi_keeps_mate_threshold_consistent ... ok
+test tests::score_to_usi_preserves_cp_and_converts_mates ... ok
+test tests::spec_top_n_zero_uses_the_root_safety_enabled_usi_backend ... ok
+test tests::spin_option_parser_enforces_advertised_bounds ... ok
+test tests::unit_interval_parser_rejects_malformed_non_finite_and_out_of_range_values ... ok
+test tests::unit_interval_reporting_wrapper_preserves_valid_values_and_rejects_errors ... ok
+
+test result: ok. 42 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.77s
+
+     Running tests/cli_metadata.rs (target/llvm-cov-target/debug/deps/cli_metadata-0b2d4962f46e006c)
+
+running 4 tests
+test help_flag_describes_usi_usage_without_starting_the_loop ... ok
+test short_version_flag_is_supported ... ok
+test usi_handshake_reports_the_same_package_version_as_version_flag ... ok
+test version_flag_reports_package_version_without_starting_usi ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.83s
+
+     Running tests/setoption_evalfile.rs (target/llvm-cov-target/debug/deps/setoption_evalfile-5b04a5203e78c235)
+
+running 20 tests
+test command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input ... ok
+test default_binary_has_no_opening_book_surface_or_path_probe ... ok
+test duplicate_evalfile_load_is_reported_as_failure ... ok
+test evalfile_load_joins_normal_search_before_acknowledgement ... ok
+test experimental_search_options_emit_bounded_evidence_and_restore_followup_search ... ok
+test invalid_residual_scale_does_not_stop_inflight_search ... ok
+test lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled ... ok
+test missing_evalfile_is_reported_as_failure ... ok
+test multipv_emits_numbered_info_lines ... ok
+test nnue_output_option_is_advertised_and_acknowledges_explicit_mode ... ok
+test ponderhit_restarts_a_ponder_search_even_if_sent_immediately ... ok
+test position_and_usinewgame_allow_a_followup_search ... ok
+test repeated_isready_does_not_reload_the_same_evalfile ... ok
+test residual_scale_boundaries_invalid_values_and_fresh_process_are_consistent ... ok
+test residual_scale_change_during_ponder_has_one_response_per_transition ... ok
+test residual_scale_change_joins_normal_search_before_acknowledgement ... ok
+test residual_scale_option_is_advertised_and_acknowledged ... ok
+test setoption_evalfile_then_isready_activates_nnue ... ok
+test spin_options_reject_values_outside_the_advertised_ranges ... ok
+test threads_zero_matches_the_advertised_usi_range ... ok
+
+test result: ok. 20 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 35.11s
+
+     Running tests/setoption_evalfile_halfkp.rs (target/llvm-cov-target/debug/deps/setoption_evalfile_halfkp-85d642b54cf6239e)
+
+running 1 test
+test evalfile_loads_halfkp_and_fv_scale_changes_the_divisor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+
+     Running tests/setoption_hash_thread_race.rs (target/llvm-cov-target/debug/deps/setoption_hash_thread_race-e7689897a2749d65)
+
+running 2 tests
+test setoption_hash_joins_inflight_search_before_answering_the_next_command ... ok
+test setoption_usi_hash_joins_inflight_search_before_answering_the_next_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+     Running tests/setoption_spec_top_n_thread_race.rs (target/llvm-cov-target/debug/deps/setoption_spec_top_n_thread_race-eec57ab7bee82211)
+
+running 1 test
+test setoption_spec_top_n_joins_inflight_search_before_answering_the_next_command ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.23s
+
+     Running tests/usi_thread_race.rs (target/llvm-cov-target/debug/deps/usi_thread_race-ff1f68423d0c53b2)
+
+running 24 tests
+test dfpn_mode_accepts_movetime_and_returns_before_timeout ... ok
+test dfpn_mode_returns_a_mating_bestmove ... ok
+test dfpn_quit_joins_inflight_search ... ok
+test dfpn_search_mode_survives_ready_and_newgame ... ok
+test dfpn_stop_flushes_bestmove_before_answering_next_command ... ok
+test dfpn_unknown_marks_fallback_and_omits_a_fake_score_and_pv ... ok
+test history_replayed_stop_flushes_bestmove_before_readyok ... ok
+test infinite_search_answers_repeated_isready_without_stopping ... ok
+test lazy_smp_quit_joins_without_publishing_an_inflight_search ... ok
+test lazy_smp_stop_flushes_bestmove_before_answering_next_command ... ok
+test malformed_position_fails_closed_and_discards_the_inflight_search ... ok
+test ponder_isready_then_ponderhit_keeps_one_search_response ... ok
+test ponder_stop_then_new_position_has_one_fresh_bestmove ... ok
+test ponderhit_publishes_a_completed_forced_mate_exactly_once ... ok
+test position_discards_a_completed_ponder_result ... ok
+test position_discards_an_inflight_normal_search_without_stale_bestmove ... ok
+test search_modes_can_be_switched_in_one_usi_session ... ok
+test shared_mcts_emits_diagnostic_transcript ... ok
+test shared_mcts_quit_joins_without_publishing_an_inflight_search ... ok
+test shared_mcts_stop_flushes_bestmove_before_answering_next_command ... ok
+test speculative_quit_joins_without_publishing_an_inflight_search ... ok
+test stdin_eof_joins_without_publishing_inflight_multi_thread_search ... ok
+test stop_flushes_bestmove_before_answering_the_next_command ... ok
+test usinewgame_discards_an_inflight_ponder_result ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.76s
+
+     Running unittests src/bin/cross_library.rs (target/llvm-cov-target/debug/deps/cross_library-ca4968321a37272c)
+
+running 2 tests
+test components::tests::fixture_is_legal_and_restores_both_libraries ... ok
+test components::tests::old_immediate_undo_sequence_is_rejected ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/nnue_cost_components.rs (target/llvm-cov-target/debug/deps/nnue_cost_components-c3a96f6a5a6c8818)
+
+running 1 test
+test tests::fixtures_are_legal_and_restore_state_without_nnue ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/nnue_forward_bench.rs (target/llvm-cov-target/debug/deps/nnue_forward_bench-22c5d909390ae57c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/nnue_probe.rs (target/llvm-cov-target/debug/deps/nnue_probe-4d5e40ef4b3909af)
+
+running 14 tests
+test tests::all_default_sfens_are_parseable ... ok
+test tests::custom_sfens_get_stable_names ... ok
+test tests::defaults_are_named_and_complete ... ok
+test tests::empty_score_moments_are_zero ... ok
+test tests::equal_scores_are_reported_as_constant_output ... ok
+test tests::json_escape_quotes_backslashes_and_controls ... ok
+test tests::json_flag_is_recorded_without_changing_probe_order ... ok
+test tests::json_render_contains_scores_range_and_reference_deltas ... ok
+test tests::malformed_options_are_rejected ... ok
+test tests::neuron_counts_describe_columns_not_scalar_value_diversity ... ok
+test tests::quality_probe_rejects_missing_material_or_side_sensitivity ... ok
+test tests::residual_output_mode_is_parsed_explicitly ... ok
+test tests::strict_flag_is_recorded_without_changing_probe_order ... ok
+test tests::strict_rejects_near_constant_output ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running unittests src/bin/pgx_environment.rs (target/llvm-cov-target/debug/deps/pgx_environment-41c79f965787fe8f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/sync_overhead.rs (target/llvm-cov-target/debug/deps/sync_overhead-e431113bd70b2a17)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-2e13400bbff6552f)
+
+running 357 tests
+test bitboard::split_representation_probe::compile_time_masks_rebuild_identically_at_runtime ... ok
+test bitboard::split_representation_probe::split_bitwise_mapping_matches_u128 ... ok
+test bitboard::split_representation_probe::split_mapping_round_trips_every_square ... ok
+test bitboard::split_representation_probe::split_pop_lsb_matches_u128_order ... ok
+test budget::tests::abort_now_latches_unconditionally ... ok
+test budget::tests::external_abort_reason_is_distinct_from_budget_abort ... ok
+test budget::tests::should_abort_reflects_external_abort_before_any_tick ... ok
+test budget::tests::soft_limit_expired_requires_stability_and_depth ... ok
+test budget::tests::tick_does_not_abort_before_throttle_boundary_with_no_deadline ... ok
+test budget::tests::tick_latches_abort_after_deadline_and_stays_latched ... ok
+test budget::tests::tick_latches_abort_at_node_limit ... ok
+test dfpn::tests::cooperative_abort_returns_unknown_without_visiting_a_node ... ok
+test dfpn::tests::deterministic_mate_corpus_preserves_expected_boundaries ... ok
+test dfpn::tests::disabled_thresholds_match_explicit_unlimited_configuration ... ok
+test dfpn::tests::disproves_empty_position_without_searching ... ok
+test dfpn::tests::proves_known_mate_in_one ... ok
+test dfpn::tests::reports_unknown_when_node_budget_is_exhausted ... ok
+test dfpn::tests::threshold_boundary_returns_unknown_without_caching_partial_numbers ... ok
+test dfpn::tests::threshold_research_can_recover_a_proven_mate ... ok
+test eval::tests::evaluation_cache_key_separates_score_semantics ... ok
+test eval::tests::material_score_is_zero_for_startpos ... ok
+test eval::tests::material_score_reflects_board_piece_value ... ok
+test eval::tests::material_score_reflects_hand_value_from_side_to_move ... ok
+test eval::tests::residual_mode_adds_material_to_explicit_weights ... ok
+test eval::tests::residual_mode_survives_capture_promotion_drop_and_undo ... ok
+test eval::tests::residual_scale_rejects_out_of_contract_values ... ok
+test eval::tests::zero_residual_scale_preserves_material_while_exercising_explicit_weights ... ok
+test eval::tests::zero_residual_weights_exactly_match_material ... ok
+test external_eval::tests::reads_bounded_sfnn_header ... ok
+test external_eval::tests::rejects_non_sfnn_architecture ... ok
+test external_eval::tests::rejects_truncated_descriptor ... ok
+test halfkp::tests::bytes_round_trip_and_reject_malformed_files ... ok
+test halfkp::tests::cached_refresh_matches_full_refresh ... ok
+test halfkp::tests::colour_flipped_position_evaluates_identically ... ok
+test halfkp::tests::dense_and_pair_forms_give_the_same_output ... ok
+test halfkp::tests::feature_indices_cover_the_declared_input_without_collision ... ok
+test halfkp::tests::fused_captures_and_promoted_undos_preserve_boundary_values ... ok
+test halfkp::tests::fused_deltas_match_refresh_through_legal_sequences_and_undo ... ok
+test halfkp::tests::fused_moves_preserve_wrapping_and_dirty_perspectives ... ok
+test halfkp::tests::small_contract_boundaries_cover_debug_features_headers_and_file_probe ... ok
+test halfkp::tests::structural_hash_matches_published_halfkp_256x2_32_32_value ... ok
+test hand::tests::packed_counts_round_trip_without_cross_field_carry ... ok
+test lazy_smp::tests::blocking_invocation_guard_resumes_after_release ... ok
+test lazy_smp::tests::cooperative_flag_is_exactly_two_worker_opt_in ... ok
+test lazy_smp::tests::cooperative_snapshot_replaces_both_records_after_terminal_followup ... ok
+test lazy_smp::tests::depth_consensus_cannot_promote_a_shallower_majority ... ok
+test lazy_smp::tests::depth_consensus_falls_back_deterministically_without_moves ... ok
+test lazy_smp::tests::depth_consensus_uses_support_without_sacrificing_depth ... ok
+test lazy_smp::tests::depth_ladder_diversifies_four_workers_without_changing_default_skew ... ok
+test lazy_smp::tests::diagnostics_mark_exactly_one_selected_worker ... ok
+test lazy_smp::tests::dominated_retirement_is_opt_in_and_invocation_scoped ... ok
+test lazy_smp::tests::foreign_root_hint_requires_multiple_workers_and_a_shared_tt ... ok
+test lazy_smp::tests::helper_root_lmr_flag_does_not_change_a_single_worker ... ok
+test lazy_smp::tests::helper_root_lmr_flag_only_configures_helpers ... ok
+test lazy_smp::tests::invocation_guard_rejects_overlap_and_releases_on_drop ... ok
+test lazy_smp::tests::isolated_tt_flag_keeps_the_default_policy_unchanged ... ok
+test lazy_smp::tests::lifecycle_abort_stops_and_joins_a_real_worker_group ... ok
+test lazy_smp::tests::lifecycle_mutations_cannot_rearm_abort_after_reset ... ok
+test lazy_smp::tests::main_result_and_first_tie_avoid_the_highest_equal_depth_score ... ok
+test lazy_smp::tests::new_search_ages_shared_and_persistent_isolated_tables_once ... ok
+test lazy_smp::tests::opt_in_diagnostics_report_worker_probes_and_shared_tt_writes ... ok
+test lazy_smp::tests::proven_winning_mate_overrides_a_deeper_heuristic_result ... ok
+test lazy_smp::tests::reset_abort_waits_for_the_active_invocation ... ok
+test lazy_smp::tests::root_hint_stats_are_invocation_bound_and_reset_between_searches ... ok
+test lazy_smp::tests::root_rotation_keeps_main_order_and_offsets_helpers ... ok
+test lazy_smp::tests::selector_reports_the_exact_worker_when_results_are_identical ... ok
+test lazy_smp::tests::tt_lifecycle_mutations_wait_for_the_active_invocation ... ok
+test lazy_smp::tests::unproven_mate_like_score_does_not_override_depth ... ok
+test lazy_smp::tests::vote_prefers_the_move_most_workers_agree_on ... ok
+test lazy_smp::tests::vote_yields_to_a_found_mate ... ok
+test mate::tests::attacker_moves_are_exactly_the_checks ... ok
+test mate::tests::complete_bounded_analysis_corrects_the_mislabelled_issue_fixture ... ok
+test mate::tests::complete_bounded_analysis_distinguishes_completed_no_mate ... ok
+test mate::tests::complete_bounded_analysis_finds_all_shortest_mate_in_one_moves ... ok
+test mate::tests::complete_bounded_analysis_finds_unique_five_and_reuses_intermediate_position ... ok
+test mate::tests::complete_bounded_analysis_never_promotes_a_partial_result ... ok
+test mate::tests::complete_bounded_analysis_reports_three_instead_of_requested_five ... ok
+test mate::tests::complete_mate_in_one_distinguishes_zero_one_and_multiple_solutions ... ok
+test mate::tests::complete_mate_in_one_finds_a_drop ... ok
+test mate::tests::complete_mate_in_one_finds_discovered_checks ... ok
+test mate::tests::complete_mate_in_one_finds_distant_promotion_and_non_promotion ... ok
+test mate::tests::complete_mate_in_one_keeps_pawn_drop_mate_illegal ... ok
+test mate::tests::complete_mate_in_one_rejects_an_initial_check ... ok
+test mate::tests::complete_mate_in_one_reports_missing_and_duplicate_kings ... ok
+test mate::tests::discovered_check_candidates_find_the_single_blocker ... ok
+test mate::tests::finds_head_gold_drop_mate ... ok
+test mate::tests::finds_mate_in_one ... ok
+test mate::tests::no_mate_without_checks ... ok
+test mate::tests::optional_attacker_king_policy_handles_both_sides_and_uchifuzume ... ok
+test mate::tests::optional_attacker_king_policy_keeps_other_validation_and_two_king_legality ... ok
+test mate::tests::optional_attacker_king_policy_solves_the_original_seven_ply_diagram ... ok
+test mate::tests::proof_distance_counts_futile_interpositions_and_keeps_bounds_distinct ... ok
+test mcts::tests::all_tree_pilots_score_checkmate_from_the_side_to_move ... ok
+test mcts::tests::child_value_is_converted_to_the_root_perspective ... ok
+test mcts::tests::deterministic_value_cache_reuses_root_child_evaluations ... ok
+test mcts::tests::direct_depth_zero_simulators_cover_expanded_nodes_and_value_cache_hits ... ok
+test mcts::tests::fixed_budget_tree_diagnostic_is_reproducible ... ok
+test mcts::tests::invalid_policy_priors_are_safe_and_deterministic ... ok
+test mcts::tests::natural_move_order_fixture_reaches_the_same_position_hash ... ok
+test mcts::tests::natural_position_fixture_reuses_shared_child_node ... ok
+test mcts::tests::nnue_value_isolated_provider_is_deterministic ... ok
+test mcts::tests::progressive_widening_starts_with_the_highest_prior_move ... ok
+test mcts::tests::recursive_tree_simulators_account_for_terminal_leaves ... ok
+test mcts::tests::root_parallelism_matches_single_worker_for_deterministic_inputs ... ok
+test mcts::tests::root_parallelism_remains_equivalent_across_repeated_scheduler_runs ... ignored, bounded concurrency stress; run explicitly before a parallel-search release
+test mcts::tests::root_pilot_handles_terminal_positions_without_simulating ... ok
+test mcts::tests::root_pilot_is_deterministic_and_accounts_for_simulations ... ok
+test mcts::tests::root_pilot_scores_a_mating_child_without_calling_the_value_provider ... ok
+test mcts::tests::root_progressive_widening_is_bounded_and_deterministic ... ok
+test mcts::tests::shared_tree_control_can_disable_transposition_reuse ... ok
+test mcts::tests::shared_tree_cost_divergence_preserves_search_invariants ... ok
+test mcts::tests::shared_tree_discards_a_simulation_aborted_during_leaf_evaluation ... ok
+test mcts::tests::shared_tree_fixture_reuses_identical_position_links ... ok
+test mcts::tests::shared_tree_pilot_handles_terminal_positions_without_simulating ... ok
+test mcts::tests::shared_tree_pilot_honors_pre_set_abort ... ok
+test mcts::tests::shared_tree_pilot_is_deterministic_and_reports_arena_nodes ... ok
+test mcts::tests::tree_expanders_replace_all_zero_priors_with_uniform_weights ... ok
+test mcts::tests::tree_pilot_discards_a_simulation_aborted_during_leaf_evaluation ... ok
+test mcts::tests::tree_pilot_handles_terminal_positions_without_simulating ... ok
+test mcts::tests::tree_pilot_honors_pre_set_abort_without_partial_simulation ... ok
+test mcts::tests::tree_pilot_is_deterministic_and_visits_below_the_root ... ok
+test mcts::tests::tree_value_cache_reuses_identical_leaf_evaluations ... ok
+test movegen::attack_union_tests::check_squares_match_direct_check ... ok
+test movegen::attack_union_tests::pre_unioned_attack_sets_cover_every_piece_family ... ok
+test movegen::attack_union_tests::see_swap_matches_known_exchanges ... ok
+test movegen::attack_union_tests::slider_union_stops_at_the_first_blocker ... ok
+test movegen::diagnostic_coverage_tests::compile_time_attack_tables_rebuild_identically_at_runtime ... ok
+test movegen::diagnostic_coverage_tests::diagnostic_stages_cover_both_colors_and_every_piece_family ... ok
+test movegen::diagnostic_coverage_tests::every_move_sink_contract_handles_plain_drop_and_promotion_batches ... ok
+test movegen::diagnostic_coverage_tests::threat_classes_are_monotonic_by_declared_value_family ... ok
+test movegen::king_capture_tests::generate_legal_captures_skips_king_capture_without_panicking ... ok
+test movegen::king_capture_tests::generate_legal_moves_skips_king_capture_without_panicking ... ok
+test movegen::legality_probe_tests::accumulator_skipping_probe_matches_full_update_reference ... ok
+test movegen::legality_probe_tests::boundary_check_corpus_keeps_only_legal_evasions_and_restores_state ... ok
+test movegen::legality_probe_tests::branched_legality_corpus_matches_full_update_reference ... ok
+test movegen::legality_probe_tests::extended_seeded_legality_corpus_matches_full_update_reference ... ok
+test movegen::legality_probe_tests::pawn_drop_mate_fast_probe_matches_full_move_probe ... ok
+test movegen::legality_probe_tests::pin_and_evasion_corpus_matches_full_update_reference ... ok
+test movegen::mate_in_one_tests::finds_head_gold_drop_mate ... ok
+test movegen::mate_in_one_tests::ignores_pawn_drop_mate ... ok
+test movegen::mate_in_one_tests::matches_brute_force_on_contact_and_knight_mates ... ok
+test movegen::move_buffer_tests::adaptive_vec_generation_matches_fixed_sink_with_multiple_hands ... ok
+test movegen::move_buffer_tests::kingless_diagnostic_positions_fail_closed_without_inventing_checks ... ok
+test movegen::move_buffer_tests::known_check_state_buffers_match_self_contained_generation ... ok
+test movegen::move_buffer_tests::legal_move_cache_survives_nested_do_undo ... ok
+test movegen::move_buffer_tests::legal_vec_cold_path_reserves_reusable_capacity ... ok
+test movegen::move_buffer_tests::narrow_buffer_round_trips_startpos_and_drop_positions ... ok
+test movegen::move_buffer_tests::packed_buffer_round_trips_legal_moves ... ok
+test movegen::move_buffer_tests::pawn_file_cache_skips_same_file_quiet_and_handles_fallback ... ok
+test movegen::move_buffer_tests::quiet_promotion_buffer_does_not_truncate_slider_moves ... ok
+test movegen::move_buffer_tests::reusable_buffers_match_owned_move_lists ... ok
+test movegen::move_buffer_tests::two_ply_undo_cannot_reuse_a_grandchild_legality_cache ... ok
+test movegen::move_buffer_tests::v2_quiet_buffer_matches_filtered_legal_moves_outside_check ... ok
+test movegen::move_buffer_tests::v2_tactical_buffer_matches_filtered_legal_moves_outside_check ... ok
+test movegen::move_buffer_tests::v2_tactical_buffer_matches_seeded_legal_playouts ... ok
+test nnue::tests::accumulator_and_atomic_save_boundaries_fail_without_partial_artifacts ... ok
+test nnue::tests::activation_summary_counts_both_ft_perspectives_and_l2_boundaries ... ok
+test nnue::tests::board_mailbox_refresh_matches_snapshot_refresh ... ok
+test nnue::tests::explicit_weights_preserve_piece_sensitivity_and_side_sign ... ok
+test nnue::tests::feature_index_separates_square_kind_color_and_perspective ... ok
+test nnue::tests::four_row_forward_matches_scalar_reference_without_mutating_state ... ok
+test nnue::tests::incremental_piece_and_hand_updates_match_full_refresh ... ok
+test nnue::tests::read_weights_rejects_non_finite_values ... ok
+test nnue::tests::read_weights_rejects_trailing_bytes ... ok
+test nnue::tests::read_weights_rejects_unknown_magic_with_actionable_error ... ok
+test nnue::tests::save_and_read_weights_are_bitwise_deterministic ... ok
+test nnue::tests::save_weights_atomically_replaces_existing_file ... ok
+test nnue::tests::save_weights_rejects_non_finite_values_before_writing ... ok
+test policy::tests::top_n_is_capped_when_request_exceeds_move_count ... ok
+test policy::tests::top_n_is_ordered_subset_of_pseudo_legal_moves ... ok
+test search::aspiration::tests::bounds_unknown_and_mate_band_clear_all_history ... ok
+test search::aspiration::tests::depth_overflow_bucket_and_first_attempt_abort_are_bounded ... ok
+test search::aspiration::tests::diagnostics_separate_windows_failures_and_aborted_retry_work ... ok
+test search::aspiration::tests::independent_invocations_have_no_shared_score_history ... ok
+test search::aspiration::tests::initial_delta_is_bounded_and_handles_extreme_bases ... ok
+test search::aspiration::tests::successive_exact_scores_use_integer_smoothed_changes ... ok
+test search::helper_retirement::tests::retirement_requires_progress_agreement_and_observed_low_supplied_work ... ok
+test search::heuristics::tests::atomic_heuristic_tables_cover_boundaries_updates_aging_and_clear ... ok
+test search::params::tests::defaults_lie_inside_their_ranges ... ok
+test search::params::tests::names_are_unique ... ok
+test search::params::tests::normal_builds_ignore_set ... ok
+test search::regression_tests::completed_mate_pv_keeps_the_final_mating_move ... ok
+test search::regression_tests::external_abort_does_not_corrupt_existing_tt_entry ... ok
+test search::regression_tests::fourfold_history_is_adjudicated_before_tt_probe_or_store ... ok
+test search::regression_tests::full_root_lmr_only_removes_the_late_quiet_relief ... ok
+test search::regression_tests::qsearch_delta_pruning_returns_an_upper_bound_without_mutation ... ok
+test search::regression_tests::qsearch_does_not_store_after_abort_or_overwrite_deeper_entry ... ok
+test search::regression_tests::qsearch_quiet_check_fixture_preserves_board_state ... ok
+test search::regression_tests::qsearch_records_a_capture_and_restores_the_position ... ok
+test search::regression_tests::qsearch_stores_and_reuses_only_a_top_level_entry ... ok
+test search::regression_tests::quiescence_mate_in_one_stores_exact_move_for_pv_reconstruction ... ok
+test search::regression_tests::root_child_inherits_history_and_isolates_repetition_from_tt ... ok
+test search::regression_tests::root_fail_high_stores_lower_bound_not_exact ... ok
+test search::regression_tests::search_history_filter_preserves_exact_repetition_detection ... ok
+test search::regression_tests::shorter_ply_mate_scores_higher_in_alpha_beta ... ok
+test search::regression_tests::singular_verification_does_not_short_circuit_on_its_own_tt_entry ... ok
+test search::regression_tests::singular_verification_does_not_store_an_unrestricted_tt_entry ... ok
+test search::regression_tests::speculative_new_search_advances_tt_generation ... ok
+test search::regression_tests::supplied_check_state_matches_recomputed_state ... ok
+test search::root_split::tests::aborted_first_child_is_accounted_without_starting_helper ... ok
+test search::root_split::tests::candidate_at_wrong_depth_is_not_confirmed_and_beta_cut_cancels ... ok
+test search::root_split::tests::candidate_published_after_empty_poll_is_drained_once_after_join ... ok
+test search::root_split::tests::claim_assigns_each_remaining_move_once_and_reads_current_alpha ... ok
+test search::root_split::tests::completed_search_restores_board_and_returns_legal_pv ... ok
+test search::root_split::tests::corrupted_generation_stamp_cannot_be_taken ... ok
+test search::root_split::tests::draining_all_fail_low_pass_keeps_aspiration_failure_and_no_root_entry ... ok
+test search::root_split::tests::draining_search_restores_board_pv_and_shared_accounting_in_both_modes ... ok
+test search::root_split::tests::external_stop_is_observed_before_starting_a_helper ... ok
+test search::root_split::tests::helper_cancellation_preserves_main_budget_and_parent_stop_reaches_helper ... ok
+test search::root_split::tests::helper_finish_guard_notifies_on_panic_without_ready_candidates ... ok
+test search::root_split::tests::helper_histories_are_private_and_reused_only_within_one_invocation ... ok
+test search::root_split::tests::helper_lower_bound_below_latest_alpha_is_still_confirmed ... ok
+test search::root_split::tests::helper_panic_propagates_without_double_panic_or_lost_participation ... ok
+test search::root_split::tests::lost_completion_receiver_and_main_unwind_still_join_helper ... ok
+test search::root_split::tests::participation_is_released_when_a_task_unwinds ... ok
+test search::root_split::tests::persistent_executor_is_lazy_on_external_stop ... ok
+test search::root_split::tests::persistent_executor_obeys_shared_node_budget ... ok
+test search::root_split::tests::persistent_executor_reuses_one_thread_and_does_not_leak_into_next_go ... ok
+test search::root_split::tests::persistent_helper_preserves_draw_and_perpetual_check_history_before_tt ... ok
+test search::root_split::tests::shallow_score_matches_sequential_full_depth_search ... ok
+test search::root_split::tests::shared_node_budget_aborts_without_corrupting_board ... ok
+test search::root_split::tests::stale_generation_and_cancelled_candidates_are_rejected ... ok
+test search::root_split::tests::unavailable_executor_falls_back_to_main_without_losing_root_moves ... ok
+test search::root_split::tests::unavailable_executor_with_draining_never_waits_for_an_unstarted_helper ... ok
+test search::root_split::tests::unwind_guard_cancels_generation_before_join ... ok
+test search::root_split::tests::waiting_main_confirms_and_cancels_before_held_helper_finishes ... ok
+test search::root_split::tests::waiting_main_observes_external_stop_without_a_notification ... ok
+test search::root_split::tests::wake_tokens_coalesce_without_losing_candidates_or_completion ... ok
+test search::see_tests::applied_hint_records_first_move_cut_and_saturating_retry_nodes ... ok
+test search::see_tests::cached_root_mate_safety_preserves_the_current_move_order ... ok
+test search::see_tests::cached_root_safety_retains_an_immediate_mate ... ok
+test search::see_tests::completed_helper_search_publishes_and_main_search_reads_the_hint ... ok
+test search::see_tests::diagnostic_search_wrappers_and_soft_limit_edges_are_bounded ... ok
+test search::see_tests::diagnostics_observer_records_search_path_without_changing_result ... ok
+test search::see_tests::diagnostics_tables_preserve_every_recorded_dimension ... ok
+test search::see_tests::eval_cache_concurrent_collision_never_returns_another_hash_score ... ok
+test search::see_tests::eval_cache_round_trips_signed_scores_and_rejects_collisions ... ok
+test search::see_tests::eval_cache_stays_within_preregistered_memory_budget ... ok
+test search::see_tests::futility_pruning_reduces_only_late_quiet_work_at_depth_one ... ok
+test search::see_tests::immediate_deadline_still_returns_a_legal_move_for_both_searchers ... ok
+test search::see_tests::iteration_trace_keeps_only_completed_passes_and_reports_root_safety_cost ... ok
+test search::see_tests::lmr_protects_early_special_and_tactical_moves ... ok
+test search::see_tests::lmr_table_is_bit_exact_with_previous_formula ... ok
+test search::see_tests::move_ordering_keeps_priority_bands_in_order ... ok
+test search::see_tests::multi_pv_trace_ranks_unique_candidates_under_one_budget ... ok
+test search::see_tests::parallel_worker_diagnostics_separate_local_foreign_and_unknown_tt_hits ... ok
+test search::see_tests::regular_search_preserves_a_non_startpos_root_board ... ok
+test search::see_tests::repetition_scores_are_oriented_to_the_current_side ... ok
+test search::see_tests::root_candidate_diagnostic_is_explicit_and_restores_board ... ok
+test search::see_tests::root_hint_counts_only_order_changes_as_applied ... ok
+test search::see_tests::root_hint_encoding_round_trips_move_families ... ok
+test search::see_tests::root_hint_is_an_exact_noop_for_multipv ... ok
+test search::see_tests::root_hint_keeps_the_deepest_deterministic_helper_move ... ok
+test search::see_tests::root_hint_promotion_preserves_the_other_moves_order ... ok
+test search::see_tests::root_hint_rejects_a_delayed_publish_from_the_previous_go ... ok
+test search::see_tests::root_mate_filter_prefilter_keeps_every_checking_move ... ok
+test search::see_tests::root_mate_safety_respects_the_hard_node_budget ... ok
+test search::see_tests::root_move_diagnostic_consumes_budget_and_keeps_requested_move ... ok
+test search::see_tests::root_move_diagnostic_rejects_illegal_move_without_mutation ... ok
+test search::see_tests::root_move_diagnostic_restores_capture_position ... ok
+test search::see_tests::root_move_diagnostic_restores_drop_position ... ok
+test search::see_tests::root_move_diagnostic_restores_promotion_position ... ok
+test search::see_tests::root_order_diversity_only_rotates_the_initial_seed ... ok
+test search::see_tests::root_order_does_not_leak_between_searches_on_the_same_thread ... ok
+test search::see_tests::search_respects_time_limit ... ok
+test search::see_tests::sequential_search_respects_node_limit ... ok
+test search::see_tests::small_cached_key_sort_is_stable_and_scores_each_move_once ... ok
+test search::see_tests::speculative_search_keeps_the_fg5c_check_evasion_bestmove_legal ... ok
+test search::see_tests::speculative_search_preserves_completed_pv_after_deeper_node_abort ... ok
+test search::see_tests::stale_root_hint_application_cannot_increment_the_new_generation ... ok
+test search::see_tests::tt_reuse_sampler_attributes_hits_to_the_last_committing_worker ... ok
+test search::see_tests::tt_reuse_sampler_ignores_hashes_outside_the_sample ... ok
+test search::see_tests::work_overlap_sampler_claims_one_slot_under_concurrent_first_visit ... ok
+test search::see_tests::work_overlap_sampler_separates_local_and_cross_worker_revisits ... ok
+test search::static_pruning::tests::razoring_calls_quiescence_only_after_crossing_the_margin ... ok
+test search::static_pruning::tests::razoring_keeps_searching_when_quiescence_raises_alpha ... ok
+test search::static_pruning::tests::reverse_futility_obeys_depth_mate_pv_and_margin_guards ... ok
+test search::tt_probe::tests::exact_lower_and_upper_entries_obey_the_window_and_exclusion_contract ... ok
+test search::v2::tests::nmp_null_and_verification_counters_follow_real_search ... ok
+test search::v2::tests::nmp_observer_preserves_fixed_depth_search_and_root_board ... ok
+test search::v2::tests::nmp_prior_is_bounded_and_rejects_sensitive_positions ... ok
+test search::v2::tests::nmp_pv_tracking_is_exact_bounded_and_consumed_once ... ok
+test search::v2::tests::nmp_pv_tracking_resets_per_invocation_without_tt_aging ... ok
+test search::v2::tests::nmp_snapshot_totals_match_depth_counters ... ok
+test search::v2::tests::reduction_and_history_helpers_cover_split_tables_and_aging ... ok
+test speculative::tests::score_to_tt_and_score_from_tt_are_no_ops_outside_the_mate_range ... ok
+test speculative::tests::score_to_tt_score_from_tt_round_trip_both_mate_directions ... ok
+test speculative::tests::shorter_ply_mate_scores_higher_in_spec_alpha_beta ... ok
+test speculative::tests::spec_alpha_beta_beta_cutoff_store_is_ply_relative ... ok
+test speculative::tests::spec_alpha_beta_end_of_loop_store_is_ply_relative ... ok
+test speculative::tests::spec_group_spawn_skips_king_capture_without_panicking ... ok
+test speculative::tests::spec_group_tasks_do_not_store_candidate_scores_as_parent_exact_entries ... ok
+test speculative::tests::spec_group_uses_isolated_pool_not_global ... ok
+test tests::explicit_evaluator_switch_does_not_mix_accumulators ... ok
+test tests::explicit_nnue_evaluation_is_isolated ... ok
+test tests::hash_roundtrip ... ok
+test tests::hash_transposition ... ok
+test tests::lazy_smp_aa_control_preserves_selected_result ... ok
+test tests::lazy_smp_is_valid_and_preserves_board ... ok
+test tests::lazy_smp_one_worker_matches_searcher ... ok
+test tests::lazy_smp_shared_and_isolated_results_agree ... ok
+test tests::multipv_fixture_returns_distinct_legal_moves_in_score_order ... ok
+test tests::nnue_acc_capture_removes_victim ... ok
+test tests::nnue_acc_incremental_matches_scratch ... ok
+test tests::nnue_acc_king_capture_matches_scratch ... ok
+test tests::nnue_acc_king_move_matches_scratch ... ok
+test tests::nnue_acc_promotion_uses_promoted_kind ... ok
+test tests::nnue_incremental_score_matches_fresh_refresh ... ok
+test tests::parallel_matches_sequential_result ... ok
+test tests::perft5_startpos ... ignored, slow: run with --release
+test tests::perft_preserves_incremental_state ... ok
+test tests::perft_startpos ... ok
+test tests::position_cmd_accepts_whitespace_and_rejects_unknown_suffixes ... ok
+test tests::position_cmd_matches_manual ... ok
+test tests::position_command_preserves_a_fourfold_repetition_history ... ok
+test tests::position_history_detects_fourfold_draw_and_one_sided_perpetual_check ... ok
+test tests::random_perft_mated_10k ... ok
+test tests::random_perft_mated_10m ... ignored, slow: run with --release (~2 min)
+test tests::rules_only_sfen_skips_nnue_refresh_but_preserves_hash ... ok
+test tests::search_startpos_returns_move ... ok
+test tests::sfen_borrowed_fields_preserve_whitespace_and_optional_ply ... ok
+test tests::sfen_capture_roundtrip ... ok
+test tests::sfen_multi_digit_hand_count_roundtrip ... ok
+test tests::sfen_position_fixture_replays_to_the_same_hash ... ok
+test tests::sfen_rejects_invalid_field_and_rank_counts ... ok
+test tests::sfen_rejects_malformed_rank_hand_and_move_number ... ok
+test tests::sfen_rejects_rank_overflow_without_panicking ... ok
+test tests::sfen_roundtrip_hash ... ok
+test tests::sfen_startpos_hash_matches ... ok
+test tests::speculative_is_valid ... ok
+test tests::tt_reduces_nodes ... ok
+test tests::tt_write_topology_observer_classifies_slot_collision ... ok
+test tests::tt_write_topology_observer_covers_control_and_speculative_replay ... ok
+test tests::tt_write_topology_observer_distinguishes_equal_depth_and_rejected_writes ... ok
+test tests::usi_fixture_accepts_legal_drop_and_promotion ... ok
+test tests::usi_move_parser_rejects_invalid_drop_and_side ... ok
+test tests::usi_move_parser_rejects_malformed_and_illegal_moves ... ok
+test tests::usi_move_parser_rejects_promotion_of_non_promotable_piece ... ok
+test tests::usi_move_roundtrip ... ok
+test tests::usi_roundtrip_accepts_every_generated_legal_move ... ok
+test tt::tests::bucket_layout_keeps_a_much_deeper_bound_of_the_same_position ... ok
+test tt::tests::bucket_layout_keeps_four_positions_of_one_bucket ... ok
+test tt::tests::bucket_layout_keeps_the_stored_move_when_a_new_entry_has_none ... ok
+test tt::tests::bucket_layout_replaces_an_entry_of_an_older_search_first ... ok
+test tt::tests::clear_does_not_let_a_stale_deep_entry_block_a_fresh_shallow_store ... ok
+test tt::tests::clear_removes_previously_stored_entries ... ok
+test tt::tests::concurrent_colliding_writes_are_misses_or_complete_matching_entries ... ok
+test tt::tests::concurrent_colliding_writes_stay_well_formed_under_stress ... ignored, bounded concurrency stress; run explicitly before a parallel-search release
+test tt::tests::depth_preferred_store_keeps_deeper_entry_and_accepts_deeper_replacement ... ok
+test tt::tests::evaluator_domains_use_distinct_internal_keys ... ok
+test tt::tests::new_does_not_halve_power_of_two_capacity ... ok
+test tt::tests::pv_flag_round_trips_without_touching_the_score ... ok
+test tt::tests::replacement_layouts_cover_direct_generation_and_bucket_collisions ... ok
+test tt::tests::tracked_store_reports_only_committed_entries ... ok
+test zobrist::tests::compile_time_key_table_rebuilds_identically_at_runtime ... ok
+test zobrist::tests::full_hash_contains_every_supported_component ... ok
+test zobrist::tests::hand_delta_rejects_board_only_pieces - should panic ... ok
+
+test result: ok. 353 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; finished in 112.15s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-764f1d20e2a3081d)
+
+running 2 tests
+test tests::material_score_flips_for_opposite_hand_and_side ... ok
+test tests::material_score_is_zero_for_startpos ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-52981fcc6163c68d)
+
+running 1 test
+test tests::start_position_prefix_materializes_legally ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-f6311faf88ceddda)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-74765f77c72c17af)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-cd1d1e8aeee0c253)
+
+running 2 tests
+test tests::startpos_is_not_terminal_or_an_immediate_mate ... ok
+test tests::tactical_counts_are_score_free_and_restore_the_board ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-cebcdc5cdc9ae1a3)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-5c148c1d163513b7)
+
+running 1 test
+test existing_diagnostic_literals_and_hint_result_remain_compatible ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-d0d87fd056ed7e52)
+
+running 1 test
+test direct_check_matches_played_move ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.09s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-b33da3b3a2b51291)
+
+running 1 test
+test byte_loader_is_fail_closed_and_one_shot ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-05ea79715d95f9b7)
+
+running 1 test
+test halfkp_file_is_detected_and_incremental_updates_stay_exact ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.95s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-649342483a0dcb2b)
+
+running 11 tests
+test bounded_public_searches_cover_tactical_and_quiet_positions ... ok
+test deterministic_playout_corpus_exercises_cold_and_warm_search_paths ... ok
+test every_public_move_container_matches_owned_generation ... ok
+test public_attack_and_sfen_adapters_cover_piece_and_error_families ... ok
+test public_evaluation_and_policy_adapters_cover_all_move_families ... ok
+test public_lazy_smp_controls_cover_ephemeral_isolated_and_vote_paths ... ok
+test public_pruning_ablations_restore_diverse_positions ... ok
+test public_search_controls_cover_abort_trace_and_candidate_contracts ... ok
+test public_sfen_history_and_mate_contracts_cover_boundary_families ... ok
+test public_sfnn_header_reader_rejects_each_bounded_error_family ... ok
+test public_small_utility_boundaries_remain_total_and_reversible ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.97s
+
+     Running unittests src/bin/analysis_replay.rs (target/llvm-cov-target/debug/deps/sekirei_analysis_replay-1769674fa089e3a6)
+
+running 13 tests
+test moves::tests::csa_move_rejects_wrong_side ... ok
+test moves::tests::csa_pi_selects_standard_startpos ... ok
+test moves::tests::csa_piece_and_square_tables_cover_valid_and_invalid_tokens ... ok
+test moves::tests::csa_position_matches_startpos ... ok
+test moves::tests::csa_position_reads_hand_lines ... ok
+test moves::tests::csa_position_rejects_incomplete_and_invalid_setups ... ok
+test moves::tests::csa_position_rejects_malformed_rows_and_accepts_compact_hands ... ok
+test moves::tests::move_parser_and_serializer_cover_normal_promotion_and_drop_moves ... ok
+test moves::tests::promoted_position_cells_round_trip_through_sfen ... ok
+test moves::tests::serializer_covers_every_piece_code_for_both_colors ... ok
+test tests::mismatched_event_is_rejected ... ok
+test tests::mismatched_result_is_rejected ... ok
+test tests::valid_pair_replays ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/sekirei_csa-ec0230b29ef182f5)
+
+running 66 tests
+test moves::tests::csa_move_rejects_wrong_side ... ok
+test moves::tests::csa_pi_selects_standard_startpos ... ok
+test moves::tests::csa_piece_and_square_tables_cover_valid_and_invalid_tokens ... ok
+test moves::tests::csa_position_matches_startpos ... ok
+test moves::tests::csa_position_reads_hand_lines ... ok
+test moves::tests::csa_position_rejects_incomplete_and_invalid_setups ... ok
+test moves::tests::csa_position_rejects_malformed_rows_and_accepts_compact_hands ... ok
+test moves::tests::move_parser_and_serializer_cover_normal_promotion_and_drop_moves ... ok
+test moves::tests::promoted_position_cells_round_trip_through_sfen ... ok
+test moves::tests::serializer_covers_every_piece_code_for_both_colors ... ok
+test protocol::framing::tests::only_one_partial_timeout_is_tolerated ... ok
+test protocol::framing::tests::oversized_unterminated_line_is_rejected_at_eof ... ok
+test protocol::framing::tests::split_crlf_line_is_joined_and_carriage_return_is_removed ... ok
+test protocol::framing::tests::timeout_without_partial_input_is_returned_immediately ... ok
+test protocol::tests::accepted_game_records_events_and_rejects_a_legal_shape_illegal_move ... ok
+test protocol::tests::accepted_summary_rejects_invalid_position_and_manifest_destination ... ok
+test protocol::tests::analysis_initialization_failure_leaves_no_orphan_csa_file ... ok
+test protocol::tests::analysis_write_failure_marks_record_unhealthy ... ok
+test protocol::tests::consecutive_games_do_not_carry_terminal_lines_forward ... ok
+test protocol::tests::csa_line_reader_drains_oversized_line_before_next_command ... ok
+test protocol::tests::csa_line_reader_rejects_eof_in_partial_line ... ok
+test protocol::tests::csa_line_reader_rejects_invalid_utf8_at_line_boundary ... ok
+test protocol::tests::csa_line_reader_retains_split_utf8_across_timeout ... ok
+test protocol::tests::delayed_result_after_aborted_game_is_consumed_before_next_summary ... ok
+test protocol::tests::denryu_asymmetric_fischer_clock_fixture_is_exact ... ok
+test protocol::tests::direct_client_helpers_cover_limits_login_and_transport_errors ... ok
+test protocol::tests::direct_recording_writes_search_candidates_and_every_terminal_result ... ok
+test protocol::tests::direct_think_paths_cover_ordinary_and_no_legal_move_resignation ... ok
+test protocol::tests::dropping_unfinished_record_marks_its_analysis_aborted ... ok
+test protocol::tests::duplicate_final_result_fails_closed_before_the_next_game ... ok
+test protocol::tests::fake_server_eof_is_reported_as_connection_error ... ok
+test protocol::tests::fake_server_full_game_transition_records_win ... ok
+test protocol::tests::fake_server_invalid_utf8_is_a_terminal_protocol_error ... ok
+test protocol::tests::fourteen_game_rehearsal_preserves_progress_across_client_restart ... ok
+test protocol::tests::game_id_clock_fallbacks_cover_valid_suffixes_overflow_and_defaults ... ok
+test protocol::tests::jishogi_is_recorded_as_draw ... ok
+test protocol::tests::json_string_escapes_protocol_metadata_without_losing_unicode ... ok
+test protocol::tests::malformed_server_move_is_terminal_and_not_recorded ... ok
+test protocol::tests::malformed_summary_fields_fail_closed_before_game_start ... ok
+test protocol::tests::malformed_time_control_is_terminal_before_agree ... ok
+test protocol::tests::max_games_stops_before_a_sixth_request ... ok
+test protocol::tests::ordinary_resignation_is_recorded_and_drained_to_the_final_result ... ok
+test protocol::tests::overflowing_time_echo_aborts_the_game_fail_closed ... ok
+test protocol::tests::own_move_drain_accepts_resign_event_and_fischer_time_before_result ... ok
+test protocol::tests::protocol_helpers_fail_closed_without_hiding_io_or_shape_errors ... ok
+test protocol::tests::record_initialization_failure_is_exposed_in_runtime_status ... ok
+test protocol::tests::record_initialization_failure_refuses_to_start_recorded_game ... ok
+test protocol::tests::runtime_status_and_manifest_updates_are_atomic_and_append_only ... ok
+test protocol::tests::server_game_id_is_never_used_as_a_record_filename ... ok
+test protocol::tests::server_line_classifier_keeps_protocol_kinds_separate ... ok
+test protocol::tests::summary_overflow_and_record_initialization_fail_before_play ... ok
+test protocol::tests::terminal_after_our_move_without_time_echo_is_recorded_immediately ... ok
+test protocol::tests::terminal_markers_are_not_confused_with_protocol_abort ... ok
+test protocol::tests::time_control_and_manifest_fail_closed_on_every_ambiguous_boundary ... ok
+test protocol::tests::time_control_honours_units_and_rejects_ambiguous_fields ... ok
+test protocol::tests::time_echo_parser_uses_the_last_time_field ... ok
+test protocol::tests::time_suffixed_moves_are_reduced_to_bare_csa_tokens ... ok
+test protocol::tests::tournament_ply_boundary_accepts_512_and_rejects_513 ... ok
+test tests::bounded_loop_requires_a_positive_limit_and_explicit_loop ... ok
+test tests::evaluator_configuration_rejects_missing_or_conflicting_weights ... ok
+test tests::post_game_reconnect_budget_is_bounded ... ok
+test tests::root_candidates_are_an_explicit_diagnostic_option ... ok
+test tests::run_manifest_contains_active_contract_without_credentials ... ok
+test tests::status_file_is_parsed_without_affecting_run_contract ... ok
+test tests::unattended_loop_accepts_explicit_material_mode ... ok
+test tests::unattended_loop_requires_explicit_evaluation_mode ... ok
+
+test result: ok. 66 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.52s
+
+     Running unittests src/bin/history_replay.rs (target/llvm-cov-target/debug/deps/sekirei_history_replay-706888afccbe8779)
+
+running 14 tests
+test moves::tests::csa_move_rejects_wrong_side ... ok
+test moves::tests::csa_pi_selects_standard_startpos ... ok
+test moves::tests::csa_piece_and_square_tables_cover_valid_and_invalid_tokens ... ok
+test moves::tests::csa_position_matches_startpos ... ok
+test moves::tests::csa_position_reads_hand_lines ... ok
+test moves::tests::csa_position_rejects_incomplete_and_invalid_setups ... ok
+test moves::tests::csa_position_rejects_malformed_rows_and_accepts_compact_hands ... ok
+test moves::tests::move_parser_and_serializer_cover_normal_promotion_and_drop_moves ... ok
+test moves::tests::promoted_position_cells_round_trip_through_sfen ... ok
+test moves::tests::serializer_covers_every_piece_code_for_both_colors ... ok
+test tests::export_replays_arbitrary_initial_sfen_and_repetition_result ... ok
+test tests::export_retains_missing_scores_and_pre_move_state ... ok
+test tests::preserved_initial_sfen_takes_precedence_over_pi ... ok
+test tests::standalone_side_marker_is_not_a_move ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/sekirei_match-86a70e4da7d8bcbb)
+
+running 91 tests
+test elo::tests::elo_50pct_is_zero ... ok
+test elo::tests::elo_75pct_is_about_191 ... ok
+test elo::tests::elo_ci_decreases_with_more_games ... ok
+test elo::tests::los_50pct_is_half ... ok
+test elo::tests::los_all_wins_is_high ... ok
+test engine::tests::advertised_option_name_accepts_standard_declarations ... ok
+test engine::tests::clock_deadline_is_the_larger_clock_plus_increment ... ok
+test engine::tests::fake_engine_covers_the_match_lifecycle_and_structured_search_result ... ok
+test engine::tests::graceful_shutdown_forces_and_reaps_an_engine_that_ignores_quit ... ok
+test engine::tests::ignores_info_string_messages ... ok
+test engine::tests::info_chatter_cannot_extend_the_total_bestmove_deadline ... ok
+test engine::tests::initialize_fails_closed_for_unadvertised_options ... ok
+test engine::tests::initialize_fails_closed_when_eval_acknowledgement_is_missing ... ok
+test engine::tests::initialize_fails_closed_when_nnue_mode_acknowledgement_is_missing ... ok
+test engine::tests::keeps_only_one_complete_primary_iteration ... ok
+test engine::tests::kill_reaps_an_unresponsive_engine ... ok
+test engine::tests::lowerbound_iteration_is_not_retained_as_a_completed_primary ... ok
+test engine::tests::parses_cp_search_info_with_bound_and_pv ... ok
+test engine::tests::parses_root_mate_safety_metrics_only_from_complete_diagnostic ... ok
+test engine::tests::parses_symbolic_mate_score ... ok
+test engine::tests::preserves_last_completed_primary_across_stop_like_partial_output ... ok
+test engine::tests::rayon_threads_option_accepts_only_positive_threads ... ok
+test engine::tests::recv_disconnected_maps_to_broken_pipe_io_error_not_timedout ... ok
+test engine::tests::recv_ok_trims_trailing_whitespace ... ok
+test engine::tests::recv_timeout_maps_to_timedout_io_error ... ok
+test engine::tests::requested_option_names_excludes_malformed_entries ... ok
+test engine::tests::setoption_commands_formats_name_value_pairs_in_order ... ok
+test engine::tests::setoption_commands_on_empty_input_is_empty ... ok
+test engine::tests::setoption_commands_skips_entries_without_an_equals_sign ... ok
+test engine::tests::standalone_bounds_and_malformed_scores_remain_partial ... ok
+test tests::build_game_list_pairs_same_position_opposite_colors ... ok
+test tests::build_game_list_random_sample_mode_ignores_games_per_position ... ok
+test tests::complete_pair_validation_accepts_only_two_records_per_id ... ok
+test tests::csa_piece_names_cover_promotions ... ok
+test tests::csa_replays_the_opening_prefix_before_played_moves ... ok
+test tests::disconnected_go_error_stays_engine_error_not_time_forfeit ... ok
+test tests::diversity_stats_all_distinct_games_has_ratio_one ... ok
+test tests::diversity_stats_all_identical_games_has_low_ratio ... ok
+test tests::diversity_stats_on_empty_input_is_zero ... ok
+test tests::diversity_stats_only_looks_at_first_20_plies ... ok
+test tests::duplicate_stats_counts_exact_replays ... ok
+test tests::engine_assignment_uses_board_side_not_ply_parity ... ok
+test tests::fails_when_candidate_loses_every_game ... ok
+test tests::fischer_clock_accounting_is_bounded_and_reports_flag_fall ... ok
+test tests::gameover_results_are_from_each_engine_perspective ... ok
+test tests::gate_options_parse_explicit_contract ... ok
+test tests::gate_options_reject_invalid_values_instead_of_using_defaults ... ok
+test tests::gate_options_reject_unknown_or_ambiguous_arguments ... ok
+test tests::inconclusive_on_small_mixed_sample ... ok
+test tests::json_f64_accepts_json_exponent_notation ... ok
+test tests::json_number_uses_null_for_non_finite_values ... ok
+test tests::json_string_or_null_is_valid_json ... ok
+test tests::launch_and_init_returns_an_error_when_the_child_exits_during_handshake ... ok
+test tests::low_diversity_message_fires_below_threshold ... ok
+test tests::low_diversity_message_silent_at_or_above_threshold ... ok
+test tests::low_diversity_message_silent_when_field_missing ... ok
+test tests::match_start_position_never_falls_back_to_startpos ... ok
+test tests::opening_loader_accepts_startpos_and_raw_sfen ... ok
+test tests::opening_loader_reports_the_physical_source_line ... ok
+test tests::opening_prefix_history_adjudicates_repetition_on_the_next_cycle ... ok
+test tests::opening_prefix_rejects_illegal_moves_and_unknown_suffixes ... ok
+test tests::opening_prefix_rejects_repetition_at_or_before_its_last_move ... ok
+test tests::opening_prefix_retains_moves_and_appends_only_one_moves_token ... ok
+test tests::options_json_on_empty_input_is_empty_object ... ok
+test tests::options_json_renders_name_value_pairs ... ok
+test tests::pair_id_groups_two_consecutive_games_per_position_without_crossing_blocks ... ok
+test tests::pair_id_odd_games_per_position_leaves_a_singleton ... ok
+test tests::passes_when_ci_lower_bound_clears_pass_elo ... ok
+test tests::perpetual_check_csa_retains_the_loser_for_training_replay ... ok
+test tests::perpetual_check_repetition_awards_a_loss_to_the_checking_side ... ok
+test tests::random_mode_exhausts_each_opening_color_before_reuse ... ok
+test tests::raw_sfen_opening_prefix_preserves_white_to_move_history ... ok
+test tests::selfplay_csa_rejects_non_game_results ... ok
+test tests::selfplay_csa_replays_startpos_resignation_without_inventing_result ... ok
+test tests::selfplay_manifest_marks_single_startpos_run ... ok
+test tests::selfplay_manifest_preserves_each_scheduled_sfen_and_source ... ok
+test tests::sprt_decide_fails_on_strong_baseline_run ... ok
+test tests::sprt_decide_inconclusive_on_small_mixed_sample ... ok
+test tests::sprt_decide_passes_on_strong_candidate_run ... ok
+test tests::sprt_decide_rejects_error_rates_with_collapsed_bounds ... ok
+test tests::sprt_decide_rejects_invalid_hypothesis_bounds ... ok
+test tests::sprt_decide_retains_first_boundary_crossing_after_reversion ... ok
+test tests::sprt_decide_trinomial_paired_absorbs_a_split_pair_as_a_draw ... ok
+test tests::standalone_gate_reconciles_summary_and_per_game_counts ... ok
+test tests::standalone_gate_requires_complete_clean_evidence ... ok
+test tests::tally_records_counts_draws_separately ... ok
+test tests::tally_records_matches_elo_module_inputs ... ok
+test tests::timed_out_go_error_becomes_time_forfeit ... ok
+test tests::write_verdict_sidecar_derives_path_and_writes_content ... ok
+test tests::write_verdict_sidecar_reports_an_unwritable_destination ... ok
+test tests::zero_decisive_games_is_inconclusive_not_error ... ok
+
+test result: ok. 91 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.65s
+
+     Running unittests src/bin/ranking_audit.rs (target/llvm-cov-target/debug/deps/ranking_audit-806a7711a72dcacd)
+
+running 7 tests
+test tests::accepts_mate_ordinal_without_inventing_a_centipawn_gap ... ok
+test tests::accepts_only_bound_preregistered_candidate_union ... ok
+test tests::accepts_strict_legal_pair_without_training ... ok
+test tests::accepts_top_vs_rest_pair_selection ... ok
+test tests::pairwise_loss_is_finite_and_improves_with_margin ... ok
+test tests::rejects_non_strict_or_state_mismatched_pair ... ok
+test tests::rejects_unknown_pair_selection ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/train-2b34ed723bc4a608)
+
+running 259 tests
+test artifact_io::tests::atomic_helpers_clean_temporary_files_after_each_failure_stage ... ok
+test book::tests::every_game_result_and_mover_perspective_builds_observations ... ok
+test book::tests::generated_book_records_lineprior_schema_and_build_config ... ok
+test book::tests::output_failure_is_reported_without_a_partial_success ... ok
+test csa::tests::helpers_reject_invalid_coordinates_and_cover_every_piece_token ... ok
+test csa::tests::kachi_awards_win_to_the_side_that_just_moved ... ok
+test csa::tests::metadata_comments_and_all_clean_result_directions_are_preserved ... ok
+test csa::tests::parse_two_moves ... ok
+test csa::tests::sekirei_initial_sfen_comment_sets_the_replay_board ... ok
+test csa::tests::sekirei_perpetual_check_comment_keeps_the_decisive_result ... ok
+test csa::tests::sennichite_is_a_draw ... ok
+test csa::tests::time_up_is_unknown_not_a_loss ... ok
+test dataset_reader::tests::disabled_gzip_rejects_magic_and_suffix ... ok
+test dataset_reader::tests::disabled_zstd_rejects_magic_skippable_and_suffix ... ok
+test dataset_reader::tests::interrupted_underlying_read_can_be_retried ... ok
+test dataset_reader::tests::magic_has_precedence_over_compressed_suffixes ... ok
+test dataset_reader::tests::plain_short_reads_preserve_bytes_and_bufread_boundaries ... ok
+test diagnostics::tests::accumulated_cosine_similarity_non_finite_input_is_zero ... ok
+test diagnostics::tests::conflict_group_summary_covers_empty_and_accumulated_groups ... ok
+test diagnostics::tests::cosine_similarity_identical_vectors_is_one ... ok
+test diagnostics::tests::cosine_similarity_opposite_vectors_is_minus_one ... ok
+test diagnostics::tests::cosine_similarity_orthogonal_vectors_is_zero ... ok
+test diagnostics::tests::cosine_similarity_zero_vector_is_zero_not_nan ... ok
+test diagnostics::tests::cp_wdl_trace_shape_mismatch_is_zero_filled ... ok
+test diagnostics::tests::expected_calibration_error_ignores_empty_buckets ... ok
+test diagnostics::tests::expected_calibration_error_matches_hand_computed_value ... ok
+test diagnostics::tests::expected_calibration_error_perfectly_calibrated_is_zero ... ok
+test diagnostics::tests::expected_calibration_error_zero_samples_is_zero ... ok
+test diagnostics::tests::l2_activation_frequency_matches_hand_computed_values ... ok
+test diagnostics::tests::l2_activation_frequency_zero_samples_is_zero_filled ... ok
+test diagnostics::tests::l2_dead_neurons_counts_only_fully_dead ... ok
+test diagnostics::tests::l2_dead_neurons_zero_samples_is_zero ... ok
+test diagnostics::tests::l2_diff_norm_length_mismatch_is_zero ... ok
+test diagnostics::tests::l2_diff_norm_matches_hand_computed_euclidean_distance ... ok
+test diagnostics::tests::l2_diff_norm_non_finite_input_is_zero ... ok
+test diagnostics::tests::l2_diff_norm_zero_for_identical_snapshots ... ok
+test diagnostics::tests::l2_row_weight_norm_length_mismatch_is_zero_filled ... ok
+test diagnostics::tests::l2_row_weight_norm_matches_hand_computed_euclidean_distance ... ok
+test diagnostics::tests::l2_saturation_frequency_matches_hand_computed_values ... ok
+test diagnostics::tests::mean_std_matches_hand_computed_values ... ok
+test diagnostics::tests::mean_std_non_finite_input_is_zero ... ok
+test diagnostics::tests::mean_std_zero_count_is_zero ... ok
+test diagnostics::tests::output_weight_norm_matches_hand_computed_euclidean_norm ... ok
+test diagnostics::tests::pearson_correlation_constant_series_is_zero_not_nan ... ok
+test diagnostics::tests::pearson_correlation_fewer_than_two_samples_is_zero ... ok
+test diagnostics::tests::pearson_correlation_non_finite_input_is_zero ... ok
+test diagnostics::tests::pearson_correlation_perfect_negative_line_is_minus_one ... ok
+test diagnostics::tests::pearson_correlation_perfect_positive_line_is_one ... ok
+test diagnostics::tests::percentiles_ignores_non_finite_values ... ok
+test diagnostics::tests::percentiles_matches_hand_computed_median_and_extremes ... ok
+test diagnostics::tests::percentiles_of_empty_is_zero_filled ... ok
+test diagnostics::tests::quantized_ft_zero_ratio_counts_exact_zeros ... ok
+test diagnostics::tests::quantized_ft_zero_ratio_of_empty_ft_is_zero ... ok
+test diagnostics::tests::ratio_counts_true_fraction ... ok
+test diagnostics::tests::ratio_of_empty_slice_is_zero ... ok
+test diagnostics::tests::vector_cosine_similarity_length_mismatch_is_zero ... ok
+test diagnostics::tests::vector_cosine_similarity_non_finite_input_is_zero ... ok
+test diagnostics::tests::weight_norms_non_finite_input_are_zero ... ok
+test exporter::tests::export_game_honours_minimum_ply_and_empty_depths ... ok
+test exporter::tests::export_game_writes_search_labels_for_selected_positions ... ok
+test exporter::tests::json_string_escapes_quotes_and_backslashes ... ok
+test position_dataset::tests::both_storage_modes_preserve_original_and_ordered_epoch_rows ... ok
+test position_dataset::tests::empty_inputs_remain_empty_through_dataset_operations ... ok
+test position_dataset::tests::loading_errors_and_non_strict_recovery_are_consistent ... ok
+test position_dataset::tests::source_caps_partition_and_retain_agree_across_storage_modes ... ok
+test position_dataset::tests::stats_count_known_outcomes_and_preserve_duplicate_split_fingerprints ... ok
+test position_dataset::tests::storage_setting_defaults_to_memory_and_rejects_unknown_modes ... ok
+test position_store::tests::empty_input_and_load_errors_are_reported ... ok
+test position_store::tests::ordered_and_interleaved_iterators_do_not_share_a_logical_cursor ... ok
+test position_store::tests::snapshot_is_unchanged_after_input_mutation_or_removal ... ok
+test position_store::tests::snapshot_matches_legacy_load_and_non_strict_rejections ... ok
+test position_store::tests::snapshot_read_failure_is_fused_and_retain_is_transactional ... ok
+test position_store::tests::source_cap_preserves_legacy_hash_selection_ties_and_order ... ok
+test position_store::tests::stable_partition_and_retain_match_in_memory_selection ... ok
+test positions::tests::blank_rows_contribute_to_audit_but_not_sample_counts ... ok
+test positions::tests::callback_failure_stops_without_a_complete_report ... ok
+test positions::tests::canonical_shogiesa_v11_fixture_maps_all_contract_fields ... ok
+test positions::tests::content_identity_ignores_path_but_detects_same_size_mutation ... ok
+test positions::tests::invalid_utf8_is_a_fatal_read_error_even_in_non_strict_mode ... ok
+test positions::tests::io_failure_is_fatal_after_preceding_complete_rows ... ok
+test positions::tests::load_positions_basic ... ok
+test positions::tests::missing_required_fields_are_not_guessed ... ok
+test positions::tests::nnue_phase3_pilot_fixture_has_no_invalid_sfen ... ok
+test positions::tests::non_strict_load_counts_each_rejection_reason ... ok
+test positions::tests::oversized_source_ply_is_rejected_instead_of_saturated ... ok
+test positions::tests::rejection_examples_and_unicode_previews_are_bounded ... ok
+test positions::tests::retain_cached_samples_filters_by_canonical_sfen ... ok
+test positions::tests::scan_classifies_rejections_and_continues_to_later_valid_rows ... ok
+test positions::tests::scan_preserves_raw_rows_offsets_and_complete_input_digest ... ok
+test positions::tests::source_cap_limits_per_source_and_is_order_independent ... ok
+test positions::tests::streaming_reader_preserves_physical_line_numbers_across_blanks ... ok
+test positions::tests::strict_position_validation_reports_invalid_row_line ... ok
+test positions::tests::unsupported_schema_is_never_treated_as_current ... ok
+test positions::tests::validation_split_is_deterministic ... ok
+test positions::tests::wdl_mapping_covers_wins_draw_unknown_and_missing ... ok
+test scored::tests::sample_id_used_when_no_sfen_field ... ok
+test scored::tests::sfen_field_takes_priority_over_sample_id ... ok
+test scored::tests::test_basic_load ... ok
+test scored::tests::test_duplicate_sfen_averaged ... ok
+test scored::tests::test_exporter_sfen_matches_trainer_lookup ... ok
+test scored::tests::test_invalid_scores_skipped ... ok
+test scored::tests::test_min_stability_filter ... ok
+test scored::tests::test_spaced_json_parses ... ok
+test scored::tests::unreadable_empty_and_incomplete_rows_are_ignored ... ok
+test teacher_cache::tests::analysis_record_v1_can_seed_a_matching_depth_cache ... ok
+test teacher_cache::tests::analysis_record_v1_wrong_depth_is_not_reused ... ok
+test teacher_cache::tests::atomic_write_cleans_up_after_create_and_rename_failures ... ok
+test teacher_cache::tests::broken_lines_skipped ... ok
+test teacher_cache::tests::duplicate_key_resolves_to_last_occurrence_in_file ... ok
+test teacher_cache::tests::fixed_nnue_cache_is_bound_to_exact_teacher_identity ... ok
+test teacher_cache::tests::missing_file_and_incomplete_native_or_analysis_rows_are_ignored ... ok
+test teacher_cache::tests::missing_score_cp_skipped ... ok
+test teacher_cache::tests::out_of_range_score_cp_is_skipped ... ok
+test teacher_cache::tests::overflowing_depth_is_not_truncated_into_a_cache_hit ... ok
+test teacher_cache::tests::roundtrip ... ok
+test teacher_cache::tests::truncated_trailing_line_is_skipped_not_fatal ... ok
+test teacher_cache::tests::write_is_atomic_no_tmp_file_left_behind_on_success ... ok
+test teacher_cache::tests::write_is_deterministic_for_identical_maps ... ok
+test teacher_cache::tests::wrong_depth_entries_are_filtered_out_and_reported ... ok
+test tests::best_checkpoint_copy_is_atomic_and_cleans_up_temp_file ... ok
+test tests::checkpoint_sidecar_write_is_atomic ... ok
+test tests::corpus_sha256_is_path_independent_and_content_sensitive ... ok
+test tests::dataset_hash_changes_when_a_file_size_changes ... ok
+test tests::dataset_hash_is_deterministic_for_the_same_file_list ... ok
+test tests::diagnostic_manifest_sha256_uses_file_bytes ... ok
+test tests::expected_position_sha256_fails_closed ... ok
+test tests::legacy_absolute_teacher_without_sidecar_is_accepted ... ok
+test tests::manifest_alias_check_normalizes_missing_ancestor_and_parent_components ... ok
+test tests::manifest_alias_check_protects_final_and_input_weight_companions ... ok
+test tests::manifest_alias_check_rejects_companion_and_epoch_symlink_aliases ... ok
+test tests::manifest_alias_check_resolves_symlink_before_parent_component ... ok
+test tests::nnue_output_parses_known_modes_and_rejects_unknown ... ok
+test tests::output_mode_sidecar_declares_residual_baseline ... ok
+test tests::ranking_pair_loader_accepts_bound_preregistered_candidate_union ... ok
+test tests::ranking_pair_loader_accepts_only_explicit_mate_ordinal_labels ... ok
+test tests::ranking_pair_loader_rejects_non_strict_labels ... ok
+test tests::ranking_pair_loader_replays_strict_parent_context ... ok
+test tests::residual_teacher_metadata_requires_matching_sidecar_and_hash ... ok
+test tests::split_games_by_validation_key_differs_across_well_separated_seeds ... ok
+test tests::split_games_by_validation_key_is_deterministic_for_the_same_seed ... ok
+test tests::split_games_by_validation_key_keeps_identical_openings_together ... ok
+test tests::split_games_by_validation_key_partitions_every_index_exactly_once ... ok
+test tests::split_games_by_validation_key_ratio_one_holds_out_everything ... ok
+test tests::split_games_by_validation_key_zero_ratio_holds_out_nothing ... ok
+test tests::standard_start_opening_prefixes_produce_a_nonempty_holdout ... ok
+test trainer::checkpoint::tests::atomic_checkpoint_failure_removes_temporary_file ... ok
+test trainer::checkpoint::tests::checkpoint_validation_rejects_schema_shape_and_non_finite_state ... ok
+test trainer::checkpoint::tests::resume_validation_rejects_schema_and_empty_fingerprint ... ok
+test trainer::tests::adam_checkpoint_rejects_wrong_shape ... ok
+test trainer::tests::adam_checkpoint_round_trips_parameters_moments_and_step ... ok
+test trainer::tests::adam_update_saturates_extreme_step_for_bias_correction ... ok
+test trainer::tests::child_score_normalization_and_move_undo_preserve_parent_state ... ok
+test trainer::tests::completed_teacher_score_accepts_an_exact_completed_iteration ... ok
+test trainer::tests::completed_teacher_score_rejects_a_pre_iteration_budget_stop - should panic ... ok
+test trainer::tests::compute_lr_constant_ignores_epoch ... ok
+test trainer::tests::compute_lr_cosine_starts_at_base_and_ends_at_min_lr_exactly ... ok
+test trainer::tests::compute_lr_first_3_epochs_of_20_match_hand_computed_prefix ... ok
+test trainer::tests::compute_lr_min_lr_floors_step_half_too ... ok
+test trainer::tests::compute_lr_short_run_reproduces_epoch3_of_the_real_20_epoch_schedule ... ok
+test trainer::tests::compute_lr_single_epoch_run_uses_base_lr_for_every_schedule ... ok
+test trainer::tests::compute_lr_step_half_matches_original_hardcoded_formula ... ok
+test trainer::tests::compute_lr_warmup_equals_total_epochs_never_panics ... ok
+test trainer::tests::compute_lr_warmup_ramps_linearly_and_lands_on_base_lr ... ok
+test trainer::tests::conflict_mask_ft_and_l2_zeroes_both_at_a_guaranteed_conflicting_position ... ok
+test trainer::tests::conflict_mask_ft_passes_through_unchanged_at_a_guaranteed_nonconflicting_position ... ok
+test trainer::tests::conflict_mask_ft_zeroes_ft_update_only_at_a_guaranteed_conflicting_position ... ok
+test trainer::tests::conflict_mask_unset_is_byte_identical_to_no_mask ... ok
+test trainer::tests::cp_wdl_grad_trace_blended_gradient_is_the_expected_weighted_sum ... ok
+test trainer::tests::cp_wdl_grad_trace_does_not_alter_training_state ... ok
+test trainer::tests::diagnostic_freeze_from_position_unset_is_byte_identical_to_no_freeze ... ok
+test trainer::tests::diagnostic_freeze_layer_resumes_updating_once_the_position_bound_is_passed ... ok
+test trainer::tests::diagnostic_freeze_layer_unset_is_byte_identical_to_no_freeze ... ok
+test trainer::tests::diagnostic_freeze_window_only_freezes_between_from_and_until_positions ... ok
+test trainer::tests::diagnostic_ft_frozen_first_produces_the_exact_complement_pattern ... ok
+test trainer::tests::diagnostic_ft_frozen_first_unset_is_byte_identical_to_active_first_default ... ok
+test trainer::tests::diagnostic_ft_periodic_freeze_cycles_active_and_frozen_sub_blocks ... ok
+test trainer::tests::diagnostic_ft_periodic_freeze_unset_blocks_is_byte_identical_to_plain_window_freeze ... ok
+test trainer::tests::diagnostic_ft_reactivate2_window_reopens_a_second_disjoint_hole ... ok
+test trainer::tests::diagnostic_ft_reactivate2_window_unset_is_byte_identical_to_single_reactivate_window ... ok
+test trainer::tests::diagnostic_ft_reactivate_window_reopens_a_single_hole_in_an_otherwise_frozen_span ... ok
+test trainer::tests::diagnostic_ft_reactivate_window_unset_is_byte_identical_to_plain_window_freeze ... ok
+test trainer::tests::diagnostic_option_parsers_round_trip_supported_values ... ok
+test trainer::tests::eval_positions_blends_known_wdl_and_skips_unknown ... ok
+test trainer::tests::eval_positions_reports_cp_and_output_statistics ... ok
+test trainer::tests::fallible_position_stream_stops_training_and_validation_at_read_error ... ok
+test trainer::tests::from_nnue_weights_round_trips_forward_output ... ok
+test trainer::tests::ft_export_error_is_at_most_half_a_quantization_step ... ok
+test trainer::tests::ft_export_preserves_an_imported_integer_checkpoint ... ok
+test trainer::tests::ft_export_rounds_signed_values_and_keeps_symmetric_limits ... ok
+test trainer::tests::game_training_covers_sampling_stability_and_teacher_blending ... ok
+test trainer::tests::game_validation_replays_cached_labels_and_reports_wdl_calibration ... ok
+test trainer::tests::inference_weights_match_trainer_forward_after_import ... ok
+test trainer::tests::l2_bias_init_only_touches_l2_bias ... ok
+test trainer::tests::l2_preactivation_gradient_matches_doutput_times_out_weight_times_clippedrelu_derivative ... ok
+test trainer::tests::listwise_parent_uses_one_adam_step_and_preserves_parent ... ok
+test trainer::tests::listwise_softmax_gradient_matches_finite_difference ... ok
+test trainer::tests::listwise_softmax_rewards_matching_teacher_distribution ... ok
+test trainer::tests::lr_schedule_parse_roundtrips_known_names_and_rejects_unknown ... ok
+test trainer::tests::mate_label_exclusion_is_explicit_and_uses_the_search_mate_band ... ok
+test trainer::tests::one_position_update_keeps_later_layers_trainable ... ok
+test trainer::tests::pairwise_ranking_gradient_matches_finite_difference_and_stays_finite ... ok
+test trainer::tests::pairwise_ranking_loss_rewards_teacher_preferred_parent_score ... ok
+test trainer::tests::per_layer_gradient_clipping_is_accounted_independently ... ok
+test trainer::tests::position_teacher_reuses_cached_search_on_repeated_position ... ok
+test trainer::tests::position_training_handles_filters_weights_cache_and_search_misses ... ok
+test trainer::tests::quiet_game_sampling_skips_check_and_capture_positions ... ok
+test trainer::tests::ranking_backward_accumulates_both_children_in_every_layer ... ok
+test trainer::tests::ranking_pair_full_gradient_decreases_the_pairwise_loss ... ok
+test trainer::tests::ranking_pair_uses_one_combined_adam_step_and_preserves_parent ... ok
+test trainer::tests::rate_matched_mask_selects_exactly_k_of_n_and_is_deterministic ... ok
+test trainer::tests::replay_override_cp_component_uses_eval_teacher_scaled_by_lambda ... ok
+test trainer::tests::replay_override_out_of_window_leaves_teacher_and_weight_unchanged ... ok
+test trainer::tests::replay_override_unset_leaves_teacher_and_weight_unchanged ... ok
+test trainer::tests::replay_override_wdl_component_uses_wdl_target_scaled_by_one_minus_lambda ... ok
+test trainer::tests::reset_epoch_stats_clears_every_accumulator_and_reseeds_sampling ... ok
+test trainer::tests::residual_ranking_score_includes_material_before_parent_orientation ... ok
+test trainer::tests::residual_target_is_absolute_teacher_minus_material ... ok
+test trainer::tests::resolve_schedule_epochs_accepts_a_longer_explicit_horizon ... ok
+test trainer::tests::resolve_schedule_epochs_defaults_to_epochs_when_omitted ... ok
+test trainer::tests::resolve_schedule_epochs_epochs_zero_never_errors ... ok
+test trainer::tests::resolve_schedule_epochs_rejects_schedule_epochs_less_than_epochs ... ok
+test trainer::tests::resolve_schedule_epochs_rejects_warmup_exceeding_schedule_epochs ... ok
+test trainer::tests::resolve_schedule_epochs_rejects_zero ... ok
+test trainer::tests::resume_checkpoint_round_trips_cursor_epoch_and_recipe ... ok
+test trainer::tests::sample_grad_trace_does_not_alter_training_state ... ok
+test trainer::tests::sample_grad_trace_records_expected_fields_and_cosine_semantics ... ok
+test trainer::tests::search_target_blend_preserves_endpoints_and_linear_midpoint ... ok
+test trainer::tests::seeded_init_breaks_symmetry_within_each_layer ... ok
+test trainer::tests::seeded_init_differs_across_seeds ... ok
+test trainer::tests::seeded_init_is_deterministic ... ok
+test trainer::tests::seeded_init_probe_distinguishes_float_and_saved_output ... ok
+test trainer::tests::shadow_trace_active_run_is_byte_identical_to_inactive ... ok
+test trainer::tests::shadow_trace_records_pass_the_blend_correctness_guard_and_a_full_contingency ... ok
+test trainer::tests::shadow_trace_unset_probe_boards_records_nothing ... ok
+test trainer::tests::shuffled_order_differs_across_seeds ... ok
+test trainer::tests::shuffled_order_handles_zero_and_one ... ok
+test trainer::tests::shuffled_order_is_a_permutation ... ok
+test trainer::tests::shuffled_order_is_deterministic_for_the_same_seed ... ok
+test trainer::tests::small_training_checkpoint_keeps_probe_signal_after_reload ... ok
+test trainer::tests::teacher_score_cap_is_explicit_and_symmetric ... ok
+test trainer::tests::trace_positions_omitted_writes_no_snapshots ... ok
+test trainer::tests::trace_positions_snapshots_exactly_the_requested_points ... ok
+test trainer::tests::train_game_replays_a_sekirei_initial_sfen_from_its_recorded_board ... ok
+test trainer::tests::train_position_freeze_layer_ft_leaves_ft_unchanged_but_l2_and_out_still_update ... ok
+test trainer::tests::train_position_freeze_layer_l2_leaves_l2_unchanged_but_ft_and_out_still_update ... ok
+test trainer::tests::train_position_freeze_layer_out_leaves_out_unchanged_but_ft_and_l2_still_update ... ok
+test trainer::tests::train_position_grad_clip_norm_shrinks_the_applied_update ... ok
+test trainer::tests::train_position_out_clip_norm_leaves_ft_and_l2_untouched ... ok
+test trainer::tests::train_position_records_exactly_one_grad_norm_sample_per_call ... ok
+test trainer::tests::train_position_wdl_component_only_accumulates_when_target_present ... ok
+test trainer::tests::training_weight_views_match_their_owned_storage ... ok
+test trainer::tests::uniform_weighted_ranking_batch_matches_unweighted_update ... ok
+test trainer::tests::validation_stats_adds_all_metrics_and_calibration_buckets ... ok
+test trainer::tests::wdl_target_black_win_from_black_perspective_is_max ... ok
+test trainer::tests::wdl_target_black_win_from_white_perspective_is_min ... ok
+test trainer::tests::wdl_target_draw_is_zero_regardless_of_perspective ... ok
+test trainer::tests::wdl_target_unknown_result_has_no_signal ... ok
+test trainer::tests::wdl_target_white_win_from_black_perspective_is_min ... ok
+test trainer::tests::wdl_target_white_win_from_white_perspective_is_max ... ok
+
+test result: ok. 259 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 31.64s
+
+     Running unittests src/bin/validate_gate_observations.rs (target/llvm-cov-target/debug/deps/validate_gate_observations-99cccd39510a25eb)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/verify_shogiesa_label_run.rs (target/llvm-cov-target/debug/deps/verify_shogiesa_label_run-b9020fd72c5a66d9)
+
+running 4 tests
+test tests::incomplete_provenance_requires_explicit_compatibility_mode ... ok
+test tests::rejects_digest_tampering ... ok
+test tests::rejects_summary_tampering ... ok
+test tests::verifies_complete_artifacts_and_reports_exact_hashes ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_wasm-c48bbbee7a7d61ab)
+
+running 23 tests
+test tests::analysis_rejects_oversized_inventory_before_board_parsing ... ok
+test tests::apply_move_round_trips_through_sfen_and_usi ... ok
+test tests::bounded_mate_adapter_reports_shortest_unique_and_unknown_results ... ok
+test tests::bounded_mate_limits_are_enforced ... ok
+test tests::bounded_search_returns_a_legal_move ... ok
+test tests::browser_worker_contract_is_single_threaded_and_shared_memory_free ... ok
+test tests::completed_analysis_exposes_only_a_legal_primary_pv ... ok
+test tests::evaluator_byte_validation_rejects_oversized_and_malformed_images ... ok
+test tests::exported_analysis_getters_match_the_native_results ... ok
+test tests::initial_cutoff_has_no_score_and_marks_fallback ... ok
+test tests::later_cutoff_retains_the_exact_completed_iteration ... ok
+test tests::malformed_inputs_are_structured_errors ... ok
+test tests::mate_in_one_adapter_matches_the_core_analysis ... ok
+test tests::mate_score_classification_handles_both_signs_without_cp ... ok
+test tests::multi_pv_never_fabricates_partial_or_terminal_candidates ... ok
+test tests::multi_pv_returns_unique_ranked_legal_lines_under_one_budget ... ok
+test tests::one_line_multi_pv_matches_position_analysis_primary ... ok
+test tests::position_analysis_matches_core_score_and_side_to_move ... ok
+test tests::search_limits_are_enforced ... ok
+test tests::single_king_adapter_is_explicit_and_uses_all_legal_reply_distance ... ok
+test tests::start_position_has_thirty_legal_moves ... ok
+test tests::terminal_and_invalid_positions_are_not_cp ... ok
+test tests::wasm_distance_rule_does_not_label_futile_interpositions_as_seven_ply ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.05s
+
+     Running tests/evaluator_load.rs (target/llvm-cov-target/debug/deps/evaluator_load-2661f3918efdfb40)
+
+running 1 test
+test loaded_evaluator_provenance_is_frozen_into_results ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.43s
+
+     Running tests/evaluator_load_halfkp.rs (target/llvm-cov-target/debug/deps/evaluator_load_halfkp-06aa1f3337f2c6ee)
+
+running 1 test
+test loaded_halfkp_provenance_is_frozen_into_results ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.71s
+
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling sekirei-core v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-core)
+   Compiling sekirei v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-usi)
+    Finished `test` profile [unoptimized] target(s) in 6.72s
+     Running unittests src/main.rs (target/llvm-cov-target/debug/deps/sekirei-f81f71ac3f1e6404)
+
+running 54 tests
+test book::tests::decision_explains_low_confidence_and_illegal_candidates ... ok
+test book::tests::distinguishes_headerless_legacy_books ... ok
+test book::tests::load_records_exact_artifact_sha256 ... ok
+test book::tests::loads_lineprior_schema_v1_book ... ok
+test book::tests::picks_the_highest_ranked_legal_move_above_confidence ... ok
+test book::tests::rejects_unsupported_metadata_schema ... ok
+test book::tests::repeated_decisions_reuse_lineprior_query_scratch ... ok
+test book::tests::skips_entries_below_min_confidence ... ok
+test book::tests::unseen_state_has_an_explicit_fallback_reason ... ok
+test book::tests::unseen_state_returns_none ... ok
+test book_log::tests::decision_and_terminal_share_the_game_identity ... ok
+test book_log::tests::disabled_logger_does_not_create_a_file ... ok
+test go::tests::zero_increment_percentage_restores_the_combined_clock_budget ... ok
+test invariant::tests::file_hash_reports_present_and_missing_inputs ... ok
+test invariant::tests::hash_accumulator_detects_king_sq_only_divergence ... ok
+test invariant::tests::illegal_bestmove_is_detected - should panic ... ok
+test invariant::tests::legal_bestmove_passes_silently ... ok
+test invariant::tests::malformed_base_is_left_to_the_position_handler ... ok
+test invariant::tests::replay_detects_live_board_diverging_after_a_clean_base_match - should panic ... ok
+test invariant::tests::replay_diagnostics_never_touch_stdout ... ok
+test invariant::tests::replay_handles_capture_promotion_and_drop ... ok
+test invariant::tests::replay_rejects_a_malformed_historical_move_token - should panic ... ok
+test invariant::tests::replay_rejects_a_noncanonical_base_sfen - should panic ... ok
+test invariant::tests::replay_sfen_moves_matches_live ... ok
+test invariant::tests::replay_startpos_moves_matches_live ... ok
+test invariant::tests::sfen_moves_internal_sfen_matches ... ok
+test invariant::tests::startpos_moves_internal_sfen_matches ... ok
+test invariant::tests::usinewgame_reset_matches_fresh_startpos ... ok
+test tests::backend_adjudicates_draw_and_both_perpetual_check_perspectives ... ok
+test tests::byoyomi_hard_within_overhead ... ok
+test tests::check_option_parser_accepts_only_explicit_boolean_values ... ok
+test tests::dfpn_proof_does_not_turn_the_requested_limit_into_a_mate_distance ... ok
+test tests::dfpn_unknown_and_disproven_are_not_rendered_as_cp_zero ... ok
+test tests::evaluator_mutation_happens_after_inflight_search_has_joined ... ok
+test tests::every_backend_supports_common_lifecycle_operations ... ok
+test tests::infinite_go_has_no_limits ... ok
+test tests::lazy_root_hint_diagnostic_line_is_stable ... ok
+test tests::malformed_clock_value_is_ignored_without_panicking ... ok
+test tests::malformed_nodes_value_is_ignored_without_panicking ... ok
+test tests::movetime_overhead_deducted ... ok
+test tests::multipv_value_reaches_search_config ... ok
+test tests::nodes_value_reaches_search_config_without_a_time_limit ... ok
+test tests::oversized_clock_values_do_not_overflow_time_budget_arithmetic ... ok
+test tests::parse_go_binc_winc ... ok
+test tests::parse_go_byoyomi_only ... ok
+test tests::parse_go_movestogo ... ok
+test tests::parse_go_soft_less_than_hard ... ok
+test tests::pondering_no_limits ... ok
+test tests::score_to_usi_keeps_mate_threshold_consistent ... ok
+test tests::score_to_usi_preserves_cp_and_converts_mates ... ok
+test tests::spec_top_n_zero_uses_the_root_safety_enabled_usi_backend ... ok
+test tests::spin_option_parser_enforces_advertised_bounds ... ok
+test tests::unit_interval_parser_rejects_malformed_non_finite_and_out_of_range_values ... ok
+test tests::unit_interval_reporting_wrapper_preserves_valid_values_and_rejects_errors ... ok
+
+test result: ok. 54 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.19s
+
+     Running tests/cli_metadata.rs (target/llvm-cov-target/debug/deps/cli_metadata-c7312e2f757cf513)
+
+running 4 tests
+test help_flag_describes_usi_usage_without_starting_the_loop ... ok
+test short_version_flag_is_supported ... ok
+test usi_handshake_reports_the_same_package_version_as_version_flag ... ok
+test version_flag_reports_package_version_without_starting_usi ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.68s
+
+     Running tests/setoption_evalfile.rs (target/llvm-cov-target/debug/deps/setoption_evalfile-ef589139544d31ef)
+
+running 24 tests
+test bookfile_path_with_spaces_is_loaded_after_setoption ... ok
+test command_loop_accepts_valid_runtime_options_and_recovers_from_bad_input ... ok
+test duplicate_evalfile_load_is_reported_as_failure ... ok
+test evalfile_load_joins_normal_search_before_acknowledgement ... ok
+test experimental_search_options_emit_bounded_evidence_and_restore_followup_search ... ok
+test invalid_residual_scale_does_not_stop_inflight_search ... ok
+test lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled ... ok
+test missing_evalfile_is_reported_as_failure ... ok
+test multipv_emits_numbered_info_lines ... ok
+test nnue_output_option_is_advertised_and_acknowledges_explicit_mode ... ok
+test opening_book_decision_log_records_fallback_selection_and_terminal_linkage ... ok
+test opening_book_feature_is_opt_in_and_missing_file_falls_back_to_search ... ok
+test ponderhit_restarts_a_ponder_search_even_if_sent_immediately ... ok
+test position_and_usinewgame_allow_a_followup_search ... ok
+test repeated_isready_does_not_reload_the_same_evalfile ... ok
+test residual_scale_boundaries_invalid_values_and_fresh_process_are_consistent ... ok
+test residual_scale_change_during_ponder_has_one_response_per_transition ... ok
+test residual_scale_change_joins_normal_search_before_acknowledgement ... ok
+test residual_scale_option_is_advertised_and_acknowledged ... ok
+test setoption_evalfile_then_isready_activates_nnue ... ok
+test spin_options_reject_values_outside_the_advertised_ranges ... ok
+test threads_zero_matches_the_advertised_usi_range ... ok
+test usinewgame_resets_book_ply_tracking ... ok
+test versioned_book_options_and_terminal_log_failure_are_reported ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 25.75s
+
+     Running tests/setoption_evalfile_halfkp.rs (target/llvm-cov-target/debug/deps/setoption_evalfile_halfkp-1e9c2e153be1b2d1)
+
+running 1 test
+test evalfile_loads_halfkp_and_fv_scale_changes_the_divisor ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.49s
+
+     Running tests/setoption_hash_thread_race.rs (target/llvm-cov-target/debug/deps/setoption_hash_thread_race-aec61cfd469d14d9)
+
+running 2 tests
+test setoption_hash_joins_inflight_search_before_answering_the_next_command ... ok
+test setoption_usi_hash_joins_inflight_search_before_answering_the_next_command ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+
+     Running tests/setoption_spec_top_n_thread_race.rs (target/llvm-cov-target/debug/deps/setoption_spec_top_n_thread_race-0b9423846ea48642)
+
+running 1 test
+test setoption_spec_top_n_joins_inflight_search_before_answering_the_next_command ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.37s
+
+     Running tests/usi_thread_race.rs (target/llvm-cov-target/debug/deps/usi_thread_race-0f9c8ecc3801e6e9)
+
+running 24 tests
+test dfpn_mode_accepts_movetime_and_returns_before_timeout ... ok
+test dfpn_mode_returns_a_mating_bestmove ... ok
+test dfpn_quit_joins_inflight_search ... ok
+test dfpn_search_mode_survives_ready_and_newgame ... ok
+test dfpn_stop_flushes_bestmove_before_answering_next_command ... ok
+test dfpn_unknown_marks_fallback_and_omits_a_fake_score_and_pv ... ok
+test history_replayed_stop_flushes_bestmove_before_readyok ... ok
+test infinite_search_answers_repeated_isready_without_stopping ... ok
+test lazy_smp_quit_joins_without_publishing_an_inflight_search ... ok
+test lazy_smp_stop_flushes_bestmove_before_answering_next_command ... ok
+test malformed_position_fails_closed_and_discards_the_inflight_search ... ok
+test ponder_isready_then_ponderhit_keeps_one_search_response ... ok
+test ponder_stop_then_new_position_has_one_fresh_bestmove ... ok
+test ponderhit_publishes_a_completed_forced_mate_exactly_once ... ok
+test position_discards_a_completed_ponder_result ... ok
+test position_discards_an_inflight_normal_search_without_stale_bestmove ... ok
+test search_modes_can_be_switched_in_one_usi_session ... ok
+test shared_mcts_emits_diagnostic_transcript ... ok
+test shared_mcts_quit_joins_without_publishing_an_inflight_search ... ok
+test shared_mcts_stop_flushes_bestmove_before_answering_next_command ... ok
+test speculative_quit_joins_without_publishing_an_inflight_search ... ok
+test stdin_eof_joins_without_publishing_inflight_multi_thread_search ... ok
+test stop_flushes_bestmove_before_answering_the_next_command ... ok
+test usinewgame_discards_an_inflight_ponder_result ... ok
+
+test result: ok. 24 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.75s
+
+
+    Finished report saved to target/coverage/opening-book-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling sekirei-core v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-core)
+    Finished `test` profile [unoptimized] target(s) in 31.37s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-8fc66c86a6e1a100)
+
+running 1 test
+test search::see_tests::tuned_search_paths_restore_the_board_and_return_legal_moves ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 358 filtered out; finished in 7.48s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-1a5e99751a3dfd04)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-c727c019a749df27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-009a87df6adefb28)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-62be21d76aec02ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-4074eb08dcb1b1e9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-320c8571b7f90a8b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-8c5ae169c7915983)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-146b5c78980919b1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-335dcd10353aae02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-71ec33b7588307dd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-a5377f19121d7336)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/tuned-search-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Finished `test` profile [unoptimized] target(s) in 0.04s
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-a5377f19121d7336)
+
+running 1 test
+test tuned_public_search_matrix_exercises_alternative_policies ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 8.38s
+
+
+    Finished report saved to target/coverage/tuned-public-path-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Finished `test` profile [unoptimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-8fc66c86a6e1a100)
+
+running 1 test
+test search::v2::tests::tuned_nmp_prior_restores_board_and_returns_legal_move ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 358 filtered out; finished in 0.42s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-1a5e99751a3dfd04)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-c727c019a749df27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-009a87df6adefb28)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-62be21d76aec02ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-4074eb08dcb1b1e9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-320c8571b7f90a8b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-8c5ae169c7915983)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-146b5c78980919b1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-335dcd10353aae02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-71ec33b7588307dd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-a5377f19121d7336)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/tuned-nmp-prior-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Finished `test` profile [unoptimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-8fc66c86a6e1a100)
+
+running 1 test
+test search::aspiration::tests::adaptive_root_windows_preserve_contracts_and_observer_noninterference ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 358 filtered out; finished in 1.55s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-1a5e99751a3dfd04)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-c727c019a749df27)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-009a87df6adefb28)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-62be21d76aec02ad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-4074eb08dcb1b1e9)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-320c8571b7f90a8b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-8c5ae169c7915983)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-146b5c78980919b1)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-335dcd10353aae02)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-71ec33b7588307dd)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-a5377f19121d7336)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/tuned-aspiration-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling sekirei-core v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-core)
+    Finished `test` profile [unoptimized] target(s) in 10.61s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-4db374ce91753eee)
+
+running 1 test
+test tests::perft5_startpos ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 356 filtered out; finished in 9.92s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-7e5ac6d93896a2c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-cbc2601d38e9a005)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-7568b202b511e6e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-45affdacfd056ab5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-47027c72e2fa1c4d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-d241301485cc3c68)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-55ba597378aa6937)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-189034dce4d1ec2f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-b87e6ee5db70ba6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-72d47ec778ff1d07)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-bfa5909da11bb6ce)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/tests--perft5_startpos.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Finished `test` profile [unoptimized] target(s) in 0.02s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-4db374ce91753eee)
+
+running 1 test
+test tt::tests::concurrent_colliding_writes_stay_well_formed_under_stress ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 356 filtered out; finished in 0.20s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-7e5ac6d93896a2c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-cbc2601d38e9a005)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-7568b202b511e6e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-45affdacfd056ab5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-47027c72e2fa1c4d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-d241301485cc3c68)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-55ba597378aa6937)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-189034dce4d1ec2f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-b87e6ee5db70ba6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-72d47ec778ff1d07)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-bfa5909da11bb6ce)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/tt--tests--concurrent_colliding_writes_stay_well_formed_under_stress.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+    Finished `test` profile [unoptimized] target(s) in 0.07s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_core-4db374ce91753eee)
+
+running 1 test
+test mcts::tests::root_parallelism_remains_equivalent_across_repeated_scheduler_runs ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 356 filtered out; finished in 8.11s
+
+     Running unittests src/bin/compare_eval.rs (target/llvm-cov-target/debug/deps/compare_eval-7e5ac6d93896a2c5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/history_sfen.rs (target/llvm-cov-target/debug/deps/history_sfen-cbc2601d38e9a005)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running unittests src/bin/legal_moves.rs (target/llvm-cov-target/debug/deps/sekirei_legal_moves-7568b202b511e6e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/position_classifier.rs (target/llvm-cov-target/debug/deps/sekirei_position_classifier-45affdacfd056ab5)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/rule_probe.rs (target/llvm-cov-target/debug/deps/sekirei_rule_probe-47027c72e2fa1c4d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running unittests src/bin/search_diagnostic.rs (target/llvm-cov-target/debug/deps/sekirei_search_diagnostic-d241301485cc3c68)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/diagnostic_api_compatibility.rs (target/llvm-cov-target/debug/deps/diagnostic_api_compatibility-55ba597378aa6937)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/direct_check.rs (target/llvm-cov-target/debug/deps/direct_check-189034dce4d1ec2f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_bytes.rs (target/llvm-cov-target/debug/deps/evaluator_bytes-b87e6ee5db70ba6b)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/halfkp_incremental.rs (target/llvm-cov-target/debug/deps/halfkp_incremental-72d47ec778ff1d07)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/public_path_coverage.rs (target/llvm-cov-target/debug/deps/public_path_coverage-bfa5909da11bb6ce)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/mcts--tests--root_parallelism_remains_equivalent_across_repeated_scheduler_runs.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling libc v0.2.186
+   Compiling serde_core v1.0.228
+   Compiling once_cell v1.21.4
+   Compiling wasm-bindgen v0.2.125
+   Compiling num-traits v0.2.19
+   Compiling js-sys v0.3.102
+   Compiling serde v1.0.228
+   Compiling serde_json v1.0.150
+   Compiling cpufeatures v0.2.17
+   Compiling memchr v2.8.2
+   Compiling wasm-bindgen-futures v0.4.75
+   Compiling sha2 v0.10.9
+   Compiling wasm-bindgen-test v0.3.75
+   Compiling sekirei-wasm v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-wasm)
+    Finished `test` profile [unoptimized] target(s) in 7.39s
+     Running unittests src/lib.rs (target/llvm-cov-target/debug/deps/sekirei_wasm-e35879aa0b0b7c99)
+
+running 1 test
+test tests::exported_analysis_getters_match_the_native_results ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 22 filtered out; finished in 1.58s
+
+     Running tests/evaluator_load.rs (target/llvm-cov-target/debug/deps/evaluator_load-cf7fca41bf531475)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/evaluator_load_halfkp.rs (target/llvm-cov-target/debug/deps/evaluator_load_halfkp-12c8db3434a7762f)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+
+    Finished report saved to target/coverage/wasm-native-contract-summary.json
+info: cargo-llvm-cov currently setting cfg(coverage); you can opt-out it by passing --no-cfg-coverage
+   Compiling cpufeatures v0.3.0
+   Compiling sha2 v0.10.9
+   Compiling sha2 v0.11.0
+   Compiling shogiesa-core v0.11.6
+   Compiling sekirei-train v0.4.1 (/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/crates/sekirei-train)
+    Finished `dev` profile [unoptimized] target(s) in 4.36s
+     Running `target/llvm-cov-target/debug/train --positions scripts/fixtures/nnue_phase3_pilot.jsonl --output /var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/weights.bin --epochs 1 --label-depth 1 --label-nodes 10000 --validation-ratio 0.34 --checkpoint-dir /var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints --teacher-cache /var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/teacher-cache.jsonl`
+Teacher evaluator: material:nodes10000:positions-teacher-v2
+Positions mode: loading "scripts/fixtures/nnue_phase3_pilot.jsonl"
+positions: accepted=6 skipped=0 bytes=1484 storage=memory ingest=0.007s manifest="/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/weights.positions-manifest.json"
+6 positions loaded, 6 after source_cap=0
+  train=5 valid=1 (validation_ratio=0.34, explicit_validation=false, split_seed=42)
+Epoch 1/1 — lr = 0.001000
+  teacher cache: 6 new entries computed
+  teacher cache written → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/teacher-cache.jsonl"
+  train: avg_loss=287978.6000  samples=5  dropped_mate_labels=0  dropped_unknown_wdl=0  avg_final_weight=1.000
+  valid: loss_raw=211511.5938  loss_weighted=211511.5938  samples=1
+  checkpoint → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints/weights.epoch1.bin"
+  Adam checkpoint → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints/weights.epoch1.adam.json"
+  resume checkpoint → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints/weights.epoch1.resume.json"
+  diag: ft_active=1.000  l2_ever_active=0.750  ft_sat=0.000  l2_ever_sat=0.000  l2_dead=8  l2_act_freq=0.694  l2_sat_freq=0.000  out_mean=0.027  out_std=0.016  ft_zero=0.157  update_norm=n/a
+  grad: ft=110.7821±86.3620  l2=214.3560±107.9102  out=86.39979±43.44055  (mean±std)  global_p50=303.7697  p90=382.9293  p95=382.9293  p99=382.9293  clipped=0/5 (0.0%)
+  layer_clip: ft=0.0%  l2=0.0%  out=0.0%  (independent per-layer trigger rates)  out_grad_p95=113.3509  p99=113.3509  out_grad_norm=86.3998→86.3998 (before→after, mean)
+  update: ft=0.097220±0.026621  l2=0.063346±0.027359  out=0.002822±0.001289  (mean±std, applied Adam step)
+  target: mean=240.000  std=480.000  pred_eval_corr=0.5714  cp_component=287978.600  wdl_component=n/a  out_weight_norm=1.5237  out_bias=0.0025
+  metadata  → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints/weights.epoch1.meta.json"
+  best (valid_loss=211511.5938) → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/weights.best.bin" (from "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/checkpoints/weights.epoch1.bin")
+Final weights saved → "/var/folders/_h/f8_99c4s0vn6f7lb4p3tq6km0000gn/T//sekirei-coverage.Cvm75S/weights.bin"
+
+    Finished report saved to target/coverage/trainer-smoke-summary.json
+
+    Finished report saved to target/coverage/lcov.info
+
+    Finished report saved to target/coverage/summary.json
+
+    Finished report saved to target/coverage/full-workspace-summary.json
+Rust engine/library line coverage: 40797/41553 (98.180636777128%)
+Full workspace line coverage (diagnostic): 45899/53282 (86.14353815547464%)
