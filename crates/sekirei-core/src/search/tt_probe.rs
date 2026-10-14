@@ -125,6 +125,7 @@ mod tests {
             history: Arc::new(HistoryTable::new()),
             countermoves: Arc::new(CountermoveTable::new()),
             diagnostics: None,
+            retirement: None,
             eval_cache: None,
             pruning: PruningConfig::default(),
         }

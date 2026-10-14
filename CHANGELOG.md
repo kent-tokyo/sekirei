@@ -8,6 +8,19 @@ preserves older per-change notes.
 
 ### Added
 
+- Add opt-in dominated-helper retirement (`LazyFlags` bit 8192), using exact
+  completed iteration boundaries, depth and stable-move agreement, and sampled
+  TT work supplied to other workers. Worker 0 and the deepest helper remain.
+- Add a two-participant cooperative root-split prototype (`LazyFlags` bit
+  16384, shared TT, exactly two workers), with main-worker confirmation,
+  generation-stamped candidates, RAII cancellation, and a shared hard budget.
+- Extend root-hint diagnostics with first-move beta cuts, aspiration retry
+  nodes, superseded hints, and publication-to-use depth/generation gaps.
+- Add opt-in V2 NMP diagnostics and the disabled-by-default `V2_NMP_PRIOR`
+  one-ply ancestor experiment. The ordinary evaluator and defaults stay fixed.
+- Add artifact-frozen per-position ABBA comparisons, exact one-worker
+  fixed-depth signatures, and fresh score-blind Sekirei diagnostic positions.
+
 - Add an opt-in Lazy SMP helper-root-LMR experiment (`LazyFlags` bit 4096).
   Worker 0 keeps the established root search while helpers remove the usual
   one-ply LMR relief for late quiet root moves. The playing default remains

@@ -22,6 +22,7 @@ pub(crate) struct Budget {
     start: Instant,
     time_limit: Option<Duration>,
     node_limit: Option<u64>,
+    parent: Option<Arc<Budget>>,
 }
 
 impl Budget {
@@ -37,6 +38,22 @@ impl Budget {
             start: Instant::now(),
             time_limit,
             node_limit,
+            parent: None,
+        }
+    }
+
+    /// A root helper shares the invocation budget while retaining a local
+    /// cancellation flag. Cancelling an obsolete root generation must never
+    /// latch the main search's deadline or external stop flag.
+    pub(crate) fn cooperative_child(parent: Arc<Budget>, cancel: Arc<AtomicBool>) -> Self {
+        Self {
+            nodes: AtomicU64::new(0),
+            abort: AtomicBool::new(false),
+            external_abort: cancel,
+            start: Instant::now(),
+            time_limit: None,
+            node_limit: None,
+            parent: Some(parent),
         }
     }
 
@@ -46,6 +63,9 @@ impl Budget {
     #[inline]
     pub(crate) fn tick(&self) -> bool {
         let nodes = self.nodes.fetch_add(1, Ordering::Relaxed) + 1;
+        if let Some(parent) = &self.parent {
+            return parent.tick() || self.should_abort();
+        }
         if self.node_limit.is_some_and(|limit| nodes >= limit) {
             self.abort.store(true, Ordering::Relaxed);
         }
@@ -64,7 +84,12 @@ impl Budget {
     /// alone, or a `stop` won't reliably break the loop (see module docs).
     #[inline]
     pub(crate) fn should_abort(&self) -> bool {
-        self.abort.load(Ordering::Relaxed) || self.external_abort.load(Ordering::Relaxed)
+        self.abort.load(Ordering::Relaxed)
+            || self.external_abort.load(Ordering::Relaxed)
+            || self
+                .parent
+                .as_ref()
+                .is_some_and(|parent| parent.should_abort())
     }
 
     /// Return the observed stop source without guessing when no stop occurred.

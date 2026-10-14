@@ -220,7 +220,7 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         .find(|line| line.starts_with("info string lazy_smp_root_hint publications "))
         .unwrap_or_else(|| panic!("missing helper-root-hint diagnostics: {search:?}"));
     let fields = root_hint.split_whitespace().collect::<Vec<_>>();
-    assert_eq!(fields.len(), 9, "unexpected root-hint fields: {fields:?}");
+    assert_eq!(fields.len(), 27, "unexpected root-hint fields: {fields:?}");
     let eligible_reads = fields[6]
         .parse::<u64>()
         .expect("eligible root-hint reads must be numeric");
@@ -228,9 +228,80 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         .parse::<u64>()
         .expect("applied root hints must be numeric");
     assert!(applied <= eligible_reads);
+    let counters: std::collections::HashMap<_, _> = fields[3..]
+        .chunks_exact(2)
+        .map(|pair| {
+            (
+                pair[0],
+                pair[1].parse::<u64>().expect("numeric hint diagnostic"),
+            )
+        })
+        .collect();
+    assert!(counters["first_move_beta_cuts"] <= applied);
+    assert!(counters["stale_research_nodes"] <= counters["research_nodes"]);
+    assert_eq!(counters["generation_gap_sum"], 0);
+    assert_eq!(counters["generation_gap_max"], 0);
 
     send(&mut stdin, "quit");
     let _ = child.wait();
+}
+
+#[test]
+fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name NmpDiagnostics type check default false")
+    );
+    assert!(handshake.iter().any(|line| line.contains("option name LazyFlags type spin default 15 min 0 max 32767")));
+    for (threads, flags, expected) in [
+        (1, 15, "info string v2_nmp worker 0 "),
+        (4, 8207, "info string lazy_smp_retirement worker 0 "),
+        (2, 16399, "info string cooperative_root generations "),
+    ] {
+        for command in [
+            format!("setoption name Threads value {threads}"),
+            "setoption name Hash value 1".into(),
+            "setoption name NmpDiagnostics value true".into(),
+            format!("setoption name LazyFlags value {flags}"),
+            "isready".into(),
+        ] {
+            send(&mut stdin, &command);
+        }
+        recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, "go depth 2");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        assert!(
+            lines.iter().any(|line| line.starts_with(expected)),
+            "missing {expected}: {lines:?}"
+        );
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+        if threads == 4 {
+            assert_eq!(
+                lines
+                    .iter()
+                    .filter(|line| line.starts_with("info string lazy_smp_retirement "))
+                    .count(),
+                4
+            );
+            assert!(
+                lines
+                    .iter()
+                    .filter(|line| line.starts_with("info string lazy_smp_retirement "))
+                    .all(|line| line.contains(" retired 0 "))
+            );
+        }
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
@@ -243,7 +314,7 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
         "setoption name Hash value 0",
         "setoption name Threads value 513",
         "setoption name SpecTopN value 513",
-        "setoption name LazyFlags value 8192",
+        "setoption name LazyFlags value 32768",
         "setoption name MoveOverhead value 5001",
         "setoption name IncrementUsePercent value 101",
         "setoption name MultiPV value 257",

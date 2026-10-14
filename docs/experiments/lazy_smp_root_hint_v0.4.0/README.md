@@ -72,3 +72,28 @@ depth-consensus gate, or a restarted run.
 
 H1 is required for adoption. H0 rejects the candidate. A capped run is
 `INCONCLUSIVE` and does not change the default.
+
+## Effectiveness diagnostics (2026-10-14)
+
+The invocation line now also records `first_move_beta_cuts`, `researches`,
+`research_nodes`, `stale_research_nodes`, `stale_reads`, `depth_gap_sum`,
+`depth_gap_max`, `generation_gap_sum`, and `generation_gap_max`.
+
+A first-move beta cut is counted once, in the first aspiration pass following
+an actual root-order change. Later aspiration retries are counted separately;
+research nodes include the work of these retries. Stale research nodes are
+the subset whose hint move has been superseded in the shared slot when the
+retry finishes. These observations do not prove that the hint caused a retry.
+Stale reads are reads rejected because the stored depth is too shallow or the
+invocation generation differs. Depth gap measures the published helper depth
+minus worker 0's requested depth at an eligible read. Invocation generation
+gaps of consumed hints are always zero: cross-go hints are rejected. Iteration
+age is therefore assessed using the depth gap rather than accepting stale-go
+results. Counter values saturate, and old-generation updates cannot change a
+new invocation's counters.
+
+Compare applications/eligible reads and first-move cuts/applications together
+with completed depth, not publications alone. Record the main worker's depth
+and selected depth independently in ABBA; final selection may choose a
+helper. `scripts/paired_search_diagnostics.py` executes A/B/B/A for each
+position rather than comparing two separately ordered runs.

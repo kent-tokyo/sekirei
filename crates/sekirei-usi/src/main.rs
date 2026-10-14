@@ -28,8 +28,9 @@ use sekirei_core::{
     movegen::generate_legal_moves,
     nnue::load_evaluator,
     search::{
-        MATE_SCORE, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics,
-        SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
+        CooperativeRootStats, MATE_SCORE, NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig,
+        SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo,
+        SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -64,7 +65,7 @@ const DEFAULT_HASH_MB: usize = 64;
 const HASH_MB_RANGE: SpinRange = SpinRange::new(1, 2048);
 const THREADS_RANGE: SpinRange = SpinRange::new(0, 512);
 const SPEC_TOP_N_RANGE: SpinRange = SpinRange::new(0, 512);
-const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 8191);
+const LAZY_FLAGS_RANGE: SpinRange = SpinRange::new(0, 32767);
 const MOVE_OVERHEAD_RANGE: SpinRange = SpinRange::new(0, 5000);
 const INCREMENT_USE_PERCENT_RANGE: SpinRange = SpinRange::new(0, 100);
 const MULTI_PV_RANGE: SpinRange = SpinRange::new(1, 256);
@@ -83,6 +84,7 @@ static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 // Opt-in per-node counters for Lazy SMP scaling measurements. Production
 // searches keep this false because even relaxed atomics perturb throughput.
 static LAZY_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
+static NMP_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 // MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
 // MultiPV > 1 (only the speculative searcher reports several root lines).
 static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
@@ -131,6 +133,9 @@ struct SearchResult {
     lazy_tt_writes: Option<TtWriteSnapshot>,
     lazy_work_overlap: Option<LazySmpWorkOverlap>,
     lazy_root_hints: Option<LazySmpRootHintStats>,
+    lazy_retirement: Option<Vec<(u64, bool, u64)>>,
+    cooperative_root: Option<CooperativeRootStats>,
+    nmp_stats: Vec<NmpSnapshot>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
@@ -179,7 +184,11 @@ impl SearchBackend {
         if spec_top_n == 0 {
             // Only the root mate-safety counters are reported; per-node
             // counters and cost timers stay off in production searches.
-            let diagnostics = Arc::new(SearchDiagnostics::root_safety_only());
+            let diagnostics = Arc::new(if NMP_DIAGNOSTICS.load(Ordering::Relaxed) {
+                SearchDiagnostics::counters_only()
+            } else {
+                SearchDiagnostics::root_safety_only()
+            });
             return Self::Sequential(Arc::new(SequentialBackend {
                 searcher: Arc::new(Searcher::with_diagnostics(
                     Tt::new(hash_mb),
@@ -196,7 +205,9 @@ impl SearchBackend {
 
     fn lazy_smp(hash_mb: usize, workers: usize) -> Self {
         let flags = LAZY_FLAGS.load(Ordering::Relaxed);
-        let searcher = if LAZY_DIAGNOSTICS.load(Ordering::Relaxed) {
+        let searcher = if LAZY_DIAGNOSTICS.load(Ordering::Relaxed)
+            || NMP_DIAGNOSTICS.load(Ordering::Relaxed)
+        {
             LazySmpSearcher::diagnostic(workers, flags, hash_mb)
         } else {
             LazySmpSearcher::with_flags_and_hash_mb(Tt::new(hash_mb), workers, flags, hash_mb)
@@ -285,6 +296,9 @@ impl SearchBackend {
                 lazy_tt_writes: None,
                 lazy_work_overlap: None,
                 lazy_root_hints: None,
+                lazy_retirement: None,
+                cooperative_root: None,
+                nmp_stats: Vec::new(),
                 shared_mcts_stats: None,
                 root_safety: None,
                 dfpn: None,
@@ -299,17 +313,22 @@ impl SearchBackend {
         match self {
             Self::Sequential(s) => {
                 let before = s.diagnostics.snapshot();
+                let nmp_before = s.diagnostics.nmp_snapshot();
                 let info = s
                     .searcher
                     .search_with_history(board, config, position_history);
                 let mut result = normalize_sequential_result(info);
                 result.root_safety = Some(diagnostics_delta(s.diagnostics.snapshot(), before));
+                if NMP_DIAGNOSTICS.load(Ordering::Relaxed) {
+                    result.nmp_stats = vec![nmp_delta(s.diagnostics.nmp_snapshot(), nmp_before)];
+                }
                 result
             }
             Self::Speculative(s) => {
                 normalize_spec_result(s.search_with_history(board, config, position_history))
             }
             Self::LazySmp(s) => {
+                let nmp_before = s.nmp_stats();
                 let (info, lazy_root_hints) = s
                     .try_search_with_history_and_root_hint_stats(board, config, position_history)
                     .expect("USI generation manager must serialize Lazy SMP searches");
@@ -330,6 +349,14 @@ impl SearchBackend {
                     lazy_tt_writes: info.tt_writes,
                     lazy_work_overlap: info.work_overlap,
                     lazy_root_hints,
+                    lazy_retirement: s.retirement_stats(),
+                    cooperative_root: s.cooperative_root_stats(),
+                    nmp_stats: s
+                        .nmp_stats()
+                        .into_iter()
+                        .zip(nmp_before)
+                        .map(|(after, before)| nmp_delta(after, before))
+                        .collect(),
                     shared_mcts_stats: None,
                     root_safety: None,
                     dfpn: None,
@@ -402,6 +429,9 @@ impl SearchBackend {
                     lazy_tt_writes: None,
                     lazy_work_overlap: None,
                     lazy_root_hints: None,
+                    lazy_retirement: None,
+                    cooperative_root: None,
+                    nmp_stats: Vec::new(),
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
@@ -429,6 +459,9 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
+        lazy_retirement: None,
+        cooperative_root: None,
+        nmp_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: None,
@@ -449,6 +482,9 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
+        lazy_retirement: None,
+        cooperative_root: None,
+        nmp_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: None,
@@ -484,6 +520,9 @@ fn normalize_dfpn_result(
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
+        lazy_retirement: None,
+        cooperative_root: None,
+        nmp_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: Some(DfpnReport {
@@ -804,10 +843,47 @@ fn emit_lazy_smp_overlap_diagnostics(info: &SearchResult) {
     );
 }
 
+fn nmp_delta(after: NmpSnapshot, before: NmpSnapshot) -> NmpSnapshot {
+    NmpSnapshot {
+        attempts: after.attempts.saturating_sub(before.attempts),
+        fail_high: after.fail_high.saturating_sub(before.fail_high),
+        verification_attempts: after
+            .verification_attempts
+            .saturating_sub(before.verification_attempts),
+        verification_successes: after
+            .verification_successes
+            .saturating_sub(before.verification_successes),
+        verification_overturns: after
+            .verification_overturns
+            .saturating_sub(before.verification_overturns),
+        pv_returns: after.pv_returns.saturating_sub(before.pv_returns),
+        tracking_overflow: after
+            .tracking_overflow
+            .saturating_sub(before.tracking_overflow),
+        prior_reductions: after
+            .prior_reductions
+            .saturating_sub(before.prior_reductions),
+        by_depth: std::array::from_fn(|d| {
+            std::array::from_fn(|e| after.by_depth[d][e].saturating_sub(before.by_depth[d][e]))
+        }),
+    }
+}
+
 fn lazy_smp_root_hint_diagnostic_line(stats: LazySmpRootHintStats) -> String {
     format!(
-        "info string lazy_smp_root_hint publications {} eligible_reads {} applied {}",
-        stats.publications, stats.eligible_reads, stats.applied,
+        "info string lazy_smp_root_hint publications {} eligible_reads {} applied {} first_move_beta_cuts {} researches {} research_nodes {} stale_research_nodes {} stale_reads {} depth_gap_sum {} depth_gap_max {} generation_gap_sum {} generation_gap_max {}",
+        stats.publications,
+        stats.eligible_reads,
+        stats.applied,
+        stats.first_move_beta_cuts,
+        stats.researches,
+        stats.research_nodes,
+        stats.stale_research_nodes,
+        stats.stale_reads,
+        stats.depth_gap_sum,
+        stats.depth_gap_max,
+        stats.generation_gap_sum,
+        stats.generation_gap_max,
     )
 }
 
@@ -833,6 +909,53 @@ fn emit_search_result(
     emit_lazy_smp_tt_diagnostics(&info);
     emit_lazy_smp_overlap_diagnostics(&info);
     emit_lazy_smp_root_hint_diagnostics(&info);
+    if let Some(workers) = &info.lazy_retirement {
+        for (worker, (iterations, retired, contributions)) in workers.iter().enumerate() {
+            println!(
+                "info string lazy_smp_retirement worker {worker} completed_iterations {iterations} retired {} foreign_contributions {contributions}",
+                u8::from(*retired)
+            );
+        }
+    }
+    if let Some(stats) = info.cooperative_root {
+        println!(
+            "info string cooperative_root generations {} helper_nodes {} helper_probes {} helper_fail_highs {} main_confirmations {} confirmed_alpha_raises {}",
+            stats.generations,
+            stats.helper_nodes,
+            stats.helper_probes,
+            stats.helper_fail_highs,
+            stats.main_confirmations,
+            stats.confirmed_alpha_raises
+        );
+    }
+    for (worker, stats) in info.nmp_stats.iter().enumerate() {
+        println!(
+            "info string v2_nmp worker {worker} attempts {} fail_high {} verification_attempts {} verification_successes {} verification_overturns {} pv_returns {} tracking_overflow {} prior_reductions {}",
+            stats.attempts,
+            stats.fail_high,
+            stats.verification_attempts,
+            stats.verification_successes,
+            stats.verification_overturns,
+            stats.pv_returns,
+            stats.tracking_overflow,
+            stats.prior_reductions
+        );
+        for (depth, counts) in stats
+            .by_depth
+            .iter()
+            .enumerate()
+            .filter(|(_, counts)| counts.iter().any(|&c| c != 0))
+        {
+            println!(
+                "info string v2_nmp_depth worker {worker} depth {depth} counts {}",
+                counts
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
+    }
     if let Some(root_safety) = info.root_safety {
         println!(
             "info string root_mate_safety mate1_cache_hits {} blunder_cache_hits {} mate1_nodes {} blunder_nodes {}",
@@ -1055,6 +1178,7 @@ fn main() {
                 print_spin_option("SpecTopN", DEFAULT_SPEC_TOP_N as u64, SPEC_TOP_N_RANGE);
                 print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
                 println!("option name LazyDiagnostics type check default false");
+                println!("option name NmpDiagnostics type check default false");
                 print_spin_option("MoveOverhead", 50, MOVE_OVERHEAD_RANGE);
                 print_spin_option("IncrementUsePercent", 75, INCREMENT_USE_PERCENT_RANGE);
                 println!("option name Ponder type check default false");
@@ -1197,13 +1321,17 @@ fn main() {
                             "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
                         );
                     }
-                } else if option_name == Some("LazyDiagnostics") {
-                    let Some(enabled) = parse_check_option_or_report(&parts, "LazyDiagnostics")
+                } else if matches!(option_name, Some("LazyDiagnostics" | "NmpDiagnostics")) {
+                    let Some(enabled) = parse_check_option_or_report(&parts, option_name.unwrap())
                     else {
                         continue;
                     };
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
-                    LAZY_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    if option_name == Some("LazyDiagnostics") {
+                        LAZY_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    } else {
+                        NMP_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    }
                     searcher = make_searcher(
                         hash_mb,
                         spec_top_n,
@@ -2225,7 +2353,7 @@ mod tests {
         );
         assert!(
             parse_spin_option(
-                &["name", "LazyFlags", "value", "8192"],
+                &["name", "LazyFlags", "value", "32768"],
                 "LazyFlags",
                 LAZY_FLAGS_RANGE,
             )
@@ -2353,8 +2481,9 @@ mod tests {
                 publications: 7,
                 eligible_reads: 5,
                 applied: 3,
+                ..LazySmpRootHintStats::default()
             }),
-            "info string lazy_smp_root_hint publications 7 eligible_reads 5 applied 3"
+            "info string lazy_smp_root_hint publications 7 eligible_reads 5 applied 3 first_move_beta_cuts 0 researches 0 research_nodes 0 stale_research_nodes 0 stale_reads 0 depth_gap_sum 0 depth_gap_max 0 generation_gap_sum 0 generation_gap_max 0"
         );
     }
 

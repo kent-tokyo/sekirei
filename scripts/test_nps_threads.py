@@ -2,6 +2,7 @@
 """Unit tests for explicit evaluator and thread-scaling options."""
 
 import argparse
+import io
 import subprocess
 import sys
 import unittest
@@ -72,6 +73,14 @@ class ThreadOptionsTest(unittest.TestCase):
 
         process.kill.assert_called_once_with()
         self.assertEqual(process.wait.call_count, 2)
+
+    def test_wait_for_collects_response_and_detects_early_exit(self):
+        with patch("nps_threads.subprocess.Popen") as popen:
+            popen.return_value.stdout = io.StringIO("info depth 1\nbestmove 7g7f\n")
+            engine = Usi("engine", {}, timeout=1)
+            self.assertEqual(engine.wait_for("bestmove"), ["info depth 1", "bestmove 7g7f"])
+            with self.assertRaisesRegex(RuntimeError, "exited"):
+                engine.wait_for("readyok")
 
     def test_lazy_smp_diagnostics_are_parsed(self):
         diagnostics = parse_lazy_smp(

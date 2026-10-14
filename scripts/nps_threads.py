@@ -37,6 +37,8 @@ import hashlib
 import json
 import os
 import platform
+import queue
+import threading
 import statistics
 import subprocess
 import sys
@@ -46,10 +48,16 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 ROOT_HINT_FLAG = 2048
+ROOT_HINT_KEYS = ("publications", "eligible_reads", "applied")
+ROOT_HINT_TRANSFER_KEYS = ROOT_HINT_KEYS + (
+    "first_move_beta_cuts", "researches", "research_nodes", "stale_research_nodes", "stale_reads",
+    "depth_gap_sum", "depth_gap_max", "generation_gap_sum", "generation_gap_max",
+)
 
 
 class Usi:
-    def __init__(self, binary: str, env: dict[str, str]):
+    def __init__(self, binary: str, env: dict[str, str], timeout: float = 120):
+        self.timeout = timeout
         binary_path = Path(binary).resolve()
         self.proc = subprocess.Popen(
             [str(binary_path)],
@@ -69,15 +77,36 @@ class Usi:
 
     def wait_for(self, token: str) -> list[str]:
         assert self.proc.stdout
-        lines = []
-        while True:
-            line = self.proc.stdout.readline()
-            if not line:
-                raise RuntimeError("engine exited")
-            line = line.rstrip("\n")
-            lines.append(line)
-            if line.startswith(token):
-                return lines
+        responses: queue.Queue = queue.Queue(maxsize=1)
+
+        def read_response():
+            lines = []
+            try:
+                while True:
+                    line = self.proc.stdout.readline()
+                    if not line:
+                        raise RuntimeError("engine exited")
+                    line = line.rstrip("\n")
+                    lines.append(line)
+                    if line.startswith(token):
+                        responses.put(lines)
+                        return
+            except BaseException as error:
+                responses.put(error)
+
+        # A blocked text readline cannot enforce deadlines itself. The caller's
+        # finally block kills/reaps the process after a timeout, releasing this
+        # reader too. Only one reader exists per protocol response.
+        reader = threading.Thread(target=read_response, daemon=True)
+        reader.start()
+        try:
+            result = responses.get(timeout=self.timeout)
+        except queue.Empty as error:
+            raise TimeoutError(f"engine did not emit {token!r} within {self.timeout}s") from error
+        if isinstance(result, BaseException):
+            raise result
+        reader.join()
+        return result
 
     def quit(self) -> None:
         try:
@@ -270,9 +299,8 @@ def parse_lazy_smp_root_hint(
         )
 
     parts = matching[0][len(prefix) :].split()
-    keys = ("publications", "eligible_reads", "applied")
-    expected_keys = list(keys)
-    if len(parts) != 6 or parts[::2] != expected_keys:
+    keys = ROOT_HINT_TRANSFER_KEYS if len(parts) > 6 else ROOT_HINT_KEYS
+    if len(parts) != 2 * len(keys) or parts[::2] != list(keys):
         raise ValueError(
             f"malformed lazy_smp_root_hint diagnostic: {matching[0]!r}"
         )
@@ -288,7 +316,108 @@ def parse_lazy_smp_root_hint(
         values["eligible_reads"] != 0 or values["applied"] != 0
     ):
         raise ValueError("root-hint reads exist without a publication")
+    if "first_move_beta_cuts" in values:
+        if values["first_move_beta_cuts"] > values["applied"]:
+            raise ValueError("root-hint first-move cuts exceed applications")
+        for kind in ("depth", "generation"):
+            if values[f"{kind}_gap_max"] > values[f"{kind}_gap_sum"]:
+                raise ValueError(f"root-hint {kind} maximum exceeds sum")
+        if values["generation_gap_sum"]:
+            raise ValueError("root-hint consumed across invocation generations")
     return values
+
+
+def parse_search_result(lines: list[str]) -> dict:
+    """Use the final primary-PV info record, keeping score units and bounds."""
+    for line in reversed(lines):
+        parts = line.split()
+        if not parts or parts[0] != "info" or "nodes" not in parts or "score" not in parts:
+            continue
+        if "multipv" in parts and parts[parts.index("multipv") + 1] != "1":
+            continue
+        score_at = parts.index("score")
+        score = parts[score_at + 1 : score_at + 3]
+        for bound in ("lowerbound", "upperbound"):
+            if bound in parts:
+                score.append(bound)
+        return {"score": score, "pv": parts[parts.index("pv") + 1 :] if "pv" in parts else []}
+    raise ValueError("missing scored primary-PV search info")
+
+
+def parse_retirement(lines: list[str]) -> list[dict[str, int]]:
+    prefix = "info string lazy_smp_retirement "
+    keys = ("worker", "completed_iterations", "retired", "foreign_contributions")
+    records = []
+    for line in lines:
+        if not line.startswith(prefix):
+            continue
+        parts = line[len(prefix):].split()
+        if len(parts) != 8 or parts[::2] != list(keys):
+            raise ValueError("malformed retirement diagnostic")
+        if any(not value.isascii() or not value.isdigit() for value in parts[1::2]):
+            raise ValueError("retirement counters must be unsigned decimal integers")
+        record = dict(zip(keys, map(int, parts[1::2]), strict=True))
+        if any(value > (1 << 64) - 1 for value in record.values()):
+            raise ValueError("retirement counter exceeds u64")
+        if record["retired"] not in (0, 1) or (record["worker"] == 0 and record["retired"]):
+            raise ValueError("invalid retirement state")
+        if any(old["worker"] == record["worker"] for old in records):
+            raise ValueError("duplicate retirement worker")
+        records.append(record)
+    return records
+
+
+def parse_nmp(lines: list[str]) -> list[dict]:
+    """Require complete depth histograms for every emitted NMP summary."""
+    keys = ("worker", "attempts", "fail_high", "verification_attempts",
+            "verification_successes", "verification_overturns", "pv_returns",
+            "tracking_overflow", "prior_reductions")
+    workers = {}
+    for line in lines:
+        prefix = "info string v2_nmp "
+        if not line.startswith(prefix):
+            continue
+        fields = line[len(prefix):].split()
+        if len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+            raise ValueError("malformed NMP diagnostic")
+        if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+            raise ValueError("NMP counters must be unsigned decimal integers")
+        record = dict(zip(keys, map(int, fields[1::2]), strict=True))
+        if any(value > (1 << 64) - 1 for value in record.values()):
+            raise ValueError("NMP counter exceeds u64")
+        if record["worker"] in workers:
+            raise ValueError("duplicate NMP worker summary")
+        record["by_depth"] = [[0] * 7 for _ in range(32)]
+        workers[record["worker"]] = record
+    seen = set()
+    for line in lines:
+        prefix = "info string v2_nmp_depth "
+        if not line.startswith(prefix):
+            continue
+        fields = line[len(prefix):].split()
+        if len(fields) != 6 or fields[::2] != ["worker", "depth", "counts"]:
+            raise ValueError("malformed NMP depth diagnostic")
+        values = fields[1:4:2] + fields[5].split(",")
+        if len(values) != 9 or any(not value.isascii() or not value.isdigit() for value in values):
+            raise ValueError("invalid NMP depth counter")
+        worker, depth, *counts = map(int, values)
+        if any(value > (1 << 64) - 1 for value in counts):
+            raise ValueError("NMP depth counter exceeds u64")
+        if worker not in workers or depth > 31 or (worker, depth) in seen:
+            raise ValueError("invalid or duplicate NMP depth bucket")
+        seen.add((worker, depth))
+        workers[worker]["by_depth"][depth] = counts
+    for record in workers.values():
+        for column, key in enumerate(keys[1:8]):
+            if sum(counts[column] for counts in record["by_depth"]) != record[key]:
+                raise ValueError(f"NMP histogram does not match {key}")
+        if record["fail_high"] > record["attempts"] or record["prior_reductions"] > record["attempts"]:
+            raise ValueError("NMP outcomes exceed attempts")
+        if record["verification_attempts"] > record["fail_high"]:
+            raise ValueError("NMP verification attempts exceed fail-highs")
+        if record["verification_successes"] + record["verification_overturns"] > record["verification_attempts"]:
+            raise ValueError("NMP verification outcomes exceed attempts")
+    return [workers[key] for key in sorted(workers)]
 
 
 def parse_bestmove(lines: list[str]) -> str:
@@ -468,6 +597,19 @@ def summarize_lazy_root_hints(
         key: sum(item[key] for item in diagnostics)
         for key in ("publications", "eligible_reads", "applied")
     }
+    transfer = [item for item in diagnostics if "first_move_beta_cuts" in item]
+    if transfer:
+        if len(transfer) != len(diagnostics):
+            raise ValueError("root-hint summary mixes legacy and transfer diagnostic schemas")
+        for key in ROOT_HINT_TRANSFER_KEYS[3:]:
+            totals[key] = (max(item[key] for item in transfer) if key.endswith("_max")
+                           else sum(item[key] for item in transfer))
+        totals["first_move_beta_cut_rate"] = (
+            totals["first_move_beta_cuts"] / totals["applied"] if totals["applied"] else None
+        )
+        totals["mean_depth_gap"] = (
+            totals["depth_gap_sum"] / totals["eligible_reads"] if totals["eligible_reads"] else None
+        )
     totals["searches"] = len(diagnostics)
     totals["searches_with_publication"] = sum(
         item["publications"] > 0 for item in diagnostics
@@ -564,16 +706,23 @@ def read_positions(path: str, limit: int) -> list[str]:
 
 def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> list[dict]:
     env = dict(os.environ, RAYON_NUM_THREADS=str(threads))
-    engine = Usi(args.engine, env)
-    engine.send("usi")
-    engine.wait_for("usiok")
-    for option in engine_options(args, threads):
-        name, _, value = option.partition("=")
-        engine.send(f"setoption name {name} value {value}")
-    engine.send("isready")
-    engine.wait_for("readyok")
+    engine = Usi(args.engine, env, timeout=getattr(args, "timeout", 120))
     rows = []
     try:
+        engine.send("usi")
+        handshake = engine.wait_for("usiok")
+        if getattr(args, "strict_options", False):
+            advertised = {line[len("option name "):].split(" type ", 1)[0]
+                          for line in handshake if line.startswith("option name ")}
+            missing = [option.partition("=")[0] for option in engine_options(args, threads)
+                       if option.partition("=")[0] not in advertised]
+            if missing:
+                raise ValueError("engine does not advertise requested options: " + ", ".join(missing))
+        for option in engine_options(args, threads):
+            name, _, value = option.partition("=")
+            engine.send(f"setoption name {name} value {value}")
+        engine.send("isready")
+        engine.wait_for("readyok")
         for index, position in enumerate(positions):
             for repeat in range(args.repeats):
                 engine.send("usinewgame")
@@ -601,10 +750,14 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "position": index,
                     "repeat": repeat,
                     "bestmove": parse_bestmove(lines),
+                    **parse_search_result(lines),
+                    "retirement": parse_retirement(lines),
+                    "nmp": parse_nmp(lines),
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,
-                    "elapsed_ms": round(elapsed * 1000),
+                    "elapsed_ms": round(elapsed * 1000, 3),
+                    "wall_nps": nodes / elapsed if elapsed > 0 else None,
                     "provenance": {
                         **args.provenance,
                         "options": engine_options(args, threads),
@@ -684,6 +837,7 @@ def main() -> int:
         help="HalfKP nn.bin; omit for a material-only Sekirei measurement",
     )
     parser.add_argument("--fv-scale", type=int, default=24)
+    parser.add_argument("--timeout", type=float, default=120, help="maximum seconds per USI response")
     parser.add_argument("--hash", type=int, default=64)
     parser.add_argument("--threads", default="1,2,4", help="comma-separated thread counts")
     budget = parser.add_mutually_exclusive_group()
@@ -730,6 +884,8 @@ def main() -> int:
         parser.error("--require-lazy-diagnostics is Sekirei-only")
     if args.yaneuraou and args.require_root_hint_diagnostics:
         parser.error("--require-root-hint-diagnostics is Sekirei-only")
+    if args.timeout <= 0:
+        parser.error("--timeout must be positive")
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
     if args.depth is not None and args.depth < 1:

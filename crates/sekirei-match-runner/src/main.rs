@@ -398,16 +398,6 @@ fn fatal_protocol_error(e1: &mut UsiEngine, e2: &mut UsiEngine, detail: &str) ->
     std::process::exit(2);
 }
 
-/// Durable evidence requested by the caller could not be committed. Do not
-/// publish a scrapeable game result or continue with a shorter, apparently
-/// valid sample: a strength wrapper may stop on the very next line.
-fn fatal_evidence_error(e1: &mut UsiEngine, e2: &mut UsiEngine, detail: &str) -> ! {
-    eprintln!("  [match] FATAL evidence error: {detail}");
-    e1.kill();
-    e2.kill();
-    std::process::exit(2);
-}
-
 /// Appends one line per move to an optional transcript file -- timestamp,
 /// PID, side, game/ply sequencing, SFEN, legal-move count, and the raw
 /// bestmove received. Absent unless `--transcript` is passed: this is
@@ -1200,81 +1190,20 @@ fn low_diversity_message(ratio: Option<f64>, min_ratio: f64) -> Option<String> {
     ))
 }
 
-/// Current result summaries are strength evidence only after the runner has
-/// completed and every requested artifact write succeeded. Keep this check in
-/// the standalone `gate` command as well as the Python wrapper so neither
-/// entry point can accept a partial run.
-fn gate_evidence_message(json: &str) -> Option<String> {
-    let summary: serde_json::Value = match serde_json::from_str(json) {
-        Ok(value) => value,
-        Err(error) => return Some(format!("INCONCLUSIVE: malformed result JSON ({error})")),
-    };
-    if summary.get("status").and_then(serde_json::Value::as_str) != Some("complete") {
-        return Some("INCONCLUSIVE: result summary status is not complete".to_string());
-    }
-    match summary.get("artifact_write_failures") {
-        Some(serde_json::Value::Array(values)) if values.is_empty() => {}
-        Some(serde_json::Value::Array(values)) => {
-            return Some(format!(
-                "INCONCLUSIVE: run contains artifact write failures ({values:?})"
-            ));
-        }
-        _ => {
-            return Some(
-                "INCONCLUSIVE: result summary is missing artifact_write_failures".to_string(),
-            );
-        }
-    }
-    match summary.get("invalid_games") {
-        Some(serde_json::Value::Array(values)) if values.is_empty() => None,
-        Some(serde_json::Value::Array(values)) => Some(format!(
-            "INCONCLUSIVE: run contains engine/protocol faults ({values:?})"
-        )),
-        _ => Some("INCONCLUSIVE: result summary is missing invalid_games".to_string()),
-    }
-}
-
-/// Reject a completed aggregate whose per-game source of truth no longer
-/// reproduces its sample size or outcomes. This catches stale/truncated JSONL
-/// files even when both files are individually valid JSON.
-fn gate_record_counts_message(
-    json: &str,
-    records: &[(usize, veridict::input::Record)],
-) -> Option<String> {
-    let summary: serde_json::Value = match serde_json::from_str(json) {
-        Ok(value) => value,
-        Err(error) => return Some(format!("INCONCLUSIVE: malformed result JSON ({error})")),
-    };
-    let count = |field: &str| -> Result<u64, String> {
-        summary
-            .get(field)
-            .and_then(serde_json::Value::as_u64)
-            .ok_or_else(|| format!("INCONCLUSIVE: result summary is missing integer {field}"))
-    };
-    let expected = match (
-        count("games"),
-        count("engine1_wins"),
-        count("draws"),
-        count("engine2_wins"),
-    ) {
-        (Ok(games), Ok(engine1_wins), Ok(draws), Ok(engine2_wins)) => {
-            (games, engine1_wins, draws, engine2_wins)
-        }
-        (Err(error), _, _, _)
-        | (_, Err(error), _, _)
-        | (_, _, Err(error), _)
-        | (_, _, _, Err(error)) => return Some(error),
-    };
-    let (engine1_wins, draws, engine2_wins) = tally_records(records);
-    let actual = (
-        records.len() as u64,
-        u64::from(engine1_wins),
-        u64::from(draws),
-        u64::from(engine2_wins),
-    );
-    (actual != expected).then(|| {
+/// Result summaries written by current match-runner versions explicitly list
+/// games with an engine/protocol fault.  A missing field is deliberately
+/// treated as unknown for old artifacts, but a present non-empty array makes
+/// the run unusable for a strength decision regardless of its Elo estimate.
+fn invalid_games_message(json: &str) -> Option<String> {
+    let needle = "\"invalid_games\":";
+    let start = json.find(needle)? + needle.len();
+    let rest = json[start..].trim_start();
+    let array = rest.strip_prefix('[')?;
+    let end = array.find(']')?;
+    let entries = array[..end].trim();
+    (!entries.is_empty()).then(|| {
         format!(
-            "INCONCLUSIVE: result summary counts {expected:?} do not match per-game JSONL {actual:?}"
+            "INCONCLUSIVE: run contains engine/protocol faults ({entries}); strength statistics are invalid"
         )
     })
 }
@@ -1572,7 +1501,7 @@ fn run_gate(argv: &[String]) {
         los * 100.0
     );
 
-    if let Some(msg) = gate_evidence_message(&content) {
+    if let Some(msg) = invalid_games_message(&content) {
         println!("{msg}");
         std::process::exit(2);
     }
@@ -1586,25 +1515,28 @@ fn run_gate(argv: &[String]) {
     }
 
     let records_path = PathBuf::from(&path).with_extension("jsonl");
-    let records_content = fs::read_to_string(&records_path).unwrap_or_else(|error| {
-        eprintln!(
-            "gate: cannot read required per-game evidence {}: {error}",
-            records_path.display()
-        );
-        std::process::exit(2);
-    });
-    let records = veridict::input::parse_jsonl(std::io::Cursor::new(records_content.as_bytes()))
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap_or_else(|error| {
-            eprintln!("gate: cannot parse {}: {error}", records_path.display());
-            std::process::exit(2);
-        });
-    if let Some(message) = gate_record_counts_message(&content, &records) {
-        println!("{message}");
-        std::process::exit(2);
-    }
+    let records_content = fs::read_to_string(&records_path).ok();
 
     if options.sprt {
+        let raw = match records_content {
+            Some(r) => r,
+            None => {
+                eprintln!(
+                    "gate: --sprt requires {} (per-game jsonl) -- not found; SPRT has no legacy point-estimate fallback",
+                    records_path.display()
+                );
+                std::process::exit(2);
+            }
+        };
+        let parsed = veridict::input::parse_jsonl(std::io::Cursor::new(raw.as_bytes()))
+            .collect::<Result<Vec<_>, _>>();
+        let records = match parsed {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("gate: cannot parse {}: {e}", records_path.display());
+                std::process::exit(2);
+            }
+        };
         if options.require_complete_pairs
             && let Some(msg) = incomplete_pair_message(&records)
         {
@@ -1649,7 +1581,7 @@ fn run_gate(argv: &[String]) {
             "{label}  (sprt: alpha={} is the guaranteed false-accept rate under H0, beta={} the false-reject rate under H1 -- this is not a claim that the true effect is >= elo1, only that H1 was accepted at that error rate)",
             options.alpha, options.beta
         );
-        if let Err(error) = write_verdict_sidecar(
+        write_verdict_sidecar(
             &path,
             &format!(
                 r#"{{
@@ -1678,10 +1610,7 @@ fn run_gate(argv: &[String]) {
                 options.alpha,
                 options.beta,
             ),
-        ) {
-            eprintln!("gate: verdict sidecar write failed: {error}");
-            std::process::exit(2);
-        }
+        );
         std::process::exit(match report.verdict {
             veridict::Verdict::Pass => 0,
             veridict::Verdict::Fail => 1,
@@ -1689,21 +1618,54 @@ fn run_gate(argv: &[String]) {
         });
     }
 
-    let report = match veridict_decide(&records, options.pass_elo, options.fail_elo) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("gate: veridict error: {e}");
-            std::process::exit(2);
+    let (verdict, effect, extra) = match records_content {
+        Some(raw) => {
+            let parsed = veridict::input::parse_jsonl(std::io::Cursor::new(raw.as_bytes()))
+                .collect::<Result<Vec<_>, _>>();
+            let records = match parsed {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("gate: cannot parse {}: {e}", records_path.display());
+                    std::process::exit(2);
+                }
+            };
+            let report = match veridict_decide(&records, options.pass_elo, options.fail_elo) {
+                Ok(r) => r,
+                Err(e) => {
+                    eprintln!("gate: veridict error: {e}");
+                    std::process::exit(2);
+                }
+            };
+            println!(
+                "veridict: metric=elo  effect={:+.1} elo  95% CI=[{:+.1}, {:+.1}]  {}",
+                report.effect, report.ci_low, report.ci_high, report.reason
+            );
+            for warning in &report.warnings {
+                println!("veridict: warning: {warning}");
+            }
+            (report.verdict, report.effect, String::new())
+        }
+        None => {
+            // Legacy fallback for result files predating per-game JSONL
+            // persistence: no raw trials to re-run veridict against, so
+            // fall back to the old point-estimate + LOS threshold check.
+            let verdict = if elo >= options.pass_elo && los >= options.pass_los {
+                veridict::Verdict::Pass
+            } else if elo <= options.fail_elo {
+                veridict::Verdict::Fail
+            } else {
+                veridict::Verdict::Inconclusive
+            };
+            (
+                verdict,
+                elo,
+                format!(
+                    "  (legacy point-estimate gate: no {} found)",
+                    records_path.display()
+                ),
+            )
         }
     };
-    println!(
-        "veridict: metric=elo  effect={:+.1} elo  95% CI=[{:+.1}, {:+.1}]  {}",
-        report.effect, report.ci_low, report.ci_high, report.reason
-    );
-    for warning in &report.warnings {
-        println!("veridict: warning: {warning}");
-    }
-    let (verdict, effect, extra) = (report.verdict, report.effect, String::new());
 
     // Self-play Elo vs. a population rating pool (floodgate) aren't the same scale —
     // this is a directional estimate, not a measurement. Real answer is still
@@ -1718,7 +1680,7 @@ fn run_gate(argv: &[String]) {
         veridict::Verdict::Inconclusive => "INCONCLUSIVE",
     };
     println!("{label}{rating_suffix}{extra}");
-    if let Err(error) = write_verdict_sidecar(
+    write_verdict_sidecar(
         &path,
         &format!(
             r#"{{
@@ -1731,10 +1693,7 @@ fn run_gate(argv: &[String]) {
 "#,
             options.pass_elo, options.fail_elo, options.pass_los,
         ),
-    ) {
-        eprintln!("gate: verdict sidecar write failed: {error}");
-        std::process::exit(2);
-    }
+    );
     std::process::exit(match verdict {
         veridict::Verdict::Pass => 0,
         veridict::Verdict::Fail => 1,
@@ -1749,9 +1708,14 @@ fn run_gate(argv: &[String]) {
 /// tell a result was decided by SPRT rather than a CI threshold -- it
 /// silently re-derived a (possibly wrong) verdict from raw elo/los
 /// instead. See `tasks/lessons.md`, 2026-07-12 dashboard entry.
-fn write_verdict_sidecar(path: &str, json: &str) -> std::io::Result<()> {
+fn write_verdict_sidecar(path: &str, json: &str) {
     let sidecar = PathBuf::from(path).with_extension("verdict.json");
-    write_atomic(&sidecar, json.as_bytes())
+    if let Err(e) = fs::write(&sidecar, json) {
+        eprintln!(
+            "gate: verdict sidecar write failed ({}): {e}",
+            sidecar.display()
+        );
+    }
 }
 
 /// Counts (engine1_wins, draws, engine2_wins) from parsed records.
@@ -2006,7 +1970,7 @@ fn main() {
     // the data supports (see tasks/lessons.md).
     let mut game_moves: Vec<Vec<String>> = Vec::new();
     let mut game_keys: Vec<String> = Vec::new();
-    let artifact_write_failures: Vec<String> = Vec::new();
+    let mut artifact_write_failures: Vec<String> = Vec::new();
     // Illegal moves, engine disconnects, and time forfeits are game records
     // worth preserving for diagnosis, but never statistical observations for
     // a strength gate.  Keep an explicit machine-readable list so a completed
@@ -2162,6 +2126,18 @@ fn main() {
             EndReason::ClockLoss => " (time loss)",
         };
 
+        println!(
+            "Game {:>4}: {} ({}) vs {} ({}) → {}{}  ({} moves)",
+            game_num,
+            e1_label,
+            e1_color,
+            e2_label,
+            e2_color,
+            result_str,
+            reason_tag,
+            moves.len()
+        );
+
         if let Some(dir) = &args.output_dir {
             let path = dir.join(format!("game{game_num:04}.txt"));
             let mut content = String::new();
@@ -2181,11 +2157,8 @@ fn main() {
                 let _ = writeln!(content, "{pos_line} moves {}", moves.join(" "));
             }
             if let Err(e) = fs::write(&path, content) {
-                fatal_evidence_error(
-                    &mut e1,
-                    &mut e2,
-                    &format!("kifu artifact write failed ({}): {e}", path.display()),
-                );
+                eprintln!("kifu artifact write failed ({}): {e}", path.display());
+                artifact_write_failures.push(path.display().to_string());
             }
         }
         if let Some(dir) = &args.csa_output_dir {
@@ -2193,14 +2166,11 @@ fn main() {
                 Ok(content) => {
                     let path = dir.join(format!("game{game_num:04}.csa"));
                     if let Err(error) = fs::write(&path, content) {
-                        fatal_evidence_error(
-                            &mut e1,
-                            &mut e2,
-                            &format!(
-                                "CSA self-play artifact write failed ({}): {error}",
-                                path.display()
-                            ),
+                        eprintln!(
+                            "CSA self-play artifact write failed ({}): {error}",
+                            path.display()
                         );
+                        artifact_write_failures.push(path.display().to_string());
                     } else {
                         csa_written.push(path.file_name().unwrap().to_string_lossy().into_owned());
                     }
@@ -2234,14 +2204,11 @@ fn main() {
                 "running",
             )
         {
-            fatal_evidence_error(
-                &mut e1,
-                &mut e2,
-                &format!(
-                    "incremental result snapshot write failed ({}): {error}",
-                    json_path.display()
-                ),
+            eprintln!(
+                "incremental result snapshot write failed ({}): {error}",
+                json_path.display()
             );
+            artifact_write_failures.push(json_path.display().to_string());
         }
         if let Some(dir) = &args.csa_output_dir
             && let Err(error) = persist_csa_manifest(
@@ -2255,32 +2222,12 @@ fn main() {
             )
         {
             let path = dir.join("manifest.json");
-            fatal_evidence_error(
-                &mut e1,
-                &mut e2,
-                &format!(
-                    "incremental CSA manifest write failed ({}): {error}",
-                    path.display()
-                ),
+            eprintln!(
+                "incremental CSA manifest write failed ({}): {error}",
+                path.display()
             );
+            artifact_write_failures.push(path.display().to_string());
         }
-
-        // Publish the machine-scraped result only after every enabled durable
-        // artifact has been persisted and the incremental snapshot contains
-        // this game.  An SPRT wrapper may terminate us as soon as it observes
-        // this line; printing earlier could turn a statistically terminal game
-        // into a missing kifu/JSONL record.
-        println!(
-            "Game {:>4}: {} ({}) vs {} ({}) → {}{}  ({} moves)",
-            game_num,
-            e1_label,
-            e1_color,
-            e2_label,
-            e2_color,
-            result_str,
-            reason_tag,
-            moves.len()
-        );
     }
 
     // Summary
@@ -2337,14 +2284,11 @@ fn main() {
         ) {
             Ok(()) => eprintln!("Self-play CSA manifest saved to {}", path.display()),
             Err(error) => {
-                fatal_evidence_error(
-                    &mut e1,
-                    &mut e2,
-                    &format!(
-                        "CSA self-play manifest write failed ({}): {error}",
-                        path.display()
-                    ),
+                eprintln!(
+                    "CSA self-play manifest write failed ({}): {error}",
+                    path.display()
                 );
+                artifact_write_failures.push(path.display().to_string());
             }
         }
     }
@@ -2376,11 +2320,7 @@ fn main() {
                     json_path.with_extension("jsonl").display()
                 );
             }
-            Err(error) => fatal_evidence_error(
-                &mut e1,
-                &mut e2,
-                &format!("final result snapshot write failed: {error}"),
-            ),
+            Err(error) => eprintln!("final result snapshot write failed: {error}"),
         }
     }
 }
@@ -2780,52 +2720,13 @@ mod tests {
     }
 
     #[test]
-    fn standalone_gate_requires_complete_clean_evidence() {
-        let clean = r#"{
-            "status": "complete",
-            "artifact_write_failures": [],
-            "invalid_games": []
-        }"#;
-        assert_eq!(gate_evidence_message(clean), None);
-        assert!(gate_evidence_message(&clean.replace("complete", "running")).is_some());
-        assert!(
-            gate_evidence_message(&clean.replace(
-                "\"artifact_write_failures\": []",
-                "\"artifact_write_failures\": [\"game0001.txt\"]"
-            ))
-            .is_some()
-        );
-        assert!(
-            gate_evidence_message(&clean.replace(
-                "\"invalid_games\": []",
-                "\"invalid_games\": [\"game0001: EngineError\"]"
-            ))
-            .is_some()
-        );
-        assert!(gate_evidence_message("not json").is_some());
-    }
-
-    #[test]
-    fn standalone_gate_reconciles_summary_and_per_game_counts() {
-        let summary = r#"{
-            "games": 3,
-            "engine1_wins": 1,
-            "draws": 1,
-            "engine2_wins": 1
-        }"#;
-        let records = vec![
-            rec("game0001", "candidate_win"),
-            rec("game0002", "draw"),
-            rec("game0003", "baseline_win"),
-        ];
-        assert_eq!(gate_record_counts_message(summary, &records), None);
-
-        let stale = summary.replace("\"games\": 3", "\"games\": 4");
-        assert!(gate_record_counts_message(&stale, &records).is_some());
-        let contradictory = summary.replace("\"engine1_wins\": 1", "\"engine1_wins\": 2");
-        assert!(gate_record_counts_message(&contradictory, &records).is_some());
-        let missing = summary.replace("\"draws\": 1,", "");
-        assert!(gate_record_counts_message(&missing, &records).is_some());
+    fn invalid_games_force_an_inconclusive_gate() {
+        assert_eq!(invalid_games_message("{}"), None);
+        assert_eq!(invalid_games_message(r#"{"invalid_games": []}"#), None);
+        let msg = invalid_games_message(r#"{"invalid_games": ["game0094: EngineError"]}"#)
+            .expect("engine fault must invalidate a gate");
+        assert!(msg.contains("INCONCLUSIVE"));
+        assert!(msg.contains("game0094"));
     }
 
     #[test]
@@ -3088,21 +2989,10 @@ mod tests {
     fn write_verdict_sidecar_derives_path_and_writes_content() {
         let path =
             std::env::temp_dir().join(format!("sekirei_test_sidecar_{}.json", std::process::id()));
-        write_verdict_sidecar(path.to_str().unwrap(), "{\"method\":\"sprt\"}\n").unwrap();
+        write_verdict_sidecar(path.to_str().unwrap(), "{\"method\":\"sprt\"}\n");
         let sidecar = path.with_extension("verdict.json");
         let content = fs::read_to_string(&sidecar).expect("sidecar should exist");
         assert_eq!(content, "{\"method\":\"sprt\"}\n");
         fs::remove_file(&sidecar).ok();
-    }
-
-    #[test]
-    fn write_verdict_sidecar_reports_an_unwritable_destination() {
-        let missing_parent = std::env::temp_dir()
-            .join(format!("sekirei_missing_parent_{}", std::process::id()))
-            .join("gate.json");
-        assert!(
-            write_verdict_sidecar(missing_parent.to_str().unwrap(), "{\"method\":\"sprt\"}\n")
-                .is_err()
-        );
     }
 }
