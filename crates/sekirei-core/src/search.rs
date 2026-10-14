@@ -90,6 +90,7 @@ mod v2;
 use child_search::pvs_child;
 use heuristics::{
     CorrKeys, CountermoveTable, HistoryTable, KillerTable, history_bonus, history_malus,
+    pack_killer, unpack_killer,
 };
 use late_move::{
     LateMoveNode, LmrContext, check_reduction_cap, lmr_adjust, lmr_base_reduction, lmr_reduce,
@@ -282,6 +283,11 @@ pub struct SearchDiagnostics {
     tt_probes: AtomicU64,
     tt_hits: AtomicU64,
     tt_stores: AtomicU64,
+    /// Sampled TT hits attributed to this Lazy SMP worker. These counters are
+    /// populated only by [`SearchDiagnostics::parallel_worker`].
+    tt_local_hits: AtomicU64,
+    tt_foreign_hits: AtomicU64,
+    tt_unknown_hits: AtomicU64,
     order_tt: AtomicU64,
     order_killer: AtomicU64,
     order_countermove: AtomicU64,
@@ -410,6 +416,13 @@ pub(crate) struct TtReuseStats {
     foreign_hits: AtomicU64,
     unknown_hits: AtomicU64,
     dropped_stores: AtomicU64,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TtReuseOrigin {
+    Local,
+    Foreign,
+    Unknown,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -638,10 +651,8 @@ impl TtReuseStats {
     }
 
     #[inline]
-    fn record_hit(&self, hash: u64, worker: u32) {
-        let Some((fingerprint, start)) = Self::sampled_fingerprint(hash) else {
-            return;
-        };
+    fn record_hit(&self, hash: u64, worker: u32) -> Option<TtReuseOrigin> {
+        let (fingerprint, start) = Self::sampled_fingerprint(hash)?;
         self.sampled_hits.fetch_add(1, Ordering::Relaxed);
         let worker = worker.saturating_add(1);
         for probe in 0..WORK_SAMPLE_PROBES {
@@ -660,14 +671,17 @@ impl TtReuseStats {
             let writer = slot.last_writer.load(Ordering::Acquire);
             if writer == worker {
                 self.local_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Local);
             } else if writer != 0 {
                 self.foreign_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Foreign);
             } else {
                 self.unknown_hits.fetch_add(1, Ordering::Relaxed);
+                return Some(TtReuseOrigin::Unknown);
             }
-            return;
         }
         self.unknown_hits.fetch_add(1, Ordering::Relaxed);
+        Some(TtReuseOrigin::Unknown)
     }
 }
 
@@ -847,6 +861,9 @@ impl SearchDiagnostics {
             tt_probes: AtomicU64::new(0),
             tt_hits: AtomicU64::new(0),
             tt_stores: AtomicU64::new(0),
+            tt_local_hits: AtomicU64::new(0),
+            tt_foreign_hits: AtomicU64::new(0),
+            tt_unknown_hits: AtomicU64::new(0),
             order_tt: AtomicU64::new(0),
             order_killer: AtomicU64::new(0),
             order_countermove: AtomicU64::new(0),
@@ -904,8 +921,15 @@ impl SearchDiagnostics {
 
     #[inline]
     fn record_tt_hit_origin(&self, hash: u64) {
-        if let Some(observer) = &self.tt_reuse {
-            observer.stats.record_hit(hash, observer.worker);
+        if let Some(observer) = &self.tt_reuse
+            && let Some(origin) = observer.stats.record_hit(hash, observer.worker)
+        {
+            match origin {
+                TtReuseOrigin::Local => &self.tt_local_hits,
+                TtReuseOrigin::Foreign => &self.tt_foreign_hits,
+                TtReuseOrigin::Unknown => &self.tt_unknown_hits,
+            }
+            .fetch_add(1, Ordering::Relaxed);
         }
     }
 
@@ -1102,6 +1126,19 @@ impl SearchDiagnostics {
             move_order_sort_ns: self.move_order_sort_ns.load(Ordering::Relaxed),
             quiescence_inclusive_ns: self.quiescence_inclusive_ns.load(Ordering::Relaxed),
             root_mate_safety_ns: self.root_mate_safety_ns.load(Ordering::Relaxed),
+        }
+    }
+
+    /// Return sampled TT ownership counters for Lazy SMP diagnostics.
+    ///
+    /// Keeping these counters out of [`SearchDiagnosticsSnapshot`] preserves
+    /// that public struct's exhaustive-literal contract across 0.4.x patches.
+    pub(crate) fn tt_reuse_snapshot(&self) -> TtReuseSnapshot {
+        TtReuseSnapshot {
+            local_hits: self.tt_local_hits.load(Ordering::Relaxed),
+            foreign_hits: self.tt_foreign_hits.load(Ordering::Relaxed),
+            unknown_hits: self.tt_unknown_hits.load(Ordering::Relaxed),
+            ..TtReuseSnapshot::default()
         }
     }
 }
@@ -1382,6 +1419,227 @@ pub struct Searcher {
     /// Lazy SMP can use this to make helpers examine different root moves
     /// before the shared TT has enough information to diversify them.
     root_order_offset: usize,
+    /// Use the full root LMR reduction instead of the usual one-ply relief.
+    /// Lazy SMP may enable this only for helper workers as an opt-in
+    /// experiment; ordinary searches and worker 0 keep the established path.
+    full_root_lmr: bool,
+    /// Optional Lazy SMP channel. Helpers publish only fully completed root
+    /// iterations; worker 0 may use a same-or-deeper move as ordering advice
+    /// on its next iteration. Scores and bounds are deliberately not shared.
+    root_hint: Option<RootHintEndpoint>,
+}
+
+/// One lock-free, invocation-scoped root-order hint shared by Lazy SMP
+/// workers. The slot is reset before every `go`, so a persistent worker can
+/// never consume a move from an earlier position.
+pub(crate) struct RootHintChannel {
+    generation: AtomicU64,
+    packed: AtomicU64,
+    publications: GenerationCounter,
+    eligible_reads: GenerationCounter,
+    applied: GenerationCounter,
+}
+
+#[derive(Clone)]
+struct RootHintEndpoint {
+    channel: Arc<RootHintChannel>,
+    worker: usize,
+}
+
+#[derive(Clone)]
+struct RootHintOrder {
+    mv: Move,
+    generation: u64,
+    channel: Arc<RootHintChannel>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct RootHintSnapshot {
+    pub publications: u64,
+    pub eligible_reads: u64,
+    pub applied: u64,
+}
+
+struct GenerationCounter {
+    packed: AtomicU64,
+}
+
+impl GenerationCounter {
+    const COUNT_BITS: u32 = RootHintChannel::GENERATION_SHIFT;
+    const COUNT_MASK: u64 = (1 << Self::COUNT_BITS) - 1;
+
+    const fn new() -> Self {
+        Self {
+            packed: AtomicU64::new(0),
+        }
+    }
+
+    fn reset(&self, generation: u64) {
+        self.packed
+            .store(generation << Self::COUNT_BITS, Ordering::Relaxed);
+    }
+
+    fn increment(&self, generation: u64) {
+        let mut current = self.packed.load(Ordering::Relaxed);
+        loop {
+            if current >> Self::COUNT_BITS != generation {
+                return;
+            }
+            let count = current & Self::COUNT_MASK;
+            if count == Self::COUNT_MASK {
+                return;
+            }
+            let next = current + 1;
+            match self.packed.compare_exchange_weak(
+                current,
+                next,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return,
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn get(&self, generation: u64) -> u64 {
+        let value = self.packed.load(Ordering::Relaxed);
+        if value >> Self::COUNT_BITS == generation {
+            value & Self::COUNT_MASK
+        } else {
+            0
+        }
+    }
+}
+
+impl RootHintChannel {
+    const MOVE_BITS: u32 = 19;
+    const DEPTH_BITS: u32 = 8;
+    const WORKER_BITS: u32 = 9;
+    const MOVE_MASK: u64 = (1 << Self::MOVE_BITS) - 1;
+    const DEPTH_MASK: u64 = (1 << Self::DEPTH_BITS) - 1;
+    const WORKER_MASK: u64 = (1 << Self::WORKER_BITS) - 1;
+    const DEPTH_SHIFT: u32 = Self::MOVE_BITS;
+    const WORKER_SHIFT: u32 = Self::DEPTH_SHIFT + Self::DEPTH_BITS;
+    const GENERATION_SHIFT: u32 = Self::WORKER_SHIFT + Self::WORKER_BITS;
+    const GENERATION_MASK: u64 = (1 << (64 - Self::GENERATION_SHIFT)) - 1;
+
+    pub(crate) fn new() -> Self {
+        Self {
+            generation: AtomicU64::new(0),
+            packed: AtomicU64::new(0),
+            publications: GenerationCounter::new(),
+            eligible_reads: GenerationCounter::new(),
+            applied: GenerationCounter::new(),
+        }
+    }
+
+    /// Start a new invocation and return the token every worker must retain.
+    /// The generation is embedded in the same atomic word as the hint, so a
+    /// delayed compare-exchange from an earlier invocation cannot repopulate
+    /// the slot after this reset.
+    pub(crate) fn begin_go(&self) -> u64 {
+        // The packed representation retains 28 generation bits. LazySmpSearcher
+        // serializes invocations and joins every helper before the next call,
+        // so wrapping cannot make a live hint look current.
+        let sequence = self.generation.fetch_add(1, Ordering::AcqRel);
+        let generation = sequence % Self::GENERATION_MASK + 1;
+        self.publications.reset(generation);
+        self.eligible_reads.reset(generation);
+        self.applied.reset(generation);
+        self.packed
+            .store(generation << Self::GENERATION_SHIFT, Ordering::Release);
+        generation
+    }
+
+    fn current_generation(&self) -> u64 {
+        (self.packed.load(Ordering::Acquire) >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK
+    }
+
+    fn encode(generation: u64, depth: u32, worker: usize, mv: Move) -> u64 {
+        (u64::from(pack_killer(mv)) & Self::MOVE_MASK)
+            | (u64::from(depth.min(Self::DEPTH_MASK as u32)) << Self::DEPTH_SHIFT)
+            | ((worker.min(Self::WORKER_MASK as usize) as u64) << Self::WORKER_SHIFT)
+            | ((generation & Self::GENERATION_MASK) << Self::GENERATION_SHIFT)
+    }
+
+    fn decode(value: u64) -> Option<(u64, u32, usize, Move)> {
+        let raw_move = (value & Self::MOVE_MASK) as u32;
+        if raw_move == 0 {
+            return None;
+        }
+        let mv = unpack_killer(raw_move)?;
+        let depth = ((value >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u32;
+        let worker = ((value >> Self::WORKER_SHIFT) & Self::WORKER_MASK) as usize;
+        let generation = (value >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK;
+        Some((generation, depth, worker, mv))
+    }
+
+    /// Publish a completed helper iteration. Deeper hints win; equal-depth
+    /// races are resolved by worker index and compact move encoding so the
+    /// retained value does not depend on scheduling order.
+    fn publish(&self, generation: u64, depth: u32, worker: usize, mv: Move) {
+        debug_assert!(worker > 0, "worker 0 consumes root hints");
+        let candidate = Self::encode(generation, depth, worker, mv);
+        let (_, stored_depth, stored_worker, stored_move) =
+            Self::decode(candidate).expect("encoded root hint must contain a move");
+        let candidate_key = (
+            stored_depth,
+            std::cmp::Reverse(stored_worker),
+            std::cmp::Reverse(stored_move.raw()),
+        );
+        let mut current = self.packed.load(Ordering::Acquire);
+        loop {
+            let current_generation = (current >> Self::GENERATION_SHIFT) & Self::GENERATION_MASK;
+            if current_generation != generation {
+                return;
+            }
+            if let Some((_, old_depth, old_worker, old_move)) = Self::decode(current) {
+                let old_key = (
+                    old_depth,
+                    std::cmp::Reverse(old_worker),
+                    std::cmp::Reverse(old_move.raw()),
+                );
+                if old_key >= candidate_key {
+                    return;
+                }
+            }
+            match self.packed.compare_exchange_weak(
+                current,
+                candidate,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    self.publications.increment(generation);
+                    return;
+                }
+                Err(observed) => current = observed,
+            }
+        }
+    }
+
+    fn move_at_least(&self, generation: u64, depth: u32) -> Option<Move> {
+        let (hint_generation, hint_depth, _, mv) =
+            Self::decode(self.packed.load(Ordering::Acquire))?;
+        if hint_generation != generation || hint_depth < depth {
+            return None;
+        }
+        self.eligible_reads.increment(generation);
+        Some(mv)
+    }
+
+    fn mark_applied(&self, generation: u64) {
+        self.applied.increment(generation);
+    }
+
+    pub(crate) fn snapshot(&self, generation: u64) -> RootHintSnapshot {
+        RootHintSnapshot {
+            publications: self.publications.get(generation),
+            eligible_reads: self.eligible_reads.get(generation),
+            applied: self.applied.get(generation),
+        }
+    }
 }
 
 impl Searcher {
@@ -1403,6 +1661,8 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
+            root_hint: None,
         }
     }
 
@@ -1426,6 +1686,8 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
+            root_hint: None,
         }
     }
 
@@ -1442,6 +1704,8 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
+            root_hint: None,
         }
     }
 
@@ -1461,6 +1725,8 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
+            root_hint: None,
         }
     }
 
@@ -1476,6 +1742,8 @@ impl Searcher {
             countermoves: Arc::new(CountermoveTable::new()),
             depth_skew: 0,
             root_order_offset: 0,
+            full_root_lmr: false,
+            root_hint: None,
         }
     }
 
@@ -1523,6 +1791,22 @@ impl Searcher {
     /// feedback replaces this seed after the first completed root search.
     pub fn set_root_order_offset(&mut self, offset: usize) {
         self.root_order_offset = offset;
+    }
+
+    /// Remove the usual one-ply root-LMR relief. This crate-private control is
+    /// used only by an opt-in Lazy SMP helper experiment.
+    pub(crate) fn set_full_root_lmr(&mut self, enabled: bool) {
+        self.full_root_lmr = enabled;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn full_root_lmr_enabled(&self) -> bool {
+        self.full_root_lmr
+    }
+
+    /// Connect this searcher to an invocation-scoped Lazy SMP root-hint slot.
+    pub(crate) fn set_root_hint_channel(&mut self, channel: Arc<RootHintChannel>, worker: usize) {
+        self.root_hint = Some(RootHintEndpoint { channel, worker });
     }
 
     /// Enable or disable parallel young-brothers splitting (Lazy SMP workers
@@ -1827,6 +2111,12 @@ impl Searcher {
         // the previous iteration's score.
         let mut stable_iters = 0u32;
         let mut prev_score: Option<i32> = None;
+        // Capture the invocation token once. A helper from an earlier `go`
+        // retains its old token and therefore cannot publish into this one.
+        let root_hint_generation = self
+            .root_hint
+            .as_ref()
+            .map(|endpoint| endpoint.channel.current_generation());
 
         for iteration in 1..=config.max_depth {
             let depth = iteration + self.depth_skew;
@@ -1842,6 +2132,23 @@ impl Searcher {
             let mut candidates = Vec::new();
             let mut primary = None;
             for rank in 1..=requested_lines {
+                let root_hint = self.root_hint.as_ref().and_then(|endpoint| {
+                    (endpoint.worker == 0
+                        && rank == 1
+                        && config.multi_pv.max(1) == 1
+                        && root_move.is_none())
+                    .then_some(())
+                    .and_then(|()| {
+                        endpoint
+                            .channel
+                            .move_at_least(root_hint_generation.unwrap_or(0), depth)
+                            .map(|mv| RootHintOrder {
+                                mv,
+                                generation: root_hint_generation.unwrap_or(0),
+                                channel: endpoint.channel.clone(),
+                            })
+                    })
+                });
                 let candidate = root_search(
                     &state,
                     board,
@@ -1852,7 +2159,9 @@ impl Searcher {
                     root_mate_safety,
                     history,
                     self.root_order_offset,
+                    self.full_root_lmr,
                     Some(&mut root_mate_safety_cache),
+                    root_hint,
                 );
                 if rank == 1 {
                     primary = Some(candidate);
@@ -1904,6 +2213,17 @@ impl Searcher {
             bound = root_bound;
             if let Some(candidate) = candidates.first() {
                 best_pv.clone_from(&candidate.pv);
+            }
+            if root_bound == SearchBound::Exact
+                && config.multi_pv.max(1) == 1
+                && root_move.is_none()
+                && let (Some(endpoint), Some(completed_move), Some(generation)) =
+                    (&self.root_hint, m, root_hint_generation)
+                && endpoint.worker > 0
+            {
+                endpoint
+                    .channel
+                    .publish(generation, depth, endpoint.worker, completed_move);
             }
 
             if let Some(trace) = traces.iterations.as_deref_mut() {
@@ -2148,7 +2468,9 @@ fn root_search(
     root_mate_safety: bool,
     history: &SearchHistory<'_>,
     root_order_offset: usize,
+    full_root_lmr: bool,
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
+    root_hint: Option<RootHintOrder>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
@@ -2270,6 +2592,8 @@ fn root_search(
     };
     let diversified = diversified_root_order(ordered, root_order_offset, reused_iteration_order);
     let ordered: &[Move] = diversified.as_deref().unwrap_or(ordered);
+    let hinted = apply_root_hint(ordered, root_hint);
+    let ordered: &[Move] = hinted.as_deref().unwrap_or(ordered);
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let (mut lo, mut hi) = if use_asp {
@@ -2282,7 +2606,18 @@ fn root_search(
     // so a large swing costs a few re-searches instead of one per step.
     let mut delta = p::ASP_DELTA();
     loop {
-        let (m, score) = root_search_inner(state, board, depth, ordered, lo, hi, history);
+        let (m, score) = root_search_inner(
+            state,
+            board,
+            depth,
+            ordered,
+            history,
+            RootSearchParams {
+                lo,
+                hi,
+                full_root_lmr,
+            },
+        );
 
         if state.budget.should_abort() {
             return (m, score, SearchBound::Unknown);
@@ -2310,6 +2645,31 @@ fn root_search(
             return (m, score, SearchBound::Exact);
         }
     }
+}
+
+/// Move a legal, non-excluded helper hint to the front without disturbing the
+/// relative order of any other root move. A hint absent from the final root
+/// candidate list is stale or inapplicable and is ignored.
+fn promote_root_hint(ordered: &[Move], hint: Option<Move>) -> Option<Vec<Move>> {
+    let hint = hint?;
+    let index = ordered.iter().position(|mv| *mv == hint)?;
+    if index == 0 {
+        return None;
+    }
+    let mut promoted = ordered.to_vec();
+    let hint = promoted.remove(index);
+    promoted.insert(0, hint);
+    Some(promoted)
+}
+
+fn apply_root_hint(ordered: &[Move], hint: Option<RootHintOrder>) -> Option<Vec<Move>> {
+    let promoted = promote_root_hint(ordered, hint.as_ref().map(|value| value.mv));
+    if promoted.is_some()
+        && let Some(hint) = hint
+    {
+        hint.channel.mark_applied(hint.generation);
+    }
+    promoted
 }
 
 /// ROOT_ORDER: the root position and its move order after the latest root
@@ -2342,17 +2702,37 @@ fn diversified_root_order(
     Some(diversified)
 }
 
+#[inline]
+fn root_lmr_reduction(depth: u32, move_index: usize, quiet: bool, full_reduction: bool) -> u32 {
+    if depth < 3 || move_index < 3 || !quiet {
+        return 0;
+    }
+    let base = lmr_base_reduction(depth, move_index + 1);
+    let reduction = if full_reduction {
+        base
+    } else {
+        base.saturating_sub(1)
+    };
+    reduction.min(depth - 2)
+}
+
+#[derive(Clone, Copy)]
+struct RootSearchParams {
+    lo: i32,
+    hi: i32,
+    full_root_lmr: bool,
+}
+
 fn root_search_inner(
     state: &Arc<SearchState>,
     board: &mut Board,
     depth: u32,
     ordered: &[Move],
-    lo: i32,
-    hi: i32,
     history: &SearchHistory<'_>,
+    params: RootSearchParams,
 ) -> (Option<Move>, i32) {
     let mut best_move = None;
-    let mut alpha = lo;
+    let mut alpha = params.lo;
     // Moves that raised alpha, with their scores (ROOT_ORDER).
     let mut raised: Vec<(Move, i32)> = Vec::new();
     let v2_root = p::SEARCH_V2() != 0 && p::V2_ROOT() != 0;
@@ -2363,13 +2743,7 @@ fn root_search_inner(
         // Late quiet root moves get a reduced null-window probe first
         // (ROOT_LMR 1: every late move).
         let quiet = p::ROOT_LMR() != 0 || (board.piece_at(m.to).is_none() && !m.promote);
-        let reduce = if depth >= 3 && i >= 3 && quiet {
-            lmr_base_reduction(depth, i + 1)
-                .saturating_sub(1)
-                .min(depth - 2)
-        } else {
-            0
-        };
+        let reduce = root_lmr_reduction(depth, i, quiet, params.full_root_lmr);
         set_current_move(0, Some(m));
         let tok = board.do_move(m);
         let child_in_check = is_in_check(board, board.side_to_move);
@@ -2395,7 +2769,7 @@ fn root_search_inner(
         // full window; later moves a null-window probe, widened only when
         // they may raise alpha.
         let score = if i == 0 {
-            search(board, alpha, hi, depth - 1)
+            search(board, alpha, params.hi, depth - 1)
         } else {
             let reduce = if child_in_check && p::ROOT_LMR() == 0 {
                 0
@@ -2406,8 +2780,8 @@ fn root_search_inner(
             if reduce > 0 && s > alpha {
                 s = search(board, alpha, alpha + 1, depth - 1);
             }
-            if s > alpha && s < hi {
-                s = search(board, alpha, hi, depth - 1);
+            if s > alpha && s < params.hi {
+                s = search(board, alpha, params.hi, depth - 1);
             }
             s
         };
@@ -2425,7 +2799,7 @@ fn root_search_inner(
             best_move = Some(m);
             raised.push((m, score));
         }
-        if alpha >= hi {
+        if alpha >= params.hi {
             break;
         }
     }
@@ -2453,7 +2827,7 @@ fn root_search_inner(
     if !state.budget.should_abort()
         && let Some(m) = best_move
     {
-        let bound = if alpha >= hi {
+        let bound = if alpha >= params.hi {
             Bound::Lower // fail-high: true score ≥ alpha, exact unknown
         } else {
             Bound::Exact
@@ -3946,6 +4320,8 @@ impl SpeculativeSearcher {
                     true,
                     &SearchHistory::root(history),
                     0,
+                    false,
+                    None,
                     None,
                 );
                 if state.budget.should_abort() {
@@ -4222,6 +4598,242 @@ mod see_tests {
     use std::time::Instant;
 
     #[test]
+    fn root_hint_rejects_a_delayed_publish_from_the_previous_go() {
+        let channel = Arc::new(RootHintChannel::new());
+        let old_generation = channel.begin_go();
+        let stale = Move::drop(Square::from_index(1), PieceKind::Fu);
+        let release = Arc::new(Barrier::new(2));
+        let worker_channel = channel.clone();
+        let worker_release = release.clone();
+        let worker = thread::spawn(move || {
+            worker_release.wait();
+            worker_channel.publish(old_generation, 8, 1, stale);
+        });
+
+        let new_generation = channel.begin_go();
+        release.wait();
+        worker.join().expect("delayed helper publish");
+
+        assert_ne!(old_generation, new_generation);
+        assert_eq!(channel.move_at_least(new_generation, 1), None);
+        assert_eq!(
+            channel.snapshot(new_generation),
+            RootHintSnapshot::default()
+        );
+    }
+
+    #[test]
+    fn root_hint_keeps_the_deepest_deterministic_helper_move() {
+        let channel = RootHintChannel::new();
+        let generation = channel.begin_go();
+        let deeper = Move::drop(Square::from_index(2), PieceKind::Fu);
+        let shallower = Move::drop(Square::from_index(3), PieceKind::Fu);
+        let tie_winner = Move::drop(Square::from_index(4), PieceKind::Fu);
+
+        channel.publish(generation, 10, 2, deeper);
+        channel.publish(generation, 9, 1, shallower);
+        assert_eq!(channel.move_at_least(generation, 10), Some(deeper));
+        assert_eq!(channel.move_at_least(generation, 11), None);
+
+        channel.publish(generation, 10, 1, tie_winner);
+        assert_eq!(channel.move_at_least(generation, 10), Some(tie_winner));
+        assert_eq!(
+            channel.snapshot(generation),
+            RootHintSnapshot {
+                publications: 2,
+                eligible_reads: 2,
+                applied: 0,
+            }
+        );
+    }
+
+    #[test]
+    fn root_hint_encoding_round_trips_move_families() {
+        let moves = [
+            Move {
+                from: Some(Square::from_index(9)),
+                to: Square::from_index(18),
+                piece_kind: PieceKind::Fu,
+                promote: false,
+            },
+            Move {
+                from: Some(Square::from_index(63)),
+                to: Square::from_index(72),
+                piece_kind: PieceKind::Kaku,
+                promote: true,
+            },
+            Move::drop(Square::from_index(40), PieceKind::Kin),
+        ];
+
+        for mv in moves {
+            assert_eq!(
+                RootHintChannel::decode(RootHintChannel::encode(7, 3, 2, mv)),
+                Some((7, 3, 2, mv))
+            );
+        }
+    }
+
+    #[test]
+    fn root_hint_promotion_preserves_the_other_moves_order() {
+        let first = Move::drop(Square::from_index(0), PieceKind::Fu);
+        let hint = Move::drop(Square::from_index(1), PieceKind::Fu);
+        let third = Move::drop(Square::from_index(2), PieceKind::Fu);
+        let order = [first, third, hint];
+
+        assert_eq!(
+            promote_root_hint(&order, Some(hint)),
+            Some(vec![hint, first, third])
+        );
+        assert_eq!(promote_root_hint(&order, Some(first)), None);
+        assert_eq!(
+            promote_root_hint(
+                &order,
+                Some(Move::drop(Square::from_index(3), PieceKind::Fu))
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn root_hint_counts_only_order_changes_as_applied() {
+        let channel = Arc::new(RootHintChannel::new());
+        let generation = channel.begin_go();
+        let first = Move::drop(Square::from_index(0), PieceKind::Fu);
+        let hint = Move::drop(Square::from_index(1), PieceKind::Fu);
+        let third = Move::drop(Square::from_index(2), PieceKind::Fu);
+        channel.publish(generation, 3, 1, hint);
+        let hint = channel
+            .move_at_least(generation, 3)
+            .expect("published hint must be eligible");
+
+        assert_eq!(
+            apply_root_hint(
+                &[first, third, hint],
+                Some(RootHintOrder {
+                    mv: hint,
+                    generation,
+                    channel: channel.clone(),
+                }),
+            ),
+            Some(vec![hint, first, third])
+        );
+        assert_eq!(
+            channel.snapshot(generation),
+            RootHintSnapshot {
+                publications: 1,
+                eligible_reads: 1,
+                applied: 1,
+            }
+        );
+
+        assert_eq!(
+            apply_root_hint(
+                &[hint, first, third],
+                Some(RootHintOrder {
+                    mv: hint,
+                    generation,
+                    channel: channel.clone(),
+                }),
+            ),
+            None
+        );
+        assert_eq!(channel.snapshot(generation).applied, 1);
+    }
+
+    #[test]
+    fn stale_root_hint_application_cannot_increment_the_new_generation() {
+        let channel = Arc::new(RootHintChannel::new());
+        let old_generation = channel.begin_go();
+        let first = Move::drop(Square::from_index(0), PieceKind::Fu);
+        let hint = Move::drop(Square::from_index(1), PieceKind::Fu);
+        channel.publish(old_generation, 3, 1, hint);
+        let stale = channel
+            .move_at_least(old_generation, 3)
+            .expect("old-generation hint must initially be eligible");
+        let new_generation = channel.begin_go();
+
+        assert!(
+            apply_root_hint(
+                &[first, stale],
+                Some(RootHintOrder {
+                    mv: stale,
+                    generation: old_generation,
+                    channel: channel.clone(),
+                }),
+            )
+            .is_some()
+        );
+        assert_eq!(
+            channel.snapshot(new_generation),
+            RootHintSnapshot::default()
+        );
+    }
+
+    #[test]
+    fn completed_helper_search_publishes_and_main_search_reads_the_hint() {
+        let channel = Arc::new(RootHintChannel::new());
+        let generation = channel.begin_go();
+        let config = SearchConfig {
+            max_depth: 3,
+            time_limit: None,
+            node_limit: None,
+            soft_limit: None,
+            multi_pv: 1,
+        };
+
+        let mut helper = Searcher::new(Tt::new(4));
+        helper.set_root_hint_channel(channel.clone(), 1);
+        let mut helper_board = Board::startpos();
+        helper.search(&mut helper_board, config);
+        assert!(channel.snapshot(generation).publications > 0);
+
+        let mut main = Searcher::new(Tt::new(4));
+        main.set_root_hint_channel(channel.clone(), 0);
+        let mut main_board = Board::startpos();
+        main.search(&mut main_board, config);
+        let stats = channel.snapshot(generation);
+        assert!(stats.eligible_reads > 0);
+        assert!(stats.applied <= stats.eligible_reads);
+    }
+
+    #[test]
+    fn root_hint_is_an_exact_noop_for_multipv() {
+        let channel = Arc::new(RootHintChannel::new());
+        let generation = channel.begin_go();
+        let mut seed_board = Board::startpos();
+        let seed = MoveBuffer::legal(&mut seed_board).as_slice()[1];
+        channel.publish(generation, 4, 1, seed);
+
+        let config = SearchConfig {
+            max_depth: 3,
+            time_limit: None,
+            node_limit: None,
+            soft_limit: None,
+            multi_pv: 2,
+        };
+        let mut plain_board = Board::startpos();
+        let plain = Searcher::new(Tt::new(4)).search(&mut plain_board, config);
+        let mut hinted_searcher = Searcher::new(Tt::new(4));
+        hinted_searcher.set_root_hint_channel(channel.clone(), 0);
+        let mut hinted_board = Board::startpos();
+        let hinted = hinted_searcher.search(&mut hinted_board, config);
+
+        assert_eq!(hinted.best_move, plain.best_move);
+        assert_eq!(hinted.score, plain.score);
+        assert_eq!(hinted.depth, plain.depth);
+        assert_eq!(hinted.nodes, plain.nodes);
+        assert_eq!(hinted.bound, plain.bound);
+        assert_eq!(hinted.pv, plain.pv);
+
+        channel.begin_go();
+        let mut helper = Searcher::new(Tt::new(4));
+        helper.set_root_hint_channel(channel.clone(), 1);
+        let mut helper_board = Board::startpos();
+        helper.search(&mut helper_board, config);
+        assert_eq!(channel.move_at_least(channel.current_generation(), 1), None);
+    }
+
+    #[test]
     fn root_order_does_not_leak_between_searches_on_the_same_thread() {
         let stale = Move::drop(Square::from_index(0), PieceKind::Kin);
         ROOT_ORDER_STATE.with(|cell| *cell.borrow_mut() = (123, vec![stale]));
@@ -4326,13 +4938,28 @@ mod see_tests {
             .expect("a sampled hash must exist");
         let stats = TtReuseStats::new();
 
-        stats.record_hit(sampled_hash, 0); // No sampled writer yet.
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Unknown)
+        ); // No sampled writer yet.
         stats.record_store(sampled_hash, 0);
-        stats.record_hit(sampled_hash, 0);
-        stats.record_hit(sampled_hash, 1);
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Local)
+        );
+        assert_eq!(
+            stats.record_hit(sampled_hash, 1),
+            Some(TtReuseOrigin::Foreign)
+        );
         stats.record_store(sampled_hash, 1);
-        stats.record_hit(sampled_hash, 1);
-        stats.record_hit(sampled_hash, 0);
+        assert_eq!(
+            stats.record_hit(sampled_hash, 1),
+            Some(TtReuseOrigin::Local)
+        );
+        assert_eq!(
+            stats.record_hit(sampled_hash, 0),
+            Some(TtReuseOrigin::Foreign)
+        );
 
         assert_eq!(
             stats.snapshot(),
@@ -4357,9 +4984,30 @@ mod see_tests {
         let stats = TtReuseStats::new();
 
         stats.record_store(unsampled_hash, 0);
-        stats.record_hit(unsampled_hash, 1);
+        assert_eq!(stats.record_hit(unsampled_hash, 1), None);
 
         assert_eq!(stats.snapshot(), TtReuseSnapshot::default());
+    }
+
+    #[test]
+    fn parallel_worker_diagnostics_separate_local_foreign_and_unknown_tt_hits() {
+        let sampled_hash = (0..u64::MAX)
+            .find(|&hash| mix_work_hash(hash) & ((1 << WORK_SAMPLE_LOG2) - 1) == 0)
+            .expect("a sampled hash must exist");
+        let overlap = Arc::new(WorkOverlapStats::new());
+        let reuse = Arc::new(TtReuseStats::new());
+        let diagnostics = SearchDiagnostics::parallel_worker(overlap, reuse.clone(), 1);
+
+        diagnostics.record_tt_hit_origin(sampled_hash);
+        reuse.record_store(sampled_hash, 0);
+        diagnostics.record_tt_hit_origin(sampled_hash);
+        reuse.record_store(sampled_hash, 1);
+        diagnostics.record_tt_hit_origin(sampled_hash);
+
+        let snapshot = diagnostics.tt_reuse_snapshot();
+        assert_eq!(snapshot.local_hits, 1);
+        assert_eq!(snapshot.foreign_hits, 1);
+        assert_eq!(snapshot.unknown_hits, 1);
     }
 
     /// Restore every tuned search parameter even when this test exits early.
@@ -6297,6 +6945,33 @@ mod regression_tests {
     use super::*;
     use crate::board::Board;
 
+    #[test]
+    fn full_root_lmr_only_removes_the_late_quiet_relief() {
+        for depth in 1..=16 {
+            for move_index in 0..32 {
+                assert_eq!(root_lmr_reduction(depth, move_index, false, false), 0);
+                assert_eq!(root_lmr_reduction(depth, move_index, false, true), 0);
+
+                let established = root_lmr_reduction(depth, move_index, true, false);
+                let full = root_lmr_reduction(depth, move_index, true, true);
+                assert!(full >= established);
+                assert!(full <= established.saturating_add(1));
+                assert!(full <= depth.saturating_sub(2));
+                if depth < 3 || move_index < 3 {
+                    assert_eq!(established, 0);
+                    assert_eq!(full, 0);
+                }
+            }
+        }
+        assert!(
+            (3..=16).any(|depth| (3..32).any(|move_index| {
+                root_lmr_reduction(depth, move_index, true, true)
+                    > root_lmr_reduction(depth, move_index, true, false)
+            })),
+            "the helper experiment must strengthen at least one root reduction"
+        );
+    }
+
     fn fresh_state(tt: Arc<Tt>) -> Arc<SearchState> {
         Arc::new(SearchState {
             tt,
@@ -6331,9 +7006,12 @@ mod regression_tests {
             &mut board,
             1,
             &moves,
-            NEG_INF,
-            -500_000,
             &SearchHistory::root(&history),
+            RootSearchParams {
+                lo: NEG_INF,
+                hi: -500_000,
+                full_root_lmr: false,
+            },
         );
 
         let entry = tt
@@ -6420,6 +7098,8 @@ mod regression_tests {
             false,
             &SearchHistory::root(&history),
             0,
+            false,
+            None,
             None,
         );
         assert_eq!(best_move, None);
@@ -6467,6 +7147,8 @@ mod regression_tests {
             false,
             &SearchHistory::root(&history),
             0,
+            false,
+            None,
             None,
         );
 
@@ -6590,9 +7272,12 @@ mod regression_tests {
             &mut board,
             2,
             &moves,
-            NEG_INF,
-            POS_INF,
             &SearchHistory::root(&history),
+            RootSearchParams {
+                lo: NEG_INF,
+                hi: POS_INF,
+                full_root_lmr: false,
+            },
         );
         let genuine = tt
             .probe(hash)
@@ -6615,9 +7300,12 @@ mod regression_tests {
             &mut board,
             7,
             &moves,
-            NEG_INF,
-            POS_INF,
             &SearchHistory::root(&history),
+            RootSearchParams {
+                lo: NEG_INF,
+                hi: POS_INF,
+                full_root_lmr: false,
+            },
         );
 
         let after = tt

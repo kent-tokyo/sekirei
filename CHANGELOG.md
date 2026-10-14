@@ -8,6 +8,24 @@ preserves older per-change notes.
 
 ### Added
 
+- Add an opt-in Lazy SMP helper-root-LMR experiment (`LazyFlags` bit 4096).
+  Worker 0 keeps the established root search while helpers remove the usual
+  one-ply LMR relief for late quiet root moves. The playing default remains
+  unchanged pending fixed-condition diagnostics and an independent gate.
+- Add an opt-in Lazy SMP helper-root-hint experiment (`LazyFlags` bit 2048).
+  Helpers publish only a fully completed iteration's move and depth; worker 0
+  may try a same-or-deeper legal hint first on its next iteration. Scores,
+  bounds and PVs are never imported, stale invocations are rejected by an
+  atomic generation token, and the playing default remains unchanged pending
+  an independent material-only gate. USI diagnostics report accepted slot
+  updates, depth-qualified reads, and hints that changed the final legal root
+  order.
+- Extend the Lazy SMP scaling harness with fail-closed helper-root-hint transfer
+  metrics and binary/corpus SHA-256 provenance.
+- Add diagnostic-only per-worker TT-origin counters for Lazy SMP. Scaling
+  reports now show whether the selected root worker reused sampled entries
+  written by helpers, without adding counters to normal searches or changing
+  the playing default.
 - Add an opt-in Lazy SMP depth-consensus selector that never chooses a result
   below the maximum completed worker depth. Other workers only break ties
   between moves found at that depth; the playing default remains unchanged
@@ -22,6 +40,9 @@ preserves older per-change notes.
 
 ### Changed
 
+- Delay sorting losing tactical moves in the default v2 search until the
+  search actually reaches that final move stage. Nodes that reach the stage
+  retain the same ordering; earlier cutoffs avoid an unused sort.
 - Update `lineprior` to 0.12.6, `shogiesa-core` to 0.11.6, and `veridict`
   to 0.19.5. The update keeps the existing product boundaries and gate
   hypotheses while adopting the upstream query, schema, and fail-closed
@@ -36,6 +57,31 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Make local A/B and SPRT gates fail closed on missing or inconsistent raw
+  match JSON/JSONL, kifu gaps, artifact-write failures, and invalid games.
+  Sequential SPRT decisions are replayed from the durable JSONL, including
+  colour-pair order, and must exactly match the streamed stop decision.
+  `--games` remains a hard cap in cover-all mode; terminal evidence hashes the
+  JSONL and every non-empty kifu. Gate verdict sidecars are atomic and a write
+  failure is a gate error rather than a printed warning. Git provenance probes
+  are time-bounded so a completed match cannot hang indefinitely while writing
+  its terminal result.
+  `sekirei-match` now emits each machine-scraped game result only after its
+  enabled durable artifacts and incremental snapshot have been committed; a
+  write failure stops the runner, so an early SPRT boundary cannot accept an
+  unrecorded terminal game. Early stopping terminates the runner and its engine
+  process group, escalates surviving children after a grace period, and does
+  not let an unexpected child exit code hide behind a numerical verdict.
+- Serialize Lazy SMP abort reset and TT lifecycle mutations with active search
+  invocations. A conflicting mutation requests cooperative stop before waiting
+  for worker join, so it cannot alter a running group or deadlock behind
+  `go infinite`; concurrent lifecycle waiters cannot re-arm a stale abort
+  after another waiter resets it.
+- Attribute Lazy SMP diagnostics to the exact selected worker index, including
+  selectors whose deterministic tie rule picks a later identical result.
+- Serialize overlapping searches on one `LazySmpSearcher`; the new root-hint
+  `try_*` diagnostic API instead returns `None` without panicking or mixing
+  invocation generations.
 - Prefer a completed exact winning-mate result from any ordinary Lazy SMP
   worker over a deeper heuristic score. The explicit worker-0-only diagnostic
   mode keeps its existing result-selection contract.

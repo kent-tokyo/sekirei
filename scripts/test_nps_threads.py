@@ -13,14 +13,19 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from nps_threads import (  # noqa: E402
     Usi,
     engine_options,
+    format_optional_ratio,
     go_command,
     parse_bestmove,
     parse_lazy_smp,
     parse_lazy_smp_overlap,
+    parse_lazy_smp_root_hint,
     parse_lazy_smp_tt,
+    require_lazy_diagnostic_record,
     summarize_lazy_overlap,
+    summarize_lazy_root_hints,
     summarize_lazy_root_work,
     summarize_lazy_tt,
+    summarize_selected_tt_reuse,
 )
 
 
@@ -74,10 +79,12 @@ class ThreadOptionsTest(unittest.TestCase):
                 "info string lazy_smp selected w2 node_share_permille 268 "
                 "move_agreement 3/4 discarded_root_nodes 33 "
                 "divergent_discarded_nodes 10 stop_lag_ms 2 "
-                "w0:d20:n10:s1:t300:x1:aexternal:p30:h20:r10,"
-                "w1:d20:n11:s2:t301:x1:aexternal:p31:h21:r11,"
-                "w2*:d21:n12:s3:t302:x0:acompleted:p32:h22:r12,"
-                "w3:d20:n12:s3:t301:x1:aexternal:p33:h23:r13"
+                "selected_tt_local_hits 7 selected_tt_foreign_hits 5 "
+                "selected_tt_unknown_hits 2 "
+                "w0:d20:n10:s1:t300:x1:aexternal:p30:h20:r10:l8:f3:u1,"
+                "w1:d20:n11:s2:t301:x1:aexternal:p31:h21:r11:l9:f4:u1,"
+                "w2*:d21:n12:s3:t302:x0:acompleted:p32:h22:r12:l7:f5:u2,"
+                "w3:d20:n12:s3:t301:x1:aexternal:p33:h23:r13:l9:f6:u1"
             ]
         )
 
@@ -91,6 +98,9 @@ class ThreadOptionsTest(unittest.TestCase):
                 "discarded_root_nodes": 33,
                 "divergent_discarded_nodes": 10,
                 "stop_lag_ms": 2,
+                "selected_tt_local_hits": 7,
+                "selected_tt_foreign_hits": 5,
+                "selected_tt_unknown_hits": 2,
                 "worker_stats": [
                     {
                         "worker": 0,
@@ -104,6 +114,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 30,
                         "tt_hits": 20,
                         "tt_stores": 10,
+                        "tt_local_hits": 8,
+                        "tt_foreign_hits": 3,
+                        "tt_unknown_hits": 1,
                     },
                     {
                         "worker": 1,
@@ -117,6 +130,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 31,
                         "tt_hits": 21,
                         "tt_stores": 11,
+                        "tt_local_hits": 9,
+                        "tt_foreign_hits": 4,
+                        "tt_unknown_hits": 1,
                     },
                     {
                         "worker": 2,
@@ -130,6 +146,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 32,
                         "tt_hits": 22,
                         "tt_stores": 12,
+                        "tt_local_hits": 7,
+                        "tt_foreign_hits": 5,
+                        "tt_unknown_hits": 2,
                     },
                     {
                         "worker": 3,
@@ -143,6 +162,9 @@ class ThreadOptionsTest(unittest.TestCase):
                         "tt_probes": 33,
                         "tt_hits": 23,
                         "tt_stores": 13,
+                        "tt_local_hits": 9,
+                        "tt_foreign_hits": 6,
+                        "tt_unknown_hits": 1,
                     },
                 ],
             },
@@ -204,6 +226,70 @@ class ThreadOptionsTest(unittest.TestCase):
             },
         )
 
+    def test_root_hint_diagnostics_are_parsed(self):
+        self.assertEqual(
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint publications 7 "
+                    "eligible_reads 5 applied 3"
+                ],
+                required=True,
+            ),
+            {"publications": 7, "eligible_reads": 5, "applied": 3},
+        )
+
+    def test_required_root_hint_diagnostic_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "missing"):
+            parse_lazy_smp_root_hint([], required=True)
+        with self.assertRaisesRegex(ValueError, "expected one"):
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint publications 1 eligible_reads 1 applied 1",
+                    "info string lazy_smp_root_hint publications 1 eligible_reads 1 applied 1",
+                ],
+                required=True,
+            )
+        with self.assertRaisesRegex(ValueError, "applications exceed"):
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint publications 1 "
+                    "eligible_reads 1 applied 2"
+                ],
+                required=True,
+            )
+        with self.assertRaisesRegex(ValueError, "without a publication"):
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint publications 0 "
+                    "eligible_reads 1 applied 0"
+                ],
+                required=True,
+            )
+        with self.assertRaisesRegex(ValueError, "malformed"):
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint eligible_reads 1 "
+                    "publications 1 applied 0"
+                ],
+                required=True,
+            )
+        with self.assertRaisesRegex(ValueError, "unsigned decimal"):
+            parse_lazy_smp_root_hint(
+                [
+                    "info string lazy_smp_root_hint publications +1 "
+                    "eligible_reads 1 applied 0"
+                ],
+                required=True,
+            )
+        with self.assertRaisesRegex(ValueError, "exceeds u64"):
+            parse_lazy_smp_root_hint(
+                [
+                    f"info string lazy_smp_root_hint publications {1 << 64} "
+                    "eligible_reads 0 applied 0"
+                ],
+                required=True,
+            )
+
     def test_bestmove_parser_uses_terminal_response(self):
         self.assertEqual(
             parse_bestmove(["info depth 4 pv 7g7f", "bestmove 7g7f ponder 3c3d"]),
@@ -215,6 +301,30 @@ class ThreadOptionsTest(unittest.TestCase):
         args.lazy_diagnostics = True
 
         self.assertIn("LazyDiagnostics=true", engine_options(args, 4))
+
+    def test_required_lazy_diagnostics_enable_the_engine_counters(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.require_lazy_diagnostics = True
+
+        self.assertIn("LazyDiagnostics=true", engine_options(args, 4))
+
+    def test_required_lazy_diagnostics_fail_on_partial_records(self):
+        complete = {
+            "worker_stats": [{"worker": 0, "selected": True}],
+            "selected_tt_local_hits": 1,
+            "selected_tt_foreign_hits": 2,
+            "selected_tt_unknown_hits": 0,
+        }
+        require_lazy_diagnostic_record(complete, {"probes": 3}, {"visits": 4})
+
+        with self.assertRaisesRegex(ValueError, "selected_tt_foreign_hits"):
+            require_lazy_diagnostic_record(
+                {key: value for key, value in complete.items() if key != "selected_tt_foreign_hits"},
+                {"probes": 3},
+                {"visits": 4},
+            )
+        with self.assertRaisesRegex(ValueError, "lazy_smp_overlap"):
+            require_lazy_diagnostic_record(complete, {"probes": 3}, None)
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(
@@ -340,6 +450,101 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertEqual(summary["selected_root_nodes"], 150)
         self.assertEqual(summary["discarded_root_node_rate"], 0.625)
         self.assertEqual(summary["divergent_discarded_node_rate"], 0.25)
+
+    def test_selected_tt_reuse_summary_excludes_unselected_workers(self):
+        summary = summarize_selected_tt_reuse(
+            [
+                {
+                    "lazy_smp": {
+                        "selected_tt_local_hits": 6,
+                        "selected_tt_foreign_hits": 3,
+                        "selected_tt_unknown_hits": 1,
+                    }
+                },
+                {
+                    "lazy_smp": {
+                        "selected_tt_local_hits": 9,
+                        "selected_tt_foreign_hits": 7,
+                        "selected_tt_unknown_hits": 4,
+                    }
+                },
+                {"lazy_smp": {"discarded_root_nodes": 123}},
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["selected_tt_local_hits"], 15)
+        self.assertEqual(summary["selected_tt_foreign_hits"], 10)
+        self.assertEqual(summary["selected_tt_unknown_hits"], 5)
+        self.assertEqual(summary["selected_foreign_tt_hit_rate"], 0.4)
+        self.assertEqual(summary["selected_tt_unknown_hit_rate"], 1 / 6)
+
+    def test_root_hint_summary_pools_counts_before_rates(self):
+        summary = summarize_lazy_root_hints(
+            [
+                {
+                    "lazy_smp_root_hint": {
+                        "publications": 2,
+                        "eligible_reads": 3,
+                        "applied": 1,
+                    }
+                },
+                {
+                    "lazy_smp_root_hint": {
+                        "publications": 0,
+                        "eligible_reads": 0,
+                        "applied": 0,
+                    }
+                },
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertEqual(summary["searches"], 2)
+        self.assertEqual(summary["publications"], 2)
+        self.assertEqual(summary["eligible_reads"], 3)
+        self.assertEqual(summary["applied"], 1)
+        self.assertEqual(summary["publication_search_rate"], 0.5)
+        self.assertEqual(summary["application_search_rate"], 0.5)
+        self.assertEqual(summary["reads_per_publication"], 1.5)
+        self.assertEqual(summary["application_rate"], 1 / 3)
+
+    def test_root_hint_zero_denominators_are_not_reported_as_zero_rates(self):
+        summary = summarize_lazy_root_hints(
+            [
+                {
+                    "lazy_smp_root_hint": {
+                        "publications": 0,
+                        "eligible_reads": 0,
+                        "applied": 0,
+                    }
+                }
+            ]
+        )
+
+        self.assertIsNotNone(summary)
+        assert summary is not None
+        self.assertIsNone(summary["reads_per_publication"])
+        self.assertIsNone(summary["application_rate"])
+        self.assertEqual(format_optional_ratio(None, percentage=True), "n/a")
+
+    def test_required_root_hint_summary_rejects_partial_rows(self):
+        with self.assertRaisesRegex(ValueError, "missing diagnostic"):
+            summarize_lazy_root_hints(
+                [
+                    {
+                        "lazy_smp_root_hint": {
+                            "publications": 1,
+                            "eligible_reads": 1,
+                            "applied": 1,
+                        }
+                    },
+                    {},
+                ],
+                require_all=True,
+            )
 
 
 if __name__ == "__main__":

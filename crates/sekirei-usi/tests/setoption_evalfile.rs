@@ -167,6 +167,23 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
     send(&mut stdin, "isready");
     recv_until(&rx, |line| line == "readyok", Duration::from_secs(10));
     send(&mut stdin, "position startpos");
+    send(&mut stdin, "go nodes 1000 depth 5");
+    let disabled = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(10),
+    );
+    assert!(
+        disabled
+            .iter()
+            .all(|line| !line.starts_with("info string lazy_smp_root_hint ")),
+        "disabled helper-root-hint diagnostics leaked: {disabled:?}"
+    );
+
+    send(&mut stdin, "setoption name LazyFlags value 2063");
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(10));
+    send(&mut stdin, "position startpos");
     send(&mut stdin, "go nodes 2000 depth 6");
     let search = recv_until(
         &rx,
@@ -198,6 +215,19 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         }),
         "missing worker TT diagnostics: {search:?}"
     );
+    let root_hint = search
+        .iter()
+        .find(|line| line.starts_with("info string lazy_smp_root_hint publications "))
+        .unwrap_or_else(|| panic!("missing helper-root-hint diagnostics: {search:?}"));
+    let fields = root_hint.split_whitespace().collect::<Vec<_>>();
+    assert_eq!(fields.len(), 9, "unexpected root-hint fields: {fields:?}");
+    let eligible_reads = fields[6]
+        .parse::<u64>()
+        .expect("eligible root-hint reads must be numeric");
+    let applied = fields[8]
+        .parse::<u64>()
+        .expect("applied root hints must be numeric");
+    assert!(applied <= eligible_reads);
 
     send(&mut stdin, "quit");
     let _ = child.wait();
@@ -213,7 +243,7 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
         "setoption name Hash value 0",
         "setoption name Threads value 513",
         "setoption name SpecTopN value 513",
-        "setoption name LazyFlags value 2048",
+        "setoption name LazyFlags value 8192",
         "setoption name MoveOverhead value 5001",
         "setoption name IncrementUsePercent value 101",
         "setoption name MultiPV value 257",

@@ -33,15 +33,19 @@ playing-strength claims.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
+import platform
 import statistics
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+ROOT_HINT_FLAG = 2048
 
 
 class Usi:
@@ -133,6 +137,18 @@ def parse_lazy_smp(lines: list[str]) -> dict[str, int] | None:
                 ),
                 "stop_lag_ms": stop_lag_ms,
             }
+            selected_reuse_keys = (
+                "selected_tt_local_hits",
+                "selected_tt_foreign_hits",
+                "selected_tt_unknown_hits",
+            )
+            if all(key in parts for key in selected_reuse_keys):
+                result.update(
+                    {
+                        key: int(parts[parts.index(key) + 1])
+                        for key in selected_reuse_keys
+                    }
+                )
             summary = parts[-1]
             worker_stats = parse_lazy_workers(summary)
             if worker_stats:
@@ -148,26 +164,33 @@ def parse_lazy_workers(summary: str) -> list[dict[str, int | str | bool]]:
     workers = []
     for raw_worker in summary.split(","):
         fields = raw_worker.split(":")
-        if len(fields) != 10 or not fields[0].startswith("w"):
+        if len(fields) not in (10, 13) or not fields[0].startswith("w"):
             return []
         worker_label = fields[0]
         selected = worker_label.endswith("*")
         try:
-            workers.append(
-                {
-                    "worker": int(worker_label[1:].removesuffix("*")),
-                    "selected": selected,
-                    "depth": int(fields[1].removeprefix("d")),
-                    "nodes": int(fields[2].removeprefix("n")),
-                    "score": int(fields[3].removeprefix("s")),
-                    "elapsed_ms": int(fields[4].removeprefix("t")),
-                    "aborted": fields[5].removeprefix("x") == "1",
-                    "abort_reason": fields[6].removeprefix("a"),
-                    "tt_probes": int(fields[7].removeprefix("p")),
-                    "tt_hits": int(fields[8].removeprefix("h")),
-                    "tt_stores": int(fields[9].removeprefix("r")),
-                }
-            )
+            worker = {
+                "worker": int(worker_label[1:].removesuffix("*")),
+                "selected": selected,
+                "depth": int(fields[1].removeprefix("d")),
+                "nodes": int(fields[2].removeprefix("n")),
+                "score": int(fields[3].removeprefix("s")),
+                "elapsed_ms": int(fields[4].removeprefix("t")),
+                "aborted": fields[5].removeprefix("x") == "1",
+                "abort_reason": fields[6].removeprefix("a"),
+                "tt_probes": int(fields[7].removeprefix("p")),
+                "tt_hits": int(fields[8].removeprefix("h")),
+                "tt_stores": int(fields[9].removeprefix("r")),
+            }
+            if len(fields) == 13:
+                worker.update(
+                    {
+                        "tt_local_hits": int(fields[10].removeprefix("l")),
+                        "tt_foreign_hits": int(fields[11].removeprefix("f")),
+                        "tt_unknown_hits": int(fields[12].removeprefix("u")),
+                    }
+                )
+            workers.append(worker)
         except ValueError:
             return []
     return workers
@@ -226,11 +249,80 @@ def parse_lazy_smp_overlap(lines: list[str]) -> dict[str, int] | None:
     return None
 
 
+def parse_lazy_smp_root_hint(
+    lines: list[str], *, required: bool = False
+) -> dict[str, int] | None:
+    """Parse one invocation-scoped helper-root-hint diagnostic.
+
+    Unlike the optional legacy diagnostics, a requested root-hint lane fails
+    closed.  A missing, duplicate, malformed, negative, or internally
+    inconsistent record must not silently become a zero-use measurement.
+    """
+    prefix = "info string lazy_smp_root_hint "
+    matching = [line for line in lines if line.startswith(prefix)]
+    if not matching:
+        if required:
+            raise ValueError("missing lazy_smp_root_hint diagnostic")
+        return None
+    if len(matching) != 1:
+        raise ValueError(
+            f"expected one lazy_smp_root_hint diagnostic, got {len(matching)}"
+        )
+
+    parts = matching[0][len(prefix) :].split()
+    keys = ("publications", "eligible_reads", "applied")
+    expected_keys = list(keys)
+    if len(parts) != 6 or parts[::2] != expected_keys:
+        raise ValueError(
+            f"malformed lazy_smp_root_hint diagnostic: {matching[0]!r}"
+        )
+    raw_values = parts[1::2]
+    if any(not value.isascii() or not value.isdigit() for value in raw_values):
+        raise ValueError("lazy_smp_root_hint counters must be unsigned decimal integers")
+    values = dict(zip(keys, map(int, raw_values), strict=True))
+    if any(value > (1 << 64) - 1 for value in values.values()):
+        raise ValueError("lazy_smp_root_hint counter exceeds u64")
+    if values["applied"] > values["eligible_reads"]:
+        raise ValueError("root-hint applications exceed eligible reads")
+    if values["publications"] == 0 and (
+        values["eligible_reads"] != 0 or values["applied"] != 0
+    ):
+        raise ValueError("root-hint reads exist without a publication")
+    return values
+
+
 def parse_bestmove(lines: list[str]) -> str:
     for line in reversed(lines):
         if line.startswith("bestmove "):
             return line.split(maxsplit=2)[1]
     return ""
+
+
+def require_lazy_diagnostic_record(
+    lazy_smp: dict[str, object] | None,
+    lazy_smp_tt: dict[str, int] | None,
+    lazy_smp_overlap: dict[str, int] | None,
+) -> None:
+    """Fail closed when a requested Lazy SMP diagnostic record is incomplete."""
+    missing = []
+    if lazy_smp is None:
+        missing.append("lazy_smp")
+    else:
+        if not lazy_smp.get("worker_stats"):
+            missing.append("lazy_smp.worker_stats")
+        for key in (
+            "selected_tt_local_hits",
+            "selected_tt_foreign_hits",
+            "selected_tt_unknown_hits",
+        ):
+            if key not in lazy_smp:
+                missing.append(f"lazy_smp.{key}")
+    if lazy_smp_tt is None:
+        missing.append("lazy_smp_tt")
+    if lazy_smp_overlap is None:
+        missing.append("lazy_smp_overlap")
+    if missing:
+        raise ValueError("missing required Lazy SMP diagnostics: " + ", ".join(missing))
 
 
 def go_command(args: argparse.Namespace) -> str:
@@ -331,6 +423,104 @@ def summarize_lazy_root_work(rows: list[dict]) -> dict[str, float | int] | None:
     return totals
 
 
+def summarize_selected_tt_reuse(rows: list[dict]) -> dict[str, float | int] | None:
+    """Pool sampled TT origins for workers whose root result was selected."""
+    diagnostics = [row.get("lazy_smp") for row in rows]
+    diagnostics = [
+        item
+        for item in diagnostics
+        if item is not None and "selected_tt_foreign_hits" in item
+    ]
+    if not diagnostics:
+        return None
+    totals: dict[str, float | int] = {
+        key: sum(item[key] for item in diagnostics)
+        for key in (
+            "selected_tt_local_hits",
+            "selected_tt_foreign_hits",
+            "selected_tt_unknown_hits",
+        )
+    }
+    known = int(totals["selected_tt_local_hits"]) + int(
+        totals["selected_tt_foreign_hits"]
+    )
+    totals["selected_foreign_tt_hit_rate"] = int(
+        totals["selected_tt_foreign_hits"]
+    ) / max(known, 1)
+    sampled = known + int(totals["selected_tt_unknown_hits"])
+    totals["selected_tt_unknown_hit_rate"] = int(
+        totals["selected_tt_unknown_hits"]
+    ) / max(sampled, 1)
+    return totals
+
+
+def summarize_lazy_root_hints(
+    rows: list[dict], *, require_all: bool = False
+) -> dict[str, float | int | None] | None:
+    """Pool root-hint opportunities and actual ordering changes."""
+    diagnostics = [row.get("lazy_smp_root_hint") for row in rows]
+    if require_all and any(item is None for item in diagnostics):
+        raise ValueError("root-hint summary contains a missing diagnostic")
+    diagnostics = [item for item in diagnostics if item is not None]
+    if not diagnostics:
+        return None
+    totals: dict[str, float | int] = {
+        key: sum(item[key] for item in diagnostics)
+        for key in ("publications", "eligible_reads", "applied")
+    }
+    totals["searches"] = len(diagnostics)
+    totals["searches_with_publication"] = sum(
+        item["publications"] > 0 for item in diagnostics
+    )
+    totals["searches_with_application"] = sum(item["applied"] > 0 for item in diagnostics)
+    totals["publication_search_rate"] = int(
+        totals["searches_with_publication"]
+    ) / len(diagnostics)
+    totals["application_search_rate"] = int(
+        totals["searches_with_application"]
+    ) / len(diagnostics)
+    totals["reads_per_publication"] = (
+        int(totals["eligible_reads"]) / int(totals["publications"])
+        if totals["publications"]
+        else None
+    )
+    totals["application_rate"] = (
+        int(totals["applied"]) / int(totals["eligible_reads"])
+        if totals["eligible_reads"]
+        else None
+    )
+    return totals
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as source:
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def effective_positions_sha256(positions: list[str]) -> str:
+    canonical = "".join(f"{position}\n" for position in positions).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def option_value(options: list[str], name: str) -> str | None:
+    value = None
+    for option in options:
+        option_name, separator, option_value_text = option.partition("=")
+        if separator and option_name == name:
+            value = option_value_text
+    return value
+
+
+def format_optional_ratio(value: object, *, percentage: bool) -> str:
+    if value is None:
+        return "n/a"
+    number = float(value)
+    return f"{number:.1%}" if percentage else f"{number:.2f}"
+
+
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
     if args.yaneuraou:
         evalfile = Path(args.evalfile).resolve()
@@ -355,7 +545,7 @@ def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
         ]
         if args.evalfile is not None:
             options.insert(0, f"EvalFile={Path(args.evalfile).resolve()}")
-        if args.lazy_diagnostics:
+        if args.lazy_diagnostics or getattr(args, "require_lazy_diagnostics", False):
             options.append("LazyDiagnostics=true")
     return options + list(args.option)
 
@@ -396,9 +586,17 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp = parse_lazy_smp(lines)
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
+                if args.require_lazy_diagnostics:
+                    require_lazy_diagnostic_record(
+                        lazy_smp, lazy_smp_tt, lazy_smp_overlap
+                    )
+                lazy_smp_root_hint = parse_lazy_smp_root_hint(
+                    lines, required=args.require_root_hint_diagnostics
+                )
                 if nps == 0 and elapsed > 0:
                     nps = int(nodes / elapsed)
                 row = {
+                    "schema": "sekirei.lazy-smp-scaling-row.v2",
                     "threads": threads,
                     "position": index,
                     "repeat": repeat,
@@ -407,6 +605,11 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "nodes": nodes,
                     "nps": nps,
                     "elapsed_ms": round(elapsed * 1000),
+                    "provenance": {
+                        **args.provenance,
+                        "options": engine_options(args, threads),
+                        "budget": go_command(args),
+                    },
                 }
                 if lazy_smp is not None:
                     row["lazy_smp"] = lazy_smp
@@ -414,6 +617,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     row["lazy_smp_tt"] = lazy_smp_tt
                 if lazy_smp_overlap is not None:
                     row["lazy_smp_overlap"] = lazy_smp_overlap
+                if lazy_smp_root_hint is not None:
+                    row["lazy_smp_root_hint"] = lazy_smp_root_hint
                 rows.append(row)
                 lazy_suffix = ""
                 if lazy_smp is not None:
@@ -423,6 +628,16 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         f" agree {lazy_smp['move_agreement']}/{lazy_smp['workers']}"
                         f" lag {lazy_smp['stop_lag_ms']}ms"
                     )
+                    if "selected_tt_foreign_hits" in lazy_smp:
+                        selected_known_hits = (
+                            lazy_smp["selected_tt_local_hits"]
+                            + lazy_smp["selected_tt_foreign_hits"]
+                        )
+                        lazy_suffix += (
+                            f" selected-foreign-tt"
+                            f" {lazy_smp['selected_tt_foreign_hits']}"
+                            f"/{max(selected_known_hits, 1)}"
+                        )
                 if lazy_smp_tt is not None:
                     hit_rate = lazy_smp_tt["hits"] / max(lazy_smp_tt["probes"], 1)
                     lazy_suffix += (
@@ -441,6 +656,12 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         f" shared-fp {shared_rate:.1%}"
                         f" foreign-tt {lazy_smp_overlap['tt_foreign_hits']}"
                         f"/{max(lazy_smp_overlap['tt_local_hits'] + lazy_smp_overlap['tt_foreign_hits'], 1)}"
+                    )
+                if lazy_smp_root_hint is not None:
+                    lazy_suffix += (
+                        f" root-hint pub {lazy_smp_root_hint['publications']}"
+                        f" read {lazy_smp_root_hint['eligible_reads']}"
+                        f" applied {lazy_smp_root_hint['applied']}"
                     )
                 print(
                     f"  threads {threads} pos {index:2d} run {repeat + 1}:"
@@ -481,6 +702,22 @@ def main() -> int:
         help="enable opt-in Sekirei Lazy SMP TT counters (adds overhead)",
     )
     parser.add_argument(
+        "--require-lazy-diagnostics",
+        action="store_true",
+        help=(
+            "fail unless every search emits complete Lazy SMP worker, TT, overlap, "
+            "and selected-worker TT-origin diagnostics"
+        ),
+    )
+    parser.add_argument(
+        "--require-root-hint-diagnostics",
+        action="store_true",
+        help=(
+            "fail unless every search emits one valid helper-root-hint record; "
+            "requires Sekirei LazyFlags bit 2048 and at least two threads"
+        ),
+    )
+    parser.add_argument(
         "--option", action="append", default=[], help="extra USI option Name=Value"
     )
     parser.add_argument("--json", help="write one JSON line per measurement")
@@ -489,6 +726,10 @@ def main() -> int:
         parser.error("--yaneuraou requires --evalfile")
     if args.yaneuraou and args.lazy_diagnostics:
         parser.error("--lazy-diagnostics is Sekirei-only")
+    if args.yaneuraou and args.require_lazy_diagnostics:
+        parser.error("--require-lazy-diagnostics is Sekirei-only")
+    if args.yaneuraou and args.require_root_hint_diagnostics:
+        parser.error("--require-root-hint-diagnostics is Sekirei-only")
     if args.repeats < 1:
         parser.error("--repeats must be at least 1")
     if args.depth is not None and args.depth < 1:
@@ -496,6 +737,54 @@ def main() -> int:
 
     positions = read_positions(args.positions, args.count)
     thread_counts = [int(t) for t in args.threads.split(",")]
+    if args.require_root_hint_diagnostics:
+        lazy_flags = option_value(args.option, "LazyFlags")
+        try:
+            root_hint_enabled = (
+                lazy_flags is not None and int(lazy_flags) & ROOT_HINT_FLAG != 0
+            )
+        except ValueError:
+            root_hint_enabled = False
+        if not root_hint_enabled:
+            parser.error(
+                "--require-root-hint-diagnostics requires --option LazyFlags=<value> "
+                "with bit 2048 set"
+            )
+        if any(threads < 2 for threads in thread_counts):
+            parser.error(
+                "--require-root-hint-diagnostics requires every thread count to be at least 2"
+            )
+    engine_path = Path(args.engine).resolve()
+    positions_path = Path(args.positions).resolve()
+    args.provenance = {
+        "engine": str(engine_path),
+        "engine_sha256": sha256_file(engine_path),
+        "positions": str(positions_path),
+        "positions_file_sha256": sha256_file(positions_path),
+        "effective_positions_sha256": effective_positions_sha256(positions),
+        "effective_position_count": len(positions),
+        "evaluator": (
+            {
+                "kind": "halfkp",
+                "path": str(Path(args.evalfile).resolve()),
+                "sha256": sha256_file(Path(args.evalfile).resolve()),
+            }
+            if args.evalfile is not None
+            else {"kind": "material-only", "path": None, "sha256": None}
+        ),
+        "host": {
+            "system": platform.system(),
+            "release": platform.release(),
+            "machine": platform.machine(),
+            "processor": platform.processor(),
+        },
+        "started_at_utc": datetime.now(timezone.utc).isoformat(),
+        "counter_overhead_included": bool(
+            args.lazy_diagnostics
+            or args.require_lazy_diagnostics
+            or args.require_root_hint_diagnostics
+        ),
+    }
     results: dict[int, list[dict]] = {}
     for threads in thread_counts:
         print(f"threads {threads}", file=sys.stderr, flush=True)
@@ -584,6 +873,40 @@ def main() -> int:
             print(
                 f"{threads:7d}  {summary['discarded_root_node_rate']:19.1%}"
                 f"  {summary['divergent_discarded_node_rate']:25.1%}"
+            )
+    selected_reuse_summaries = {
+        threads: summarize_selected_tt_reuse(results[threads])
+        for threads in thread_counts
+    }
+    if any(summary is not None for summary in selected_reuse_summaries.values()):
+        print("Selected-worker sampled TT reuse (diagnostic only)")
+        print("threads  foreign-worker hit  unknown writer")
+        for threads in thread_counts:
+            summary = selected_reuse_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['selected_foreign_tt_hit_rate']:18.1%}"
+                f"  {summary['selected_tt_unknown_hit_rate']:14.1%}"
+            )
+    root_hint_summaries = {
+        threads: summarize_lazy_root_hints(
+            results[threads], require_all=args.require_root_hint_diagnostics
+        )
+        for threads in thread_counts
+    }
+    if any(summary is not None for summary in root_hint_summaries.values()):
+        print("Helper-root-hint transfer (diagnostic only)")
+        print("threads  accepted/search  apply/search  depth-reads/accepted  applied/read")
+        for threads in thread_counts:
+            summary = root_hint_summaries[threads]
+            if summary is None:
+                continue
+            print(
+                f"{threads:7d}  {summary['publication_search_rate']:14.1%}"
+                f"  {summary['application_search_rate']:12.1%}"
+                f"  {format_optional_ratio(summary['reads_per_publication'], percentage=False):>17}"
+                f"  {format_optional_ratio(summary['application_rate'], percentage=True):>12}"
             )
     return 0
 

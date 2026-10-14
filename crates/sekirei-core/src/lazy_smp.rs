@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    RootHintChannel, RootHintSnapshot, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
+    SearchInfo, Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -71,6 +71,20 @@ pub struct LazySmpWorkOverlap {
     pub tt_dropped_stores: u64,
 }
 
+/// Invocation-scoped evidence for helper-to-main root-order hints.
+///
+/// The counters exist only when [`LAZY_FOREIGN_ROOT_HINT`] is enabled with a
+/// shared transposition table and at least two workers.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpRootHintStats {
+    /// Helper publications accepted as lock-free hint-slot updates.
+    pub publications: u64,
+    /// Same-generation, same-or-deeper hints read by the main worker.
+    pub eligible_reads: u64,
+    /// Reads that actually moved a legal final root candidate to the front.
+    pub applied: u64,
+}
+
 fn work_overlap_snapshot(
     value: WorkOverlapSnapshot,
     tt_reuse: TtReuseSnapshot,
@@ -119,6 +133,20 @@ pub struct LazySmpWorkerInfo {
     pub tt_stores: u64,
 }
 
+/// Sampled TT ownership counters for one Lazy SMP worker.
+///
+/// This additive diagnostic type is intentionally separate from
+/// [`LazySmpWorkerInfo`], whose public struct-literal layout is stable in 0.4.x.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpWorkerTtReuse {
+    /// Sampled TT hits on entries last written by this worker.
+    pub local_hits: u64,
+    /// Sampled TT hits on entries last written by another worker.
+    pub foreign_hits: u64,
+    /// Sampled TT hits whose writer was not retained by the bounded registry.
+    pub unknown_hits: u64,
+}
+
 /// Independent root-search workers sharing a lock-free transposition table.
 pub struct LazySmpSearcher {
     tt: Arc<Tt>,
@@ -142,6 +170,65 @@ pub struct LazySmpSearcher {
     /// Shared sampled TT-owner observer used only by opt-in scaling
     /// diagnostics.
     tt_reuse_stats: Option<Arc<TtReuseStats>>,
+    /// Invocation-scoped helper-to-main ordering hint. It is present only for
+    /// shared-TT searches with at least two workers and the opt-in flag.
+    root_hint: Option<Arc<RootHintChannel>>,
+    /// Search-level observers and persistent workers are invocation-scoped.
+    /// Serialize overlapping calls instead of mixing their resettable state.
+    search_active: std::sync::atomic::AtomicBool,
+    /// Lifecycle mutations are outside the search loop, but must be serialized
+    /// so one waiter cannot re-arm the abort flag after another waiter reset it.
+    lifecycle_mutation: std::sync::Mutex<()>,
+}
+
+struct SearchInvocationGuard<'a> {
+    active: &'a std::sync::atomic::AtomicBool,
+}
+
+impl<'a> SearchInvocationGuard<'a> {
+    fn try_acquire(active: &'a std::sync::atomic::AtomicBool) -> Option<Self> {
+        active
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .ok()
+            .map(|_| Self { active })
+    }
+
+    fn acquire_blocking(active: &'a std::sync::atomic::AtomicBool) -> Self {
+        loop {
+            if let Some(guard) = Self::try_acquire(active) {
+                return guard;
+            }
+            std::thread::yield_now();
+        }
+    }
+
+    fn acquire_after_requesting_abort(
+        active: &'a std::sync::atomic::AtomicBool,
+        external_abort: &std::sync::atomic::AtomicBool,
+    ) -> Self {
+        loop {
+            if let Some(guard) = Self::try_acquire(active) {
+                return guard;
+            }
+            // A lifecycle mutation must not race an active worker group, but
+            // merely waiting could deadlock behind `go infinite`. Request a
+            // cooperative stop, then wait until the owner joins every worker.
+            external_abort.store(true, std::sync::atomic::Ordering::Relaxed);
+            std::thread::yield_now();
+        }
+    }
+}
+
+impl Drop for SearchInvocationGuard<'_> {
+    fn drop(&mut self) {
+        self.active
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
 }
 
 #[derive(Default)]
@@ -187,6 +274,14 @@ pub const LAZY_ROOT_ROTATE: u32 = 512;
 /// the depth loss possible with [`LAZY_VOTE`] while still using helper output
 /// when equally deep workers disagree.
 pub const LAZY_DEPTH_CONSENSUS: u32 = 1024;
+/// Let helpers publish the move from a fully completed iteration. Worker 0
+/// may try a same-or-deeper hint first on its next root iteration. Only move
+/// ordering is shared; helper scores, bounds and PVs never become results.
+pub const LAZY_FOREIGN_ROOT_HINT: u32 = 2048;
+/// Remove the normal one-ply root-LMR relief for helper workers only. Worker
+/// 0 keeps the established root search, while helpers probe late quiet moves
+/// more cheaply. This remains opt-in until an independent strength gate.
+pub const LAZY_HELPER_ROOT_LMR: u32 = 4096;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
@@ -243,6 +338,9 @@ impl LazySmpSearcher {
             (total_hash_mb / workers).max(1)
         };
         let external_abort = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let root_hint =
+            (flags & LAZY_FOREIGN_ROOT_HINT != 0 && share_tt && workers > 1 && workers <= 512)
+                .then(|| Arc::new(RootHintChannel::new()));
         let persistent = if flags & LAZY_PERSISTENT != 0 {
             (0..workers)
                 .map(|index| {
@@ -257,6 +355,7 @@ impl LazySmpSearcher {
                         diagnostics.get(index).cloned(),
                         flags,
                         index,
+                        root_hint.clone(),
                     )
                 })
                 .collect()
@@ -275,6 +374,9 @@ impl LazySmpSearcher {
             tt_write_stats,
             work_overlap_stats,
             tt_reuse_stats,
+            root_hint,
+            search_active: std::sync::atomic::AtomicBool::new(false),
+            lifecycle_mutation: std::sync::Mutex::new(()),
         }
     }
 
@@ -335,6 +437,7 @@ impl LazySmpSearcher {
         diagnostics: Option<Arc<SearchDiagnostics>>,
         flags: u32,
         index: usize,
+        root_hint: Option<Arc<RootHintChannel>>,
     ) -> Searcher {
         let mut searcher = if let Some(diagnostics) = diagnostics {
             Searcher::with_abort_flag_and_diagnostics(tt, external_abort, diagnostics)
@@ -343,7 +446,11 @@ impl LazySmpSearcher {
         };
         searcher.set_depth_skew(Self::skew(flags, index));
         searcher.set_root_order_offset(Self::root_order_offset(flags, index));
+        searcher.set_full_root_lmr(flags & LAZY_HELPER_ROOT_LMR != 0 && index > 0);
         searcher.set_ybw_split(flags & LAZY_NO_YBW == 0);
+        if let Some(root_hint) = root_hint {
+            searcher.set_root_hint_channel(root_hint, index);
+        }
         searcher
     }
 
@@ -369,13 +476,36 @@ impl LazySmpSearcher {
     }
 
     /// Clear a previous stop signal before starting another search.
+    ///
+    /// The invocation guard prevents a caller preparing the next search from
+    /// erasing a stop request that still belongs to an active worker group.
+    /// If a search is active, this call requests its cooperative stop and
+    /// waits until that invocation has joined all workers.
     pub fn reset_abort_flag(&self) {
+        let _lifecycle = self
+            .lifecycle_mutation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _invocation = SearchInvocationGuard::acquire_after_requesting_abort(
+            &self.search_active,
+            &self.external_abort,
+        );
         self.external_abort
             .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Reset the shared TT between games, matching the regular searcher API.
+    /// If a search is active, this call requests its cooperative stop and
+    /// waits for that invocation to join all workers first.
     pub fn clear_tt(&self) {
+        let _lifecycle = self
+            .lifecycle_mutation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _invocation = SearchInvocationGuard::acquire_after_requesting_abort(
+            &self.search_active,
+            &self.external_abort,
+        );
         self.tt.clear();
         for searcher in &self.persistent {
             searcher.clear_tt();
@@ -383,7 +513,17 @@ impl LazySmpSearcher {
     }
 
     /// Age the shared TT entries of earlier searches (call once per `go`).
+    /// If a search is active, this call requests its cooperative stop and
+    /// waits for that invocation to join all workers first.
     pub fn new_search(&self) {
+        let _lifecycle = self
+            .lifecycle_mutation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let _invocation = SearchInvocationGuard::acquire_after_requesting_abort(
+            &self.search_active,
+            &self.external_abort,
+        );
         if self.share_tt {
             // Every persistent worker points at this table, so advance it
             // exactly once rather than once per worker.
@@ -418,6 +558,41 @@ impl LazySmpSearcher {
         config: SearchConfig,
         history: &PositionHistory,
     ) -> LazySmpInfo {
+        let _invocation = SearchInvocationGuard::acquire_blocking(&self.search_active);
+        self.search_with_history_inner(board, config, history).0
+    }
+
+    /// Try to search and return invocation-bound opt-in diagnostics.
+    ///
+    /// The second tuple member is `None` when the experiment is unavailable.
+    /// Its counters are captured before this invocation returns, so a later or
+    /// overlapping diagnostic search cannot substitute another generation's
+    /// values. The outer `Option` is `None` when any search invocation is
+    /// already active on this searcher.
+    pub fn try_search_with_history_and_root_hint_stats(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> Option<(
+        LazySmpInfo,
+        Option<LazySmpRootHintStats>,
+        Vec<LazySmpWorkerTtReuse>,
+    )> {
+        let _invocation = SearchInvocationGuard::try_acquire(&self.search_active)?;
+        Some(self.search_with_history_inner(board, config, history))
+    }
+
+    fn search_with_history_inner(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> (
+        LazySmpInfo,
+        Option<LazySmpRootHintStats>,
+        Vec<LazySmpWorkerTtReuse>,
+    ) {
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
@@ -429,13 +604,21 @@ impl LazySmpSearcher {
         if let Some(stats) = &self.tt_reuse_stats {
             stats.reset();
         }
+        let root_hint_generation = self
+            .root_hint
+            .as_ref()
+            .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
-        let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
+        let results: Vec<(
+            SearchInfo,
+            Option<(SearchDiagnosticsSnapshot, TtReuseSnapshot)>,
+        )> = (0..self.workers)
             .into_par_iter()
             .map(|index| {
                 let mut worker_board = board.clone();
                 let diagnostics = self.diagnostics.get(index);
-                let before = diagnostics.map(|observer| observer.snapshot());
+                let before =
+                    diagnostics.map(|observer| (observer.snapshot(), observer.tt_reuse_snapshot()));
                 let info = if let Some(searcher) = self.persistent.get(index) {
                     searcher.search_with_history(&mut worker_board, config, history)
                 } else {
@@ -450,6 +633,7 @@ impl LazySmpSearcher {
                         diagnostics.cloned(),
                         self.flags,
                         index,
+                        self.root_hint.clone(),
                     );
                     searcher.search_with_history(&mut worker_board, config, history)
                 };
@@ -458,9 +642,12 @@ impl LazySmpSearcher {
                     self.external_abort
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                let counters = diagnostics
-                    .zip(before)
-                    .map(|(observer, before)| diagnostics_delta(observer.snapshot(), before));
+                let counters = diagnostics.zip(before).map(|(observer, before)| {
+                    (
+                        diagnostics_delta(observer.snapshot(), before.0),
+                        tt_reuse_delta(observer.tt_reuse_snapshot(), before.1),
+                    )
+                });
                 (info, counters)
             })
             .collect();
@@ -477,26 +664,29 @@ impl LazySmpSearcher {
                 elapsed: info.elapsed,
                 aborted: info.aborted,
                 abort_reason: info.abort_reason,
-                tt_probes: diagnostics.map_or(0, |snapshot| snapshot.tt_probes),
-                tt_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_hits),
-                tt_stores: diagnostics.map_or(0, |snapshot| snapshot.tt_stores),
+                tt_probes: diagnostics.map_or(0, |snapshot| snapshot.0.tt_probes),
+                tt_hits: diagnostics.map_or(0, |snapshot| snapshot.0.tt_hits),
+                tt_stores: diagnostics.map_or(0, |snapshot| snapshot.0.tt_stores),
             })
             .collect();
-        let result = select_worker_result(
-            results.into_iter().map(|(info, _)| info).collect(),
-            self.flags,
-        );
-        let selected_worker = worker_results
+        let worker_tt_reuse = results
             .iter()
-            .position(|worker| {
-                worker.best_move == result.best_move
-                    && worker.score == result.score
-                    && worker.depth == result.depth
-                    && worker.nodes == result.nodes
+            .map(|(_, diagnostics)| {
+                diagnostics.map_or_else(LazySmpWorkerTtReuse::default, |snapshot| {
+                    LazySmpWorkerTtReuse {
+                        local_hits: snapshot.1.local_hits,
+                        foreign_hits: snapshot.1.foreign_hits,
+                        unknown_hits: snapshot.1.unknown_hits,
+                    }
+                })
             })
-            .expect("selected Lazy SMP result must come from one worker");
+            .collect();
+        let mut search_results: Vec<SearchInfo> =
+            results.into_iter().map(|(info, _)| info).collect();
+        let selected_worker = select_worker_index(&search_results, self.flags);
+        let result = search_results.remove(selected_worker);
         worker_results[selected_worker].selected = true;
-        LazySmpInfo {
+        let info = LazySmpInfo {
             result,
             total_nodes,
             worker_results,
@@ -514,7 +704,24 @@ impl LazySmpSearcher {
                 .map(|(overlap, reuse)| {
                     work_overlap_snapshot(overlap.snapshot(), reuse.snapshot())
                 }),
-        }
+        };
+        let root_hint_stats =
+            self.root_hint
+                .as_ref()
+                .zip(root_hint_generation)
+                .map(|(channel, generation)| {
+                    let RootHintSnapshot {
+                        publications,
+                        eligible_reads,
+                        applied,
+                    } = channel.snapshot(generation);
+                    LazySmpRootHintStats {
+                        publications,
+                        eligible_reads,
+                        applied,
+                    }
+                });
+        (info, root_hint_stats, worker_tt_reuse)
     }
 }
 
@@ -527,6 +734,15 @@ fn diagnostics_delta(
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
         ..SearchDiagnosticsSnapshot::default()
+    }
+}
+
+fn tt_reuse_delta(after: TtReuseSnapshot, before: TtReuseSnapshot) -> TtReuseSnapshot {
+    TtReuseSnapshot {
+        local_hits: after.local_hits.saturating_sub(before.local_hits),
+        foreign_hits: after.foreign_hits.saturating_sub(before.foreign_hits),
+        unknown_hits: after.unknown_hits.saturating_sub(before.unknown_hits),
+        ..TtReuseSnapshot::default()
     }
 }
 
@@ -554,37 +770,47 @@ fn tt_write_delta(after: TtWriteSnapshot, before: TtWriteSnapshot) -> TtWriteSna
 /// worker ([`LAZY_TIE_FIRST`]), or the default deepest result with score and
 /// move tie-breaks.
 pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo {
+    let mut results = results;
+    let selected = select_worker_index(&results, flags);
+    results.remove(selected)
+}
+
+fn select_worker_index(results: &[SearchInfo], flags: u32) -> usize {
+    assert!(
+        !results.is_empty(),
+        "Lazy SMP always has at least one worker"
+    );
     if flags & LAZY_MAIN_RESULT != 0 {
-        return results
-            .into_iter()
-            .next()
-            .expect("Lazy SMP always has at least one worker");
+        return 0;
     }
 
-    if let Some(index) = proven_winning_mate_index(&results) {
-        return results
-            .into_iter()
-            .nth(index)
-            .expect("proven mate index comes from the worker results");
+    if let Some(index) = proven_winning_mate_index(results) {
+        return index;
     }
 
-    let results = results.into_iter();
     if flags & LAZY_VOTE != 0 {
-        return select_by_vote(results.collect());
+        select_by_vote_index(results)
     } else if flags & LAZY_DEPTH_CONSENSUS != 0 {
-        return select_by_depth_consensus(results.collect());
+        select_by_depth_consensus_index(results)
     } else if flags & LAZY_TIE_FIRST != 0 {
-        results.reduce(|left, right| {
-            if right.depth > left.depth {
-                right
+        results.iter().enumerate().fold(0, |best, (index, result)| {
+            if result.depth > results[best].depth {
+                index
             } else {
-                left
+                best
             }
         })
     } else {
-        results.reduce(select_result)
+        results.iter().enumerate().fold(0, |best, (index, result)| {
+            let best_key = (
+                results[best].depth,
+                results[best].score,
+                move_key(results[best].best_move),
+            );
+            let key = (result.depth, result.score, move_key(result.best_move));
+            if key > best_key { index } else { best }
+        })
     }
-    .expect("Lazy SMP always has at least one worker")
 }
 
 /// Keep the deepest completed iteration and use shallower workers only as
@@ -596,10 +822,12 @@ pub fn select_worker_result(results: Vec<SearchInfo>, flags: u32) -> SearchInfo 
 /// move order as deterministic tie-breaks. Thus this selector cannot reduce
 /// the completed depth merely to follow a majority of shallower helpers.
 pub fn select_by_depth_consensus(mut results: Vec<SearchInfo>) -> SearchInfo {
-    if let Some(index) = proven_winning_mate_index(&results) {
-        return results.remove(index);
-    }
+    let index = proven_winning_mate_index(&results)
+        .unwrap_or_else(|| select_by_depth_consensus_index(&results));
+    results.remove(index)
+}
 
+fn select_by_depth_consensus_index(results: &[SearchInfo]) -> usize {
     let max_depth = results
         .iter()
         .map(|result| result.depth)
@@ -621,9 +849,10 @@ pub fn select_by_depth_consensus(mut results: Vec<SearchInfo>) -> SearchInfo {
     }
 
     results
-        .into_iter()
-        .filter(|result| result.depth == max_depth)
-        .max_by_key(|result| {
+        .iter()
+        .enumerate()
+        .filter(|(_, result)| result.depth == max_depth)
+        .max_by_key(|(_, result)| {
             let support = result.best_move.map_or(0, |mv| {
                 candidates
                     .iter()
@@ -632,6 +861,7 @@ pub fn select_by_depth_consensus(mut results: Vec<SearchInfo>) -> SearchInfo {
             });
             (support, result.score, move_key(result.best_move))
         })
+        .map(|(index, _)| index)
         .expect("maximum Lazy SMP depth comes from one worker")
 }
 
@@ -656,12 +886,6 @@ fn proven_winning_mate_index(results: &[SearchInfo]) -> Option<usize> {
         .map(|(index, _)| index)
 }
 
-fn select_result(left: SearchInfo, right: SearchInfo) -> SearchInfo {
-    let left_key = (left.depth, left.score, move_key(left.best_move));
-    let right_key = (right.depth, right.score, move_key(right.best_move));
-    if right_key > left_key { right } else { left }
-}
-
 /// Weight added to every vote above the lowest worker score, so that the
 /// lowest-scoring worker still counts.
 const VOTE_BASE: i64 = 24;
@@ -673,9 +897,12 @@ const VOTE_BASE: i64 = 24;
 /// to move overrides the vote (the shortest such mate wins), since a proven
 /// win needs no majority.
 pub fn select_by_vote(mut results: Vec<SearchInfo>) -> SearchInfo {
-    if let Some(index) = proven_winning_mate_index(&results) {
-        return results.remove(index);
-    }
+    let index =
+        proven_winning_mate_index(&results).unwrap_or_else(|| select_by_vote_index(&results));
+    results.remove(index)
+}
+
+fn select_by_vote_index(results: &[SearchInfo]) -> usize {
     let with_move: Vec<&SearchInfo> = results.iter().filter(|r| r.best_move.is_some()).collect();
     let chosen = if with_move.is_empty() {
         None
@@ -705,25 +932,13 @@ pub fn select_by_vote(mut results: Vec<SearchInfo>) -> SearchInfo {
             .map(|r| (r.score, r.depth, move_key(r.best_move)))
             .max_by_key(|&(score, depth, _)| (depth, score))
     };
-    let mut fallback = None;
-    let mut picked = None;
-    for r in results {
-        if picked.is_none()
-            && chosen.is_some_and(|(score, depth, key)| {
-                r.score == score && r.depth == depth && move_key(r.best_move) == key
+    chosen
+        .and_then(|(score, depth, key)| {
+            results.iter().position(|result| {
+                result.score == score && result.depth == depth && move_key(result.best_move) == key
             })
-        {
-            picked = Some(r);
-        } else {
-            fallback = Some(match fallback {
-                None => r,
-                Some(f) => select_result(f, r),
-            });
-        }
-    }
-    picked
-        .or(fallback)
-        .expect("Lazy SMP always has at least one worker")
+        })
+        .unwrap_or_else(|| select_worker_index(results, 0))
 }
 
 fn move_key(mv: Option<crate::mv::Move>) -> (u8, u8, bool, u8) {
@@ -744,6 +959,7 @@ mod tests {
     use crate::piece::PieceKind;
     use crate::search::SearchBound;
     use crate::square::Square;
+    use crate::tt::{Bound, TtEntry};
 
     fn info(to: u8, score: i32, depth: u32) -> SearchInfo {
         SearchInfo {
@@ -787,6 +1003,370 @@ mod tests {
     }
 
     #[test]
+    fn helper_root_lmr_flag_does_not_change_a_single_worker() {
+        let board = Board::startpos();
+        let config = SearchConfig {
+            max_depth: 4,
+            time_limit: None,
+            node_limit: None,
+            soft_limit: None,
+            multi_pv: 1,
+        };
+        let baseline = LazySmpSearcher::with_flags(Tt::new(4), 1, LAZY_DEFAULT_FLAGS)
+            .search(&board, config)
+            .result;
+        let candidate =
+            LazySmpSearcher::with_flags(Tt::new(4), 1, LAZY_DEFAULT_FLAGS | LAZY_HELPER_ROOT_LMR)
+                .search(&board, config)
+                .result;
+
+        assert_eq!(candidate.best_move, baseline.best_move);
+        assert_eq!(candidate.score, baseline.score);
+        assert_eq!(candidate.depth, baseline.depth);
+        assert_eq!(candidate.nodes, baseline.nodes);
+        assert_eq!(candidate.pv, baseline.pv);
+    }
+
+    #[test]
+    fn helper_root_lmr_flag_only_configures_helpers() {
+        let flags = LAZY_DEFAULT_FLAGS | LAZY_HELPER_ROOT_LMR;
+        let main = LazySmpSearcher::worker_searcher(
+            Tt::new(1),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            None,
+            flags,
+            0,
+            None,
+        );
+        let helper = LazySmpSearcher::worker_searcher(
+            Tt::new(1),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            None,
+            flags,
+            1,
+            None,
+        );
+        let disabled_helper = LazySmpSearcher::worker_searcher(
+            Tt::new(1),
+            Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            None,
+            LAZY_DEFAULT_FLAGS,
+            1,
+            None,
+        );
+
+        assert!(!main.full_root_lmr_enabled());
+        assert!(helper.full_root_lmr_enabled());
+        assert!(!disabled_helper.full_root_lmr_enabled());
+    }
+
+    #[test]
+    fn foreign_root_hint_requires_multiple_workers_and_a_shared_tt() {
+        let flagged = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
+        let enabled = LazySmpSearcher::with_flags(Tt::new(1), 2, flagged);
+        let default = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
+        let one_worker = LazySmpSearcher::with_flags(Tt::new(1), 1, flagged);
+        let isolated = LazySmpSearcher::with_flags(Tt::new(1), 2, flagged | LAZY_ISOLATED_TT);
+
+        assert!(enabled.root_hint.is_some());
+        assert!(default.root_hint.is_none());
+        assert!(one_worker.root_hint.is_none());
+        assert!(isolated.root_hint.is_none());
+    }
+
+    #[test]
+    fn invocation_guard_rejects_overlap_and_releases_on_drop() {
+        let active = std::sync::atomic::AtomicBool::new(false);
+        let first = SearchInvocationGuard::try_acquire(&active).expect("first invocation");
+        assert!(SearchInvocationGuard::try_acquire(&active).is_none());
+        drop(first);
+        assert!(SearchInvocationGuard::try_acquire(&active).is_some());
+    }
+
+    #[test]
+    fn blocking_invocation_guard_resumes_after_release() {
+        let active = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let first = SearchInvocationGuard::try_acquire(&active).expect("first invocation");
+        let worker_active = active.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            let _guard = SearchInvocationGuard::acquire_blocking(&worker_active);
+            tx.send(()).expect("signal acquired invocation");
+        });
+
+        drop(first);
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("waiting invocation must resume after release");
+        worker.join().expect("blocking invocation worker");
+    }
+
+    fn wait_for_lifecycle_abort(searcher: &LazySmpSearcher) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !searcher
+            .external_abort
+            .load(std::sync::atomic::Ordering::Relaxed)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "lifecycle mutation must request cooperative abort"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn reset_abort_waits_for_the_active_invocation() {
+        let searcher = Arc::new(LazySmpSearcher::with_flags(
+            Tt::new(1),
+            2,
+            LAZY_DEFAULT_FLAGS,
+        ));
+        let active = SearchInvocationGuard::try_acquire(&searcher.search_active)
+            .expect("hold one active invocation");
+        let resetting = Arc::clone(&searcher);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            resetting.reset_abort_flag();
+            tx.send(()).expect("signal reset completion");
+        });
+
+        wait_for_lifecycle_abort(&searcher);
+        assert!(rx.try_recv().is_err());
+        drop(active);
+        rx.recv_timeout(Duration::from_secs(5))
+            .expect("reset must resume after the active invocation exits");
+        worker.join().expect("reset worker");
+        assert!(
+            !searcher
+                .external_abort
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+
+    #[test]
+    fn lifecycle_mutations_cannot_rearm_abort_after_reset() {
+        let searcher = Arc::new(LazySmpSearcher::with_flags(
+            Tt::new(1),
+            2,
+            LAZY_DEFAULT_FLAGS,
+        ));
+        let active = SearchInvocationGuard::try_acquire(&searcher.search_active)
+            .expect("hold one active invocation");
+
+        let resetting = Arc::clone(&searcher);
+        let (reset_tx, reset_rx) = std::sync::mpsc::channel();
+        let reset_worker = std::thread::spawn(move || {
+            resetting.reset_abort_flag();
+            reset_tx.send(()).expect("signal reset completion");
+        });
+        wait_for_lifecycle_abort(&searcher);
+
+        let clearing = Arc::clone(&searcher);
+        let (clear_tx, clear_rx) = std::sync::mpsc::channel();
+        let clear_worker = std::thread::spawn(move || {
+            clearing.clear_tt();
+            clear_tx.send(()).expect("signal clear completion");
+        });
+
+        drop(active);
+        reset_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("reset must finish first");
+        clear_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("queued lifecycle mutation must finish");
+        reset_worker.join().expect("reset worker");
+        clear_worker.join().expect("clear worker");
+        assert!(
+            !searcher
+                .external_abort
+                .load(std::sync::atomic::Ordering::Relaxed),
+            "a queued lifecycle mutation must not re-arm a stale stop request"
+        );
+    }
+
+    #[test]
+    fn tt_lifecycle_mutations_wait_for_the_active_invocation() {
+        let tt = Tt::new(1);
+        let searcher = Arc::new(LazySmpSearcher::with_flags(
+            tt.clone(),
+            2,
+            LAZY_DEFAULT_FLAGS,
+        ));
+        let hash = 0x1234_5678;
+        tt.store(
+            hash,
+            TtEntry {
+                score: 42,
+                depth: 3,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+
+        let active = SearchInvocationGuard::try_acquire(&searcher.search_active)
+            .expect("hold one active invocation");
+        let clearing = Arc::clone(&searcher);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            clearing.clear_tt();
+            done_tx.send(()).expect("signal clear completion");
+        });
+        wait_for_lifecycle_abort(&searcher);
+        assert!(done_rx.try_recv().is_err());
+        assert!(tt.probe(hash).is_some(), "active search must retain its TT");
+        drop(active);
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("clear must resume after the active invocation exits");
+        worker.join().expect("clear worker");
+        assert!(tt.probe(hash).is_none());
+
+        searcher
+            .external_abort
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        let active = SearchInvocationGuard::try_acquire(&searcher.search_active)
+            .expect("hold another active invocation");
+        let aging = Arc::clone(&searcher);
+        let (done_tx, done_rx) = std::sync::mpsc::channel();
+        let worker = std::thread::spawn(move || {
+            aging.new_search();
+            done_tx.send(()).expect("signal generation completion");
+        });
+        wait_for_lifecycle_abort(&searcher);
+        let search_count = tt.search_count();
+        assert!(done_rx.try_recv().is_err());
+        assert_eq!(tt.search_count(), search_count);
+        drop(active);
+        done_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("generation update must resume after the invocation exits");
+        worker.join().expect("generation worker");
+        assert_eq!(tt.search_count(), search_count + 1);
+    }
+
+    #[test]
+    fn lifecycle_abort_stops_and_joins_a_real_worker_group() {
+        let searcher = Arc::new(LazySmpSearcher::diagnostic(2, LAZY_DEFAULT_FLAGS, 1));
+        let searching = Arc::clone(&searcher);
+        let (search_tx, search_rx) = std::sync::mpsc::channel();
+        let search_worker = std::thread::spawn(move || {
+            // Do not inherit the process-global Rayon width: coverage and
+            // constrained CI jobs may intentionally run that pool with one
+            // thread, which cannot start both logical Lazy SMP workers.
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(2)
+                .build()
+                .expect("two-thread test pool");
+            let info = pool.install(|| {
+                let board = Board::startpos();
+                let history = PositionHistory::initial(board.hash());
+                searching.search_with_history(
+                    &board,
+                    SearchConfig {
+                        max_depth: 100,
+                        ..SearchConfig::default()
+                    },
+                    &history,
+                )
+            });
+            search_tx
+                .send(info.result.aborted)
+                .expect("signal search completion");
+        });
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !searcher
+            .diagnostics
+            .iter()
+            .all(|observer| observer.snapshot().alpha_beta_calls > 0)
+        {
+            assert!(
+                Instant::now() < deadline,
+                "a real Lazy SMP worker must enter alpha-beta"
+            );
+            std::thread::yield_now();
+        }
+
+        let resetting = Arc::clone(&searcher);
+        let (reset_tx, reset_rx) = std::sync::mpsc::channel();
+        let reset_worker = std::thread::spawn(move || {
+            resetting.reset_abort_flag();
+            reset_tx.send(()).expect("signal reset completion");
+        });
+
+        assert!(
+            search_rx
+                .recv_timeout(Duration::from_secs(5))
+                .expect("cooperative abort must stop the active worker group")
+        );
+        reset_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("reset must resume after every search worker joins");
+        search_worker.join().expect("real search worker");
+        reset_worker.join().expect("real reset worker");
+        assert!(
+            !searcher
+                .external_abort
+                .load(std::sync::atomic::Ordering::Relaxed)
+        );
+    }
+
+    #[test]
+    fn root_hint_stats_are_invocation_bound_and_reset_between_searches() {
+        let flags = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
+        let searcher = LazySmpSearcher::with_flags(Tt::new(1), 2, flags);
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let (_, first, _) = searcher
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 2,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("first diagnostic invocation");
+        let first = first.expect("enabled experiment must return one snapshot");
+        assert!(first.applied <= first.eligible_reads);
+
+        let (_, second, _) = searcher
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 0,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("second diagnostic invocation");
+        assert_eq!(second, Some(LazySmpRootHintStats::default()));
+
+        let disabled = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
+        let (_, stats, _) = disabled
+            .try_search_with_history_and_root_hint_stats(
+                &board,
+                SearchConfig {
+                    max_depth: 0,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+                &history,
+            )
+            .expect("disabled diagnostic invocation");
+        assert_eq!(stats, None);
+    }
+
+    #[test]
     fn vote_prefers_the_move_most_workers_agree_on() {
         // One deeper worker alone against three agreeing workers.
         let picked = select_by_vote(vec![
@@ -801,10 +1381,7 @@ mod tests {
         );
         assert_eq!(picked.score, 105);
         // The deepest-worker rule would have taken move 1.
-        let deepest = vec![info(1, 120, 12), info(2, 100, 11)]
-            .into_iter()
-            .reduce(select_result)
-            .expect("two results");
+        let deepest = select_worker_result(vec![info(1, 120, 12), info(2, 100, 11)], 0);
         assert_eq!(
             deepest.best_move,
             Some(Move::drop(Square::from_index(1), PieceKind::Kin))
@@ -826,6 +1403,15 @@ mod tests {
             Some(Move::drop(Square::from_index(2), PieceKind::Kin))
         );
         assert_eq!(picked.score, 100);
+    }
+
+    #[test]
+    fn selector_reports_the_exact_worker_when_results_are_identical() {
+        let results = vec![info(2, 100, 12), info(2, 100, 12)];
+
+        assert_eq!(select_worker_index(&results, 0), 0);
+        assert_eq!(select_worker_index(&results, LAZY_TIE_FIRST), 0);
+        assert_eq!(select_worker_index(&results, LAZY_DEPTH_CONSENSUS), 1);
     }
 
     #[test]

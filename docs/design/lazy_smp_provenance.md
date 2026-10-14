@@ -94,8 +94,11 @@ for the fixed conditions and claim boundary.
 The same opt-in path now also samples committed TT stores and attributes a
 later sampled hit to the last known committing worker. This distinguishes
 confirmed cross-worker TT reuse from repeated search-tree visits. USI output
-also reports every non-selected worker's root nodes and the divergent subset
-whose final move differs from the selected worker. The first four-worker
+reports local, foreign-worker, and unknown-writer sampled hits for each worker,
+so measurements can distinguish global sharing from sharing that reached the
+worker whose root result was selected. It also reports every non-selected
+worker's root nodes and the divergent subset whose final move differs from the
+selected worker. The first four-worker
 measurement found 45.7% foreign-worker hits among sampled hits with a known
 writer and 75.1% discarded root-result nodes. These figures selected the
 existing root-vote policy for an SPRT; they are not themselves an adoption
@@ -131,3 +134,54 @@ workers' reported moves only to break ties between moves in that set. Unlike
 the full vote in bit 16, a majority of shallower workers cannot lower the
 reported completed depth. This bit changes neither worker search nor the
 default policy and requires an independent paired SPRT before adoption.
+
+`LazyFlags` bit 2048 is an opt-in helper-root-hint experiment. A helper may
+publish only the move and depth from a fully completed exact root iteration.
+Worker 0 may move a same-or-deeper hint to the front of its next iteration's
+already legal, non-excluded, mate-safety-filtered root list. It does not trust
+or copy the helper's score, bound or PV. One atomic word carries a generation,
+depth, worker and move, so a delayed publication from an earlier `go` cannot
+repopulate a new invocation. Equal-depth publications use a stable worker and
+move tie-break, although whether a helper finishes before worker 0 reaches an
+iteration boundary remains scheduler-dependent. The channel is absent for
+one worker, isolated TT, and the default policy; MultiPV does not consume or
+publish hints. This experiment requires deterministic correctness checks and
+an independent paired material-only SPRT before any default change.
+
+When this bit is active, the USI result includes
+`lazy_smp_root_hint publications P eligible_reads R applied A`. `P` counts
+accepted lock-free slot updates, `R` counts same-generation and
+same-or-deeper reads by worker 0, and `A` counts reads that actually moved a
+legal final root candidate to the front. A hint that is already first, too
+shallow, stale, excluded, illegal, or removed by root mate-safety is not
+counted as applied.
+
+`LazyFlags` bit 4096 is an opt-in helper-root-LMR experiment. Worker 0 keeps
+the established one-ply root-LMR relief. Helper workers alone use the full
+reduction for late quiet root moves, reducing their speculative cost without
+changing TT sharing, root order, result selection, or the playing default.
+The candidate must pass the preregistered fixed-condition diagnostic and a
+fresh independent material-only gate before adoption.
+
+The helper-root-LMR fixed-position measurement contract and advancement rule
+are recorded in
+[the helper-root-LMR experiment](../experiments/lazy_smp_helper_root_lmr_v0.4.0/README.md).
+The strict harness rejects missing or malformed invocation records and hashes
+the exact binary and effective position set before a strength gate is opened.
+The reported `publications` count is accepted slot updates, not every helper
+publication attempt, and `eligible_reads` means the hint met the generation
+and depth conditions before the final legal root list was checked. `applied`
+alone proves that the hint actually changed that list's order.
+The packed hint carries a 28-bit generation tag. `LazySmpSearcher` serializes
+invocations and joins every helper before beginning the next one, so a tag
+cannot wrap while an older publisher is still live.
+
+Lifecycle mutations use the same invocation guard. If `reset_abort_flag`,
+`clear_tt`, or `new_search` encounters an active worker group, it first
+requests a cooperative abort and then waits for every worker to join;
+preparing a later `go` therefore cannot erase the current stop request, clear
+its shared table, or advance its TT generation while the search is live.
+Normal USI flow still performs the explicit stop-and-join before these calls.
+Each public lifecycle call is serialized individually; callers that combine
+reset, generation aging, and search start must serialize that sequence at
+their command boundary, as the USI generation manager does.
