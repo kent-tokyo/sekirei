@@ -18,7 +18,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nps_threads import effective_positions_sha256, measure, option_value, summarize_lazy_root_hints
+from nps_threads import ASPIRATION_KEYS, effective_positions_sha256, measure, option_value, summarize_lazy_root_hints
 
 
 def schedule(threads: list[int], positions: int, repeats: int):
@@ -115,10 +115,24 @@ def work_metrics(row: dict) -> dict:
                 "verification_overturns", "pv_returns", "tracking_overflow", "prior_reductions")
         for key in keys:
             result[f"nmp_{key}"] = sum(worker[key] for worker in row["nmp"])
+    if row.get("aspiration"):
+        for column, key in enumerate(ASPIRATION_KEYS):
+            result[f"asp_{key}"] = sum(worker["totals"][column] for worker in row["aspiration"])
     return result
 
 
-def summarize(rows: list[dict], *, fixed_depth: bool) -> dict:
+def validate_counter_workers(row: dict, count: int) -> None:
+    expected = set(range(count))
+    for key in ("retirement", "nmp", "aspiration"):
+        records = row[key]
+        # One-worker diagnostics have no helper progress/retirement channel.
+        if key == "retirement" and count == 1 and not records:
+            continue
+        if {worker["worker"] for worker in records} != expected:
+            raise ValueError(f"counter lane requires one {key} record per worker")
+
+
+def summarize(rows: list[dict], *, fixed_depth: bool, require_identity: bool = True) -> dict:
     blocks = {}
     for row in rows:
         blocks.setdefault((row["repeat"], row["threads"], row["position"]), []).append(row)
@@ -177,8 +191,8 @@ def summarize(rows: list[dict], *, fixed_depth: bool) -> dict:
                 for side in "AB"
             },
             "exact_identity_blocks": sum(item["exact_identity"] for item in subset),
-            "fixed_depth_identity_required": bool(fixed_depth and threads == 1),
-            "identity_pass": all(item["exact_identity"] for item in subset) if fixed_depth and threads == 1 else None,
+            "fixed_depth_identity_required": bool(fixed_depth and threads == 1 and require_identity),
+            "identity_pass": all(item["exact_identity"] for item in subset) if fixed_depth and threads == 1 and require_identity else None,
             "within_side_nondeterministic_blocks": sum(any(item["within_side_nondeterminism"].values()) for item in subset),
             "median_paired_delta": {key: statistics.median(item["paired_metrics"][key]["B_minus_A"] for item in subset) for key in keys},
             "median_paired_ratio": {key: statistics.median(values) if (values := [item["paired_metrics"][key]["B_over_A"] for item in subset if item["paired_metrics"][key]["B_over_A"] is not None]) else None for key in keys},
@@ -206,6 +220,7 @@ def main() -> int:
     parser.add_argument("--b-option", action="append", default=[])
     parser.add_argument("--diagnostics", action="store_true")
     parser.add_argument("--require-transfer", action="store_true")
+    parser.add_argument("--policy-diagnostic", action="store_true", help="fixed-depth counter lane with intentionally changed search trees; identity is recorded but not required")
     parser.add_argument("--allow-busy", action="store_true", help="run on a busy/unknown host, recording timing as unqualified")
     parser.add_argument("--source-ref", help="document actual built source state; never inferred from binary timestamp")
     args = parser.parse_args()
@@ -218,9 +233,11 @@ def main() -> int:
             raise ValueError("thread counts must be positive and unique")
         if min(args.repeats, args.count, args.movetime, args.hash, args.timeout) < 1 or (args.depth is not None and args.depth < 1):
             raise ValueError("search sizes must be positive")
+        if args.policy_diagnostic and (args.depth is None or not args.diagnostics or not changes):
+            raise ValueError("policy diagnostic requires fixed depth, counters and one changed factor")
         if args.require_transfer and (not args.diagnostics or min(threads) < 2):
             raise ValueError("transfer lane requires --diagnostics and at least two threads")
-        if any(option.partition("=")[0] in {"Threads", "Hash", "EvalFile", "EvalDir", "LazyDiagnostics", "NmpDiagnostics", "UseBook", "SpecTopN", "SearchMode"} for option in args.option + args.a_option + args.b_option):
+        if any(option.partition("=")[0] in {"Threads", "Hash", "EvalFile", "EvalDir", "LazyDiagnostics", "NmpDiagnostics", "AspirationDiagnostics", "UseBook", "SpecTopN", "SearchMode"} for option in args.option + args.a_option + args.b_option):
             raise ValueError("reserved options would violate fixed material-only measurement contract")
         source_data = args.positions.read_bytes()
         positions = []
@@ -250,6 +267,8 @@ def main() -> int:
         "schema": "sekirei.paired-search-manifest.v1", "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(), "engines": frozen,
         "source_ref": args.source_ref, "source_ref_verified": False,
+        "measurement_source_sha256": {name: hashlib.sha256(Path(__file__).with_name(name).read_bytes()).hexdigest()
+                                      for name in ("paired_search_diagnostics.py", "nps_threads.py")},
         "positions_sha256": hashlib.sha256(source_data).hexdigest(),
         "effective_positions_sha256": effective_positions_sha256(positions),
         "effective_position_count": len(positions), "threads": threads, "repeats": args.repeats,
@@ -257,11 +276,12 @@ def main() -> int:
         "evaluator": {"kind": "material-only"}, "hash_mb": args.hash,
         "common_options": args.option, "A_options": args.a_option, "B_options": args.b_option,
         "changed_options": changes, "counter_lane": args.diagnostics,
+        "identity_policy": "observe_only_policy_change" if args.policy_diagnostic else "require_1T_fixed_depth",
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "cpu_count": os.cpu_count()},
         "schedule": "per-position ABBA; fresh process every slot", "strength_gate_opened": False,
         "host_activity_before": activity, "timing_qualified": timing_qualified,
     }
-    configuration = {key: manifest[key] for key in ("threads", "repeats", "budget", "evaluator", "hash_mb", "common_options", "A_options", "B_options", "counter_lane")}
+    configuration = {key: manifest[key] for key in ("threads", "repeats", "budget", "evaluator", "hash_mb", "common_options", "A_options", "B_options", "counter_lane", "identity_policy")}
     manifest["configuration_sha256"] = hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     def save_manifest():
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
@@ -288,14 +308,11 @@ def main() -> int:
                 if require_hint and "first_move_beta_cuts" not in row.get("lazy_smp_root_hint", {}):
                     raise ValueError("transfer lane requires extended root-hint counters")
                 if args.diagnostics:
-                    expected_workers = set(range(count))
-                    for key in ("retirement", "nmp"):
-                        if {worker["worker"] for worker in row[key]} != expected_workers:
-                            raise ValueError(f"counter lane requires one {key} record per worker")
+                    validate_counter_workers(row, count)
                 rows.append(row)
                 output.write(json.dumps(row) + "\n")
                 output.flush()
-        summary = summarize(rows, fixed_depth=args.depth is not None)
+        summary = summarize(rows, fixed_depth=args.depth is not None, require_identity=not args.policy_diagnostic)
         (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         manifest["status"] = "complete"
         manifest["host_activity_after"] = host_activity()

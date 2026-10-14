@@ -375,6 +375,119 @@ fn persistent_root_executor_reuses_worker_through_usi_and_resets_next_go() {
     assert!(child.wait().unwrap().success());
 }
 
+#[cfg(feature = "tune")]
+#[test]
+fn aspiration_diagnostics_are_opt_in_and_scoped_to_each_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name AspirationDiagnostics type check default false")
+    );
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name T_ASP_VOLATILITY type spin default 0 min 0 max 1")
+    );
+    for command in [
+        "setoption name Threads value 1",
+        "setoption name Hash value 2",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 2");
+    let ordinary = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(30),
+    );
+    assert!(
+        !ordinary
+            .iter()
+            .any(|line| line.starts_with("info string root_aspiration"))
+    );
+    for command in [
+        "setoption name AspirationDiagnostics value true",
+        "setoption name T_ASP_VOLATILITY value 1",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    let position =
+        "position sfen 1n2k4/l2Pgs1bl/1s4p1n/ppp6/g2pp2pp/2P3PP1/PPN1Pp2N/RBGK2GR1/L1S3S1L b 2p 65";
+    let mut first_totals = None;
+    for _ in 0..2 {
+        send(&mut stdin, "usinewgame");
+        send(&mut stdin, position);
+        send(&mut stdin, "go depth 8");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let summary = lines
+            .iter()
+            .find(|line| line.starts_with("info string root_aspiration worker 0 counts "))
+            .unwrap();
+        let totals: Vec<u64> = summary
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .split(',')
+            .map(|n| n.parse().unwrap())
+            .collect();
+        assert_eq!(totals.len(), 10);
+        assert!(totals[2] > 0);
+        assert_eq!(totals[7], totals[4] - totals[0]);
+        let mut hist = [0u64; 10];
+        for line in lines
+            .iter()
+            .filter(|line| line.starts_with("info string root_aspiration_depth worker 0 "))
+        {
+            for (column, count) in line
+                .split_whitespace()
+                .last()
+                .unwrap()
+                .split(',')
+                .enumerate()
+            {
+                hist[column] += count.parse::<u64>().unwrap();
+            }
+        }
+        assert_eq!(hist.as_slice(), totals.as_slice());
+        if let Some(first) = &first_totals {
+            assert_eq!(&totals, first);
+        }
+        first_totals = Some(totals);
+    }
+    send(
+        &mut stdin,
+        "setoption name AspirationDiagnostics value false",
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 2");
+    let final_go = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(30),
+    );
+    assert!(
+        !final_go
+            .iter()
+            .any(|line| line.starts_with("info string root_aspiration"))
+    );
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
 #[test]
 fn spin_options_reject_values_outside_the_advertised_ranges() {
     let (mut child, rx, mut stdin) = spawn_engine();

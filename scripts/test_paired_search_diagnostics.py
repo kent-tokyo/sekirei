@@ -2,10 +2,10 @@ import unittest
 from unittest.mock import patch
 from types import SimpleNamespace
 
-from paired_search_diagnostics import schedule, side_changes, summarize, host_activity
+from paired_search_diagnostics import schedule, side_changes, summarize, host_activity, validate_counter_workers, main as paired_main
 from generate_search_diagnostic import START, apply, decode, encode
 from validate_paired_pv import requests_for_row
-from nps_threads import ROOT_HINT_TRANSFER_KEYS, parse_lazy_smp_root_hint, parse_retirement, parse_search_result, parse_nmp, parse_cooperative_root
+from nps_threads import ROOT_HINT_TRANSFER_KEYS, parse_lazy_smp_root_hint, parse_retirement, parse_search_result, parse_nmp, parse_cooperative_root, parse_aspiration
 
 
 class PairedDiagnosticsTests(unittest.TestCase):
@@ -23,6 +23,53 @@ class PairedDiagnosticsTests(unittest.TestCase):
         self.assertEqual([row[4] for row in rows[:8]], list("ABBAABBA"))
         self.assertEqual([row[2] for row in rows[:8]], [0] * 4 + [1] * 4)
         self.assertEqual([row[1] for row in rows[:8]], [1] * 8)
+
+    def test_busy_preflight_writes_complete_identity_and_driver_provenance(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = root / "engine"
+            engine.write_bytes(b"frozen engine fixture")
+            positions = root / "positions.sfen"
+            positions.write_text("startpos\n")
+            output = root / "out"
+            args = ["paired_search_diagnostics.py", "--baseline", str(engine),
+                    "--candidate", str(engine), "--positions", str(positions),
+                    "--output", str(output), "--threads", "1", "--count", "1"]
+            busy = {"available": True, "busy_processes": [{"pid": 123, "cpu_percent": 100}], "load_average": [1, 1, 1]}
+            with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=busy), patch("builtins.print"):
+                self.assertEqual(paired_main(), 2)
+            manifest = json.loads((output / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "blocked_host_busy")
+            self.assertEqual(manifest["identity_policy"], "require_1T_fixed_depth")
+            self.assertEqual(len(manifest["configuration_sha256"]), 64)
+            self.assertEqual(set(manifest["measurement_source_sha256"]), {"paired_search_diagnostics.py", "nps_threads.py"})
+            self.assertFalse((output / "rows.jsonl").exists())
+
+    def test_one_worker_diagnostics_have_no_retirement_channel(self):
+        row = {"retirement": [], "nmp": [{"worker": 0}], "aspiration": [{"worker": 0}]}
+        validate_counter_workers(row, 1)
+        with self.assertRaisesRegex(ValueError, "retirement"):
+            validate_counter_workers(row, 2)
+        with self.assertRaisesRegex(ValueError, "aspiration"):
+            validate_counter_workers({**row, "aspiration": []}, 1)
+        two = {key: [{"worker": 0}, {"worker": 1}] for key in row}
+        validate_counter_workers(two, 2)
+
+    def test_policy_diagnostic_observes_changed_tree_without_identity_gate(self):
+        rows = [dict(repeat=0, threads=1, position=0, side=side, depth=8,
+                     nodes=100 if side == "A" else 120, bestmove="7g7f",
+                     score=["cp", "12"], pv=["7g7f"], wall_nps=1000, elapsed_ms=100)
+                for side in "ABBA"]
+        strict = summarize(rows, fixed_depth=True)["by_threads"]["1"]
+        self.assertFalse(strict["identity_pass"])
+        observed = summarize(rows, fixed_depth=True, require_identity=False)["by_threads"]["1"]
+        self.assertFalse(observed["fixed_depth_identity_required"])
+        self.assertIsNone(observed["identity_pass"])
+        self.assertEqual(observed["exact_identity_blocks"], 0)
+        self.assertEqual(observed["median_paired_delta"]["nodes"], 20)
 
     def test_one_factor_contract_rejects_combined_flags(self):
         self.assertEqual(side_changes(["LazyFlags=15"], ["LazyFlags=4111"]), {"LazyFlags": ("15", "4111")})
@@ -102,6 +149,21 @@ class PairedDiagnosticsTests(unittest.TestCase):
         self.assertEqual(parse_cooperative_root([empty])["spawn_failures"], 1)
         with self.assertRaisesRegex(ValueError, "without started"):
             parse_cooperative_root([empty.replace("join_wait_us 0", "join_wait_us 1")])
+
+    def test_aspiration_histogram_and_retry_accounting_fail_closed(self):
+        lines = ["info string root_aspiration worker 0 counts 1,1,1,100,2,0,1,1,20,0",
+                 "info string root_aspiration_depth worker 0 depth 8 counts 1,1,1,100,2,0,1,1,20,0"]
+        self.assertEqual(parse_aspiration(lines, total_nodes=20)[0]["totals"][2], 1)
+        with self.assertRaises(ValueError):
+            parse_aspiration(lines, total_nodes=19)
+        for bad in [lines[:1], lines + lines[:1], lines + lines[1:],
+                    [x.replace("1,1,1,100,2,0,1,1,20,0", "1,1,2,100,2,0,1,1,20,0") for x in lines],
+                    [x.replace("1,1,1,100,2,0,1,1,20,0", "1,1,1,100,2,0,1,0,20,0") for x in lines],
+                    [lines[0], lines[1].replace("depth 8", "depth 32")],
+                    [lines[0].replace("20,0", "-20,0"), lines[1]]]:
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_aspiration(bad)
+        self.assertEqual(parse_aspiration([]), [])
 
     def test_nmp_histograms_require_exact_summary_totals(self):
         lines = ["info string v2_nmp worker 0 attempts 2 fail_high 1 verification_attempts 1 verification_successes 0 verification_overturns 1 pv_returns 0 tracking_overflow 0 prior_reductions 1",

@@ -73,6 +73,7 @@ pub(crate) fn on_search_stack(test: impl FnOnce() + Send + 'static) {
         .expect("search regression panicked");
 }
 
+mod aspiration;
 mod child_search;
 mod helper_retirement;
 mod heuristics;
@@ -89,6 +90,7 @@ mod singular;
 mod static_pruning;
 mod tt_probe;
 mod v2;
+pub use aspiration::AspirationSnapshot;
 use child_search::pvs_child;
 pub(crate) use helper_retirement::{HelperRetirement, RetirementEndpoint};
 use heuristics::{
@@ -366,6 +368,7 @@ pub struct SearchDiagnostics {
     /// entering the losing-tactical stage.
     move_stages: [AtomicU64; 4],
     v2_nmp: v2::NmpDiagnostics,
+    aspiration: aspiration::AspirationDiagnostics,
     /// Quiescence calls, nodes in check, TT cutoffs, stand-pat cutoffs,
     /// terminal nodes, searched moves, beta cutoffs, depth-cap exits,
     /// mate-in-one exits, delta-pruning exits, and top-level qsearch calls.
@@ -817,6 +820,11 @@ impl Drop for ProfileTimer<'_> {
 }
 
 impl SearchDiagnostics {
+    /// Root aspiration evidence by depth; collected only by per-node observers.
+    pub fn aspiration_snapshot(&self) -> AspirationSnapshot {
+        self.aspiration.snapshot()
+    }
+
     /// Opt-in V2 null-move evidence, including remaining-depth buckets.
     pub fn nmp_snapshot(&self) -> v2::NmpSnapshot {
         self.v2_nmp.snapshot()
@@ -926,6 +934,7 @@ impl SearchDiagnostics {
             fail_low_nodes: AtomicU64::new(0),
             move_stages: std::array::from_fn(|_| AtomicU64::new(0)),
             v2_nmp: v2::NmpDiagnostics::default(),
+            aspiration: aspiration::AspirationDiagnostics::default(),
             qsearch: std::array::from_fn(|_| AtomicU64::new(0)),
             work_overlap: None,
             tt_reuse: None,
@@ -2227,6 +2236,11 @@ impl Searcher {
             .as_ref()
             .map(|endpoint| endpoint.channel.current_generation());
 
+        // This history belongs to one go and one worker. MultiPV and fixed-root
+        // diagnostics retain their existing aspiration policy.
+        let adaptive_aspiration =
+            p::ASP_VOLATILITY() != 0 && config.multi_pv.max(1) == 1 && root_move.is_none();
+        let mut score_changes = aspiration::ScoreChanges::default();
         let mut retirement_previous = None;
         let mut contribution_previous = [0u64; 2];
         for iteration in 1..=config.max_depth {
@@ -2260,7 +2274,7 @@ impl Searcher {
                             })
                     })
                 });
-                let candidate = root_search(
+                let candidate = root_search_with_window(
                     &state,
                     board,
                     depth,
@@ -2273,6 +2287,7 @@ impl Searcher {
                     self.full_root_lmr,
                     Some(&mut root_mate_safety_cache),
                     root_hint,
+                    adaptive_aspiration.then(|| score_changes.initial_delta(p::ASP_DELTA())),
                 );
                 if rank == 1 {
                     primary = Some(candidate);
@@ -2318,6 +2333,9 @@ impl Searcher {
                 });
             }
 
+            if adaptive_aspiration {
+                score_changes.completed(score, root_bound);
+            }
             best_move = m.or(best_move);
             best_score = score;
             done_depth = depth;
@@ -2603,6 +2621,39 @@ fn root_search(
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
     root_hint: Option<RootHintOrder>,
 ) -> (Option<Move>, i32, SearchBound) {
+    root_search_with_window(
+        state,
+        board,
+        depth,
+        prev_score,
+        excluded,
+        root_move,
+        root_mate_safety,
+        history,
+        root_order_offset,
+        full_root_lmr,
+        root_mate_safety_cache,
+        root_hint,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn root_search_with_window(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    depth: u32,
+    prev_score: i32,
+    excluded: &[Move],
+    root_move: Option<Move>,
+    root_mate_safety: bool,
+    history: &SearchHistory<'_>,
+    root_order_offset: usize,
+    full_root_lmr: bool,
+    root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
+    root_hint: Option<RootHintOrder>,
+    initial_delta: Option<i32>,
+) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
             None,
@@ -2727,15 +2778,21 @@ fn root_search(
     let ordered: &[Move] = hinted.as_deref().unwrap_or(ordered);
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
+    let initial_delta = initial_delta.unwrap_or_else(p::ASP_DELTA);
+    if let Some(observer) = state.counters() {
+        observer
+            .aspiration
+            .window(depth, use_asp, initial_delta, p::ASP_DELTA());
+    }
     let (mut lo, mut hi) = if use_asp {
-        (prev_score - p::ASP_DELTA(), prev_score + p::ASP_DELTA())
+        (prev_score - initial_delta, prev_score + initial_delta)
     } else {
         (NEG_INF, POS_INF)
     };
 
     // The window grows geometrically around the score that fell outside it,
     // so a large swing costs a few re-searches instead of one per step.
-    let mut delta = p::ASP_DELTA();
+    let mut delta = initial_delta;
     let mut attempt = 0;
     loop {
         let used_hint = root_hint.as_ref().filter(|_| hinted.is_some());
@@ -2751,6 +2808,17 @@ fn root_search(
             full_root_lmr,
             used_hint.filter(|_| attempt == 0),
         );
+        if let Some(observer) = state.counters() {
+            observer.aspiration.pass(
+                depth,
+                attempt,
+                state.budget.nodes().saturating_sub(before),
+                lo,
+                hi,
+                score,
+                state.budget.should_abort(),
+            );
+        }
         if attempt > 0
             && let Some(hint) = used_hint
         {

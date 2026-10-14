@@ -80,6 +80,8 @@ macro_rules! search_params {
 search_params! {
     /// Initial aspiration window half-width in centipawns.
     ASP_DELTA = 50, 10, 200;
+    /// Widen initial root aspiration by within-go completed-score changes only.
+    ASP_VOLATILITY = 0, 0, 1;
     /// Opt-in root-split executor reuse within one go; requires cooperative root mode.
     COOP_PERSISTENT = 0, 0, 1;
     /// Reverse futility pruning: margin per depth in centipawns.

@@ -79,6 +79,19 @@ cargo llvm-cov -p sekirei-core \
   --ignored \
   --exact
 
+# Isolate the completed-score aspiration flag while checking real activation,
+# fixed-root/MultiPV exclusions and observer noninterference.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-aspiration-summary.json" \
+  -- search::aspiration::tests::adaptive_root_windows_preserve_contracts_and_observer_noninterference \
+  --ignored \
+  --exact
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release

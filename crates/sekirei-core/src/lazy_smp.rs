@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    CooperativeRootStats, HelperRetirement, NmpSnapshot, RootHintChannel, SearchConfig,
-    SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher, TtReuseSnapshot,
-    TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    AspirationSnapshot, CooperativeRootStats, HelperRetirement, NmpSnapshot, RootHintChannel,
+    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
+    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -318,6 +318,14 @@ impl LazySmpSearcher {
             .cooperative_stats
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Per-worker root aspiration evidence; empty with ordinary workers.
+    pub fn aspiration_stats(&self) -> Vec<AspirationSnapshot> {
+        self.diagnostics
+            .iter()
+            .map(|d| d.aspiration_snapshot())
+            .collect()
     }
 
     /// Per-worker NMP diagnostic snapshots; empty with ordinary workers.

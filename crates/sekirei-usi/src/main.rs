@@ -28,9 +28,9 @@ use sekirei_core::{
     movegen::generate_legal_moves,
     nnue::load_evaluator,
     search::{
-        CooperativeRootStats, MATE_SCORE, NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig,
-        SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo,
-        SpeculativeSearcher,
+        AspirationSnapshot, CooperativeRootStats, MATE_SCORE, NmpSnapshot,
+        RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
+        SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -85,6 +85,7 @@ static LAZY_FLAGS: AtomicU32 = AtomicU32::new(LAZY_DEFAULT_FLAGS);
 // searches keep this false because even relaxed atomics perturb throughput.
 static LAZY_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 static NMP_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
+static ASPIRATION_DIAGNOSTICS: AtomicBool = AtomicBool::new(false);
 // MultiPV as last set; `SearchMode=Auto` needs a root-candidate backend for
 // MultiPV > 1 (only the speculative searcher reports several root lines).
 static AUTO_MULTI_PV: AtomicU32 = AtomicU32::new(1);
@@ -136,6 +137,7 @@ struct SearchResult {
     lazy_retirement: Option<Vec<(u64, bool, u64)>>,
     cooperative_root: Option<CooperativeRootStats>,
     nmp_stats: Vec<NmpSnapshot>,
+    aspiration_stats: Vec<AspirationSnapshot>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
     /// Per-search root mate-safety metrics, only available on the sequential
     /// backend used by `Speculative` with `SpecTopN=0`.
@@ -184,11 +186,15 @@ impl SearchBackend {
         if spec_top_n == 0 {
             // Only the root mate-safety counters are reported; per-node
             // counters and cost timers stay off in production searches.
-            let diagnostics = Arc::new(if NMP_DIAGNOSTICS.load(Ordering::Relaxed) {
-                SearchDiagnostics::counters_only()
-            } else {
-                SearchDiagnostics::root_safety_only()
-            });
+            let diagnostics = Arc::new(
+                if NMP_DIAGNOSTICS.load(Ordering::Relaxed)
+                    || ASPIRATION_DIAGNOSTICS.load(Ordering::Relaxed)
+                {
+                    SearchDiagnostics::counters_only()
+                } else {
+                    SearchDiagnostics::root_safety_only()
+                },
+            );
             return Self::Sequential(Arc::new(SequentialBackend {
                 searcher: Arc::new(Searcher::with_diagnostics(
                     Tt::new(hash_mb),
@@ -207,6 +213,7 @@ impl SearchBackend {
         let flags = LAZY_FLAGS.load(Ordering::Relaxed);
         let searcher = if LAZY_DIAGNOSTICS.load(Ordering::Relaxed)
             || NMP_DIAGNOSTICS.load(Ordering::Relaxed)
+            || ASPIRATION_DIAGNOSTICS.load(Ordering::Relaxed)
         {
             LazySmpSearcher::diagnostic(workers, flags, hash_mb)
         } else {
@@ -299,6 +306,7 @@ impl SearchBackend {
                 lazy_retirement: None,
                 cooperative_root: None,
                 nmp_stats: Vec::new(),
+                aspiration_stats: Vec::new(),
                 shared_mcts_stats: None,
                 root_safety: None,
                 dfpn: None,
@@ -314,11 +322,20 @@ impl SearchBackend {
             Self::Sequential(s) => {
                 let before = s.diagnostics.snapshot();
                 let nmp_before = s.diagnostics.nmp_snapshot();
+                let aspiration_before = ASPIRATION_DIAGNOSTICS
+                    .load(Ordering::Relaxed)
+                    .then(|| s.diagnostics.aspiration_snapshot());
                 let info = s
                     .searcher
                     .search_with_history(board, config, position_history);
                 let mut result = normalize_sequential_result(info);
                 result.root_safety = Some(diagnostics_delta(s.diagnostics.snapshot(), before));
+                if let Some(before) = aspiration_before {
+                    result.aspiration_stats = vec![aspiration_delta(
+                        s.diagnostics.aspiration_snapshot(),
+                        before,
+                    )];
+                }
                 if NMP_DIAGNOSTICS.load(Ordering::Relaxed) {
                     result.nmp_stats = vec![nmp_delta(s.diagnostics.nmp_snapshot(), nmp_before)];
                 }
@@ -329,6 +346,9 @@ impl SearchBackend {
             }
             Self::LazySmp(s) => {
                 let nmp_before = s.nmp_stats();
+                let aspiration_before = (ASPIRATION_DIAGNOSTICS.load(Ordering::Relaxed)
+                    || LAZY_DIAGNOSTICS.load(Ordering::Relaxed))
+                .then(|| s.aspiration_stats());
                 let (info, lazy_root_hints) = s
                     .try_search_with_history_and_root_hint_stats(board, config, position_history)
                     .expect("USI generation manager must serialize Lazy SMP searches");
@@ -357,6 +377,15 @@ impl SearchBackend {
                         .zip(nmp_before)
                         .map(|(after, before)| nmp_delta(after, before))
                         .collect(),
+                    aspiration_stats: aspiration_before
+                        .map(|before| {
+                            s.aspiration_stats()
+                                .into_iter()
+                                .zip(before)
+                                .map(|(after, before)| aspiration_delta(after, before))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     shared_mcts_stats: None,
                     root_safety: None,
                     dfpn: None,
@@ -432,6 +461,7 @@ impl SearchBackend {
                     lazy_retirement: None,
                     cooperative_root: None,
                     nmp_stats: Vec::new(),
+                    aspiration_stats: Vec::new(),
                     shared_mcts_stats: Some((
                         info.simulations,
                         info.nodes,
@@ -462,6 +492,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         lazy_retirement: None,
         cooperative_root: None,
         nmp_stats: Vec::new(),
+        aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: None,
@@ -485,6 +516,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         lazy_retirement: None,
         cooperative_root: None,
         nmp_stats: Vec::new(),
+        aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: None,
@@ -523,6 +555,7 @@ fn normalize_dfpn_result(
         lazy_retirement: None,
         cooperative_root: None,
         nmp_stats: Vec::new(),
+        aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
         root_safety: None,
         dfpn: Some(DfpnReport {
@@ -843,6 +876,14 @@ fn emit_lazy_smp_overlap_diagnostics(info: &SearchResult) {
     );
 }
 
+fn aspiration_delta(after: AspirationSnapshot, before: AspirationSnapshot) -> AspirationSnapshot {
+    AspirationSnapshot {
+        by_depth: std::array::from_fn(|d| {
+            std::array::from_fn(|e| after.by_depth[d][e].saturating_sub(before.by_depth[d][e]))
+        }),
+    }
+}
+
 fn nmp_delta(after: NmpSnapshot, before: NmpSnapshot) -> NmpSnapshot {
     NmpSnapshot {
         attempts: after.attempts.saturating_sub(before.attempts),
@@ -943,6 +984,33 @@ fn emit_search_result(
             stats.executor_start_delay_us,
             stats.helper_dispatch_delay_us,
         );
+    }
+    for (worker, stats) in info.aspiration_stats.iter().enumerate() {
+        let totals: [u64; 10] =
+            std::array::from_fn(|column| stats.by_depth.iter().map(|r| r[column]).sum());
+        println!(
+            "info string root_aspiration worker {worker} counts {}",
+            totals
+                .iter()
+                .map(u64::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        for (depth, counts) in stats
+            .by_depth
+            .iter()
+            .enumerate()
+            .filter(|(_, row)| row.iter().any(|&n| n != 0))
+        {
+            println!(
+                "info string root_aspiration_depth worker {worker} depth {depth} counts {}",
+                counts
+                    .iter()
+                    .map(u64::to_string)
+                    .collect::<Vec<_>>()
+                    .join(",")
+            );
+        }
     }
     for (worker, stats) in info.nmp_stats.iter().enumerate() {
         println!(
@@ -1195,6 +1263,7 @@ fn main() {
                 print_spin_option("LazyFlags", u64::from(LAZY_DEFAULT_FLAGS), LAZY_FLAGS_RANGE);
                 println!("option name LazyDiagnostics type check default false");
                 println!("option name NmpDiagnostics type check default false");
+                println!("option name AspirationDiagnostics type check default false");
                 print_spin_option("MoveOverhead", 50, MOVE_OVERHEAD_RANGE);
                 print_spin_option("IncrementUsePercent", 75, INCREMENT_USE_PERCENT_RANGE);
                 println!("option name Ponder type check default false");
@@ -1337,7 +1406,10 @@ fn main() {
                             "info string cannot set T_{name}: unknown, bad value, or a build without the tune feature"
                         );
                     }
-                } else if matches!(option_name, Some("LazyDiagnostics" | "NmpDiagnostics")) {
+                } else if matches!(
+                    option_name,
+                    Some("LazyDiagnostics" | "NmpDiagnostics" | "AspirationDiagnostics")
+                ) {
                     let Some(enabled) = parse_check_option_or_report(&parts, option_name.unwrap())
                     else {
                         continue;
@@ -1345,8 +1417,10 @@ fn main() {
                     abort_and_join_inflight_search(&mut search_abort, &mut search_handle);
                     if option_name == Some("LazyDiagnostics") {
                         LAZY_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
-                    } else {
+                    } else if option_name == Some("NmpDiagnostics") {
                         NMP_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
+                    } else {
+                        ASPIRATION_DIAGNOSTICS.store(enabled, Ordering::Relaxed);
                     }
                     searcher = make_searcher(
                         hash_mb,

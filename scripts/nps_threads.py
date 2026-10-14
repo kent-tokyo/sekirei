@@ -427,6 +427,50 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
     return result
 
 
+ASPIRATION_KEYS = ("roots", "aspirated", "adapted", "delta_sum", "passes", "fail_low", "fail_high", "retries", "retry_nodes", "aborted")
+
+
+def parse_aspiration(lines: list[str], *, total_nodes: int | None = None) -> list[dict]:
+    workers = {}
+    def counts(text):
+        fields = text.split(",")
+        if len(fields) != len(ASPIRATION_KEYS) or any(not v.isascii() or not v.isdigit() for v in fields):
+            raise ValueError("malformed aspiration counts")
+        values = list(map(int, fields))
+        if any(v > (1 << 64) - 1 for v in values):
+            raise ValueError("aspiration counter exceeds u64")
+        return values
+    for line in lines:
+        if line.startswith("info string root_aspiration worker "):
+            fields = line[len("info string root_aspiration "):].split()
+            if len(fields) != 4 or fields[0] != "worker" or fields[2] != "counts" or not fields[1].isascii() or not fields[1].isdigit():
+                raise ValueError("malformed aspiration summary")
+            worker = int(fields[1])
+            if worker in workers:
+                raise ValueError("duplicate aspiration summary")
+            workers[worker] = {"worker": worker, "totals": counts(fields[3]), "by_depth": [[0] * 10 for _ in range(32)], "seen": set()}
+        elif line.startswith("info string root_aspiration_depth "):
+            fields = line[len("info string root_aspiration_depth "):].split()
+            if len(fields) != 6 or fields[::2] != ["worker", "depth", "counts"] or any(not v.isascii() or not v.isdigit() for v in (fields[1], fields[3])):
+                raise ValueError("malformed aspiration depth")
+            worker, depth = int(fields[1]), int(fields[3])
+            if worker not in workers or depth not in range(32) or depth in workers[worker]["seen"]:
+                raise ValueError("missing, invalid, or duplicate aspiration depth")
+            workers[worker]["seen"].add(depth)
+            workers[worker]["by_depth"][depth] = counts(fields[5])
+    for record in workers.values():
+        if record["totals"] != [sum(row[c] for row in record["by_depth"]) for c in range(10)]:
+            raise ValueError("aspiration histogram does not match summary")
+        for row in [record["totals"], *record["by_depth"]]:
+            roots, aspirated, adapted, delta_sum, passes, low, high, retries, _, aborted = row
+            if adapted > aspirated or aspirated > roots or passes < roots or retries != passes - roots or low + high + aborted > passes or (aspirated == 0 and delta_sum != 0):
+                raise ValueError("inconsistent aspiration counters")
+        del record["seen"]
+    if total_nodes is not None and sum(r["totals"][8] for r in workers.values()) > total_nodes:
+        raise ValueError("aspiration retry nodes exceed total nodes")
+    return sorted(workers.values(), key=lambda r: r["worker"])
+
+
 def parse_nmp(lines: list[str]) -> list[dict]:
     """Require complete depth histograms for every emitted NMP summary."""
     keys = ("worker", "attempts", "fail_high", "verification_attempts",
@@ -819,6 +863,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     **parse_search_result(lines),
                     "retirement": parse_retirement(lines),
                     "nmp": parse_nmp(lines),
+                    "aspiration": parse_aspiration(lines, total_nodes=nodes),
                     "cooperative_root": parse_cooperative_root(lines, total_nodes=nodes),
                     "depth": depth,
                     "nodes": nodes,
