@@ -97,3 +97,52 @@ For counter-free timing use COOP_LATENCY=0, movetime 300 and repeats 2. Do not
 add --diagnostics: cooperative results aggregate two participants, unlike the
 independent-worker record contract. Replay every completed lane with the
 frozen legal tool. No policy or threshold changes after observing this screen.
+
+## Completed observations
+
+The clean standard native tune build at f831b6b has SHA-256
+`e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9`.
+[results.json](results.json) binds build receipts, raw manifests/rows/summaries,
+per-category results, validation and artifact hashes. Both protocol and source
+were committed before searches. Neither arm used PGO or NNUE.
+
+All twenty default-off one-worker ABBA blocks (80 searches) matched bestmove,
+score, PV, nodes and depth exactly. The two-worker depth-10 mechanism lane
+completed 80 searches. Priority choices started 231 confirmations; 50 were
+reordered, 7 of those raised alpha and 1 produced a verified beta cut. Their
+confirmation work was 4,157 private-main nodes. These are actual confirmation
+nodes, not avoided nodes or the overlapping latency sums.
+
+Actual cuts by publication phase were scout/research/confirmation/idle/transition
+2/3/1/4/0 in the control and 3/1/2/4/1 in the candidate. This observes true main
+verification outcomes even when helper-reported LOWER bounds do not reach beta.
+It does not prove that main-child preemption would save time. Publication and
+unconfirmed counts remain explicit in the results; only confirmed advice
+contributes these cuts. Different parallel schedules and trees prevent treating
+these aggregate differences as a playing-strength comparison.
+
+All 1,274 fixed-depth PV moves replayed legally and the activity/accounting gate
+passed. The first 300 ms timing attempt was blocked before any search by another
+rustc/Python job. After more than 60 seconds, attempt 2 passed the initial host
+guard and completed 160 searches with observers disabled and correct policy
+identity in every row. Its end snapshot detected other compilers and another
+worktree's tests, so timing was invalidated. No processes were stopped, no
+load guard was bypassed, and no blocked data was pooled into completed data.
+
+The unqualified observation had median paired completed-depth delta 0 ply and
+both A-first/B-first medians 0. Its wall-NPS ratio was 1.00857755; this is **not**
+a speed improvement claim. The quiet subgroup median was -0.25 ply (A-first -0.5, B-first 0); tactical
+was 0 in both directions. Thus the observed subgroup result also failed the
+prospective screen. These remain unqualified observations. Grouped outcomes
+are retained in results.json.
+The protocol forbids retrying a completed run, including post-load invalidation,
+so no third attempt was started. All 1,859 timed PV moves also replayed legally,
+for 3,133 moves across 320 completed searches. Same-rules PV checks are not an
+independent rule oracle or mate-score proof.
+
+Core 361 tests passed with 4 ignored (root 37), tune USI 25 and Python 51 passed;
+formatting and tune Clippy passed. This is not the project's ten-million-random
+validation or 64-core contention proof. The candidate does not advance: timing
+was unqualified and its observed depth result also failed the prospective
+screen. COOP_PRIORITY remains 0; no useful-depth, Elo or YaneuraOu-superiority
+claim follows. The queued independent aspiration candidate is unchanged.

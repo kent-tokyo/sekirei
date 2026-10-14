@@ -69,3 +69,8 @@ selection plus rescan. It does not interrupt a main child or adopt helper
 scores. Outcome diagnostics classify actual beta cuts by publication phase.
 The flag stays disabled; activity, useful-depth timing and independent H1
 remain separate gates, and the queued aspiration candidate is unchanged.
+
+The priority mechanism screen activated50 reorders with7 alpha raises and1
+verified cut. Its completed300ms run was invalidated by post-run outside load;
+observed median depth delta was0 overall and-0.25 for quiet positions. It does
+not advance and remains disabled. No completed-result retry was performed.
