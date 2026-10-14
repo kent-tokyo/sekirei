@@ -53,6 +53,7 @@ is established. It is not pooled with V2_SORT or earlier blocked runs.
 
 The opt-in [cooperative wait-drain candidate](../cooperative_root_wait_v0.4.1/README.md)
 is a separate two-worker prototype factor, T_COOP_DRAIN=0/1 with
-COOP_PERSISTENT=0 held fixed. Its prospective protocol requires actual
-wait-phase confirmation evidence before useful-depth timing. It is disabled
-and does not replace the queued independent aspiration candidate.
+COOP_PERSISTENT=0 held fixed. All 80 depth-10 searches completed, but the forty ON searches had zero
+wait-phase confirmations. Its prospective activation requirement failed, so
+300 ms timing was not started. It stays disabled, does not advance, and does
+not replace the queued independent aspiration candidate.

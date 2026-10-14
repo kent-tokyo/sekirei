@@ -83,3 +83,36 @@ Do not add --diagnostics to the cooperative lane: its result is one coordinated
 aggregate, not two independent worker histories. Validate completed runs with
 scripts/validate_paired_pv.py. Fixed-depth wall times are not qualified speed
 measurements. Results will be recorded separately from this prospective plan.
+
+## Completed screen
+
+The clean tune build at 62573f9 has SHA-256
+`8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1`.
+Build receipt, raw manifests/rows/summaries, local test logs and their hashes
+are bound in [results.json](results.json). The old identity control is the
+previous frozen clean v0.4.1 build at 4344202, not a newly built baseline.
+
+All twenty one-worker depth-8 ABBA blocks (80 searches) matched exactly in
+bestmove, score, PV, nodes and depth. Core tests passed 353 with four ignored;
+29 root-split tests, 23 tune USI integration tests and 42 Python focused tests
+passed. Formatting and tune Clippy passed. These checks do not replace the
+project's larger random-validation or concurrency scaling targets.
+
+The two-worker depth-10 lane completed all 80 searches. All forty ON searches
+emitted enabled wait evidence, covering 570 helper generations and 103,123 us
+of notification waiting in aggregate. However, waiting_confirmations,
+waiting_confirmation_nodes and waiting_alpha_raises were **all zero**. The
+new waiting control flow ran, but it did not convert advice into main work
+before helper completion on this corpus. The forced held-helper test proves
+that path works; it does not demonstrate that normal searches benefit.
+
+Root attribution passed for every search, and all 1,276 saved PV moves across
+both lanes replayed legally through the frozen Sekirei legal-move tool. This
+is a same-rules PV check, not an independent rule oracle or mate-score proof.
+The fixed-depth lanes overlapped; their wall times are unqualified. Parallel
+node/score/PV differences can reflect scheduling and are not improvements.
+
+The prospective activation requirement failed, so the 300 ms timing lane was
+not started. No positions or thresholds were changed after observing this
+result. T_COOP_DRAIN remains zero and this candidate does not advance to an
+independent strength gate. The queued aspiration candidate is unchanged.

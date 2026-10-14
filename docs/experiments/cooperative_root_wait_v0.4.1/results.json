@@ -1,0 +1,605 @@
+{
+  "schema": "sekirei.cooperative-root-wait-screen.v1",
+  "built_source": {
+    "source_commit": "62573f97d250b73dd33ae4f36aaefda835dd8e89",
+    "source_dirty_before": "",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+    "build_command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo build --release --offline -p sekirei --features tune",
+    "started_at": "2026-10-14T14:38:06.372325+00:00",
+    "engine_sha256": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1",
+    "source_commit_after": "62573f97d250b73dd33ae4f36aaefda835dd8e89",
+    "source_dirty_after": "",
+    "build_log_sha256": "3dec2f3ca22e8ee840c6e3b1c1ab3128ef8d5c5d2739f0fb3fe2658d27fdfc68",
+    "completed_at": "2026-10-14T14:39:24.130893+00:00"
+  },
+  "build_receipt": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-build/receipt.json",
+    "sha256": "43fe01832940d884d7f899ccd85bf91ba46749b8db90ca4e6cf5e26a43019381",
+    "bytes": 933
+  },
+  "build_log": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-build/build.log",
+    "sha256": "3dec2f3ca22e8ee840c6e3b1c1ab3128ef8d5c5d2739f0fb3fe2658d27fdfc68",
+    "bytes": 293
+  },
+  "prospective_protocol_commit": "62573f97d250b73dd33ae4f36aaefda835dd8e89",
+  "prospective_protocol": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/docs/experiments/cooperative_root_wait_v0.4.1/README.md",
+    "sha256": "32683989c8816542a4d9efe9bfc5ce04734144659ca6b4ee2c515c53730a42e9",
+    "bytes": 4959
+  },
+  "default_off_identity": {
+    "artifacts": {
+      "manifest.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/manifest.json",
+        "sha256": "1c95815c5a7de7b991a5faedcf31ae7263179fcf978613009e430d594ec914a3",
+        "bytes": 4736
+      },
+      "summary.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/summary.json",
+        "sha256": "ced9ec8ee5fc38152465282909943d36ae54dcd2424dc25c2deecdc78cdf5c2d",
+        "bytes": 72765
+      },
+      "rows.jsonl": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/rows.jsonl",
+        "sha256": "0985993741490d41ad07d0bed253611fd4015272dda1b263329cca699627b471",
+        "bytes": 120044
+      },
+      "positions.input": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/positions.input",
+        "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "bytes": 1556
+      }
+    },
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-14T14:39:24.285257+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/engine-A",
+          "sha256": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/aspiration-v041-activation-preflight/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity/engine-B",
+          "sha256": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-build/engine"
+        }
+      },
+      "source_ref": "62573f97d250b73dd33ae4f36aaefda835dd8e89",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "aaff2480fa9dcd9663ee7c4c8bf7add9ae3b154f9a9d3d5f0039714864b887b2",
+        "nps_threads.py": "b5f5afb969f1ea587efd0ca7b4cc0a41bf83dfb6ccbab8dcf7179295289f3ea2"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=15",
+        "MoveOverhead=0"
+      ],
+      "A_options": [],
+      "B_options": [],
+      "changed_options": {},
+      "counter_lane": false,
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 97893,
+            "cpu_percent": 99.9,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97910,
+            "cpu_percent": 99.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97913,
+            "cpu_percent": 99.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97918,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97942,
+            "cpu_percent": 98.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97950,
+            "cpu_percent": 72.5,
+            "command": "/Library/Developer/CommandLineTools/usr/bin/clang"
+          }
+        ],
+        "load_average": [
+          3.6826171875,
+          3.50146484375,
+          3.20166015625
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "deee39cb4b4d11233f9be1bfa59d7ad4f7c6b037f8639e4eb264e06c1a7ec59d",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 97893,
+            "cpu_percent": 98.9,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97913,
+            "cpu_percent": 97.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97942,
+            "cpu_percent": 99.8,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97962,
+            "cpu_percent": 97.4,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97963,
+            "cpu_percent": 99.2,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97991,
+            "cpu_percent": 98.9,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 98045,
+            "cpu_percent": 96.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 98056,
+            "cpu_percent": 79.3,
+            "command": "(clang)"
+          }
+        ],
+        "load_average": [
+          4.1083984375,
+          3.59228515625,
+          3.2353515625
+        ]
+      }
+    },
+    "rows": 80,
+    "by_threads": {
+      "1": {
+        "raw_side_medians": {
+          "A": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "nonselected_nodes": 0.0,
+            "engine_nps": 888250.0,
+            "wall_nps": 805298.0960477425,
+            "depth": 8.0,
+            "worker0_depth": 8.0,
+            "elapsed_ms": 6.307499999999999,
+            "nodes": 5469.5
+          },
+          "B": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "nonselected_nodes": 0.0,
+            "engine_nps": 931019.0,
+            "wall_nps": 809485.1238558905,
+            "depth": 8.0,
+            "worker0_depth": 8.0,
+            "elapsed_ms": 6.414,
+            "nodes": 5469.5
+          }
+        },
+        "directional_median_paired_delta": {
+          "A_first": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "nonselected_nodes": 0.0,
+            "engine_nps": 0.0,
+            "wall_nps": -1449.208526085189,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "elapsed_ms": 0.01200000000000001,
+            "nodes": 0.0
+          },
+          "B_first": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "nonselected_nodes": 0.0,
+            "engine_nps": 0.0,
+            "wall_nps": 4240.1114374561,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "elapsed_ms": -0.046499999999999986,
+            "nodes": 0.0
+          }
+        },
+        "blocks": 20,
+        "hint_transfer_by_side": {
+          "A": null,
+          "B": null
+        },
+        "exact_identity_blocks": 20,
+        "fixed_depth_identity_required": true,
+        "identity_pass": true,
+        "within_side_nondeterministic_blocks": 0,
+        "median_paired_delta": {
+          "worker0_foreign_tt_hits": 0.0,
+          "nonselected_helper_nodes": 0.0,
+          "nonselected_nodes": 0.0,
+          "engine_nps": 0.0,
+          "wall_nps": 1504.9330325080082,
+          "depth": 0.0,
+          "worker0_depth": 0.0,
+          "elapsed_ms": 0.014499999999999957,
+          "nodes": 0.0
+        },
+        "median_paired_ratio": {
+          "worker0_foreign_tt_hits": null,
+          "nonselected_helper_nodes": null,
+          "nonselected_nodes": null,
+          "engine_nps": 1.0,
+          "wall_nps": 1.0019641036705522,
+          "depth": 1.0,
+          "worker0_depth": 1.0,
+          "elapsed_ms": 1.0015177906765642,
+          "nodes": 1.0
+        }
+      }
+    }
+  },
+  "mechanism": {
+    "artifacts": {
+      "manifest.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/manifest.json",
+        "sha256": "924261d81ccbcfc252759c633e98425d6808728b2dd90e30edcb2dc8e94d24ec",
+        "bytes": 4678
+      },
+      "summary.json": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/summary.json",
+        "sha256": "21133b960805078e13806b57e6ba620b478eee9848b39dda3f389e50854a5c70",
+        "bytes": 74633
+      },
+      "rows.jsonl": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/rows.jsonl",
+        "sha256": "8454d12179db962026b01221443aade06aa37d163be47a3ce686fb383cfdd512",
+        "bytes": 176725
+      },
+      "positions.input": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/positions.input",
+        "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "bytes": 1556
+      }
+    },
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-14T14:39:38.328268+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/engine-A",
+          "sha256": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-build/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism/engine-B",
+          "sha256": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-build/engine"
+        }
+      },
+      "source_ref": "62573f97d250b73dd33ae4f36aaefda835dd8e89",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "aaff2480fa9dcd9663ee7c4c8bf7add9ae3b154f9a9d3d5f0039714864b887b2",
+        "nps_threads.py": "b5f5afb969f1ea587efd0ca7b4cc0a41bf83dfb6ccbab8dcf7179295289f3ea2"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        2
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 10,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=16399",
+        "T_COOP_PERSISTENT=0",
+        "T_ASP_VOLATILITY=0",
+        "MoveOverhead=0"
+      ],
+      "A_options": [
+        "T_COOP_DRAIN=0"
+      ],
+      "B_options": [
+        "T_COOP_DRAIN=1"
+      ],
+      "changed_options": {
+        "T_COOP_DRAIN": [
+          "0",
+          "1"
+        ]
+      },
+      "counter_lane": false,
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 36319,
+            "cpu_percent": 63.1,
+            "command": "/Applications/ChatGPT.app/Contents/MacOS/ChatGPT"
+          },
+          {
+            "pid": 36331,
+            "cpu_percent": 26.0,
+            "command": "/Applications/ChatGPT.app/Contents/Frameworks/Codex Framework.framework/Versions/154.0.8037.57/Helpers/Codex (Service).app/Contents/MacOS/Codex (Service)"
+          },
+          {
+            "pid": 97893,
+            "cpu_percent": 87.1,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97913,
+            "cpu_percent": 87.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97942,
+            "cpu_percent": 88.8,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97963,
+            "cpu_percent": 87.1,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97991,
+            "cpu_percent": 88.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 98045,
+            "cpu_percent": 95.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 98078,
+            "cpu_percent": 88.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          4.419921875,
+          3.6650390625,
+          3.26318359375
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "ce97674d624c8cc970732b5f8fac1cc835dd257b422038cf0bca1f6ba261fcb4",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 97913,
+            "cpu_percent": 96.3,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 97991,
+            "cpu_percent": 94.3,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 98078,
+            "cpu_percent": 96.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          6.36328125,
+          4.1171875,
+          3.4287109375
+        ]
+      }
+    },
+    "rows": 80,
+    "arms": {
+      "A": {
+        "searches": 40,
+        "wait_diagnostic_rows": 0,
+        "root_totals": {
+          "generations": 572,
+          "helper_nodes": 105252,
+          "helper_probes": 5863,
+          "helper_fail_highs": 268,
+          "main_confirmations": 264,
+          "confirmed_alpha_raises": 22,
+          "main_nodes": 919452,
+          "confirmation_nodes": 58156,
+          "main_tasks": 12619,
+          "helper_completed_nodes": 105188,
+          "helper_aborted_nodes": 64,
+          "helper_aborted_probes": 5,
+          "helpers_started": 572,
+          "spawn_failures": 0,
+          "physical_helper_threads_started": 572,
+          "physical_helper_threads_joined": 572
+        },
+        "wait_totals": {
+          "waiting_confirmations": 0,
+          "waiting_confirmation_nodes": 0,
+          "waiting_alpha_raises": 0,
+          "notification_wait_us": 0
+        },
+        "rows_with_waiting_confirmations": 0,
+        "node_attribution_all_valid": true
+      },
+      "B": {
+        "searches": 40,
+        "wait_diagnostic_rows": 40,
+        "root_totals": {
+          "generations": 570,
+          "helper_nodes": 175127,
+          "helper_probes": 5902,
+          "helper_fail_highs": 373,
+          "main_confirmations": 362,
+          "confirmed_alpha_raises": 39,
+          "main_nodes": 1141229,
+          "confirmation_nodes": 122030,
+          "main_tasks": 12426,
+          "helper_completed_nodes": 173563,
+          "helper_aborted_nodes": 1564,
+          "helper_aborted_probes": 10,
+          "helpers_started": 570,
+          "spawn_failures": 0,
+          "physical_helper_threads_started": 570,
+          "physical_helper_threads_joined": 570
+        },
+        "wait_totals": {
+          "waiting_confirmations": 0,
+          "waiting_confirmation_nodes": 0,
+          "waiting_alpha_raises": 0,
+          "notification_wait_us": 103123
+        },
+        "rows_with_waiting_confirmations": 0,
+        "node_attribution_all_valid": true
+      }
+    },
+    "fixed_depth_timing_interpretation": "Unqualified; overlapping diagnostic lanes and nondeterministic parallel search. No timing/strength inference."
+  },
+  "pv_validation": {
+    "artifact": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-pv.json",
+      "sha256": "c3faff22cff48ba7fa7912ebfd8eb7e5e0e9e822e2e2070c8ba82fab4c0ad7c2",
+      "bytes": 1301
+    },
+    "result": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 160,
+      "pv_moves": 1276,
+      "unique_board_probes": 486,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-pv.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-default-identity",
+          "engine_sha256": {
+            "A": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+            "B": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        },
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-mechanism",
+          "engine_sha256": {
+            "A": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1",
+            "B": "8605f79164bd66547ad52b6461b9b3c9817d7be20a36060a645f2fccbdb599c1"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "local_validation": {
+    "core": {
+      "passed": 353,
+      "ignored": 4,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-full-core.log",
+        "sha256": "e6b0ebbd744b2eff7aaaa0e8fbe2eb1022870ce2fd68a64caf856a8fcd376fef",
+        "bytes": 29623
+      }
+    },
+    "root_split": {
+      "passed": 29,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-core-tests.log",
+        "sha256": "3d54f76e8ed448c9b0991a7510bfe36d0855f86e390c1d320bfb5828fe075343",
+        "bytes": 3240
+      }
+    },
+    "usi_tune": {
+      "passed": 23,
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-usi-tests.log",
+        "sha256": "eb0a80b0f6136d11598867d277a2eda7b42e97194e576b55a467ab56a0de8e12",
+        "bytes": 2116
+      }
+    },
+    "python_focused_passed": 42,
+    "fmt": "passed",
+    "tune_clippy": {
+      "result": "passed",
+      "log": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-drain-clippy.log",
+        "sha256": "ed039fd496ca72ced3a09860915ca8a476a88ced73068d857358c8b33eba7ba3",
+        "bytes": 302
+      }
+    }
+  },
+  "timed_lane": {
+    "status": "not_started",
+    "reason": "Prospective activation requirement failed: zero waiting confirmations in all forty ON searches. No relaxed protocol or extra selected positions."
+  },
+  "decision": "Retain opt-in default 0, no promotion. Independent aspiration candidate unchanged. No playing-strength evidence or YaneuraOu superiority established."
+}
