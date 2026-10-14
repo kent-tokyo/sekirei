@@ -85,3 +85,34 @@ single-thread fixed-depth best move, score, PV and nodes, then measure repeated
 counter-free 1T/4T ABBA timing across quiet and tactical positions. Shared-TT
 4T searches have schedule-dependent nodes, so report their distributions
 rather than demand deterministic multithread node equality.
+
+## v0.4.1 counter screen (2026-10-14)
+
+A preregistered, separate screen used the clean `4344202` release/tune engine
+(SHA-256 `18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2`),
+whose source tree equals merged main `3c40d00`. The existing 20-position
+quiet/tactical diagnostic corpus was unchanged. One and four workers each
+ran per-position ABBA, one repeat, 300 ms, Hash=64, MoveOverhead=0,
+LazyFlags=15, material evaluation and no book. Only T_V2_NMP_PRIOR=0/1 differed.
+Optional counters were enabled; compilation elsewhere was observed. This is
+not qualified timing, an independent corpus, or a strength gate.
+
+| Workers | Arm | Attempts | Completed verifications | Overturns | Actual corrections |
+| --- | --- | ---: | ---: | ---: | ---: |
+| 1 | OFF | 167,366 | 1,606 | 22 | 0 |
+| 1 | ON | 168,841 | 1,622 | 22 | 0 |
+| 4 | OFF | 557,536 | 2,545 | 62 | 0 |
+| 4 | ON | 589,296 | 3,048 | 68 | 0 |
+
+All 160 searches completed; no corrections occurred in any of the 80 ON
+searches. Tracking overflow and unfinished verifications were zero. The
+frozen rules tool replayed all 1,316 PV moves with zero bestmove/PV-prefix or
+legal-transition violations. Counters and depth histograms are in
+[screen-v0.4.1.json](screen-v0.4.1.json), with protocol and raw-artifact hashes.
+
+This sample does not exercise the active correction and cannot establish its
+safety or benefit. Fixed-time counts differ even with inactive pruning due to
+scheduling and execution overhead. Do not interpret count, depth or verification
+rate differences as a causal effect. Do not loosen the activation rules to fit
+this corpus. The option remains disabled and does not advance to SPRT; the
+independently queued aspiration candidate is unchanged.
