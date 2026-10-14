@@ -22,7 +22,7 @@ use sekirei_core::{
     halfkp,
     lazy_smp::{
         LAZY_DEFAULT_FLAGS, LazySmpRootHintStats, LazySmpSearcher, LazySmpWorkOverlap,
-        LazySmpWorkerInfo,
+        LazySmpWorkerInfo, LazySmpWorkerTtReuse,
     },
     mcts::{MaterialValue, SharedTreeMcts, SharedTreeMctsConfig},
     movegen::generate_legal_moves,
@@ -128,6 +128,7 @@ struct SearchResult {
     /// never attributed to another root candidate.
     pv: Vec<sekirei_core::mv::Move>,
     worker_stats: Vec<LazySmpWorkerInfo>,
+    lazy_worker_tt_reuse: Vec<LazySmpWorkerTtReuse>,
     lazy_tt_writes: Option<TtWriteSnapshot>,
     lazy_work_overlap: Option<LazySmpWorkOverlap>,
     lazy_root_hints: Option<LazySmpRootHintStats>,
@@ -282,6 +283,7 @@ impl SearchBackend {
                 pv_list: Vec::new(),
                 pv: Vec::new(),
                 worker_stats: Vec::new(),
+                lazy_worker_tt_reuse: Vec::new(),
                 lazy_tt_writes: None,
                 lazy_work_overlap: None,
                 lazy_root_hints: None,
@@ -310,7 +312,7 @@ impl SearchBackend {
                 normalize_spec_result(s.search_with_history(board, config, position_history))
             }
             Self::LazySmp(s) => {
-                let (info, lazy_root_hints) = s
+                let (info, lazy_root_hints, lazy_worker_tt_reuse) = s
                     .try_search_with_history_and_root_hint_stats(board, config, position_history)
                     .expect("USI generation manager must serialize Lazy SMP searches");
                 let result = info.result;
@@ -327,6 +329,7 @@ impl SearchBackend {
                     pv_list: Vec::new(),
                     pv: result.pv,
                     worker_stats: info.worker_results,
+                    lazy_worker_tt_reuse,
                     lazy_tt_writes: info.tt_writes,
                     lazy_work_overlap: info.work_overlap,
                     lazy_root_hints,
@@ -399,6 +402,7 @@ impl SearchBackend {
                     pv_list: Vec::new(),
                     pv: info.best_move.into_iter().collect(),
                     worker_stats: Vec::new(),
+                    lazy_worker_tt_reuse: Vec::new(),
                     lazy_tt_writes: None,
                     lazy_work_overlap: None,
                     lazy_root_hints: None,
@@ -426,6 +430,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         pv_list: Vec::new(),
         pv: info.pv,
         worker_stats: Vec::new(),
+        lazy_worker_tt_reuse: Vec::new(),
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
@@ -446,6 +451,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         pv_list: info.pv_list,
         pv: info.pv,
         worker_stats: Vec::new(),
+        lazy_worker_tt_reuse: Vec::new(),
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
@@ -481,6 +487,7 @@ fn normalize_dfpn_result(
         pv_list: Vec::new(),
         pv: proof_move.into_iter().collect(),
         worker_stats: Vec::new(),
+        lazy_worker_tt_reuse: Vec::new(),
         lazy_tt_writes: None,
         lazy_work_overlap: None,
         lazy_root_hints: None,
@@ -510,9 +517,6 @@ fn diagnostics_delta(
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
-        tt_local_hits: after.tt_local_hits.saturating_sub(before.tt_local_hits),
-        tt_foreign_hits: after.tt_foreign_hits.saturating_sub(before.tt_foreign_hits),
-        tt_unknown_hits: after.tt_unknown_hits.saturating_sub(before.tt_unknown_hits),
         order_tt: after.order_tt.saturating_sub(before.order_tt),
         order_killer: after.order_killer.saturating_sub(before.order_killer),
         order_countermove: after
@@ -695,6 +699,11 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .position(|worker| worker.selected)
         .expect("Lazy SMP diagnostics must identify the selected worker");
     let selected = info.worker_stats[selected_index];
+    let selected_reuse = info
+        .lazy_worker_tt_reuse
+        .get(selected_index)
+        .copied()
+        .unwrap_or_default();
     let selected_share_permille = selected
         .nodes
         .saturating_mul(1000)
@@ -731,6 +740,11 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
         .enumerate()
         .map(|(i, worker)| {
             let marker = if worker.selected { "*" } else { "" };
+            let reuse = info
+                .lazy_worker_tt_reuse
+                .get(i)
+                .copied()
+                .unwrap_or_default();
             format!(
                 "w{i}{marker}:d{}:n{}:s{}:t{}:x{}:a{}:p{}:h{}:r{}:l{}:f{}:u{}",
                 worker.depth,
@@ -742,9 +756,9 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
                 worker.tt_probes,
                 worker.tt_hits,
                 worker.tt_stores,
-                worker.tt_local_hits,
-                worker.tt_foreign_hits,
-                worker.tt_unknown_hits,
+                reuse.local_hits,
+                reuse.foreign_hits,
+                reuse.unknown_hits,
             )
         })
         .collect::<Vec<_>>()
@@ -752,9 +766,9 @@ fn emit_lazy_smp_diagnostics(info: &SearchResult) {
     println!(
         "info string lazy_smp selected w{selected_index} node_share_permille {selected_share_permille} move_agreement {agreement}/{} discarded_root_nodes {discarded_root_nodes} divergent_discarded_nodes {divergent_discarded_nodes} stop_lag_ms {stop_lag_ms} selected_tt_local_hits {} selected_tt_foreign_hits {} selected_tt_unknown_hits {} {summary}",
         info.worker_stats.len(),
-        selected.tt_local_hits,
-        selected.tt_foreign_hits,
-        selected.tt_unknown_hits,
+        selected_reuse.local_hits,
+        selected_reuse.foreign_hits,
+        selected_reuse.unknown_hits,
     );
 }
 

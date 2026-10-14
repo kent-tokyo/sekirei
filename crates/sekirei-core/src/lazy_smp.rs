@@ -131,14 +131,20 @@ pub struct LazySmpWorkerInfo {
     pub tt_hits: u64,
     /// Transposition-table store attempts made by this worker.
     pub tt_stores: u64,
+}
+
+/// Sampled TT ownership counters for one Lazy SMP worker.
+///
+/// This additive diagnostic type is intentionally separate from
+/// [`LazySmpWorkerInfo`], whose public struct-literal layout is stable in 0.4.x.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpWorkerTtReuse {
     /// Sampled TT hits on entries last written by this worker.
-    pub tt_local_hits: u64,
-    /// Sampled TT hits on entries last written by another worker. For the
-    /// selected worker this proves that its search consumed helper-authored
-    /// TT data, not that the hit caused the returned move.
-    pub tt_foreign_hits: u64,
+    pub local_hits: u64,
+    /// Sampled TT hits on entries last written by another worker.
+    pub foreign_hits: u64,
     /// Sampled TT hits whose writer was not retained by the bounded registry.
-    pub tt_unknown_hits: u64,
+    pub unknown_hits: u64,
 }
 
 /// Independent root-search workers sharing a lock-free transposition table.
@@ -556,7 +562,7 @@ impl LazySmpSearcher {
         self.search_with_history_inner(board, config, history).0
     }
 
-    /// Try to search and return invocation-bound helper-root-hint diagnostics.
+    /// Try to search and return invocation-bound opt-in diagnostics.
     ///
     /// The second tuple member is `None` when the experiment is unavailable.
     /// Its counters are captured before this invocation returns, so a later or
@@ -568,7 +574,11 @@ impl LazySmpSearcher {
         board: &Board,
         config: SearchConfig,
         history: &PositionHistory,
-    ) -> Option<(LazySmpInfo, Option<LazySmpRootHintStats>)> {
+    ) -> Option<(
+        LazySmpInfo,
+        Option<LazySmpRootHintStats>,
+        Vec<LazySmpWorkerTtReuse>,
+    )> {
         let _invocation = SearchInvocationGuard::try_acquire(&self.search_active)?;
         Some(self.search_with_history_inner(board, config, history))
     }
@@ -578,7 +588,11 @@ impl LazySmpSearcher {
         board: &Board,
         config: SearchConfig,
         history: &PositionHistory,
-    ) -> (LazySmpInfo, Option<LazySmpRootHintStats>) {
+    ) -> (
+        LazySmpInfo,
+        Option<LazySmpRootHintStats>,
+        Vec<LazySmpWorkerTtReuse>,
+    ) {
         debug_assert_eq!(
             history.entries().last().map(|entry| entry.hash),
             Some(board.hash())
@@ -595,12 +609,16 @@ impl LazySmpSearcher {
             .as_ref()
             .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
-        let results: Vec<(SearchInfo, Option<SearchDiagnosticsSnapshot>)> = (0..self.workers)
+        let results: Vec<(
+            SearchInfo,
+            Option<(SearchDiagnosticsSnapshot, TtReuseSnapshot)>,
+        )> = (0..self.workers)
             .into_par_iter()
             .map(|index| {
                 let mut worker_board = board.clone();
                 let diagnostics = self.diagnostics.get(index);
-                let before = diagnostics.map(|observer| observer.snapshot());
+                let before =
+                    diagnostics.map(|observer| (observer.snapshot(), observer.tt_reuse_snapshot()));
                 let info = if let Some(searcher) = self.persistent.get(index) {
                     searcher.search_with_history(&mut worker_board, config, history)
                 } else {
@@ -624,9 +642,12 @@ impl LazySmpSearcher {
                     self.external_abort
                         .store(true, std::sync::atomic::Ordering::Relaxed);
                 }
-                let counters = diagnostics
-                    .zip(before)
-                    .map(|(observer, before)| diagnostics_delta(observer.snapshot(), before));
+                let counters = diagnostics.zip(before).map(|(observer, before)| {
+                    (
+                        diagnostics_delta(observer.snapshot(), before.0),
+                        tt_reuse_delta(observer.tt_reuse_snapshot(), before.1),
+                    )
+                });
                 (info, counters)
             })
             .collect();
@@ -643,12 +664,21 @@ impl LazySmpSearcher {
                 elapsed: info.elapsed,
                 aborted: info.aborted,
                 abort_reason: info.abort_reason,
-                tt_probes: diagnostics.map_or(0, |snapshot| snapshot.tt_probes),
-                tt_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_hits),
-                tt_stores: diagnostics.map_or(0, |snapshot| snapshot.tt_stores),
-                tt_local_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_local_hits),
-                tt_foreign_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_foreign_hits),
-                tt_unknown_hits: diagnostics.map_or(0, |snapshot| snapshot.tt_unknown_hits),
+                tt_probes: diagnostics.map_or(0, |snapshot| snapshot.0.tt_probes),
+                tt_hits: diagnostics.map_or(0, |snapshot| snapshot.0.tt_hits),
+                tt_stores: diagnostics.map_or(0, |snapshot| snapshot.0.tt_stores),
+            })
+            .collect();
+        let worker_tt_reuse = results
+            .iter()
+            .map(|(_, diagnostics)| {
+                diagnostics.map_or_else(LazySmpWorkerTtReuse::default, |snapshot| {
+                    LazySmpWorkerTtReuse {
+                        local_hits: snapshot.1.local_hits,
+                        foreign_hits: snapshot.1.foreign_hits,
+                        unknown_hits: snapshot.1.unknown_hits,
+                    }
+                })
             })
             .collect();
         let mut search_results: Vec<SearchInfo> =
@@ -691,7 +721,7 @@ impl LazySmpSearcher {
                         applied,
                     }
                 });
-        (info, root_hint_stats)
+        (info, root_hint_stats, worker_tt_reuse)
     }
 }
 
@@ -703,10 +733,16 @@ fn diagnostics_delta(
         tt_probes: after.tt_probes.saturating_sub(before.tt_probes),
         tt_hits: after.tt_hits.saturating_sub(before.tt_hits),
         tt_stores: after.tt_stores.saturating_sub(before.tt_stores),
-        tt_local_hits: after.tt_local_hits.saturating_sub(before.tt_local_hits),
-        tt_foreign_hits: after.tt_foreign_hits.saturating_sub(before.tt_foreign_hits),
-        tt_unknown_hits: after.tt_unknown_hits.saturating_sub(before.tt_unknown_hits),
         ..SearchDiagnosticsSnapshot::default()
+    }
+}
+
+fn tt_reuse_delta(after: TtReuseSnapshot, before: TtReuseSnapshot) -> TtReuseSnapshot {
+    TtReuseSnapshot {
+        local_hits: after.local_hits.saturating_sub(before.local_hits),
+        foreign_hits: after.foreign_hits.saturating_sub(before.foreign_hits),
+        unknown_hits: after.unknown_hits.saturating_sub(before.unknown_hits),
+        ..TtReuseSnapshot::default()
     }
 }
 
@@ -1282,7 +1318,7 @@ mod tests {
         let searcher = LazySmpSearcher::with_flags(Tt::new(1), 2, flags);
         let board = Board::startpos();
         let history = PositionHistory::initial(board.hash());
-        let (_, first) = searcher
+        let (_, first, _) = searcher
             .try_search_with_history_and_root_hint_stats(
                 &board,
                 SearchConfig {
@@ -1298,7 +1334,7 @@ mod tests {
         let first = first.expect("enabled experiment must return one snapshot");
         assert!(first.applied <= first.eligible_reads);
 
-        let (_, second) = searcher
+        let (_, second, _) = searcher
             .try_search_with_history_and_root_hint_stats(
                 &board,
                 SearchConfig {
@@ -1314,7 +1350,7 @@ mod tests {
         assert_eq!(second, Some(LazySmpRootHintStats::default()));
 
         let disabled = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
-        let (_, stats) = disabled
+        let (_, stats, _) = disabled
             .try_search_with_history_and_root_hint_stats(
                 &board,
                 SearchConfig {
