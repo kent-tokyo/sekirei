@@ -1,6 +1,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+#[cfg(test)]
+use std::io::BufReader;
+use std::io::{self, BufRead, Read};
 use std::path::Path;
 
 use sekirei_core::board::Board;
@@ -14,6 +16,7 @@ use shogiesa_core::schema::{
 };
 
 use crate::csa::GameResult;
+use crate::dataset_reader::DatasetReader;
 
 /// Typed shogiesa provenance retained beside the authoritative Sekirei board.
 ///
@@ -139,7 +142,7 @@ const REJECTED_PREVIEW_CHARS: usize = 256;
 #[derive(Clone, Debug, Serialize)]
 pub struct PositionRejectedExample {
     pub line_number: usize,
-    /// Zero-based byte offset in the original, uncompressed input.
+    /// Zero-based byte offset in the decoded JSONL stream.
     pub byte_offset: u64,
     /// SHA-256 includes the original line ending, when present.
     pub row_sha256: String,
@@ -151,13 +154,19 @@ pub struct PositionRejectedExample {
 /// Complete ingestion audit, returned only after EOF and successful callbacks.
 ///
 /// Counts describe parsing and board validation, before any downstream sample
-/// caps, split, cache selection, or training filters. Memory is bounded by the
-/// longest input row, one mapped sample, and the capped rejection examples.
+/// caps, split, cache selection, or training filters. Scanner state retains the
+/// longest decoded row, one mapped sample, and capped rejection examples;
+/// compressed readers additionally allocate their bounded decoder buffers.
 #[derive(Clone, Debug, Default, Serialize)]
 pub struct PositionIngestReport {
-    /// SHA-256 of every original byte, including blank lines and line endings.
+    /// SHA-256 of the physical input file, including its compression framing.
     pub sha256: String,
     pub input_bytes: u64,
+    pub compression: &'static str,
+    /// Exact decoded JSONL bytes; equal to the input identity for plain files.
+    pub decoded_sha256: String,
+    pub decoded_bytes: u64,
+    /// Physical line breaks in the decoded JSONL, including blank rows.
     pub physical_lines: usize,
     pub non_empty_lines: usize,
     pub accepted: usize,
@@ -193,7 +202,7 @@ impl PositionIngestReport {
 
 /// Read, validate and deliver each accepted position without collecting it.
 ///
-/// The callback receives the exact original UTF-8 row, including any line
+/// The callback receives the exact decoded UTF-8 row, including any line
 /// ending. It may write the row to a spool; the borrow ends before the reusable
 /// buffer advances. Strict mode stops at the first invalid record. Non-strict
 /// mode records bounded evidence and continues. Read/UTF-8 errors and callback
@@ -204,7 +213,40 @@ pub fn scan_positions(
     accept: impl FnMut(PositionSample, &str) -> Result<(), String>,
 ) -> Result<PositionIngestReport, String> {
     let file = File::open(path).map_err(|error| format!("cannot read {path:?}: {error}"))?;
-    scan_reader(BufReader::new(file), strict, accept)
+    let mut source = InputDigest {
+        reader: file,
+        digest: Sha256::new(),
+        bytes: 0,
+    };
+    let reader = DatasetReader::new(&mut source, path)
+        .map_err(|error| format!("cannot decode positions {path:?}: {error}"))?;
+    let compression = reader.compression();
+    // Returning successfully requires the decoder to reach physical EOF and
+    // verify every member/frame footer. Hash the file below buffering/decoding,
+    // without reopening a possibly changed input after the scan.
+    let mut report = scan_reader(reader, strict, accept)?;
+    report.compression = compression;
+    report.sha256 = format!("{:x}", source.digest.finalize());
+    report.input_bytes = source.bytes;
+    Ok(report)
+}
+
+struct InputDigest<R> {
+    reader: R,
+    digest: Sha256,
+    bytes: u64,
+}
+
+impl<R: Read> Read for InputDigest<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let count = self.reader.read(output)?;
+        self.bytes = self
+            .bytes
+            .checked_add(count as u64)
+            .ok_or_else(|| io::Error::other("positions input byte count overflow"))?;
+        self.digest.update(&output[..count]);
+        Ok(count)
+    }
 }
 
 fn scan_reader(
@@ -212,7 +254,10 @@ fn scan_reader(
     strict: bool,
     mut accept: impl FnMut(PositionSample, &str) -> Result<(), String>,
 ) -> Result<PositionIngestReport, String> {
-    let mut report = PositionIngestReport::default();
+    let mut report = PositionIngestReport {
+        compression: "plain",
+        ..PositionIngestReport::default()
+    };
     let mut digest = Sha256::new();
     let mut raw = String::new();
     loop {
@@ -224,9 +269,9 @@ fn scan_reader(
         if bytes_read == 0 {
             break;
         }
-        let byte_offset = report.input_bytes;
-        report.input_bytes = report
-            .input_bytes
+        let byte_offset = report.decoded_bytes;
+        report.decoded_bytes = report
+            .decoded_bytes
             .checked_add(bytes_read as u64)
             .ok_or_else(|| "positions input byte count overflow".to_string())?;
         report.physical_lines = line_number;
@@ -287,7 +332,9 @@ fn scan_reader(
             }
         }
     }
-    report.sha256 = format!("{:x}", digest.finalize());
+    report.decoded_sha256 = format!("{:x}", digest.finalize());
+    report.sha256.clone_from(&report.decoded_sha256);
+    report.input_bytes = report.decoded_bytes;
     Ok(report)
 }
 
@@ -469,6 +516,9 @@ mod tests {
             vec![("棋譜.csa".to_string(), first), ("b.csa".to_string(), last)]
         );
         assert_eq!(report.input_bytes, input.len() as u64);
+        assert_eq!(report.compression, "plain");
+        assert_eq!(report.decoded_bytes, report.input_bytes);
+        assert_eq!(report.decoded_sha256, report.sha256);
         assert_eq!(
             report.sha256,
             format!("{:x}", Sha256::digest(input.as_bytes()))

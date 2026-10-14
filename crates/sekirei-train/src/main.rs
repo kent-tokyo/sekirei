@@ -18,6 +18,7 @@
 mod artifact_io;
 mod book;
 mod csa;
+mod dataset_reader;
 mod diagnostics;
 mod exporter;
 mod position_dataset;
@@ -2561,7 +2562,10 @@ fn print_usage() {
     );
     eprintln!();
     eprintln!("  --games <dir>       Directory containing .csa game files");
-    eprintln!("  --positions <jsonl> shogiesa positions.jsonl (alternative to --games)");
+    eprintln!(
+        "  --positions <jsonl> shogiesa JSONL; optional positions-gzip/positions-zstd features enable compressed input"
+    );
+    eprintln!("                     Compression is detected by magic; zstd window limit: 8 MiB");
     eprintln!(
         "  --diagnostic-manifest <json>  Validated shogiesa diagnostic manifest; observations never become teacher targets"
     );
@@ -2602,8 +2606,12 @@ fn print_usage() {
     eprintln!("  --quiet             Skip positions in check or where next move is a capture");
     eprintln!("  --min-ply <n>       Skip the first N plies per game (default: 0)");
     eprintln!("  --label-depth <n>   Search depth for teacher labels (default: 1)");
-    eprintln!("  --positions-sha256 <hex>  Require exact SHA-256 for --positions input");
-    eprintln!("  --validation-positions-sha256 <hex>  Require exact SHA-256 for explicit hold-out");
+    eprintln!(
+        "  --positions-sha256 <hex>  Require SHA-256 of physical --positions file (before decoding)"
+    );
+    eprintln!(
+        "  --validation-positions-sha256 <hex>  Require SHA-256 of physical explicit hold-out file"
+    );
     eprintln!(
         "  --label-time-ms <n>  Hard limit per teacher search; part of cache identity (default: unlimited)"
     );
@@ -3016,8 +3024,10 @@ fn load_position_inputs(args: &Args) -> Result<LoadedPositionInputs, String> {
             "path": args.validation_positions_path, "report": report,
         })),
         "counts_scope": "before source cap, split, teacher-cache selection and training filters",
-        "offset_unit": "zero-based byte offset in original uncompressed input",
-        "row_hash_scope": "exact row bytes including original line ending",
+        "offset_unit": "zero-based byte offset in decoded JSONL stream",
+        "input_hash_scope": "physical file bytes before decompression",
+        "decoded_hash_scope": "exact decoded JSONL bytes including original line endings",
+        "row_hash_scope": "exact decoded row bytes including original line ending",
         "memory_scope": "disk mode retains row offsets; shuffle indices and teacher caches remain proportional to dataset size",
     });
     // Only publish after both inputs reach EOF, callback writes succeed, and

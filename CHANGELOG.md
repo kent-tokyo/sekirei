@@ -14,6 +14,9 @@ preserves older per-change notes.
 
 ### Added
 
+- Add independently gated Pure Rust gzip/zstd JSONL decoding with physical and
+  decoded hashes, complete-stream integrity checks, and compression/storage
+  equivalence tests. Preserve the physical-file SHA contract for resume.
 - Add opt-in disk-backed JSONL position storage and durable ingestion audit
   manifests with exact input hashes, rejection counts and bounded row evidence.
   Preserve source selection, shuffle and resume semantics; avoid retaining an

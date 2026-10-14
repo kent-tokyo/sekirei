@@ -91,7 +91,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
-* 2026-10-15: Implement lower-memory JSONL ingestion and durable audit manifests in isolation; preserve sample selection, shuffle, resume and hold-out contracts, and keep ingestion measurements separate from training throughput or strength.
+* 2026-10-15: Implement lower-memory JSONL ingestion, durable audit manifests and optional Pure Rust gzip/zstd input in isolation; preserve sample selection, shuffle, resume and hold-out contracts, and keep ingestion measurements separate from training throughput or strength.
 
 * 2026-10-14: Target pgx shogi throughput; pin pgx/JAX/backend and batch conditions, compare matching legal-mask or full-environment work, and keep CPU, accelerator throughput, search NPS, and strength distinct.
 
