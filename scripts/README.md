@@ -109,6 +109,81 @@ python3 scripts/run_tactical_line_diagnostic.py \
 Add `--weights FILE --nnue-output absolute` for a distinct NNUE lane. The
 report hashes both executables, the case file, and the optional weights.
 
+## JSONL ingestion and audit
+
+`train --positions` keeps in-memory storage by default. Use
+`--positions-storage disk` to snapshot accepted JSONL rows in an anonymous
+system-temporary file and decode one position at a time. Source caps, the legacy
+SFEN split, exact seeded shuffle, teacher-cache update timing and resume recipe
+stay the same across both modes. Disk storage uses temporary space proportional
+to accepted input bytes and an O(N) row-offset index; shuffle indices and teacher
+caches also remain O(N). It does not change the HalfKP packed-data trainer.
+
+Every successful ingestion writes `<output stem>.positions-manifest.json`
+(or `--positions-manifest PATH`) atomically after all inputs reach EOF and
+requested SHA-256 checks pass. Counts precede source caps, splits and training
+filters. The manifest includes exact input hashes, accepted/skipped counts,
+rejection categories and up to eight examples with decoded line numbers,
+zero-based decoded byte offsets, row hashes and 256-character previews. Row hashes
+include original line endings. Strict, I/O, callback and hash failures do not
+publish a new complete manifest. Pre-existing audit evidence is left intact.
+
+```bash
+cargo run --release -p sekirei-train -- --positions /path/to/positions.jsonl \
+  --positions-storage disk --positions-audit-only \
+  --positions-manifest data/runs/ingest/audit.json
+python3 scripts/benchmark_positions_ingest.py --binary target/release/train \
+  --output data/runs/ingest-benchmark --records 10000 --repeats 2
+TRAIN_BIN="$PWD/target/release/train" python3 -B scripts/test_positions_ingest.py
+```
+
+Audit-only exits before evaluator initialization or training. The benchmark
+creates synthetic data, alternates the storage modes, checks matching reports,
+and records binary/input hashes, host/toolchain, elapsed time and maximum RSS.
+Its results measure ingestion only, not epoch throughput or playing strength.
+The [initial storage comparison](../docs/experiments/positions_ingestion_v0.4.1/README.md)
+retains synthetic-input RSS/time measurements and compatibility checks.
+
+### Optional compressed JSONL
+
+Build `sekirei-train` with `positions-gzip`, `positions-zstd`, or both. They are
+independent and disabled by default. Gzip uses
+[flate2 1.1.10](https://docs.rs/flate2/1.1.10/flate2/) with the explicit
+`miniz_oxide` backend; zstd uses [ruzstd 0.9.1](https://docs.rs/ruzstd/0.9.1/ruzstd/).
+Both decoders use Rust implementations without C/C++ bindings. The adapter uses
+safe Rust; this does not assert that all transitive dependencies contain no unsafe.
+
+```bash
+cargo build --release -p sekirei-train --bin train \
+  --features positions-gzip,positions-zstd
+target/release/train --positions /path/to/positions.jsonl.zst \
+  --positions-storage disk --positions-audit-only \
+  --positions-manifest data/runs/compressed-ingest/audit.json
+TRAIN_BIN="$PWD/target/release/train" POSITIONS_CODECS=gzip,zstd \
+  python3 -B scripts/test_positions_compression.py
+```
+
+Content magic takes precedence over the filename. A `.gz`/`.gzip` or
+`.zst`/`.zstd` suffix also selects the corresponding decoder when magic is missing,
+so truncated headers do not silently become skipped JSONL. Disabled codecs report
+the required Cargo feature. Concatenated gzip members and zstd frames are decoded
+as one stream, including zstd skippable frames. Checksum errors, truncated streams,
+invalid trailing data and unsupported frames fail the entire ingest, even without
+`--strict-positions`, before publishing a complete audit. Zstd dictionaries are
+unsupported, and the decoder window is limited to 8 MiB.
+
+`report.sha256`, `report.input_bytes`, `--positions-sha256` and
+`--validation-positions-sha256` always identify the physical file bytes before
+decoding. `report.decoded_sha256` and `report.decoded_bytes` identify the exact JSONL
+stream, including blank lines and original line endings; `report.compression`
+records the selected codec. Rejection offsets, line numbers and row hashes refer
+to that decoded stream. Plain input has identical physical and decoded identities.
+The existing resume identity uses the physical hash: recompressing or switching
+codecs requires a new run even if the decoded JSONL is unchanged. Changing only
+memory/disk storage still permits resume.
+The [compression validation](../docs/experiments/positions_compression_v0.4.1/README.md)
+records the six-way audit/training comparisons and local coverage result.
+
 ## NNUE candidates and gates
 
 Freeze the input, evaluator, hashes, factor change, and decision rule before a

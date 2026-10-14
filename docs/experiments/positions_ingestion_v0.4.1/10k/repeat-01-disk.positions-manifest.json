@@ -1,0 +1,33 @@
+{
+  "complete": true,
+  "counts_scope": "before source cap, split, teacher-cache selection and training filters",
+  "ingest_seconds": 0.052686833,
+  "memory_scope": "disk mode retains row offsets; shuffle indices and teacher caches remain proportional to dataset size",
+  "offset_unit": "zero-based byte offset in original uncompressed input",
+  "row_hash_scope": "exact row bytes including original line ending",
+  "schema": "sekirei.positions-ingest.v1",
+  "storage": "disk",
+  "strict": false,
+  "train": {
+    "path": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-10k/synthetic.positions.jsonl",
+    "report": {
+      "accepted": 10000,
+      "cp_observations": 0,
+      "input_bytes": 2720000,
+      "mate_observations": 0,
+      "missing_game_result": 10000,
+      "missing_stability": 10000,
+      "non_empty_lines": 10000,
+      "physical_lines": 10000,
+      "rejected_examples": [],
+      "schema_versions": {
+        "11": 10000
+      },
+      "sha256": "96a25101cd247fdc3f66c6043e8c6752dc3cfb1fd0f1ebf75856c352b39a7938",
+      "skipped": 0,
+      "skipped_by_reason": {},
+      "unknown_game_result": 0
+    }
+  },
+  "validation": null
+}

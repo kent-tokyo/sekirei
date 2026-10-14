@@ -1,0 +1,77 @@
+{
+  "schema": "sekirei.positions-ingest-validation.v1",
+  "implementation_commit": "698dde82a8325653a9aa8608d6b3d1b2b9d5c15f",
+  "base_commit": "2499c485d3fbab231e1695e2ea1537705b1b5245",
+  "binary_sha256": "e0879af913826321bba369cf10d482be618b95205aeb35a4efddfd5d4c828f9d",
+  "cargo_lock_sha256": "5d61f59157f5e1f0563797cdcbc7afb9dcd996ad93ea7aeb16e27153720d1ee1",
+  "benchmark_script_sha256": "187a947b2717ac5e264167a8e3f512f83512f977bbe8ad0262134fefbb3eb3b5",
+  "integration_test_script_sha256": "44ca131766d57322ba8fe4794073124b6ad6600b39f78bc77b7f12fe2334fa34",
+  "build": {
+    "command": "CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 CARGO_BUILD_JOBS=2 cargo build --release -p sekirei-train --bin train -j 2",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+    "rustflags_from_config": [
+      "-C",
+      "target-cpu=native"
+    ],
+    "RUSTFLAGS_override": null,
+    "CARGO_ENCODED_RUSTFLAGS_override": null,
+    "release_profile": {
+      "opt-level": 3,
+      "lto": "thin",
+      "codegen-units": 1,
+      "strip": "debuginfo",
+      "panic": "abort"
+    }
+  },
+  "checks": [
+    {
+      "command": "RUST_MIN_STACK=16777216 CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo test -p sekirei-train -j 1 -- --test-threads=2",
+      "status": "passed",
+      "passed": 265,
+      "failed": 0,
+      "targets": {
+        "ranking_audit": 7,
+        "train": 254,
+        "validate_gate_observations": 0,
+        "verify-shogiesa-label-run": 4
+      }
+    },
+    {
+      "command": "TRAIN_BIN=\"$PWD/target/release/train\" python3 -B scripts/test_positions_ingest.py",
+      "status": "passed",
+      "passed": 12,
+      "failed": 0,
+      "seconds": 3.627,
+      "equivalence": "Final weights, epoch weights and Adam JSON are byte-identical across memory/disk and memory-to-disk mid-epoch resume with identical checkpoint cadence."
+    },
+    {
+      "command": "CARGO_INCREMENTAL=0 CARGO_PROFILE_DEV_DEBUG=0 CARGO_PROFILE_TEST_DEBUG=0 cargo clippy --all-targets -- -D warnings",
+      "status": "passed",
+      "scope": "workspace pre-commit hook"
+    },
+    {
+      "command": "cargo fmt --check",
+      "status": "passed"
+    },
+    {
+      "command": "python3 -B scripts/check_documentation_references.py",
+      "status": "passed",
+      "repository_files": 13
+    },
+    {
+      "command": "git diff --check",
+      "status": "passed"
+    }
+  ],
+  "not_run": [
+    "full workspace tests",
+    "98% coverage gate",
+    "hosted CI",
+    "real-corpus epoch throughput",
+    "strength qualification"
+  ],
+  "environment_note": "Initial build and pre-commit attempts ran out of disk space. Only this task worktree debug artifacts were removed; checks were retried without incremental compilation. Other host compiler activity was observed, so timing is diagnostic only.",
+  "scope": "JSONL ingestion and existing trainer storage adapter. No HalfKP packed-data training, weights, candidate selection, existing corpus, or hold-out changes."
+}

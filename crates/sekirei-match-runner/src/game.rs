@@ -46,14 +46,13 @@ pub(crate) fn fischer_clock_after_move(
     elapsed_ms: u64,
     margin_ms: u64,
 ) -> Option<u64> {
-    if elapsed_ms > remaining_ms.saturating_add(margin_ms) {
+    // The increment is available before the move, including when the old
+    // main-time balance is smaller than the time spent thinking.
+    let available_ms = remaining_ms.saturating_add(increment_ms);
+    if elapsed_ms > available_ms.saturating_add(margin_ms) {
         return None;
     }
-    Some(
-        remaining_ms
-            .saturating_sub(elapsed_ms)
-            .saturating_add(increment_ms),
-    )
+    Some(available_ms.saturating_sub(elapsed_ms))
 }
 
 pub(crate) fn repetition_result(

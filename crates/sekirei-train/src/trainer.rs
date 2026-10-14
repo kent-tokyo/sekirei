@@ -1546,6 +1546,7 @@ impl Trainer {
     /// Train on a slice of PositionSamples (from shogiesa positions.jsonl).
     /// `teacher_cache`: sfen → score_cp; cache hits skip search entirely.
     /// `new_entries`: receives (sfen, score_cp) for each search actually run (cache miss).
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn train_positions(
         &mut self,
@@ -1560,7 +1561,37 @@ impl Trainer {
         wdl_lambda: Option<f32>,
         wdl_target_scale: f32,
     ) {
+        self.train_position_iter(
+            samples.iter().cloned().map(Ok),
+            label_depth,
+            scored,
+            stability_weighted,
+            phase_weights,
+            side_weights,
+            teacher_cache,
+            new_entries,
+            wdl_lambda,
+            wdl_target_scale,
+        )
+        .expect("in-memory position iteration is infallible");
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn train_position_iter(
+        &mut self,
+        samples: impl IntoIterator<Item = Result<crate::positions::PositionSample, String>>,
+        label_depth: u32,
+        scored: &HashMap<String, f32>,
+        stability_weighted: bool,
+        phase_weights: &HashMap<String, f32>,
+        side_weights: &HashMap<String, f32>,
+        teacher_cache: &HashMap<String, i32>,
+        new_entries: &mut Vec<(String, i32)>,
+        wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
+    ) -> Result<(), String> {
         for sample in samples {
+            let sample = sample?;
             let absolute_wdl_target = wdl_target_cp(
                 sample.game_result,
                 sample.board.side_to_move,
@@ -1642,6 +1673,7 @@ impl Trainer {
                 sample.game_result,
             );
         }
+        Ok(())
     }
 
     /// Forward-only pass for validation loss (no weight updates).
@@ -1654,6 +1686,7 @@ impl Trainer {
     /// label-depth search on every sample on every epoch, even when the
     /// cache already had every score (this was the actual cause of a
     /// training run taking ~15 min/epoch on a fully-cached 10k dataset).
+    #[cfg(test)]
     #[allow(clippy::too_many_arguments)]
     pub fn eval_positions(
         &mut self,
@@ -1666,11 +1699,37 @@ impl Trainer {
         wdl_lambda: Option<f32>,
         wdl_target_scale: f32,
     ) -> (f64, f64, ValidStats) {
+        self.eval_position_iter(
+            samples.iter().cloned().map(Ok),
+            label_depth,
+            phase_weights,
+            side_weights,
+            teacher_cache,
+            new_entries,
+            wdl_lambda,
+            wdl_target_scale,
+        )
+        .expect("in-memory position iteration is infallible")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn eval_position_iter(
+        &mut self,
+        samples: impl IntoIterator<Item = Result<crate::positions::PositionSample, String>>,
+        label_depth: u32,
+        phase_weights: &HashMap<String, f32>,
+        side_weights: &HashMap<String, f32>,
+        teacher_cache: &HashMap<String, i32>,
+        new_entries: &mut Vec<(String, i32)>,
+        wdl_lambda: Option<f32>,
+        wdl_target_scale: f32,
+    ) -> Result<(f64, f64, ValidStats), String> {
         let mut loss_raw = 0.0f64;
         let mut loss_weighted = 0.0f64;
         let mut total_w = 0.0f64;
         let mut stats = ValidStats::default();
         for sample in samples {
+            let sample = sample?;
             let absolute_wdl_target = wdl_target_cp(
                 sample.game_result,
                 sample.board.side_to_move,
@@ -1757,7 +1816,7 @@ impl Trainer {
         } else {
             0.0
         };
-        (raw, weighted, stats)
+        Ok((raw, weighted, stats))
     }
 
     /// Computes the teacher target for a single position: a clamped
@@ -4484,6 +4543,46 @@ mod tests {
         assert_eq!(weights.l2_bias(), weights.l2_bias.as_slice());
         assert_eq!(weights.out(), weights.out.as_slice());
         assert_eq!(weights.out_bias(), weights.out_bias);
+    }
+
+    #[test]
+    fn fallible_position_stream_stops_training_and_validation_at_read_error() {
+        let mut trainer = Trainer::new(42, 0.1);
+        let before = trainer.weights.snapshot_params();
+        let weights = HashMap::new();
+        let cache = HashMap::new();
+        let mut entries = Vec::new();
+        let error = trainer
+            .train_position_iter(
+                [Err("snapshot read failed".to_string())],
+                1,
+                &weights,
+                false,
+                &weights,
+                &weights,
+                &cache,
+                &mut entries,
+                None,
+                600.0,
+            )
+            .unwrap_err();
+        assert_eq!(error, "snapshot read failed");
+        assert_eq!(trainer.total_count, 0);
+        assert!(entries.is_empty());
+        assert_eq!(trainer.weights.snapshot_params(), before);
+        let result = trainer.eval_position_iter(
+            [Err("snapshot validation read failed".to_string())],
+            1,
+            &weights,
+            &weights,
+            &cache,
+            &mut entries,
+            None,
+            600.0,
+        );
+        assert!(matches!(result, Err(error) if error == "snapshot validation read failed"));
+        assert!(entries.is_empty());
+        assert_eq!(trainer.weights.snapshot_params(), before);
     }
 
     #[test]

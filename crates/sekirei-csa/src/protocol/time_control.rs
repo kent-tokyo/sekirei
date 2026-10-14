@@ -3,10 +3,12 @@
 //! Keep unit conversion and duplicate-field rejection independent from the
 //! network session so the tournament clock contract can be tested directly.
 
+use sekirei_core::color::Color;
 use std::io;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct ParsedTimeControl {
+    pub(super) unit_ms: u64,
     pub(super) total_time_ms: Option<u64>,
     pub(super) byoyomi_ms: Option<u64>,
     pub(super) increment_ms: Option<u64>,
@@ -71,11 +73,121 @@ impl CsaTimeControl {
                 .transpose()
         };
         Ok(ParsedTimeControl {
+            unit_ms: self.unit_ms,
             total_time_ms: convert("Total_Time", self.total_time)?,
             byoyomi_ms: convert("Byoyomi", self.byoyomi)?,
             increment_ms: convert("Increment", self.increment)?,
         })
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TimeScope {
+    Common,
+    Black,
+    White,
+}
+
+/// CSA allows one shared Time section or separate Time+ and Time- sections.
+/// Older servers also send the time fields directly in Game_Summary.
+#[derive(Debug, Default)]
+pub(super) struct CsaTimeControlSet {
+    common: CsaTimeControl,
+    black: CsaTimeControl,
+    white: CsaTimeControl,
+    scope: Option<TimeScope>,
+    shared_section: bool,
+    black_section: bool,
+    white_section: bool,
+    common_field: bool,
+}
+
+impl CsaTimeControlSet {
+    pub(super) fn is_time_line(line: &str) -> bool {
+        matches!(
+            line,
+            "BEGIN Time" | "END Time" | "BEGIN Time+" | "END Time+" | "BEGIN Time-" | "END Time-"
+        ) || ["Time_Unit:", "Total_Time:", "Byoyomi:", "Increment:"]
+            .iter()
+            .any(|prefix| line.starts_with(prefix))
+    }
+
+    pub(super) fn apply(&mut self, line: &str) -> io::Result<()> {
+        let begin = match line {
+            "BEGIN Time" => Some(TimeScope::Common),
+            "BEGIN Time+" => Some(TimeScope::Black),
+            "BEGIN Time-" => Some(TimeScope::White),
+            _ => None,
+        };
+        if let Some(scope) = begin {
+            if self.scope.is_some() {
+                return Err(invalid_time("nested CSA Time section"));
+            }
+            let seen = match scope {
+                TimeScope::Common => &mut self.shared_section,
+                TimeScope::Black => &mut self.black_section,
+                TimeScope::White => &mut self.white_section,
+            };
+            if *seen {
+                return Err(invalid_time("duplicate CSA Time section"));
+            }
+            *seen = true;
+            self.scope = Some(scope);
+            return Ok(());
+        }
+        let end = match line {
+            "END Time" => Some(TimeScope::Common),
+            "END Time+" => Some(TimeScope::Black),
+            "END Time-" => Some(TimeScope::White),
+            _ => None,
+        };
+        if let Some(scope) = end {
+            if self.scope != Some(scope) {
+                return Err(invalid_time("unmatched CSA Time section end"));
+            }
+            self.scope = None;
+            return Ok(());
+        }
+        let control = match self.scope {
+            Some(TimeScope::Black) => &mut self.black,
+            Some(TimeScope::White) => &mut self.white,
+            Some(TimeScope::Common) | None => {
+                if self.scope.is_none() {
+                    self.common_field = true;
+                }
+                &mut self.common
+            }
+        };
+        control.apply(line)?;
+        Ok(())
+    }
+
+    pub(super) fn finish(self, color: Color) -> io::Result<ParsedTimeControl> {
+        if self.scope.is_some() {
+            return Err(invalid_time("unterminated CSA Time section"));
+        }
+        if self.black_section || self.white_section {
+            if !self.black_section
+                || !self.white_section
+                || self.shared_section
+                || self.common_field
+            {
+                return Err(invalid_time(
+                    "CSA Time+ and Time- must be complete and exclusive",
+                ));
+            }
+            return if color == Color::Black {
+                self.black.finish()
+            } else {
+                self.white.finish()
+            };
+        }
+        self.common.finish()
+    }
+}
+
+fn invalid_time(message: &'static str) -> io::Error {
+    io::Error::new(io::ErrorKind::InvalidData, message)
 }
 
 pub(super) fn parse_decimal(value: &str) -> io::Result<u64> {

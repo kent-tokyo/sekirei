@@ -124,9 +124,21 @@ jobs:
           cargo run --release -p sekirei-train -- --help > /tmp/sekirei-train-help.txt 2>&1
           grep -q -- '--strict-positions' /tmp/sekirei-train-help.txt
           grep -q -- '--positions-sha256' /tmp/sekirei-train-help.txt
+          grep -q -- '--positions-storage' /tmp/sekirei-train-help.txt
+          grep -q -- '--positions-audit-only' /tmp/sekirei-train-help.txt
+          TRAIN_BIN="$PWD/target/release/train" python3 -B scripts/test_positions_ingest.py
+          TRAIN_BIN="$PWD/target/release/train" POSITIONS_CODECS= python3 -B scripts/test_positions_compression.py
           grep -q -- '--validation-positions-sha256' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint-every-games' /tmp/sekirei-train-help.txt
+      - name: Optional compressed positions contract
+        run: |
+          cargo check -p sekirei-train --bin train --features positions-gzip
+          cargo check -p sekirei-train --bin train --features positions-zstd
+          cargo clippy -p sekirei-train --all-targets --features positions-gzip,positions-zstd -- -D warnings
+          RUST_MIN_STACK=16777216 cargo test --release -p sekirei-train --features positions-gzip,positions-zstd
+          cargo build --release -p sekirei-train --bin train --features positions-gzip,positions-zstd
+          TRAIN_BIN="$PWD/target/release/train" POSITIONS_CODECS=gzip,zstd python3 -B scripts/test_positions_compression.py
       - name: public surface
         run: python3 scripts/check_public_surface.py
       - name: competitor capability audit
