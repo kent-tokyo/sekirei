@@ -1,0 +1,939 @@
+{
+  "schema": "sekirei.pgo-own-screen.v1",
+  "status": "complete",
+  "base_commit": "7c739cb44510f189bc366ccb1a0418fefde42d3f",
+  "selection": "all preregistered own-only gates passed; experimental build only",
+  "external_evaluator_used_for_selection": false,
+  "source_files_changed": [],
+  "source_hashes": {
+    ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+    "Cargo.lock": "5d61f59157f5e1f0563797cdcbc7afb9dcd996ad93ea7aeb16e27153720d1ee1",
+    "Cargo.toml": "3bc0a2c48168e349941c3aaadecb674d976b4982adc09df2e0dc1bdbd24ca0cf",
+    "crates/sekirei-bench/Cargo.toml": "0d67aa6779ba532ed92b626c93fd899c35f73e7666fa8a4f58ade622dd533c20",
+    "crates/sekirei-bench/benches/movegen.rs": "c6967edbbfee7148d18306ae16e590bf4e280989fd3011ca640c5daf0a235de4",
+    "crates/sekirei-bench/src/bin/cross_library.rs": "ef3189900b61119317efcf1ea500ffbf76674aad6ae57479ca7c26ef52e9c431",
+    "crates/sekirei-bench/src/bin/cross_library/components.rs": "40c5dc5185ff41bb3c73c35f79ccf2dc769f874f9f6f9f8ecf21ac00156d6d08",
+    "crates/sekirei-bench/src/bin/nnue_cost_components.rs": "825b635c92a75a511eca1f56104c2e09ddd8dcf92dfe91cff0d4270fcd04ff72",
+    "crates/sekirei-bench/src/bin/nnue_forward_bench.rs": "229a16414946daf74cf77007db93c7889d001bc9d64a69f8bf9865706defad6c",
+    "crates/sekirei-bench/src/bin/nnue_probe.rs": "c54253478729918b3314acde68ff0351e8bdae9aac16362438a70d95d0bb1afd",
+    "crates/sekirei-bench/src/bin/pgx_environment.rs": "2e8afca027d06b9220fad5457e50bba91da9615dda13bdc0518f8c22f4732036",
+    "crates/sekirei-bench/src/bin/sync_overhead.rs": "5ac30b55353623023bde7247234ad0b13d07e0784fecff55304106043339ab4c",
+    "crates/sekirei-core/Cargo.toml": "aa7e11a622c36d14fa6646708e5cbfa5f3ebe51dc2871020c61e6c7d84ef870c",
+    "crates/sekirei-core/examples/audit_probe_outputs.rs": "f2723cf8e6b47a6b42d616b9ea160d79bdf29fce7c3a5f547d37babaff7bda4d",
+    "crates/sekirei-core/examples/build_gate_loss_corpus.rs": "cd4e45996bff22bd1d188c036e424973a98a38a760dc49979c89e98615fae438",
+    "crates/sekirei-core/examples/cut_profile.rs": "c53e61d7e17580c6eb3a5275f85d04dd0554d8393a9b3f483f7908482b7bad52",
+    "crates/sekirei-core/examples/depth_profile.rs": "3cb3bdece206cdc20ef9c7a60afe14b33ad7c9658bcddf185d40bbf66b3c30cf",
+    "crates/sekirei-core/examples/extract_kifu_positions.rs": "b3e6b9c8446b02314b0d45629940aabb6af67c5badfe1e9d6a7ba28e2907df93",
+    "crates/sekirei-core/examples/filter_terminal.rs": "ead3acb464ca80d6fbc65cf4a954e13905c83231b1ce3792c6b7026f12184eaf",
+    "crates/sekirei-core/examples/gate_openings.rs": "e189b20f8ee078f06148c8258cdd272cd632519ee7fac115991a2f61949897b5",
+    "crates/sekirei-core/examples/gensfen.rs": "b1b9112adaf183bbb406621b0bcc866f375ec2629c7253bd3b64833e27835cf5",
+    "crates/sekirei-core/examples/halfkp_bench.rs": "8841179a2c293d1e3d592cb24dcf9017c5e811a367c4f2ab13d251157ee7395f",
+    "crates/sekirei-core/examples/halfkp_oracle.rs": "5ae58401b983b81a60f0b45e545ff4fdf84fcfd00aaaedf377f932f80683a382",
+    "crates/sekirei-core/examples/halfkp_pack.rs": "3bb71ea9510726ec66f456732ab21f896cc067239a17017129d06b3312897f95",
+    "crates/sekirei-core/examples/halfkp_synthetic_fixture.rs": "36a0e1eb2c50f7478a0af2094093c69dec2a4e32fae1fccc142ef2cdc9c1212a",
+    "crates/sekirei-core/examples/hash_check.rs": "95ac2703934c749cb8989133716f701b3aac61c9a04c6d37e97c9544f56498a7",
+    "crates/sekirei-core/examples/l2_alignment_formation_probe.rs": "aac6740e3369754c0dacc0a77948ff936672fedbf8366d7e2b965d5f5ed5fb24",
+    "crates/sekirei-core/examples/l2_delta_z_probe.rs": "26165f0e805bba8e12b38641d929c95834a8d591ec338e7b3a74508c64283505",
+    "crates/sekirei-core/examples/l2_saturation_probe.rs": "f27887e0b87438df4fd8803e941e0adf0a65b69b8c3e5ca725df87c6f13facb0",
+    "crates/sekirei-core/examples/l2_state_swap_probe.rs": "bab6a12dcb6ac1a8fa8202f03d5ec7586f56e84d79d6f6e094f9b73ef36f76cf",
+    "crates/sekirei-core/examples/l2_threshold_crossing_probe.rs": "f2498a22006ac4d12923c74c8ebe3399bb501321b5b398221cbb339580f46b84",
+    "crates/sekirei-core/examples/lazy_smp_diagnostic.rs": "35226cf82719509220de55bb01207f5ee9264dd4ab8a3093e36980552aad7fb9",
+    "crates/sekirei-core/examples/legal_move_count.rs": "d5bb55945c1e26abb5925c604de8fb45f9424f7b4370b2e4f428649c7a1ab147",
+    "crates/sekirei-core/examples/mate_bench.rs": "ca74caec6c154bf2676699420d121001947589062026c374fb933b0330b91af9",
+    "crates/sekirei-core/examples/mate_probe.rs": "3105afa0c35678f960f64fa013120f9d7ceb90c5273d3003fe881bba82bc90d5",
+    "crates/sekirei-core/examples/mate_scan.rs": "ab9c49322e8b185adf8f65d259e8671135a86bea22d151b3694f7c7e628da1c1",
+    "crates/sekirei-core/examples/mcts_fixed_budget_diagnostic.rs": "d1a043efd5d0a7f02a3e475d09b3a2b043c61aee1e4b8550da95e7b77cc8f3d5",
+    "crates/sekirei-core/examples/tt_write_topology_replay.rs": "8eab957ff5eb86b32765dea1f64e77a717088ff52268d5b3562584bdead125b7",
+    "crates/sekirei-core/src/bin/compare_eval.rs": "396906b7961f96f592c87c021ab351f12804c6b234a39b58b940ae45d1e8dfa0",
+    "crates/sekirei-core/src/bin/history_sfen.rs": "69be3d84fbb347a696e031fcc30fbec07532bce3d1d8cf995a793dd267acc359",
+    "crates/sekirei-core/src/bin/legal_moves.rs": "f3cdba292ce58bb932ca8ae30f90241435c7433cea86dbf88ea70369f1e56ba8",
+    "crates/sekirei-core/src/bin/position_classifier.rs": "c801ef92d1ace568af316a73e41bf6109bce3023e372530f9daa5b2c3fa73aab",
+    "crates/sekirei-core/src/bin/rule_probe.rs": "8be4724bc9d2e7e44afb366dcceaa1c28625da3477f9420c3a589636fe2c63f9",
+    "crates/sekirei-core/src/bin/search_diagnostic.rs": "57ab878294f6d582d2cb85e93e750e8890fdef7965a04296114d097b6f847a4c",
+    "crates/sekirei-core/src/bitboard.rs": "c256cebf03ba909bff8fe5059b838293cc5d59574c4a297b032ae81db5ce8dde",
+    "crates/sekirei-core/src/board.rs": "8911f95b06e7a3b10eb4d253d82d9d5efa4147ca398a92add28cd594b1852065",
+    "crates/sekirei-core/src/budget.rs": "7e01b776ad2e61085b199de9197dd4b36e2158098bd78e5e62d4e2145c3e890d",
+    "crates/sekirei-core/src/color.rs": "90f306f791573bb7477f89ebca371af66dd51ac0e88d0a8e6d0b0474838638e7",
+    "crates/sekirei-core/src/dfpn.rs": "a9919080f966c9ad678d00ee9cb99b7c728ddb7c519626d6ea9f0948dcc1d778",
+    "crates/sekirei-core/src/eval.rs": "13beb7260832359ad5c28525adfbcb6b7f340e972680b05aee4f92c634ac53c0",
+    "crates/sekirei-core/src/external_eval.rs": "2d6173a0a97318126aef99d2ed84d752fd3908e7f50b062e2f6a2565a26597a4",
+    "crates/sekirei-core/src/halfkp.rs": "c2dbe16889654bae3911ff0d4d2849fa4fe46d13207de92bc25683d68bf10d57",
+    "crates/sekirei-core/src/hand.rs": "039a5523fb55035950095b9af08c42540a87b3200f348e8669380c9e2d03f17d",
+    "crates/sekirei-core/src/lazy_smp.rs": "b051e8aaf7885cbe8e63b56aecd10ce4cedf0c91a874f0664d06164fbb8d3a5e",
+    "crates/sekirei-core/src/lib.rs": "bca7374a41e4cffb12d9c298979e3676624b48442905be6c884abb6693e687b3",
+    "crates/sekirei-core/src/mate.rs": "8c59d95e5b3fb46883e15f647f6835b200ab1f505718c09d4a4202732fa11db4",
+    "crates/sekirei-core/src/mcts.rs": "32fa650b8cc4119e2a9a224ffc78526c3791b562f5c2af18f9d3c0ba64384f0b",
+    "crates/sekirei-core/src/movegen.rs": "fd1daec0f2490ac7fe162a724fe37af036b757e464cc63038d679a43a8bbd0d8",
+    "crates/sekirei-core/src/movegen/threats.rs": "20d3bc857ee21ec150f629d082f7e37489ef593821f3f4ffe7cfe7acb09c7f6a",
+    "crates/sekirei-core/src/mv.rs": "3d23cc8f9a33be2f024a12c5cbfc27ceadf8ee436c7860f2f8a11999864a8288",
+    "crates/sekirei-core/src/nnue.rs": "49dc5242e4b435735520880a74e4590caae7118143b5be5d9fd60ed2ca1243f4",
+    "crates/sekirei-core/src/perft.rs": "b1d48a8073bd6ad7ea8926824c4ebf2f107af66a2974e85d5b0d5c125fc8d483",
+    "crates/sekirei-core/src/piece.rs": "2ccf9248daf5a5b5eba2651ce03a5f85918608b4c5651ab5c728ddf6ba0a50a3",
+    "crates/sekirei-core/src/policy.rs": "c9f5342ce13de818fe6756af828686a3b28583f92ec32a7cc31cb8591488024b",
+    "crates/sekirei-core/src/search.rs": "28a4bb8e2808fd4b31e29312987c7a0b3c8f130f5b042f452cd504b09318673c",
+    "crates/sekirei-core/src/search/aspiration.rs": "39c2a0137c661fb2cdbf4cc0eb3f42b3cd0ef22544f8762584000dce9667b988",
+    "crates/sekirei-core/src/search/child_search.rs": "37aef21e74acd2a8fe3f2db271a7f8b47be82ea30cd379bdf3a5ce3a5e289292",
+    "crates/sekirei-core/src/search/helper_retirement.rs": "7fe4afe4d05e1f658c61c9672c47709ccc64eb1263a6655749c998ea1a8a21bd",
+    "crates/sekirei-core/src/search/heuristics.rs": "f8ff9716036f4d19b945e46da15676b206c558129088851e60abd51800d4c263",
+    "crates/sekirei-core/src/search/late_move.rs": "86e9e18c6844f8830937a288b29f3d55d286f32f7af0db41a6dd42a03fa805c3",
+    "crates/sekirei-core/src/search/move_order.rs": "4a43dffc30c4f557378b247ab06cf50f0c23c5ee742ba5146f33196d2896349d",
+    "crates/sekirei-core/src/search/node.rs": "2c9d308780cb02889837e5d6a85db5aabcd4074b9c7c8dc3e9b2c3f98a427f15",
+    "crates/sekirei-core/src/search/node_moves.rs": "3ccb153679dd6c980722f7dc0fe14056ef8b3dbd0d48cc03deeb4e53dac5efb7",
+    "crates/sekirei-core/src/search/params.rs": "0f8c2a878e759be51288b7dcd1a8201f2d0bde8654bdd175e51dc7700ed3bd17",
+    "crates/sekirei-core/src/search/path.rs": "5e833ee649c47c1d529cbcd68f7a47d292d3adb5ad96c6843874f9bbc08db983",
+    "crates/sekirei-core/src/search/pruning.rs": "80cd70648f40718b153d65ed7f20f6253c8ddf3978e38a0a79076a4140693428",
+    "crates/sekirei-core/src/search/root_safety.rs": "5e3ee5d16994ee0687bf24d51cd464997562ece71e2da5a8af9824a6d846c76b",
+    "crates/sekirei-core/src/search/root_split.rs": "9ab8ffff8ebc1d65480212a53e33c3e499fb03bde5ab861b495d95b5e008ff4e",
+    "crates/sekirei-core/src/search/singular.rs": "ed161392996671fd10cc26693de35a9adcf6bf8f517aa43a92c51f9152ac9d7c",
+    "crates/sekirei-core/src/search/static_pruning.rs": "e407eec4b9d2374bfe6734dfe3e95e77bc41b971fead9aef66c6bb1d9ad7dd19",
+    "crates/sekirei-core/src/search/tt_probe.rs": "74d00c01842badb16743d8c4e67eeae31bf4472260045cfa9cf5c3f97e325649",
+    "crates/sekirei-core/src/search/v2.rs": "de1e079f7cc5a826f36575c38a4a71a71c52146161fd6870deabdf686ae67e9a",
+    "crates/sekirei-core/src/sfen.rs": "bc536d0e4c95a0366185b09bba324bfb6e8b6aa8e61b1f9ba7dc48f837b94b1a",
+    "crates/sekirei-core/src/speculative.rs": "061db504b70894a649f0634984c6e1b0417b042de08a4278829a98b5d9ff34fa",
+    "crates/sekirei-core/src/square.rs": "60ee89de778fc18e30bbe0897f7380e4dfbf2d80f27afbe6d2b4e405c92e68b2",
+    "crates/sekirei-core/src/tt.rs": "09e998a4225c05cb4e5900e4668668a2183da4487121baad3e8724f73a85aeae",
+    "crates/sekirei-core/src/zobrist.rs": "408926b195df3f4fca63814bba9e9a91b9ed1c2db3b755775d74dd0eb4374844",
+    "crates/sekirei-core/tests/diagnostic_api_compatibility.rs": "d6d21f5bad7141815e1599b5666dda1d5aff63c2f9e66e22e690d9e0b271dfb3",
+    "crates/sekirei-core/tests/direct_check.rs": "066b67c169ca4d5e7022158fddb3040b4a6f0e4719e38fb9880a6a2bd43131ce",
+    "crates/sekirei-core/tests/evaluator_bytes.rs": "7d1136dc748df367903916f88d790ef4902dc4fcaa8db3d3a1ce3d223b4fa354",
+    "crates/sekirei-core/tests/halfkp_incremental.rs": "476c4ba583a6059450cf79e5774f7457c55cd2c8baa806c0a8a15e63f274ef52",
+    "crates/sekirei-core/tests/public_path_coverage.rs": "db890701b43ab0a9006f63e698d0a7f132ca2fd63db1f92234c215948cb42713",
+    "crates/sekirei-csa/Cargo.toml": "3bbf3e761ec3fd9fab810e160c094de8de71145e85c2f7fc34abf7715b4bb9d4",
+    "crates/sekirei-csa/src/bin/analysis_replay.rs": "155a59f5bc94fd358e115087c7e1de74ac064038a4aaf58b0296390d2db88853",
+    "crates/sekirei-csa/src/bin/history_replay.rs": "d2ed9bc3934f7ee8ae9d84d3d09bf1624545d1feef90310700924f97e96c2c83",
+    "crates/sekirei-csa/src/main.rs": "c32862ffbd7f8e7b5f279c7a314df2306ca3809eebb6e286d9aed7f536e34f1c",
+    "crates/sekirei-csa/src/moves.rs": "63f7076b29b6732ce5a4f0a2f4caa9be5ecc7534c0ddee6fb23d8f207c73292c",
+    "crates/sekirei-csa/src/protocol.rs": "b1f804dc9cfea525ecd0277fa8a102c779e48f7faf85a56700a87ede5848cb34",
+    "crates/sekirei-csa/src/protocol/framing.rs": "80ea4410c6776ed72141db964b536981206725c261dff20fc669bcaad47af559",
+    "crates/sekirei-csa/src/protocol/time_control.rs": "6c7aa9eef9181f17f5c6cafe71b8ab041e540c73ed9517f1bc52898751645108",
+    "crates/sekirei-match-runner/Cargo.toml": "882f0bdba6b8109246835be07a88d84ed11af8e2eb18605f8a193117ff033b45",
+    "crates/sekirei-match-runner/examples/verify_pairing.rs": "e46adabcd7b1c12adfe5220d0bfb555c0ba91d54676808e371615a569ceac8cd",
+    "crates/sekirei-match-runner/src/elo.rs": "20f2f2927e26983f2d3f85be8f1f9d7dbce51797d31bbeac9ed23692ed36aae5",
+    "crates/sekirei-match-runner/src/engine.rs": "cdc00a501b27cb34c68f471726ce311383f2b4d6352a51993e88a60fc32a4ad2",
+    "crates/sekirei-match-runner/src/game.rs": "e29b5118e47d2393fa4421c89ec538cb093fe436b896a98a3af4c6f909cc664e",
+    "crates/sekirei-match-runner/src/main.rs": "e82643e83b75031be01bbe5e98ccf406480c9b36924da23ef1c59eadd9264245",
+    "crates/sekirei-train/Cargo.toml": "fd290225410b8824108170723067faf8d4906a8205bed273a02e846189de87fc",
+    "crates/sekirei-train/src/artifact_io.rs": "f409ccd633827e68cd947fe283b16d40e60aff43693f1ec11bbd52d5da985c1a",
+    "crates/sekirei-train/src/bin/ranking_audit.rs": "d4846712fd3cd0d8acbb4723713fd9fa44f3dc03f03ce6a12d0758ca19786e63",
+    "crates/sekirei-train/src/bin/validate_gate_observations.rs": "2f7825d533f545040c2948ca6646c17cfa9f47512faf1731987171b17c989e80",
+    "crates/sekirei-train/src/bin/verify_shogiesa_label_run.rs": "a2b4dfcb1849b1916fe9581ea5c7d7a330ef6c9dbf8265df7c0c0b24133d8583",
+    "crates/sekirei-train/src/book.rs": "1d5617105ec05b8986c24dcccddd0c0c318722144fa5f64c8b4fd6dd07d79a81",
+    "crates/sekirei-train/src/checkpoint.rs": "e8d2bd2aad5f5cef95da861f624e88063c810cfbeef294ee0b9e4f09ed7bd09d",
+    "crates/sekirei-train/src/csa.rs": "fe57721583d98fdf82aefee17be635763110313680035a89540baab880238bda",
+    "crates/sekirei-train/src/diagnostics.rs": "0966c4877cf47a7e8dcd12653431eaf1df5f6db1b0f3d4c030ac268b8871bc01",
+    "crates/sekirei-train/src/exporter.rs": "1ae3e6c2daf03cb7e076aa5bfab5c9106d8358004e03ab2500fcede890dfd389",
+    "crates/sekirei-train/src/main.rs": "e3a11ce8bf68339087910e81cfc31fcabd1b98599d6225a4485f6f25ae4f27ad",
+    "crates/sekirei-train/src/positions.rs": "561c9dc63b6517700d80a53e2cbe88c7e1fdeb21c03fabeb7b5aa8d282cb2477",
+    "crates/sekirei-train/src/scored.rs": "c4c6fba494112b278874b02b2dfdefef7023823834869d00abe32a270b7776e3",
+    "crates/sekirei-train/src/teacher_cache.rs": "6a7e1d4a11c675be2b25e88c2204a29a8ac6c9e023229f3274f54020f6d26537",
+    "crates/sekirei-train/src/trainer.rs": "ea6f5fba058109da84a1117f143cdcd0dd53a4654dc3d50d932d0d41e65bf315",
+    "crates/sekirei-usi/Cargo.toml": "2a639b4417d160e47eccb3a259527611a8b2085d4effdc0b02c2463dbd64f48a",
+    "crates/sekirei-usi/src/book.rs": "e86d0c994df6b3a0e61a7c0a7566bc62fe5f6122a83db386026159a5764ec22e",
+    "crates/sekirei-usi/src/book_log.rs": "f97673bb7c63dfbd0810c27fb00b314ce98e018ca6182ff37abb0c73ec744cd8",
+    "crates/sekirei-usi/src/go.rs": "83f9394456c9782671830d69f7ccbffbdcfcb4b6b442d2bf9d4bc607f9ac6b46",
+    "crates/sekirei-usi/src/invariant.rs": "4b3891c9e425b93449dcaf7bead9cf41e219a144eacc7901dd195963d120ec06",
+    "crates/sekirei-usi/src/main.rs": "405ab5bf8d9ffe7bb1b042fcfa4d0ee3ff8c0e66c28b682a083eb9dccda5e467",
+    "crates/sekirei-usi/src/session.rs": "524f3944fd34013615e53078043bf177ebe983a6bd16ea0c254e809190dcd6ac",
+    "crates/sekirei-usi/tests/cli_metadata.rs": "97f75e9196ca9d44f6f858d881dc3a91710cd9c54eea8be59f49860a8144fb2b",
+    "crates/sekirei-usi/tests/setoption_evalfile.rs": "b690e561fa071bdc1ec4858cc79ec5950d1ae1905d3f4a937a9000bcbc38c38f",
+    "crates/sekirei-usi/tests/setoption_evalfile_halfkp.rs": "f5bcb8adf92ae84240689fc9d4549ddd0bc87c105569e251c7cc27cd7afbc0b3",
+    "crates/sekirei-usi/tests/setoption_hash_thread_race.rs": "1c9108cd43bfa80aee7a09d518f420aebc7021fe19e0116b5b5e60811f3e877c",
+    "crates/sekirei-usi/tests/setoption_spec_top_n_thread_race.rs": "ec929c91fa553a10f82c524edea4d1b357368c80fe657b7c4caa0e1cf11c568e",
+    "crates/sekirei-usi/tests/usi_thread_race.rs": "01dd504a217faf620824fb1375cb29fd3c06997565aab7ba271c7e1a0bbe4d6e",
+    "crates/sekirei-wasm/Cargo.toml": "d83c897cec0406dad68684765de82853b4465a204d128f365aae4ffa5b079e5e",
+    "crates/sekirei-wasm/src/lib.rs": "0ced8f65a64c6e7d12497dbc76def33f1810a28d9085d77b7d4612c34bbc474e",
+    "crates/sekirei-wasm/tests/evaluator_load.rs": "dcabb4feec76564f10f5ede6e178971fdcb2e4fc1cb3042dff2042b3089ace1f",
+    "crates/sekirei-wasm/tests/evaluator_load_halfkp.rs": "556589cdd7881cb2d540c414541053bd70ad3c10511cc9d7718eccab913eb839"
+  },
+  "compiler": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6\n",
+  "host": "Apple M4 / Mac16,12 /10 logical CPUs",
+  "cargo_profile": "opt3, ThinLTO, CGU1, strip debuginfo, panic abort; target-cpu native",
+  "target": "aarch64-apple-darwin",
+  "phase_flags": {
+    "baseline": [
+      "-C",
+      "target-cpu=native"
+    ],
+    "generate": [
+      "-C",
+      "target-cpu=native",
+      "-C",
+      "profile-generate=/Users/k_tanabe/.codex/worktrees/yaneura-speed/sekirei/results/yaneura-pgo-20261015/raw",
+      "-C",
+      "llvm-args=-instrprof-atomic-counter-update-all=true"
+    ],
+    "candidate": [
+      "-C",
+      "target-cpu=native",
+      "-C",
+      "profile-use=/Users/k_tanabe/.codex/worktrees/yaneura-speed/sekirei/results/yaneura-pgo-20261015/merged.profdata",
+      "-C",
+      "llvm-args=-pgo-warn-missing-function"
+    ]
+  },
+  "binaries": {
+    "baseline": {
+      "sekirei-baseline": "b81e59a7e8b51eba00cdba75e094ee676b1768e2bb0d24776f797cc29416af7f",
+      "sekirei-search-diagnostic-baseline": "fea1dbf0f966d85d86aa9a4c73cfd8614e77a45a6c0d3b96545aa21b91db07ff"
+    },
+    "generate": {
+      "sekirei-generate": "b099a46868e81348be955a6bc04d06c1526b7938759de469a5072e1897b77636",
+      "sekirei-search-diagnostic-generate": "17ac2a003503ed702caff80794f27c87a14e696599ec502ac2823182c616f556"
+    },
+    "candidate": {
+      "sekirei-candidate": "b36bd9462daa2c9792dafe5ad80cdff1a41a042bf7a3ac9a23e2ab273669bcbe",
+      "sekirei-search-diagnostic-candidate": "76c28d2a900e119b23786be5e4046f55f047ea202645843aaf756e9976b06e80"
+    }
+  },
+  "runtime_profile_hooks": {
+    "baseline": 0,
+    "generate": 47,
+    "candidate": 0
+  },
+  "profile_merged_sha256": "f5e3f0b31844ef8e9c1258cdf43053a1e2488a956f872b1a716b0613afb6e9f5",
+  "training_corpus_sha256": "fab2db53f64a5ec460c9ebc229844ad716af7f58c74695aba283de365cf04d53",
+  "synthetic_weights_sha256": "60db2e5a2888d4fb72ff45431e009f504ae0c86e8b7c8a14fb69a4b10b11c20e",
+  "measurement_corpus_sha256": "d554106e3b6682f4365c2169a4aca048f5cefb043bd3c8cbc023d0f42981a06d",
+  "raw_capture_report_sha256": "34f776f94411f1aec1c2f322e2b234bc923671123be3393dacf2a7e072386bb4",
+  "core_tests": {
+    "passed": 345,
+    "ignored": 4
+  },
+  "fixed_depth": 12,
+  "positions": 16,
+  "fixed_depth_repeats": 3,
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline"
+  ],
+  "exact_fixed_depth_calls": 384,
+  "accepted_calls": {
+    "synthetic": 192,
+    "material": 192,
+    "synthetic_4t": 64
+  },
+  "attempt_status_counts": {
+    "accepted": 112,
+    "rejected_host_or_disk": 1
+  },
+  "summaries": {
+    "synthetic": {
+      "groups": 48,
+      "eligible_positions": 16,
+      "total_searches": 192,
+      "time_ratio_candidate_over_baseline": 0.9334192041530017,
+      "bootstrap_95pct": [
+        0.9295231615665629,
+        0.9376645083121389
+      ],
+      "pairs": [
+        {
+          "position": 0,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9425325777822401
+        },
+        {
+          "position": 0,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9384733886144961
+        },
+        {
+          "position": 0,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9397020988602531
+        },
+        {
+          "position": 1,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9401366984759013
+        },
+        {
+          "position": 1,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9490741740268956
+        },
+        {
+          "position": 1,
+          "repeat": 2,
+          "candidate_over_baseline": 0.951003168313774
+        },
+        {
+          "position": 2,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9155158795327781
+        },
+        {
+          "position": 2,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9329469328908779
+        },
+        {
+          "position": 2,
+          "repeat": 2,
+          "candidate_over_baseline": 0.919351549668978
+        },
+        {
+          "position": 3,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9313989355445534
+        },
+        {
+          "position": 3,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9339573653739671
+        },
+        {
+          "position": 3,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9267922040543676
+        },
+        {
+          "position": 4,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9398988060366957
+        },
+        {
+          "position": 4,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9345355597658954
+        },
+        {
+          "position": 4,
+          "repeat": 2,
+          "candidate_over_baseline": 0.948678423181703
+        },
+        {
+          "position": 5,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9387733143630579
+        },
+        {
+          "position": 5,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9293861461845571
+        },
+        {
+          "position": 5,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9390451999622741
+        },
+        {
+          "position": 6,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9338958283353135
+        },
+        {
+          "position": 6,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9270851754358779
+        },
+        {
+          "position": 6,
+          "repeat": 2,
+          "candidate_over_baseline": 0.922116427128844
+        },
+        {
+          "position": 7,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9368518646335412
+        },
+        {
+          "position": 7,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9306256797946149
+        },
+        {
+          "position": 7,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9177240597927906
+        },
+        {
+          "position": 8,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9465653841019815
+        },
+        {
+          "position": 8,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9279382484572621
+        },
+        {
+          "position": 8,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9713061269563942
+        },
+        {
+          "position": 9,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9278019844050939
+        },
+        {
+          "position": 9,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9428144249960703
+        },
+        {
+          "position": 9,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9140017533759531
+        },
+        {
+          "position": 10,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9274791272294798
+        },
+        {
+          "position": 10,
+          "repeat": 1,
+          "candidate_over_baseline": 0.933046068323093
+        },
+        {
+          "position": 10,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9098708167944112
+        },
+        {
+          "position": 11,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9388027586112764
+        },
+        {
+          "position": 11,
+          "repeat": 1,
+          "candidate_over_baseline": 0.930094670042581
+        },
+        {
+          "position": 11,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9334745419762606
+        },
+        {
+          "position": 12,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9238412710167144
+        },
+        {
+          "position": 12,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9406069787162131
+        },
+        {
+          "position": 12,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9531135840029018
+        },
+        {
+          "position": 13,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9586878658402527
+        },
+        {
+          "position": 13,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9346435553839993
+        },
+        {
+          "position": 13,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9302519922345799
+        },
+        {
+          "position": 14,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9342074134246567
+        },
+        {
+          "position": 14,
+          "repeat": 1,
+          "candidate_over_baseline": 0.930226751941828
+        },
+        {
+          "position": 14,
+          "repeat": 2,
+          "candidate_over_baseline": 0.8973596166764568
+        },
+        {
+          "position": 15,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9349436828985769
+        },
+        {
+          "position": 15,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9297540311377899
+        },
+        {
+          "position": 15,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9178654382076402
+        }
+      ],
+      "excluded_by_20ms_filter": [],
+      "exact_identity_calls": 192
+    },
+    "material": {
+      "groups": 24,
+      "eligible_positions": 8,
+      "total_searches": 192,
+      "time_ratio_candidate_over_baseline": 0.9174188417256667,
+      "bootstrap_95pct": [
+        0.9095078673339532,
+        0.9253676770774693
+      ],
+      "pairs": [
+        {
+          "position": 0,
+          "repeat": 0,
+          "candidate_over_baseline": 0.927399638909104
+        },
+        {
+          "position": 0,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9185889681466131
+        },
+        {
+          "position": 0,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9191402551487985
+        },
+        {
+          "position": 3,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9035659396089369
+        },
+        {
+          "position": 3,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9167562316022175
+        },
+        {
+          "position": 3,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9246100189275901
+        },
+        {
+          "position": 5,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9690782589912361
+        },
+        {
+          "position": 5,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9324812469701288
+        },
+        {
+          "position": 5,
+          "repeat": 2,
+          "candidate_over_baseline": 0.914918534287002
+        },
+        {
+          "position": 7,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9085539449918533
+        },
+        {
+          "position": 7,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9067589166798788
+        },
+        {
+          "position": 7,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9181310687228225
+        },
+        {
+          "position": 8,
+          "repeat": 0,
+          "candidate_over_baseline": 0.9177466928852341
+        },
+        {
+          "position": 8,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9166500912055718
+        },
+        {
+          "position": 8,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9128350979479501
+        },
+        {
+          "position": 9,
+          "repeat": 0,
+          "candidate_over_baseline": 0.928402032009832
+        },
+        {
+          "position": 9,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9130531135720432
+        },
+        {
+          "position": 9,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9129801371331876
+        },
+        {
+          "position": 10,
+          "repeat": 0,
+          "candidate_over_baseline": 0.8997035191426672
+        },
+        {
+          "position": 10,
+          "repeat": 1,
+          "candidate_over_baseline": 0.889262511948691
+        },
+        {
+          "position": 10,
+          "repeat": 2,
+          "candidate_over_baseline": 0.8970089237044646
+        },
+        {
+          "position": 15,
+          "repeat": 0,
+          "candidate_over_baseline": 0.931778324496834
+        },
+        {
+          "position": 15,
+          "repeat": 1,
+          "candidate_over_baseline": 0.9307597344613969
+        },
+        {
+          "position": 15,
+          "repeat": 2,
+          "candidate_over_baseline": 0.9108865733438032
+        }
+      ],
+      "excluded_by_20ms_filter": [
+        {
+          "position": 1,
+          "repeat": 0,
+          "elapsed_ns": [
+            19273542,
+            17796958,
+            17662208,
+            19121625
+          ]
+        },
+        {
+          "position": 1,
+          "repeat": 1,
+          "elapsed_ns": [
+            19317958,
+            17693625,
+            17613875,
+            19052708
+          ]
+        },
+        {
+          "position": 1,
+          "repeat": 2,
+          "elapsed_ns": [
+            19391000,
+            17815291,
+            17871959,
+            19403583
+          ]
+        },
+        {
+          "position": 2,
+          "repeat": 0,
+          "elapsed_ns": [
+            21565834,
+            19308375,
+            19088209,
+            21344584
+          ]
+        },
+        {
+          "position": 2,
+          "repeat": 1,
+          "elapsed_ns": [
+            21760125,
+            20122792,
+            18940167,
+            21032708
+          ]
+        },
+        {
+          "position": 2,
+          "repeat": 2,
+          "elapsed_ns": [
+            20967167,
+            18887583,
+            18946458,
+            20948125
+          ]
+        },
+        {
+          "position": 4,
+          "repeat": 0,
+          "elapsed_ns": [
+            12182541,
+            11322458,
+            11419292,
+            12386750
+          ]
+        },
+        {
+          "position": 4,
+          "repeat": 1,
+          "elapsed_ns": [
+            12301625,
+            11214042,
+            11482083,
+            12434250
+          ]
+        },
+        {
+          "position": 4,
+          "repeat": 2,
+          "elapsed_ns": [
+            12435042,
+            11478208,
+            11351666,
+            12943500
+          ]
+        },
+        {
+          "position": 6,
+          "repeat": 0,
+          "elapsed_ns": [
+            11489083,
+            10550125,
+            10629750,
+            11586083
+          ]
+        },
+        {
+          "position": 6,
+          "repeat": 1,
+          "elapsed_ns": [
+            11548250,
+            10543500,
+            10363834,
+            11440500
+          ]
+        },
+        {
+          "position": 6,
+          "repeat": 2,
+          "elapsed_ns": [
+            11151500,
+            10293917,
+            10301333,
+            11329292
+          ]
+        },
+        {
+          "position": 11,
+          "repeat": 0,
+          "elapsed_ns": [
+            16865541,
+            15440209,
+            15324125,
+            16908459
+          ]
+        },
+        {
+          "position": 11,
+          "repeat": 1,
+          "elapsed_ns": [
+            17046042,
+            15427791,
+            16181583,
+            16995500
+          ]
+        },
+        {
+          "position": 11,
+          "repeat": 2,
+          "elapsed_ns": [
+            16801834,
+            15473375,
+            15292750,
+            16961958
+          ]
+        },
+        {
+          "position": 12,
+          "repeat": 0,
+          "elapsed_ns": [
+            15222291,
+            13979750,
+            14065667,
+            15286666
+          ]
+        },
+        {
+          "position": 12,
+          "repeat": 1,
+          "elapsed_ns": [
+            15324000,
+            13922542,
+            14155250,
+            16138458
+          ]
+        },
+        {
+          "position": 12,
+          "repeat": 2,
+          "elapsed_ns": [
+            15111167,
+            14166250,
+            13846917,
+            15376000
+          ]
+        },
+        {
+          "position": 13,
+          "repeat": 0,
+          "elapsed_ns": [
+            12620042,
+            11363292,
+            11540541,
+            12554583
+          ]
+        },
+        {
+          "position": 13,
+          "repeat": 1,
+          "elapsed_ns": [
+            12524792,
+            11556292,
+            11451542,
+            12489417
+          ]
+        },
+        {
+          "position": 13,
+          "repeat": 2,
+          "elapsed_ns": [
+            12614500,
+            11472292,
+            11559834,
+            12493750
+          ]
+        },
+        {
+          "position": 14,
+          "repeat": 0,
+          "elapsed_ns": [
+            12943584,
+            11781042,
+            11707209,
+            13024250
+          ]
+        },
+        {
+          "position": 14,
+          "repeat": 1,
+          "elapsed_ns": [
+            12980792,
+            11892333,
+            11930291,
+            12916083
+          ]
+        },
+        {
+          "position": 14,
+          "repeat": 2,
+          "elapsed_ns": [
+            12920584,
+            11794375,
+            11804709,
+            12838875
+          ]
+        }
+      ],
+      "exact_identity_calls": 192
+    },
+    "synthetic_4t": {
+      "eligible_positions": 16,
+      "total_searches": 64,
+      "geomean_candidate_over_baseline": 1.0512138605679617,
+      "bootstrap_95pct": [
+        1.0241152825503623,
+        1.074726578027999
+      ],
+      "per_position": [
+        {
+          "position": 0,
+          "candidate_over_baseline": 0.9979376035839443
+        },
+        {
+          "position": 1,
+          "candidate_over_baseline": 1.0156591074542294
+        },
+        {
+          "position": 2,
+          "candidate_over_baseline": 1.0299566322653448
+        },
+        {
+          "position": 3,
+          "candidate_over_baseline": 1.025493639102691
+        },
+        {
+          "position": 4,
+          "candidate_over_baseline": 1.047720252764214
+        },
+        {
+          "position": 5,
+          "candidate_over_baseline": 1.1294370039822135
+        },
+        {
+          "position": 6,
+          "candidate_over_baseline": 0.9066846395324643
+        },
+        {
+          "position": 7,
+          "candidate_over_baseline": 1.0520920007040224
+        },
+        {
+          "position": 8,
+          "candidate_over_baseline": 1.070004918271036
+        },
+        {
+          "position": 9,
+          "candidate_over_baseline": 1.0739421996021878
+        },
+        {
+          "position": 10,
+          "candidate_over_baseline": 1.0646319897055003
+        },
+        {
+          "position": 11,
+          "candidate_over_baseline": 1.106300834696349
+        },
+        {
+          "position": 12,
+          "candidate_over_baseline": 1.0790620826681456
+        },
+        {
+          "position": 13,
+          "candidate_over_baseline": 1.092042641665251
+        },
+        {
+          "position": 14,
+          "candidate_over_baseline": 1.053499392462449
+        },
+        {
+          "position": 15,
+          "candidate_over_baseline": 1.0951583335953181
+        }
+      ],
+      "excluded_by_700ms_filter": []
+    }
+  },
+  "gates": {
+    "synthetic_1t": "candidate/base elapsed bootstrap upper <1.0",
+    "material_1t": "candidate/base elapsed bootstrap upper <1.0",
+    "synthetic_4t": "candidate/base NPS point>=1.0 and lower95pct>=0.98; report uncertainty explicitly"
+  },
+  "limitations": [
+    "shared host with continuous OS averaged-CPU samples; subsecond bursts may be missed",
+    "one host and development corpus; descriptive bootstrap interval",
+    "4T shared-TT scheduling is nondeterministic; no exact4T tree identity",
+    "no search/evaluator/default or playing-strength adoption; external opponent measurement kept separate"
+  ]
+}

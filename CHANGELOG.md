@@ -14,6 +14,9 @@ preserves older per-change notes.
 
 ### Added
 
+- Document a native PGO build qualified with own-only fixed-depth and four-worker
+  throughput gates, retaining the compiler-profile corpus and provenance.
+  Search source, evaluator weights and ordinary release defaults are unchanged.
 - Add a safe Rust PGX shogi environment comparison adapter with dense legal
   masks, timed action decoding, full observations and probe output. Document
   pinned-reference CPU timing and correctness requirements separately from
