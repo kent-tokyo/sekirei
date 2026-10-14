@@ -109,6 +109,39 @@ python3 scripts/run_tactical_line_diagnostic.py \
 Add `--weights FILE --nnue-output absolute` for a distinct NNUE lane. The
 report hashes both executables, the case file, and the optional weights.
 
+## JSONL ingestion and audit
+
+`train --positions` keeps in-memory storage by default. Use
+`--positions-storage disk` to snapshot accepted JSONL rows in an anonymous
+system-temporary file and decode one position at a time. Source caps, the legacy
+SFEN split, exact seeded shuffle, teacher-cache update timing and resume recipe
+stay the same across both modes. Disk storage uses temporary space proportional
+to accepted input bytes and an O(N) row-offset index; shuffle indices and teacher
+caches also remain O(N). It does not change the HalfKP packed-data trainer.
+
+Every successful ingestion writes `<output stem>.positions-manifest.json`
+(or `--positions-manifest PATH`) atomically after all inputs reach EOF and
+requested SHA-256 checks pass. Counts precede source caps, splits and training
+filters. The manifest includes exact input hashes, accepted/skipped counts,
+rejection categories and up to eight examples with physical line numbers,
+zero-based byte offsets, raw-row hashes and 256-character previews. Raw hashes
+include original line endings. Strict, I/O, callback and hash failures do not
+publish a new complete manifest. Pre-existing audit evidence is left intact.
+
+```bash
+cargo run --release -p sekirei-train -- --positions /path/to/positions.jsonl \
+  --positions-storage disk --positions-audit-only \
+  --positions-manifest data/runs/ingest/audit.json
+python3 scripts/benchmark_positions_ingest.py --binary target/release/train \
+  --output data/runs/ingest-benchmark --records 10000 --repeats 2
+TRAIN_BIN="$PWD/target/release/train" python3 -B scripts/test_positions_ingest.py
+```
+
+Audit-only exits before evaluator initialization or training. The benchmark
+creates synthetic data, alternates the storage modes, checks matching reports,
+and records binary/input hashes, host/toolchain, elapsed time and maximum RSS.
+Its results measure ingestion only, not epoch throughput or playing strength.
+
 ## NNUE candidates and gates
 
 Freeze the input, evaluator, hashes, factor change, and decision rule before a

@@ -22,6 +22,7 @@ serde_json = "1"
 sha2 = "0.10"
 lineprior = "0.12.6"
 shogiesa-core = "0.11.6"
+tempfile = "3"
 
 [features]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
@@ -29,6 +30,3 @@ nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
 nnue_l1_128 = ["sekirei-core/nnue_l1_128"]
 nnue_l2_64 = ["sekirei-core/nnue_l2_64"]
 nnue_l2_16 = ["sekirei-core/nnue_l2_16"]
-
-[dev-dependencies]
-tempfile = "3"

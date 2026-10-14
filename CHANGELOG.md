@@ -14,6 +14,13 @@ preserves older per-change notes.
 
 ### Added
 
+- Add opt-in disk-backed JSONL position storage and durable ingestion audit
+  manifests with exact input hashes, rejection counts and bounded row evidence.
+  Preserve source selection, shuffle and resume semantics; avoid retaining an
+  additional epoch-sized clone of accepted positions. Add audit-only operation
+  and reproducible ingestion RSS/time comparisons without changing search or
+  the evaluator.
+
 - Document a native PGO build qualified with own-only fixed-depth and four-worker
   throughput gates, retaining the compiler-profile corpus and provenance.
   Search source, evaluator weights and ordinary release defaults are unchanged.

@@ -124,6 +124,9 @@ jobs:
           cargo run --release -p sekirei-train -- --help > /tmp/sekirei-train-help.txt 2>&1
           grep -q -- '--strict-positions' /tmp/sekirei-train-help.txt
           grep -q -- '--positions-sha256' /tmp/sekirei-train-help.txt
+          grep -q -- '--positions-storage' /tmp/sekirei-train-help.txt
+          grep -q -- '--positions-audit-only' /tmp/sekirei-train-help.txt
+          TRAIN_BIN="$PWD/target/release/train" python3 -B scripts/test_positions_ingest.py
           grep -q -- '--validation-positions-sha256' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint' /tmp/sekirei-train-help.txt
           grep -q -- '--resume-checkpoint-every-games' /tmp/sekirei-train-help.txt

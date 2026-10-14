@@ -20,6 +20,8 @@ mod book;
 mod csa;
 mod diagnostics;
 mod exporter;
+mod position_dataset;
+mod position_store;
 mod positions;
 mod scored;
 mod teacher_cache;
@@ -44,7 +46,7 @@ use sha2::{Digest, Sha256};
 use artifact_io::{copy_atomic, write_atomic, write_atomic_stream};
 use csa::{CsaGame, parse_csa};
 use exporter::export_game;
-use positions::load_positions;
+use position_dataset::{PositionDataset, PositionStorage};
 use scored::load_scored;
 use trainer::{ConflictMaskLayer, FreezeLayer, LrSchedule, ReplayComponent, Trainer};
 
@@ -166,6 +168,9 @@ struct Args {
     games_dir: Option<PathBuf>,
     positions_path: Option<PathBuf>, // --positions: shogiesa positions.jsonl
     positions_sha256: Option<String>, // optional expected content digest
+    positions_storage: PositionStorage,
+    positions_manifest: Option<PathBuf>,
+    positions_audit_only: bool,
     // Optional shogiesa diagnostic provenance. These observations remain
     // diagnostics/weights only; Sekirei's own --label-* search produces the
     // training target.
@@ -639,32 +644,6 @@ fn parse_phase_weights(s: &str) -> Result<HashMap<String, f32>, String> {
     Ok(weights)
 }
 
-fn compute_side_weights(samples: &[positions::PositionSample]) -> HashMap<String, f32> {
-    let total = samples.len() as f32;
-    let black = samples.iter().filter(|s| s.side_to_move == "black").count() as f32;
-    let white = total - black;
-    [
-        (
-            "black".to_string(),
-            if black > 0.0 {
-                0.5 * total / black
-            } else {
-                1.0
-            },
-        ),
-        (
-            "white".to_string(),
-            if white > 0.0 {
-                0.5 * total / white
-            } else {
-                1.0
-            },
-        ),
-    ]
-    .into_iter()
-    .collect()
-}
-
 fn next_value<T>(argv: &[String], index: &mut usize, option: &str) -> Result<T, String>
 where
     T: std::str::FromStr,
@@ -684,6 +663,10 @@ fn parse_args() -> Result<Args, String> {
     let mut games_dir = None;
     let mut positions_path: Option<PathBuf> = None;
     let mut positions_sha256: Option<String> = None;
+    let mut positions_storage = PositionStorage::Memory;
+    let mut positions_storage_set = false;
+    let mut positions_manifest = None;
+    let mut positions_audit_only = false;
     let mut diagnostic_manifest: Option<PathBuf> = None;
     let mut diagnostic_manifest_sha256: Option<String> = None;
     let mut validation_positions_path: Option<PathBuf> = None;
@@ -788,6 +771,20 @@ fn parse_args() -> Result<Args, String> {
             "--positions" => {
                 i += 1;
                 positions_path = argv.get(i).map(PathBuf::from);
+            }
+            "--positions-storage" => {
+                positions_storage = PositionStorage::parse(&next_value::<String>(
+                    &argv,
+                    &mut i,
+                    "--positions-storage",
+                )?)?;
+                positions_storage_set = true;
+            }
+            "--positions-manifest" => {
+                positions_manifest = Some(next_value(&argv, &mut i, "--positions-manifest")?);
+            }
+            "--positions-audit-only" => {
+                positions_audit_only = true;
             }
             "--positions-sha256" => {
                 positions_sha256 = Some(next_value(&argv, &mut i, "--positions-sha256")?);
@@ -1217,6 +1214,11 @@ fn parse_args() -> Result<Args, String> {
     if input_modes > 1 {
         return Err("--games, --positions, and --ranking-pairs are mutually exclusive".to_string());
     }
+    if (positions_storage_set || positions_manifest.is_some() || positions_audit_only)
+        && positions_path.is_none()
+    {
+        return Err("--positions-storage, --positions-manifest and --positions-audit-only require --positions".to_string());
+    }
     if validation_positions_path.is_some() && positions_path.is_none() {
         return Err("--validation-positions requires --positions <jsonl>".to_string());
     }
@@ -1405,6 +1407,9 @@ fn parse_args() -> Result<Args, String> {
         games_dir,
         positions_path,
         positions_sha256,
+        positions_storage,
+        positions_manifest,
+        positions_audit_only,
         diagnostic_manifest,
         diagnostic_manifest_sha256,
         validation_positions_path,
@@ -2351,6 +2356,8 @@ fn save_checkpoint_meta(
         "git_commit": git_commit,
         "dataset_hash": dataset_hash,
         "positions_sha256": positions_sha256,
+        "positions_storage": args.positions_path.as_ref().map(|_| args.positions_storage.as_str()),
+        "positions_ingest_manifest": args.positions_path.as_ref().map(|_| positions_manifest_path(args)),
         "validation_positions_sha256": validation_positions_sha256,
         // FNV-1a over the just-saved checkpoint's raw weight bytes -- lets a
         // later gate/selection step verify a checkpoint file is exactly the
@@ -2578,6 +2585,13 @@ fn print_usage() {
     eprintln!(
         "  --exclude-mate-labels  Positions only: omit mate-scale labels from CP regression (diagnostic, default: off)"
     );
+    eprintln!(
+        "  --positions-storage <memory|disk>  Accepted-position storage (default: memory); disk retains row offsets, not all boards"
+    );
+    eprintln!(
+        "  --positions-manifest <json>  Ingest audit output (default: <output stem>.positions-manifest.json)"
+    );
+    eprintln!("  --positions-audit-only  Verify/read inputs and save audit without training");
     eprintln!("  --output <file>     Output weight file (default: weights.bin)");
     eprintln!("  --epochs <n>        Training epochs (default: 3)");
     eprintln!("  --sample <n>        Sample every N plies per game (default: 4)");
@@ -2794,6 +2808,242 @@ fn collect_csa_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
+struct LoadedPositionInputs {
+    train: PositionDataset,
+    validation: Option<PositionDataset>,
+    train_sha256: String,
+    validation_sha256: Option<String>,
+}
+
+fn position_result<T>(result: Result<T, String>) -> T {
+    result.unwrap_or_else(|error| {
+        eprintln!("error: {error}");
+        std::process::exit(1);
+    })
+}
+
+fn resolved_artifact_path(path: &Path) -> Result<PathBuf, String> {
+    if let Ok(resolved) = path.canonicalize() {
+        return Ok(resolved);
+    }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir()
+            .map_err(|e| e.to_string())?
+            .join(path)
+    };
+    // Resolve every existing prefix before processing `..`: a symlink's
+    // physical parent may differ from its lexical parent. Missing suffixes
+    // still need normalization because create_dir_all can make a path such
+    // as `new/../input.jsonl` writable after this read-only alias check.
+    let mut resolved = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                resolved.pop();
+            }
+            std::path::Component::Normal(name) => {
+                resolved.push(name);
+                match resolved.canonicalize() {
+                    Ok(existing) => resolved = existing,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                        if fs::symlink_metadata(&resolved)
+                            .is_ok_and(|metadata| metadata.file_type().is_symlink())
+                        {
+                            return Err(format!(
+                                "cannot resolve dangling artifact symlink {resolved:?}"
+                            ));
+                        }
+                    }
+                    Err(error) => {
+                        return Err(format!(
+                            "cannot resolve artifact path {resolved:?}: {error}"
+                        ));
+                    }
+                }
+            }
+            prefix_or_root => resolved.push(prefix_or_root.as_os_str()),
+        }
+    }
+    Ok(resolved)
+}
+
+fn paths_alias(left: &Path, right: &Path) -> Result<bool, String> {
+    if resolved_artifact_path(left)? == resolved_artifact_path(right)? {
+        return Ok(true);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let (Ok(a), Ok(b)) = (fs::metadata(left), fs::metadata(right))
+            && a.dev() == b.dev()
+            && a.ino() == b.ino()
+        {
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
+fn positions_manifest_path(args: &Args) -> PathBuf {
+    args.positions_manifest
+        .clone()
+        .unwrap_or_else(|| args.output.with_extension("positions-manifest.json"))
+}
+
+fn validate_positions_manifest_path(args: &Args, destination: &Path) -> Result<(), String> {
+    let paths = [
+        args.positions_path.as_deref(),
+        args.validation_positions_path.as_deref(),
+        args.diagnostic_manifest.as_deref(),
+        args.teacher_weights.as_deref(),
+        args.init_weights.as_deref(),
+        args.scored_path.as_deref(),
+        args.teacher_cache_path.as_deref(),
+        args.resume_checkpoint.as_deref(),
+        args.resume_adam.as_deref(),
+        args.diagnostic_shadow_trace_probe_set.as_deref(),
+        args.export.as_deref(),
+        args.build_book.as_deref(),
+        Some(args.output.as_path()),
+    ];
+    validate_positions_manifest_destination(
+        destination,
+        &paths,
+        &args.output,
+        &[
+            args.teacher_weights.as_deref(),
+            args.init_weights.as_deref(),
+        ],
+        args.checkpoint_dir.as_deref(),
+        args.epochs,
+    )
+}
+
+fn validate_positions_manifest_destination(
+    destination: &Path,
+    inputs_and_outputs: &[Option<&Path>],
+    output: &Path,
+    source_weights: &[Option<&Path>],
+    checkpoint_dir: Option<&Path>,
+    epochs: usize,
+) -> Result<(), String> {
+    let best_output = output.with_extension("best.bin");
+    let mut companions = vec![
+        output.with_extension("resume.json"),
+        output.with_extension("meta.json"),
+        best_output.with_extension("meta.json"),
+        best_output,
+    ];
+    // Audit-only bypasses evaluator initialization, but must still preserve
+    // the mode/hash sidecars required to use those input weights later.
+    companions.extend(
+        source_weights
+            .iter()
+            .flatten()
+            .map(|weights| weights.with_extension("meta.json")),
+    );
+    for source in inputs_and_outputs
+        .iter()
+        .flatten()
+        .copied()
+        .chain(companions.iter().map(PathBuf::as_path))
+    {
+        if paths_alias(destination, source)? {
+            return Err(format!(
+                "positions manifest {destination:?} aliases an input or another output {source:?}"
+            ));
+        }
+    }
+    let checkpoint_dir =
+        checkpoint_dir.unwrap_or_else(|| output.parent().unwrap_or(Path::new(".")));
+    let stem = output
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("weights");
+    let resolved_destination = resolved_artifact_path(destination)?;
+    if let Some(name) = resolved_destination.file_name().and_then(|n| n.to_str())
+        && let Some(tail) = name.strip_prefix(&format!("{stem}.epoch"))
+    {
+        let epoch = tail.split('.').next().and_then(|n| n.parse::<usize>().ok());
+        if epoch.is_some_and(|e| e > 0 && e <= epochs)
+            && paths_alias(destination, &checkpoint_dir.join(name))?
+        {
+            return Err("positions manifest aliases an epoch artifact".to_string());
+        }
+    }
+    Ok(())
+}
+
+fn load_position_inputs(args: &Args) -> Result<LoadedPositionInputs, String> {
+    let train_path = args
+        .positions_path
+        .as_deref()
+        .ok_or("--positions is required")?;
+    let manifest_path = positions_manifest_path(args);
+    validate_positions_manifest_path(args, &manifest_path)?;
+    let started = Instant::now();
+    let (train, train_report) =
+        PositionDataset::load(train_path, args.strict_positions, args.positions_storage)?;
+    verify_expected_sha256(
+        "positions",
+        args.positions_sha256.as_deref(),
+        &train_report.sha256,
+    )?;
+    let (validation, validation_report) = if let Some(path) = &args.validation_positions_path {
+        let (dataset, report) =
+            PositionDataset::load(path, args.strict_positions, args.positions_storage)?;
+        verify_expected_sha256(
+            "validation positions",
+            args.validation_positions_sha256.as_deref(),
+            &report.sha256,
+        )?;
+        (Some(dataset), Some(report))
+    } else {
+        (None, None)
+    };
+    let elapsed = started.elapsed().as_secs_f64();
+    let document = serde_json::json!({
+        "schema": "sekirei.positions-ingest.v1",
+        "complete": true,
+        "storage": args.positions_storage.as_str(),
+        "strict": args.strict_positions,
+        "ingest_seconds": elapsed,
+        "train": { "path": train_path, "report": &train_report },
+        "validation": validation_report.as_ref().map(|report| serde_json::json!({
+            "path": args.validation_positions_path, "report": report,
+        })),
+        "counts_scope": "before source cap, split, teacher-cache selection and training filters",
+        "offset_unit": "zero-based byte offset in original uncompressed input",
+        "row_hash_scope": "exact row bytes including original line ending",
+        "memory_scope": "disk mode retains row offsets; shuffle indices and teacher caches remain proportional to dataset size",
+    });
+    // Only publish after both inputs reach EOF, callback writes succeed, and
+    // requested content hashes match. A failed read cannot publish a complete report.
+    if let Some(parent) = manifest_path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("cannot create audit directory {parent:?}: {e}"))?;
+    }
+    let bytes = serde_json::to_vec_pretty(&document).map_err(|e| e.to_string())?;
+    write_atomic(&manifest_path, &bytes)
+        .map_err(|e| format!("cannot save positions manifest {manifest_path:?}: {e}"))?;
+    eprintln!(
+        "positions: accepted={} skipped={} bytes={} storage={} ingest={elapsed:.3}s manifest={manifest_path:?}",
+        train_report.accepted,
+        train_report.skipped,
+        train_report.input_bytes,
+        args.positions_storage.as_str()
+    );
+    Ok(LoadedPositionInputs {
+        train,
+        validation,
+        train_sha256: train_report.sha256,
+        validation_sha256: validation_report.map(|report| report.sha256),
+    })
+}
+
 // ---- Main ----
 
 fn main() {
@@ -2805,6 +3055,14 @@ fn main() {
             std::process::exit(1);
         }
     };
+
+    if args.positions_audit_only {
+        if let Err(error) = load_position_inputs(&args) {
+            eprintln!("error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     let teacher_identity = match configure_teacher(&args) {
         Ok(identity) => identity,
@@ -3056,84 +3314,44 @@ fn main() {
             dataset_paths.push(path.clone());
         }
         let ds_hash = dataset_hash(&dataset_paths);
-        let train_report =
-            load_positions(pos_path, args.strict_positions).unwrap_or_else(|error| {
-                eprintln!("positions load failed: {error}");
-                std::process::exit(1);
-            });
-        verify_expected_sha256(
-            "positions",
-            args.positions_sha256.as_deref(),
-            &train_report.sha256,
-        )
-        .unwrap_or_else(|error| {
-            eprintln!("error: {error}");
-            std::process::exit(1);
-        });
-        let train_sha256 = train_report.sha256.clone();
-        let raw_samples = train_report.samples;
+        let loaded = position_result(load_position_inputs(&args));
+        let train_sha256 = loaded.train_sha256;
+        let validation_sha256 = loaded.validation_sha256;
+        let raw_samples = loaded.train;
         if raw_samples.is_empty() {
             eprintln!("No valid positions loaded");
             std::process::exit(1);
         }
-        let all_samples = if args.source_cap > 0 {
-            let n_before = raw_samples.len();
-            let s = positions::apply_source_cap(raw_samples, args.source_cap, args.split_seed);
-            eprintln!(
-                "{} positions loaded, {} after source_cap={} (split_seed={})",
-                n_before,
-                s.len(),
-                args.source_cap,
-                args.split_seed
-            );
-            s
+        let n_before = raw_samples.len();
+        let all_samples = position_result(raw_samples.source_cap(args.source_cap, args.split_seed));
+        eprintln!(
+            "{} positions loaded, {} after source_cap={}",
+            n_before,
+            all_samples.len(),
+            args.source_cap
+        );
+        // Keep the frozen explicit hold-out and the legacy SFEN hash split
+        // exactly as before. Storage changes must not redefine the split.
+        let (mut train_samples, mut valid_samples) = if let Some(validation) = loaded.validation {
+            if validation.is_empty() {
+                eprintln!("No valid explicit validation positions loaded");
+                std::process::exit(1);
+            }
+            (all_samples, validation)
         } else {
-            eprintln!("{} positions loaded", raw_samples.len());
-            raw_samples
+            let split_threshold = (args.validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
+            position_result(all_samples.partition(|sample| {
+                let sfen = board_to_sfen(&sample.board);
+                positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
+            }))
         };
-
-        // Prefer an explicitly frozen hold-out. Falling back to the legacy
-        // hash split remains supported for older experiment recipes.
-        let mut validation_sha256 = None;
-        let (mut train_samples, mut valid_samples): (Vec<_>, Vec<_>) =
-            if let Some(validation_path) = &args.validation_positions_path {
-                let validation_report = load_positions(validation_path, args.strict_positions)
-                    .unwrap_or_else(|error| {
-                        eprintln!("validation positions load failed: {error}");
-                        std::process::exit(1);
-                    });
-                verify_expected_sha256(
-                    "validation positions",
-                    args.validation_positions_sha256.as_deref(),
-                    &validation_report.sha256,
-                )
-                .unwrap_or_else(|error| {
-                    eprintln!("error: {error}");
-                    std::process::exit(1);
-                });
-                validation_sha256 = Some(validation_report.sha256);
-                let validation = validation_report.samples;
-                if validation.is_empty() {
-                    eprintln!("No valid explicit validation positions loaded");
-                    std::process::exit(1);
-                }
-                (all_samples, validation)
-            } else {
-                let split_threshold = (args.validation_ratio.clamp(0.0, 1.0) * 1000.0) as u64;
-                all_samples.into_iter().partition(|s| {
-                    let sfen = sekirei_core::sfen::board_to_sfen(&s.board);
-                    positions::sfen_hash(&sfen, args.split_seed) % 1000 >= split_threshold
-                })
-            };
         let dataset_content_identity = format!(
             "train={train_sha256};validation={}",
             validation_sha256.as_deref().unwrap_or("derived-split")
         );
-        let mut split_h = split_hash(
-            valid_samples
-                .iter()
-                .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
-        );
+        let train_stats = position_result(train_samples.stats());
+        let valid_stats = position_result(valid_samples.stats());
+        let mut split_h = valid_stats.split_hash;
         eprintln!(
             "  train={} valid={} (validation_ratio={:.2}, explicit_validation={}, split_seed={})",
             train_samples.len(),
@@ -3143,14 +3361,8 @@ fn main() {
             args.split_seed
         );
         if args.wdl_lambda.is_some() {
-            let train_known = train_samples
-                .iter()
-                .filter(|sample| sample.game_result != csa::GameResult::Unknown)
-                .count();
-            let valid_known = valid_samples
-                .iter()
-                .filter(|sample| sample.game_result != csa::GameResult::Unknown)
-                .count();
+            let train_known = train_stats.known_result;
+            let valid_known = valid_stats.known_result;
             eprintln!(
                 "  positions WDL: train_known={train_known} train_unknown={} valid_known={valid_known} valid_unknown={}",
                 train_samples.len() - train_known,
@@ -3170,7 +3382,7 @@ fn main() {
         };
 
         let side_weights = if args.side_balance {
-            compute_side_weights(&train_samples)
+            train_stats.side_weights()
         } else {
             HashMap::new()
         };
@@ -3214,24 +3426,24 @@ fn main() {
         };
 
         if args.cache_only {
-            let (filtered_train, train_total) =
-                positions::retain_cached_samples(train_samples, &combined_cache);
-            let (filtered_valid, valid_total) =
-                positions::retain_cached_samples(valid_samples, &combined_cache);
+            let train_total = train_samples.len();
+            let valid_total = valid_samples.len();
+            position_result(
+                train_samples
+                    .retain(|sample| combined_cache.contains_key(&board_to_sfen(&sample.board))),
+            );
+            position_result(
+                valid_samples
+                    .retain(|sample| combined_cache.contains_key(&board_to_sfen(&sample.board))),
+            );
             eprintln!(
                 "  cache-only: kept train {}/{} valid {}/{} positions",
-                filtered_train.len(),
+                train_samples.len(),
                 train_total,
-                filtered_valid.len(),
+                valid_samples.len(),
                 valid_total
             );
-            train_samples = filtered_train;
-            valid_samples = filtered_valid;
-            split_h = split_hash(
-                valid_samples
-                    .iter()
-                    .map(|s| sekirei_core::sfen::board_to_sfen(&s.board)),
-            );
+            split_h = position_result(valid_samples.stats()).split_hash;
             if train_samples.is_empty() && valid_samples.is_empty() {
                 eprintln!("error: --cache-only found no matching teacher labels");
                 std::process::exit(1);
@@ -3382,45 +3594,42 @@ fn main() {
             trainer.reset_epoch_stats();
             eprintln!("Epoch {epoch}/{} — lr = {:.6}", args.epochs, trainer.lr);
 
-            // `--shuffle-seed`: reshuffled fresh each epoch (seed mixed
-            // with the epoch number), so isolating data-order effects
-            // (vs. `--init-seed`) doesn't also freeze every epoch to the
-            // same order. `None` (the default) skips this entirely --
-            // `epoch_samples` just borrows `train_samples` unchanged.
-            let shuffled_samples: Vec<positions::PositionSample>;
+            // Preserve the existing Fisher-Yates permutation exactly. Only
+            // indices are shuffled; full PositionSample clones are no longer retained.
+            let order = args
+                .shuffle_seed
+                .map(|seed| trainer::shuffled_order(train_samples.len(), seed ^ epoch as u64));
             let epoch_resume_offset = if epoch == first_epoch {
                 resume_cursor
             } else {
                 0
             };
-            let mut epoch_samples: &[positions::PositionSample] =
-                if let Some(seed) = args.shuffle_seed {
-                    let order = trainer::shuffled_order(train_samples.len(), seed ^ epoch as u64);
-                    shuffled_samples = order.iter().map(|&i| train_samples[i].clone()).collect();
-                    &shuffled_samples
-                } else {
-                    &train_samples
-                };
-            if epoch == first_epoch {
-                if resume_cursor > epoch_samples.len() {
-                    eprintln!(
-                        "error: resume data cursor {} exceeds position cursor {}",
-                        resume_cursor,
-                        epoch_samples.len()
-                    );
-                    std::process::exit(1);
-                }
-                epoch_samples = &epoch_samples[resume_cursor..];
-                resume_cursor = 0;
+            if epoch_resume_offset > train_samples.len() {
+                eprintln!(
+                    "error: resume data cursor {} exceeds position cursor {}",
+                    epoch_resume_offset,
+                    train_samples.len()
+                );
+                std::process::exit(1);
             }
+            let mut epoch_samples = position_result(train_samples.epoch_iter(order.as_deref()));
+            // Propagate snapshot read failures even before the resume cursor;
+            // Iterator::skip would discard these Result values.
+            for _ in 0..epoch_resume_offset {
+                position_result(epoch_samples.next().unwrap_or_else(|| {
+                    Err("positions snapshot ended before resume cursor".to_string())
+                }));
+            }
+            let epoch_sample_count = train_samples.len() - epoch_resume_offset;
+            resume_cursor = 0;
 
             let mut new_entries: Vec<(String, i32)> = Vec::new();
             if args.resume_checkpoint_every_games > 0 {
                 let chunk_size = args.resume_checkpoint_every_games;
-                for (chunk_index, chunk) in epoch_samples.chunks(chunk_size).enumerate() {
+                for chunk_index in 0..epoch_sample_count.div_ceil(chunk_size) {
                     let mut chunk_entries = Vec::new();
-                    trainer.train_positions(
-                        chunk,
+                    position_result(trainer.train_position_iter(
+                        epoch_samples.by_ref().take(chunk_size),
                         args.label_depth,
                         &scored,
                         args.stability_weighted,
@@ -3430,13 +3639,13 @@ fn main() {
                         &mut chunk_entries,
                         args.wdl_lambda,
                         args.wdl_target_scale,
-                    );
+                    ));
                     for (sfen, cp) in &chunk_entries {
                         combined_cache.entry(sfen.clone()).or_insert(*cp);
                     }
                     new_entries.extend(chunk_entries);
                     let resume_path = args.output.with_extension("resume.json");
-                    let cursor = ((chunk_index + 1) * chunk_size).min(epoch_samples.len());
+                    let cursor = ((chunk_index + 1) * chunk_size).min(epoch_sample_count);
                     if let Err(error) = trainer.weights.save_resume_checkpoint_with_cache(
                         &resume_path,
                         epoch.saturating_sub(1) as u64,
@@ -3457,7 +3666,7 @@ fn main() {
                     }
                 }
             } else {
-                trainer.train_positions(
+                position_result(trainer.train_position_iter(
                     epoch_samples,
                     args.label_depth,
                     &scored,
@@ -3468,15 +3677,15 @@ fn main() {
                     &mut new_entries,
                     args.wdl_lambda,
                     args.wdl_target_scale,
-                );
+                ));
             }
 
             let mut new_val_entries: Vec<(String, i32)> = Vec::new();
             let (vloss_raw, vloss_w, valid_stats) = if valid_samples.is_empty() {
                 (0.0, 0.0, trainer::ValidStats::default())
             } else {
-                trainer.eval_positions(
-                    &valid_samples,
+                position_result(trainer.eval_position_iter(
+                    position_result(valid_samples.iter()),
                     args.label_depth,
                     &args.phase_weights,
                     &side_weights,
@@ -3484,7 +3693,7 @@ fn main() {
                     &mut new_val_entries,
                     args.wdl_lambda,
                     args.wdl_target_scale,
-                )
+                ))
             };
             let vcount = valid_stats.count;
             new_entries.extend(new_val_entries);
@@ -4510,6 +4719,129 @@ fn main() {
 mod tests {
     use super::*;
     use std::collections::HashSet;
+
+    #[test]
+    fn manifest_alias_check_normalizes_missing_ancestor_and_parent_components() {
+        let root = tempfile::tempdir().unwrap();
+        let input = root.path().join("input.jsonl");
+        fs::write(&input, b"protected input").unwrap();
+        let destination = root.path().join("missing/../input.jsonl");
+        let output = root.path().join("weights.bin");
+        assert!(
+            validate_positions_manifest_destination(
+                &destination,
+                &[Some(&input)],
+                &output,
+                &[],
+                None,
+                3,
+            )
+            .is_err()
+        );
+        assert!(!root.path().join("missing").exists());
+        assert_eq!(fs::read(&input).unwrap(), b"protected input");
+        let separate = root.path().join("missing/../new-audit/report.json");
+        assert!(
+            validate_positions_manifest_destination(
+                &separate,
+                &[Some(&input)],
+                &output,
+                &[],
+                None,
+                3,
+            )
+            .is_ok()
+        );
+        assert!(!root.path().join("new-audit").exists());
+    }
+
+    #[test]
+    fn manifest_alias_check_protects_final_and_input_weight_companions() {
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("weights.bin");
+        let teacher = root.path().join("teacher.bin");
+        let initial = root.path().join("initial.bin");
+        let companions = [
+            output.with_extension("meta.json"),
+            output.with_extension("resume.json"),
+            output.with_extension("best.bin"),
+            output.with_extension("best.meta.json"),
+            teacher.with_extension("meta.json"),
+            initial.with_extension("meta.json"),
+        ];
+        for path in companions {
+            fs::write(&path, b"protected artifact").unwrap();
+            assert!(
+                validate_positions_manifest_destination(
+                    &path,
+                    &[],
+                    &output,
+                    &[Some(&teacher), Some(&initial)],
+                    None,
+                    3,
+                )
+                .is_err(),
+                "did not protect {path:?}"
+            );
+            assert_eq!(fs::read(&path).unwrap(), b"protected artifact");
+        }
+        assert!(
+            validate_positions_manifest_destination(
+                &root.path().join("separate-audit.json"),
+                &[],
+                &output,
+                &[Some(&teacher), Some(&initial)],
+                None,
+                3,
+            )
+            .is_ok()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_alias_check_resolves_symlink_before_parent_component() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let physical = root.path().join("physical");
+        fs::create_dir_all(physical.join("child")).unwrap();
+        symlink(physical.join("child"), root.path().join("link")).unwrap();
+        let input = physical.join("input.jsonl");
+        fs::write(&input, b"protected input").unwrap();
+        let destination = root.path().join("link/missing/../../input.jsonl");
+        assert!(paths_alias(&destination, &input).unwrap());
+        assert!(!physical.join("child/missing").exists());
+        assert_eq!(fs::read(&input).unwrap(), b"protected input");
+        // A legitimate sibling resolves from the symlink target as well.
+        assert_eq!(
+            resolved_artifact_path(&root.path().join("link/missing/../../audit.json")).unwrap(),
+            physical.canonicalize().unwrap().join("audit.json"),
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn manifest_alias_check_rejects_companion_and_epoch_symlink_aliases() {
+        use std::os::unix::fs::symlink;
+        let root = tempfile::tempdir().unwrap();
+        let output = root.path().join("weights.bin");
+        for (index, artifact) in [
+            output.with_extension("best.meta.json"),
+            root.path().join("weights.epoch1.meta.json"),
+        ]
+        .iter()
+        .enumerate()
+        {
+            fs::write(artifact, b"protected artifact").unwrap();
+            let alias = root.path().join(format!("audit-{index}.json"));
+            symlink(artifact, &alias).unwrap();
+            assert!(
+                validate_positions_manifest_destination(&alias, &[], &output, &[], None, 3,)
+                    .is_err()
+            );
+            assert_eq!(fs::read(artifact).unwrap(), b"protected artifact");
+        }
+    }
 
     #[test]
     fn ranking_pair_loader_replays_strict_parent_context() {
