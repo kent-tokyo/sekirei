@@ -1,0 +1,28 @@
+{
+  "schema": "sekirei.root-candidate-polling-validation.v1",
+  "base_commit": "3c40d00298a64b440c794117cb8f5568d19d0019",
+  "source_working_tree_dirty_when_tested": true,
+  "root_split_tests": {
+    "passed": 22,
+    "failed": 0
+  },
+  "clippy": "core all targets with tune, offline, warnings denied: passed",
+  "search_default_changed": false,
+  "nnue_changed": false,
+  "speed_measured": false,
+  "strength_gate_started": false,
+  "artifacts": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/crates/sekirei-core/src/search/root_split.rs",
+      "sha256": "9ab8ffff8ebc1d65480212a53e33c3e499fb03bde5ab861b495d95b5e008ff4e"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-slot-fast-path-tests.log",
+      "sha256": "6ce1ed7d73091eecca6a48a17f793565527ae33bd74985aba69ef6c75c2fd7dd"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-slot-fast-path-clippy.log",
+      "sha256": "0b1ca0edd1d08a38df097d5ef1b9b7bc2abcf206f96b2668f4b88b08cb58927c"
+    }
+  ]
+}

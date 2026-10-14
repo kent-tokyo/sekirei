@@ -331,6 +331,13 @@ impl Generation {
 
     fn take(&self, index: usize) -> Option<RootCandidate> {
         let slot = &self.candidates[index];
+        // Most polls find no fail-high advice. Leave those slots read-only;
+        // a publication after this load is collected by a later poll or the
+        // final drain after the helper has joined. Keep the consuming swap
+        // for ready slots so each publication is still taken at most once.
+        if !slot.ready.load(Ordering::Acquire) {
+            return None;
+        }
         if !slot.ready.swap(false, Ordering::Acquire)
             || slot.generation.load(Ordering::Relaxed) != self.id
         {
@@ -1327,6 +1334,36 @@ mod tests {
         first.stop();
         assert!(!first.publish(candidate));
         assert!(first.claim(3).is_none());
+    }
+
+    #[test]
+    fn candidate_published_after_empty_poll_is_drained_once_after_join() {
+        let generation = Generation::new(10, 3);
+        let publish = std::sync::Barrier::new(2);
+        std::thread::scope(|scope| {
+            let helper = scope.spawn(|| {
+                publish.wait();
+                generation.publish(RootCandidate {
+                    alpha_snapshot: 10,
+                    generation: generation.id,
+                    move_index: 1,
+                    score: 30,
+                    searched_depth: 4,
+                })
+            });
+            assert!(generation.take(1).is_none());
+            publish.wait();
+            assert!(helper.join().unwrap());
+        });
+        // Search performs this final drain after joining the helper, even
+        // when its last poll preceded the helper's publication.
+        let candidate = generation.take(1).unwrap();
+        assert_eq!(candidate.generation, generation.id);
+        assert_eq!(candidate.move_index, 1);
+        assert_eq!(candidate.alpha_snapshot, 10);
+        assert_eq!(candidate.score, 30);
+        assert_eq!(candidate.searched_depth, 4);
+        assert!(generation.take(1).is_none());
     }
 
     #[test]
