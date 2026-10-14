@@ -1,0 +1,1030 @@
+{
+  "schema": "sekirei.quiet-sort-screen.v1",
+  "protocol": {
+    "schema": "sekirei.quiet-sort-screen-protocol.v1",
+    "recorded_before_searches": true,
+    "engine_build_commit": "4344202c803963fb0ea45527b8515894ee16e8c8",
+    "engine_sha256": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+    "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+    "baseline_main": "02fdaf770b09ba5979fd7a8b83f024f2e7d1be3a",
+    "factor": "T_V2_SORT",
+    "A": 0,
+    "B": 1,
+    "Hash": 64,
+    "MoveOverhead": 0,
+    "LazyFlags": 15,
+    "T_ASP_VOLATILITY": 0,
+    "material_only": true,
+    "positions": 20,
+    "quiet_positions": 10,
+    "tactical_positions": 10,
+    "order": "per-position ABBA",
+    "mechanism_lane": {
+      "threads": [
+        1
+      ],
+      "depth": 8,
+      "repeats": 2,
+      "counters": true,
+      "identity": "within-arm required, cross-arm observed only",
+      "activation_evidence": "repeatable cross-arm signature differences; no direct partial-pick counters"
+    },
+    "timing_lane": {
+      "threads": [
+        1,
+        4
+      ],
+      "movetime_ms": 300,
+      "repeats": 2,
+      "counters": false,
+      "requires_idle_before_after": true,
+      "maximum_search_completed_attempts": 1
+    },
+    "pv_replay_required": true,
+    "promotion_requires": "stable paired depth benefit, no subgroup regressions or contradictory order directions",
+    "strength_gate_started": false,
+    "aspiration_queue_unchanged": true,
+    "adoption_authorized": false
+  },
+  "summary": {
+    "searches": 160,
+    "positions": 20,
+    "within_arm_deterministic_positions": 20,
+    "cross_arm_different_positions": 17,
+    "bestmove_different_positions": 2,
+    "score_different_positions": 16,
+    "median_paired_node_ratio_B_over_A": 1.0,
+    "by_category": {
+      "quiet": {
+        "positions": 10,
+        "median_paired_node_ratio_B_over_A": 0.9986097067745197
+      },
+      "tactical": {
+        "positions": 10,
+        "median_paired_node_ratio_B_over_A": 1.0196878754560474
+      }
+    }
+  },
+  "positions": [
+    {
+      "position": 0,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.4132047477744807,
+      "A": {
+        "bestmove": "8h4d",
+        "score": [
+          "cp",
+          "2305"
+        ],
+        "pv": [
+          "8h4d",
+          "5a4b",
+          "4d3e",
+          "2d2e",
+          "3e4d",
+          "4a5a",
+          "4d3e"
+        ],
+        "nodes": 2696,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "8h4d",
+        "score": [
+          "cp",
+          "2464"
+        ],
+        "pv": [
+          "8h4d",
+          "5a4b",
+          "5i4h",
+          "4b4c",
+          "4d3e",
+          "4c3d"
+        ],
+        "nodes": 3810,
+        "depth": 8
+      }
+    },
+    {
+      "position": 1,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.4934958875342705,
+      "A": {
+        "bestmove": "9g9f",
+        "score": [
+          "cp",
+          "2302"
+        ],
+        "pv": [
+          "9g9f",
+          "9e8e",
+          "7g8e",
+          "8d8e",
+          "1g2e",
+          "N*6f",
+          "G*6a",
+          "5a4a"
+        ],
+        "nodes": 17143,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "9g9f",
+        "score": [
+          "cp",
+          "2286"
+        ],
+        "pv": [
+          "9g9f",
+          "1e1f",
+          "9f9e",
+          "1f1g+",
+          "1i1g",
+          "5b6b",
+          "1g1c+",
+          "1b1c"
+        ],
+        "nodes": 25603,
+        "depth": 8
+      }
+    },
+    {
+      "position": 2,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": true,
+      "node_ratio_B_over_A": 1.0,
+      "A": {
+        "bestmove": "6b5b",
+        "score": [
+          "cp",
+          "9"
+        ],
+        "pv": [
+          "6b5b",
+          "1f1e",
+          "7a6b",
+          "5g5f",
+          "5e5f",
+          "8h4d",
+          "6b7a",
+          "5i4i"
+        ],
+        "nodes": 1341,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "6b5b",
+        "score": [
+          "cp",
+          "9"
+        ],
+        "pv": [
+          "6b5b",
+          "1f1e",
+          "7a6b",
+          "5g5f",
+          "5e5f",
+          "8h4d",
+          "6b7a",
+          "5i4i"
+        ],
+        "nodes": 1341,
+        "depth": 8
+      }
+    },
+    {
+      "position": 3,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.3732698318202115,
+      "A": {
+        "bestmove": "2e1g",
+        "score": [
+          "cp",
+          "459"
+        ],
+        "pv": [
+          "2e1g",
+          "1i1g",
+          "N*8g",
+          "9i8h",
+          "8g7i+",
+          "8h7i",
+          "S*5e",
+          "N*5c"
+        ],
+        "nodes": 6719,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "2e1g",
+        "score": [
+          "cp",
+          "349"
+        ],
+        "pv": [
+          "2e1g",
+          "1i1g",
+          "N*8g",
+          "9i8h",
+          "8g7i+",
+          "8h7i",
+          "5f5g+",
+          "5h5g"
+        ],
+        "nodes": 9227,
+        "depth": 8
+      }
+    },
+    {
+      "position": 4,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.9972194135490394,
+      "A": {
+        "bestmove": "4e4d",
+        "score": [
+          "cp",
+          "169"
+        ],
+        "pv": [
+          "4e4d",
+          "4a4b",
+          "3g3f",
+          "7c7d",
+          "1g1f"
+        ],
+        "nodes": 3956,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "4e4d",
+        "score": [
+          "cp",
+          "239"
+        ],
+        "pv": [
+          "4e4d",
+          "5b4b",
+          "5h6g",
+          "5a5b",
+          "6g7f",
+          "5b5a"
+        ],
+        "nodes": 3945,
+        "depth": 8
+      }
+    },
+    {
+      "position": 5,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.502418738861071,
+      "A": {
+        "bestmove": "6f6e",
+        "score": [
+          "cp",
+          "-425"
+        ],
+        "pv": [
+          "6f6e",
+          "4d4e",
+          "4f4e",
+          "8e8f",
+          "P*4d",
+          "4c5c",
+          "5i5h",
+          "9e9f"
+        ],
+        "nodes": 35349,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "6f6e",
+        "score": [
+          "cp",
+          "-461"
+        ],
+        "pv": [
+          "6f6e",
+          "4b8f",
+          "7i6h",
+          "4d4e",
+          "4f4e",
+          "8f4b",
+          "P*4d"
+        ],
+        "nodes": 17760,
+        "depth": 8
+      }
+    },
+    {
+      "position": 6,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.9865109392992268,
+      "A": {
+        "bestmove": "2d2e",
+        "score": [
+          "cp",
+          "49"
+        ],
+        "pv": [
+          "2d2e",
+          "1g2e",
+          "9c9d",
+          "P*6c",
+          "9d9e",
+          "6c6b+",
+          "7a6b",
+          "9f9e"
+        ],
+        "nodes": 6079,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "2d2e",
+        "score": [
+          "cp",
+          "31"
+        ],
+        "pv": [
+          "2d2e",
+          "1g2e",
+          "9c9d",
+          "P*6c",
+          "9d9e",
+          "6c6b+",
+          "7a6b",
+          "9f9e"
+        ],
+        "nodes": 5997,
+        "depth": 8
+      }
+    },
+    {
+      "position": 7,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.42714119622787755,
+      "A": {
+        "bestmove": "4b5c",
+        "score": [
+          "cp",
+          "-121"
+        ],
+        "pv": [
+          "4b5c",
+          "4g5f",
+          "B*2i",
+          "5f6e",
+          "8d8e",
+          "R*8c",
+          "P*6g",
+          "6h6g"
+        ],
+        "nodes": 15482,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "4b5c",
+        "score": [
+          "cp",
+          "-274"
+        ],
+        "pv": [
+          "4b5c",
+          "2h3i",
+          "8d8e",
+          "6f6e",
+          "B*2i",
+          "1h4h"
+        ],
+        "nodes": 6613,
+        "depth": 8
+      }
+    },
+    {
+      "position": 8,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.7949886104783599,
+      "A": {
+        "bestmove": "1e1d",
+        "score": [
+          "cp",
+          "202"
+        ],
+        "pv": [
+          "1e1d",
+          "4b3a",
+          "9g9f",
+          "2c2d"
+        ],
+        "nodes": 1756,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "1e1d",
+        "score": [
+          "cp",
+          "219"
+        ],
+        "pv": [
+          "1e1d",
+          "6a5a",
+          "5i6h",
+          "4b3a",
+          "9g9f"
+        ],
+        "nodes": 1396,
+        "depth": 8
+      }
+    },
+    {
+      "position": 9,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.9564530289727832,
+      "A": {
+        "bestmove": "1e1d",
+        "score": [
+          "cp",
+          "928"
+        ],
+        "pv": [
+          "1e1d",
+          "3d3e",
+          "1d1c+",
+          "2a1c",
+          "2e1c+",
+          "1b1c",
+          "1g1c+",
+          "2b1c"
+        ],
+        "nodes": 28475,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "1e1d",
+        "score": [
+          "cp",
+          "924"
+        ],
+        "pv": [
+          "1e1d",
+          "3d3e",
+          "1d1c+",
+          "2a1c",
+          "2e1c+",
+          "2b1c",
+          "1g1c+",
+          "1b1c"
+        ],
+        "nodes": 27235,
+        "depth": 8
+      }
+    },
+    {
+      "position": 10,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.638598901098901,
+      "A": {
+        "bestmove": "9d9e",
+        "score": [
+          "cp",
+          "465"
+        ],
+        "pv": [
+          "9d9e",
+          "8h7i",
+          "9e9f",
+          "7i4f",
+          "9f9g+",
+          "9i9g",
+          "8b8a",
+          "P*9d"
+        ],
+        "nodes": 7280,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "9d9e",
+        "score": [
+          "cp",
+          "718"
+        ],
+        "pv": [
+          "9d9e",
+          "8h7i",
+          "9e9f",
+          "7i4f",
+          "9f9g+",
+          "4f7c+",
+          "5b6b",
+          "7c8b"
+        ],
+        "nodes": 4649,
+        "depth": 8
+      }
+    },
+    {
+      "position": 11,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.6708884510742096,
+      "A": {
+        "bestmove": "4f7c",
+        "score": [
+          "cp",
+          "505"
+        ],
+        "pv": [
+          "4f7c",
+          "1f1e",
+          "1b1e",
+          "P*1f",
+          "1e1f",
+          "5h4i",
+          "7c6d",
+          "4h5h"
+        ],
+        "nodes": 10659,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "4f6d",
+        "score": [
+          "cp",
+          "280"
+        ],
+        "pv": [
+          "4f6d",
+          "1f1e",
+          "1b1e",
+          "3i2h",
+          "1e1g",
+          "2h1g",
+          "6d8f",
+          "5h4i"
+        ],
+        "nodes": 7151,
+        "depth": 8
+      }
+    },
+    {
+      "position": 12,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 0.8973370707778556,
+      "A": {
+        "bestmove": "9g8h",
+        "score": [
+          "cp",
+          "-658"
+        ],
+        "pv": [
+          "9g8h",
+          "5e4f",
+          "8h1a+",
+          "4f1i",
+          "1a2a",
+          "1i2i",
+          "2a1b",
+          "2i3h"
+        ],
+        "nodes": 2854,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "8i7g",
+        "score": [
+          "cp",
+          "-851"
+        ],
+        "pv": [
+          "8i7g",
+          "5e4f",
+          "1i1h",
+          "4f1i",
+          "2i3g",
+          "1i2i",
+          "7h8h",
+          "2i3h"
+        ],
+        "nodes": 2561,
+        "depth": 8
+      }
+    },
+    {
+      "position": 13,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.0222975616116834,
+      "A": {
+        "bestmove": "6i7h",
+        "score": [
+          "cp",
+          "-2385"
+        ],
+        "pv": [
+          "6i7h",
+          "7g6h",
+          "7h6h",
+          "2h1i+",
+          "B*5e",
+          "1i5e",
+          "5f5e",
+          "3e3f"
+        ],
+        "nodes": 7669,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "6i7h",
+        "score": [
+          "cp",
+          "-2618"
+        ],
+        "pv": [
+          "6i7h",
+          "7g6h+",
+          "7h6h",
+          "2h1i+",
+          "4i3i",
+          "3e3f",
+          "5h3h",
+          "6b3b"
+        ],
+        "nodes": 7840,
+        "depth": 8
+      }
+    },
+    {
+      "position": 14,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.0002686005909214,
+      "A": {
+        "bestmove": "1a1b",
+        "score": [
+          "cp",
+          "9"
+        ],
+        "pv": [
+          "1a1b",
+          "5i4i",
+          "6c6d",
+          "9g9f",
+          "4c4d",
+          "1g1f"
+        ],
+        "nodes": 3723,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "1a1b",
+        "score": [
+          "cp",
+          "9"
+        ],
+        "pv": [
+          "1a1b",
+          "5i4i",
+          "6c6d",
+          "9g9f",
+          "4c4d",
+          "1g1f"
+        ],
+        "nodes": 3724,
+        "depth": 8
+      }
+    },
+    {
+      "position": 15,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.0170781893004115,
+      "A": {
+        "bestmove": "7g8h+",
+        "score": [
+          "cp",
+          "600"
+        ],
+        "pv": [
+          "7g8h+",
+          "4f7c+",
+          "5a4b",
+          "9e9d",
+          "8h7h",
+          "9d9c+",
+          "9b9c",
+          "7c7d"
+        ],
+        "nodes": 4860,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "7g8h+",
+        "score": [
+          "cp",
+          "644"
+        ],
+        "pv": [
+          "7g8h+",
+          "4f7c+",
+          "5a4b",
+          "9e9d",
+          "8h7h",
+          "9d9c+",
+          "9b9c",
+          "5h4g"
+        ],
+        "nodes": 4943,
+        "depth": 8
+      }
+    },
+    {
+      "position": 16,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": true,
+      "node_ratio_B_over_A": 1.0,
+      "A": {
+        "bestmove": "6f6e",
+        "score": [
+          "cp",
+          "87"
+        ],
+        "pv": [
+          "6f6e",
+          "5c5d",
+          "7g7f",
+          "5d6e",
+          "5h6g",
+          "P*6a",
+          "P*6i",
+          "6a6b"
+        ],
+        "nodes": 2062,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "6f6e",
+        "score": [
+          "cp",
+          "87"
+        ],
+        "pv": [
+          "6f6e",
+          "5c5d",
+          "7g7f",
+          "5d6e",
+          "5h6g",
+          "P*6a",
+          "P*6i",
+          "6a6b"
+        ],
+        "nodes": 2062,
+        "depth": 8
+      }
+    },
+    {
+      "position": 17,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.4198608850081398,
+      "A": {
+        "bestmove": "9g5c+",
+        "score": [
+          "cp",
+          "1249"
+        ],
+        "pv": [
+          "9g5c+",
+          "4d3e",
+          "9e9d",
+          "5e6e",
+          "S*7f",
+          "6e2i",
+          "5c6b",
+          "6a6b"
+        ],
+        "nodes": 13514,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "9g5c+",
+        "score": [
+          "cp",
+          "1273"
+        ],
+        "pv": [
+          "9g5c+",
+          "6b5b",
+          "5c5b",
+          "6a5b",
+          "R*7a",
+          "B*6a",
+          "9e9d"
+        ],
+        "nodes": 19188,
+        "depth": 8
+      }
+    },
+    {
+      "position": 18,
+      "category": "quiet",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": true,
+      "node_ratio_B_over_A": 1.0,
+      "A": {
+        "bestmove": "9c9d",
+        "score": [
+          "cp",
+          "1"
+        ],
+        "pv": [
+          "9c9d",
+          "1g1f",
+          "9a9c",
+          "6h5g",
+          "8b9a",
+          "5h6h",
+          "9a8b"
+        ],
+        "nodes": 2659,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "9c9d",
+        "score": [
+          "cp",
+          "1"
+        ],
+        "pv": [
+          "9c9d",
+          "1g1f",
+          "9a9c",
+          "6h5g",
+          "8b9a",
+          "5h6h",
+          "9a8b"
+        ],
+        "nodes": 2659,
+        "depth": 8
+      }
+    },
+    {
+      "position": 19,
+      "category": "tactical",
+      "observations_per_arm": 4,
+      "within_arm_deterministic": true,
+      "cross_arm_same": false,
+      "node_ratio_B_over_A": 1.8256172839506173,
+      "A": {
+        "bestmove": "8g9h",
+        "score": [
+          "cp",
+          "-314"
+        ],
+        "pv": [
+          "8g9h",
+          "9i7g",
+          "L*8h",
+          "6f6e",
+          "1a1b",
+          "7g1a+",
+          "8h8i+",
+          "1a1b"
+        ],
+        "nodes": 3240,
+        "depth": 8
+      },
+      "B": {
+        "bestmove": "8g9h",
+        "score": [
+          "cp",
+          "-420"
+        ],
+        "pv": [
+          "8g9h",
+          "9i7g",
+          "3d3e",
+          "3f3e",
+          "7d7e",
+          "6f6e",
+          "P*3c",
+          "7f7e"
+        ],
+        "nodes": 5915,
+        "depth": 8
+      }
+    }
+  ],
+  "pv_validation": {
+    "schema": "sekirei.paired-pv-validation.v1",
+    "rows": 160,
+    "pv_moves": 1180,
+    "unique_board_probes": 207,
+    "violations": [],
+    "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+    "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8-pv.legal-moves",
+    "runs": [
+      {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8",
+        "engine_sha256": {
+          "A": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2",
+          "B": "18b427475993da42ed0c2c411b03e8785e8fe6b1c4f03bfd046ff4dc2b0e08a2"
+        },
+        "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+      }
+    ],
+    "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+  },
+  "timing": {
+    "status": "blocked_host_busy",
+    "searches_executed": 0,
+    "qualified": false
+  },
+  "artifacts": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8/manifest.json",
+      "sha256": "4d85ebd5d8c56337e246c0f4ed1bfb65a0107e4d6b5370ccfa5ab0e0decfae1e"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8/rows.jsonl",
+      "sha256": "e14ea1be2733321a87c70f4812b2556093bff0da0fc1e717f9941b87f8b53d55"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8/summary.json",
+      "sha256": "78b0e13062cf38b322a51634398610ca0892018c3f9e26e80964f9eaee011b4f"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8/positions.input",
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-depth8-pv.json",
+      "sha256": "6ad42538a62c3122cfdb9dc3a3d01e883a1902e2064482a3855b68b6f1d1a5cf"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/quiet-sort-v041-300ms/manifest.json",
+      "sha256": "bb5a1635bfbdee7aeb832345304131e997500db4db1905daa97233bf555d1bfa"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/quiet-sort-v041-protocol.json",
+      "sha256": "70abeecd2b05446607b77577e6217c5e5924182b489d3059cb3577fe7d5eb5b6"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/aspiration-v041-activation-preflight/receipt.json",
+      "sha256": "19d91ebb8771adf38603004e6694e02b2c6a93c799260f6eaf1ce38c1ffe385b"
+    }
+  ],
+  "source_change": false,
+  "nnue_changed": false,
+  "aspiration_queue_changed": false,
+  "adopted": false,
+  "interpretation": "Observed isolated policy effect and legal PVs; no qualified timing, useful-depth or strength result.",
+  "effective_search_mode": "LazySMP"
+}
