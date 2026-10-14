@@ -118,3 +118,11 @@ activity/correctness results only. The host was busy and the build was debug;
 no speed inference or strength gate is justified. Full coverage was not
 remeasured in this follow-up. Machine-readable evidence is in
 [attribution-followup.json](attribution-followup.json).
+
+## Persistent executor candidate
+
+The separate `T_COOP_PERSISTENT=1` experiment reuses one lazy helper thread
+within a go and joins it before returning. Default zero retains the scoped
+control. See [the executor design and qualification sequence](persistent-executor.md).
+The new physical-thread counters distinguish OS startup from root job count;
+older attribution results above retain their original schema and meaning.

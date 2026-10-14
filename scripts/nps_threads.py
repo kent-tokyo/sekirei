@@ -386,6 +386,10 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
             "join_wait_us",
             "alpha_gap_sum",
             "alpha_gap_max",
+            "physical_helper_threads_started",
+            "physical_helper_threads_joined",
+            "executor_start_delay_us",
+            "helper_dispatch_delay_us",
             )
     fields = matches[0].split()
     if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
@@ -411,10 +415,15 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
         raise ValueError("cooperative alpha gap without confirmations")
     if result["helpers_started"] == 0 and any(result[key] != 0 for key in (
         "helper_probes", "helper_nodes", "helper_start_delay_us", "join_wait_us",
+        "executor_start_delay_us", "helper_dispatch_delay_us",
     )):
         raise ValueError("cooperative work without started helpers")
     if total_nodes is not None and result["main_nodes"] + result["helper_nodes"] > total_nodes:
         raise ValueError("cooperative classified nodes exceed total nodes")
+    if result["physical_helper_threads_started"] != result["physical_helper_threads_joined"]:
+        raise ValueError("cooperative helper thread was not joined")
+    if result["physical_helper_threads_started"] > result["helpers_started"]:
+        raise ValueError("cooperative physical threads exceed started jobs")
     return result
 
 

@@ -290,7 +290,7 @@ fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search
                 .find(|line| line.starts_with(expected))
                 .unwrap();
             let fields: Vec<_> = line.split_whitespace().skip(3).collect();
-            assert_eq!(fields.len(), 36);
+            assert_eq!(fields.len(), 44);
             let stats: std::collections::HashMap<_, _> = fields
                 .chunks_exact(2)
                 .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
@@ -321,6 +321,55 @@ fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search
                     .all(|line| line.contains(" retired 0 "))
             );
         }
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
+fn persistent_root_executor_reuses_worker_through_usi_and_resets_next_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name T_COOP_PERSISTENT type spin default 0 min 0 max 1")
+    );
+    for command in [
+        "setoption name Threads value 2",
+        "setoption name Hash value 2",
+        "setoption name LazyFlags value 16399",
+        "setoption name T_COOP_PERSISTENT value 1",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    for depth in [4, 3] {
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, &format!("go depth {depth}"));
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let line = lines
+            .iter()
+            .find(|line| line.starts_with("info string cooperative_root "))
+            .unwrap();
+        let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+        let stats: std::collections::HashMap<_, _> = fields
+            .chunks_exact(2)
+            .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
+            .collect();
+        assert!(stats["generations"] >= depth);
+        assert_eq!(stats["physical_helper_threads_started"], 1);
+        assert_eq!(stats["physical_helper_threads_joined"], 1);
+        assert_eq!(stats["helpers_started"], stats["generations"]);
+        assert_eq!(stats["spawn_failures"], 0);
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
     }
     send(&mut stdin, "quit");
     assert!(child.wait().unwrap().success());

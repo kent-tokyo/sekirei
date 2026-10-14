@@ -76,18 +76,20 @@ class PairedDiagnosticsTests(unittest.TestCase):
             parse_retirement(["info string lazy_smp_retirement worker 0 completed_iterations 4 retired 1 foreign_contributions 0"])
 
     def test_cooperative_counter_rejects_unconfirmed_raise(self):
-        line = "info string cooperative_root generations 2 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 0 main_tasks 0 confirmation_nodes 0 helper_completed_nodes 30 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 2 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0"
+        line = "info string cooperative_root generations 2 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 0 main_tasks 0 confirmation_nodes 0 helper_completed_nodes 30 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 2 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0 physical_helper_threads_started 2 physical_helper_threads_joined 2 executor_start_delay_us 0 helper_dispatch_delay_us 0"
         self.assertEqual(parse_cooperative_root([line])["main_confirmations"], 1)
         with self.assertRaisesRegex(ValueError, "exceed"):
             parse_cooperative_root([line.replace("alpha_raises 1", "alpha_raises 2")])
 
     def test_cooperative_counter_rejects_double_counting(self):
-        base = "info string cooperative_root generations 1 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 100 main_tasks 2 confirmation_nodes 20 helper_completed_nodes 25 helper_aborted_nodes 5 helper_aborted_probes 1 spawn_failures 0 helpers_started 1 helper_start_delay_us 200 join_wait_us 400 alpha_gap_sum 10 alpha_gap_max 10"
+        base = "info string cooperative_root generations 1 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 100 main_tasks 2 confirmation_nodes 20 helper_completed_nodes 25 helper_aborted_nodes 5 helper_aborted_probes 1 spawn_failures 0 helpers_started 1 helper_start_delay_us 200 join_wait_us 400 alpha_gap_sum 10 alpha_gap_max 10 physical_helper_threads_started 1 physical_helper_threads_joined 1 executor_start_delay_us 0 helper_dispatch_delay_us 0"
         self.assertEqual(parse_cooperative_root([base])["confirmation_nodes"], 20)
         for old, new in [("confirmation_nodes 20", "confirmation_nodes 101"),
                          ("helper_aborted_nodes 5", "helper_aborted_nodes 6"),
                          ("alpha_gap_max 10", "alpha_gap_max 11"),
                          ("helpers_started 1", "helpers_started 0"),
+                         ("physical_helper_threads_joined 1", "physical_helper_threads_joined 0"),
+                         ("physical_helper_threads_started 1 physical_helper_threads_joined 1", "physical_helper_threads_started 2 physical_helper_threads_joined 2"),
                          ("helper_fail_highs 1", "helper_fail_highs 0"),
                          ("main_confirmations 1 confirmed_alpha_raises 1", "main_confirmations 0 confirmed_alpha_raises 0")]:
             with self.subTest(new=new), self.assertRaises(ValueError):
@@ -96,7 +98,7 @@ class PairedDiagnosticsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "total nodes"):
             parse_cooperative_root([base], total_nodes=129)
         self.assertEqual(parse_cooperative_root([base], total_nodes=130)["main_nodes"], 100)
-        empty = "info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 main_nodes 100 main_tasks 2 confirmation_nodes 0 helper_completed_nodes 0 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 1 helpers_started 0 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0"
+        empty = "info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 main_nodes 100 main_tasks 2 confirmation_nodes 0 helper_completed_nodes 0 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 1 helpers_started 0 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0 physical_helper_threads_started 0 physical_helper_threads_joined 0 executor_start_delay_us 0 helper_dispatch_delay_us 0"
         self.assertEqual(parse_cooperative_root([empty])["spawn_failures"], 1)
         with self.assertRaisesRegex(ValueError, "without started"):
             parse_cooperative_root([empty.replace("join_wait_us 0", "join_wait_us 1")])
