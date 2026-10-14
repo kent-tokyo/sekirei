@@ -1,0 +1,104 @@
+{
+  "schema": "sekirei.yaneuraou-evaluator-binding-validation.v1",
+  "parent_main": "4188dd588b27fca57f07f4f2905b249a0504c7b0",
+  "upstream_source_reference": "c1b80eaa09fe13d5f12b1599d1ae4d53c224de30",
+  "source_files": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/nps_threads.py",
+      "sha256": "eef540ab3ceffa44a17809861ee87bb888bfb703f3de55bab5b70dffbae6e756",
+      "bytes": 70843
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/run_ab_match.py",
+      "sha256": "4324d9115f9913ff5ea5a9e51ef141a5f907014bc1d337c55e31f9b42f687f2b",
+      "bytes": 47473
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/.github/workflows/ci.yml",
+      "sha256": "5ae807fa74e48b7017c708eb21d268d2091bd8e74913b61fb9dbb7c9219aedd6",
+      "bytes": 24054
+    }
+  ],
+  "test_files": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_yaneuraou_evaluator_binding.py",
+      "sha256": "1b07a420ce310d0c05f108686ffd42face05b380f7310a81ec64c7957ed6951f",
+      "bytes": 4653
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_nps_threads.py",
+      "sha256": "b848c1e9d8be77484ea1ca495bcc74b7d908146efdb68d7f34db77fde61796b4",
+      "bytes": 47756
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_run_ab_match.py",
+      "sha256": "978569994436abb553799f423e73e39d690c39be12644c99722625d913cee82a",
+      "bytes": 46758
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_paired_search_diagnostics.py",
+      "sha256": "8b9abcf05c8ab2bad765ebe9f9d0160b565058509fe37918cbf49c8faf2911e7",
+      "bytes": 21533
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_compare_yaneura_speed.py",
+      "sha256": "80bf89f01fc788b620e7e4ec2e7c20ef0a2a0f76a82236c69242423b18c18e51",
+      "bytes": 15090
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/scripts/test_freeze_material_gate_openings.py",
+      "sha256": "396ff52fbd6d63cc4fa31cb3e14efab4efd27ac165235b5a76b71e05152344b8",
+      "bytes": 10722
+    }
+  ],
+  "python": "3.13.6",
+  "related_tests": {
+    "passed": 132,
+    "failed": 0,
+    "log": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/yaneuraou-evaluator-binding-tests.log",
+      "sha256": "d4b1ca3f2586687e3e2b93687eb67ae503f0148356dc72b517f3e73843946a0f",
+      "bytes": 312
+    }
+  },
+  "real_material_cli_smoke": {
+    "rows": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/yaneuraou-binding-material-smoke.jsonl",
+      "sha256": "f99219ab1ae95d231f922d9cd347169e6d7eb1f7c6e06f8eaa2584bb67365b4b",
+      "bytes": 1600
+    },
+    "log": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/yaneuraou-binding-material-smoke.log",
+      "sha256": "f4b217ceb6a0c3699b679cddd43b9d72eceb9aeba7f54a2de60ed0aab7a00c31",
+      "bytes": 334
+    },
+    "input": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/yaneuraou-binding-material-smoke.sfen",
+      "sha256": "b8fdcc8190dad5205d49dd45050160b96e93a19637048e85e6d1fa27de6be954",
+      "bytes": 9
+    },
+    "engine_receipt": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-build/receipt.json",
+      "sha256": "37d46663a7739c7b1d54dd514f62a7f8f1a62feec22ba045ae3bce042735efe6",
+      "bytes": 1177
+    },
+    "engine_sha256": "5f98a4626be7d6d7e95bd90acd99aa2fc7b390d6a56c68322723f0059117f536",
+    "depth": 3,
+    "nodes": 364,
+    "bestmove": "9i9h",
+    "pv": [
+      "9i9h",
+      "9c9d",
+      "9g9f"
+    ],
+    "evaluator": "material-only",
+    "interpretation": "Protocol smoke only; not NPS, strength or independent game evidence."
+  },
+  "actual_yaneuraou_match_started": false,
+  "strength_gate_opened": false,
+  "nnue_model_or_holdout_read": false,
+  "search_policy_changed": false,
+  "queued_aspiration_candidate_changed": false,
+  "strength_claim": false,
+  "scope": "Filesystem before/after binding only. Runtime loading, architecture/output equivalence, transient changes, opponent build source and independent-corpus qualification remain separate."
+}

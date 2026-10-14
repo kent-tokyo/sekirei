@@ -397,6 +397,7 @@ jobs:
         run: |
           python3 -m unittest \
             scripts/test_nps_threads.py \
+            scripts/test_yaneuraou_evaluator_binding.py \
             scripts/test_paired_search_diagnostics.py \
             scripts/test_compare_yaneura_speed.py \
             scripts/test_freeze_material_gate_openings.py

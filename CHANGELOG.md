@@ -8,6 +8,9 @@ preserves older per-change notes.
 
 ### Changed
 
+- Bind native YaneuraOu comparisons to the actual `nn.bin`, reject evaluator
+  option overrides, and invalidate measurements or H1 after input drift.
+
 - Borrow the completed root-move prefix for V2 history learning, removing
   a growing vector without changing move order or learning updates.
 
