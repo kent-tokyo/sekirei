@@ -77,3 +77,43 @@ All node accounting from the attribution follow-up remains applicable.
    comparable. Current local opponent source inspected is `9.80git`, commit
    `c1b80eaa09fe13d5f12b1599d1ae4d53c224de30`; no opponent binary provenance or
    match is established here. Existing external evaluator restrictions apply.
+
+## Validation result
+
+Source `ed42c6f`, release/tune binary SHA-256
+`732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3`.
+Core/USI regression: 449 passed, 6 ignored. Python tooling: 68 passed.
+Workspace/all-target tune Clippy and wasm32-unknown-unknown check passed.
+Coverage was not remeasured; only approximately 1.1 GiB remained on the disk.
+
+In a four-position depth-8 instrumented ABBA diagnostic, both arms completed
+78 helper generations across eight searches each. The scoped control started
+and joined 78 OS helper threads; the persistent candidate started and joined
+8, exactly one per go. All 116 PV moves from 16 searches replayed legally
+against the frozen Sekirei rules tool. Main confirmed 12/14 helper candidates
+in A/B and raised alpha 4/5 times. One B probe was interrupted, with its 36
+nodes classified as aborted. These counts establish activity, thread reuse
+and bounded ownership; they do not establish a depth or strength gain.
+
+Two 300 ms timing attempts were stopped by the idle-host preflight, first for
+compilation/test load and then for compilation/lint load from another worktree.
+Neither executed a search. Other jobs were not stopped. Do not infer NPS,
+completed-depth or Elo improvement from these attempts or the instrumented
+fixed-depth diagnostic. The candidate remains disabled and has not entered
+SPRT. Re-run the timing command below once the host is idle, choosing a new
+output directory; do not combine incomplete runs.
+
+```sh
+python3 scripts/paired_search_diagnostics.py \
+  --baseline target/release/sekirei --candidate target/release/sekirei \
+  --positions docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen \
+  --output target/useful-depth/persistent-root-300ms-qualified \
+  --threads 2 --count 20 --repeats 2 --movetime 300 \
+  --option LazyFlags=16399 \
+  --a-option T_COOP_PERSISTENT=0 --b-option T_COOP_PERSISTENT=1 \
+  --source-ref ed42c6f
+```
+
+Check the executable hash above before reusing the binary. Machine-readable
+results, node accounting and failed timing preflights are preserved in
+[persistent-executor-results.json](persistent-executor-results.json).

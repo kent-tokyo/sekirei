@@ -1,0 +1,242 @@
+{
+  "schema": "sekirei.persistent-root-executor-evidence.v1",
+  "source_commit": "ed42c6f",
+  "binary": {
+    "build": "release + tune, target-cpu=native",
+    "sha256": "732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3"
+  },
+  "validation": {
+    "rust": {
+      "command": "RUST_MIN_STACK=16777216 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline -p sekirei-core -p sekirei --features tune -- --test-threads=1",
+      "groups": 19,
+      "passed": 449,
+      "failed": 0,
+      "ignored": 6,
+      "log_sha256": "7970321d8d62e692f7d0e221a2a7fb136ecac0cbba48bab93425c2d083dde3be"
+    },
+    "python": {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest scripts/test_paired_search_diagnostics.py scripts/test_nps_threads.py scripts/test_run_ab_match.py",
+      "passed": 68,
+      "failed": 0
+    },
+    "clippy": {
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo clippy --offline --workspace --all-targets --features tune -- -D warnings",
+      "passed": true
+    },
+    "wasm": {
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo check --offline -p sekirei-wasm --target wasm32-unknown-unknown",
+      "passed": true,
+      "warning": "repository target-cpu=native resolves to apple-m4, ignored for wasm; build completed"
+    },
+    "coverage_remeasured": false
+  },
+  "diagnostics": {
+    "manifest": "target/useful-depth/persistent-root-depth8/manifest.json",
+    "manifest_sha256": "92c0a87f5750cc75f6af1f0c79efe7e325ac6c057e0cb56215089193756e4f26",
+    "rows_sha256": "18cb495ec63d03325de403f338dd6b4896bd989a4b4a0ccb7ccba777e7af10d7",
+    "build_profile": "release",
+    "threads": 2,
+    "depth": 8,
+    "positions": 4,
+    "evaluator": "material-only",
+    "instrumented": true,
+    "timing_qualified": false,
+    "rows": 16,
+    "by_side": {
+      "A": {
+        "searches": 8,
+        "totals": {
+          "generations": 78,
+          "helper_nodes": 6886,
+          "helper_probes": 776,
+          "helper_fail_highs": 14,
+          "main_confirmations": 12,
+          "confirmed_alpha_raises": 4,
+          "main_nodes": 60888,
+          "main_tasks": 1585,
+          "confirmation_nodes": 1490,
+          "helper_completed_nodes": 6886,
+          "helper_aborted_nodes": 0,
+          "helper_aborted_probes": 0,
+          "spawn_failures": 0,
+          "helpers_started": 78,
+          "helper_start_delay_us": 1344,
+          "join_wait_us": 4017,
+          "alpha_gap_sum": 342,
+          "alpha_gap_max": 50,
+          "physical_helper_threads_started": 78,
+          "physical_helper_threads_joined": 78,
+          "executor_start_delay_us": 0,
+          "helper_dispatch_delay_us": 0
+        },
+        "physical_threads_per_go": [
+          10,
+          10,
+          12,
+          12,
+          8,
+          8,
+          9,
+          9
+        ],
+        "physical_joins_per_go": [
+          10,
+          10,
+          12,
+          12,
+          8,
+          8,
+          9,
+          9
+        ]
+      },
+      "B": {
+        "searches": 8,
+        "totals": {
+          "generations": 78,
+          "helper_nodes": 8241,
+          "helper_probes": 997,
+          "helper_fail_highs": 17,
+          "main_confirmations": 14,
+          "confirmed_alpha_raises": 5,
+          "main_nodes": 105896,
+          "main_tasks": 1329,
+          "confirmation_nodes": 1777,
+          "helper_completed_nodes": 8205,
+          "helper_aborted_nodes": 36,
+          "helper_aborted_probes": 1,
+          "spawn_failures": 0,
+          "helpers_started": 78,
+          "helper_start_delay_us": 0,
+          "join_wait_us": 3291,
+          "alpha_gap_sum": 300,
+          "alpha_gap_max": 50,
+          "physical_helper_threads_started": 8,
+          "physical_helper_threads_joined": 8,
+          "executor_start_delay_us": 150,
+          "helper_dispatch_delay_us": 536
+        },
+        "physical_threads_per_go": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ],
+        "physical_joins_per_go": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      }
+    },
+    "pv": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 16,
+      "pv_moves": 116,
+      "unique_board_probes": 64,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/persistent-root-depth8-pv.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/persistent-root-depth8",
+          "engine_sha256": {
+            "A": "732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3",
+            "B": "732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "timing_attempts": [
+    {
+      "manifest": "target/useful-depth/persistent-root-300ms/manifest.json",
+      "sha256": "8407cf8ed0753d4852e78b5605ac5c93acc01fcf1817bf6dc7fb54e662aa94bc",
+      "status": "blocked_host_busy",
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 89094,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 89095,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 89115,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.codex/worktrees/yaneura-speed/sekirei/target/debug/deps/sekirei_core-634967aa90bd29ed"
+          }
+        ],
+        "load_average": [
+          7.52880859375,
+          5.35205078125,
+          5.24658203125
+        ]
+      },
+      "searches_executed": 0
+    },
+    {
+      "manifest": "target/useful-depth/persistent-root-300ms-idle/manifest.json",
+      "sha256": "c19b9fbdbc962134edc89dd98100daecd9c1414864819a0150b36b556ae6d088",
+      "status": "blocked_host_busy",
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 90286,
+            "cpu_percent": 77.2,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver"
+          },
+          {
+            "pid": 90287,
+            "cpu_percent": 76.5,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver"
+          },
+          {
+            "pid": 90290,
+            "cpu_percent": 484.1,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          5.087890625,
+          4.87353515625,
+          5.03955078125
+        ]
+      },
+      "searches_executed": 0
+    }
+  ],
+  "adoption": {
+    "default_changed": false,
+    "strength_gate_opened": false,
+    "opponent_match_executed": false,
+    "status": "unqualified: fixed-depth activity/correctness passed; timing pending"
+  },
+  "limits": [
+    "Busy-host instrumented diagnostics prove reuse and legal PV, not speed or playing strength.",
+    "Both 300ms timing attempts stopped before executing searches; no timing rows exist to pool.",
+    "Full coverage was not rerun; remaining disk space was approximately 1.1 GiB.",
+    "No YaneuraOu match or cross-engine evaluator equivalence was tested."
+  ]
+}
