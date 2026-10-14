@@ -6,6 +6,13 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+## [0.4.1] – 2026-10-14
+
+Version 0.4.1 improves search correctness, behavior-preserving HalfKP update
+throughput, fail-closed match evidence, and opt-in Lazy SMP diagnostics. The
+playing defaults and bundled evaluator remain unchanged, so this release does
+not claim a general playing-strength gain.
+
 ### Changed
 
 - Fuse HalfKP incremental quiet-move, capture, and capture-undo updates into
