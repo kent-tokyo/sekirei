@@ -457,6 +457,75 @@ def parse_cooperative_root_wait(lines: list[str], *, cooperative_root: dict[str,
     return result
 
 
+COOPERATIVE_ROOT_LATENCY_KEYS = (
+    "publications",
+    "scout_publications",
+    "research_publications",
+    "confirmation_publications",
+    "idle_publications",
+    "phase_transition_publications",
+    "beta_scout_publications",
+    "confirmations",
+    "confirmation_latency_us_sum",
+    "confirmation_latency_us_max",
+    "confirmation_main_nodes_sum",
+    "confirmation_main_nodes_max",
+    "scout_confirmations",
+    "scout_delay_nodes_sum",
+    "beta_scout_confirmations",
+    "beta_scout_delay_nodes_sum",
+    "beta_scout_confirmed_cuts",
+    "unconfirmed_publications",
+    "rejected_publications",
+)
+
+
+def parse_cooperative_root_latency(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
+    """Optional observer evidence; delay sums overlap and are not wasted nodes."""
+    prefix = "info string cooperative_root_latency "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    keys = ("enabled", *COOPERATIVE_ROOT_LATENCY_KEYS)
+    fields = matches[0].split()
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative root latency diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative root latency counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative root latency counter exceeds u64")
+    if result["enabled"] != 1 or cooperative_root is None:
+        raise ValueError("cooperative root latency requires enabled split evidence")
+    phases = ("scout_publications", "research_publications", "confirmation_publications",
+              "idle_publications", "phase_transition_publications")
+    if sum(result[key] for key in phases) != result["publications"]:
+        raise ValueError("cooperative latency publication phases do not sum")
+    if result["publications"] + result["rejected_publications"] != cooperative_root["helper_fail_highs"]:
+        raise ValueError("cooperative latency publication attempts differ from helper fail highs")
+    if result["confirmations"] != cooperative_root["main_confirmations"]:
+        raise ValueError("cooperative latency confirmations differ from main confirmations")
+    if result["confirmations"] > result["publications"] or result["unconfirmed_publications"] != result["publications"] - result["confirmations"]:
+        raise ValueError("cooperative latency confirmed/unconfirmed accounting inconsistent")
+    if not (result["beta_scout_publications"] <= result["scout_publications"]
+            and result["scout_confirmations"] <= result["scout_publications"]
+            and result["beta_scout_confirmations"] <= result["beta_scout_publications"]
+            and result["beta_scout_confirmed_cuts"] <= result["beta_scout_confirmations"]
+                <= result["scout_confirmations"] <= result["confirmations"]):
+        raise ValueError("cooperative latency scout subsets inconsistent")
+    if result["beta_scout_confirmed_cuts"] > cooperative_root["confirmed_alpha_raises"]:
+        raise ValueError("cooperative latency beta cuts exceed confirmed alpha raises")
+    if result["confirmation_latency_us_max"] > result["confirmation_latency_us_sum"] or result["confirmation_main_nodes_max"] > result["confirmation_main_nodes_sum"]:
+        raise ValueError("cooperative latency maximum exceeds sum")
+    if result["confirmation_main_nodes_max"] > cooperative_root["main_nodes"]:
+        raise ValueError("cooperative latency maximum exceeds main nodes")
+    if not result["beta_scout_delay_nodes_sum"] <= result["scout_delay_nodes_sum"] <= result["confirmation_main_nodes_sum"]:
+        raise ValueError("cooperative latency node-delay subsets inconsistent")
+    # Several published candidates can wait over the same main search interval.
+    # Their summed delays must not be bounded by root/main/total node counts.
+    return result
+
+
 ASPIRATION_KEYS = ("roots", "aspirated", "adapted", "delta_sum", "passes", "fail_low", "fail_high", "retries", "retry_nodes", "aborted")
 
 
@@ -881,6 +950,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
                 cooperative_root = parse_cooperative_root(lines, total_nodes=nodes)
                 cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
+                cooperative_root_latency = parse_cooperative_root_latency(lines, cooperative_root=cooperative_root)
                 if args.require_lazy_diagnostics:
                     require_lazy_diagnostic_record(
                         lazy_smp, lazy_smp_tt, lazy_smp_overlap
@@ -902,6 +972,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "aspiration": parse_aspiration(lines, total_nodes=nodes),
                     "cooperative_root": cooperative_root,
                     "cooperative_root_wait": cooperative_root_wait,
+                    "cooperative_root_latency": cooperative_root_latency,
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,
@@ -911,6 +982,9 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         **args.provenance,
                         "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
+                        "cooperative_latency_overhead_included": cooperative_root_latency is not None,
+                        **({"counter_overhead_included": True, "timing_qualified": False}
+                           if cooperative_root_latency is not None else {}),
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
                         "budget": go_command(args),
                     },

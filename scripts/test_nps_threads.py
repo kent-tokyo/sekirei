@@ -20,6 +20,8 @@ from nps_threads import (  # noqa: E402
     measure,
     parse_bestmove,
     parse_cooperative_root_wait,
+    parse_cooperative_root_latency,
+    COOPERATIVE_ROOT_LATENCY_KEYS,
     parse_lazy_smp,
     parse_lazy_smp_overlap,
     parse_lazy_smp_root_hint,
@@ -420,6 +422,78 @@ class ThreadOptionsTest(unittest.TestCase):
             parse_cooperative_root_wait([line], cooperative_root=None)
         with self.assertRaisesRegex(ValueError, "confirmed raises"):
             parse_cooperative_root_wait([line], cooperative_root={**root, "confirmed_alpha_raises": 0})
+
+    def test_cooperative_latency_parses_optional_overlapping_delay_evidence(self):
+        root = {"helper_fail_highs": 6, "main_confirmations": 3, "main_nodes": 1000, "confirmed_alpha_raises": 2}
+        stats = dict.fromkeys(COOPERATIVE_ROOT_LATENCY_KEYS, 0)
+        stats.update(publications=5, scout_publications=2, research_publications=1,
+                     confirmation_publications=1, idle_publications=1,
+                     beta_scout_publications=1, confirmations=3,
+                     confirmation_latency_us_sum=120, confirmation_latency_us_max=70,
+                     confirmation_main_nodes_sum=1800, confirmation_main_nodes_max=900,
+                     scout_confirmations=2, scout_delay_nodes_sum=1500,
+                     beta_scout_confirmations=1, beta_scout_delay_nodes_sum=700,
+                     beta_scout_confirmed_cuts=1, unconfirmed_publications=2,
+                     rejected_publications=1)
+        def line(values=stats):
+            return "info string cooperative_root_latency enabled 1 " + " ".join(f"{key} {values[key]}" for key in COOPERATIVE_ROOT_LATENCY_KEYS)
+        self.assertIsNone(parse_cooperative_root_latency([], cooperative_root=None))
+        parsed = parse_cooperative_root_latency([line()], cooperative_root=root)
+        self.assertEqual(parsed, {"enabled": 1, **stats})
+        # Candidate delays can overlap: their sum can exceed main's total nodes.
+        self.assertGreater(parsed["confirmation_main_nodes_sum"], root["main_nodes"])
+        for bad in ([line(), line()], [line() + " extra 0"],
+                    [line().replace("enabled 1", "enabled 0")],
+                    [line().replace("enabled 1", "enabled 2")],
+                    [line().replace("publications 5", "publications -1", 1)],
+                    [line().replace("publications 5", "publications ５", 1)],
+                    [line().replace("publications 5", f"publications {1 << 64}", 1)]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_cooperative_root_latency(bad, cooperative_root=root)
+        for key, value in (("idle_publications", 2), ("rejected_publications", 2),
+                           ("confirmations", 4), ("unconfirmed_publications", 3),
+                           ("beta_scout_publications", 3), ("scout_confirmations", 3),
+                           ("beta_scout_confirmations", 2), ("beta_scout_confirmed_cuts", 2),
+                           ("confirmation_latency_us_max", 121), ("confirmation_main_nodes_max", 1801),
+                           ("confirmation_main_nodes_max", 1001),
+                           ("scout_delay_nodes_sum", 1801), ("beta_scout_delay_nodes_sum", 1501)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                parse_cooperative_root_latency([line({**stats, key: value})], cooperative_root=root)
+        with self.assertRaisesRegex(ValueError, "requires enabled split"):
+            parse_cooperative_root_latency([line()], cooperative_root=None)
+        with self.assertRaisesRegex(ValueError, "cuts exceed"):
+            parse_cooperative_root_latency([line()], cooperative_root={**root, "confirmed_alpha_raises": 0})
+        with self.assertRaisesRegex(ValueError, "confirmed/unconfirmed"):
+            values = {**stats, "confirmations": 6, "unconfirmed_publications": 0}
+            parse_cooperative_root_latency([line(values)], cooperative_root={**root, "main_confirmations": 6})
+
+    def test_measure_records_actual_latency_observer_overhead_without_drain(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.engine = "fake-engine"
+        args.repeats = 1
+        args.movetime = 300
+        args.depth = 3
+        args.require_lazy_diagnostics = False
+        args.require_root_hint_diagnostics = False
+        args.provenance = {"counter_overhead_included": False}
+        args.option = ["T_COOP_LATENCY=1"]
+        root_line = ("info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 "
+                     "helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 "
+                     "main_nodes 100 main_tasks 1 confirmation_nodes 0 helper_completed_nodes 0 "
+                     "helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 1 "
+                     "helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0 "
+                     "physical_helper_threads_started 1 physical_helper_threads_joined 1 "
+                     "executor_start_delay_us 0 helper_dispatch_delay_us 0")
+        latency_line = "info string cooperative_root_latency enabled 1 " + " ".join(f"{key} 0" for key in COOPERATIVE_ROOT_LATENCY_KEYS)
+        outputs = [root_line, latency_line, "info depth 3 score cp 0 nodes 100 nps 1000 pv 7g7f", "bestmove 7g7f"]
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+            row = measure(args, 2, ["startpos"])[0]
+        self.assertIsNone(row["cooperative_root_wait"])
+        self.assertEqual(row["cooperative_root_latency"]["enabled"], 1)
+        self.assertTrue(row["provenance"]["cooperative_latency_overhead_included"])
+        self.assertTrue(row["provenance"]["counter_overhead_included"])
+        self.assertFalse(row["provenance"]["timing_qualified"])
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(

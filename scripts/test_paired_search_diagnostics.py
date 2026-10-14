@@ -71,6 +71,59 @@ class PairedDiagnosticsTests(unittest.TestCase):
         self.assertNotIn("coop_enabled", result)
         self.assertNotIn("worker0_depth", result)
 
+    def test_latency_activity_metrics_are_separate_from_wait_drain(self):
+        baseline = dict(depth=10, nodes=100, wall_nps=1000, elapsed_ms=100)
+        latency = dict(enabled=1, publications=4, confirmations=2,
+                       confirmation_main_nodes_sum=120, unconfirmed_publications=2)
+        result = work_metrics({**baseline, "cooperative_root_latency": latency})
+        self.assertEqual(result["coop_latency_publications"], 4)
+        self.assertEqual(result["coop_latency_confirmations"], 2)
+        self.assertEqual(result["coop_latency_confirmation_main_nodes_sum"], 120)
+        self.assertNotIn("coop_latency_enabled", result)
+        self.assertNotIn("coop_waiting_confirmations", result)
+
+    def test_latency_instrumentation_disqualifies_timing_without_regular_lazy_counters(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = root / "engine"
+            engine.write_bytes(b"frozen engine fixture")
+            positions = root / "positions.sfen"
+            positions.write_text("startpos\n")
+            output = root / "out"
+            args = ["paired_search_diagnostics.py", "--baseline", str(engine),
+                    "--candidate", str(engine), "--positions", str(positions),
+                    "--output", str(output), "--threads", "2", "--count", "1", "--repeats", "1", "--depth", "10",
+                    "--a-option", "T_COOP_LATENCY=0", "--b-option", "T_COOP_LATENCY=1"]
+            idle = {"available": True, "busy_processes": [], "load_average": [0, 0, 0]}
+            observed = []
+            def fake_measure(lane, threads, positions):
+                observed.append(lane)
+                return [dict(threads=threads, depth=10, nodes=100, wall_nps=1000, elapsed_ms=100,
+                             bestmove="7g7f", score=["cp", "0"], pv=["7g7f"])]
+            with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=idle), patch("paired_search_diagnostics.measure", side_effect=fake_measure), patch("builtins.print"):
+                self.assertEqual(paired_main(), 0)
+            manifest = json.loads((output / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "complete")
+            self.assertFalse(manifest["timing_qualified"])
+            self.assertFalse(manifest["counter_lane"])
+            self.assertEqual(manifest["cooperative_latency_instrumentation_requested"], {"A": False, "B": True})
+            self.assertEqual([lane.provenance["cooperative_latency_instrumentation_requested"] for lane in observed], [False, True, True, False])
+            self.assertTrue(all(not lane.require_lazy_diagnostics for lane in observed))
+            self.assertEqual([lane.provenance["counter_overhead_included"] for lane in observed], [False, True, True, False])
+            busy_output = root / "busy-out"
+            busy_args = [value for value in args]
+            busy_args[busy_args.index("--output") + 1] = str(busy_output)
+            depth_index = busy_args.index("--depth")
+            del busy_args[depth_index:depth_index + 2]
+            busy = {**idle, "busy_processes": [{"pid": 123, "cpu_percent": 100}]}
+            with patch("sys.argv", busy_args), patch("paired_search_diagnostics.host_activity", return_value=busy), patch("paired_search_diagnostics.measure") as measurement, patch("builtins.print"):
+                self.assertEqual(paired_main(), 2)
+                measurement.assert_not_called()
+            self.assertEqual(json.loads((busy_output / "manifest.json").read_text())["status"], "blocked_host_busy")
+
     def test_policy_diagnostic_observes_changed_tree_without_identity_gate(self):
         rows = [dict(repeat=0, threads=1, position=0, side=side, depth=8,
                      nodes=100 if side == "A" else 120, bestmove="7g7f",

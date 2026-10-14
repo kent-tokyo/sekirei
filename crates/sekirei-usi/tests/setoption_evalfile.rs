@@ -453,6 +453,102 @@ fn cooperative_wait_evidence_is_opt_in_and_scoped_to_each_go() {
 
 #[cfg(feature = "tune")]
 #[test]
+fn cooperative_latency_evidence_is_independent_of_drain_and_scoped_to_each_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| { line == "option name T_COOP_LATENCY type spin default 0 min 0 max 1" })
+    );
+    for (threads, latency, expected) in [
+        (2, 0, false),
+        (2, 1, true),
+        (2, 1, true),
+        (1, 1, false),
+        (2, 0, false),
+    ] {
+        for command in [
+            format!("setoption name Threads value {threads}"),
+            "setoption name Hash value 2".into(),
+            "setoption name LazyFlags value 16399".into(),
+            "setoption name T_COOP_DRAIN value 0".into(),
+            format!("setoption name T_COOP_LATENCY value {latency}"),
+            "isready".into(),
+        ] {
+            send(&mut stdin, &command);
+        }
+        recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, "go depth 3");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let latency_lines: Vec<_> = lines
+            .iter()
+            .filter(|line| line.starts_with("info string cooperative_root_latency "))
+            .collect();
+        assert_eq!(latency_lines.len(), usize::from(expected), "{lines:?}");
+        assert!(
+            !lines
+                .iter()
+                .any(|line| line.starts_with("info string cooperative_root_wait "))
+        );
+        if expected {
+            let parse = |line: &str| -> std::collections::HashMap<String, u64> {
+                let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+                fields
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| (pair[0].to_owned(), pair[1].parse().unwrap()))
+                    .collect()
+            };
+            let stats = parse(latency_lines[0]);
+            assert_eq!(stats.len(), 20);
+            assert_eq!(stats["enabled"], 1);
+            let root = parse(
+                lines
+                    .iter()
+                    .find(|line| line.starts_with("info string cooperative_root "))
+                    .unwrap(),
+            );
+            let phase_sum: u64 = [
+                "scout_publications",
+                "research_publications",
+                "confirmation_publications",
+                "idle_publications",
+                "phase_transition_publications",
+            ]
+            .into_iter()
+            .map(|key| stats[key])
+            .sum();
+            assert_eq!(phase_sum, stats["publications"]);
+            assert_eq!(
+                stats["publications"] + stats["rejected_publications"],
+                root["helper_fail_highs"]
+            );
+            assert_eq!(stats["confirmations"], root["main_confirmations"]);
+            assert!(stats["confirmations"] <= stats["publications"]);
+            assert_eq!(
+                stats["unconfirmed_publications"],
+                stats["publications"] - stats["confirmations"]
+            );
+            assert!(stats["confirmation_latency_us_max"] <= stats["confirmation_latency_us_sum"]);
+            assert!(stats["confirmation_main_nodes_max"] <= stats["confirmation_main_nodes_sum"]);
+            assert!(stats["beta_scout_confirmed_cuts"] <= root["confirmed_alpha_raises"]);
+        }
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
 fn aspiration_diagnostics_are_opt_in_and_scoped_to_each_go() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");

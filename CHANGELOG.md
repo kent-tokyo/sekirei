@@ -14,6 +14,10 @@ preserves older per-change notes.
 
 ### Added
 
+- Add opt-in cooperative-root advice latency diagnostics using private main-node
+  accounting and phase epochs, with compatible snapshots and USI evidence.
+  Defaults and search policy are unchanged; diagnostics are not strength proof.
+
 - Document a native PGO build qualified with own-only fixed-depth and four-worker
   throughput gates, retaining the compiler-profile corpus and provenance.
   Search source, evaluator weights and ordinary release defaults are unchanged.
