@@ -62,3 +62,10 @@ The separate [advice-latency observer](../cooperative_advice_latency_v0.4.1/READ
 measures helper publication phase and worker-0 progress before confirmation.
 It is diagnostics-only, defaults to zero, and does not interrupt main scouts
 or establish a policy candidate. Instrumented timings are unqualified.
+
+The separate [cooperative candidate-priority experiment](../cooperative_candidate_priority_v0.4.1/README.md)
+compares the old ascending confirmation pass with highest-observed-ready
+selection plus rescan. It does not interrupt a main child or adopt helper
+scores. Outcome diagnostics classify actual beta cuts by publication phase.
+The flag stays disabled; activity, useful-depth timing and independent H1
+remain separate gates, and the queued aspiration candidate is unchanged.

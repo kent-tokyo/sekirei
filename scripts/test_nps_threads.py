@@ -21,6 +21,9 @@ from nps_threads import (  # noqa: E402
     parse_bestmove,
     parse_cooperative_root_wait,
     parse_cooperative_root_latency,
+    parse_cooperative_root_policy,
+    parse_cooperative_root_outcomes,
+    COOPERATIVE_ROOT_OUTCOME_KEYS,
     COOPERATIVE_ROOT_LATENCY_KEYS,
     parse_lazy_smp,
     parse_lazy_smp_overlap,
@@ -494,6 +497,92 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertTrue(row["provenance"]["cooperative_latency_overhead_included"])
         self.assertTrue(row["provenance"]["counter_overhead_included"])
         self.assertFalse(row["provenance"]["timing_qualified"])
+
+    def test_cooperative_priority_policy_is_intrinsic_and_strict(self):
+        line = "info string cooperative_root_policy priority 1"
+        self.assertIsNone(parse_cooperative_root_policy([], cooperative_root=None))
+        self.assertEqual(parse_cooperative_root_policy([line], cooperative_root={}), {"priority": 1})
+        for bad in ([line, line], [line + " extra 0"], [line.replace("priority 1", "priority 0")],
+                    [line.replace("priority 1", "priority 2")], [line.replace("priority 1", "priority １")]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_cooperative_root_policy(bad, cooperative_root={})
+        with self.assertRaisesRegex(ValueError, "requires split"):
+            parse_cooperative_root_policy([line], cooperative_root=None)
+
+    def test_cooperative_outcomes_validate_phase_and_priority_subsets(self):
+        root = {"confirmed_alpha_raises": 3, "confirmation_nodes": 100}
+        latency = dict(confirmations=6, scout_publications=3, research_publications=2,
+                       confirmation_publications=1, idle_publications=1,
+                       phase_transition_publications=1, scout_confirmations=2,
+                       beta_scout_confirmed_cuts=1)
+        stats = dict.fromkeys(COOPERATIVE_ROOT_OUTCOME_KEYS, 0)
+        stats.update(scout_confirmations=2, research_confirmations=1,
+                     confirmation_confirmations=1, idle_confirmations=1,
+                     phase_transition_confirmations=1, scout_beta_cuts=1,
+                     priority_choices=6, priority_reorders=2, reordered_alpha_raises=1,
+                     reordered_beta_cuts=1, reordered_confirmation_nodes=50)
+        def line(values=stats):
+            return "info string cooperative_root_outcomes enabled 1 " + " ".join(f"{key} {values[key]}" for key in COOPERATIVE_ROOT_OUTCOME_KEYS)
+        def parse(lines, *, root=root, latency=latency, policy={"priority": 1}):
+            return parse_cooperative_root_outcomes(lines, cooperative_root=root, latency=latency, policy=policy)
+        self.assertIsNone(parse([], root=None, latency=None, policy=None))
+        self.assertEqual(parse([line()]), {"enabled": 1, **stats})
+        for bad in ([line(), line()], [line() + " extra 0"],
+                    [line().replace("enabled 1", "enabled 0")],
+                    [line().replace("enabled 1", "enabled 2")],
+                    [line().replace("priority_choices 6", "priority_choices -1")],
+                    [line().replace("priority_choices 6", "priority_choices ６")],
+                    [line().replace("priority_choices 6", f"priority_choices {1 << 64}")]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse(bad)
+        for key, value in (("idle_confirmations", 2), ("scout_beta_cuts", 3),
+                           ("priority_choices", 5), ("priority_reorders", 7),
+                           ("reordered_alpha_raises", 3), ("reordered_beta_cuts", 2),
+                           ("reordered_confirmation_nodes", 101)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                parse([line({**stats, key: value})])
+        with self.assertRaises(ValueError):
+            parse([line()], root=None)
+        with self.assertRaises(ValueError):
+            parse([line()], latency=None)
+        with self.assertRaisesRegex(ValueError, "without enabled policy"):
+            parse([line()], policy=None)
+        with self.assertRaisesRegex(ValueError, "scout counters"):
+            parse([line()], latency={**latency, "beta_scout_confirmed_cuts": 2})
+        with self.assertRaisesRegex(ValueError, "scout counters"):
+            parse([line()], latency={**latency, "scout_confirmations": 1})
+        with self.assertRaisesRegex(ValueError, "beta cuts exceed"):
+            parse([line()], root={**root, "confirmed_alpha_raises": 0})
+        disabled = {**stats, **dict.fromkeys(COOPERATIVE_ROOT_OUTCOME_KEYS[-5:], 0)}
+        self.assertEqual(parse([line(disabled)], policy=None)["priority_choices"], 0)
+
+    def test_measure_observes_priority_without_latency_counter_overhead(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.engine = "fake-engine"
+        args.repeats = 1
+        args.movetime = 300
+        args.depth = 3
+        args.require_lazy_diagnostics = False
+        args.require_root_hint_diagnostics = False
+        args.provenance = {"counter_overhead_included": False, "timing_qualified": True}
+        args.option = ["T_COOP_PRIORITY=1", "T_COOP_LATENCY=0"]
+        root_line = ("info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 "
+                     "helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 "
+                     "main_nodes 100 main_tasks 1 confirmation_nodes 0 helper_completed_nodes 0 "
+                     "helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 1 "
+                     "helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0 "
+                     "physical_helper_threads_started 1 physical_helper_threads_joined 1 "
+                     "executor_start_delay_us 0 helper_dispatch_delay_us 0")
+        outputs = [root_line, "info string cooperative_root_policy priority 1", "info depth 3 score cp 0 nodes 100 nps 1000 pv 7g7f", "bestmove 7g7f"]
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+            row = measure(args, 2, ["startpos"])[0]
+        self.assertEqual(row["cooperative_root_policy"], {"priority": 1})
+        self.assertIsNone(row["cooperative_root_latency"])
+        self.assertIsNone(row["cooperative_root_outcomes"])
+        self.assertTrue(row["provenance"]["cooperative_priority_enabled"])
+        self.assertFalse(row["provenance"]["counter_overhead_included"])
+        self.assertTrue(row["provenance"]["timing_qualified"])
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(

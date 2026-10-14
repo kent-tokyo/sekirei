@@ -120,6 +120,45 @@ pub struct CooperativeRootLatencyStats {
     pub rejected_publications: u64,
 }
 
+/// Confirmation outcomes grouped by the phase sampled when helper advice was published.
+///
+/// Enabled only with `COOP_LATENCY`. These verified cuts do not require the
+/// helper itself to have reported a bound at or above the aspiration beta.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootOutcomeStats {
+    /// Confirmation starts for advice published during owned scouts.
+    pub scout_confirmations: u64,
+    /// Confirmation starts for advice published during owned full-window re-searches.
+    pub research_confirmations: u64,
+    /// Confirmation starts for advice published during another confirmation.
+    pub confirmation_confirmations: u64,
+    /// Confirmation starts for advice published outside a main root child.
+    pub idle_confirmations: u64,
+    /// Confirmation starts for advice sampled across an activity transition.
+    pub phase_transition_confirmations: u64,
+    /// Verified beta cuts from scout-phase advice, regardless of its reported bound.
+    pub scout_beta_cuts: u64,
+    /// Verified beta cuts from research-phase advice.
+    pub research_beta_cuts: u64,
+    /// Verified beta cuts from confirmation-phase advice.
+    pub confirmation_beta_cuts: u64,
+    /// Verified beta cuts from idle-phase advice.
+    pub idle_beta_cuts: u64,
+    /// Verified beta cuts from transition-phase advice.
+    pub phase_transition_beta_cuts: u64,
+    /// Validated confirmation starts chosen by the highest-ready/rescan policy.
+    pub priority_choices: u64,
+    /// Choices differing from the lowest observed eligible ready root index.
+    pub priority_reorders: u64,
+    /// Reordered choices that completed and raised main alpha.
+    pub reordered_alpha_raises: u64,
+    /// Reordered choices that completed and verified a beta cut.
+    pub reordered_beta_cuts: u64,
+    /// Private-main nodes in reordered confirmations, including interrupted starts.
+    pub reordered_confirmation_nodes: u64,
+}
+
 /// Evidence for opt-in candidate confirmation while worker 0 awaits its helper.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -136,10 +175,80 @@ pub struct CooperativeRootWaitStats {
     pub notification_wait_us: u64,
     /// Independent opt-in advice-latency evidence; absent when COOP_LATENCY is disabled.
     pub latency: Option<CooperativeRootLatencyStats>,
+    /// Whether highest-ready/rescan confirmation priority was requested.
+    pub priority_enabled: bool,
+    /// Confirmation outcomes, absent when COOP_LATENCY is disabled.
+    pub outcomes: Option<CooperativeRootOutcomeStats>,
+}
+
+#[derive(Default)]
+struct OutcomeCounters {
+    scout_confirmations: AtomicU64,
+    research_confirmations: AtomicU64,
+    confirmation_confirmations: AtomicU64,
+    idle_confirmations: AtomicU64,
+    phase_transition_confirmations: AtomicU64,
+    scout_beta_cuts: AtomicU64,
+    research_beta_cuts: AtomicU64,
+    confirmation_beta_cuts: AtomicU64,
+    idle_beta_cuts: AtomicU64,
+    phase_transition_beta_cuts: AtomicU64,
+    priority_choices: AtomicU64,
+    priority_reorders: AtomicU64,
+    reordered_alpha_raises: AtomicU64,
+    reordered_beta_cuts: AtomicU64,
+    reordered_confirmation_nodes: AtomicU64,
+}
+
+impl OutcomeCounters {
+    fn snapshot(&self) -> CooperativeRootOutcomeStats {
+        CooperativeRootOutcomeStats {
+            scout_confirmations: self.scout_confirmations.load(Ordering::Relaxed),
+            research_confirmations: self.research_confirmations.load(Ordering::Relaxed),
+            confirmation_confirmations: self.confirmation_confirmations.load(Ordering::Relaxed),
+            idle_confirmations: self.idle_confirmations.load(Ordering::Relaxed),
+            phase_transition_confirmations: self
+                .phase_transition_confirmations
+                .load(Ordering::Relaxed),
+            scout_beta_cuts: self.scout_beta_cuts.load(Ordering::Relaxed),
+            research_beta_cuts: self.research_beta_cuts.load(Ordering::Relaxed),
+            confirmation_beta_cuts: self.confirmation_beta_cuts.load(Ordering::Relaxed),
+            idle_beta_cuts: self.idle_beta_cuts.load(Ordering::Relaxed),
+            phase_transition_beta_cuts: self.phase_transition_beta_cuts.load(Ordering::Relaxed),
+            priority_choices: self.priority_choices.load(Ordering::Relaxed),
+            priority_reorders: self.priority_reorders.load(Ordering::Relaxed),
+            reordered_alpha_raises: self.reordered_alpha_raises.load(Ordering::Relaxed),
+            reordered_beta_cuts: self.reordered_beta_cuts.load(Ordering::Relaxed),
+            reordered_confirmation_nodes: self.reordered_confirmation_nodes.load(Ordering::Relaxed),
+        }
+    }
+
+    fn start(&self, phase: MainPhase) {
+        let bucket = match phase {
+            MainPhase::Scout => &self.scout_confirmations,
+            MainPhase::Research => &self.research_confirmations,
+            MainPhase::Confirmation => &self.confirmation_confirmations,
+            MainPhase::Idle => &self.idle_confirmations,
+            MainPhase::Transition => &self.phase_transition_confirmations,
+        };
+        bucket.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn cut(&self, phase: MainPhase) {
+        let bucket = match phase {
+            MainPhase::Scout => &self.scout_beta_cuts,
+            MainPhase::Research => &self.research_beta_cuts,
+            MainPhase::Confirmation => &self.confirmation_beta_cuts,
+            MainPhase::Idle => &self.idle_beta_cuts,
+            MainPhase::Transition => &self.phase_transition_beta_cuts,
+        };
+        bucket.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 #[derive(Default)]
 struct LatencyCounters {
+    outcomes: OutcomeCounters,
     publications: AtomicU64,
     scout_publications: AtomicU64,
     research_publications: AtomicU64,
@@ -224,7 +333,12 @@ struct Counters {
 }
 
 impl Counters {
+    #[cfg(test)]
     fn wait_snapshot(&self, enabled: bool) -> CooperativeRootWaitStats {
+        self.wait_snapshot_for(enabled, false)
+    }
+
+    fn wait_snapshot_for(&self, enabled: bool, priority_enabled: bool) -> CooperativeRootWaitStats {
         CooperativeRootWaitStats {
             enabled,
             waiting_confirmations: self.waiting_confirmations.load(Ordering::Relaxed),
@@ -232,6 +346,11 @@ impl Counters {
             waiting_alpha_raises: self.waiting_alpha_raises.load(Ordering::Relaxed),
             notification_wait_us: self.notification_wait_us.load(Ordering::Relaxed),
             latency: self.latency.get().map(|counters| counters.snapshot()),
+            priority_enabled,
+            outcomes: self
+                .latency
+                .get()
+                .map(|counters| counters.outcomes.snapshot()),
         }
     }
 
@@ -292,6 +411,7 @@ struct Invocation {
     counters: Arc<Counters>,
     persistent: bool,
     drain: bool,
+    priority: bool,
     latency: Option<Arc<LatencyCounters>>,
     executor: RefCell<Option<HelperExecutor>>,
 }
@@ -322,6 +442,7 @@ impl Activation {
             counters,
             persistent: false,
             drain: false,
+            priority: false,
             latency: None,
             executor: RefCell::new(None),
         }))
@@ -362,22 +483,24 @@ impl Searcher {
 
     /// Run the cooperative prototype and also return its optional wait evidence.
     ///
-    /// `COOP_DRAIN` and the independent diagnostics-only `COOP_LATENCY` are
-    /// captured once per invocation. Neither changes ordinary search or allows
-    /// an unconfirmed helper score to become the root result.
+    /// `COOP_DRAIN`, `COOP_PRIORITY`, and diagnostics-only `COOP_LATENCY` are
+    /// captured once per invocation. Priority couples highest observed ready
+    /// LOWER-bound selection with a rescan after each confirmation; no helper
+    /// score can become the root result without worker 0 verification.
     pub fn search_cooperative_root_with_history_and_wait_stats(
         &self,
         board: &mut Board,
         config: SearchConfig,
         history: &PositionHistory,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
-        self.search_cooperative_root_latency_controls(
+        self.search_cooperative_root_priority_controls(
             board,
             config,
             history,
             p::COOP_PERSISTENT() != 0,
             p::COOP_DRAIN() != 0,
             p::COOP_LATENCY() != 0,
+            p::COOP_PRIORITY() != 0,
         )
     }
 
@@ -408,6 +531,7 @@ impl Searcher {
         )
     }
 
+    #[cfg(test)]
     fn search_cooperative_root_latency_controls(
         &self,
         board: &mut Board,
@@ -416,6 +540,22 @@ impl Searcher {
         persistent: bool,
         drain: bool,
         latency: bool,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        self.search_cooperative_root_priority_controls(
+            board, config, history, persistent, drain, latency, false,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_cooperative_root_priority_controls(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        persistent: bool,
+        drain: bool,
+        latency: bool,
+        priority: bool,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
         let counters = Arc::new(Counters::default());
         let latency = latency.then(|| Arc::new(LatencyCounters::default()));
@@ -430,6 +570,7 @@ impl Searcher {
             counters: counters.clone(),
             persistent,
             drain,
+            priority,
             latency,
             executor: RefCell::new(None),
         });
@@ -440,7 +581,11 @@ impl Searcher {
         // The TLS context releases its ownership before shutdown. Closing the
         // last sender wakes the idle worker; Drop joins it before this snapshot.
         drop(invocation);
-        (info, counters.snapshot(), counters.wait_snapshot(drain))
+        (
+            info,
+            counters.snapshot(),
+            counters.wait_snapshot_for(drain, priority),
+        )
     }
 
     /// Cooperative root search with an initial one-position game history.
@@ -609,7 +754,7 @@ impl LatencyObserver {
             .fetch_add(1, Ordering::Relaxed);
     }
 
-    fn confirmation_start(&self, index: usize) -> Option<bool> {
+    fn confirmation_start(&self, index: usize) -> Option<LatSample> {
         // Called only after the legacy ready Acquire and generation/depth
         // validation. Publication has one owner and occurs once per slot.
         let slot = &self.slots[index];
@@ -637,7 +782,10 @@ impl LatencyObserver {
         self.counters
             .confirmation_main_nodes_max
             .fetch_max(nodes, Ordering::Relaxed);
-        if slot.phase.load(Ordering::Relaxed) == MainPhase::Scout as u64 {
+        let recorded_phase = slot.phase.load(Ordering::Relaxed);
+        let phase = sampled_phase(recorded_phase, recorded_phase);
+        self.counters.outcomes.start(phase);
+        if phase == MainPhase::Scout {
             self.counters
                 .scout_confirmations
                 .fetch_add(1, Ordering::Relaxed);
@@ -654,8 +802,14 @@ impl LatencyObserver {
                 .beta_scout_delay_nodes_sum
                 .fetch_add(nodes, Ordering::Relaxed);
         }
-        Some(beta_scout)
+        Some(LatSample { phase, beta_scout })
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct LatSample {
+    phase: MainPhase,
+    beta_scout: bool,
 }
 
 struct MainActivity<'a>(&'a LatencyObserver);
@@ -664,6 +818,12 @@ impl Drop for MainActivity<'_> {
     fn drop(&mut self) {
         self.0.set_phase(MainPhase::Idle);
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct RootChoice {
+    index: usize,
+    reordered: bool,
 }
 
 struct Generation {
@@ -675,6 +835,7 @@ struct Generation {
     wake: Option<mpsc::SyncSender<()>>,
     helper_finished: AtomicBool,
     latency: Option<LatencyObserver>,
+    priority: bool,
     candidates: Vec<CandidateSlot>,
 }
 
@@ -694,6 +855,7 @@ impl Generation {
             wake,
             helper_finished: AtomicBool::new(false),
             latency: None,
+            priority: false,
             candidates: (0..moves).map(|_| CandidateSlot::default()).collect(),
         }
     }
@@ -759,6 +921,40 @@ impl Generation {
             move_index: index,
             score: slot.score.load(Ordering::Relaxed),
             searched_depth: slot.depth.load(Ordering::Relaxed),
+        })
+    }
+
+    fn priority_choice(&self, depth: u32) -> Option<RootChoice> {
+        let mut best: Option<(usize, i32)> = None;
+        let mut first_eligible = None;
+        let mut invalid = None;
+        // Exactly one observational scan. Publications arriving after a slot
+        // was observed are eligible on the next rescan or final drain.
+        for (index, slot) in self.candidates.iter().enumerate().skip(1) {
+            if !slot.ready.load(Ordering::Acquire) {
+                continue;
+            }
+            if slot.generation.load(Ordering::Relaxed) != self.id
+                || slot.depth.load(Ordering::Relaxed) != depth
+            {
+                let _ = invalid.get_or_insert(index);
+                continue;
+            }
+            let _ = first_eligible.get_or_insert(index);
+            let score = slot.score.load(Ordering::Relaxed);
+            if best.is_none_or(|(_, previous)| score > previous) {
+                best = Some((index, score));
+            }
+        }
+        best.map(|(index, _)| RootChoice {
+            index,
+            reordered: Some(index) != first_eligible,
+        })
+        .or_else(|| {
+            invalid.map(|index| RootChoice {
+                index,
+                reordered: false,
+            })
         })
     }
 
@@ -1078,6 +1274,37 @@ impl MainResult {
         counters: &Counters,
         during_wait: bool,
     ) {
+        if generation.priority {
+            loop {
+                if self.alpha >= hi || state.budget.should_abort() {
+                    generation.stop();
+                    return;
+                }
+                let Some(choice) = generation.priority_choice(depth) else {
+                    return;
+                };
+                let Some(candidate) = generation.take(choice.index) else {
+                    continue;
+                };
+                if !self.confirm_one(
+                    generation,
+                    state,
+                    board,
+                    ordered,
+                    depth,
+                    hi,
+                    history,
+                    counters,
+                    during_wait,
+                    candidate,
+                    choice.reordered,
+                ) {
+                    return;
+                }
+            }
+        }
+        // Default behavior remains one ascending-index scan, including its
+        // handling of publications that arrive behind the scan cursor.
         for index in 1..ordered.len() {
             if self.alpha >= hi || state.budget.should_abort() {
                 generation.stop();
@@ -1086,29 +1313,90 @@ impl MainResult {
             let Some(candidate) = generation.take(index) else {
                 continue;
             };
-            if candidate.generation != generation.id || candidate.searched_depth != depth {
-                continue;
+            if !self.confirm_one(
+                generation,
+                state,
+                board,
+                ordered,
+                depth,
+                hi,
+                history,
+                counters,
+                during_wait,
+                candidate,
+                false,
+            ) {
+                return;
             }
-            // Even if alpha advanced past the helper's reported score, the
-            // fail-high was a LOWER bound. It must still be rechecked.
-            let waiting = during_wait && !generation.helper_finished.load(Ordering::Acquire);
-            if waiting {
-                counters
-                    .waiting_confirmations
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn confirm_one(
+        &mut self,
+        generation: &Generation,
+        state: &Arc<SearchState>,
+        board: &mut Board,
+        ordered: &[Move],
+        depth: u32,
+        hi: i32,
+        history: &SearchHistory<'_>,
+        counters: &Counters,
+        during_wait: bool,
+        candidate: RootCandidate,
+        reordered: bool,
+    ) -> bool {
+        if candidate.generation != generation.id || candidate.searched_depth != depth {
+            return true;
+        }
+        // Even if alpha advanced past the helper's reported score, the
+        // fail-high was a LOWER bound. It must still be rechecked.
+        let waiting = during_wait && !generation.helper_finished.load(Ordering::Acquire);
+        if waiting {
+            counters
+                .waiting_confirmations
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        counters.main_confirmations.fetch_add(1, Ordering::Relaxed);
+        debug_assert!(self.alpha >= candidate.alpha_snapshot);
+        let gap = (i64::from(self.alpha) - i64::from(candidate.alpha_snapshot)).max(0) as u64;
+        counters.alpha_gap_sum.fetch_add(gap, Ordering::Relaxed);
+        counters.alpha_gap_max.fetch_max(gap, Ordering::Relaxed);
+        let before_nodes = state.budget.nodes();
+        let mv = ordered[candidate.move_index];
+        let latency_sample = generation
+            .latency
+            .as_ref()
+            .and_then(|latency| latency.confirmation_start(candidate.move_index));
+        if generation.priority
+            && let (Some(observer), Some(_)) = (&generation.latency, latency_sample)
+        {
+            observer
+                .counters
+                .outcomes
+                .priority_choices
+                .fetch_add(1, Ordering::Relaxed);
+            if reordered {
+                observer
+                    .counters
+                    .outcomes
+                    .priority_reorders
                     .fetch_add(1, Ordering::Relaxed);
             }
-            counters.main_confirmations.fetch_add(1, Ordering::Relaxed);
-            debug_assert!(self.alpha >= candidate.alpha_snapshot);
-            let gap = (i64::from(self.alpha) - i64::from(candidate.alpha_snapshot)).max(0) as u64;
-            counters.alpha_gap_sum.fetch_add(gap, Ordering::Relaxed);
-            counters.alpha_gap_max.fetch_max(gap, Ordering::Relaxed);
-            let before_nodes = state.budget.nodes();
-            let mv = ordered[candidate.move_index];
-            let latency_sample = generation
-                .latency
-                .as_ref()
-                .and_then(|latency| latency.confirmation_start(candidate.move_index));
-            let mut score = main_child(
+        }
+        let mut score = main_child(
+            generation,
+            MainPhase::Confirmation,
+            state,
+            board,
+            mv,
+            depth - 1,
+            self.alpha,
+            self.alpha + 1,
+            history,
+        );
+        if score > self.alpha && score < hi && !state.budget.should_abort() {
+            score = main_child(
                 generation,
                 MainPhase::Confirmation,
                 state,
@@ -1116,56 +1404,70 @@ impl MainResult {
                 mv,
                 depth - 1,
                 self.alpha,
-                self.alpha + 1,
+                hi,
                 history,
             );
-            if score > self.alpha && score < hi && !state.budget.should_abort() {
-                score = main_child(
-                    generation,
-                    MainPhase::Confirmation,
-                    state,
-                    board,
-                    mv,
-                    depth - 1,
-                    self.alpha,
-                    hi,
-                    history,
-                );
-            }
-            let nodes = state.budget.nodes() - before_nodes;
+        }
+        let nodes = state.budget.nodes() - before_nodes;
+        counters
+            .confirmation_nodes
+            .fetch_add(nodes, Ordering::Relaxed);
+        if waiting {
             counters
-                .confirmation_nodes
+                .waiting_confirmation_nodes
                 .fetch_add(nodes, Ordering::Relaxed);
-            if waiting {
-                counters
-                    .waiting_confirmation_nodes
-                    .fetch_add(nodes, Ordering::Relaxed);
-            }
-            if state.budget.should_abort() {
-                generation.stop();
-                return;
-            }
-            if latency_sample == Some(true) && score >= hi {
-                generation
-                    .latency
-                    .as_ref()
-                    .unwrap()
-                    .counters
-                    .beta_scout_confirmed_cuts
-                    .fetch_add(1, Ordering::Relaxed);
-            }
-            if score > self.alpha {
-                if waiting {
-                    counters
-                        .waiting_alpha_raises
+        }
+        if reordered
+            && latency_sample.is_some()
+            && let Some(observer) = &generation.latency
+        {
+            observer
+                .counters
+                .outcomes
+                .reordered_confirmation_nodes
+                .fetch_add(nodes, Ordering::Relaxed);
+        }
+        if state.budget.should_abort() {
+            generation.stop();
+            return false;
+        }
+        if let (Some(observer), Some(sample)) = (&generation.latency, latency_sample) {
+            if score >= hi {
+                observer.counters.outcomes.cut(sample.phase);
+                if sample.beta_scout {
+                    observer
+                        .counters
+                        .beta_scout_confirmed_cuts
                         .fetch_add(1, Ordering::Relaxed);
                 }
-                counters
-                    .confirmed_alpha_raises
+                if reordered {
+                    observer
+                        .counters
+                        .outcomes
+                        .reordered_beta_cuts
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            if reordered && score > self.alpha {
+                observer
+                    .counters
+                    .outcomes
+                    .reordered_alpha_raises
                     .fetch_add(1, Ordering::Relaxed);
             }
-            self.accept(generation, mv, score);
         }
+        if score > self.alpha {
+            if waiting {
+                counters
+                    .waiting_alpha_raises
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            counters
+                .confirmed_alpha_raises
+                .fetch_add(1, Ordering::Relaxed);
+        }
+        self.accept(generation, mv, score);
+        true
     }
 }
 
@@ -1332,6 +1634,7 @@ pub(super) fn search(
         (None, None)
     };
     let mut generation = Generation::with_wake(lo, ordered.len(), wake);
+    generation.priority = invocation.priority;
     generation.latency = invocation.latency.as_ref().map(|counters| {
         LatencyObserver::new(
             main_state.budget.clone(),
@@ -1529,6 +1832,7 @@ mod tests {
             counters,
             persistent: true,
             drain: false,
+            priority: false,
             latency: None,
             executor: RefCell::new(None),
         })
@@ -2197,6 +2501,7 @@ mod tests {
                 counters: counters.clone(),
                 persistent: true,
                 drain: true,
+                priority: false,
                 latency: None,
                 executor: RefCell::new(Some(HelperExecutor {
                     sender: None,
@@ -2283,6 +2588,7 @@ mod tests {
                     counters: counters.clone(),
                     persistent,
                     drain: true,
+                    priority: false,
                     latency: None,
                     executor: RefCell::new(None),
                 });
@@ -2461,7 +2767,12 @@ mod tests {
         assert_eq!(snapshot.beta_scout_publications, 1);
         assert_eq!(snapshot.unconfirmed_publications, 5);
         for index in 0..5 {
-            assert_eq!(observer.confirmation_start(index), Some(index == 1));
+            assert_eq!(
+                observer
+                    .confirmation_start(index)
+                    .map(|sample| sample.beta_scout),
+                Some(index == 1)
+            );
         }
         assert_eq!(observer.confirmation_start(0), None);
         let completed = counters.snapshot();
@@ -2601,6 +2912,264 @@ mod tests {
                         for mv in info.pv {
                             assert!(generate_legal_moves(&mut board).contains(&mv));
                             board.do_move(mv);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn highest_ready_priority_uses_reported_score_then_index_and_rescans_late_arrivals() {
+        let generation = Generation::new(0, 5);
+        for (index, score) in [(1, 5), (2, 20), (3, 20)] {
+            assert!(generation.publish(RootCandidate {
+                alpha_snapshot: 0,
+                generation: generation.id,
+                move_index: index,
+                score,
+                searched_depth: 2,
+            }));
+        }
+        assert_eq!(
+            generation.priority_choice(2),
+            Some(RootChoice {
+                index: 2,
+                reordered: true
+            })
+        );
+        assert_eq!(generation.take(2).unwrap().score, 20);
+        // A fresh higher bound is visible on the next scan, rather than being
+        // ordered by a once-per-batch sort performed before confirmation.
+        assert!(generation.publish(RootCandidate {
+            alpha_snapshot: 0,
+            generation: generation.id,
+            move_index: 4,
+            score: 30,
+            searched_depth: 2,
+        }));
+        assert_eq!(
+            generation.priority_choice(2),
+            Some(RootChoice {
+                index: 4,
+                reordered: true
+            })
+        );
+        generation.take(4).unwrap();
+        assert_eq!(
+            generation.priority_choice(2),
+            Some(RootChoice {
+                index: 3,
+                reordered: true
+            })
+        );
+        generation.take(3).unwrap();
+        assert_eq!(
+            generation.priority_choice(2),
+            Some(RootChoice {
+                index: 1,
+                reordered: false
+            })
+        );
+        generation.take(1).unwrap();
+        assert!(generation.priority_choice(2).is_none());
+    }
+
+    #[test]
+    fn priority_discards_invalid_slots_without_spinning_or_distorting_valid_reorders() {
+        let generation = Generation::new(0, 4);
+        for (index, score, depth) in [(1, 999, 3), (2, 999, 2), (3, -50, 2)] {
+            assert!(generation.publish(RootCandidate {
+                alpha_snapshot: 0,
+                generation: generation.id,
+                move_index: index,
+                score,
+                searched_depth: depth,
+            }));
+        }
+        generation.candidates[2]
+            .generation
+            .store(generation.id + 1, Ordering::Relaxed);
+        assert_eq!(
+            generation.priority_choice(2),
+            Some(RootChoice {
+                index: 3,
+                reordered: false
+            })
+        );
+        generation.take(3).unwrap();
+        assert_eq!(generation.priority_choice(2).unwrap().index, 1);
+        assert_eq!(generation.take(1).unwrap().searched_depth, 3);
+        assert_eq!(generation.priority_choice(2).unwrap().index, 2);
+        assert!(generation.take(2).is_none());
+        assert!(generation.priority_choice(2).is_none());
+    }
+
+    #[test]
+    fn reordered_advice_gets_full_depth_verification_and_phase_outcomes_even_below_beta() {
+        on_search_stack(|| {
+            for phase in [
+                MainPhase::Scout,
+                MainPhase::Research,
+                MainPhase::Confirmation,
+                MainPhase::Idle,
+                MainPhase::Transition,
+            ] {
+                for node_limit in [None, Some(1)] {
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget = Arc::new(Budget::new(
+                        None,
+                        node_limit,
+                        Arc::new(AtomicBool::new(false)),
+                    ));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let game = PositionHistory::initial(hash);
+                    let history = SearchHistory::root(&game);
+                    let latency = Arc::new(LatencyCounters::default());
+                    let counters = Counters::default();
+                    let mut generation = Generation::new(-20_000, ordered.len());
+                    generation.priority = true;
+                    generation.latency = Some(LatencyObserver::new(
+                        state.budget.clone(),
+                        2,
+                        -9_999,
+                        ordered.len(),
+                        latency.clone(),
+                    ));
+                    let activity = generation.latency.as_ref().unwrap().enter(phase);
+                    for (index, score) in [(1, -18_000), (2, -15_000)] {
+                        assert!(generation.publish(RootCandidate {
+                            alpha_snapshot: -20_000,
+                            generation: generation.id,
+                            move_index: index,
+                            score,
+                            searched_depth: 2,
+                        }));
+                    }
+                    drop(activity);
+                    let mut result = MainResult {
+                        alpha: -20_000,
+                        best: None,
+                        raised: Vec::new(),
+                        searched: Vec::new(),
+                    };
+                    result.confirm_ready(
+                        &generation,
+                        &state,
+                        &mut board,
+                        &ordered,
+                        2,
+                        -9_999,
+                        &history,
+                        &counters,
+                    );
+                    let outcome = latency.outcomes.snapshot();
+                    let starts = [
+                        outcome.scout_confirmations,
+                        outcome.research_confirmations,
+                        outcome.confirmation_confirmations,
+                        outcome.idle_confirmations,
+                        outcome.phase_transition_confirmations,
+                    ];
+                    let cuts = [
+                        outcome.scout_beta_cuts,
+                        outcome.research_beta_cuts,
+                        outcome.confirmation_beta_cuts,
+                        outcome.idle_beta_cuts,
+                        outcome.phase_transition_beta_cuts,
+                    ];
+                    assert_eq!(starts.iter().sum::<u64>(), 1);
+                    assert_eq!(cuts.iter().sum::<u64>(), u64::from(node_limit.is_none()));
+                    assert_eq!(outcome.priority_choices, 1);
+                    assert_eq!(outcome.priority_reorders, 1);
+                    assert_eq!(outcome.reordered_beta_cuts, u64::from(node_limit.is_none()));
+                    assert_eq!(
+                        outcome.reordered_alpha_raises,
+                        u64::from(node_limit.is_none())
+                    );
+                    assert!(outcome.reordered_confirmation_nodes > 0);
+                    assert_eq!(
+                        outcome.reordered_confirmation_nodes,
+                        counters.snapshot().confirmation_nodes
+                    );
+                    assert_eq!(latency.snapshot().beta_scout_publications, 0);
+                    assert_eq!(latency.snapshot().beta_scout_confirmed_cuts, 0);
+                    assert_eq!(latency.snapshot().unconfirmed_publications, 1);
+                    assert!(generation.candidates[1].ready.load(Ordering::Acquire));
+                    if node_limit.is_none() {
+                        assert_eq!(result.best, Some(ordered[2]));
+                        assert_eq!(result.searched, [ordered[2]]);
+                        assert!(result.alpha >= -9_999);
+                    } else {
+                        assert!(result.best.is_none());
+                        assert!(state.budget.should_abort());
+                    }
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn priority_is_opt_in_and_independent_of_latency_in_both_executor_modes() {
+        on_search_stack(|| {
+            for persistent in [false, true] {
+                for priority in [false, true] {
+                    for latency in [false, true] {
+                        for stopped in [false, true] {
+                            let searcher = Searcher::new(Tt::new(2));
+                            searcher.abort_flag().store(stopped, Ordering::Relaxed);
+                            let mut board = Board::startpos();
+                            let hash = board.hash();
+                            let acc = board.acc.clone();
+                            let history = PositionHistory::initial(hash);
+                            let (info, root, wait) = searcher
+                                .search_cooperative_root_priority_controls(
+                                    &mut board,
+                                    SearchConfig {
+                                        max_depth: 3,
+                                        ..SearchConfig::default()
+                                    },
+                                    &history,
+                                    persistent,
+                                    false,
+                                    latency,
+                                    priority,
+                                );
+                            assert_eq!(wait.priority_enabled, priority);
+                            assert_eq!(wait.outcomes.is_some(), latency);
+                            assert_eq!(wait.latency.is_some(), latency);
+                            if let Some(outcome) = wait.outcomes {
+                                let starts = outcome.scout_confirmations
+                                    + outcome.research_confirmations
+                                    + outcome.confirmation_confirmations
+                                    + outcome.idle_confirmations
+                                    + outcome.phase_transition_confirmations;
+                                assert_eq!(starts, root.main_confirmations);
+                                assert_eq!(
+                                    outcome.priority_choices,
+                                    if priority { starts } else { 0 }
+                                );
+                                assert!(outcome.priority_reorders <= outcome.priority_choices);
+                                assert!(
+                                    outcome.reordered_confirmation_nodes <= root.confirmation_nodes
+                                );
+                            }
+                            assert_eq!(board.hash(), hash);
+                            assert_eq!(board.acc, acc);
+                            assert_eq!(
+                                root.physical_helper_threads_started,
+                                root.physical_helper_threads_joined
+                            );
+                            assert_eq!(info.aborted, stopped);
+                            for mv in info.pv {
+                                assert!(generate_legal_moves(&mut board).contains(&mv));
+                                board.do_move(mv);
+                            }
                         }
                     }
                 }

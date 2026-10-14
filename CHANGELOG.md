@@ -14,6 +14,10 @@ preserves older per-change notes.
 
 ### Added
 
+- Add an opt-in highest-ready/rescan cooperative confirmation policy and
+  arrival-phase outcome diagnostics. Worker 0 still verifies every accepted
+  score at full depth; defaults remain disabled pending independent H1.
+
 - Add opt-in cooperative-root advice latency diagnostics using private main-node
   accounting and phase epochs, with compatible snapshots and USI evidence.
   Defaults and search policy are unchanged; diagnostics are not strength proof.
