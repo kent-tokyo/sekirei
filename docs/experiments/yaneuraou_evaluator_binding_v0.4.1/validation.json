@@ -15,8 +15,8 @@
     },
     {
       "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/.github/workflows/ci.yml",
-      "sha256": "5ae807fa74e48b7017c708eb21d268d2091bd8e74913b61fb9dbb7c9219aedd6",
-      "bytes": 24054
+      "sha256": "5ec327acb5dc43a904878033a0bb75a366715ac77edfe7dee3ac2cf575807568",
+      "bytes": 25077
     }
   ],
   "test_files": [
@@ -57,7 +57,7 @@
     "failed": 0,
     "log": {
       "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/yaneuraou-evaluator-binding-tests.log",
-      "sha256": "d4b1ca3f2586687e3e2b93687eb67ae503f0148356dc72b517f3e73843946a0f",
+      "sha256": "be0aa635f2e5bc47a4da8c946415f6f370ec5d520d7594640eacbb3d9a85acc1",
       "bytes": 312
     }
   },
@@ -100,5 +100,8 @@
   "search_policy_changed": false,
   "queued_aspiration_candidate_changed": false,
   "strength_claim": false,
-  "scope": "Filesystem before/after binding only. Runtime loading, architecture/output equivalence, transient changes, opponent build source and independent-corpus qualification remain separate."
+  "scope": "Filesystem before/after binding only. Runtime loading, architecture/output equivalence, transient changes, opponent build source and independent-corpus qualification remain separate.",
+  "validated_tool_source_commit": "38ee6daece494bb6130201cd7f941843c0e3c83d",
+  "integration_parent_main": "c36f6f76f3b8e684dc3a6e5bf445b35fc6315d67",
+  "smoke_engine_core_usi_source_matches_integrated_main": true
 }
