@@ -229,7 +229,9 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         .expect("applied root hints must be numeric");
     assert!(applied <= eligible_reads);
     let counters: std::collections::HashMap<_, _> = fields[3..]
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|pair| {
             (
                 pair[0],
@@ -292,7 +294,9 @@ fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search
             let fields: Vec<_> = line.split_whitespace().skip(3).collect();
             assert_eq!(fields.len(), 44);
             let stats: std::collections::HashMap<_, _> = fields
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
                 .collect();
             assert_eq!(
@@ -361,7 +365,9 @@ fn persistent_root_executor_reuses_worker_through_usi_and_resets_next_go() {
             .unwrap();
         let fields: Vec<_> = line.split_whitespace().skip(3).collect();
         let stats: std::collections::HashMap<_, _> = fields
-            .chunks_exact(2)
+            .as_chunks::<2>()
+            .0
+            .iter()
             .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
             .collect();
         assert!(stats["generations"] >= depth);
