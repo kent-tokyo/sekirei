@@ -919,13 +919,25 @@ fn emit_search_result(
     }
     if let Some(stats) = info.cooperative_root {
         println!(
-            "info string cooperative_root generations {} helper_nodes {} helper_probes {} helper_fail_highs {} main_confirmations {} confirmed_alpha_raises {}",
+            "info string cooperative_root generations {} helper_nodes {} helper_probes {} helper_fail_highs {} main_confirmations {} confirmed_alpha_raises {} main_nodes {} main_tasks {} confirmation_nodes {} helper_completed_nodes {} helper_aborted_nodes {} helper_aborted_probes {} spawn_failures {} helpers_started {} helper_start_delay_us {} join_wait_us {} alpha_gap_sum {} alpha_gap_max {}",
             stats.generations,
             stats.helper_nodes,
             stats.helper_probes,
             stats.helper_fail_highs,
             stats.main_confirmations,
-            stats.confirmed_alpha_raises
+            stats.confirmed_alpha_raises,
+            stats.main_nodes,
+            stats.main_tasks,
+            stats.confirmation_nodes,
+            stats.helper_completed_nodes,
+            stats.helper_aborted_nodes,
+            stats.helper_aborted_probes,
+            stats.spawn_failures,
+            stats.helpers_started,
+            stats.helper_start_delay_us,
+            stats.join_wait_us,
+            stats.alpha_gap_sum,
+            stats.alpha_gap_max,
         );
     }
     for (worker, stats) in info.nmp_stats.iter().enumerate() {

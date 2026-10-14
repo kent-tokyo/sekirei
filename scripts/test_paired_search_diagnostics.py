@@ -76,10 +76,30 @@ class PairedDiagnosticsTests(unittest.TestCase):
             parse_retirement(["info string lazy_smp_retirement worker 0 completed_iterations 4 retired 1 foreign_contributions 0"])
 
     def test_cooperative_counter_rejects_unconfirmed_raise(self):
-        line = "info string cooperative_root generations 2 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1"
+        line = "info string cooperative_root generations 2 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 0 main_tasks 0 confirmation_nodes 0 helper_completed_nodes 30 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 2 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0"
         self.assertEqual(parse_cooperative_root([line])["main_confirmations"], 1)
         with self.assertRaisesRegex(ValueError, "exceed"):
             parse_cooperative_root([line.replace("alpha_raises 1", "alpha_raises 2")])
+
+    def test_cooperative_counter_rejects_double_counting(self):
+        base = "info string cooperative_root generations 1 helper_nodes 30 helper_probes 3 helper_fail_highs 1 main_confirmations 1 confirmed_alpha_raises 1 main_nodes 100 main_tasks 2 confirmation_nodes 20 helper_completed_nodes 25 helper_aborted_nodes 5 helper_aborted_probes 1 spawn_failures 0 helpers_started 1 helper_start_delay_us 200 join_wait_us 400 alpha_gap_sum 10 alpha_gap_max 10"
+        self.assertEqual(parse_cooperative_root([base])["confirmation_nodes"], 20)
+        for old, new in [("confirmation_nodes 20", "confirmation_nodes 101"),
+                         ("helper_aborted_nodes 5", "helper_aborted_nodes 6"),
+                         ("alpha_gap_max 10", "alpha_gap_max 11"),
+                         ("helpers_started 1", "helpers_started 0"),
+                         ("helper_fail_highs 1", "helper_fail_highs 0"),
+                         ("main_confirmations 1 confirmed_alpha_raises 1", "main_confirmations 0 confirmed_alpha_raises 0")]:
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                parse_cooperative_root([base.replace(old, new)])
+
+        with self.assertRaisesRegex(ValueError, "total nodes"):
+            parse_cooperative_root([base], total_nodes=129)
+        self.assertEqual(parse_cooperative_root([base], total_nodes=130)["main_nodes"], 100)
+        empty = "info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 main_nodes 100 main_tasks 2 confirmation_nodes 0 helper_completed_nodes 0 helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 1 helpers_started 0 helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0"
+        self.assertEqual(parse_cooperative_root([empty])["spawn_failures"], 1)
+        with self.assertRaisesRegex(ValueError, "without started"):
+            parse_cooperative_root([empty.replace("join_wait_us 0", "join_wait_us 1")])
 
     def test_nmp_histograms_require_exact_summary_totals(self):
         lines = ["info string v2_nmp worker 0 attempts 2 fail_high 1 verification_attempts 1 verification_successes 0 verification_overturns 1 pv_returns 0 tracking_overflow 0 prior_reductions 1",

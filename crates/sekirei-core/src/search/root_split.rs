@@ -9,6 +9,7 @@
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
+use web_time::Instant;
 
 use super::heuristics::{CountermoveTable, HistoryTable, KillerTable};
 use super::{
@@ -35,6 +36,30 @@ pub struct CooperativeRootStats {
     pub main_confirmations: u64,
     /// Rechecked helper moves that actually raised worker 0's alpha.
     pub confirmed_alpha_raises: u64,
+    /// Nodes in main root children, including confirmations and aborted children.
+    pub main_nodes: u64,
+    /// Root children started by main, excluding helper confirmations.
+    pub main_tasks: u64,
+    /// Main nodes spent rechecking helper candidates; a subset of main_nodes.
+    pub confirmation_nodes: u64,
+    /// Helper nodes in completed probes; a subset of helper_nodes.
+    pub helper_completed_nodes: u64,
+    /// Helper nodes in interrupted probes; a subset of helper_nodes.
+    pub helper_aborted_nodes: u64,
+    /// Helper probes interrupted by cancellation or the shared budget.
+    pub helper_aborted_probes: u64,
+    /// Helper thread creation failures; main still searches unclaimed moves.
+    pub spawn_failures: u64,
+    /// Successfully started helpers; denominator for both timing sums.
+    pub helpers_started: u64,
+    /// Sum of spawn request to helper closure start, in microseconds.
+    pub helper_start_delay_us: u64,
+    /// Sum of time main waits for the helper at join, in microseconds.
+    pub join_wait_us: u64,
+    /// Sum of positive alpha advances since confirmed candidates were probed.
+    pub alpha_gap_sum: u64,
+    /// Largest positive alpha advance at confirmation.
+    pub alpha_gap_max: u64,
 }
 
 #[derive(Default)]
@@ -47,6 +72,18 @@ struct Counters {
     helper_fail_highs: AtomicU64,
     main_confirmations: AtomicU64,
     confirmed_alpha_raises: AtomicU64,
+    main_nodes: AtomicU64,
+    main_tasks: AtomicU64,
+    confirmation_nodes: AtomicU64,
+    helper_completed_nodes: AtomicU64,
+    helper_aborted_nodes: AtomicU64,
+    helper_aborted_probes: AtomicU64,
+    spawn_failures: AtomicU64,
+    helpers_started: AtomicU64,
+    helper_start_delay_us: AtomicU64,
+    join_wait_us: AtomicU64,
+    alpha_gap_sum: AtomicU64,
+    alpha_gap_max: AtomicU64,
 }
 
 impl Counters {
@@ -58,7 +95,36 @@ impl Counters {
             helper_fail_highs: self.helper_fail_highs.load(Ordering::Relaxed),
             main_confirmations: self.main_confirmations.load(Ordering::Relaxed),
             confirmed_alpha_raises: self.confirmed_alpha_raises.load(Ordering::Relaxed),
+            main_nodes: self.main_nodes.load(Ordering::Relaxed),
+            main_tasks: self.main_tasks.load(Ordering::Relaxed),
+            confirmation_nodes: self.confirmation_nodes.load(Ordering::Relaxed),
+            helper_completed_nodes: self.helper_completed_nodes.load(Ordering::Relaxed),
+            helper_aborted_nodes: self.helper_aborted_nodes.load(Ordering::Relaxed),
+            helper_aborted_probes: self.helper_aborted_probes.load(Ordering::Relaxed),
+            spawn_failures: self.spawn_failures.load(Ordering::Relaxed),
+            helpers_started: self.helpers_started.load(Ordering::Relaxed),
+            helper_start_delay_us: self.helper_start_delay_us.load(Ordering::Relaxed),
+            join_wait_us: self.join_wait_us.load(Ordering::Relaxed),
+            alpha_gap_sum: self.alpha_gap_sum.load(Ordering::Relaxed),
+            alpha_gap_max: self.alpha_gap_max.load(Ordering::Relaxed),
         }
+    }
+}
+
+fn elapsed_us(start: Instant) -> u64 {
+    start.elapsed().as_micros().min(u64::MAX as u128) as u64
+}
+
+struct MainAccounting<'a> {
+    counters: &'a Counters,
+    budget: Arc<Budget>,
+}
+
+impl Drop for MainAccounting<'_> {
+    fn drop(&mut self) {
+        self.counters
+            .main_nodes
+            .fetch_add(self.budget.nodes(), Ordering::Relaxed);
     }
 }
 
@@ -123,6 +189,7 @@ struct RootTask {
 
 #[derive(Clone, Copy, Debug)]
 struct RootCandidate {
+    alpha_snapshot: i32,
     generation: u64,
     move_index: usize,
     score: i32,
@@ -131,6 +198,7 @@ struct RootCandidate {
 
 #[derive(Default)]
 struct CandidateSlot {
+    alpha_snapshot: AtomicI32,
     generation: AtomicU64,
     score: AtomicI32,
     depth: AtomicU32,
@@ -177,6 +245,8 @@ impl Generation {
         let Some(slot) = self.candidates.get(candidate.move_index) else {
             return false;
         };
+        slot.alpha_snapshot
+            .store(candidate.alpha_snapshot, Ordering::Relaxed);
         slot.score.store(candidate.score, Ordering::Relaxed);
         slot.depth
             .store(candidate.searched_depth, Ordering::Relaxed);
@@ -194,6 +264,7 @@ impl Generation {
             return None;
         }
         Some(RootCandidate {
+            alpha_snapshot: slot.alpha_snapshot.load(Ordering::Relaxed),
             generation: self.id,
             move_index: index,
             score: slot.score.load(Ordering::Relaxed),
@@ -352,6 +423,11 @@ impl MainResult {
             // Even if alpha advanced past the helper's reported score, the
             // fail-high was a LOWER bound. It must still be rechecked.
             counters.main_confirmations.fetch_add(1, Ordering::Relaxed);
+            debug_assert!(self.alpha >= candidate.alpha_snapshot);
+            let gap = (i64::from(self.alpha) - i64::from(candidate.alpha_snapshot)).max(0) as u64;
+            counters.alpha_gap_sum.fetch_add(gap, Ordering::Relaxed);
+            counters.alpha_gap_max.fetch_max(gap, Ordering::Relaxed);
+            let before_nodes = state.budget.nodes();
             let mv = ordered[candidate.move_index];
             let mut score = child(
                 state,
@@ -365,6 +441,9 @@ impl MainResult {
             if score > self.alpha && score < hi && !state.budget.should_abort() {
                 score = child(state, board, mv, depth - 1, self.alpha, hi, history);
             }
+            counters
+                .confirmation_nodes
+                .fetch_add(state.budget.nodes() - before_nodes, Ordering::Relaxed);
             if state.budget.should_abort() {
                 generation.stop();
                 return;
@@ -395,7 +474,18 @@ pub(super) fn search(
     let counters = ACTIVE
         .with(|active| active.borrow().clone())
         .expect("root split activation");
-    let main_state = participant_state(state, state.budget.clone(), None);
+    // Private accounting prevents concurrent helper nodes being attributed to
+    // main confirmations. The parent remains the sole hard budget.
+    let main_budget = Arc::new(Budget::cooperative_child(
+        state.budget.clone(),
+        Arc::new(AtomicBool::new(false)),
+    ));
+    let _main_accounting = MainAccounting {
+        counters: &counters,
+        budget: main_budget.clone(),
+    };
+    let main_state = participant_state(state, main_budget, None);
+    counters.main_tasks.fetch_add(1, Ordering::Relaxed);
     let first_score = child(&main_state, board, first, depth - 1, lo, hi, history);
     let mut result = MainResult {
         alpha: lo,
@@ -416,6 +506,7 @@ pub(super) fn search(
         ));
         let helper_state = participant_state(state, helper_budget.clone(), Some(&counters));
         let mut helper_board = board.clone();
+        let spawn_start = Instant::now();
         std::thread::scope(|scope| {
             // Drop before the scope joins during unwinding, so a panicking
             // main participant promptly cancels the still-running helper.
@@ -424,11 +515,16 @@ pub(super) fn search(
                 .name("sekirei-root-helper".to_owned())
                 .stack_size(super::RECURSIVE_SEARCH_STACK_BYTES)
                 .spawn_scoped(scope, || {
+                    counters.helpers_started.fetch_add(1, Ordering::Relaxed);
+                    counters
+                        .helper_start_delay_us
+                        .fetch_add(elapsed_us(spawn_start), Ordering::Relaxed);
                     let _participation = Participation::new(&generation);
                     while !helper_state.budget.should_abort() {
                         let Some(task) = generation.claim(ordered.len()) else {
                             break;
                         };
+                        let before_nodes = helper_budget.nodes();
                         let score = child(
                             &helper_state,
                             &mut helper_board,
@@ -438,13 +534,24 @@ pub(super) fn search(
                             task.alpha_snapshot + 1,
                             history,
                         );
+                        let probe_nodes = helper_budget.nodes() - before_nodes;
                         if helper_state.budget.should_abort() {
+                            counters
+                                .helper_aborted_probes
+                                .fetch_add(1, Ordering::Relaxed);
+                            counters
+                                .helper_aborted_nodes
+                                .fetch_add(probe_nodes, Ordering::Relaxed);
                             break;
                         }
+                        counters
+                            .helper_completed_nodes
+                            .fetch_add(probe_nodes, Ordering::Relaxed);
                         counters.helper_probes.fetch_add(1, Ordering::Relaxed);
                         if score > task.alpha_snapshot {
                             counters.helper_fail_highs.fetch_add(1, Ordering::Relaxed);
                             generation.publish(RootCandidate {
+                                alpha_snapshot: task.alpha_snapshot,
                                 generation: task.generation,
                                 move_index: task.move_index,
                                 score,
@@ -453,6 +560,9 @@ pub(super) fn search(
                         }
                     }
                 });
+            if helper.is_err() {
+                counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+            }
             let _participation = Participation::new(&generation);
             while result.alpha < hi && !state.budget.should_abort() {
                 result.confirm_ready(
@@ -471,6 +581,7 @@ pub(super) fn search(
                 let Some(task) = generation.claim(ordered.len()) else {
                     break;
                 };
+                counters.main_tasks.fetch_add(1, Ordering::Relaxed);
                 let mv = ordered[task.move_index];
                 let quiet = p::ROOT_LMR() != 0 || (board.piece_at(mv.to).is_none() && !mv.promote);
                 let reduction = root_lmr_reduction(depth, task.move_index, quiet, false);
@@ -517,7 +628,11 @@ pub(super) fn search(
             // Joining bounds the lifetime of every board and candidate. A new
             // aspiration pass/iteration cannot outlive a previous helper.
             if let Ok(helper) = helper {
+                let join_start = Instant::now();
                 helper.join().expect("cooperative root helper panicked");
+                counters
+                    .join_wait_us
+                    .fetch_add(elapsed_us(join_start), Ordering::Relaxed);
             }
             result.confirm_ready(
                 &generation,
@@ -606,7 +721,16 @@ mod tests {
             assert_eq!(board.acc, acc);
             assert!(generate_legal_moves(&mut board).contains(&info.best_move.unwrap()));
             assert!(stats.generations >= 2);
-            assert!(stats.helper_nodes <= info.nodes);
+            assert_eq!(
+                stats.helpers_started + stats.spawn_failures,
+                stats.generations
+            );
+            assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+            assert!(stats.confirmation_nodes <= stats.main_nodes);
+            assert_eq!(
+                stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                stats.helper_nodes
+            );
             let mut replay = board.clone();
             for mv in info.pv {
                 assert!(generate_legal_moves(&mut replay).contains(&mv));
@@ -665,9 +789,38 @@ mod tests {
             assert!(info.aborted);
             assert_eq!(info.abort_reason, "budget");
             assert!(info.nodes >= 300);
-            assert!(stats.helper_nodes <= info.nodes);
+            assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+            assert!(stats.confirmation_nodes <= stats.main_nodes);
+            assert_eq!(
+                stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                stats.helper_nodes
+            );
             assert_eq!(board.hash(), hash);
             assert_eq!(board.acc, acc);
+        });
+    }
+
+    #[test]
+    fn aborted_first_child_is_accounted_without_starting_helper() {
+        on_search_stack(|| {
+            let mut board = Board::startpos();
+            let hash = board.hash();
+            let mut state = test_state();
+            Arc::get_mut(&mut state).unwrap().budget =
+                Arc::new(Budget::new(None, Some(1), Arc::new(AtomicBool::new(false))));
+            let ordered = generate_legal_moves(&mut board);
+            let position_history = PositionHistory::initial(hash);
+            let history = SearchHistory::root(&position_history);
+            let counters = Arc::new(Counters::default());
+            let _activation = Activation::new(counters.clone());
+            let _ = search(&state, &mut board, 4, &ordered, -10_000, 10_000, &history);
+            let stats = counters.snapshot();
+            assert!(state.budget.should_abort());
+            assert_eq!(stats.main_nodes, state.budget.nodes());
+            assert!(stats.main_nodes >= 1);
+            assert_eq!(stats.generations, 0);
+            assert_eq!(stats.helper_nodes, 0);
+            assert_eq!(board.hash(), hash);
         });
     }
 
@@ -691,6 +844,7 @@ mod tests {
         let first = Generation::new(10, 3);
         let second = Generation::new(10, 3);
         let candidate = RootCandidate {
+            alpha_snapshot: 0,
             generation: first.id,
             move_index: 1,
             score: 30,
@@ -781,6 +935,7 @@ mod tests {
             let history = SearchHistory::root(&history);
             let generation = Generation::new(-10_000, ordered.len());
             assert!(generation.publish(RootCandidate {
+                alpha_snapshot: -20_000,
                 generation: generation.id,
                 move_index: 1,
                 score: -20_000,
@@ -804,6 +959,9 @@ mod tests {
                 &counters,
             );
             assert_eq!(counters.snapshot().main_confirmations, 1);
+            assert_eq!(counters.snapshot().alpha_gap_sum, 10_000);
+            assert_eq!(counters.snapshot().alpha_gap_max, 10_000);
+            assert!(counters.snapshot().confirmation_nodes > 0);
             assert_eq!(counters.snapshot().confirmed_alpha_raises, 1);
             assert_eq!(result.best, Some(ordered[1]));
             assert!(result.alpha > -10_000);
@@ -820,6 +978,7 @@ mod tests {
         let history = SearchHistory::root(&history);
         let generation = Generation::new(0, ordered.len());
         assert!(generation.publish(RootCandidate {
+            alpha_snapshot: 0,
             generation: generation.id,
             move_index: 1,
             score: 20,
@@ -861,6 +1020,7 @@ mod tests {
     fn corrupted_generation_stamp_cannot_be_taken() {
         let generation = Generation::new(0, 2);
         assert!(generation.publish(RootCandidate {
+            alpha_snapshot: 0,
             generation: generation.id,
             move_index: 1,
             score: 3,
@@ -871,6 +1031,7 @@ mod tests {
             .store(generation.id.wrapping_add(1), Ordering::Relaxed);
         assert!(generation.take(1).is_none());
         assert!(!generation.publish(RootCandidate {
+            alpha_snapshot: 0,
             generation: generation.id,
             move_index: 2,
             score: 3,

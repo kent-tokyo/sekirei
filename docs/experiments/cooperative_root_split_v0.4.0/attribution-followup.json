@@ -1,0 +1,98 @@
+{
+  "schema": "sekirei.root-attribution-followup.v1",
+  "source_base": "7d1f4bb",
+  "source_state": "root attribution follow-up in codex/lazy-smp-useful-depth",
+  "opponent_source_inspected": {
+    "revision": "c1b80eaa09fe13d5f12b1599d1ae4d53c224de30",
+    "version": "9.80git",
+    "opponent_executed": false
+  },
+  "validation": {
+    "rust": {
+      "command": "RUST_MIN_STACK=16777216 CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo test --offline -p sekirei-core -p sekirei --features tune -- --test-threads=1",
+      "passed": 441,
+      "failed": 0,
+      "ignored": 6
+    },
+    "python": {
+      "command": "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=scripts python3 -m unittest scripts/test_paired_search_diagnostics.py scripts/test_nps_threads.py scripts/test_run_ab_match.py",
+      "passed": 68,
+      "failed": 0
+    },
+    "clippy": {
+      "command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=2 cargo clippy --offline --workspace --all-targets --features tune -- -D warnings",
+      "passed": true
+    },
+    "coverage_remeasured": false
+  },
+  "smoke": {
+    "run": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-attribution-followup",
+    "build_profile": "debug",
+    "threads": 2,
+    "depth": 4,
+    "positions": 4,
+    "rows": 16,
+    "candidate_rows": 8,
+    "stats": {
+      "generations": 32,
+      "helper_nodes": 1642,
+      "helper_probes": 379,
+      "helper_fail_highs": 6,
+      "main_confirmations": 6,
+      "confirmed_alpha_raises": 0,
+      "main_nodes": 2266,
+      "main_tasks": 589,
+      "confirmation_nodes": 162,
+      "helper_completed_nodes": 1642,
+      "helper_aborted_nodes": 0,
+      "helper_aborted_probes": 0,
+      "spawn_failures": 0,
+      "helpers_started": 32,
+      "helper_start_delay_us": 879,
+      "join_wait_us": 90755,
+      "alpha_gap_sum": 300,
+      "alpha_gap_max": 50
+    },
+    "engines": {
+      "A": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-attribution-followup/engine-A",
+        "sha256": "72ea3e5f0a4f610e58743c1dfba4234607c86e66ce9e11b35cd85d5e566236ed",
+        "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/debug/sekirei"
+      },
+      "B": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-attribution-followup/engine-B",
+        "sha256": "72ea3e5f0a4f610e58743c1dfba4234607c86e66ce9e11b35cd85d5e566236ed",
+        "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/debug/sekirei"
+      }
+    },
+    "timing_qualified": false,
+    "evaluator": "material",
+    "node_accounting_cross_checks": "passed on every candidate row"
+  },
+  "pv_validation": {
+    "schema": "sekirei.paired-pv-validation.v1",
+    "rows": 16,
+    "pv_moves": 64,
+    "unique_board_probes": 20,
+    "violations": [],
+    "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+    "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-attribution-pv.legal-moves",
+    "runs": [
+      {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-attribution-followup",
+        "engine_sha256": {
+          "A": "72ea3e5f0a4f610e58743c1dfba4234607c86e66ce9e11b35cd85d5e566236ed",
+          "B": "72ea3e5f0a4f610e58743c1dfba4234607c86e66ce9e11b35cd85d5e566236ed"
+        },
+        "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+      }
+    ],
+    "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+  },
+  "limitations": [
+    "Correctness/activity smoke only; no playing-strength or speed result.",
+    "Instrumentation changes opt-in overhead; timings are not comparable with the old prototype.",
+    "No opponent match or SPRT was run.",
+    "Full coverage was not remeasured after this follow-up."
+  ]
+}

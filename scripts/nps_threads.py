@@ -367,13 +367,26 @@ def parse_retirement(lines: list[str]) -> list[dict[str, int]]:
     return records
 
 
-def parse_cooperative_root(lines: list[str]) -> dict[str, int] | None:
+def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) -> dict[str, int] | None:
     prefix = "info string cooperative_root "
     matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
     if not matches:
         return None
     keys = ("generations", "helper_nodes", "helper_probes", "helper_fail_highs",
-            "main_confirmations", "confirmed_alpha_raises")
+            "main_confirmations", "confirmed_alpha_raises",
+            "main_nodes",
+            "main_tasks",
+            "confirmation_nodes",
+            "helper_completed_nodes",
+            "helper_aborted_nodes",
+            "helper_aborted_probes",
+            "spawn_failures",
+            "helpers_started",
+            "helper_start_delay_us",
+            "join_wait_us",
+            "alpha_gap_sum",
+            "alpha_gap_max",
+            )
     fields = matches[0].split()
     if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
         raise ValueError("malformed cooperative root diagnostic")
@@ -384,6 +397,24 @@ def parse_cooperative_root(lines: list[str]) -> dict[str, int] | None:
         raise ValueError("cooperative root counter exceeds u64")
     if result["confirmed_alpha_raises"] > result["main_confirmations"]:
         raise ValueError("cooperative raises exceed main confirmations")
+    if result["main_confirmations"] > result["helper_fail_highs"] or result["helper_fail_highs"] > result["helper_probes"]:
+        raise ValueError("cooperative confirmation/probe counts inconsistent")
+    if result["confirmation_nodes"] > result["main_nodes"]:
+        raise ValueError("cooperative confirmation nodes exceed main nodes")
+    if result["helper_completed_nodes"] + result["helper_aborted_nodes"] != result["helper_nodes"]:
+        raise ValueError("cooperative helper node accounting inconsistent")
+    if result["alpha_gap_max"] > result["alpha_gap_sum"]:
+        raise ValueError("cooperative alpha gap inconsistent")
+    if result["spawn_failures"] + result["helpers_started"] != result["generations"] or result["helper_aborted_probes"] > result["helpers_started"]:
+        raise ValueError("cooperative lifecycle counts inconsistent")
+    if result["main_confirmations"] == 0 and result["alpha_gap_sum"] != 0:
+        raise ValueError("cooperative alpha gap without confirmations")
+    if result["helpers_started"] == 0 and any(result[key] != 0 for key in (
+        "helper_probes", "helper_nodes", "helper_start_delay_us", "join_wait_us",
+    )):
+        raise ValueError("cooperative work without started helpers")
+    if total_nodes is not None and result["main_nodes"] + result["helper_nodes"] > total_nodes:
+        raise ValueError("cooperative classified nodes exceed total nodes")
     return result
 
 
@@ -779,7 +810,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     **parse_search_result(lines),
                     "retirement": parse_retirement(lines),
                     "nmp": parse_nmp(lines),
-                    "cooperative_root": parse_cooperative_root(lines),
+                    "cooperative_root": parse_cooperative_root(lines, total_nodes=nodes),
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,

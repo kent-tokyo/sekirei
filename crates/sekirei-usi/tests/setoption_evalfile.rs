@@ -284,6 +284,28 @@ fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search
             "missing {expected}: {lines:?}"
         );
         assert!(!lines.iter().any(|line| line == "bestmove resign"));
+        if threads == 2 {
+            let line = lines
+                .iter()
+                .find(|line| line.starts_with(expected))
+                .unwrap();
+            let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+            assert_eq!(fields.len(), 36);
+            let stats: std::collections::HashMap<_, _> = fields
+                .chunks_exact(2)
+                .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
+                .collect();
+            assert_eq!(
+                stats["helpers_started"] + stats["spawn_failures"],
+                stats["generations"]
+            );
+            assert_eq!(
+                stats["helper_completed_nodes"] + stats["helper_aborted_nodes"],
+                stats["helper_nodes"]
+            );
+            assert!(stats["confirmation_nodes"] <= stats["main_nodes"]);
+            assert!(stats["alpha_gap_max"] <= stats["alpha_gap_sum"]);
+        }
         if threads == 4 {
             assert_eq!(
                 lines

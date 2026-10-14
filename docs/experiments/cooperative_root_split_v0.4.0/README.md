@@ -63,3 +63,58 @@ alpha-raise conversion, elapsed time and legal PVs. Run ABBA order across
 repeats, and keep tactical positions and quiet middlegames identifiable.
 No default adoption is justified by NPS or a depth gain alone: use an
 independent paired self-play/SPRT gate after the useful-depth diagnostics.
+
+## Work attribution follow-up (2026-10-14)
+
+The target is stronger search than a pinned YaneuraOu opponent, not a larger
+reported depth or NPS. The locally inspected source is YaneuraOu
+`c1b80eaa09fe13d5f12b1599d1ae4d53c224de30` (`9.80git`). This source identity
+does not establish the identity of a pre-existing local executable.
+
+The opt-in statistics now distinguish `main_nodes`, `confirmation_nodes`,
+`helper_completed_nodes`, `helper_aborted_nodes`, `helper_aborted_probes`,
+`main_tasks`, and `helpers_started` / `spawn_failures`. Confirmation nodes are
+part of main nodes. Completed and aborted helper nodes sum to helper nodes.
+Main root-child nodes plus helper nodes are a subset of invocation nodes:
+root-safety checks and paths outside this prototype can consume other nodes.
+A private child budget counts main nodes independently while sharing the
+original hard time/node/stop budget. This adds accounting overhead to the
+opt-in prototype; do not compare its timing against the previous prototype
+as if only the executor changed. The ordinary search path is unchanged.
+
+`helper_start_delay_us` measures spawn request to helper closure entry;
+`join_wait_us` measures main join call to its return. Both are sums, with
+`helpers_started` as the denominator. Failed spawns are not zero-delay
+samples. Join time can be useful remaining work, so it is not all overhead.
+`alpha_gap_sum` / `alpha_gap_max` measure main alpha minus the original probe
+snapshot at confirmation; the sample count is `main_confirmations`. These
+counters diagnose candidates that arrive after alpha advances, not incorrect
+or automatically disposable lower bounds. Every fail high still requires
+main confirmation.
+
+Next isolated candidates are a persistent two-participant executor and a
+helper root reduction policy matching main before full-depth confirmation.
+Measure those separately, with attribution enabled only for diagnostics and
+matched overhead in both arms. Then test score-variance-based aspiration
+windows separately from any effective-depth adjustment. None is adopted by
+this instrumentation change.
+
+Qualification remains material-only selection on fresh Sekirei openings,
+followed by an independent paired H1 gate. An eventual cross-engine claim
+needs pinned binaries/options, book disabled, equal hash/threads/wall time,
+colour-reversed independent openings, and evaluator agreement checked on
+both sides. Cross-engine depth is descriptive only. A synthetic evaluator
+can validate throughput and plumbing, not playing strength. External
+Suisho5 evaluation remains measurement-only under the existing instruction.
+
+Follow-up validation: core/USI tests 441 passed, 6 ignored; Python tooling
+68 passed; full-workspace all-target tune Clippy passed. The debug two-worker
+depth-4 smoke completed 16 searches across four diagnostic positions. Eight
+split searches started 32 helpers, completed 379 probes and 6 main
+confirmations, and produced 0 confirmed alpha raises. Node accounting passed
+on every candidate row. All 64 reported PV moves replayed legally through the
+frozen Sekirei rules tool (same rules, not an independent oracle). These are
+activity/correctness results only. The host was busy and the build was debug;
+no speed inference or strength gate is justified. Full coverage was not
+remeasured in this follow-up. Machine-readable evidence is in
+[attribution-followup.json](attribution-followup.json).
