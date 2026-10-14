@@ -1,0 +1,92 @@
+{
+  "schema": "sekirei.paired-pv-validation.v1",
+  "rows": 1616,
+  "pv_moves": 12739,
+  "unique_board_probes": 3367,
+  "violations": [],
+  "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+  "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/pv-validation.legal-moves",
+  "runs": [
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-depth6-valid",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-depth8-valid",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/default-regression-depth8",
+      "engine_sha256": {
+        "A": "f41bfd5ff6ba67f83d555e03437d779f4584fdb67f3d3e88489e16a205e16461",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/initial-dirty-regression-depth8",
+      "engine_sha256": {
+        "A": "c10c22c84ace1e19819ca531964890ebe546839c61b2573facc4da68c5e0eeda",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/lmr-true300",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/hint-true300",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/retirement-true300",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/hint-scaling-true300",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-split-depth8-smoke",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    },
+    {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-true300-last",
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+    }
+  ],
+  "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+}

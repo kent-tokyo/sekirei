@@ -367,6 +367,26 @@ def parse_retirement(lines: list[str]) -> list[dict[str, int]]:
     return records
 
 
+def parse_cooperative_root(lines: list[str]) -> dict[str, int] | None:
+    prefix = "info string cooperative_root "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    keys = ("generations", "helper_nodes", "helper_probes", "helper_fail_highs",
+            "main_confirmations", "confirmed_alpha_raises")
+    fields = matches[0].split()
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative root diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative root counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative root counter exceeds u64")
+    if result["confirmed_alpha_raises"] > result["main_confirmations"]:
+        raise ValueError("cooperative raises exceed main confirmations")
+    return result
+
+
 def parse_nmp(lines: list[str]) -> list[dict]:
     """Require complete depth histograms for every emitted NMP summary."""
     keys = ("worker", "attempts", "fail_high", "verification_attempts",
@@ -711,14 +731,20 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
     try:
         engine.send("usi")
         handshake = engine.wait_for("usiok")
+        advertised = {line[len("option name "):].split(" type ", 1)[0]
+                      for line in handshake if line.startswith("option name ")}
+        effective_options = engine_options(args, threads)
+        # Sekirei builds without opening-book cannot enable a book and do not
+        # advertise UseBook. Record the absent feature, rather than sending an
+        # unsupported false setting or rejecting a valid no-book build.
+        if not args.yaneuraou and "UseBook" not in advertised:
+            effective_options = [option for option in effective_options if option != "UseBook=false"]
         if getattr(args, "strict_options", False):
-            advertised = {line[len("option name "):].split(" type ", 1)[0]
-                          for line in handshake if line.startswith("option name ")}
-            missing = [option.partition("=")[0] for option in engine_options(args, threads)
+            missing = [option.partition("=")[0] for option in effective_options
                        if option.partition("=")[0] not in advertised]
             if missing:
                 raise ValueError("engine does not advertise requested options: " + ", ".join(missing))
-        for option in engine_options(args, threads):
+        for option in effective_options:
             name, _, value = option.partition("=")
             engine.send(f"setoption name {name} value {value}")
         engine.send("isready")
@@ -753,6 +779,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     **parse_search_result(lines),
                     "retirement": parse_retirement(lines),
                     "nmp": parse_nmp(lines),
+                    "cooperative_root": parse_cooperative_root(lines),
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,
@@ -760,7 +787,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "wall_nps": nodes / elapsed if elapsed > 0 else None,
                     "provenance": {
                         **args.provenance,
-                        "options": engine_options(args, threads),
+                        "options": effective_options,
+                        "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
                         "budget": go_command(args),
                     },
                 }
@@ -817,7 +845,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         f" applied {lazy_smp_root_hint['applied']}"
                     )
                 print(
-                    f"  threads {threads} pos {index:2d} run {repeat + 1}:"
+                    f"  {getattr(args, 'label', '')}threads {threads} pos {index + getattr(args, 'position_offset', 0):2d} run {repeat + 1}:"
                     f" depth {depth:2d} nodes {nodes:9d} nps {nps:8d}"
                     f" bestmove {row['bestmove']}{lazy_suffix}",
                     file=sys.stderr,

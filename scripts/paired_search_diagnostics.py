@@ -88,6 +88,8 @@ def signature(row: dict) -> str:
 
 def work_metrics(row: dict) -> dict:
     result = {key: row[key] for key in ("depth", "nodes", "wall_nps", "elapsed_ms")}
+    if "nps" in row:
+        result["engine_nps"] = row["nps"]
     lazy = row.get("lazy_smp", {})
     if lazy:
         result["nonselected_nodes"] = lazy["discarded_root_nodes"]
@@ -133,6 +135,7 @@ def summarize(rows: list[dict], *, fixed_depth: bool) -> dict:
         metrics = {side: [work_metrics(row) for row in values] for side, values in sides.items()}
         shared_keys = set.intersection(*(set(row) for group in metrics.values() for row in group))
         item["paired_metrics"] = {}
+        item["directional_metrics"] = {"A_first": {}, "B_first": {}}
         for key in sorted(shared_keys):
             values = {side: [row[key] for row in group] for side, group in metrics.items()}
             if any(value is None for group in values.values() for value in group):
@@ -140,12 +143,34 @@ def summarize(rows: list[dict], *, fixed_depth: bool) -> dict:
             left, right = (statistics.mean(values[side]) for side in "AB")
             item["paired_metrics"][key] = {"A": left, "B": right, "B_minus_A": right - left,
                                                    "B_over_A": right / left if left else None}
+            for direction, a_slot, b_slot in (("A_first", 0, 1), ("B_first", 3, 2)):
+                first, second = work_metrics(block[a_slot])[key], work_metrics(block[b_slot])[key]
+                item["directional_metrics"][direction][key] = {
+                    "B_minus_A": second - first, "B_over_A": second / first if first else None,
+                }
         paired.append(item)
     by_threads = {}
     for threads in sorted({row["threads"] for row in rows}):
         subset = [item for item in paired if item["threads"] == threads]
         keys = set.intersection(*(set(item["paired_metrics"]) for item in subset))
+        raw_side_medians = {}
+        for side in "AB":
+            side_metrics = [work_metrics(row) for row in rows if row["threads"] == threads and row["side"] == side]
+            side_keys = set.intersection(*(set(record) for record in side_metrics))
+            raw_side_medians[side] = {
+                key: statistics.median(values) for key in side_keys
+                if (values := [record[key] for record in side_metrics if record[key] is not None])
+            }
+        directional = {
+            direction: {
+                key: statistics.median(item["directional_metrics"][direction][key]["B_minus_A"] for item in subset)
+                for key in keys
+            }
+            for direction in ("A_first", "B_first")
+        }
         by_threads[str(threads)] = {
+            "raw_side_medians": raw_side_medians,
+            "directional_median_paired_delta": directional,
             "blocks": len(subset),
             "hint_transfer_by_side": {
                 side: summarize_lazy_root_hints([row for row in rows if row["threads"] == threads and row["side"] == side])
@@ -184,6 +209,8 @@ def main() -> int:
     parser.add_argument("--allow-busy", action="store_true", help="run on a busy/unknown host, recording timing as unqualified")
     parser.add_argument("--source-ref", help="document actual built source state; never inferred from binary timestamp")
     args = parser.parse_args()
+    if option_value(args.option, "MoveOverhead") is None:
+        args.option.append("MoveOverhead=0")
     try:
         threads = [int(value) for value in args.threads.split(",")]
         changes = side_changes(args.a_option, args.b_option)
@@ -193,7 +220,7 @@ def main() -> int:
             raise ValueError("search sizes must be positive")
         if args.require_transfer and (not args.diagnostics or min(threads) < 2):
             raise ValueError("transfer lane requires --diagnostics and at least two threads")
-        if any(option.partition("=")[0] in {"Threads", "Hash", "EvalFile", "EvalDir", "LazyDiagnostics"} for option in args.option + args.a_option + args.b_option):
+        if any(option.partition("=")[0] in {"Threads", "Hash", "EvalFile", "EvalDir", "LazyDiagnostics", "NmpDiagnostics", "UseBook", "SpecTopN", "SearchMode"} for option in args.option + args.a_option + args.b_option):
             raise ValueError("reserved options would violate fixed material-only measurement contract")
         source_data = args.positions.read_bytes()
         positions = []
@@ -210,7 +237,12 @@ def main() -> int:
     frozen = {}
     for side, source in (("A", args.baseline), ("B", args.candidate)):
         destination = args.output / f"engine-{side}"
-        frozen[side] = {"path": str(destination.resolve()), "sha256": freeze(source, destination), "source_path": str(source.resolve())}
+        if side == "B" and source.samefile(args.baseline):
+            os.link(args.output / "engine-A", destination)
+            binary_hash = frozen["A"]["sha256"]
+        else:
+            binary_hash = freeze(source, destination)
+        frozen[side] = {"path": str(destination.resolve()), "sha256": binary_hash, "source_path": str(source.resolve())}
     (args.output / "positions.input").write_bytes(source_data)
     activity = host_activity()
     timing_qualified = activity["available"] and not activity["busy_processes"] and not args.diagnostics
@@ -229,6 +261,8 @@ def main() -> int:
         "schedule": "per-position ABBA; fresh process every slot", "strength_gate_opened": False,
         "host_activity_before": activity, "timing_qualified": timing_qualified,
     }
+    configuration = {key: manifest[key] for key in ("threads", "repeats", "budget", "evaluator", "hash_mb", "common_options", "A_options", "B_options", "counter_lane")}
+    manifest["configuration_sha256"] = hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     def save_manifest():
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     save_manifest()
@@ -244,7 +278,7 @@ def main() -> int:
                 options = ["SearchMode=LazySMP", "SpecTopN=0"] + args.option + (args.a_option if side == "A" else args.b_option)
                 require_hint = args.require_transfer and int(option_value(options, "LazyFlags") or 0) & 2048 != 0
                 lane = argparse.Namespace(engine=frozen[side]["path"], yaneuraou=False, evalfile=None, fv_scale=24,
-                    hash=args.hash, option=options, lazy_diagnostics=args.diagnostics,
+                    hash=args.hash, option=options, lazy_diagnostics=args.diagnostics, label=f"{side} slot{slot} ", position_offset=position,
                     require_lazy_diagnostics=args.diagnostics, require_root_hint_diagnostics=require_hint,
                     depth=args.depth, movetime=args.movetime, repeats=1, timeout=args.timeout, strict_options=True,
                     provenance={"engine_sha256": frozen[side]["sha256"], "effective_positions_sha256": manifest["effective_positions_sha256"],

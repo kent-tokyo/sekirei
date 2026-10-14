@@ -1,0 +1,2270 @@
+{
+  "schema": "sekirei.useful-depth-diagnostic-results.v1",
+  "host": {
+    "cpu": "Apple M4",
+    "physical_cores": 10,
+    "logical_cores": 10
+  },
+  "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+  "results": [
+    {
+      "run": "default-regression-depth8",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/default-regression-depth8",
+      "searches": 80,
+      "engine_sha256": {
+        "A": "f41bfd5ff6ba67f83d555e03437d779f4584fdb67f3d3e88489e16a205e16461",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "common_options": [
+        "LazyFlags=15"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 62769,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          6.3876953125,
+          9.15771484375,
+          7.78857421875
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 62769,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          6.0361328125,
+          9.03857421875,
+          7.75439453125
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 8.4585,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 615842.8027352336,
+              "engine_nps": 2659000.0
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 8.699,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 605077.8889922173,
+              "engine_nps": 2619666.5
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.28500000000000014,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": -24064.90075434459,
+              "engine_nps": 0.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.1664999999999992,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": -10364.727728866477,
+              "engine_nps": 0.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 20,
+          "fixed_depth_identity_required": true,
+          "identity_pass": true,
+          "within_side_nondeterministic_blocks": 0,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": 0.1872499999999997,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": -10115.669413413998,
+            "engine_nps": 0.0
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.0,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 1.0242865581761982,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 0.9762106917902316,
+            "engine_nps": 1.0
+          }
+        }
+      }
+    },
+    {
+      "run": "hint-scaling-true300",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/hint-scaling-true300",
+      "searches": 320,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": null,
+        "movetime_ms": 300
+      },
+      "common_options": [
+        "MoveOverhead=0"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70459,
+            "cpu_percent": 324.7,
+            "command": "/Users/k_tanabe/.codex/worktrees/yaneura-speed/sekirei/target/release/deps/sekirei_core-d539eb25eaa3cd6a"
+          }
+        ],
+        "load_average": [
+          7.6123046875,
+          5.4404296875,
+          5.44091796875
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70978,
+            "cpu_percent": 94.3,
+            "command": "/Users/k_tanabe/.codex/worktrees/yaneura-speed/sekirei/results/yaneura-speed-20261014/sekirei-baseline"
+          }
+        ],
+        "load_average": [
+          6.890625,
+          5.587890625,
+          5.4765625
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 528384.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 309.0685,
+              "depth": 17.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 1698406.6816280999,
+              "engine_nps": 1755447.5
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 516096.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 309.2875,
+              "depth": 17.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 1657242.499229472,
+              "engine_nps": 1711765.5
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": -4096.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.23949999999996407,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": -13477.312412258936,
+              "engine_nps": -13653.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.08449999999999136,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 6155.309102895204,
+              "engine_nps": 5285.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": 0.1974999999999909,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": 477.93140207533725,
+            "engine_nps": -1540.0
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.0,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 1.0006391213088872,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 1.0002338283383876,
+            "engine_nps": 0.9992013739351628
+          }
+        },
+        "2": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 983161.5,
+              "nonselected_helper_nodes": 417499.0,
+              "deepest_helper_depth": 16.5,
+              "elapsed_ms": 317.3915,
+              "depth": 17.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 493146.5,
+              "wall_nps": 3126584.9119022437,
+              "engine_nps": 3271716.0
+            },
+            "B": {
+              "nodes": 984837.5,
+              "nonselected_helper_nodes": 183902.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 317.07500000000005,
+              "depth": 17.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 488969.5,
+              "wall_nps": 3114986.925339633,
+              "engine_nps": 3266455.5
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": 1926.0,
+              "nonselected_helper_nodes": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.49049999999996885,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -7046.5,
+              "wall_nps": -1585.9342746462207,
+              "engine_nps": -4455.0
+            },
+            "B_first": {
+              "nodes": -12233.0,
+              "nonselected_helper_nodes": -129.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.28400000000002024,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -129.0,
+              "wall_nps": -37671.263614582596,
+              "engine_nps": -33228.5
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": {
+              "publications": 622,
+              "eligible_reads": 66,
+              "applied": 6,
+              "first_move_beta_cuts": 1,
+              "researches": 16,
+              "research_nodes": 139867,
+              "stale_research_nodes": 4316,
+              "stale_reads": 572,
+              "depth_gap_sum": 0,
+              "depth_gap_max": 0,
+              "generation_gap_sum": 0,
+              "generation_gap_max": 0,
+              "first_move_beta_cut_rate": 0.16666666666666666,
+              "mean_depth_gap": 0.0,
+              "searches": 40,
+              "searches_with_publication": 40,
+              "searches_with_application": 5,
+              "publication_search_rate": 1.0,
+              "application_search_rate": 0.125,
+              "reads_per_publication": 0.10610932475884244,
+              "application_rate": 0.09090909090909091
+            }
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "nodes": -4669.25,
+            "nonselected_helper_nodes": -3940.5,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": 0.13700000000000045,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": -1344.0,
+            "wall_nps": -12600.471201150678,
+            "engine_nps": -7183.0
+          },
+          "median_paired_ratio": {
+            "nodes": 0.9952368131616391,
+            "nonselected_helper_nodes": 0.9707703778937649,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 1.000435276001881,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": 0.99733653683693,
+            "wall_nps": 0.9960560355178114,
+            "engine_nps": 0.9978034457977296
+          }
+        },
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 1610956.5,
+              "nonselected_helper_nodes": 975980.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 335.003,
+              "depth": 16.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 16.0,
+              "nonselected_nodes": 1204224.0,
+              "wall_nps": 4815117.373818899,
+              "engine_nps": 5351539.5
+            },
+            "B": {
+              "nodes": 1584253.0,
+              "nonselected_helper_nodes": 834255.5,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 335.039,
+              "depth": 16.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 15.0,
+              "nonselected_nodes": 1186678.0,
+              "wall_nps": 4746673.136668559,
+              "engine_nps": 5280843.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": -7411.5,
+              "nonselected_helper_nodes": -12820.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.11499999999998067,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 187.0,
+              "wall_nps": -43732.79072998883,
+              "engine_nps": -29524.0
+            },
+            "B_first": {
+              "nodes": -11543.0,
+              "nonselected_helper_nodes": -16142.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.3294999999999675,
+              "depth": -0.5,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": -1.0,
+              "nonselected_nodes": -3364.5,
+              "wall_nps": -31196.62983493274,
+              "engine_nps": -29076.5
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": {
+              "publications": 1086,
+              "eligible_reads": 99,
+              "applied": 12,
+              "first_move_beta_cuts": 2,
+              "researches": 15,
+              "research_nodes": 260917,
+              "stale_research_nodes": 241621,
+              "stale_reads": 525,
+              "depth_gap_sum": 49,
+              "depth_gap_max": 5,
+              "generation_gap_sum": 0,
+              "generation_gap_max": 0,
+              "first_move_beta_cut_rate": 0.16666666666666666,
+              "mean_depth_gap": 0.494949494949495,
+              "searches": 40,
+              "searches_with_publication": 40,
+              "searches_with_application": 8,
+              "publication_search_rate": 1.0,
+              "application_search_rate": 0.2,
+              "reads_per_publication": 0.09116022099447514,
+              "application_rate": 0.12121212121212122
+            }
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "nodes": -7148.75,
+            "nonselected_helper_nodes": -15548.25,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": 0.1190000000000282,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": -0.25,
+            "nonselected_nodes": -1468.0,
+            "wall_nps": -3179.9043180583976,
+            "engine_nps": 2695.75
+          },
+          "median_paired_ratio": {
+            "nodes": 0.9965466799405703,
+            "nonselected_helper_nodes": 0.98489966788097,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 1.0003546942567665,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 0.9864864864864865,
+            "nonselected_nodes": 0.9991330684072053,
+            "wall_nps": 0.9997689605217075,
+            "engine_nps": 1.000695270881507
+          }
+        },
+        "8": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 2610866.5,
+              "nonselected_helper_nodes": 2038918.5,
+              "deepest_helper_depth": 15.5,
+              "elapsed_ms": 366.48199999999997,
+              "depth": 15.5,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 15.0,
+              "nonselected_nodes": 2278200.0,
+              "wall_nps": 7152869.365235709,
+              "engine_nps": 8688193.5
+            },
+            "B": {
+              "nodes": 2626039.0,
+              "nonselected_helper_nodes": 2066830.5,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 366.85400000000004,
+              "depth": 16.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 15.0,
+              "nonselected_nodes": 2300407.0,
+              "wall_nps": 7164962.834311932,
+              "engine_nps": 8709875.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": -8399.0,
+              "nonselected_helper_nodes": -4023.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.8740000000000236,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -2980.5,
+              "wall_nps": -44435.038323557936,
+              "engine_nps": -46981.0
+            },
+            "B_first": {
+              "nodes": -9599.0,
+              "nonselected_helper_nodes": -302.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.12549999999998818,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.5,
+              "nonselected_nodes": -11647.0,
+              "wall_nps": -36731.958882287145,
+              "engine_nps": -55110.5
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": {
+              "publications": 1222,
+              "eligible_reads": 189,
+              "applied": 47,
+              "first_move_beta_cuts": 10,
+              "researches": 73,
+              "research_nodes": 902030,
+              "stale_research_nodes": 438938,
+              "stale_reads": 413,
+              "depth_gap_sum": 101,
+              "depth_gap_max": 5,
+              "generation_gap_sum": 0,
+              "generation_gap_max": 0,
+              "first_move_beta_cut_rate": 0.2127659574468085,
+              "mean_depth_gap": 0.5343915343915344,
+              "searches": 40,
+              "searches_with_publication": 40,
+              "searches_with_application": 14,
+              "publication_search_rate": 1.0,
+              "application_search_rate": 0.35,
+              "reads_per_publication": 0.1546644844517185,
+              "application_rate": 0.24867724867724866
+            }
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "nodes": 9551.0,
+            "nonselected_helper_nodes": 15403.25,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": 0.3369999999999891,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 7688.5,
+            "wall_nps": 18303.721159938723,
+            "engine_nps": 21273.75
+          },
+          "median_paired_ratio": {
+            "nodes": 1.004109770587657,
+            "nonselected_helper_nodes": 1.0083880466213127,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 1.000921209881435,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": 1.0037656209862846,
+            "wall_nps": 1.002733393926464,
+            "engine_nps": 1.0026167170570484
+          }
+        }
+      }
+    },
+    {
+      "run": "hint-true300",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/hint-true300",
+      "searches": 160,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": null,
+        "movetime_ms": 300
+      },
+      "common_options": [
+        "MoveOverhead=0"
+      ],
+      "counter_lane": true,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 68783,
+            "cpu_percent": 83.2,
+            "command": "/Library/Developer/CommandLineTools/usr/bin/clang"
+          },
+          {
+            "pid": 68790,
+            "cpu_percent": 53.7,
+            "command": "/Library/Developer/CommandLineTools/usr/bin/clang"
+          }
+        ],
+        "load_average": [
+          5.06640625,
+          4.2802734375,
+          5.35791015625
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          5.48779296875,
+          4.6513671875,
+          5.421875
+        ]
+      },
+      "summary": {
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 15.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 4764626.653890539,
+              "nmp_fail_high": 12127.5,
+              "nonselected_helper_nodes": 824304.0,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 1183038.0,
+              "helper_completed_iterations": 44.0,
+              "nmp_verification_successes": 48.5,
+              "nodes": 1587000.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 333.447,
+              "nmp_pv_returns": 241.5,
+              "worker0_foreign_tt_hit_rate": 0.4733384024487727,
+              "engine_nps": 5263995.5,
+              "nmp_attempts": 17172.0,
+              "worker0_foreign_tt_hits": 193.5,
+              "depth": 16.0,
+              "nmp_verification_attempts": 49.0
+            },
+            "B": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 15.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 4832336.081116606,
+              "nmp_fail_high": 11840.5,
+              "nonselected_helper_nodes": 832519.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 1203580.0,
+              "helper_completed_iterations": 44.5,
+              "nmp_verification_successes": 46.5,
+              "nodes": 1607036.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 333.64750000000004,
+              "nmp_pv_returns": 210.0,
+              "worker0_foreign_tt_hit_rate": 0.480302247481271,
+              "engine_nps": 5321311.0,
+              "nmp_attempts": 16807.5,
+              "worker0_foreign_tt_hits": 188.0,
+              "depth": 16.0,
+              "nmp_verification_attempts": 46.5
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": 43034.507618419826,
+              "nmp_fail_high": 828.5,
+              "nonselected_helper_nodes": 1872.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 10696.0,
+              "helper_completed_iterations": 1.0,
+              "nmp_verification_successes": 5.5,
+              "nodes": 11987.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.5,
+              "elapsed_ms": -0.2915000000000134,
+              "nmp_pv_returns": 9.5,
+              "worker0_foreign_tt_hit_rate": 0.0065993391397590195,
+              "engine_nps": 48429.5,
+              "nmp_attempts": 1378.5,
+              "worker0_foreign_tt_hits": 7.0,
+              "depth": 0.0,
+              "nmp_verification_attempts": 5.5
+            },
+            "B_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": 40630.66265890282,
+              "nmp_fail_high": -499.5,
+              "nonselected_helper_nodes": 6575.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 5978.5,
+              "helper_completed_iterations": -0.5,
+              "nmp_verification_successes": -3.5,
+              "nodes": 17491.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.0544999999999618,
+              "nmp_pv_returns": 0.0,
+              "worker0_foreign_tt_hit_rate": 0.003128608662054444,
+              "engine_nps": 50927.0,
+              "nmp_attempts": -448.5,
+              "worker0_foreign_tt_hits": 6.0,
+              "depth": 0.0,
+              "nmp_verification_attempts": -3.0
+            }
+          },
+          "blocks": 40,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": {
+              "publications": 2078,
+              "eligible_reads": 225,
+              "applied": 34,
+              "first_move_beta_cuts": 10,
+              "researches": 52,
+              "research_nodes": 670908,
+              "stale_research_nodes": 189927,
+              "stale_reads": 1000,
+              "depth_gap_sum": 39,
+              "depth_gap_max": 2,
+              "generation_gap_sum": 0,
+              "generation_gap_max": 0,
+              "first_move_beta_cut_rate": 0.29411764705882354,
+              "mean_depth_gap": 0.17333333333333334,
+              "searches": 80,
+              "searches_with_publication": 80,
+              "searches_with_application": 19,
+              "publication_search_rate": 1.0,
+              "application_search_rate": 0.2375,
+              "reads_per_publication": 0.1082771896053898,
+              "application_rate": 0.1511111111111111
+            }
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 40,
+          "median_paired_delta": {
+            "nmp_tracking_overflow": 0.0,
+            "retired_helpers": 0.0,
+            "worker0_depth": 0.0,
+            "wall_nps": 59506.45621220209,
+            "nmp_fail_high": -270.5,
+            "nonselected_helper_nodes": 11098.25,
+            "nmp_prior_reductions": 0.0,
+            "nonselected_nodes": 9759.25,
+            "helper_completed_iterations": 0.0,
+            "nmp_verification_successes": 1.25,
+            "nodes": 11213.75,
+            "nmp_verification_overturns": 0.0,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": -0.3952499999999759,
+            "nmp_pv_returns": 6.75,
+            "worker0_foreign_tt_hit_rate": 0.0070686879899075905,
+            "engine_nps": 51635.0,
+            "nmp_attempts": 159.0,
+            "worker0_foreign_tt_hits": 4.75,
+            "depth": 0.0,
+            "nmp_verification_attempts": 1.25
+          },
+          "median_paired_ratio": {
+            "nmp_tracking_overflow": null,
+            "retired_helpers": null,
+            "worker0_depth": 1.0,
+            "wall_nps": 1.0090079932057405,
+            "nmp_fail_high": 0.9665616208698248,
+            "nonselected_helper_nodes": 1.0140438219493115,
+            "nmp_prior_reductions": null,
+            "nonselected_nodes": 1.0076502100916835,
+            "helper_completed_iterations": 1.0,
+            "nmp_verification_successes": 1.097153715533274,
+            "nodes": 1.005451287977903,
+            "nmp_verification_overturns": 0.75,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 0.9988165600189465,
+            "nmp_pv_returns": 1.0330765900513406,
+            "worker0_foreign_tt_hit_rate": 1.012422111580408,
+            "engine_nps": 1.0075970852165712,
+            "nmp_attempts": 1.0057144767513462,
+            "worker0_foreign_tt_hits": 1.0267937688909554,
+            "depth": 1.0,
+            "nmp_verification_attempts": 1.1470901208617972
+          }
+        }
+      }
+    },
+    {
+      "run": "initial-dirty-regression-depth8",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/initial-dirty-regression-depth8",
+      "searches": 80,
+      "engine_sha256": {
+        "A": "c10c22c84ace1e19819ca531964890ebe546839c61b2573facc4da68c5e0eeda",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "common_options": [
+        "LazyFlags=15"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 64384,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64428,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64440,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64441,
+            "cpu_percent": 99.9,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64442,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/debug/sekirei"
+          },
+          {
+            "pid": 64549,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64774,
+            "cpu_percent": 36.7,
+            "command": "/Users/k_tanabe/.codex/worktrees/move-generation-cpu/sekirei/docs/experiments/move_generation_cpu_v0.4.0/quiet-tt-final"
+          }
+        ],
+        "load_average": [
+          5.47998046875,
+          6.42919921875,
+          6.873046875
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 64384,
+            "cpu_percent": 99.1,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64441,
+            "cpu_percent": 99.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 64442,
+            "cpu_percent": 98.3,
+            "command": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/debug/sekirei"
+          },
+          {
+            "pid": 64877,
+            "cpu_percent": 155.5,
+            "command": "/private/tmp/chematic-rdkit-gap-target/debug/deps/canonical_idempotency_corpus_standardized-8af384d7f5557aec"
+          },
+          {
+            "pid": 64888,
+            "cpu_percent": 25.0,
+            "command": "/Users/k_tanabe/.codex/worktrees/move-generation-cpu/sekirei/docs/experiments/move_generation_cpu_v0.4.0/quiet-tt-sort1-final"
+          }
+        ],
+        "load_average": [
+          5.76171875,
+          6.4716796875,
+          6.88525390625
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 19.8435,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 258910.9864579813,
+              "engine_nps": 963125.0
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 20.381,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 238351.70732034964,
+              "engine_nps": 970500.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.06750000000000433,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": -960.976564129247,
+              "engine_nps": 0.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.06149999999999878,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 727.1994426813762,
+              "engine_nps": 0.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 20,
+          "fixed_depth_identity_required": true,
+          "identity_pass": true,
+          "within_side_nondeterministic_blocks": 0,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": -0.01999999999999602,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": -663.2255667771096,
+            "engine_nps": 20187.5
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.0,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 0.9977269537356748,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 1.0013995712644632,
+            "engine_nps": 1.0142858131084391
+          }
+        }
+      }
+    },
+    {
+      "run": "lmr-true300",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/lmr-true300",
+      "searches": 160,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": null,
+        "movetime_ms": 300
+      },
+      "common_options": [
+        "MoveOverhead=0"
+      ],
+      "counter_lane": true,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          3.21044921875,
+          3.77587890625,
+          5.2763671875
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 68783,
+            "cpu_percent": 83.2,
+            "command": "/Library/Developer/CommandLineTools/usr/bin/clang"
+          },
+          {
+            "pid": 68790,
+            "cpu_percent": 53.7,
+            "command": "/Library/Developer/CommandLineTools/usr/bin/clang"
+          }
+        ],
+        "load_average": [
+          5.06640625,
+          4.2802734375,
+          5.35791015625
+        ]
+      },
+      "summary": {
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 15.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 4149572.2964793434,
+              "nmp_fail_high": 10931.5,
+              "nonselected_helper_nodes": 757335.0,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 1053836.0,
+              "helper_completed_iterations": 43.0,
+              "nmp_verification_successes": 32.0,
+              "nodes": 1388991.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 336.37850000000003,
+              "nmp_pv_returns": 170.0,
+              "worker0_foreign_tt_hit_rate": 0.5140056022408963,
+              "engine_nps": 4622245.5,
+              "nmp_attempts": 15561.5,
+              "worker0_foreign_tt_hits": 170.5,
+              "depth": 16.0,
+              "nmp_verification_attempts": 32.5
+            },
+            "B": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 15.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 3908842.7601619335,
+              "nmp_fail_high": 9392.0,
+              "nonselected_helper_nodes": 767687.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 987068.0,
+              "helper_completed_iterations": 42.0,
+              "nmp_verification_successes": 24.0,
+              "nodes": 1320671.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 15.0,
+              "elapsed_ms": 336.356,
+              "nmp_pv_returns": 166.0,
+              "worker0_foreign_tt_hit_rate": 0.4608967440187084,
+              "engine_nps": 4380361.0,
+              "nmp_attempts": 14246.0,
+              "worker0_foreign_tt_hits": 171.5,
+              "depth": 15.5,
+              "nmp_verification_attempts": 24.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": -54940.23474625446,
+              "nmp_fail_high": -556.0,
+              "nonselected_helper_nodes": -8717.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": -16070.0,
+              "helper_completed_iterations": -0.5,
+              "nmp_verification_successes": 0.0,
+              "nodes": -25306.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.09450000000001069,
+              "nmp_pv_returns": -1.0,
+              "worker0_foreign_tt_hit_rate": 0.001226626687112209,
+              "engine_nps": -75193.0,
+              "nmp_attempts": -618.0,
+              "worker0_foreign_tt_hits": -5.0,
+              "depth": 0.0,
+              "nmp_verification_attempts": 0.0
+            },
+            "B_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": -38326.70730670262,
+              "nmp_fail_high": -725.0,
+              "nonselected_helper_nodes": -13543.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": -19247.0,
+              "helper_completed_iterations": 0.0,
+              "nmp_verification_successes": -5.0,
+              "nodes": -10157.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.2990000000000066,
+              "nmp_pv_returns": -6.0,
+              "worker0_foreign_tt_hit_rate": -0.025295161458584126,
+              "engine_nps": -27536.0,
+              "nmp_attempts": -1149.0,
+              "worker0_foreign_tt_hits": -10.0,
+              "depth": 0.0,
+              "nmp_verification_attempts": -7.5
+            }
+          },
+          "blocks": 40,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 40,
+          "median_paired_delta": {
+            "nmp_tracking_overflow": 0.0,
+            "retired_helpers": 0.0,
+            "worker0_depth": 0.0,
+            "wall_nps": -73861.42584280041,
+            "nmp_fail_high": -507.25,
+            "nonselected_helper_nodes": -9274.25,
+            "nmp_prior_reductions": 0.0,
+            "nonselected_nodes": -12354.5,
+            "helper_completed_iterations": 0.0,
+            "nmp_verification_successes": -13.0,
+            "nodes": -18004.0,
+            "nmp_verification_overturns": 0.0,
+            "deepest_helper_depth": -0.25,
+            "elapsed_ms": -0.1287499999999966,
+            "nmp_pv_returns": -3.75,
+            "worker0_foreign_tt_hit_rate": -0.0055596053812409785,
+            "engine_nps": -70868.0,
+            "nmp_attempts": -301.0,
+            "worker0_foreign_tt_hits": -8.5,
+            "depth": -0.25,
+            "nmp_verification_attempts": -13.0
+          },
+          "median_paired_ratio": {
+            "nmp_tracking_overflow": null,
+            "retired_helpers": null,
+            "worker0_depth": 1.0,
+            "wall_nps": 0.9844030194504174,
+            "nmp_fail_high": 0.9558857792815632,
+            "nonselected_helper_nodes": 0.9836231226660468,
+            "nmp_prior_reductions": null,
+            "nonselected_nodes": 0.9856649952033114,
+            "helper_completed_iterations": 1.0,
+            "nmp_verification_successes": 0.6417121350910032,
+            "nodes": 0.9855506774521197,
+            "nmp_verification_overturns": 0.875,
+            "deepest_helper_depth": 0.9875,
+            "elapsed_ms": 0.9996178518184278,
+            "nmp_pv_returns": 0.9804711753957507,
+            "worker0_foreign_tt_hit_rate": 0.9862926667284165,
+            "engine_nps": 0.9889084879365715,
+            "nmp_attempts": 0.9814159742418707,
+            "worker0_foreign_tt_hits": 0.9458326520972986,
+            "depth": 0.9875,
+            "nmp_verification_attempts": 0.6462761868152989
+          }
+        }
+      }
+    },
+    {
+      "run": "retirement-true300",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/retirement-true300",
+      "searches": 160,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": null,
+        "movetime_ms": 300
+      },
+      "common_options": [
+        "MoveOverhead=0"
+      ],
+      "counter_lane": true,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          5.48779296875,
+          4.6513671875,
+          5.421875
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          4.78564453125,
+          4.60400390625,
+          5.35009765625
+        ]
+      },
+      "summary": {
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 16.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 5171231.820582104,
+              "nmp_fail_high": 14216.0,
+              "nonselected_helper_nodes": 916073.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 1277606.0,
+              "helper_completed_iterations": 45.5,
+              "nmp_verification_successes": 70.5,
+              "nodes": 1710203.5,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 16.0,
+              "elapsed_ms": 331.578,
+              "nmp_pv_returns": 259.5,
+              "worker0_foreign_tt_hit_rate": 0.4919577796547039,
+              "engine_nps": 5685992.0,
+              "nmp_attempts": 20837.0,
+              "worker0_foreign_tt_hits": 214.5,
+              "depth": 16.0,
+              "nmp_verification_attempts": 70.5
+            },
+            "B": {
+              "nmp_tracking_overflow": 0.0,
+              "worker0_depth": 16.0,
+              "retired_helpers": 0.0,
+              "wall_nps": 5183435.334642479,
+              "nmp_fail_high": 14057.0,
+              "nonselected_helper_nodes": 913048.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 1280477.0,
+              "helper_completed_iterations": 46.5,
+              "nmp_verification_successes": 53.0,
+              "nodes": 1713955.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 16.5,
+              "elapsed_ms": 331.5095,
+              "nmp_pv_returns": 257.0,
+              "worker0_foreign_tt_hit_rate": 0.48491351490899703,
+              "engine_nps": 5694285.5,
+              "nmp_attempts": 20112.5,
+              "worker0_foreign_tt_hits": 209.5,
+              "depth": 16.5,
+              "nmp_verification_attempts": 53.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": -22453.071799432393,
+              "nmp_fail_high": 924.5,
+              "nonselected_helper_nodes": 10000.0,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": -10536.5,
+              "helper_completed_iterations": 0.5,
+              "nmp_verification_successes": 0.0,
+              "nodes": -8427.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.0595000000000141,
+              "nmp_pv_returns": 22.0,
+              "worker0_foreign_tt_hit_rate": -0.008616773301838437,
+              "engine_nps": -17055.0,
+              "nmp_attempts": 935.5,
+              "worker0_foreign_tt_hits": -10.0,
+              "depth": 0.0,
+              "nmp_verification_attempts": 0.0
+            },
+            "B_first": {
+              "nmp_tracking_overflow": 0.0,
+              "retired_helpers": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps": 4098.606041412801,
+              "nmp_fail_high": -497.5,
+              "nonselected_helper_nodes": 3902.5,
+              "nmp_prior_reductions": 0.0,
+              "nonselected_nodes": 2907.0,
+              "helper_completed_iterations": 0.0,
+              "nmp_verification_successes": -16.5,
+              "nodes": 1757.0,
+              "nmp_verification_overturns": 0.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.044999999999987494,
+              "nmp_pv_returns": 4.0,
+              "worker0_foreign_tt_hit_rate": 0.006612677662118038,
+              "engine_nps": -1038.5,
+              "nmp_attempts": -596.5,
+              "worker0_foreign_tt_hits": -3.0,
+              "depth": -0.5,
+              "nmp_verification_attempts": -16.5
+            }
+          },
+          "blocks": 40,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 40,
+          "median_paired_delta": {
+            "nmp_tracking_overflow": 0.0,
+            "retired_helpers": 0.0,
+            "worker0_depth": 0.0,
+            "wall_nps": -10484.769007060677,
+            "nmp_fail_high": 9.0,
+            "nonselected_helper_nodes": -14557.25,
+            "nmp_prior_reductions": 0.0,
+            "nonselected_nodes": -4440.0,
+            "helper_completed_iterations": 0.5,
+            "nmp_verification_successes": -4.0,
+            "nodes": -78.75,
+            "nmp_verification_overturns": 0.0,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": 0.15149999999999864,
+            "nmp_pv_returns": 12.25,
+            "worker0_foreign_tt_hit_rate": 0.0051682306365408714,
+            "engine_nps": -1451.5,
+            "nmp_attempts": -1.25,
+            "worker0_foreign_tt_hits": 4.25,
+            "depth": 0.0,
+            "nmp_verification_attempts": -4.75
+          },
+          "median_paired_ratio": {
+            "nmp_tracking_overflow": null,
+            "retired_helpers": null,
+            "worker0_depth": 1.0,
+            "wall_nps": 0.9984562306855972,
+            "nmp_fail_high": 1.0002545842648123,
+            "nonselected_helper_nodes": 0.9821502190538995,
+            "nmp_prior_reductions": null,
+            "nonselected_nodes": 0.9969161118529947,
+            "helper_completed_iterations": 1.0116963064295486,
+            "nmp_verification_successes": 0.9010633388949557,
+            "nodes": 0.9997588403537248,
+            "nmp_verification_overturns": 0.8759398496240601,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 1.0004573409069697,
+            "nmp_pv_returns": 1.0822039453287626,
+            "worker0_foreign_tt_hit_rate": 1.0092211651660175,
+            "engine_nps": 0.9998417551164918,
+            "nmp_attempts": 1.0009205573937172,
+            "worker0_foreign_tt_hits": 1.0145348837209303,
+            "depth": 1.0,
+            "nmp_verification_attempts": 0.9067309803313832
+          }
+        }
+      },
+      "candidate_retired_helpers": 0
+    },
+    {
+      "run": "root-split-depth8-smoke",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/root-split-depth8-smoke",
+      "searches": 16,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "common_options": [
+        "MoveOverhead=0"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70292,
+            "cpu_percent": 98.5,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          9.09912109375,
+          5.6005859375,
+          5.49658203125
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70292,
+            "cpu_percent": 99.4,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          9.09912109375,
+          5.6005859375,
+          5.49658203125
+        ]
+      },
+      "summary": {
+        "2": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 9048.5,
+              "nonselected_helper_nodes": 4454.5,
+              "deepest_helper_depth": 8.0,
+              "elapsed_ms": 13.6265,
+              "depth": 8.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 4454.5,
+              "wall_nps": 649455.464536675,
+              "engine_nps": 3471500.0
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 9731.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 16.406,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 567424.5337003452,
+              "engine_nps": 1757983.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": -2376.0,
+              "nonselected_helper_nodes": -4896.5,
+              "elapsed_ms": 0.8830000000000009,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -4896.5,
+              "wall_nps": -200140.55123761226,
+              "engine_nps": -2349600.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": -1104.0,
+              "nonselected_helper_nodes": -4426.0,
+              "elapsed_ms": 2.0760000000000005,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -4426.0,
+              "wall_nps": -104056.20666102793,
+              "engine_nps": -2171417.0
+            }
+          },
+          "blocks": 4,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 4,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": -1863.25,
+            "nonselected_helper_nodes": -4661.25,
+            "elapsed_ms": 1.1627500000000017,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": -4661.25,
+            "wall_nps": -181234.66144153933,
+            "engine_nps": -2260508.5
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 0.7174582431087754,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": 1.0810811613378406,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": 0.6841343982107825,
+            "engine_nps": 0.5190060372603655
+          }
+        }
+      },
+      "candidate_cooperative_totals": {
+        "generations": 81,
+        "helper_nodes": 7490,
+        "helper_probes": 831,
+        "helper_fail_highs": 22,
+        "main_confirmations": 19,
+        "confirmed_alpha_raises": 3
+      }
+    },
+    {
+      "run": "sort-depth6-valid",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-depth6-valid",
+      "searches": 160,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": 6,
+        "movetime_ms": null
+      },
+      "common_options": [
+        "LazyFlags=15"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 60394,
+            "cpu_percent": 99.2,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          10.53125,
+          10.44580078125,
+          7.92333984375
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 59746,
+            "cpu_percent": 100.3,
+            "command": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/debug/deps/sekirei_core-4e43823acd51e7fb"
+          },
+          {
+            "pid": 60394,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 61678,
+            "cpu_percent": 39.5,
+            "command": "/Users/k_tanabe/.codex/worktrees/move-generation-cpu/sekirei/docs/experiments/move_generation_cpu_v0.4.0/quiet-tt-final"
+          }
+        ],
+        "load_average": [
+          9.75390625,
+          10.2822265625,
+          7.89453125
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 1316.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 13.04,
+              "depth": 6.0,
+              "worker0_depth": 6.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 101202.5743172495,
+              "engine_nps": 1238875.0
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 1316.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 12.943,
+              "depth": 6.0,
+              "worker0_depth": 6.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 102063.94296052866,
+              "engine_nps": 1249750.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.028999999999999915,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": -314.0725412071479,
+              "engine_nps": 0.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.08499999999999996,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 636.8618907648342,
+              "engine_nps": 0.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 20,
+          "fixed_depth_identity_required": true,
+          "identity_pass": true,
+          "within_side_nondeterministic_blocks": 0,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": 0.029249999999999332,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": -164.50901742641872,
+            "engine_nps": 0.0
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.0,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 1.0023023636671806,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 0.9976933098959329,
+            "engine_nps": 1.0
+          }
+        },
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 3370.0,
+              "nonselected_helper_nodes": 2101.0,
+              "deepest_helper_depth": 5.0,
+              "elapsed_ms": 40.2215,
+              "depth": 6.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 6.0,
+              "nonselected_nodes": 2186.5,
+              "wall_nps": 83396.13590280512,
+              "engine_nps": 2013000.0
+            },
+            "B": {
+              "nodes": 3217.5,
+              "nonselected_helper_nodes": 1953.5,
+              "deepest_helper_depth": 5.0,
+              "elapsed_ms": 40.076499999999996,
+              "depth": 6.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 6.0,
+              "nonselected_nodes": 2071.0,
+              "wall_nps": 82024.44312112489,
+              "engine_nps": 2148000.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": 104.0,
+              "nonselected_helper_nodes": 191.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.26399999999999935,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 123.0,
+              "wall_nps": 2514.7181008288844,
+              "engine_nps": 104000.0
+            },
+            "B_first": {
+              "nodes": -205.5,
+              "nonselected_helper_nodes": -158.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.24700000000000344,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -110.0,
+              "wall_nps": -4746.316607070577,
+              "engine_nps": -58500.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "nodes": -24.0,
+            "nonselected_helper_nodes": 11.25,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": -0.5335000000000001,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.5,
+            "wall_nps": 375.32014783958584,
+            "engine_nps": 28791.75
+          },
+          "median_paired_ratio": {
+            "nodes": 0.9838567917155605,
+            "nonselected_helper_nodes": 1.011026540501124,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 0.9867300776836649,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": 0.999975124317515,
+            "wall_nps": 0.9981900404236231,
+            "engine_nps": 1.0145168935846154
+          }
+        }
+      }
+    },
+    {
+      "run": "sort-depth8-valid",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-depth8-valid",
+      "searches": 160,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "common_options": [
+        "LazyFlags=15"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          6.4345703125,
+          9.4736328125,
+          7.82470703125
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 62769,
+            "cpu_percent": 58.4,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62788,
+            "cpu_percent": 60.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver"
+          },
+          {
+            "pid": 62794,
+            "cpu_percent": 59.9,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62801,
+            "cpu_percent": 61.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62812,
+            "cpu_percent": 59.2,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62814,
+            "cpu_percent": 57.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/clippy-driver"
+          },
+          {
+            "pid": 62840,
+            "cpu_percent": 58.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62842,
+            "cpu_percent": 57.6,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62845,
+            "cpu_percent": 58.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 62848,
+            "cpu_percent": 41.1,
+            "command": "/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python"
+          },
+          {
+            "pid": 62850,
+            "cpu_percent": 50.7,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          7.83447265625,
+          9.65869140625,
+          7.90869140625
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 8.627500000000001,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 674822.399635961,
+              "engine_nps": 2619666.5
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 5469.5,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 8.285,
+              "depth": 8.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 668456.5503241692,
+              "engine_nps": 2659000.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.019000000000000128,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 2356.8725348397275,
+              "engine_nps": 0.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.0114999999999994,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 636.4844120055786,
+              "engine_nps": 0.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 20,
+          "fixed_depth_identity_required": true,
+          "identity_pass": true,
+          "within_side_nondeterministic_blocks": 0,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": -0.005249999999999755,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": 175.56776830652962,
+            "engine_nps": 0.0
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.0,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 0.9993614574847425,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 1.0005677072726082,
+            "engine_nps": 1.0
+          }
+        },
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 13869.0,
+              "nonselected_helper_nodes": 9399.0,
+              "deepest_helper_depth": 8.0,
+              "elapsed_ms": 38.144,
+              "depth": 8.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 10581.0,
+              "wall_nps": 486847.18069747137,
+              "engine_nps": 3959850.0
+            },
+            "B": {
+              "nodes": 15865.0,
+              "nonselected_helper_nodes": 10052.5,
+              "deepest_helper_depth": 8.0,
+              "elapsed_ms": 38.9445,
+              "depth": 8.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 8.0,
+              "nonselected_nodes": 12431.5,
+              "wall_nps": 526411.8569109517,
+              "engine_nps": 3743750.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": 4114.5,
+              "nonselected_helper_nodes": 1399.0,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.8254999999999981,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 3558.5,
+              "wall_nps": 85721.02559670803,
+              "engine_nps": -911647.0
+            },
+            "B_first": {
+              "nodes": -1013.5,
+              "nonselected_helper_nodes": -71.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.034999999999998366,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -541.0,
+              "wall_nps": -36339.28635057852,
+              "engine_nps": -116750.0
+            }
+          },
+          "blocks": 20,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 20,
+          "median_paired_delta": {
+            "nodes": 770.25,
+            "nonselected_helper_nodes": 779.5,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": 1.458750000000002,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 889.25,
+            "wall_nps": 5507.91971295535,
+            "engine_nps": -331335.25
+          },
+          "median_paired_ratio": {
+            "nodes": 1.0538914818647633,
+            "nonselected_helper_nodes": 1.1176001442766195,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 1.0386460204739956,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": 1.08187617042236,
+            "wall_nps": 1.023668817633335,
+            "engine_nps": 0.910523148826168
+          }
+        }
+      }
+    },
+    {
+      "run": "sort-true300-last",
+      "raw_artifact_directory": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/sort-true300-last",
+      "searches": 320,
+      "engine_sha256": {
+        "A": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+        "B": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246"
+      },
+      "budget": {
+        "depth": null,
+        "movetime_ms": 300
+      },
+      "common_options": [
+        "LazyFlags=15",
+        "MoveOverhead=0"
+      ],
+      "counter_lane": false,
+      "timing_qualified": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          3.2158203125,
+          4.77685546875,
+          5.18017578125
+        ]
+      },
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 82047,
+            "cpu_percent": 94.7,
+            "command": "/usr/libexec/mobileassetd"
+          },
+          {
+            "pid": 82059,
+            "cpu_percent": 93.4,
+            "command": "/System/Library/PrivateFrameworks/CacheDelete.framework/deleted"
+          }
+        ],
+        "load_average": [
+          3.70458984375,
+          4.3759765625,
+          4.96484375
+        ]
+      },
+      "summary": {
+        "1": {
+          "raw_side_medians": {
+            "A": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 694272.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 306.7245,
+              "depth": 18.0,
+              "worker0_depth": 18.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 2265670.6284455797,
+              "engine_nps": 2314239.5
+            },
+            "B": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 698368.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 306.7665,
+              "depth": 18.0,
+              "worker0_depth": 18.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 2274200.7861050167,
+              "engine_nps": 2324014.5
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 2048.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": -0.09350000000003433,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 7734.550750811817,
+              "engine_nps": 6895.0
+            },
+            "B_first": {
+              "worker0_foreign_tt_hits": 0.0,
+              "nodes": 0.0,
+              "nonselected_helper_nodes": 0.0,
+              "elapsed_ms": 0.18650000000002365,
+              "depth": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": 0.0,
+              "wall_nps": 1340.57903432101,
+              "engine_nps": 2676.0
+            }
+          },
+          "blocks": 40,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 1,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 37,
+          "median_paired_delta": {
+            "worker0_foreign_tt_hits": 0.0,
+            "nodes": 2048.0,
+            "nonselected_helper_nodes": 0.0,
+            "elapsed_ms": -0.05575000000001751,
+            "depth": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_nodes": 0.0,
+            "wall_nps": 7115.771868007025,
+            "engine_nps": 6815.25
+          },
+          "median_paired_ratio": {
+            "worker0_foreign_tt_hits": null,
+            "nodes": 1.003040215864567,
+            "nonselected_helper_nodes": null,
+            "elapsed_ms": 0.9998181702678792,
+            "depth": 1.0,
+            "worker0_depth": 1.0,
+            "nonselected_nodes": null,
+            "wall_nps": 1.0030142582902926,
+            "engine_nps": 1.002789539820919
+          }
+        },
+        "4": {
+          "raw_side_medians": {
+            "A": {
+              "nodes": 2412302.5,
+              "nonselected_helper_nodes": 1288247.5,
+              "deepest_helper_depth": 17.0,
+              "elapsed_ms": 320.617,
+              "depth": 17.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 1805455.0,
+              "wall_nps": 7510196.025837321,
+              "engine_nps": 8027604.0
+            },
+            "B": {
+              "nodes": 2373589.5,
+              "nonselected_helper_nodes": 1292288.0,
+              "deepest_helper_depth": 17.0,
+              "elapsed_ms": 320.5875,
+              "depth": 17.5,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 17.0,
+              "nonselected_nodes": 1775905.0,
+              "wall_nps": 7405979.921797484,
+              "engine_nps": 7900508.0
+            }
+          },
+          "directional_median_paired_delta": {
+            "A_first": {
+              "nodes": -105.5,
+              "nonselected_helper_nodes": 19766.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": 0.11849999999998317,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -909.5,
+              "wall_nps": 4474.367695450317,
+              "engine_nps": 4445.5
+            },
+            "B_first": {
+              "nodes": 2178.0,
+              "nonselected_helper_nodes": -11856.5,
+              "deepest_helper_depth": 0.0,
+              "elapsed_ms": -0.30400000000000205,
+              "depth": 0.0,
+              "worker0_foreign_tt_hits": 0.0,
+              "worker0_depth": 0.0,
+              "nonselected_nodes": -7366.5,
+              "wall_nps": 13216.733813572675,
+              "engine_nps": 8338.5
+            }
+          },
+          "blocks": 40,
+          "hint_transfer_by_side": {
+            "A": null,
+            "B": null
+          },
+          "exact_identity_blocks": 0,
+          "fixed_depth_identity_required": false,
+          "identity_pass": null,
+          "within_side_nondeterministic_blocks": 40,
+          "median_paired_delta": {
+            "nodes": 16545.25,
+            "nonselected_helper_nodes": 7751.0,
+            "deepest_helper_depth": 0.0,
+            "elapsed_ms": -0.0917500000000473,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.5,
+            "nonselected_nodes": 5703.25,
+            "wall_nps": 42591.05214441568,
+            "engine_nps": 45898.0
+          },
+          "median_paired_ratio": {
+            "nodes": 1.0058450855848418,
+            "nonselected_helper_nodes": 1.0068758751095825,
+            "deepest_helper_depth": 1.0,
+            "elapsed_ms": 0.9997135865826796,
+            "depth": 1.0,
+            "worker0_foreign_tt_hits": null,
+            "worker0_depth": 1.0277992277992278,
+            "nonselected_nodes": 1.0033773100453205,
+            "wall_nps": 1.005741675560178,
+            "engine_nps": 1.0052203738708791
+          }
+        }
+      }
+    }
+  ],
+  "adoption": false,
+  "strength_gate_opened": false,
+  "interpretation": "Fixed-depth identities passed. All timed lanes remain exploratory or counter diagnostics; host activity prevents a verified speed/depth gain. Alternatives and reruns are not pooled."
+}
