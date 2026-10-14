@@ -6,6 +6,12 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Changed
+
+- Poll empty cooperative root-candidate slots without an atomic swap, retaining
+  consuming synchronization and late-publication draining. The root-split mode
+  remains opt-in; no measured speed or strength gain is claimed.
+
 ### Added
 
 - Add fresh material-opening generation with full move histories and mandatory
