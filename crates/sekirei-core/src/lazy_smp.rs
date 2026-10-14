@@ -508,7 +508,11 @@ impl LazySmpSearcher {
         );
         self.tt.clear();
         for searcher in &self.persistent {
-            searcher.clear_tt();
+            if self.share_tt {
+                searcher.clear_worker_state();
+            } else {
+                searcher.clear_tt();
+            }
         }
     }
 
@@ -544,6 +548,10 @@ impl LazySmpSearcher {
     }
 
     /// Search independent copies of `board` concurrently.
+    ///
+    /// Uses the current Rayon pool. Configure its worker stack with
+    /// [`crate::search::RECURSIVE_SEARCH_STACK_BYTES`] for the supported recursive
+    /// search budget, as the USI executable does.
     pub fn search(&self, board: &Board, config: SearchConfig) -> LazySmpInfo {
         let history = PositionHistory::initial(board.hash());
         self.search_with_history(board, config, &history)
@@ -961,6 +969,17 @@ mod tests {
     use crate::square::Square;
     use crate::tt::{Bound, TtEntry};
 
+    // Real recursive searches use the production pool-stack budget. Keep this
+    // local to each fixture so ordinary cargo test needs no global pool/env mask.
+    fn on_search_pool(workers: usize, test: impl FnOnce() + Send) {
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(workers)
+            .stack_size(crate::search::RECURSIVE_SEARCH_STACK_BYTES)
+            .build()
+            .expect("search regression pool");
+        pool.install(test);
+    }
+
     fn info(to: u8, score: i32, depth: u32) -> SearchInfo {
         SearchInfo {
             best_move: Some(Move::drop(Square::from_index(to), PieceKind::Kin)),
@@ -1004,27 +1023,32 @@ mod tests {
 
     #[test]
     fn helper_root_lmr_flag_does_not_change_a_single_worker() {
-        let board = Board::startpos();
-        let config = SearchConfig {
-            max_depth: 4,
-            time_limit: None,
-            node_limit: None,
-            soft_limit: None,
-            multi_pv: 1,
-        };
-        let baseline = LazySmpSearcher::with_flags(Tt::new(4), 1, LAZY_DEFAULT_FLAGS)
-            .search(&board, config)
-            .result;
-        let candidate =
-            LazySmpSearcher::with_flags(Tt::new(4), 1, LAZY_DEFAULT_FLAGS | LAZY_HELPER_ROOT_LMR)
+        on_search_pool(1, || {
+            let board = Board::startpos();
+            let config = SearchConfig {
+                max_depth: 4,
+                time_limit: None,
+                node_limit: None,
+                soft_limit: None,
+                multi_pv: 1,
+            };
+            let baseline = LazySmpSearcher::with_flags(Tt::new(4), 1, LAZY_DEFAULT_FLAGS)
                 .search(&board, config)
                 .result;
+            let candidate = LazySmpSearcher::with_flags(
+                Tt::new(4),
+                1,
+                LAZY_DEFAULT_FLAGS | LAZY_HELPER_ROOT_LMR,
+            )
+            .search(&board, config)
+            .result;
 
-        assert_eq!(candidate.best_move, baseline.best_move);
-        assert_eq!(candidate.score, baseline.score);
-        assert_eq!(candidate.depth, baseline.depth);
-        assert_eq!(candidate.nodes, baseline.nodes);
-        assert_eq!(candidate.pv, baseline.pv);
+            assert_eq!(candidate.best_move, baseline.best_move);
+            assert_eq!(candidate.score, baseline.score);
+            assert_eq!(candidate.depth, baseline.depth);
+            assert_eq!(candidate.nodes, baseline.nodes);
+            assert_eq!(candidate.pv, baseline.pv);
+        });
     }
 
     #[test]
@@ -1256,6 +1280,7 @@ mod tests {
             // thread, which cannot start both logical Lazy SMP workers.
             let pool = rayon::ThreadPoolBuilder::new()
                 .num_threads(2)
+                .stack_size(crate::search::RECURSIVE_SEARCH_STACK_BYTES)
                 .build()
                 .expect("two-thread test pool");
             let info = pool.install(|| {
@@ -1314,56 +1339,58 @@ mod tests {
 
     #[test]
     fn root_hint_stats_are_invocation_bound_and_reset_between_searches() {
-        let flags = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
-        let searcher = LazySmpSearcher::with_flags(Tt::new(1), 2, flags);
-        let board = Board::startpos();
-        let history = PositionHistory::initial(board.hash());
-        let (_, first, _) = searcher
-            .try_search_with_history_and_root_hint_stats(
-                &board,
-                SearchConfig {
-                    max_depth: 2,
-                    time_limit: None,
-                    node_limit: None,
-                    soft_limit: None,
-                    multi_pv: 1,
-                },
-                &history,
-            )
-            .expect("first diagnostic invocation");
-        let first = first.expect("enabled experiment must return one snapshot");
-        assert!(first.applied <= first.eligible_reads);
+        on_search_pool(2, || {
+            let flags = LAZY_DEFAULT_FLAGS | LAZY_FOREIGN_ROOT_HINT;
+            let searcher = LazySmpSearcher::with_flags(Tt::new(1), 2, flags);
+            let board = Board::startpos();
+            let history = PositionHistory::initial(board.hash());
+            let (_, first, _) = searcher
+                .try_search_with_history_and_root_hint_stats(
+                    &board,
+                    SearchConfig {
+                        max_depth: 2,
+                        time_limit: None,
+                        node_limit: None,
+                        soft_limit: None,
+                        multi_pv: 1,
+                    },
+                    &history,
+                )
+                .expect("first diagnostic invocation");
+            let first = first.expect("enabled experiment must return one snapshot");
+            assert!(first.applied <= first.eligible_reads);
 
-        let (_, second, _) = searcher
-            .try_search_with_history_and_root_hint_stats(
-                &board,
-                SearchConfig {
-                    max_depth: 0,
-                    time_limit: None,
-                    node_limit: None,
-                    soft_limit: None,
-                    multi_pv: 1,
-                },
-                &history,
-            )
-            .expect("second diagnostic invocation");
-        assert_eq!(second, Some(LazySmpRootHintStats::default()));
+            let (_, second, _) = searcher
+                .try_search_with_history_and_root_hint_stats(
+                    &board,
+                    SearchConfig {
+                        max_depth: 0,
+                        time_limit: None,
+                        node_limit: None,
+                        soft_limit: None,
+                        multi_pv: 1,
+                    },
+                    &history,
+                )
+                .expect("second diagnostic invocation");
+            assert_eq!(second, Some(LazySmpRootHintStats::default()));
 
-        let disabled = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
-        let (_, stats, _) = disabled
-            .try_search_with_history_and_root_hint_stats(
-                &board,
-                SearchConfig {
-                    max_depth: 0,
-                    time_limit: None,
-                    node_limit: None,
-                    soft_limit: None,
-                    multi_pv: 1,
-                },
-                &history,
-            )
-            .expect("disabled diagnostic invocation");
-        assert_eq!(stats, None);
+            let disabled = LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS);
+            let (_, stats, _) = disabled
+                .try_search_with_history_and_root_hint_stats(
+                    &board,
+                    SearchConfig {
+                        max_depth: 0,
+                        time_limit: None,
+                        node_limit: None,
+                        soft_limit: None,
+                        multi_pv: 1,
+                    },
+                    &history,
+                )
+                .expect("disabled diagnostic invocation");
+            assert_eq!(stats, None);
+        });
     }
 
     #[test]
@@ -1549,91 +1576,95 @@ mod tests {
 
     #[test]
     fn diagnostics_mark_exactly_one_selected_worker() {
-        let searcher = LazySmpSearcher::new(Tt::new(1), 2);
-        let board = Board::startpos();
-        let result = searcher.search(
-            &board,
-            SearchConfig {
-                max_depth: 4,
-                node_limit: Some(500),
-                ..SearchConfig::default()
-            },
-        );
+        on_search_pool(2, || {
+            let searcher = LazySmpSearcher::new(Tt::new(1), 2);
+            let board = Board::startpos();
+            let result = searcher.search(
+                &board,
+                SearchConfig {
+                    max_depth: 4,
+                    node_limit: Some(500),
+                    ..SearchConfig::default()
+                },
+            );
 
-        assert_eq!(result.worker_results.len(), 2);
-        assert_eq!(
-            result
+            assert_eq!(result.worker_results.len(), 2);
+            assert_eq!(
+                result
+                    .worker_results
+                    .iter()
+                    .filter(|worker| worker.selected)
+                    .count(),
+                1
+            );
+            let selected = result
                 .worker_results
                 .iter()
-                .filter(|worker| worker.selected)
-                .count(),
-            1
-        );
-        let selected = result
-            .worker_results
-            .iter()
-            .find(|worker| worker.selected)
-            .expect("one worker must be selected");
-        assert_eq!(selected.best_move, result.result.best_move);
-        assert_eq!(selected.score, result.result.score);
-        assert_eq!(selected.depth, result.result.depth);
-        assert_eq!(selected.nodes, result.result.nodes);
-        assert_eq!(selected.elapsed, result.result.elapsed);
-        assert_eq!(selected.aborted, result.result.aborted);
-        assert_eq!(selected.abort_reason, result.result.abort_reason);
-        assert_eq!(
-            result.total_nodes,
-            result
-                .worker_results
-                .iter()
-                .map(|worker| worker.nodes)
-                .sum::<u64>()
-        );
-        assert!(result.tt_writes.is_none());
-        assert!(
-            result
-                .worker_results
-                .iter()
-                .all(|worker| worker.tt_probes == 0 && worker.tt_stores == 0)
-        );
+                .find(|worker| worker.selected)
+                .expect("one worker must be selected");
+            assert_eq!(selected.best_move, result.result.best_move);
+            assert_eq!(selected.score, result.result.score);
+            assert_eq!(selected.depth, result.result.depth);
+            assert_eq!(selected.nodes, result.result.nodes);
+            assert_eq!(selected.elapsed, result.result.elapsed);
+            assert_eq!(selected.aborted, result.result.aborted);
+            assert_eq!(selected.abort_reason, result.result.abort_reason);
+            assert_eq!(
+                result.total_nodes,
+                result
+                    .worker_results
+                    .iter()
+                    .map(|worker| worker.nodes)
+                    .sum::<u64>()
+            );
+            assert!(result.tt_writes.is_none());
+            assert!(
+                result
+                    .worker_results
+                    .iter()
+                    .all(|worker| worker.tt_probes == 0 && worker.tt_stores == 0)
+            );
+        });
     }
 
     #[test]
     fn opt_in_diagnostics_report_worker_probes_and_shared_tt_writes() {
-        let searcher = LazySmpSearcher::diagnostic(2, LAZY_DEFAULT_FLAGS, 1);
-        let result = searcher.search(
-            &Board::startpos(),
-            SearchConfig {
-                max_depth: 5,
-                node_limit: Some(2_000),
-                ..SearchConfig::default()
-            },
-        );
+        on_search_pool(2, || {
+            let searcher = LazySmpSearcher::diagnostic(2, LAZY_DEFAULT_FLAGS, 1);
+            let result = searcher.search(
+                &Board::startpos(),
+                SearchConfig {
+                    max_depth: 5,
+                    node_limit: Some(2_000),
+                    ..SearchConfig::default()
+                },
+            );
 
-        let writes = result
-            .tt_writes
-            .expect("shared diagnostic TT must report write topology");
-        assert!(writes.attempted > 0);
-        assert!(writes.committed > 0);
-        assert!(
-            result
-                .worker_results
-                .iter()
-                .map(|worker| worker.tt_probes)
-                .sum::<u64>()
-                > 0
-        );
-        assert!(
-            result
-                .worker_results
-                .iter()
-                .map(|worker| worker.tt_stores)
-                .sum::<u64>()
-                > 0
-        );
-        let overlap = result
-            .work_overlap
-            .expect("opt-in diagnostics must report sampled work overlap");
-        assert!(overlap.dropped <= overlap.sampled_visits);
+            let writes = result
+                .tt_writes
+                .expect("shared diagnostic TT must report write topology");
+            assert!(writes.attempted > 0);
+            assert!(writes.committed > 0);
+            assert!(
+                result
+                    .worker_results
+                    .iter()
+                    .map(|worker| worker.tt_probes)
+                    .sum::<u64>()
+                    > 0
+            );
+            assert!(
+                result
+                    .worker_results
+                    .iter()
+                    .map(|worker| worker.tt_stores)
+                    .sum::<u64>()
+                    > 0
+            );
+            let overlap = result
+                .work_overlap
+                .expect("opt-in diagnostics must report sampled work overlap");
+            assert!(overlap.dropped <= overlap.sampled_visits);
+        });
     }
 }

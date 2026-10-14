@@ -859,8 +859,120 @@ impl HalfKpAcc {
         kind: PieceKind,
         color: Color,
     ) {
-        self.board_delta::<false>(net, from, kind, color);
-        self.board_delta::<true>(net, to, kind, color);
+        if kind == PieceKind::Ou {
+            self.board_delta::<false>(net, from, kind, color);
+            self.board_delta::<true>(net, to, kind, color);
+            return;
+        }
+        for p in PERSPECTIVES {
+            let pi = p.index();
+            if self.dirty[pi] {
+                continue;
+            }
+            let old = net.column(board_feature(self.king[pi], from, kind, color, p).unwrap());
+            let new = net.column(board_feature(self.king[pi], to, kind, color, p).unwrap());
+            for ((a, &old), &new) in self.values[pi].iter_mut().zip(old).zip(new) {
+                *a = a.wrapping_sub(old).wrapping_add(new);
+            }
+        }
+    }
+
+    /// Apply all four capture deltas in one accumulator traversal. Kings and
+    /// absent hand features retain the separate-update behavior.
+    #[inline(always)]
+    pub(crate) fn capture_piece(
+        &mut self,
+        net: &HalfKpNetwork,
+        moved: (Square, Square, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        let (from, to, kind, color) = moved;
+        if kind == PieceKind::Ou
+            || captured.1 == PieceKind::Ou
+            || !hand.0.is_hand_piece()
+            || hand.1 == 0
+        {
+            self.remove_piece(net, from, kind, color);
+            self.remove_piece(net, captured.0, captured.1, captured.2);
+            self.add_hand(net, hand.0, hand.1, hand.2);
+            self.add_piece(net, to, kind, color);
+            return;
+        }
+        for p in PERSPECTIVES {
+            let pi = p.index();
+            if self.dirty[pi] {
+                continue;
+            }
+            let king = self.king[pi];
+            let old = net.column(board_feature(king, from, kind, color, p).unwrap());
+            let new = net.column(board_feature(king, to, kind, color, p).unwrap());
+            let cap =
+                net.column(board_feature(king, captured.0, captured.1, captured.2, p).unwrap());
+            let held = net.column(hand_feature(king, hand.0, hand.1, hand.2, p).unwrap());
+            for ((((a, &old), &cap), &held), &new) in self.values[pi]
+                .iter_mut()
+                .zip(old)
+                .zip(cap)
+                .zip(held)
+                .zip(new)
+            {
+                *a = a
+                    .wrapping_sub(old)
+                    .wrapping_sub(cap)
+                    .wrapping_add(held)
+                    .wrapping_add(new);
+            }
+        }
+    }
+
+    /// Reverse a capture, including a promoted mover, in one traversal.
+    #[inline(always)]
+    pub(crate) fn undo_capture_piece(
+        &mut self,
+        net: &HalfKpNetwork,
+        moved: (Square, Square, PieceKind, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        let (from, to, original, current, color) = moved;
+        if original == PieceKind::Ou
+            || current == PieceKind::Ou
+            || captured.1 == PieceKind::Ou
+            || !hand.0.is_hand_piece()
+            || hand.1 == 0
+        {
+            self.remove_piece(net, to, current, color);
+            self.add_piece(net, from, original, color);
+            self.add_piece(net, captured.0, captured.1, captured.2);
+            self.remove_hand(net, hand.0, hand.1, hand.2);
+            return;
+        }
+        for p in PERSPECTIVES {
+            let pi = p.index();
+            if self.dirty[pi] {
+                continue;
+            }
+            let king = self.king[pi];
+            let old = net.column(board_feature(king, to, current, color, p).unwrap());
+            let new = net.column(board_feature(king, from, original, color, p).unwrap());
+            let cap =
+                net.column(board_feature(king, captured.0, captured.1, captured.2, p).unwrap());
+            let held = net.column(hand_feature(king, hand.0, hand.1, hand.2, p).unwrap());
+            for ((((a, &old), &new), &cap), &held) in self.values[pi]
+                .iter_mut()
+                .zip(old)
+                .zip(new)
+                .zip(cap)
+                .zip(held)
+            {
+                *a = a
+                    .wrapping_sub(old)
+                    .wrapping_add(new)
+                    .wrapping_add(cap)
+                    .wrapping_sub(held);
+            }
+        }
     }
 
     /// `color`'s hand gained its `count`-th piece of `kind`.
@@ -1038,6 +1150,257 @@ mod tests {
     use std::sync::LazyLock;
 
     static NET: LazyLock<HalfKpNetwork> = LazyLock::new(|| HalfKpNetwork::random(7));
+
+    fn boundary_acc(dirty: [bool; 2]) -> HalfKpAcc {
+        HalfKpAcc {
+            values: std::array::from_fn(|p| {
+                std::array::from_fn(|i| [i16::MIN, i16::MAX, -1, 0, 1][(i + p) % 5])
+            }),
+            // Square zero also covers the existing missing-king fallback.
+            king: [Square(0), Square(80)],
+            dirty,
+        }
+    }
+
+    fn separate_capture(
+        acc: &mut HalfKpAcc,
+        net: &HalfKpNetwork,
+        moved: (Square, Square, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        acc.remove_piece(net, moved.0, moved.2, moved.3);
+        acc.remove_piece(net, captured.0, captured.1, captured.2);
+        acc.add_hand(net, hand.0, hand.1, hand.2);
+        acc.add_piece(net, moved.1, moved.2, moved.3);
+    }
+
+    fn separate_capture_undo(
+        acc: &mut HalfKpAcc,
+        net: &HalfKpNetwork,
+        moved: (Square, Square, PieceKind, PieceKind, Color),
+        captured: (Square, PieceKind, Color),
+        hand: (PieceKind, u8, Color),
+    ) {
+        acc.remove_piece(net, moved.1, moved.3, moved.4);
+        acc.add_piece(net, moved.0, moved.2, moved.4);
+        acc.add_piece(net, captured.0, captured.1, captured.2);
+        acc.remove_hand(net, hand.0, hand.1, hand.2);
+    }
+
+    #[test]
+    fn fused_moves_preserve_wrapping_and_dirty_perspectives() {
+        for color in PERSPECTIVES {
+            for kind in 0..PieceKind::COUNT as u8 {
+                let kind = PieceKind::from_u8(kind).unwrap();
+                for mask in 0..4 {
+                    let mut fused = boundary_acc([mask & 1 != 0, mask & 2 != 0]);
+                    let mut separate = fused.clone();
+                    fused.move_piece(&NET, Square(10), Square(20), kind, color);
+                    separate.remove_piece(&NET, Square(10), kind, color);
+                    separate.add_piece(&NET, Square(20), kind, color);
+                    assert_eq!(fused, separate, "{kind:?}, {color:?}, dirty {mask}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fused_captures_and_promoted_undos_preserve_boundary_values() {
+        for color in PERSPECTIVES {
+            for kind in [PieceKind::Fu, PieceKind::Kaku, PieceKind::Ou] {
+                for captured_kind in [PieceKind::Fu, PieceKind::Uma, PieceKind::Ou] {
+                    for (hand_kind, count) in [
+                        (PieceKind::Fu, 1),
+                        (PieceKind::Fu, 18),
+                        (PieceKind::Kaku, 2),
+                        (PieceKind::Fu, 0),
+                        (PieceKind::Ou, 1),
+                    ] {
+                        for mask in 0..4 {
+                            let start = boundary_acc([mask & 1 != 0, mask & 2 != 0]);
+                            let mut fused = start.clone();
+                            let mut separate = start;
+                            let moved = (Square(10), Square(20), kind, color);
+                            let captured = (Square(20), captured_kind, color.flip());
+                            let hand = (hand_kind, count, color);
+                            fused.capture_piece(&NET, moved, captured, hand);
+                            separate_capture(&mut separate, &NET, moved, captured, hand);
+                            assert_eq!(fused, separate);
+
+                            for current in [kind, kind.promoted()] {
+                                let moved = (Square(10), Square(20), kind, current, color);
+                                let mut fused = boundary_acc([mask & 1 != 0, mask & 2 != 0]);
+                                let mut separate = fused.clone();
+                                fused.undo_capture_piece(&NET, moved, captured, hand);
+                                separate_capture_undo(&mut separate, &NET, moved, captured, hand);
+                                assert_eq!(fused, separate);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn fused_deltas_match_refresh_through_legal_sequences_and_undo() {
+        use crate::{board::Board, movegen::MoveBuffer};
+
+        let mut seed = 0x4bd9_32e1_f029_c675u64;
+        let mut covered = [false; 4]; // capture, promotion, drop, king
+        for sfen in [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/9/4p4/4P4/9/9/9/9/4K4 b P 1",
+            "4k4/9/9/9/9/9/4p4/4P4/4K4 w p 1",
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let mut acc = HalfKpAcc::new();
+            acc.refresh(
+                &NET,
+                board.mailbox_for_eval(),
+                &board.hand_counts_for_eval(),
+            );
+            let mut tokens = Vec::new();
+            for ply in 0..80 {
+                let moves = MoveBuffer::legal(&mut board).as_slice().to_vec();
+                if moves.is_empty() {
+                    break;
+                }
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                let category = ply % covered.len();
+                let m = moves
+                    .iter()
+                    .copied()
+                    .find(|m| match category {
+                        0 => board.piece_at(m.to).is_some(),
+                        1 => m.promote,
+                        2 => m.from.is_none(),
+                        _ => m.piece_kind == PieceKind::Ou,
+                    })
+                    .unwrap_or(moves[(seed >> 32) as usize % moves.len()]);
+                let color = board.side_to_move;
+                let captured = board.piece_at(m.to);
+                covered[0] |= captured.is_some();
+                covered[1] |= m.promote;
+                covered[2] |= m.from.is_none();
+                covered[3] |= m.piece_kind == PieceKind::Ou;
+                let mut separate = acc.clone();
+                match (m.from, captured) {
+                    (Some(from), Some(cap)) if !m.promote => {
+                        let hand_kind = cap.kind.unpromoted();
+                        let count = board.hand(color).get(hand_kind) + 1;
+                        let moved = (from, m.to, m.piece_kind, color);
+                        let captured = (m.to, cap.kind, cap.color);
+                        let hand = (hand_kind, count, color);
+                        acc.capture_piece(&NET, moved, captured, hand);
+                        separate_capture(&mut separate, &NET, moved, captured, hand);
+                    }
+                    (Some(from), None) if !m.promote => {
+                        acc.move_piece(&NET, from, m.to, m.piece_kind, color);
+                        separate.remove_piece(&NET, from, m.piece_kind, color);
+                        separate.add_piece(&NET, m.to, m.piece_kind, color);
+                    }
+                    _ => {
+                        // The generic make path is intentionally unchanged.
+                        if let Some(from) = m.from {
+                            acc.remove_piece(&NET, from, m.piece_kind, color);
+                            if let Some(cap) = captured {
+                                acc.remove_piece(&NET, m.to, cap.kind, cap.color);
+                                let kind = cap.kind.unpromoted();
+                                acc.add_hand(&NET, kind, board.hand(color).get(kind) + 1, color);
+                            }
+                        } else {
+                            acc.remove_hand(
+                                &NET,
+                                m.piece_kind,
+                                board.hand(color).get(m.piece_kind),
+                                color,
+                            );
+                        }
+                        let kind = if m.promote {
+                            m.piece_kind.promoted()
+                        } else {
+                            m.piece_kind
+                        };
+                        acc.add_piece(&NET, m.to, kind, color);
+                        separate = acc.clone();
+                    }
+                }
+                assert_eq!(acc, separate);
+                tokens.push(board.do_move_for_search(m));
+                for p in PERSPECTIVES {
+                    if acc.dirty[p.index()] {
+                        acc.refresh_perspective(
+                            &NET,
+                            p,
+                            board.mailbox_for_eval(),
+                            &board.hand_counts_for_eval(),
+                        );
+                    }
+                }
+                let mut refreshed = HalfKpAcc::new();
+                refreshed.refresh(
+                    &NET,
+                    board.mailbox_for_eval(),
+                    &board.hand_counts_for_eval(),
+                );
+                assert_eq!(acc, refreshed);
+            }
+            while let Some(token) = tokens.pop() {
+                let color = token.moved.color;
+                if let Some(from) = token.from {
+                    let current = if token.promoted {
+                        token.moved.kind.promoted()
+                    } else {
+                        token.moved.kind
+                    };
+                    if let Some(cap) = token.captured {
+                        let kind = cap.kind.unpromoted();
+                        let moved = (from, token.to, token.moved.kind, current, color);
+                        let captured = (token.to, cap.kind, cap.color);
+                        let hand = (kind, board.hand(color).get(kind), color);
+                        let mut separate = acc.clone();
+                        acc.undo_capture_piece(&NET, moved, captured, hand);
+                        separate_capture_undo(&mut separate, &NET, moved, captured, hand);
+                        assert_eq!(acc, separate);
+                    } else if !token.promoted {
+                        acc.move_piece(&NET, token.to, from, current, color);
+                    } else {
+                        acc.remove_piece(&NET, token.to, current, color);
+                        acc.add_piece(&NET, from, token.moved.kind, color);
+                    }
+                } else {
+                    acc.remove_piece(&NET, token.to, token.moved.kind, color);
+                    acc.add_hand(
+                        &NET,
+                        token.moved.kind,
+                        board.hand(color).get(token.moved.kind) + 1,
+                        color,
+                    );
+                }
+                board.undo_move_for_search(token);
+                for p in PERSPECTIVES {
+                    if acc.dirty[p.index()] {
+                        acc.refresh_perspective(
+                            &NET,
+                            p,
+                            board.mailbox_for_eval(),
+                            &board.hand_counts_for_eval(),
+                        );
+                    }
+                }
+                let mut refreshed = HalfKpAcc::new();
+                refreshed.refresh(
+                    &NET,
+                    board.mailbox_for_eval(),
+                    &board.hand_counts_for_eval(),
+                );
+                assert_eq!(acc, refreshed);
+            }
+        }
+        assert!(covered.into_iter().all(|seen| seen));
+    }
 
     #[test]
     fn cached_refresh_matches_full_refresh() {

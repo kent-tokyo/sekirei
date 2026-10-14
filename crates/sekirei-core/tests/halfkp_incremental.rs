@@ -6,6 +6,7 @@ use sekirei_core::eval::evaluate;
 use sekirei_core::halfkp::{self, HalfKpNetwork};
 use sekirei_core::movegen::generate_legal_moves;
 use sekirei_core::nnue::{EvalFileFormat, load_evaluator, load_weights};
+use sekirei_core::sfen::{board_to_sfen, move_from_usi};
 use std::path::PathBuf;
 
 fn temp_network() -> PathBuf {
@@ -89,6 +90,29 @@ fn halfkp_file_is_detected_and_incremental_updates_stay_exact() {
             start.hkp
         });
     }
+
+    // Both kings revisit their original squares with the active global
+    // network. Pawn moves between visits change the cached feature sets.
+    let mut board = Board::from_sfen("4k4/9/4p4/9/9/9/4P4/9/4K4 b - 1").unwrap();
+    board.refresh_acc();
+    let original_sfen = board_to_sfen(&board);
+    let original_acc = board.hkp.clone();
+    assert_matches_refresh(&board);
+    let mut tokens = Vec::new();
+    for usi in [
+        "5i6i", "5a6a", "6i5i", "6a5a", "5g5f", "5c5d", "5i6i", "5a6a", "6i5i", "6a5a",
+    ] {
+        let mv = move_from_usi(usi, &board).unwrap();
+        assert!(generate_legal_moves(&mut board).contains(&mv), "{usi}");
+        tokens.push(board.do_move_for_search(mv));
+        assert_matches_refresh(&board);
+    }
+    while let Some(token) = tokens.pop() {
+        board.undo_move_for_search(token);
+        assert_matches_refresh(&board);
+    }
+    assert_eq!(board_to_sfen(&board), original_sfen);
+    assert_eq!(board.hkp, original_acc);
 
     // FV_SCALE changes the divisor only.
     let board =

@@ -1765,6 +1765,12 @@ impl Searcher {
     /// Clear all cached positions before a new unrelated game.
     pub fn clear_tt(&self) {
         self.tt.clear();
+        self.clear_worker_state();
+    }
+
+    /// Reset private evaluation and move-ordering state without clearing a
+    /// transposition table shared with other Lazy SMP workers.
+    pub(crate) fn clear_worker_state(&self) {
         if let Some(cache) = &self.eval_cache {
             cache.clear();
         }
