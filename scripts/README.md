@@ -309,3 +309,12 @@ or playing strength. Use synthetic or material evaluation to qualify local
 optimizations. The external shared-evaluator lane measures Sekirei versus
 YaneuraOu and must not select candidates, tune defaults or generate training
 labels. The synthetic fixture carries no playing strength.
+
+### Independent material-opening gate input
+
+The core gate_openings example generates fresh default-material trajectories
+with full move prefixes. freeze_material_gate_openings.py requires identity
+exclusions from diagnostics, prior strength gates and the NNUE hold-out owner,
+then freezes tools and validates complete histories.
+run_ab_match.py --openings-manifest replays this contract before/after material
+selfplay and revokes H1 on changed input. See the [gate preparation contract](../docs/experiments/aspiration_independent_gate_v0.4.1/README.md).

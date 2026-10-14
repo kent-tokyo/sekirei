@@ -49,12 +49,15 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
+from freeze_material_gate_openings import validate_corpus
+
 from sekirei_tools.artifacts import atomic_write_json, canonical_json_sha256, file_sha256
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULT = re.compile(r"→ (Engine1 Win|Engine2 Win|Draw)")
 RESULT_SCHEMA_VERSION = "sekirei.ab_gate_result.v1"
 GATE_DECLARATION_SCHEMA = "sekirei.gate-observation-declaration.v1"
+INDEPENDENT_DRIVER_FILES = (Path(__file__), Path(sys.modules[atomic_write_json.__module__].__file__))
 OUTCOME_FEATURE_WORDS = ("elo", "verdict", "result", "outcome", "games", "wins", "losses")
 SprtSpec = tuple[float, float, float, float]
 P_EPSILON = 1e-4
@@ -649,6 +652,7 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
             "validated before the match starts"
         ),
     )
+    parser.add_argument("--openings-manifest", help="require and replay a frozen independent material-opening manifest")
     args = parser.parse_args(argv)
 
     if args.mode == "selfplay" and not args.engine_b:
@@ -683,6 +687,10 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
             parser.error("--paired-sprt is only supported for selfplay")
         if args.games_per_position is None or args.games_per_position % 2:
             parser.error("--paired-sprt requires an even --games-per-position")
+    if args.openings_manifest and not args.result_json:
+        parser.error("--openings-manifest requires --result-json")
+    if args.openings_manifest and (args.mode != "selfplay" or not material_only):
+        parser.error("--openings-manifest is restricted to material-only selfplay")
     args.gate_observation = None
     if args.gate_observation_declaration:
         try:
@@ -712,9 +720,24 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
 def main() -> int:
     args, material_only, sprt = parse_args()
     out = Path(args.out_dir)
+    corpus_evidence = None
+    frozen_inputs = None
+    if args.openings_manifest:
+        try:
+            corpus_evidence = validate_corpus(Path(args.openings_manifest), Path(args.openings))
+            frozen_inputs = [file_identity(path) for path in [args.engine_a, args.engine_b if args.mode == "selfplay" else args.yaneuraou, *INDEPENDENT_DRIVER_FILES, args.match_binary]]
+            if any(not item or not item.get("exists") or not item.get("sha256") for item in frozen_inputs):
+                raise ValueError("independent corpus requires explicit existing engine and runner files")
+            if frozen_inputs[-1]["sha256"] != corpus_evidence["match_binary_sha256"]:
+                raise ValueError("match binary differs from the corpus history validator")
+        except (OSError, UnicodeError, KeyError, TypeError, ValueError) as error:
+            print(f"invalid independent opening evidence: {error}", file=sys.stderr)
+            return 2
     out.mkdir(parents=True, exist_ok=True)
     engine2 = args.engine_b if args.mode == "selfplay" else args.yaneuraou
     openings = opening_identity(args.openings)
+    if corpus_evidence is not None:
+        openings["independent_corpus"] = corpus_evidence
     games_limit = args.games
     if args.games_per_position is not None:
         position_count = int(openings["position_count"])
@@ -888,6 +911,16 @@ def main() -> int:
                     )
                     process_code = 1
                     verdict = ""
+    if corpus_evidence is not None:
+        try:
+            current_corpus = validate_corpus(Path(args.openings_manifest), Path(args.openings))
+            current_inputs = [file_identity(path) for path in [args.engine_a, engine2, *INDEPENDENT_DRIVER_FILES, args.match_binary]]
+            if current_corpus != corpus_evidence or current_inputs != frozen_inputs:
+                raise ValueError("independent gate inputs changed during the match")
+        except (OSError, UnicodeError, KeyError, TypeError, ValueError) as error:
+            launch_error = f"EvidenceError: {error}"
+            process_code = 1
+            verdict = ""
     expected_stop_codes = {-signal.SIGTERM, -signal.SIGKILL} if os.name == "posix" else {1}
     if verdict and process_code not in ({0} | expected_stop_codes):
         launch_error = launch_error or f"match process exited unexpectedly with code {process_code}"
@@ -1025,6 +1058,7 @@ def main() -> int:
                     "file": None if material_only else file_identity(args.evalfile),
                 },
                 "openings": openings,
+                **({"pinned_inputs_before_match": frozen_inputs} if corpus_evidence is not None else {}),
                 "outputs": {
                     "log": file_identity(log_path),
                     "raw_match_json": file_identity(raw_json_path),
