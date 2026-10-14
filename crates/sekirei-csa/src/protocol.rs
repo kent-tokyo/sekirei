@@ -30,7 +30,7 @@ mod framing;
 mod time_control;
 
 use framing::CsaLineReader;
-use time_control::{CsaTimeControl, ParsedTimeControl};
+use time_control::{CsaTimeControlSet, ParsedTimeControl};
 
 const TOURNAMENT_MAX_PLIES: usize = 512;
 
@@ -420,14 +420,26 @@ impl CsaClient {
     /// Main loop: request a game and play; repeat if `keep_alive`.
     pub fn run(&mut self, completed_attempts: &mut u32) -> io::Result<()> {
         self.status_details.completed_attempts = *completed_attempts;
+        let mut request_game = true;
         loop {
             if self.limit_reached(*completed_attempts) {
                 self.stop_for_limit(*completed_attempts)?;
                 break;
             }
             self.set_status("waiting_for_game", None);
-            self.request_game()?;
+            if request_game {
+                self.request_game()?;
+            }
             let result = self.play_game()?;
+            if self.status_state == "waiting_for_game"
+                && self.status_event.as_deref() == Some("game_rejected")
+            {
+                // CSA returns to the waiting state on REJECT. The server may
+                // send the next Game_Summary on this same connection.
+                request_game = false;
+                continue;
+            }
+            request_game = true;
             *completed_attempts = completed_attempts.saturating_add(1);
             self.status_details.completed_attempts = *completed_attempts;
             eprintln!("[csa] game over: {result:?}");
@@ -653,7 +665,7 @@ impl CsaClient {
         let mut black_player: Option<String> = None;
         let mut white_player: Option<String> = None;
         // Parse time control from Game_Summary (authoritative over game_id heuristics)
-        let mut time_control = Some(CsaTimeControl::default());
+        let mut time_control = CsaTimeControlSet::default();
         let mut parsed_time_control = ParsedTimeControl::default();
         let mut summary_validated = false;
         let mut in_position = false;
@@ -662,6 +674,16 @@ impl CsaClient {
 
         loop {
             let line = self.recv()?;
+            if let Some(rejected) = line.strip_prefix("REJECT:") {
+                let rejected_id = rejected.split_once(" by ").map_or(rejected, |(id, _)| id);
+                if !summary_validated || rejected_id != game_summary_id {
+                    self.stop_for_protocol_error("unexpected_game_reject");
+                    return Ok(GameResult::Aborted);
+                }
+                self.status_details.active_game_id = None;
+                self.set_status("waiting_for_game", Some("game_rejected"));
+                return Ok(GameResult::Aborted);
+            }
             if line.starts_with('#') {
                 let delayed_result = parse_game_end(&line);
                 if !header_started
@@ -706,16 +728,12 @@ impl CsaClient {
                 black_player = Some(rest.to_string());
             } else if let Some(rest) = line.strip_prefix("Name-:") {
                 white_player = Some(rest.to_string());
-            } else if line.starts_with("Time_Unit:")
-                || line.starts_with("Total_Time:")
-                || line.starts_with("Byoyomi:")
-                || line.starts_with("Increment:")
-            {
-                let Some(time_control) = time_control.as_mut() else {
+            } else if CsaTimeControlSet::is_time_line(&line) {
+                if summary_validated {
                     eprintln!("[csa] time control field appeared after END Game_Summary");
                     self.stop_for_protocol_error("invalid_game_summary");
                     return Ok(GameResult::Aborted);
-                };
+                }
                 let result = time_control.apply(&line);
                 if let Err(error) = result {
                     eprintln!("[csa] invalid time control: {error}");
@@ -723,17 +741,14 @@ impl CsaClient {
                     return Ok(GameResult::Aborted);
                 }
             } else if line == "END Game_Summary" {
-                if game_summary_id.is_empty() || our_color.is_none() {
+                if game_summary_id.is_empty() || our_color.is_none() || summary_validated {
                     eprintln!("[csa] Game_Summary is missing Game_ID or Your_Turn");
                     self.stop_for_protocol_error("invalid_game_summary");
                     return Ok(GameResult::Aborted);
                 }
-                let Some(time_control) = time_control.take() else {
-                    eprintln!("[csa] duplicate END Game_Summary");
-                    self.stop_for_protocol_error("invalid_game_summary");
-                    return Ok(GameResult::Aborted);
-                };
-                parsed_time_control = match time_control.finish() {
+                parsed_time_control = match std::mem::take(&mut time_control)
+                    .finish(our_color.expect("validated Your_Turn"))
+                {
                     Ok(control) => control,
                     Err(error) => {
                         eprintln!("[csa] invalid time control: {error}");
@@ -871,6 +886,7 @@ impl CsaClient {
                     our_color,
                     time_left_ms,
                     increment_or_byoyomi_ms,
+                    is_fischer,
                 )?;
                 if let (Some(record), Some(analysis_board)) = (record.as_mut(), analysis_board) {
                     record.append_analysis(&analysis_board, our_color, &result);
@@ -883,11 +899,11 @@ impl CsaClient {
                 if result.move_made.is_some() {
                     advance_tournament_ply(&mut ply_count)
                         .expect("our move is guarded by the tournament ply boundary");
-                    // Read T{sec} from server echo (e.g. "+9796FU,T18") and deduct
+                    // Read T{units} from the server echo and debit our clock.
                     let mut our_move_recorded = false;
                     loop {
                         let t_line = self.recv_time_or_move()?;
-                        if t_line == "#RESIGN" {
+                        if is_adjudication_marker(&t_line) {
                             if let Some(record) = record.as_mut() {
                                 if !our_move_recorded
                                     && let Some(csa_move) = result.csa_move.as_deref()
@@ -933,17 +949,20 @@ impl CsaClient {
                             }
                             continue;
                         }
-                        if let Some(used_sec) = parse_time_from_echo(&t_line) {
-                            // `parse_time_seconds` already proved this
-                            // multiplication fits in the client's clock type.
-                            let used_ms = used_sec * 1_000;
-                            time_left_ms = time_left_ms.saturating_sub(used_ms);
-                            if is_fischer {
-                                time_left_ms = time_left_ms.saturating_add(increment_or_byoyomi_ms);
-                            }
+                        if let Some(used_units) = parse_time_from_echo(&t_line) {
+                            let Some((remaining_ms, used_ms)) = clock_after_echo(
+                                time_left_ms,
+                                is_fischer.then_some(increment_or_byoyomi_ms),
+                                used_units,
+                                parsed_time_control.unit_ms,
+                            ) else {
+                                self.stop_for_protocol_error("invalid_time_echo");
+                                return Ok(GameResult::Aborted);
+                            };
+                            time_left_ms = remaining_ms;
                             eprintln!(
-                                "[csa] used {}s, remaining {}s",
-                                used_sec,
+                                "[csa] used {}ms, remaining {}s",
+                                used_ms,
                                 time_left_ms / 1000
                             );
                         } else if t_line
@@ -980,15 +999,23 @@ impl CsaClient {
                 }
             } else {
                 // Opponent's turn (or post-resign drain) — wait for move or result
+                let mut awaiting_opponent_adjudication = None;
                 loop {
-                    let line = self.recv()?;
+                    let line = match self.recv() {
+                        Ok(line) => line,
+                        Err(_) if awaiting_opponent_adjudication.is_some() => {
+                            self.stop_for_protocol_error(
+                                awaiting_opponent_adjudication.expect("checked above"),
+                            );
+                            return Ok(GameResult::Aborted);
+                        }
+                        Err(error) => return Err(error),
+                    };
                     match classify_server_line(&line) {
                         ServerLine::Terminal(result) => {
-                            // CSA servers commonly send #RESIGN as an intermediate
-                            // marker and the actual result (#WIN/#LOSE/#DRAW) next.
-                            // Do not return here or the next %%GAME request consumes
-                            // the previous game's result.
-                            if line == "#RESIGN" {
+                            // Reason markers precede the server's decisive
+                            // #WIN/#LOSE/#DRAW/#CENSORED result.
+                            if is_adjudication_marker(&line) {
                                 if let Some(record) = record.as_mut() {
                                     record.append(&line);
                                 }
@@ -1014,7 +1041,9 @@ impl CsaClient {
                             }
                             return Ok(result);
                         }
-                        ServerLine::Move(move_line) if !resigned => {
+                        ServerLine::Move(move_line)
+                            if !resigned && awaiting_opponent_adjudication.is_none() =>
+                        {
                             // Opponent's move
                             if let Err(error) = advance_tournament_ply(&mut ply_count) {
                                 eprintln!("[csa] {error}");
@@ -1025,14 +1054,17 @@ impl CsaClient {
                                 Some(token) => token,
                                 None => {
                                     eprintln!("[csa] malformed opponent move: {line}");
-                                    self.stop_for_protocol_error("unparseable_server_move");
-                                    return Ok(GameResult::Aborted);
+                                    awaiting_opponent_adjudication =
+                                        Some("unparseable_server_move");
+                                    self.emit_status(Some("awaiting_server_adjudication"));
+                                    continue;
                                 }
                             };
                             let Some(m) = csa_to_move(&mut board, bare_move) else {
                                 eprintln!("[csa] illegal opponent move: {line}");
-                                self.stop_for_protocol_error("illegal_server_move");
-                                return Ok(GameResult::Aborted);
+                                awaiting_opponent_adjudication = Some("illegal_server_move");
+                                self.emit_status(Some("awaiting_server_adjudication"));
+                                continue;
                             };
                             if let Some(record) = record.as_mut() {
                                 record.append(bare_move);
@@ -1048,6 +1080,10 @@ impl CsaClient {
                                 Some(current_timestamp_ms());
                             self.emit_status(Some("opponent_move"));
                             break;
+                        }
+                        ServerLine::Move(_) if awaiting_opponent_adjudication.is_some() => {
+                            self.stop_for_protocol_error("move_before_server_adjudication");
+                            return Ok(GameResult::Aborted);
                         }
                         ServerLine::Event(event) => {
                             if let Some(record) = record.as_mut() {
@@ -1115,26 +1151,14 @@ impl CsaClient {
         our_color: Color,
         time_left_ms: u64,
         byoyomi_ms: u64,
+        is_fischer: bool,
     ) -> io::Result<ThinkResult> {
         let search_side = board.side_to_move;
-        // Dynamic time allocation:
-        //   - Allot 1/30 of remaining main time per move (≈30-move horizon),
-        //     capped at 3× byoyomi to avoid spending too much in one move.
-        //   - Always keep byoyomi_ms * 4/5 as a floor (safe margin for I/O).
-        //   - If main time is exhausted, fall back to byoyomi floor only.
-        let floor_ms = if byoyomi_ms > 0 {
-            byoyomi_ms * 4 / 5
-        } else {
-            500
-        };
-        let allot_ms = if time_left_ms > 1000 {
-            let share = time_left_ms / 30;
-            let cap = byoyomi_ms.saturating_mul(3).max(floor_ms);
-            share.min(cap)
-        } else {
-            0
-        };
-        let time_limit = Some(Duration::from_millis((floor_ms + allot_ms).max(100)));
+        let time_limit = Some(Duration::from_millis(csa_think_budget_ms(
+            time_left_ms,
+            byoyomi_ms,
+            is_fischer,
+        )));
         let budget_ms = time_limit.map_or(0, |limit| limit.as_millis());
 
         let info = self.searcher.search(
@@ -1240,7 +1264,7 @@ impl CsaClient {
         }
     }
 
-    /// Drain a single T{sec} or server confirmation line (non-blocking style with timeout).
+    /// Drain a single T{units} or server confirmation line.
     fn recv_time_or_move(&mut self) -> io::Result<String> {
         self.recv()
     }
@@ -1692,6 +1716,56 @@ fn parse_game_end(line: &str) -> GameResult {
     }
 }
 
+fn is_adjudication_marker(line: &str) -> bool {
+    matches!(
+        line,
+        "#RESIGN"
+            | "#TIME_UP"
+            | "#ILLEGAL_MOVE"
+            | "#SENNICHITE"
+            | "#OUTE_SENNICHITE"
+            | "#JISHOGI"
+            | "#MAX_MOVES"
+    )
+}
+
+/// The CSA increment is added immediately before this move's time is spent.
+fn clock_after_echo(
+    remaining_ms: u64,
+    increment_ms: Option<u64>,
+    used_units: u64,
+    unit_ms: u64,
+) -> Option<(u64, u64)> {
+    let used_ms = used_units.checked_mul(unit_ms)?;
+    let available_ms = remaining_ms.saturating_add(increment_ms.unwrap_or(0));
+    Some((available_ms.saturating_sub(used_ms), used_ms))
+}
+
+fn csa_think_budget_ms(main_ms: u64, period_ms: u64, is_fischer: bool) -> u64 {
+    // Keep the established 30-move allocation, but never hand search more
+    // than this turn's Fischer balance after reserving transport time.
+    let floor_ms = if period_ms > 0 {
+        period_ms.saturating_mul(4) / 5
+    } else {
+        500
+    };
+    let allot_ms = if main_ms > 1_000 {
+        let share = main_ms / 30;
+        let cap = period_ms.saturating_mul(3).max(floor_ms);
+        share.min(cap)
+    } else {
+        0
+    };
+    let requested_ms = floor_ms.saturating_add(allot_ms).max(100);
+    if is_fischer {
+        let available_ms = main_ms.saturating_add(period_ms);
+        let reserve_ms = (available_ms / 5).min(200);
+        requested_ms.min(available_ms.saturating_sub(reserve_ms))
+    } else {
+        requested_ms
+    }
+}
+
 enum ServerLine<'a> {
     Terminal(GameResult),
     Event(&'a str),
@@ -1715,7 +1789,7 @@ fn classify_server_line(line: &str) -> ServerLine<'_> {
 }
 
 /// Return a validated bare CSA move from a server line with an optional
-/// `,T<seconds>` suffix. Extra fields and malformed time suffixes are protocol
+/// `,T<units>` suffix. Extra fields and malformed time suffixes are protocol
 /// errors rather than ignorable noise.
 fn bare_server_move(line: &str) -> Option<&str> {
     let mut parts = line.split(',');
@@ -1724,7 +1798,7 @@ fn bare_server_move(line: &str) -> Option<&str> {
         return None;
     }
     if let Some(time) = parts.next() {
-        parse_time_seconds(time)?;
+        parse_time_units(time)?;
     }
     if parts.next().is_some() {
         return None;
@@ -1732,32 +1806,35 @@ fn bare_server_move(line: &str) -> Option<&str> {
     Some(token)
 }
 
-/// Parse a CSA `T<seconds>` field only when it can be represented by the
-/// millisecond clock used by the client.
-fn parse_time_seconds(field: &str) -> Option<u64> {
-    let seconds = field.strip_prefix('T')?.parse::<u64>().ok()?;
-    seconds.checked_mul(1_000)?;
-    Some(seconds)
+/// Conservatively bound a raw CSA time field; our selected Time_Unit is
+/// checked separately when the echo updates the clock.
+fn parse_time_units(field: &str) -> Option<u64> {
+    let units = field.strip_prefix('T')?.parse::<u64>().ok()?;
+    units.checked_mul(1_000)?;
+    Some(units)
 }
 
-/// Parse seconds from a CSA time echo: "T18" or "+9796FU,T18" → Some(18).
+/// Parse time units from a CSA echo: "T18" or "+9796FU,T18" → Some(18).
 fn parse_time_from_echo(line: &str) -> Option<u64> {
     let t_part = line.rsplit(',').next().unwrap_or(line);
-    parse_time_seconds(t_part)
+    parse_time_units(t_part)
 }
 
 #[cfg(test)]
 mod tests {
     use super::framing::{CsaLineReader, MAX_CSA_LINE_BYTES};
-    use super::time_control::{CsaTimeControl, parse_decimal, parse_time_unit_ms};
+    use super::time_control::{
+        CsaTimeControl, CsaTimeControlSet, parse_decimal, parse_time_unit_ms,
+    };
     use super::{
         AnalysisLog, Color, Config, CsaClient, EvaluationMode, GameRecord, GameResult,
         RecordMetadata, RootCandidateRecord, RuntimeStatusDetails, ServerLine,
         TOURNAMENT_MAX_PLIES, ThinkResult, advance_tournament_ply, bare_server_move,
-        classify_server_line, game_result_name, json_string, parse_game_end, parse_our_color,
-        parse_time_from_echo, pv_to_csa, root_candidates_json, score_kind,
-        update_run_manifest_game, update_run_manifest_progress, write_reconnect_exhausted_progress,
-        write_runtime_status_progress, write_runtime_status_snapshot,
+        classify_server_line, clock_after_echo, csa_think_budget_ms, game_result_name, json_string,
+        parse_game_end, parse_our_color, parse_time_from_echo, pv_to_csa, root_candidates_json,
+        score_kind, update_run_manifest_game, update_run_manifest_progress,
+        write_reconnect_exhausted_progress, write_runtime_status_progress,
+        write_runtime_status_snapshot,
     };
     use sekirei_core::board::Board;
     use sekirei_core::color::Color as CoreColor;
@@ -1878,6 +1955,57 @@ mod tests {
             assert_eq!(parsed.increment_ms, Some(2_000));
             assert_eq!(parsed.byoyomi_ms, None);
         }
+    }
+
+    #[test]
+    fn csa_asymmetric_time_sections_select_our_clock_and_echo_unit() {
+        let lines = [
+            "BEGIN Time+",
+            "Time_Unit:100msec",
+            "Total_Time:1800",
+            "Increment:20",
+            "END Time+",
+            "BEGIN Time-",
+            "Time_Unit:1sec",
+            "Total_Time:600",
+            "Increment:2",
+            "END Time-",
+        ];
+        for (color, expected) in [(Color::Black, 180_000), (Color::White, 600_000)] {
+            let mut sections = CsaTimeControlSet::default();
+            for line in lines {
+                sections.apply(line).unwrap();
+            }
+            let selected = sections.finish(color).unwrap();
+            assert_eq!(selected.total_time_ms, Some(expected));
+            assert_eq!(selected.increment_ms, Some(2_000));
+            assert_eq!(
+                selected.unit_ms,
+                if color == Color::Black { 100 } else { 1_000 }
+            );
+        }
+
+        let mut incomplete = CsaTimeControlSet::default();
+        incomplete.apply("BEGIN Time+").unwrap();
+        incomplete.apply("END Time+").unwrap();
+        assert!(incomplete.finish(Color::Black).is_err());
+    }
+
+    #[test]
+    fn fischer_clock_spends_this_turns_increment_before_clamping() {
+        assert_eq!(
+            clock_after_echo(500, Some(1_000), 14, 100),
+            Some((100, 1_400))
+        );
+        assert_eq!(
+            clock_after_echo(500, Some(1_000), 15, 100),
+            Some((0, 1_500))
+        );
+        assert_eq!(clock_after_echo(500, None, 14, 100), Some((0, 1_400)));
+        assert_eq!(clock_after_echo(500, Some(1_000), u64::MAX, 1_000), None);
+        assert_eq!(csa_think_budget_ms(500, 1_000, true), 800);
+        assert_eq!(csa_think_budget_ms(0, 100, true), 80);
+        assert_eq!(csa_think_budget_ms(0, 0, true), 0);
     }
 
     #[test]
@@ -2005,7 +2133,7 @@ mod tests {
 
         let mut start = Board::startpos();
         let ordinary = client
-            .think_and_send(&mut start, Color::Black, 60_000, 0)
+            .think_and_send(&mut start, Color::Black, 60_000, 0, false)
             .unwrap();
         assert_eq!(ordinary.decision, "ordinary_cp_resign");
         assert!(ordinary.root_candidates.as_ref().is_some_and(Vec::is_empty));
@@ -2013,7 +2141,7 @@ mod tests {
         client.config.resign_score = -sekirei_core::search::MATE_SCORE;
         let mut mated = Board::from_sfen("k8/1R7/1K7/9/9/9/9/9/9 w - 1").unwrap();
         let terminal = client
-            .think_and_send(&mut mated, Color::White, 0, 0)
+            .think_and_send(&mut mated, Color::White, 0, 0, false)
             .unwrap();
         assert_eq!(terminal.decision, "no_legal_move_resign");
         assert_eq!(terminal.abort_reason, "no_legal_move");
@@ -2191,13 +2319,30 @@ mod tests {
     }
 
     #[test]
-    fn accepted_game_records_events_and_rejects_a_legal_shape_illegal_move() {
+    fn accepted_game_waits_for_server_adjudication_markers() {
         use sekirei_core::search::Searcher;
         use sekirei_core::tt::Tt;
 
-        for (suffix, tail, expected) in [
-            ("event", "%CHUDAN\n#DRAW\n", GameResult::Draw),
-            ("illegal", "+7775FU\n", GameResult::Aborted),
+        for (suffix, tail, expected, marker) in [
+            ("event", "%CHUDAN\n#DRAW\n", GameResult::Draw, "%CHUDAN"),
+            (
+                "illegal",
+                "+7775FU\n#ILLEGAL_MOVE\n#WIN\n",
+                GameResult::Win,
+                "#ILLEGAL_MOVE",
+            ),
+            (
+                "repetition",
+                "#SENNICHITE\n#DRAW\n",
+                GameResult::Draw,
+                "#SENNICHITE",
+            ),
+            (
+                "perpetual",
+                "#OUTE_SENNICHITE\n#LOSE\n",
+                GameResult::Lose,
+                "#OUTE_SENNICHITE",
+            ),
         ] {
             let root = unique_test_directory(&format!("accepted-game-{suffix}"));
             fs::create_dir_all(&root).unwrap();
@@ -2223,17 +2368,16 @@ mod tests {
                 awaiting_aborted_game_result: false,
             };
             assert_eq!(client.play_game().unwrap(), expected);
-            if suffix == "event" {
-                assert_eq!(client.status_event.as_deref(), Some("start"));
-                let record = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
-                assert!(fs::read_to_string(record).unwrap().contains("%CHUDAN"));
-            } else {
-                assert_eq!(client.status_event.as_deref(), Some("protocol_error"));
-                assert_eq!(
-                    client.status_details.terminal_stop_reason.as_deref(),
-                    Some("illegal_server_move")
-                );
-            }
+            assert_ne!(client.status_event.as_deref(), Some("protocol_error"));
+            let record = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
+            let text = fs::read_to_string(record).unwrap();
+            assert!(text.contains(marker));
+            assert!(text.contains(match expected {
+                GameResult::Win => "#WIN",
+                GameResult::Lose => "#LOSE",
+                GameResult::Draw => "#DRAW",
+                GameResult::Aborted => "#CHUDAN",
+            }));
             fs::remove_dir_all(root).unwrap();
         }
     }
@@ -2327,6 +2471,61 @@ mod tests {
         assert!(record.contains("#RESIGN"));
         assert!(record.contains("%CHUDAN"));
         assert!(record.contains("#DRAW"));
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn own_move_reason_marker_precedes_final_result_without_time_echo() {
+        use sekirei_core::search::Searcher;
+        use sekirei_core::tt::Tt;
+
+        let root = unique_test_directory("own-move-repetition-marker");
+        fs::create_dir_all(&root).unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let stream = std::net::TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+        let (mut server, _) = listener.accept().unwrap();
+        server
+            .write_all(
+                b"Game_ID:repetition\nYour_Turn:+\nTotal_Time:180\nIncrement:2\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:repetition\n",
+            )
+            .unwrap();
+        let mut client = CsaClient {
+            reader: CsaLineReader::new(stream.try_clone().unwrap()),
+            writer: stream,
+            searcher: Searcher::new(Tt::new(1)),
+            config: Config {
+                max_depth: 1,
+                resign_score: -sekirei_core::search::MATE_SCORE,
+                record_dir: root.clone(),
+                ..Config::default()
+            },
+            status_state: "connected",
+            status_event: None,
+            status_details: RuntimeStatusDetails::default(),
+            awaiting_aborted_game_result: false,
+        };
+        let server_thread = thread::spawn(move || {
+            let mut reader = BufReader::new(server.try_clone().unwrap());
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(line.trim(), "AGREE:repetition");
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with('+'));
+            server.write_all(b"#SENNICHITE\n#DRAW\n").unwrap();
+            server.flush().unwrap();
+        });
+        assert_eq!(client.play_game().unwrap(), GameResult::Draw);
+        server_thread.join().unwrap();
+        let record =
+            fs::read_to_string(fs::read_dir(&root).unwrap().next().unwrap().unwrap().path())
+                .unwrap();
+        let own_move = record
+            .lines()
+            .find(|line| line.starts_with('+') && line.len() == 7)
+            .unwrap();
+        assert!(record.find(own_move).unwrap() < record.find("#SENNICHITE").unwrap());
+        assert!(record.find("#SENNICHITE").unwrap() < record.find("#DRAW").unwrap());
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3164,18 +3363,23 @@ mod tests {
                     line.clear();
                     reader.read_line(&mut line).unwrap();
                     assert!(line.starts_with("%%GAME denryu-rehearsal"));
+                    let our_turn = if index % 2 == 1 { "+" } else { "-" };
                     let summary = format!(
-                        "BEGIN Game_Summary\nGame_ID:denryu-rehearsal-{index}\nName+:sekirei\nName-:opponent\nYour_Turn:+\nBEGIN Time\nTime_Unit:1sec\nTotal_Time:180\nIncrement:2\nEND Time\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:denryu-rehearsal-{index}\n"
+                        "BEGIN Game_Summary\nGame_ID:denryu-rehearsal-{index}\nName+:sekirei\nName-:opponent\nYour_Turn:{our_turn}\nBEGIN Time+\nTime_Unit:1sec\nTotal_Time:180\nIncrement:2\nEND Time+\nBEGIN Time-\nTime_Unit:1sec\nTotal_Time:600\nIncrement:2\nEND Time-\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:denryu-rehearsal-{index}\n"
                     );
                     writer.write_all(summary.as_bytes()).unwrap();
                     writer.flush().unwrap();
                     line.clear();
                     reader.read_line(&mut line).unwrap();
                     assert!(line.starts_with(&format!("AGREE:denryu-rehearsal-{index}")));
+                    if our_turn == "-" {
+                        writer.write_all(b"+7776FU,T1\n").unwrap();
+                        writer.flush().unwrap();
+                    }
                     line.clear();
                     reader.read_line(&mut line).unwrap();
-                    assert!(line.starts_with('+'));
-                    let echo = format!("{},T0\n#WIN\n", line.trim());
+                    assert!(line.starts_with(our_turn));
+                    let echo = format!("{},T1\n#WIN\n", line.trim());
                     writer.write_all(echo.as_bytes()).unwrap();
                     writer.flush().unwrap();
                 }
@@ -3241,9 +3445,97 @@ mod tests {
         assert_eq!(manifest["games"].as_array().map(Vec::len), Some(14));
         assert_eq!(manifest["completed_attempts"], FINAL_STOP);
         assert_eq!(manifest["terminal_stop_reason"], "max_games_reached");
+        for (index, game) in manifest["games"].as_array().unwrap().iter().enumerate() {
+            let black = index % 2 == 0;
+            assert_eq!(game["our_color"], if black { "black" } else { "white" });
+            assert_eq!(
+                game["effective_time_control_ms"]["main"],
+                if black { 180_000 } else { 600_000 }
+            );
+            assert_eq!(game["effective_time_control_ms"]["period"], 2_000);
+        }
         assert_eq!(manifest["binary_sha256"], "test-binary-sha256");
         assert_eq!(manifest["config_sha256"], "test-config-sha256");
         assert_eq!(manifest["source_revision"], "test-source-revision");
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn rejected_game_waits_for_next_summary_without_counting_an_attempt() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(FAKE_SERVER_READ_TIMEOUT))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut writer = stream;
+            let mut line = String::new();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("LOGIN test "));
+            writer.write_all(b"LOGIN: test OK\n").unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with("%%GAME rejected-next *"));
+
+            writer
+                .write_all(b"BEGIN Game_Summary\nGame_ID:rejected\nYour_Turn:+\nEND Game_Summary\n")
+                .unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(line.trim(), "AGREE:rejected");
+
+            writer.write_all(b"REJECT:rejected by opponent\n").unwrap();
+            writer
+                .write_all(
+                    b"BEGIN Game_Summary\nGame_ID:accepted\nYour_Turn:+\nTotal_Time:180\nIncrement:2\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:accepted\n",
+                )
+                .unwrap();
+            writer.flush().unwrap();
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert_eq!(line.trim(), "AGREE:accepted");
+            line.clear();
+            reader.read_line(&mut line).unwrap();
+            assert!(line.starts_with('+'));
+            let echo = format!("{},T1\n#WIN\n", line.trim());
+            writer.write_all(echo.as_bytes()).unwrap();
+            writer.flush().unwrap();
+        });
+
+        let root = unique_test_directory("protocol-rejected-next-summary");
+        let record_dir = root.join("records");
+        fs::create_dir_all(&record_dir).unwrap();
+        let manifest_path = root.join("run.json");
+        fs::write(&manifest_path, "{}").unwrap();
+        let config = Config {
+            server: "127.0.0.1".into(),
+            port,
+            user: "test".into(),
+            password: "secret".into(),
+            game_id: "rejected-next".into(),
+            keep_alive: false,
+            max_games: Some(1),
+            max_depth: 1,
+            resign_score: -sekirei_core::search::MATE_SCORE,
+            record_dir: record_dir.clone(),
+            run_manifest: Some(manifest_path.clone()),
+            ..Config::default()
+        };
+        let mut client = CsaClient::connect_with_progress(config, 0).unwrap();
+        let mut completed_attempts = 0;
+        client.run(&mut completed_attempts).unwrap();
+        server.join().unwrap();
+        assert_eq!(completed_attempts, 1);
+        assert_eq!(fs::read_dir(record_dir).unwrap().count(), 1);
+        let manifest: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(manifest_path).unwrap()).unwrap();
+        assert_eq!(manifest["games"].as_array().unwrap().len(), 1);
+        assert_eq!(manifest["games"][0]["game_id"], "accepted");
+        assert_eq!(manifest["completed_attempts"], 1);
         fs::remove_dir_all(root).unwrap();
     }
 
@@ -3419,13 +3711,16 @@ mod tests {
             assert!(line.starts_with('-'));
             writer.write_all(b"#TIME_UP\n").unwrap();
             writer.flush().unwrap();
+            thread::sleep(Duration::from_millis(10));
+            writer.write_all(b"#WIN\n").unwrap();
+            writer.flush().unwrap();
 
             line.clear();
             reader.read_line(&mut line).unwrap();
             assert!(line.starts_with("%%GAME delayed-terminal"));
             writer
                 .write_all(
-                    b"#WIN\nGame_ID:delayed-terminal-2\nYour_Turn:-\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:delayed-terminal-2\n",
+                    b"Game_ID:delayed-terminal-2\nYour_Turn:-\nTotal_Time:1\nByoyomi:1\nEND Game_Summary\nBEGIN Position\nPI\nEND Position\nSTART:delayed-terminal-2\n",
                 )
                 .unwrap();
             writer.flush().unwrap();
@@ -3478,7 +3773,7 @@ mod tests {
         let first = fs::read_to_string(&records[0]).unwrap();
         let second = fs::read_to_string(&records[1]).unwrap();
         assert!(first.contains("#TIME_UP"));
-        assert!(!first.contains("#WIN"));
+        assert!(first.contains("#WIN"));
         assert!(second.contains("#WIN"));
         fs::remove_dir_all(root).unwrap();
     }
