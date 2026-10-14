@@ -391,6 +391,11 @@ jobs:
       - uses: actions/checkout@v5
       - name: usi_analysis_export parser unit tests
         run: python3 scripts/test_usi_analysis_export.py
+      - name: Search diagnostic tooling tests
+        run: |
+          python3 -m unittest \
+            scripts/test_nps_threads.py \
+            scripts/test_paired_search_diagnostics.py
 
   king-relative-feature:
     # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module
