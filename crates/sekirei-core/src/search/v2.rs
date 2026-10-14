@@ -26,8 +26,9 @@
 //! history, the transposition table and the repetition rules are the main
 //! search's. All constants here are this module's own.
 
-use std::sync::Arc;
-use std::sync::atomic::Ordering;
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Weak};
 
 use super::heuristics::{CorrKeys, HistoryTable};
 use super::params as p;
@@ -205,6 +206,146 @@ fn lmp_limit(depth: i32, improving: bool) -> u32 {
 /// (`i32::MIN`: not computed).
 type Entry = (i32, Move, u8, i32);
 
+/// Per-depth V2 null-move counters. The final bucket includes depths 31+.
+/// Columns are attempts, fail-highs, verification attempts, verification
+/// successes, verification overturns, later PV returns and tracking overflow.
+/// These counters are populated only by opt-in per-node diagnostics.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NmpSnapshot {
+    /// Null-move searches started, including an eventual budget abort.
+    pub attempts: u64,
+    /// Completed null-move searches scoring at least beta, including decisive scores.
+    pub fail_high: u64,
+    /// Fail-highs for which a verification search was started.
+    pub verification_attempts: u64,
+    /// Completed verification searches that retained the fail-high.
+    pub verification_successes: u64,
+    /// Completed verification searches that fell below beta.
+    pub verification_overturns: u64,
+    /// Exact positions revisited at a PV node after a completed null search
+    /// by the same worker in the same search. Counted once per tracked attempt.
+    /// This describes a PV search call, not membership in the final root PV.
+    pub pv_returns: u64,
+    /// Completed attempts omitted from PV-return tracking when its bounded
+    /// exact-position table was full. Other counters remain exact.
+    pub tracking_overflow: u64,
+    /// Null searches that used the opt-in ancestor one-ply correction.
+    pub prior_reductions: u64,
+    /// The seven counters above by attempted depth (bucket 31 includes 31+).
+    pub by_depth: [[u64; 7]; 32],
+}
+
+#[derive(Clone, Copy)]
+enum NmpEvent {
+    Attempt,
+    FailHigh,
+    VerificationAttempt,
+    VerificationSuccess,
+    VerificationOverturn,
+    PvReturn,
+    TrackingOverflow,
+}
+
+/// Atomics are independent of the shared TT and never acquire a search lock.
+pub(super) struct NmpDiagnostics {
+    by_depth: [[AtomicU64; 7]; 32],
+    prior_reductions: AtomicU64,
+}
+
+impl Default for NmpDiagnostics {
+    fn default() -> Self {
+        Self {
+            by_depth: std::array::from_fn(|_| std::array::from_fn(|_| AtomicU64::new(0))),
+            prior_reductions: AtomicU64::new(0),
+        }
+    }
+}
+
+impl NmpDiagnostics {
+    fn record(&self, depth: u32, event: NmpEvent) {
+        self.by_depth[(depth as usize).min(31)][event as usize].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn snapshot(&self) -> NmpSnapshot {
+        let by_depth = std::array::from_fn(|i| {
+            std::array::from_fn(|j| self.by_depth[i][j].load(Ordering::Relaxed))
+        });
+        let totals: [u64; 7] = std::array::from_fn(|j| by_depth.iter().map(|r| r[j]).sum());
+        NmpSnapshot {
+            attempts: totals[0],
+            fail_high: totals[1],
+            verification_attempts: totals[2],
+            verification_successes: totals[3],
+            verification_overturns: totals[4],
+            pv_returns: totals[5],
+            tracking_overflow: totals[6],
+            prior_reductions: self.prior_reductions.load(Ordering::Relaxed),
+            by_depth,
+        }
+    }
+}
+
+/// Keep PV-return tracking bounded even for long diagnostic searches.
+const NMP_PV_TRACK_CAPACITY: usize = 16_384;
+
+#[derive(Default)]
+struct NmpPvTracker {
+    positions: HashMap<u64, u32>,
+}
+
+impl NmpPvTracker {
+    /// Existing positions can always refresh their attempted depth.
+    fn remember(&mut self, hash: u64, depth: u32) -> bool {
+        if self.positions.len() < NMP_PV_TRACK_CAPACITY || self.positions.contains_key(&hash) {
+            self.positions.insert(hash, depth);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn pv_return(&mut self, hash: u64) -> Option<u32> {
+        self.positions.remove(&hash)
+    }
+
+    fn clear(&mut self) {
+        self.positions.clear();
+    }
+}
+
+/// Conservative one-ply correction for the opt-in ancestor NMP experiment.
+/// Sparse boards and pawn-only material avoid the most obvious zugzwang risk;
+/// this guard is not a proof that a position cannot be zugzwang.
+fn prior_nmp_reduction(
+    board: &Board,
+    in_check: bool,
+    eval: i32,
+    beta: i32,
+    depth: i32,
+    ancestor_fail_high: u8,
+) -> i32 {
+    if ancestor_fail_high == 0
+        || in_check
+        || depth < 6
+        || is_decisive(eval)
+        || is_decisive(beta)
+        || board.occ().popcount() < 12
+    {
+        return 0;
+    }
+    let non_pawns = board.occ_for(board.side_to_move)
+        & !board.pieces(board.side_to_move, PieceKind::Fu)
+        & !board.pieces(board.side_to_move, PieceKind::Ou);
+    i32::from(!non_pawns.is_empty())
+}
+
+fn update_prior_nmp(frame: &mut Frame, hash: u64) {
+    if frame.nmp_hash != Some(hash) {
+        frame.nmp_hash = Some(hash);
+        frame.prior_nmp_fail_high = 0;
+    }
+}
+
 /// A node's move lists: ordered moves, unscored quiet moves, losing
 /// tactical moves.
 type Lists = (Vec<Entry>, Vec<Move>, Vec<Entry>);
@@ -226,6 +367,10 @@ struct Frame {
     /// Plies by which the move searched from this ply is being reduced
     /// (V2_HINDSIGHT; 0 outside a reduced search).
     reduction: i32,
+    /// Strong null fail-high evidence for this exact position only. A frame
+    /// for another sibling position must never inherit this evidence.
+    prior_nmp_fail_high: u8,
+    nmp_hash: Option<u64>,
 }
 
 impl Frame {
@@ -240,6 +385,8 @@ impl Frame {
         move_count: 0,
         excluded: None,
         reduction: 0,
+        prior_nmp_fail_high: 0,
+        nmp_hash: None,
     };
 }
 
@@ -255,6 +402,8 @@ pub(super) struct Data {
     quiet_lists: Vec<Vec<Move>>,
     bad_lists: Vec<Vec<Entry>>,
     nmp_min_ply: u32,
+    nmp_pv: NmpPvTracker,
+    nmp_budget: Weak<super::Budget>,
     /// Evaluation corrections keyed by the two moves before a node
     /// (V2_CORR_CONT_W), hashed into `CORR_CONT_NB` entries.
     corr_cont: Vec<i16>,
@@ -282,6 +431,8 @@ impl Data {
             quiet_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(128)).collect(),
             bad_lists: (0..MAX_PLY + 8).map(|_| Vec::with_capacity(16)).collect(),
             nmp_min_ply: 0,
+            nmp_pv: NmpPvTracker::default(),
+            nmp_budget: Weak::new(),
             corr_cont: vec![0; CORR_CONT_NB],
             red: Vec::new(),
             red_scale: i32::MIN,
@@ -457,6 +608,7 @@ fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
         let search_no = state.tt.search_count();
         if d.search != search_no {
             d.search = search_no;
+            d.nmp_pv.clear();
             match p::V2_KEEP() {
                 0 => d.clear(),
                 1 => {}
@@ -465,6 +617,13 @@ fn with_data<R>(state: &SearchState, f: impl FnOnce(&mut Data) -> R) -> R {
             for t in d.low.iter_mut() {
                 *t = 0;
             }
+        }
+    }
+    if state.counters().is_some() {
+        let budget = Arc::downgrade(&state.budget);
+        if !Weak::ptr_eq(&d.nmp_budget, &budget) {
+            d.nmp_budget = budget;
+            d.nmp_pv.clear();
         }
     }
     let result = f(&mut d);
@@ -988,6 +1147,16 @@ fn node(
     d.ss[i].move_count = 0;
     let prior = d.ss[i - 1];
     let hash = board.hash();
+    if p::V2_NMP_PRIOR() != 0 {
+        update_prior_nmp(&mut d.ss[i], hash);
+    }
+    if pv
+        && excluded.is_none()
+        && let Some(c) = state.counters()
+        && let Some(attempted_depth) = d.nmp_pv.pv_return(hash)
+    {
+        c.v2_nmp.record(attempted_depth, NmpEvent::PvReturn);
+    }
 
     // Transposition table.
     let entry = if excluded.is_none() {
@@ -1186,11 +1355,29 @@ fn node(
             && ply >= d.nmp_min_ply
             && !is_decisive(beta)
         {
-            let r = if p::V2_NMP() == 1 {
+            let mut r = if p::V2_NMP() == 1 {
                 3 + depth / 4
             } else {
                 ((eval - beta) / p::V2_NMP_DIV().max(1)).min(6) + depth / 3 + 5
             };
+            if p::V2_NMP_PRIOR() != 0 {
+                // Same-side ancestors on the current path only. Each active
+                // frame's hash guard clears evidence when its position changes.
+                let prior_fail_high = d.ss[i - 2]
+                    .prior_nmp_fail_high
+                    .max(d.ss[i - 4].prior_nmp_fail_high);
+                let extra =
+                    prior_nmp_reduction(board, in_check, eval, beta, depth, prior_fail_high);
+                r += extra;
+                if extra != 0
+                    && let Some(c) = state.counters()
+                {
+                    c.v2_nmp.prior_reductions.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            if let Some(c) = state.counters() {
+                c.v2_nmp.record(depth.max(0) as u32, NmpEvent::Attempt);
+            }
             d.ss[i].mv = None;
             d.ss[i].pt = NO_PT;
             d.ss[i].capture = false;
@@ -1212,6 +1399,18 @@ fn node(
             if state.budget.should_abort() {
                 return 0;
             }
+            if let Some(c) = state.counters() {
+                let attempted_depth = depth.max(0) as u32;
+                if null >= beta {
+                    c.v2_nmp.record(attempted_depth, NmpEvent::FailHigh);
+                }
+                if !d.nmp_pv.remember(hash, attempted_depth) {
+                    c.v2_nmp.record(attempted_depth, NmpEvent::TrackingOverflow);
+                }
+            }
+            if p::V2_NMP_PRIOR() != 0 && !is_decisive(null) && null >= beta + 200 {
+                d.ss[i].prior_nmp_fail_high = d.ss[i].prior_nmp_fail_high.saturating_add(1).min(3);
+            }
             if null >= beta && !is_decisive(null) {
                 let verify_from = if p::V2_NMP() == 1 { 6 } else { 16 };
                 if d.nmp_min_ply != 0 || depth < verify_from {
@@ -1222,6 +1421,10 @@ fn node(
                     return null;
                 }
                 d.nmp_min_ply = ply + 3 * (depth - r).max(0) as u32 / 4;
+                if let Some(c) = state.counters() {
+                    c.v2_nmp
+                        .record(depth.max(0) as u32, NmpEvent::VerificationAttempt);
+                }
                 let v = search(
                     d,
                     state,
@@ -1235,6 +1438,21 @@ fn node(
                     history,
                 );
                 d.nmp_min_ply = 0;
+                if p::V2_NMP_PRIOR() != 0 && !state.budget.should_abort() && v < beta {
+                    d.ss[i].prior_nmp_fail_high = d.ss[i].prior_nmp_fail_high.saturating_sub(1);
+                }
+                if !state.budget.should_abort()
+                    && let Some(c) = state.counters()
+                {
+                    c.v2_nmp.record(
+                        depth.max(0) as u32,
+                        if v >= beta {
+                            NmpEvent::VerificationSuccess
+                        } else {
+                            NmpEvent::VerificationOverturn
+                        },
+                    );
+                }
                 if v >= beta {
                     diag(state, entry_depth, 4);
                     return null;
@@ -1405,6 +1623,9 @@ fn node(
     }
     drop(buf);
     list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+    if p::V2_EAGER_LOSING_SORT() != 0 {
+        bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+    }
     diag(state, entry_depth, 7);
     if let Some(c) = state.counters() {
         c.loop_nodes[usize::from(tt_move.is_some())].fetch_add(1, Ordering::Relaxed);
@@ -1531,7 +1752,9 @@ fn node(
                     // do not pay for a sort whose result is never consumed.
                     // The saved keys and input order are unchanged, so nodes
                     // that reach this stage retain the exact move order.
-                    bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+                    if p::V2_EAGER_LOSING_SORT() == 0 {
+                        bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+                    }
                     if let Some(c) = state.counters() {
                         c.move_stages[3].fetch_add(1, Ordering::Relaxed);
                     }
@@ -2046,6 +2269,287 @@ fn node(
 mod tests {
     use super::*;
     use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    fn diagnostic_state() -> (Arc<SearchState>, Arc<super::super::SearchDiagnostics>) {
+        use super::super::{
+            Budget, CountermoveTable, KillerTable, PruningConfig, SearchDiagnostics,
+        };
+        use crate::tt::Tt;
+        use std::sync::atomic::AtomicBool;
+        let diagnostics = Arc::new(SearchDiagnostics::counters_only());
+        let state = Arc::new(SearchState {
+            tt: Tt::new(4),
+            budget: Arc::new(Budget::new(
+                None,
+                Some(10_000),
+                Arc::new(AtomicBool::new(false)),
+            )),
+            killers: KillerTable::new(),
+            history: Arc::new(HistoryTable::new()),
+            countermoves: Arc::new(CountermoveTable::new()),
+            diagnostics: Some(diagnostics.clone()),
+            eval_cache: None,
+            pruning: PruningConfig::default(),
+            retirement: None,
+        });
+        (state, diagnostics)
+    }
+
+    #[test]
+    fn nmp_pv_tracking_resets_per_invocation_without_tt_aging() {
+        let (first, _) = diagnostic_state();
+        with_data(&first, |d| assert!(d.nmp_pv.remember(42, 10)));
+        with_data(&first, |d| {
+            assert_eq!(d.nmp_pv.positions.get(&42), Some(&10))
+        });
+        let (mut second, _) = diagnostic_state();
+        let next = Arc::get_mut(&mut second).unwrap();
+        next.history = first.history.clone();
+        next.tt = first.tt.clone();
+        assert_eq!(first.tt.search_count(), second.tt.search_count());
+        with_data(&second, |d| assert_eq!(d.nmp_pv.pv_return(42), None));
+    }
+
+    fn forced_null_probe(ancestor_signal: bool) -> NmpSnapshot {
+        use crate::sfen::PositionHistory;
+        let (state, diagnostics) = diagnostic_state();
+        let mut board = Board::startpos();
+        let previous = generate_legal_moves(&mut board)[0];
+        let _ = board.do_move(previous);
+        let hash = board.hash();
+        let accumulator = board.acc.clone();
+        let history = PositionHistory::initial(hash);
+        let mut d = Data::new();
+        d.red = reduction_table(p::V2_RED_SCALE());
+        let ply = 4;
+        let i = OFF + ply as usize;
+        d.ss[i - 1].mv = Some(previous);
+        if ancestor_signal {
+            d.ss[i - 2].nmp_hash = Some(123);
+            d.ss[i - 2].prior_nmp_fail_high = 1;
+        }
+        // Depth bypasses reverse futility; this deliberately low beta forces
+        // a usable null fail-high and the deep verified-NMP path.
+        let score = search(
+            &mut d,
+            &state,
+            &mut board,
+            -10_001,
+            -10_000,
+            20,
+            ply,
+            true,
+            false,
+            &SearchHistory::root(&history),
+        );
+        assert!(score >= -10_000);
+        assert_eq!(board.hash(), hash);
+        assert_eq!(board.acc, accumulator);
+        diagnostics.nmp_snapshot()
+    }
+
+    #[test]
+    fn nmp_null_and_verification_counters_follow_real_search() {
+        let nmp = std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| forced_null_probe(false))
+            .unwrap()
+            .join()
+            .unwrap();
+        assert_eq!(nmp.attempts, 1);
+        assert_eq!(nmp.fail_high, 1);
+        assert_eq!(nmp.verification_attempts, 1);
+        assert_eq!(nmp.verification_successes, 1);
+        assert_eq!(nmp.verification_overturns, 0);
+        assert_eq!(nmp.prior_reductions, 0);
+    }
+
+    #[test]
+    fn nmp_observer_preserves_fixed_depth_search_and_root_board() {
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use super::super::{SearchConfig, SearchDiagnostics, Searcher};
+                use crate::tt::Tt;
+                for sfen in [
+                    crate::sfen::STARTPOS_SFEN,
+                    "lnsgkgsnl/1r5b1/ppppppppp/9/4P4/9/PPPP1PPPP/1B5R1/LNSGKGSNL w - 2",
+                    "k8/9/4p4/4P4/4R4/9/9/9/8K b P 1",
+                ] {
+                    let mut plain_board = Board::from_sfen(sfen).unwrap();
+                    let mut observed_board = plain_board.clone();
+                    let root_hash = plain_board.hash();
+                    let config = SearchConfig {
+                        max_depth: 6,
+                        ..SearchConfig::default()
+                    };
+                    let plain = Searcher::new(Tt::new(4)).search(&mut plain_board, config);
+                    let counters = Arc::new(SearchDiagnostics::counters_only());
+                    let observed = Searcher::with_diagnostics(Tt::new(4), counters.clone())
+                        .search(&mut observed_board, config);
+                    assert_eq!(
+                        (
+                            plain.best_move,
+                            plain.score,
+                            plain.depth,
+                            plain.nodes,
+                            plain.pv
+                        ),
+                        (
+                            observed.best_move,
+                            observed.score,
+                            observed.depth,
+                            observed.nodes,
+                            observed.pv
+                        )
+                    );
+                    assert_eq!(plain_board.hash(), root_hash);
+                    assert_eq!(observed_board.hash(), root_hash);
+                    assert_eq!(plain_board.acc, observed_board.acc);
+                    let nmp = counters.nmp_snapshot();
+                    assert!(nmp.fail_high <= nmp.attempts);
+                    assert!(nmp.verification_attempts <= nmp.fail_high);
+                    assert_eq!(
+                        nmp.verification_attempts,
+                        nmp.verification_successes + nmp.verification_overturns
+                    );
+                    assert_eq!(nmp.prior_reductions, 0);
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-wide tuning parameter"]
+    fn tuned_nmp_prior_restores_board_and_returns_legal_move() {
+        struct Restore;
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(p::set("V2_NMP_PRIOR", 0));
+            }
+        }
+        let _restore = Restore;
+        assert!(p::set("V2_NMP_PRIOR", 1));
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(|| {
+                use super::super::{SearchConfig, SearchDiagnostics, Searcher};
+                use crate::tt::Tt;
+                let mut board = Board::startpos();
+                let root_hash = board.hash();
+                let accumulator = board.acc.clone();
+                let legal = generate_legal_moves(&mut board);
+                let counters = Arc::new(SearchDiagnostics::counters_only());
+                let result = Searcher::with_diagnostics(Tt::new(4), counters.clone()).search(
+                    &mut board,
+                    SearchConfig {
+                        max_depth: 10,
+                        node_limit: Some(100_000),
+                        ..SearchConfig::default()
+                    },
+                );
+                assert!(legal.contains(&result.best_move.unwrap()));
+                assert_eq!(board.hash(), root_hash);
+                assert_eq!(board.acc, accumulator);
+                let nmp = counters.nmp_snapshot();
+                assert!(nmp.prior_reductions <= nmp.attempts);
+                let forced = forced_null_probe(true);
+                assert_eq!(forced.prior_reductions, 1);
+                assert!(forced.fail_high > 0);
+                assert!(forced.verification_successes > 0);
+                eprintln!(
+                    "prior NMP attempts={} fail_high={} corrections={}",
+                    nmp.attempts, nmp.fail_high, nmp.prior_reductions
+                );
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    #[test]
+    fn nmp_prior_is_bounded_and_rejects_sensitive_positions() {
+        let board = Board::startpos();
+        assert_eq!(prior_nmp_reduction(&board, false, 500, 100, 10, 3), 1);
+        assert_eq!(prior_nmp_reduction(&board, false, 500, 100, 10, 0), 0);
+        assert_eq!(prior_nmp_reduction(&board, true, 500, 100, 10, 3), 0);
+        assert_eq!(
+            prior_nmp_reduction(&board, false, MATE_BOUND, 100, 10, 3),
+            0
+        );
+        assert_eq!(
+            prior_nmp_reduction(&board, false, 500, -MATE_BOUND, 10, 3),
+            0
+        );
+        assert_eq!(prior_nmp_reduction(&board, false, 500, 100, 5, 3), 0);
+        let sparse = Board::from_sfen("k8/9/9/9/4p4/9/4R4/9/8K b - 1").unwrap();
+        assert_eq!(prior_nmp_reduction(&sparse, false, 500, 100, 10, 3), 0);
+        let pawn_only = Board::from_sfen("k8/ppppppppp/9/9/9/9/PPPPPPPPP/9/8K b - 1").unwrap();
+        assert_eq!(prior_nmp_reduction(&pawn_only, false, 500, 100, 10, 3), 0);
+        let mut frame = Frame::EMPTY;
+        update_prior_nmp(&mut frame, 10);
+        frame.prior_nmp_fail_high = 3;
+        update_prior_nmp(&mut frame, 10);
+        assert_eq!(frame.prior_nmp_fail_high, 3);
+        update_prior_nmp(&mut frame, 11);
+        assert_eq!(
+            frame.prior_nmp_fail_high, 0,
+            "another sibling loses the signal"
+        );
+    }
+
+    #[test]
+    fn nmp_pv_tracking_is_exact_bounded_and_consumed_once() {
+        let mut tracker = NmpPvTracker::default();
+        assert!(tracker.remember(0, 6));
+        assert_eq!(tracker.pv_return(1), None);
+        assert_eq!(tracker.pv_return(0), Some(6));
+        assert_eq!(tracker.pv_return(0), None);
+        for hash in 0..NMP_PV_TRACK_CAPACITY as u64 {
+            assert!(tracker.remember(hash, 6));
+        }
+        assert!(!tracker.remember(u64::MAX, 10));
+        assert!(tracker.remember(0, 12));
+        assert_eq!(tracker.pv_return(0), Some(12));
+        assert!(tracker.remember(u64::MAX, 10));
+        tracker.clear();
+        assert_eq!(tracker.pv_return(u64::MAX), None);
+    }
+
+    #[test]
+    fn nmp_snapshot_totals_match_depth_counters() {
+        let diagnostics = NmpDiagnostics::default();
+        for event in [
+            NmpEvent::Attempt,
+            NmpEvent::FailHigh,
+            NmpEvent::VerificationAttempt,
+            NmpEvent::VerificationSuccess,
+            NmpEvent::VerificationOverturn,
+            NmpEvent::PvReturn,
+            NmpEvent::TrackingOverflow,
+        ] {
+            diagnostics.record(6, event);
+            diagnostics.record(64, event);
+        }
+        let snapshot = diagnostics.snapshot();
+        assert_eq!(snapshot.by_depth[6], [1; 7]);
+        assert_eq!(snapshot.by_depth[31], [1; 7]);
+        assert_eq!(
+            [
+                snapshot.attempts,
+                snapshot.fail_high,
+                snapshot.verification_attempts,
+                snapshot.verification_successes,
+                snapshot.verification_overturns,
+                snapshot.pv_returns,
+                snapshot.tracking_overflow
+            ],
+            [2; 7]
+        );
+    }
 
     #[test]
     fn reduction_and_history_helpers_cover_split_tables_and_aging() {

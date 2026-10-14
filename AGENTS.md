@@ -91,6 +91,14 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-14: Integrate the implemented search experiments and measurement evidence into main; retain disabled defaults for candidates without independent H1.
+
+* 2026-10-14: Fix YaneuraOu as the search-strength target; continue isolated search improvements and equal-condition qualification without NNUE retraining or unqualified default adoption.
+
+* 2026-10-14: Target search strength beyond YaneuraOu; qualify against pinned opponent and equal evaluation/time conditions, and distinguish search diagnostics from playing-strength evidence.
+
+* 2026-10-14: Improve useful Lazy SMP depth without NNUE retraining: validate deferred losing-tactical sort, complete root-hint effectiveness diagnostics, compare helper root LMR with ABBA, and add opt-in dominated-helper retirement, diagnostics-first NMP history, and a two-worker cooperative root split. Keep candidates separate; require independent H1 before adoption.
+
 * 2026-10-14: Commit validated search-speed changes and push them to main.
 * 2026-10-14: For Sinfonietta CPU-throughput comparisons, pin its executable, evaluation architecture and CPU mode, and keep NNUE, PV-MCTS and ensemble measurements distinct.
 * 2026-10-14: Aim to exceed YaneuraOu speed with Pure Safe Rust. Pin the reference build and compare identical hardware, evaluator, thread counts, hash size, and corpus; keep raw NPS, effective search work, and strength distinct.

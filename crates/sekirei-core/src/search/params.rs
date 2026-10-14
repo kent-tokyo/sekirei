@@ -80,6 +80,10 @@ macro_rules! search_params {
 search_params! {
     /// Initial aspiration window half-width in centipawns.
     ASP_DELTA = 50, 10, 200;
+    /// Widen initial root aspiration by within-go completed-score changes only.
+    ASP_VOLATILITY = 0, 0, 1;
+    /// Opt-in root-split executor reuse within one go; requires cooperative root mode.
+    COOP_PERSISTENT = 0, 0, 1;
     /// Reverse futility pruning: margin per depth in centipawns.
     RFP_MARGIN = 152, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.
@@ -495,6 +499,10 @@ search_params! {
     /// margin and a third of the depth, verified from depth 16 (0); at every
     /// non-PV node, reduced by 3 + depth / 4, verified from depth 6 (1).
     V2_NMP = 0, 0, 1;
+    /// SEARCH_V2 isolated experiment: at most one extra null reduction ply
+    /// after a strong same-side ancestor fail-high. Disabled in check, mate
+    /// score ranges, sparse boards and pawn-only material; no default change.
+    V2_NMP_PRIOR = 0, 0, 1;
     /// SEARCH_V2 histories at a new search: forgotten (0), kept (1), or
     /// divided by this value (2..4).
     V2_KEEP = 1, 0, 4;
@@ -568,6 +576,10 @@ search_params! {
     /// SEARCH_V2 quiet move order: picked best first one at a time for the
     /// first few, ties in generation order (1), or fully sorted at once (0).
     V2_SORT = 0, 0, 1;
+    /// SEARCH_V2 measurement baseline: sort losing tactical moves eagerly
+    /// (1) instead of waiting until their stage is reached (0). This changes
+    /// sort timing only; keys, tie order and searched moves remain identical.
+    V2_EAGER_LOSING_SORT = 0, 0, 1;
     /// SEARCH_V2 generates legal tactical moves first and defers the full
     /// legal move list until the quiet stage (1), or generates all moves at
     /// node entry (0).

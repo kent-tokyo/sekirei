@@ -11,8 +11,9 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    RootHintChannel, RootHintSnapshot, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
-    SearchInfo, Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    AspirationSnapshot, CooperativeRootStats, HelperRetirement, NmpSnapshot, RootHintChannel,
+    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
+    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -83,6 +84,36 @@ pub struct LazySmpRootHintStats {
     pub eligible_reads: u64,
     /// Reads that actually moved a legal final root candidate to the front.
     pub applied: u64,
+}
+
+/// Additional invocation-bound effectiveness counters, separate from the stable
+/// three-field [`LazySmpRootHintStats`] public literal contract.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LazySmpRootHintEffectiveness {
+    /// Helper publications accepted by the hint slot.
+    pub publications: u64,
+    /// Eligible hint reads by worker zero.
+    pub eligible_reads: u64,
+    /// Reads that changed root ordering.
+    pub applied: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub first_move_beta_cuts: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub researches: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub research_nodes: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub stale_research_nodes: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub stale_reads: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub depth_gap_sum: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub depth_gap_max: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub generation_gap_sum: u64,
+    /// Invocation-scoped root-hint effectiveness diagnostic.
+    pub generation_gap_max: u64,
 }
 
 fn work_overlap_snapshot(
@@ -173,9 +204,11 @@ pub struct LazySmpSearcher {
     /// Invocation-scoped helper-to-main ordering hint. It is present only for
     /// shared-TT searches with at least two workers and the opt-in flag.
     root_hint: Option<Arc<RootHintChannel>>,
+    retirement: Option<Arc<HelperRetirement>>,
     /// Search-level observers and persistent workers are invocation-scoped.
     /// Serialize overlapping calls instead of mixing their resettable state.
     search_active: std::sync::atomic::AtomicBool,
+    cooperative_stats: std::sync::Mutex<Option<CooperativeRootStats>>,
     /// Lifecycle mutations are outside the search loop, but must be serialized
     /// so one waiter cannot re-arm the abort flag after another waiter reset it.
     lifecycle_mutation: std::sync::Mutex<()>,
@@ -282,11 +315,42 @@ pub const LAZY_FOREIGN_ROOT_HINT: u32 = 2048;
 /// 0 keeps the established root search, while helpers probe late quiet moves
 /// more cheaply. This remains opt-in until an independent strength gate.
 pub const LAZY_HELPER_ROOT_LMR: u32 = 4096;
+/// Retire dominated helpers only after an exact completed iteration.
+pub const LAZY_DOMINATED_RETIREMENT: u32 = 8192;
+/// Two-participant root-only cooperative split prototype. Other counts fall back.
+pub const LAZY_ROOT_SPLIT: u32 = 16384;
 /// Default behaviour switches.
 pub const LAZY_DEFAULT_FLAGS: u32 =
     LAZY_PERSISTENT | LAZY_MAIN_STOPS | LAZY_DEPTH_SKEW | LAZY_NO_YBW;
 
 impl LazySmpSearcher {
+    /// Completed exact iterations, retirement status, and sampled foreign reads
+    /// of each worker's committed entries. Available only for the retirement experiment.
+    pub fn retirement_stats(&self) -> Option<Vec<(u64, bool, u64)>> {
+        self.retirement.as_ref().map(|channel| channel.snapshot())
+    }
+
+    /// Last joined cooperative invocation (outside the node loop).
+    pub fn cooperative_root_stats(&self) -> Option<CooperativeRootStats> {
+        *self
+            .cooperative_stats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Per-worker root aspiration evidence; empty with ordinary workers.
+    pub fn aspiration_stats(&self) -> Vec<AspirationSnapshot> {
+        self.diagnostics
+            .iter()
+            .map(|d| d.aspiration_snapshot())
+            .collect()
+    }
+
+    /// Per-worker NMP diagnostic snapshots; empty with ordinary workers.
+    pub fn nmp_stats(&self) -> Vec<NmpSnapshot> {
+        self.diagnostics.iter().map(|d| d.nmp_snapshot()).collect()
+    }
+
     /// Create a Lazy SMP searcher. `workers == 0` is normalized to one worker.
     pub fn new(tt: Arc<Tt>, workers: usize) -> Self {
         Self::with_flags(tt, workers, LAZY_DEFAULT_FLAGS)
@@ -341,7 +405,16 @@ impl LazySmpSearcher {
         let root_hint =
             (flags & LAZY_FOREIGN_ROOT_HINT != 0 && share_tt && workers > 1 && workers <= 512)
                 .then(|| Arc::new(RootHintChannel::new()));
-        let persistent = if flags & LAZY_PERSISTENT != 0 {
+        let retirement = ((flags & LAZY_DOMINATED_RETIREMENT != 0 || !diagnostics.is_empty())
+            && share_tt
+            && (2..=512).contains(&workers))
+        .then(|| {
+            Arc::new(HelperRetirement::new(
+                workers,
+                flags & LAZY_DOMINATED_RETIREMENT != 0 && workers >= 3,
+            ))
+        });
+        let mut persistent: Vec<Searcher> = if flags & LAZY_PERSISTENT != 0 {
             (0..workers)
                 .map(|index| {
                     let worker_tt = if share_tt {
@@ -362,6 +435,11 @@ impl LazySmpSearcher {
         } else {
             Vec::new()
         };
+        if let Some(channel) = &retirement {
+            for (worker, searcher) in persistent.iter_mut().enumerate() {
+                searcher.set_retirement(channel.clone(), worker);
+            }
+        }
         Self {
             tt,
             workers,
@@ -375,7 +453,9 @@ impl LazySmpSearcher {
             work_overlap_stats,
             tt_reuse_stats,
             root_hint,
+            retirement,
             search_active: std::sync::atomic::AtomicBool::new(false),
+            cooperative_stats: std::sync::Mutex::new(None),
             lifecycle_mutation: std::sync::Mutex::new(()),
         }
     }
@@ -587,6 +667,31 @@ impl LazySmpSearcher {
         Option<LazySmpRootHintStats>,
         Vec<LazySmpWorkerTtReuse>,
     )> {
+        let (info, effectiveness, tt_reuse) =
+            self.try_search_with_history_and_root_hint_effectiveness(board, config, history)?;
+        let stats = effectiveness.map(|value| LazySmpRootHintStats {
+            publications: value.publications,
+            eligible_reads: value.eligible_reads,
+            applied: value.applied,
+        });
+        Some((info, stats, tt_reuse))
+    }
+
+    /// Try to search with invocation-bound extended root-hint evidence.
+    ///
+    /// The outer `None` means another invocation owns this searcher. Keeping
+    /// this additive API separate preserves the original hint-stat literals
+    /// and three-member result contract.
+    pub fn try_search_with_history_and_root_hint_effectiveness(
+        &self,
+        board: &Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+    ) -> Option<(
+        LazySmpInfo,
+        Option<LazySmpRootHintEffectiveness>,
+        Vec<LazySmpWorkerTtReuse>,
+    )> {
         let _invocation = SearchInvocationGuard::try_acquire(&self.search_active)?;
         Some(self.search_with_history_inner(board, config, history))
     }
@@ -598,7 +703,7 @@ impl LazySmpSearcher {
         history: &PositionHistory,
     ) -> (
         LazySmpInfo,
-        Option<LazySmpRootHintStats>,
+        Option<LazySmpRootHintEffectiveness>,
         Vec<LazySmpWorkerTtReuse>,
     ) {
         debug_assert_eq!(
@@ -612,15 +717,21 @@ impl LazySmpSearcher {
         if let Some(stats) = &self.tt_reuse_stats {
             stats.reset();
         }
+        if let Some(channel) = &self.retirement {
+            channel.reset();
+        }
         let root_hint_generation = self
             .root_hint
             .as_ref()
             .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
+        let split_stats = std::sync::OnceLock::new();
+        let cooperative = self.workers == 2 && self.flags & LAZY_ROOT_SPLIT != 0 && self.share_tt;
+        let participants = if cooperative { 1 } else { self.workers };
         let results: Vec<(
             SearchInfo,
             Option<(SearchDiagnosticsSnapshot, TtReuseSnapshot)>,
-        )> = (0..self.workers)
+        )> = (0..participants)
             .into_par_iter()
             .map(|index| {
                 let mut worker_board = board.clone();
@@ -628,14 +739,24 @@ impl LazySmpSearcher {
                 let before =
                     diagnostics.map(|observer| (observer.snapshot(), observer.tt_reuse_snapshot()));
                 let info = if let Some(searcher) = self.persistent.get(index) {
-                    searcher.search_with_history(&mut worker_board, config, history)
+                    if cooperative {
+                        let (info, stats) = searcher.search_cooperative_root_with_history(
+                            &mut worker_board,
+                            config,
+                            history,
+                        );
+                        let _ = split_stats.set(stats);
+                        info
+                    } else {
+                        searcher.search_with_history(&mut worker_board, config, history)
+                    }
                 } else {
                     let worker_tt = if self.share_tt {
                         self.tt.clone()
                     } else {
                         Tt::new(self.hash_mb)
                     };
-                    let searcher = Self::worker_searcher(
+                    let mut searcher = Self::worker_searcher(
                         worker_tt,
                         self.external_abort.clone(),
                         diagnostics.cloned(),
@@ -643,7 +764,20 @@ impl LazySmpSearcher {
                         index,
                         self.root_hint.clone(),
                     );
-                    searcher.search_with_history(&mut worker_board, config, history)
+                    if let Some(channel) = &self.retirement {
+                        searcher.set_retirement(channel.clone(), index);
+                    }
+                    if cooperative {
+                        let (info, stats) = searcher.search_cooperative_root_with_history(
+                            &mut worker_board,
+                            config,
+                            history,
+                        );
+                        let _ = split_stats.set(stats);
+                        info
+                    } else {
+                        searcher.search_with_history(&mut worker_board, config, history)
+                    }
                 };
                 if index == 0 && self.workers > 1 && self.flags & LAZY_MAIN_STOPS != 0 {
                     // The main worker owns time management; helpers stop with it.
@@ -660,6 +794,10 @@ impl LazySmpSearcher {
             })
             .collect();
 
+        *self
+            .cooperative_stats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = split_stats.get().copied();
         let total_nodes = results.iter().map(|(info, _)| info.nodes).sum();
         let mut worker_results: Vec<LazySmpWorkerInfo> = results
             .iter()
@@ -718,15 +856,20 @@ impl LazySmpSearcher {
                 .as_ref()
                 .zip(root_hint_generation)
                 .map(|(channel, generation)| {
-                    let RootHintSnapshot {
-                        publications,
-                        eligible_reads,
-                        applied,
-                    } = channel.snapshot(generation);
-                    LazySmpRootHintStats {
-                        publications,
-                        eligible_reads,
-                        applied,
+                    let value = channel.snapshot(generation);
+                    LazySmpRootHintEffectiveness {
+                        publications: value.publications,
+                        eligible_reads: value.eligible_reads,
+                        applied: value.applied,
+                        first_move_beta_cuts: value.first_move_beta_cuts,
+                        researches: value.researches,
+                        research_nodes: value.research_nodes,
+                        stale_research_nodes: value.stale_research_nodes,
+                        stale_reads: value.stale_reads,
+                        depth_gap_sum: value.depth_gap_sum,
+                        depth_gap_max: value.depth_gap_max,
+                        generation_gap_sum: value.generation_gap_sum,
+                        generation_gap_max: value.generation_gap_max,
                     }
                 });
         (info, root_hint_stats, worker_tt_reuse)
@@ -1019,6 +1162,79 @@ mod tests {
 
         assert_eq!(offsets, [0, 1, 2, 3]);
         assert_eq!(LazySmpSearcher::root_order_offset(LAZY_DEFAULT_FLAGS, 3), 0);
+    }
+
+    #[test]
+    fn dominated_retirement_is_opt_in_and_invocation_scoped() {
+        let plain = LazySmpSearcher::new(Tt::new(1), 4);
+        assert!(plain.retirement_stats().is_none());
+        let single = LazySmpSearcher::with_flags(
+            Tt::new(1),
+            1,
+            LAZY_DEFAULT_FLAGS | LAZY_DOMINATED_RETIREMENT,
+        );
+        assert!(single.retirement_stats().is_none());
+        let searcher = LazySmpSearcher::with_flags(
+            Tt::new(1),
+            4,
+            LAZY_DEFAULT_FLAGS | LAZY_DOMINATED_RETIREMENT,
+        );
+        let board = Board::startpos();
+        let history = PositionHistory::initial(board.hash());
+        let config = SearchConfig {
+            max_depth: 2,
+            ..SearchConfig::default()
+        };
+        let first = searcher.search_with_history(&board, config, &history);
+        let stats = searcher.retirement_stats().unwrap();
+        assert_eq!(stats.len(), 4);
+        assert!(stats.iter().all(|(_, retired, _)| !retired));
+        assert!(first.result.best_move.is_some());
+        searcher.reset_abort_flag();
+        let terminal = Board::empty();
+        let history = PositionHistory::initial(terminal.hash());
+        searcher.search_with_history(
+            &terminal,
+            SearchConfig {
+                max_depth: 1,
+                ..config
+            },
+            &history,
+        );
+        assert!(
+            searcher
+                .retirement_stats()
+                .unwrap()
+                .iter()
+                .all(|(_, retired, _)| !retired)
+        );
+    }
+
+    #[test]
+    fn cooperative_flag_is_exactly_two_worker_opt_in() {
+        for workers in [1, 2, 4] {
+            let searcher = LazySmpSearcher::with_flags(
+                Tt::new(1),
+                workers,
+                LAZY_DEFAULT_FLAGS | LAZY_ROOT_SPLIT,
+            );
+            let board = Board::startpos();
+            let history = PositionHistory::initial(board.hash());
+            let info = searcher.search_with_history(
+                &board,
+                SearchConfig {
+                    max_depth: 2,
+                    ..SearchConfig::default()
+                },
+                &history,
+            );
+            assert_eq!(searcher.cooperative_root_stats().is_some(), workers == 2);
+            assert_eq!(
+                info.worker_results.len(),
+                if workers == 2 { 1 } else { workers }
+            );
+            assert!(info.result.best_move.is_some());
+        }
     }
 
     #[test]

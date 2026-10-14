@@ -1,0 +1,46 @@
+{
+  "schema": "sekirei.useful-depth-validation.v1",
+  "baseline_snapshot": "b0acddc4145d662bffeabdab8be482a950667cbf",
+  "engine_source_commit": "6f75f292f59cc35be0b7f1ba13e83413dcb67ba9",
+  "engine_sha256": "2bf06dd37e93237f54ef3a5dab4295920d6d53b5b453601e7195aa01716b1246",
+  "core_usi_tests": {
+    "passed": 440,
+    "failed": 0,
+    "ignored": 6,
+    "command": "RUST_MIN_STACK=16777216 CARGO_INCREMENTAL=0 cargo test --offline -p sekirei-core -p sekirei --features tune -- --test-threads=1"
+  },
+  "python_tests": {
+    "passed": 67,
+    "suites": [
+      "test_nps_threads.py",
+      "test_paired_search_diagnostics.py",
+      "test_run_ab_match.py"
+    ]
+  },
+  "local_engine_library_line_coverage": {
+    "count": 38597,
+    "covered": 37854,
+    "percent": 98.07497992071924
+  },
+  "coverage_exclusions_unchanged": true,
+  "hosted_codecov_confirmation": false,
+  "strength_gate_opened": false,
+  "adopted_candidates": [],
+  "nnue_training_lane_changed": false,
+  "default_lazy_flags": 15,
+  "default_nmp_prior": 0,
+  "artifact_sha256": {
+    "target/core-usi-tests.log": "6544ef4da43c5460dc9eeb2f36c86459801691a0732ebf98c47a94e335dd2d41",
+    "target/coverage-run.log": "6a76669d0f176bc7c958211293ec1a870440956251916862b2f518f3fe8f2886",
+    "target/coverage/summary.json": "904a669e854e95bfc16546b36c6b151833289687a1b86af0405869adb571ec35",
+    "target/build-manifest.json": "932e553e16ebc06b564424bac7f5d54a698f49222f7fe01a29005bf5c05e2701",
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic-results.json": "15e09ebf81936006a6fb8e1fea39fcaf95a52812e9bffdd78c4f44d0f8a5aa73",
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/pv-validation.json": "c4f31ffbd6ad9628b31c985147d475976e83689ab03e4a8698f77b1c99fc7b04"
+  },
+  "workspace_clippy": {
+    "command": "CARGO_INCREMENTAL=0 cargo clippy --offline --workspace --all-targets --features tune -- -D warnings",
+    "passed": true
+  },
+  "fmt_passed": true,
+  "documentation_metadata_checks_passed": true
+}

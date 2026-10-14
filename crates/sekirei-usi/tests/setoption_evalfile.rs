@@ -220,7 +220,7 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         .find(|line| line.starts_with("info string lazy_smp_root_hint publications "))
         .unwrap_or_else(|| panic!("missing helper-root-hint diagnostics: {search:?}"));
     let fields = root_hint.split_whitespace().collect::<Vec<_>>();
-    assert_eq!(fields.len(), 9, "unexpected root-hint fields: {fields:?}");
+    assert_eq!(fields.len(), 27, "unexpected root-hint fields: {fields:?}");
     let eligible_reads = fields[6]
         .parse::<u64>()
         .expect("eligible root-hint reads must be numeric");
@@ -228,9 +228,270 @@ fn lazy_diagnostics_is_advertised_and_emits_tt_counters_only_when_enabled() {
         .parse::<u64>()
         .expect("applied root hints must be numeric");
     assert!(applied <= eligible_reads);
+    let counters: std::collections::HashMap<_, _> = fields[3..]
+        .as_chunks::<2>()
+        .0
+        .iter()
+        .map(|pair| {
+            (
+                pair[0],
+                pair[1].parse::<u64>().expect("numeric hint diagnostic"),
+            )
+        })
+        .collect();
+    assert!(counters["first_move_beta_cuts"] <= applied);
+    assert!(counters["stale_research_nodes"] <= counters["research_nodes"]);
+    assert_eq!(counters["generation_gap_sum"], 0);
+    assert_eq!(counters["generation_gap_max"], 0);
 
     send(&mut stdin, "quit");
     let _ = child.wait();
+}
+
+#[test]
+fn experimental_search_options_emit_bounded_evidence_and_restore_followup_search() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name NmpDiagnostics type check default false")
+    );
+    assert!(handshake.iter().any(|line| line.contains("option name LazyFlags type spin default 15 min 0 max 32767")));
+    for (threads, flags, expected) in [
+        (1, 15, "info string v2_nmp worker 0 "),
+        (4, 8207, "info string lazy_smp_retirement worker 0 "),
+        (2, 16399, "info string cooperative_root generations "),
+    ] {
+        for command in [
+            format!("setoption name Threads value {threads}"),
+            "setoption name Hash value 1".into(),
+            "setoption name NmpDiagnostics value true".into(),
+            format!("setoption name LazyFlags value {flags}"),
+            "isready".into(),
+        ] {
+            send(&mut stdin, &command);
+        }
+        recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, "go depth 2");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        assert!(
+            lines.iter().any(|line| line.starts_with(expected)),
+            "missing {expected}: {lines:?}"
+        );
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+        if threads == 2 {
+            let line = lines
+                .iter()
+                .find(|line| line.starts_with(expected))
+                .unwrap();
+            let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+            assert_eq!(fields.len(), 44);
+            let stats: std::collections::HashMap<_, _> = fields
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
+                .collect();
+            assert_eq!(
+                stats["helpers_started"] + stats["spawn_failures"],
+                stats["generations"]
+            );
+            assert_eq!(
+                stats["helper_completed_nodes"] + stats["helper_aborted_nodes"],
+                stats["helper_nodes"]
+            );
+            assert!(stats["confirmation_nodes"] <= stats["main_nodes"]);
+            assert!(stats["alpha_gap_max"] <= stats["alpha_gap_sum"]);
+        }
+        if threads == 4 {
+            assert_eq!(
+                lines
+                    .iter()
+                    .filter(|line| line.starts_with("info string lazy_smp_retirement "))
+                    .count(),
+                4
+            );
+            assert!(
+                lines
+                    .iter()
+                    .filter(|line| line.starts_with("info string lazy_smp_retirement "))
+                    .all(|line| line.contains(" retired 0 "))
+            );
+        }
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
+fn persistent_root_executor_reuses_worker_through_usi_and_resets_next_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name T_COOP_PERSISTENT type spin default 0 min 0 max 1")
+    );
+    for command in [
+        "setoption name Threads value 2",
+        "setoption name Hash value 2",
+        "setoption name LazyFlags value 16399",
+        "setoption name T_COOP_PERSISTENT value 1",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    for depth in [4, 3] {
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, &format!("go depth {depth}"));
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let line = lines
+            .iter()
+            .find(|line| line.starts_with("info string cooperative_root "))
+            .unwrap();
+        let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+        let stats: std::collections::HashMap<_, _> = fields
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
+            .collect();
+        assert!(stats["generations"] >= depth);
+        assert_eq!(stats["physical_helper_threads_started"], 1);
+        assert_eq!(stats["physical_helper_threads_joined"], 1);
+        assert_eq!(stats["helpers_started"], stats["generations"]);
+        assert_eq!(stats["spawn_failures"], 0);
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
+fn aspiration_diagnostics_are_opt_in_and_scoped_to_each_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name AspirationDiagnostics type check default false")
+    );
+    assert!(
+        handshake
+            .iter()
+            .any(|line| line == "option name T_ASP_VOLATILITY type spin default 0 min 0 max 1")
+    );
+    for command in [
+        "setoption name Threads value 1",
+        "setoption name Hash value 2",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 2");
+    let ordinary = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(30),
+    );
+    assert!(
+        !ordinary
+            .iter()
+            .any(|line| line.starts_with("info string root_aspiration"))
+    );
+    for command in [
+        "setoption name AspirationDiagnostics value true",
+        "setoption name T_ASP_VOLATILITY value 1",
+        "isready",
+    ] {
+        send(&mut stdin, command);
+    }
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    let position =
+        "position sfen 1n2k4/l2Pgs1bl/1s4p1n/ppp6/g2pp2pp/2P3PP1/PPN1Pp2N/RBGK2GR1/L1S3S1L b 2p 65";
+    let mut first_totals = None;
+    for _ in 0..2 {
+        send(&mut stdin, "usinewgame");
+        send(&mut stdin, position);
+        send(&mut stdin, "go depth 8");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let summary = lines
+            .iter()
+            .find(|line| line.starts_with("info string root_aspiration worker 0 counts "))
+            .unwrap();
+        let totals: Vec<u64> = summary
+            .split_whitespace()
+            .last()
+            .unwrap()
+            .split(',')
+            .map(|n| n.parse().unwrap())
+            .collect();
+        assert_eq!(totals.len(), 10);
+        assert!(totals[2] > 0);
+        assert_eq!(totals[7], totals[4] - totals[0]);
+        let mut hist = [0u64; 10];
+        for line in lines
+            .iter()
+            .filter(|line| line.starts_with("info string root_aspiration_depth worker 0 "))
+        {
+            for (column, count) in line
+                .split_whitespace()
+                .last()
+                .unwrap()
+                .split(',')
+                .enumerate()
+            {
+                hist[column] += count.parse::<u64>().unwrap();
+            }
+        }
+        assert_eq!(hist.as_slice(), totals.as_slice());
+        if let Some(first) = &first_totals {
+            assert_eq!(&totals, first);
+        }
+        first_totals = Some(totals);
+    }
+    send(
+        &mut stdin,
+        "setoption name AspirationDiagnostics value false",
+    );
+    send(&mut stdin, "isready");
+    recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+    send(&mut stdin, "position startpos");
+    send(&mut stdin, "go depth 2");
+    let final_go = recv_until(
+        &rx,
+        |line| line.starts_with("bestmove"),
+        Duration::from_secs(30),
+    );
+    assert!(
+        !final_go
+            .iter()
+            .any(|line| line.starts_with("info string root_aspiration"))
+    );
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
 }
 
 #[test]
@@ -243,7 +504,7 @@ fn spin_options_reject_values_outside_the_advertised_ranges() {
         "setoption name Hash value 0",
         "setoption name Threads value 513",
         "setoption name SpecTopN value 513",
-        "setoption name LazyFlags value 8192",
+        "setoption name LazyFlags value 32768",
         "setoption name MoveOverhead value 5001",
         "setoption name IncrementUsePercent value 101",
         "setoption name MultiPV value 257",

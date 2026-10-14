@@ -33,6 +33,11 @@ thread_local! {
         const { std::cell::RefCell::new([Frame::EMPTY; STACK_LEN]) };
 }
 
+/// Restore the state that a newly started root helper thread would have.
+pub(super) fn reset_root_path() {
+    STACK.with(|stack| stack.borrow_mut().fill(Frame::EMPTY));
+}
+
 #[inline]
 fn stack_index(ply: u32) -> usize {
     (ply as usize).min(STACK_LEN - 1)
