@@ -1,0 +1,236 @@
+{
+  "schema": "sekirei.root-learning-prefix-check.v1",
+  "change": "Borrow the completed ordered root-move prefix instead of copying it into a growing Vec.",
+  "parent_main": "d24bc90d8b6a62c3f5aacdbb67379133c4d9ab77",
+  "source_and_prospective_protocol_commit": "30a8ab037472ef27baf9dc4a11618d62e16b1638",
+  "prospective_protocol_sha256": "098b51aec7e8c9dfd4aa5d6e67848e5de177fc689ee32c57a76c1e208f5beb48",
+  "baseline_build": {
+    "receipt": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-priority-build/receipt.json",
+      "sha256": "388fce3e398ecd9dd327d3aa9fdc23741632f01b546417ff8c948ae48d6d594c",
+      "bytes": 1088
+    },
+    "record": {
+      "source_commit": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo build --release --offline -p sekirei --features tune",
+      "started_at": "2026-10-14T21:15:54.697815+00:00",
+      "engine_sha256": "e21805bb94bd173490a1aea66bfa5828a73c6b5d22eb3c9f67a1e5aafdea0cb9",
+      "source_commit_after": "f831b6b4d71448e1b700529f21dd4438a539f26f",
+      "source_dirty_after": "",
+      "build_log_sha256": "6a12e034703b7d2d872d13343acc6a310d22360442380c85771177390a272611",
+      "completed_at": "2026-10-14T21:19:11.880195+00:00"
+    }
+  },
+  "candidate_build": {
+    "receipt": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-build/receipt.json",
+      "sha256": "37d46663a7739c7b1d54dd514f62a7f8f1a62feec22ba045ae3bce042735efe6",
+      "bytes": 1177
+    },
+    "record": {
+      "source_commit": "30a8ab037472ef27baf9dc4a11618d62e16b1638",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": "CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=1 cargo build --release --offline -p sekirei --features tune",
+      "started_at": "2026-10-14T22:05:17.933168+00:00",
+      "disk_free_before_bytes": 999800832,
+      "baseline_core_usi_diff": "",
+      "exit_code": 0,
+      "completed_at": "2026-10-14T22:06:11.424575+00:00",
+      "source_commit_after": "30a8ab037472ef27baf9dc4a11618d62e16b1638",
+      "source_dirty_after": "",
+      "build_log_sha256": "94565e7e1a3abb476fb2bd84a10f60a280d0f54273c67c14eac27307d6dd1b26",
+      "engine_sha256": "5f98a4626be7d6d7e95bd90acd99aa2fc7b390d6a56c68322723f0059117f536"
+    }
+  },
+  "corpus": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen",
+    "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+    "bytes": 1556
+  },
+  "corpus_manifest": {
+    "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json",
+    "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+    "bytes": 20592
+  },
+  "fixed_depth": {
+    "manifest": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-fixed/manifest.json",
+      "sha256": "3ac892825ab3128e755cda4e91a47f85dfd0675dc9d9b6aea43724397eed2e0a",
+      "bytes": 2857
+    },
+    "rows": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-fixed/rows.jsonl",
+      "sha256": "d0453b04cd9ff732440f2bdd2679e3d29085daf19199307618dc68cf749e86de",
+      "bytes": 344542
+    },
+    "summary": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-fixed/summary.json",
+      "sha256": "966118515d70c64c9b15e8aefab94b5c593e21898fe9f9258ccba2089e428b97",
+      "bytes": 156796
+    },
+    "completed_searches": 160,
+    "by_threads": {
+      "1": {
+        "blocks": 20,
+        "exact_identity_blocks": 20,
+        "within_side_nondeterministic_blocks": 0,
+        "identity_pass": true
+      },
+      "4": {
+        "blocks": 20,
+        "exact_identity_blocks": 0,
+        "within_side_nondeterministic_blocks": 20,
+        "identity_pass": null
+      }
+    },
+    "by_category": {
+      "1T_quiet": {
+        "blocks": 10,
+        "exact_identity_blocks": 10,
+        "within_arm_nondeterministic_blocks": 0
+      },
+      "1T_tactical": {
+        "blocks": 10,
+        "exact_identity_blocks": 10,
+        "within_arm_nondeterministic_blocks": 0
+      },
+      "4T_quiet": {
+        "blocks": 10,
+        "exact_identity_blocks": 0,
+        "within_arm_nondeterministic_blocks": 10
+      },
+      "4T_tactical": {
+        "blocks": 10,
+        "exact_identity_blocks": 0,
+        "within_arm_nondeterministic_blocks": 10
+      }
+    }
+  },
+  "pv_validation": {
+    "artifact": {
+      "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-fixed-pv.json",
+      "sha256": "46f2a5d2337d2013c297f0d93d554ef77b9289af0760235118d37ea775b3e614",
+      "bytes": 889
+    },
+    "rows": 160,
+    "pv_moves": 1050,
+    "violations": 0,
+    "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+    "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+  },
+  "timing": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "blocked_host_busy",
+        "completed_searches": 0,
+        "started_at_utc": "2026-10-14T22:07:31.119507+00:00",
+        "timing_qualified": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 76540,
+              "cpu_percent": 99.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            2.9921875,
+            2.79638671875,
+            3.345703125
+          ]
+        },
+        "manifest": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-timed-attempt1/manifest.json",
+          "sha256": "326a7020b3b7b3bd87f154d81c32f752d70c4933d1f9bf3fcecb1ac7cdf2ef9d",
+          "bytes": 2738
+        }
+      },
+      {
+        "attempt": 2,
+        "status": "blocked_host_busy",
+        "completed_searches": 0,
+        "started_at_utc": "2026-10-14T22:09:12.917668+00:00",
+        "timing_qualified": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 77316,
+              "cpu_percent": 100.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 77317,
+              "cpu_percent": 91.6,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            2.9169921875,
+            2.81005859375,
+            3.287109375
+          ]
+        },
+        "manifest": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-timed-attempt2/manifest.json",
+          "sha256": "c7b64db8b9006fedd17108bcaccfd7990a6ea622d929501e01e3436b5af3b7ee",
+          "bytes": 2904
+        }
+      }
+    ],
+    "start_gap_seconds": 101.798161,
+    "completed_searches": 0,
+    "speed_gain_established": false,
+    "further_retry": false,
+    "reason": "Both preregistered attempts blocked before any search; the attempt limit is exhausted."
+  },
+  "validation": {
+    "core_passed": 361,
+    "core_ignored": 4,
+    "regressions": [
+      "root_fail_high_stores_lower_bound_not_exact",
+      "external_abort_does_not_corrupt_existing_tt_entry"
+    ],
+    "logs": [
+      {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-full-core.log",
+        "sha256": "042489ceed25e0a78a90c7ddd0b80eef24068e4d4111cb80384373612c7a1369",
+        "bytes": 30525
+      },
+      {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/root-learning-prefix-regression.log",
+        "sha256": "cadae33b9a49e030c2242d5ba13648e68a50083ccb8de292495be855b6d413f3",
+        "bytes": 5565
+      }
+    ],
+    "fmt": "passed",
+    "workspace_clippy": "passed by commit hook"
+  },
+  "strength_gate_opened": false,
+  "queued_aspiration_candidate_changed": false,
+  "strength_claim": false,
+  "interpretation": "Sample-wise 1T behavior preservation plus source invariant; no 4T exact-node, NPS, depth, Elo, YaneuraOu-superiority, ten-million-random-validation or 64-core-contention claim."
+}

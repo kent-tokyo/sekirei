@@ -74,3 +74,9 @@ The priority mechanism screen activated50 reorders with7 alpha raises and1
 verified cut. Its completed300ms run was invalidated by post-run outside load;
 observed median depth delta was0 overall and-0.25 for quiet positions. It does
 not advance and remains disabled. No completed-result retry was performed.
+
+The separate [root-learning prefix check](../root_learning_prefix_v0.4.1/README.md)
+removes a copied move vector without changing learning inputs. All twenty 1T
+fixed-depth ABBA blocks matched exactly; 4T remained nondeterministic and all
+recorded PVs were legal. Both permitted timing attempts blocked before search,
+so no NPS or strength gain is established and no policy candidate was replaced.
