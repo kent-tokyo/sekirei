@@ -117,7 +117,7 @@ use pruning::{nmp_eval_allows, null_move_pruning, probcut};
 use root_safety::{RootMateSafetyCache, RootSafety, root_mate_safety_filter};
 #[cfg(test)]
 use root_safety::{may_give_check, safe_root_moves};
-pub use root_split::CooperativeRootStats;
+pub use root_split::{CooperativeRootStats, CooperativeRootWaitStats};
 use singular::{SingularContext, SingularOutcome};
 use static_pruning::{prepare_node_evaluation, razoring_score, reverse_futility_score};
 use tt_probe::TtProbe;

@@ -84,6 +84,8 @@ search_params! {
     ASP_VOLATILITY = 0, 0, 1;
     /// Opt-in root-split executor reuse within one go; requires cooperative root mode.
     COOP_PERSISTENT = 0, 0, 1;
+    /// Confirm ready root candidates while awaiting the cooperative helper.
+    COOP_DRAIN = 0, 0, 1;
     /// Reverse futility pruning: margin per depth in centipawns.
     RFP_MARGIN = 152, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.

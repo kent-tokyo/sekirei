@@ -118,6 +118,11 @@ def work_metrics(row: dict) -> dict:
     if row.get("aspiration"):
         for column, key in enumerate(ASPIRATION_KEYS):
             result[f"asp_{key}"] = sum(worker["totals"][column] for worker in row["aspiration"])
+    waiting = row.get("cooperative_root_wait")
+    if waiting:
+        for key, value in waiting.items():
+            if key != "enabled":
+                result[f"coop_{key}"] = value
     return result
 
 

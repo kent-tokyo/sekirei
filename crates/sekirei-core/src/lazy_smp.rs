@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 use crate::board::Board;
 use crate::search::{
-    AspirationSnapshot, CooperativeRootStats, HelperRetirement, NmpSnapshot, RootHintChannel,
-    SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
-    TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
+    AspirationSnapshot, CooperativeRootStats, CooperativeRootWaitStats, HelperRetirement,
+    NmpSnapshot, RootHintChannel, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
+    SearchInfo, Searcher, TtReuseSnapshot, TtReuseStats, WorkOverlapSnapshot, WorkOverlapStats,
 };
 use crate::sfen::PositionHistory;
 use crate::tt::{Tt, TtWriteSnapshot, TtWriteStats};
@@ -208,7 +208,7 @@ pub struct LazySmpSearcher {
     /// Search-level observers and persistent workers are invocation-scoped.
     /// Serialize overlapping calls instead of mixing their resettable state.
     search_active: std::sync::atomic::AtomicBool,
-    cooperative_stats: std::sync::Mutex<Option<CooperativeRootStats>>,
+    cooperative_stats: std::sync::Mutex<Option<(CooperativeRootStats, CooperativeRootWaitStats)>>,
     /// Lifecycle mutations are outside the search loop, but must be serialized
     /// so one waiter cannot re-arm the abort flag after another waiter reset it.
     lifecycle_mutation: std::sync::Mutex<()>,
@@ -332,10 +332,18 @@ impl LazySmpSearcher {
 
     /// Last joined cooperative invocation (outside the node loop).
     pub fn cooperative_root_stats(&self) -> Option<CooperativeRootStats> {
-        *self
-            .cooperative_stats
+        self.cooperative_stats
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .map(|(stats, _)| stats)
+    }
+
+    /// Wait-phase evidence published together with the last joined root split.
+    pub fn cooperative_root_wait_stats(&self) -> Option<CooperativeRootWaitStats> {
+        self.cooperative_stats
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .map(|(_, stats)| stats)
     }
 
     /// Per-worker root aspiration evidence; empty with ordinary workers.
@@ -740,12 +748,13 @@ impl LazySmpSearcher {
                     diagnostics.map(|observer| (observer.snapshot(), observer.tt_reuse_snapshot()));
                 let info = if let Some(searcher) = self.persistent.get(index) {
                     if cooperative {
-                        let (info, stats) = searcher.search_cooperative_root_with_history(
-                            &mut worker_board,
-                            config,
-                            history,
-                        );
-                        let _ = split_stats.set(stats);
+                        let (info, stats, wait_stats) = searcher
+                            .search_cooperative_root_with_history_and_wait_stats(
+                                &mut worker_board,
+                                config,
+                                history,
+                            );
+                        let _ = split_stats.set((stats, wait_stats));
                         info
                     } else {
                         searcher.search_with_history(&mut worker_board, config, history)
@@ -768,12 +777,13 @@ impl LazySmpSearcher {
                         searcher.set_retirement(channel.clone(), index);
                     }
                     if cooperative {
-                        let (info, stats) = searcher.search_cooperative_root_with_history(
-                            &mut worker_board,
-                            config,
-                            history,
-                        );
-                        let _ = split_stats.set(stats);
+                        let (info, stats, wait_stats) = searcher
+                            .search_cooperative_root_with_history_and_wait_stats(
+                                &mut worker_board,
+                                config,
+                                history,
+                            );
+                        let _ = split_stats.set((stats, wait_stats));
                         info
                     } else {
                         searcher.search_with_history(&mut worker_board, config, history)
@@ -1230,11 +1240,52 @@ mod tests {
             );
             assert_eq!(searcher.cooperative_root_stats().is_some(), workers == 2);
             assert_eq!(
+                searcher.cooperative_root_wait_stats().is_some(),
+                workers == 2
+            );
+            if let Some(wait) = searcher.cooperative_root_wait_stats() {
+                let stats = searcher.cooperative_root_stats().unwrap();
+                assert!(wait.waiting_confirmations <= stats.main_confirmations);
+                assert!(wait.waiting_confirmation_nodes <= stats.confirmation_nodes);
+                assert!(wait.waiting_alpha_raises <= stats.confirmed_alpha_raises);
+            }
+            assert_eq!(
                 info.worker_results.len(),
                 if workers == 2 { 1 } else { workers }
             );
             assert!(info.result.best_move.is_some());
         }
+    }
+
+    #[test]
+    fn cooperative_snapshot_replaces_both_records_after_terminal_followup() {
+        let searcher =
+            LazySmpSearcher::with_flags(Tt::new(1), 2, LAZY_DEFAULT_FLAGS | LAZY_ROOT_SPLIT);
+        assert!(searcher.cooperative_root_stats().is_none());
+        assert!(searcher.cooperative_root_wait_stats().is_none());
+        let board = Board::startpos();
+        let config = SearchConfig {
+            max_depth: 2,
+            ..SearchConfig::default()
+        };
+        searcher.search_with_history(&board, config, &PositionHistory::initial(board.hash()));
+        assert!(searcher.cooperative_root_stats().unwrap().generations > 0);
+        assert!(searcher.cooperative_root_wait_stats().is_some());
+        searcher.reset_abort_flag();
+        let terminal = Board::empty();
+        searcher.search_with_history(
+            &terminal,
+            config,
+            &PositionHistory::initial(terminal.hash()),
+        );
+        let stats = searcher.cooperative_root_stats().unwrap();
+        let wait = searcher.cooperative_root_wait_stats().unwrap();
+        assert_eq!(stats.generations, 0);
+        assert_eq!(stats.main_confirmations, 0);
+        assert_eq!(wait.waiting_confirmations, 0);
+        assert_eq!(wait.waiting_confirmation_nodes, 0);
+        assert_eq!(wait.waiting_alpha_raises, 0);
+        assert_eq!(wait.notification_wait_us, 0);
     }
 
     #[test]

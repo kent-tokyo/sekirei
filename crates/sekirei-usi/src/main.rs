@@ -28,9 +28,9 @@ use sekirei_core::{
     movegen::generate_legal_moves,
     nnue::load_evaluator,
     search::{
-        AspirationSnapshot, CooperativeRootStats, MATE_SCORE, NmpSnapshot,
-        RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot,
-        SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
+        AspirationSnapshot, CooperativeRootStats, CooperativeRootWaitStats, MATE_SCORE,
+        NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics,
+        SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -137,6 +137,7 @@ struct SearchResult {
     lazy_root_hints: Option<LazySmpRootHintEffectiveness>,
     lazy_retirement: Option<Vec<(u64, bool, u64)>>,
     cooperative_root: Option<CooperativeRootStats>,
+    cooperative_root_wait: Option<CooperativeRootWaitStats>,
     nmp_stats: Vec<NmpSnapshot>,
     aspiration_stats: Vec<AspirationSnapshot>,
     shared_mcts_stats: Option<(u32, u32, u32)>,
@@ -307,6 +308,7 @@ impl SearchBackend {
                 lazy_root_hints: None,
                 lazy_retirement: None,
                 cooperative_root: None,
+                cooperative_root_wait: None,
                 nmp_stats: Vec::new(),
                 aspiration_stats: Vec::new(),
                 shared_mcts_stats: None,
@@ -378,6 +380,7 @@ impl SearchBackend {
                     lazy_root_hints,
                     lazy_retirement: s.retirement_stats(),
                     cooperative_root: s.cooperative_root_stats(),
+                    cooperative_root_wait: s.cooperative_root_wait_stats(),
                     nmp_stats: s
                         .nmp_stats()
                         .into_iter()
@@ -468,6 +471,7 @@ impl SearchBackend {
                     lazy_root_hints: None,
                     lazy_retirement: None,
                     cooperative_root: None,
+                    cooperative_root_wait: None,
                     nmp_stats: Vec::new(),
                     aspiration_stats: Vec::new(),
                     shared_mcts_stats: Some((
@@ -500,6 +504,7 @@ fn normalize_sequential_result(info: SearchInfo) -> SearchResult {
         lazy_root_hints: None,
         lazy_retirement: None,
         cooperative_root: None,
+        cooperative_root_wait: None,
         nmp_stats: Vec::new(),
         aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
@@ -525,6 +530,7 @@ fn normalize_spec_result(info: SpecSearchInfo) -> SearchResult {
         lazy_root_hints: None,
         lazy_retirement: None,
         cooperative_root: None,
+        cooperative_root_wait: None,
         nmp_stats: Vec::new(),
         aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
@@ -565,6 +571,7 @@ fn normalize_dfpn_result(
         lazy_root_hints: None,
         lazy_retirement: None,
         cooperative_root: None,
+        cooperative_root_wait: None,
         nmp_stats: Vec::new(),
         aspiration_stats: Vec::new(),
         shared_mcts_stats: None,
@@ -1001,6 +1008,15 @@ fn emit_search_result(
             stats.physical_helper_threads_joined,
             stats.executor_start_delay_us,
             stats.helper_dispatch_delay_us,
+        );
+    }
+    if let Some(stats) = info.cooperative_root_wait.filter(|stats| stats.enabled) {
+        println!(
+            "info string cooperative_root_wait enabled 1 waiting_confirmations {} waiting_confirmation_nodes {} waiting_alpha_raises {} notification_wait_us {}",
+            stats.waiting_confirmations,
+            stats.waiting_confirmation_nodes,
+            stats.waiting_alpha_raises,
+            stats.notification_wait_us,
         );
     }
     for (worker, stats) in info.aspiration_stats.iter().enumerate() {

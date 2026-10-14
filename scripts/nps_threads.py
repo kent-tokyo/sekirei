@@ -430,6 +430,33 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
     return result
 
 
+def parse_cooperative_root_wait(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
+    """Additive wait-drain evidence; absent for established and fallback paths."""
+    prefix = "info string cooperative_root_wait "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    keys = ("enabled", "waiting_confirmations", "waiting_confirmation_nodes",
+            "waiting_alpha_raises", "notification_wait_us")
+    fields = matches[0].split()
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative root wait diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative root wait counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative root wait counter exceeds u64")
+    if result["enabled"] != 1 or cooperative_root is None:
+        raise ValueError("cooperative root wait requires enabled split evidence")
+    if result["waiting_confirmations"] > cooperative_root["main_confirmations"]:
+        raise ValueError("waiting confirmations exceed main confirmations")
+    if result["waiting_confirmation_nodes"] > cooperative_root["confirmation_nodes"]:
+        raise ValueError("waiting nodes exceed confirmation nodes")
+    if result["waiting_alpha_raises"] > min(result["waiting_confirmations"], cooperative_root["confirmed_alpha_raises"]):
+        raise ValueError("waiting raises exceed confirmations or confirmed raises")
+    return result
+
+
 ASPIRATION_KEYS = ("roots", "aspirated", "adapted", "delta_sum", "passes", "fail_low", "fail_high", "retries", "retry_nodes", "aborted")
 
 
@@ -852,6 +879,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp = parse_lazy_smp(lines)
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
+                cooperative_root = parse_cooperative_root(lines, total_nodes=nodes)
+                cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
                 if args.require_lazy_diagnostics:
                     require_lazy_diagnostic_record(
                         lazy_smp, lazy_smp_tt, lazy_smp_overlap
@@ -871,7 +900,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "retirement": parse_retirement(lines),
                     "nmp": parse_nmp(lines),
                     "aspiration": parse_aspiration(lines, total_nodes=nodes),
-                    "cooperative_root": parse_cooperative_root(lines, total_nodes=nodes),
+                    "cooperative_root": cooperative_root,
+                    "cooperative_root_wait": cooperative_root_wait,
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,

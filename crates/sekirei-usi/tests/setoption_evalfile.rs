@@ -383,6 +383,76 @@ fn persistent_root_executor_reuses_worker_through_usi_and_resets_next_go() {
 
 #[cfg(feature = "tune")]
 #[test]
+fn cooperative_wait_evidence_is_opt_in_and_scoped_to_each_go() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake
+            .iter()
+            .any(|line| { line == "option name T_COOP_DRAIN type spin default 0 min 0 max 1" })
+    );
+    for (threads, drain, expected) in [
+        (2, 0, false),
+        (2, 1, true),
+        (2, 1, true),
+        (1, 1, false),
+        (2, 0, false),
+    ] {
+        for command in [
+            format!("setoption name Threads value {threads}"),
+            "setoption name Hash value 2".into(),
+            "setoption name LazyFlags value 16399".into(),
+            format!("setoption name T_COOP_DRAIN value {drain}"),
+            "isready".into(),
+        ] {
+            send(&mut stdin, &command);
+        }
+        recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, "go depth 3");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let waiting: Vec<_> = lines
+            .iter()
+            .filter(|line| line.starts_with("info string cooperative_root_wait "))
+            .collect();
+        assert_eq!(waiting.len(), usize::from(expected), "{lines:?}");
+        if expected {
+            let parse = |line: &str| -> std::collections::HashMap<String, u64> {
+                let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+                fields
+                    .as_chunks::<2>()
+                    .0
+                    .iter()
+                    .map(|pair| (pair[0].to_owned(), pair[1].parse().unwrap()))
+                    .collect()
+            };
+            let wait = parse(waiting[0]);
+            assert_eq!(wait.len(), 5);
+            assert_eq!(wait["enabled"], 1);
+            let root = parse(
+                lines
+                    .iter()
+                    .find(|line| line.starts_with("info string cooperative_root "))
+                    .unwrap(),
+            );
+            assert!(wait["waiting_confirmations"] <= root["main_confirmations"]);
+            assert!(wait["waiting_confirmation_nodes"] <= root["confirmation_nodes"]);
+            assert!(wait["waiting_alpha_raises"] <= wait["waiting_confirmations"]);
+            assert!(wait["waiting_alpha_raises"] <= root["confirmed_alpha_raises"]);
+        }
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
 fn aspiration_diagnostics_are_opt_in_and_scoped_to_each_go() {
     let (mut child, rx, mut stdin) = spawn_engine();
     send(&mut stdin, "usi");
