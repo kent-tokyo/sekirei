@@ -395,7 +395,8 @@ jobs:
         run: |
           python3 -m unittest \
             scripts/test_nps_threads.py \
-            scripts/test_paired_search_diagnostics.py
+            scripts/test_paired_search_diagnostics.py \
+            scripts/test_compare_yaneura_speed.py
 
   king-relative-feature:
     # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module

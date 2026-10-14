@@ -12,10 +12,12 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nps_threads import (  # noqa: E402
+    ELAPSED_SCOPE,
     Usi,
     engine_options,
     format_optional_ratio,
     go_command,
+    measure,
     parse_bestmove,
     parse_lazy_smp,
     parse_lazy_smp_overlap,
@@ -81,6 +83,64 @@ class ThreadOptionsTest(unittest.TestCase):
             self.assertEqual(engine.wait_for("bestmove"), ["info depth 1", "bestmove 7g7f"])
             with self.assertRaisesRegex(RuntimeError, "exited"):
                 engine.wait_for("readyok")
+
+    def test_position_ready_barrier_excludes_pending_reset_on_every_repeat(self):
+        for reported_nps in (98765, 0):
+            with self.subTest(reported_nps=reported_nps):
+                args = self.args(yaneuraou=False, evalfile=None)
+                args.engine = "fake-engine"
+                args.repeats = 2
+                args.movetime = 1000
+                args.depth = None
+                args.require_lazy_diagnostics = False
+                args.require_root_hint_diagnostics = False
+                args.provenance = {"counter_overhead_included": False}
+                clock = 0.0
+                pending_reset = 0.0
+                events = []
+
+                def send(line):
+                    nonlocal pending_reset
+                    events.append(("send", line))
+                    if line == "usinewgame":
+                        pending_reset += 0.5
+
+                def wait_for(token):
+                    nonlocal clock, pending_reset
+                    events.append(("wait", token))
+                    # A queued reset is processed before either readyok or
+                    # bestmove; omitting the barrier would time an extra 500ms.
+                    clock += pending_reset
+                    pending_reset = 0.0
+                    if token == "bestmove":
+                        clock += 0.125
+                        return [f"info depth 4 score cp 0 nodes 900 nps {reported_nps} pv 7g7f",
+                                "bestmove 7g7f"]
+                    return [token]
+
+                def now():
+                    events.append(("clock", clock))
+                    return clock
+
+                with patch("nps_threads.Usi") as usi, patch("nps_threads.time.perf_counter", side_effect=now), patch("nps_threads.sys.stderr"):
+                    usi.return_value.send.side_effect = send
+                    usi.return_value.wait_for.side_effect = wait_for
+                    rows = measure(args, 4, ["startpos", "startpos moves 7g7f"])
+                    usi.return_value.quit.assert_called_once_with()
+
+                self.assertEqual(len(rows), 4)
+                self.assertEqual([row["elapsed_ms"] for row in rows], [125] * 4)
+                self.assertEqual([row["nps"] for row in rows],
+                                 [reported_nps or 7200] * 4)
+                self.assertTrue(all(row["provenance"]["elapsed_scope"] == ELAPSED_SCOPE
+                                    for row in rows))
+                for index, event in enumerate(events):
+                    if event == ("send", "go movetime 1000"):
+                        self.assertEqual(events[index - 1][0], "clock")
+                        self.assertEqual(events[index - 2], ("wait", "readyok"))
+                        self.assertEqual(events[index - 3], ("send", "isready"))
+                        self.assertTrue(events[index - 4][1].startswith("position "))
+                self.assertEqual(events.count(("wait", "readyok")), 5)
 
     def test_lazy_smp_diagnostics_are_parsed(self):
         diagnostics = parse_lazy_smp(

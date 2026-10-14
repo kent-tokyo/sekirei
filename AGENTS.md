@@ -99,6 +99,10 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 * 2026-10-14: Improve useful Lazy SMP depth without NNUE retraining: validate deferred losing-tactical sort, complete root-hint effectiveness diagnostics, compare helper root LMR with ABBA, and add opt-in dominated-helper retirement, diagnostics-first NMP history, and a two-worker cooperative root split. Keep candidates separate; require independent H1 before adoption.
 
+* 2026-10-14: Commit validated search-speed changes and push them to main.
+* 2026-10-14: For Sinfonietta CPU-throughput comparisons, pin its executable, evaluation architecture and CPU mode, and keep NNUE, PV-MCTS and ensemble measurements distinct.
+* 2026-10-14: Aim to exceed YaneuraOu speed with Pure Safe Rust. Pin the reference build and compare identical hardware, evaluator, thread counts, hash size, and corpus; keep raw NPS, effective search work, and strength distinct.
+
 * 2026-10-13: When `lineprior`, `shogiesa-core`, or `veridict` has already shipped a needed capability, update Sekirei's dependency and local adapter instead of filing another upstream issue.
 * 2026-10-12: Prepare v0.4.0 as a compatibility and operations milestone with all seven workspace versions, v0.3.73 patch-level public API compatibility, a validated planned manifest, and a reproducible WASM asset; do not bundle or adopt an unqualified self-NNUE candidate.
 * 2026-10-12: Release v0.3.73 after verifying opt-in Lazy SMP useful-work diagnostics, process-lifecycle fixes, bounded WebAssembly evaluator and MultiPV contracts, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; keep the default search and evaluator unchanged and make no playing-strength claim.

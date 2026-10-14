@@ -748,23 +748,25 @@ mod tests {
     /// Parallel YBW must return some move and leave the board unchanged
     #[test]
     fn search_startpos_returns_move() {
-        use search::{SearchConfig, Searcher};
-        use tt::Tt;
-        let mut board = Board::startpos();
-        let s = Searcher::new(Tt::new(4));
-        let info = s.search(
-            &mut board,
-            SearchConfig {
-                max_depth: 4,
-                time_limit: None,
-                node_limit: None,
-                soft_limit: None,
-                multi_pv: 1,
-            },
-        );
-        assert!(info.best_move.is_some(), "search returned no move");
-        assert_eq!(info.depth, 4);
-        assert_eq!(board.hash(), Board::startpos().hash(), "board mutated");
+        search::on_search_stack(|| {
+            use search::{SearchConfig, Searcher};
+            use tt::Tt;
+            let mut board = Board::startpos();
+            let s = Searcher::new(Tt::new(4));
+            let info = s.search(
+                &mut board,
+                SearchConfig {
+                    max_depth: 4,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+            );
+            assert!(info.best_move.is_some(), "search returned no move");
+            assert_eq!(info.depth, 4);
+            assert_eq!(board.hash(), Board::startpos().hash(), "board mutated");
+        });
     }
 
     /// Parallel and sequential searches must agree on the best move and score.
@@ -788,7 +790,10 @@ mod tests {
         };
         let independent = || {
             let mut board = board.clone();
-            std::thread::spawn(move || Searcher::new(Tt::new(4)).search(&mut board, cfg()))
+            std::thread::Builder::new()
+                .stack_size(search::RECURSIVE_SEARCH_STACK_BYTES)
+                .spawn(move || Searcher::new(Tt::new(4)).search(&mut board, cfg()))
+                .expect("spawn independent search thread")
                 .join()
                 .expect("search thread")
         };
@@ -884,59 +889,73 @@ mod tests {
     /// not wrong.
     #[test]
     fn speculative_is_valid() {
-        use search::{SearchConfig, Searcher, SpeculativeSearcher};
-        use tt::Tt;
+        // Both the direct control and Rayon search workers use the production
+        // recursive-search stack budget; speculation keeps its dedicated pool.
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(4)
+            .stack_size(search::RECURSIVE_SEARCH_STACK_BYTES)
+            .build()
+            .expect("four-worker speculative regression pool");
+        pool.install(|| {
+            use search::{SearchConfig, Searcher, SpeculativeSearcher};
+            use tt::Tt;
 
-        let mut board = Board::startpos();
-        let depth = 4;
+            let mut board = Board::startpos();
+            let depth = 4;
 
-        let regular = Searcher::new(Tt::new(16)).search(
-            &mut board,
-            SearchConfig {
-                max_depth: depth,
-                time_limit: None,
-                node_limit: None,
-                soft_limit: None,
-                multi_pv: 1,
-            },
-        );
+            let regular = Searcher::new(Tt::new(16)).search(
+                &mut board,
+                SearchConfig {
+                    max_depth: depth,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+            );
 
-        let spec = SpeculativeSearcher::new(Tt::new(16), 3).search(
-            &mut board,
-            SearchConfig {
-                max_depth: depth,
-                time_limit: None,
-                node_limit: None,
-                soft_limit: None,
-                multi_pv: 1,
-            },
-        );
+            let spec = SpeculativeSearcher::new(Tt::new(16), 3).search(
+                &mut board,
+                SearchConfig {
+                    max_depth: depth,
+                    time_limit: None,
+                    node_limit: None,
+                    soft_limit: None,
+                    multi_pv: 1,
+                },
+            );
 
-        // Must return a move and not corrupt the board
-        assert!(spec.best_move.is_some(), "spec search returned no move");
-        assert_eq!(board.hash(), Board::startpos().hash(), "board mutated");
-        assert_eq!(spec.depth, depth, "did not complete target depth");
+            // Must return a move and not corrupt the board
+            assert!(spec.best_move.is_some(), "spec search returned no move");
+            assert_eq!(board.hash(), Board::startpos().hash(), "board mutated");
+            assert_eq!(spec.depth, depth, "did not complete target depth");
 
-        // Score must be a plausible material evaluation (not a spurious mate score)
-        assert!(
-            spec.score.abs() < 900_000,
-            "spec returned a nonsensical score"
-        );
+            // Score must be a plausible material evaluation (not a spurious mate score)
+            assert!(
+                spec.score.abs() < 900_000,
+                "spec returned a nonsensical score"
+            );
 
-        // Both searches must agree that SOME move exists
-        assert!(regular.best_move.is_some());
+            // Both searches must agree that SOME move exists
+            assert!(regular.best_move.is_some());
 
-        // Speculative score is allowed to differ from the regular score because
-        // completed spec tasks may have written deeper TT entries that the main
-        // search consumed.  Log for human inspection:
-        eprintln!(
-            "regular: score={} move={:?}",
-            regular.score, regular.best_move
-        );
-        eprintln!(
-            "spec:    score={} move={:?}  hits={}/{} hashfull={}‰ nodes={}",
-            spec.score, spec.best_move, spec.spec_hits, spec.spec_total, spec.hashfull, spec.nodes
-        );
+            // Speculative score is allowed to differ from the regular score because
+            // completed spec tasks may have written deeper TT entries that the main
+            // search consumed.  Log for human inspection:
+            eprintln!(
+                "regular: score={} move={:?}",
+                regular.score, regular.best_move
+            );
+            eprintln!(
+                "spec:    score={} move={:?}  hits={}/{} hashfull={}‰ nodes={}",
+                spec.score,
+                spec.best_move,
+                spec.spec_hits,
+                spec.spec_total,
+                spec.hashfull,
+                spec.nodes
+            );
+        });
     }
 
     /// Validate `target_validations` random positions:
@@ -1110,18 +1129,21 @@ mod tests {
         // latest root search is kept per thread (and rayon's global workers
         // are shared with the other tests).
         let mut sequential_board = board.clone();
-        let sequential = std::thread::spawn(move || {
-            Searcher::new(Tt::new(16)).search(&mut sequential_board, cfg)
-        })
-        .join()
-        .expect("search thread");
+        let sequential = std::thread::Builder::new()
+            .stack_size(search::RECURSIVE_SEARCH_STACK_BYTES)
+            .spawn(move || Searcher::new(Tt::new(16)).search(&mut sequential_board, cfg))
+            .expect("spawn one-worker control search")
+            .join()
+            .expect("search thread");
         let smp = rayon::ThreadPoolBuilder::new()
             .num_threads(1)
+            .stack_size(search::RECURSIVE_SEARCH_STACK_BYTES)
             .build()
             .expect("one-thread pool")
             .install(|| LazySmpSearcher::new(Tt::new(16), 1).search(&board, cfg));
         let hinted = rayon::ThreadPoolBuilder::new()
             .num_threads(1)
+            .stack_size(search::RECURSIVE_SEARCH_STACK_BYTES)
             .build()
             .expect("one-thread hinted pool")
             .install(|| {

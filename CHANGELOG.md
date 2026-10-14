@@ -6,6 +6,17 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Changed
+
+- Fuse HalfKP incremental quiet-move, capture, and capture-undo updates into
+  one accumulator traversal per perspective. Wrapping arithmetic, dirty/king
+  handling, evaluator files, and search decisions are preserved. Add synthetic
+  equivalence tests and bounded pinned-reference throughput tooling.
+- Clear the shared Lazy SMP transposition table once per new game, while
+  preserving every worker's evaluation-cache and move-ordering reset.
+- Exclude queued new-game and position work from NPS-driver wall timing with
+  a readyok barrier before each search.
+
 ### Added
 
 - Add opt-in dominated-helper retirement (`LazyFlags` bit 8192), using exact

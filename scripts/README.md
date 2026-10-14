@@ -275,3 +275,37 @@ Sekirei's rule tools. `paired_search_diagnostics.py` freezes binaries/corpus
 and compares one option in per-position ABBA order, saving complete raw USI
 logs and paired depth/work metrics. Counter-free NPS and instrumented TT/NMP
 lanes stay separate. See [experiment specification](../docs/experiments/lazy_smp_useful_depth_v0.4.0/README.md).
+
+### Pinned YaneuraOu throughput comparison
+
+`compare_yaneura_speed.py` runs the existing NPS driver in sequential ABBA
+order for each requested thread count. Supply an explicit shared HalfKP file
+named `nn.bin`, since YaneuraOu loads `EvalDir/nn.bin`. The runner fixes hash
+size to 64 MiB, FV_SCALE to 24, books off, and Sekirei's MoveOverhead to zero.
+It disables diagnostic counters, verifies complete position coverage and
+artifact hashes before and after each arm, preserves logs, and kills only its
+own subprocess session on timeout. Ordinary Lazy SMP completion summaries
+with zero TT counters are allowed.
+The NPS driver waits for `readyok` after each new-game and position command
+before timing `go` through `bestmove`. Rows identify this boundary in
+`provenance.elapsed_scope`; reported engine NPS remains a separate metric.
+
+```bash
+python3 scripts/compare_yaneura_speed.py \
+  --engine /path/to/sekirei --reference /path/to/YaneuraOu \
+  --evalfile /path/to/nn.bin --positions /path/to/positions.sfen \
+  --threads 1,2,4,8 --count 4 --movetime 1000 \
+  --output-directory results/new-throughput-capture
+cargo run --release -p sekirei-core --example halfkp_synthetic_fixture -- \
+  results/synthetic-halfkp.bin 20261014
+```
+
+The output directory must be new. Pin the reference revision, compiler and
+ISA flags separately and retain startup logs confirming evaluation loading.
+For short runs on a shared machine, supply one position per capture so each
+ABBA quartet stays close in time. Cross-engine NPS counts different trees;
+completed depths are descriptive and do not establish equivalent search work
+or playing strength. Use synthetic or material evaluation to qualify local
+optimizations. The external shared-evaluator lane measures Sekirei versus
+YaneuraOu and must not select candidates, tune defaults or generate training
+labels. The synthetic fixture carries no playing strength.

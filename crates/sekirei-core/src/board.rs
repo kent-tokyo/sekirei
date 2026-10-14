@@ -641,12 +641,7 @@ impl Board {
         hand: (PieceKind, u8, Color),
     ) {
         if let Some(net) = halfkp::active_network() {
-            let (from, to, kind, mover) = moved;
-            self.hkp.remove_piece(net, from, kind, mover);
-            self.hkp
-                .remove_piece(net, captured.0, captured.1, captured.2);
-            self.hkp.add_hand(net, hand.0, hand.1, hand.2);
-            self.hkp.add_piece(net, to, kind, mover);
+            self.hkp.capture_piece(net, moved, captured, hand);
         } else {
             self.acc.capture_piece(moved, captured, hand);
         }
@@ -660,11 +655,7 @@ impl Board {
         hand: (PieceKind, u8, Color),
     ) {
         if let Some(net) = halfkp::active_network() {
-            let (from, to, original, current, mover) = moved;
-            self.hkp.remove_piece(net, to, current, mover);
-            self.hkp.add_piece(net, from, original, mover);
-            self.hkp.add_piece(net, captured.0, captured.1, captured.2);
-            self.hkp.remove_hand(net, hand.0, hand.1, hand.2);
+            self.hkp.undo_capture_piece(net, moved, captured, hand);
         } else {
             self.acc.undo_capture_piece(moved, captured, hand);
         }

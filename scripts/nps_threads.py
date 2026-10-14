@@ -27,7 +27,9 @@ YaneuraOu (same positions, same evaluation file)::
 Run on an otherwise idle machine; the thread counts must not exceed the
 physical cores.  Outputs one JSON line per (threads, position) with
 ``--json`` for later comparison.  Results are speed diagnostics, not
-playing-strength claims.
+playing-strength claims. A readyok barrier after every position keeps pending
+new-game reset work outside elapsed_ms; NPS still uses the engine's last info
+value, falling back to nodes/elapsed only when that value is zero.
 """
 
 from __future__ import annotations
@@ -53,6 +55,7 @@ ROOT_HINT_TRANSFER_KEYS = ROOT_HINT_KEYS + (
     "first_move_beta_cuts", "researches", "research_nodes", "stale_research_nodes", "stale_reads",
     "depth_gap_sum", "depth_gap_max", "generation_gap_sum", "generation_gap_max",
 )
+ELAPSED_SCOPE = "go-send-to-bestmove-after-position-readyok"
 
 
 class Usi:
@@ -837,6 +840,10 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
             for repeat in range(args.repeats):
                 engine.send("usinewgame")
                 engine.send(f"position {position}")
+                # Both commands may leave reset/position work queued in the
+                # engine. Acknowledge it before timing the search itself.
+                engine.send("isready")
+                engine.wait_for("readyok")
                 start = time.perf_counter()
                 engine.send(go_command(args))
                 lines = engine.wait_for("bestmove")
@@ -872,6 +879,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "wall_nps": nodes / elapsed if elapsed > 0 else None,
                     "provenance": {
                         **args.provenance,
+                        "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
                         "budget": go_command(args),
