@@ -1,0 +1,297 @@
+{
+  "schema": "sekirei.positions-ingest-benchmark.v1",
+  "complete": true,
+  "created_at": "2026-10-14T21:10:56.376455+00:00",
+  "binary": {
+    "path": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+    "sha256": "e0879af913826321bba369cf10d482be618b95205aeb35a4efddfd5d4c828f9d",
+    "bytes": 4807216
+  },
+  "corpus": {
+    "path": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+    "sha256": "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+    "bytes": 27200000,
+    "records": 100000,
+    "generator": "repeated-schema-11-startpos-v1",
+    "synthetic": true
+  },
+  "environment": {
+    "platform": "macOS-27.0.1-arm64-arm-64bit-Mach-O",
+    "system": "Darwin",
+    "machine": "arm64",
+    "cpu": "Apple M4",
+    "logical_cpus": 10,
+    "python": "3.13.6",
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "rustc_note": "Host toolchain only; not proof of the binary's build toolchain.",
+    "load1": 5.5712890625
+  },
+  "scope": "ingestion-audit-only; includes startup, parse, hash, storage and manifest I/O",
+  "limitations": [
+    "Synthetic repeated startpos; not representative of corpus diversity.",
+    "No cold-cache control; order alternates between pairs.",
+    "Excludes training, teacher cache and playing strength."
+  ],
+  "runs": [
+    {
+      "repeat": 1,
+      "storage": "memory",
+      "command": [
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "memory",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.weights.bin"
+      ],
+      "measured_command": [
+        "/usr/bin/time",
+        "-l",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "memory",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.weights.bin"
+      ],
+      "elapsed_seconds": 0.5197312920354307,
+      "max_rss_bytes": 333889536,
+      "accepted_per_second": 192407.11793274686,
+      "manifest": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.positions-manifest.json",
+      "report": {
+        "accepted": 100000,
+        "cp_observations": 0,
+        "input_bytes": 27200000,
+        "mate_observations": 0,
+        "missing_game_result": 100000,
+        "missing_stability": 100000,
+        "non_empty_lines": 100000,
+        "physical_lines": 100000,
+        "rejected_examples": [],
+        "schema_versions": {
+          "11": 100000
+        },
+        "sha256": "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "unknown_game_result": 0
+      },
+      "stdout_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.stdout.log",
+      "stderr_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-memory.stderr.log",
+      "stdout_bytes": 0,
+      "stderr_bytes": 1014,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    },
+    {
+      "repeat": 1,
+      "storage": "disk",
+      "command": [
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "disk",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.weights.bin"
+      ],
+      "measured_command": [
+        "/usr/bin/time",
+        "-l",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "disk",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.weights.bin"
+      ],
+      "elapsed_seconds": 0.5295069999992847,
+      "max_rss_bytes": 5062656,
+      "accepted_per_second": 188854.91598814572,
+      "manifest": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.positions-manifest.json",
+      "report": {
+        "accepted": 100000,
+        "cp_observations": 0,
+        "input_bytes": 27200000,
+        "mate_observations": 0,
+        "missing_game_result": 100000,
+        "missing_stability": 100000,
+        "non_empty_lines": 100000,
+        "physical_lines": 100000,
+        "rejected_examples": [],
+        "schema_versions": {
+          "11": 100000
+        },
+        "sha256": "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "unknown_game_result": 0
+      },
+      "stdout_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.stdout.log",
+      "stderr_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-01-disk.stderr.log",
+      "stdout_bytes": 0,
+      "stderr_bytes": 1010,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    },
+    {
+      "repeat": 2,
+      "storage": "disk",
+      "command": [
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "disk",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.weights.bin"
+      ],
+      "measured_command": [
+        "/usr/bin/time",
+        "-l",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "disk",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.weights.bin"
+      ],
+      "elapsed_seconds": 0.5275994171388447,
+      "max_rss_bytes": 5029888,
+      "accepted_per_second": 189537.73782066876,
+      "manifest": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.positions-manifest.json",
+      "report": {
+        "accepted": 100000,
+        "cp_observations": 0,
+        "input_bytes": 27200000,
+        "mate_observations": 0,
+        "missing_game_result": 100000,
+        "missing_stability": 100000,
+        "non_empty_lines": 100000,
+        "physical_lines": 100000,
+        "rejected_examples": [],
+        "schema_versions": {
+          "11": 100000
+        },
+        "sha256": "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "unknown_game_result": 0
+      },
+      "stdout_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.stdout.log",
+      "stderr_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-disk.stderr.log",
+      "stdout_bytes": 0,
+      "stderr_bytes": 1010,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    },
+    {
+      "repeat": 2,
+      "storage": "memory",
+      "command": [
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "memory",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.weights.bin"
+      ],
+      "measured_command": [
+        "/usr/bin/time",
+        "-l",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/target/release/train",
+        "--positions",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/synthetic.positions.jsonl",
+        "--positions-sha256",
+        "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "--positions-storage",
+        "memory",
+        "--positions-audit-only",
+        "--positions-manifest",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.positions-manifest.json",
+        "--output",
+        "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.weights.bin"
+      ],
+      "elapsed_seconds": 0.5215350838843733,
+      "max_rss_bytes": 333922304,
+      "accepted_per_second": 191741.65476117894,
+      "manifest": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.positions-manifest.json",
+      "report": {
+        "accepted": 100000,
+        "cp_observations": 0,
+        "input_bytes": 27200000,
+        "mate_observations": 0,
+        "missing_game_result": 100000,
+        "missing_stability": 100000,
+        "non_empty_lines": 100000,
+        "physical_lines": 100000,
+        "rejected_examples": [],
+        "schema_versions": {
+          "11": 100000
+        },
+        "sha256": "505e4b0668a56c63cf1a21438fd9af747d090fd7d112a3ef4dcb77334d1778b3",
+        "skipped": 0,
+        "skipped_by_reason": {},
+        "unknown_game_result": 0
+      },
+      "stdout_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.stdout.log",
+      "stderr_log": "/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-100k/repeat-02-memory.stderr.log",
+      "stdout_bytes": 0,
+      "stderr_bytes": 1014,
+      "stdout_truncated": false,
+      "stderr_truncated": false
+    }
+  ],
+  "summary": {
+    "memory": {
+      "elapsed_seconds": 0.520633187959902,
+      "max_rss_bytes": 333905920.0,
+      "accepted_per_second": 192074.38634696288
+    },
+    "disk": {
+      "elapsed_seconds": 0.5285532085690647,
+      "max_rss_bytes": 5046272.0,
+      "accepted_per_second": 189196.32690440724
+    }
+  }
+}

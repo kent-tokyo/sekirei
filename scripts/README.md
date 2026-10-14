@@ -141,6 +141,8 @@ Audit-only exits before evaluator initialization or training. The benchmark
 creates synthetic data, alternates the storage modes, checks matching reports,
 and records binary/input hashes, host/toolchain, elapsed time and maximum RSS.
 Its results measure ingestion only, not epoch throughput or playing strength.
+The [initial storage comparison](../docs/experiments/positions_ingestion_v0.4.1/README.md)
+retains synthetic-input RSS/time measurements and compatibility checks.
 
 ## NNUE candidates and gates
 

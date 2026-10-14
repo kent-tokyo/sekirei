@@ -1,0 +1,19 @@
+positions: accepted=10000 skipped=0 bytes=2720000 storage=memory ingest=0.049s manifest="/Users/k_tanabe/.codex/worktrees/positions-stream-audit/sekirei/data/runs/positions-ingest-698dde8-10k/repeat-02-memory.positions-manifest.json"
+        0.06 real         0.04 user         0.00 sys
+            38682624  maximum resident set size
+                   0  average shared memory size
+                   0  average unshared data size
+                   0  average unshared stack size
+                2549  page reclaims
+                   0  page faults
+                   0  swaps
+                   0  block input operations
+                   0  block output operations
+                   0  messages sent
+                   0  messages received
+                   0  signals received
+                   4  voluntary context switches
+                  38  involuntary context switches
+           423150810  instructions retired
+           116362124  cycles elapsed
+            37306776  peak memory footprint
