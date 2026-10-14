@@ -150,13 +150,38 @@ an independent paired material-only SPRT before any default change.
 
 When this bit is active, the USI result includes
 `lazy_smp_root_hint publications P eligible_reads R applied A`. `P` counts
-successful lock-free slot updates, `R` counts same-generation and
+accepted lock-free slot updates, `R` counts same-generation and
 same-or-deeper reads by worker 0, and `A` counts reads that actually moved a
 legal final root candidate to the front. A hint that is already first, too
 shallow, stale, excluded, illegal, or removed by root mate-safety is not
 counted as applied.
 
-The fixed-position measurement contract and advancement rule are recorded in
-[the helper-root-hint experiment](../experiments/lazy_smp_root_hint_v0.4.0/README.md).
+`LazyFlags` bit 4096 is an opt-in helper-root-LMR experiment. Worker 0 keeps
+the established one-ply root-LMR relief. Helper workers alone use the full
+reduction for late quiet root moves, reducing their speculative cost without
+changing TT sharing, root order, result selection, or the playing default.
+The candidate must pass the preregistered fixed-condition diagnostic and a
+fresh independent material-only gate before adoption.
+
+The helper-root-LMR fixed-position measurement contract and advancement rule
+are recorded in
+[the helper-root-LMR experiment](../experiments/lazy_smp_helper_root_lmr_v0.4.0/README.md).
 The strict harness rejects missing or malformed invocation records and hashes
 the exact binary and effective position set before a strength gate is opened.
+The reported `publications` count is accepted slot updates, not every helper
+publication attempt, and `eligible_reads` means the hint met the generation
+and depth conditions before the final legal root list was checked. `applied`
+alone proves that the hint actually changed that list's order.
+The packed hint carries a 28-bit generation tag. `LazySmpSearcher` serializes
+invocations and joins every helper before beginning the next one, so a tag
+cannot wrap while an older publisher is still live.
+
+Lifecycle mutations use the same invocation guard. If `reset_abort_flag`,
+`clear_tt`, or `new_search` encounters an active worker group, it first
+requests a cooperative abort and then waits for every worker to join;
+preparing a later `go` therefore cannot erase the current stop request, clear
+its shared table, or advance its TT generation while the search is live.
+Normal USI flow still performs the explicit stop-and-join before these calls.
+Each public lifecycle call is serialized individually; callers that combine
+reset, generation aging, and search start must serialize that sequence at
+their command boundary, as the USI generation manager does.

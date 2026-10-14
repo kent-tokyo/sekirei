@@ -30,7 +30,8 @@ pair finish, and each pair is reduced to win/draw/loss by its net score.
 
 Results are local diagnostics, not playing-strength claims. The script only
 starts the external engine as a separate process. Pass ``--result-json`` to
-write a versioned, atomic result artifact without scraping stdout.
+write a versioned, atomic wrapper verdict after its streamed counts have been
+reconciled with the runner's raw JSON, JSONL, and kifu artifacts.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ import json
 import math
 import os
 import re
+import signal
 import subprocess
 import sys
 import time
@@ -100,6 +102,25 @@ def opening_identity(path: str | Path) -> dict[str, object]:
     return identity
 
 
+def kifu_manifest_identity(directory: Path) -> dict[str, object]:
+    """Hash the ordered name/size/content identity of every recorded game."""
+    entries = [
+        {
+            "name": path.name,
+            "size_bytes": path.stat().st_size,
+            "sha256": file_sha256(path),
+        }
+        for path in sorted(directory.glob("game*.txt"))
+        if path.is_file()
+    ]
+    return {
+        "directory": str(directory.resolve()),
+        "file_count": len(entries),
+        "manifest_sha256": canonical_sha256(entries),
+        "files": entries,
+    }
+
+
 def runner_identity() -> dict[str, object]:
     """Describe the checked-out runner revision without requiring Git."""
     manifest = ROOT / "crates/sekirei-usi/Cargo.toml"
@@ -115,6 +136,7 @@ def runner_identity() -> dict[str, object]:
             check=True,
             capture_output=True,
             text=True,
+            timeout=5,
         ).stdout.strip()
         identity["dirty"] = bool(
             subprocess.run(
@@ -122,9 +144,10 @@ def runner_identity() -> dict[str, object]:
                 check=True,
                 capture_output=True,
                 text=True,
+                timeout=5,
             ).stdout.strip()
         )
-    except (OSError, subprocess.CalledProcessError):
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
         identity["commit"] = None
         identity["dirty"] = None
     return identity
@@ -304,6 +327,51 @@ def paired_outcome(first_score: float, second_score: float) -> str:
     return "draw"
 
 
+def replay_durable_sprt(
+    raw_json_path: Path,
+    *,
+    sprt: SprtSpec,
+    paired: bool,
+) -> tuple[tuple[int, int, int], float, str]:
+    """Replay the SPRT from ordered durable JSONL observations.
+
+    Streamed stdout is useful for stopping the child promptly, but it is not
+    gate evidence. Replaying the persisted sequence catches colour-pair
+    reorderings that have identical aggregate win/loss/draw totals.
+    """
+    records_path = raw_json_path.with_suffix(".jsonl")
+    records = [
+        json.loads(line)
+        for line in records_path.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    wins = losses = draws = 0
+    pending_score: float | None = None
+    verdict = ""
+    lower, upper = sprt[2], sprt[3]
+    for record in records:
+        result = record["result"]
+        score = 1.0 if result == "candidate_win" else 0.0 if result == "baseline_win" else 0.5
+        if paired:
+            if pending_score is None:
+                pending_score = score
+                continue
+            outcome = paired_outcome(pending_score, score)
+            pending_score = None
+        else:
+            outcome = "win" if score == 1.0 else "loss" if score == 0.0 else "draw"
+        wins += outcome == "win"
+        losses += outcome == "loss"
+        draws += outcome == "draw"
+        llr = sprt_llr(wins, losses, draws, sprt[0], sprt[1])
+        if not verdict and (llr <= lower or llr >= upper):
+            verdict = "H1 accepted" if llr >= upper else "H0 accepted"
+    if paired and pending_score is not None:
+        raise ValueError("durable paired SPRT evidence ends with an incomplete pair")
+    counts = (wins, losses, draws)
+    return counts, sprt_llr(*counts, sprt[0], sprt[1]), verdict
+
+
 def sprt_bounds(alpha: float = 0.05, beta: float = 0.05) -> tuple[float, float]:
     """Lower (accept H0) and upper (accept H1) LLR bounds."""
     return math.log(beta / (1 - alpha)), math.log((1 - beta) / alpha)
@@ -316,21 +384,61 @@ def classify_terminal_status(
     process_error: str | None,
     verdict: str,
     sprt_enabled: bool,
+    intentional_sprt_termination: bool = False,
 ) -> TerminalStatus:
     """Classify every terminal path once, with errors taking precedence."""
     if process_error:
+        return TerminalStatus("partial" if games_played else "failed", "error", process_code or 1)
+    expected_stop_codes = {-signal.SIGTERM, -signal.SIGKILL} if os.name == "posix" else {1}
+    expected_early_stop = bool(
+        verdict
+        and intentional_sprt_termination
+        and process_code in expected_stop_codes
+    )
+    if process_code != 0 and not expected_early_stop:
         return TerminalStatus("partial" if games_played else "failed", "error", process_code or 1)
     if verdict:
         return TerminalStatus(
             "sprt_stopped", "pass" if verdict == "H1 accepted" else "fail", 0
         )
-    if process_code != 0:
-        return TerminalStatus("partial" if games_played else "failed", "error", process_code or 1)
     if games_played < games_limit:
         return TerminalStatus("partial", "error", 1)
     if sprt_enabled:
         return TerminalStatus("inconclusive", "inconclusive", 0)
     return TerminalStatus("completed", "completed", 0)
+
+
+def terminate_match_process_group(
+    proc: subprocess.Popen[str], *, grace_seconds: float = 1.0
+) -> None:
+    """Stop the runner and every engine it spawned for an early SPRT bound.
+
+    A runner can exit before an engine that ignores SIGTERM. Probe the whole
+    process group for a bounded grace period, then kill any survivors so they
+    cannot consume CPU during the next measurement.
+    """
+    if os.name == "posix":
+        try:
+            process_group = proc.pid
+            os.killpg(process_group, signal.SIGTERM)
+            deadline = time.monotonic() + max(grace_seconds, 0.0)
+            while time.monotonic() < deadline:
+                # Reap the runner when it has exited; otherwise its zombie can
+                # make the process group appear live for the whole grace time.
+                proc.poll()
+                try:
+                    os.killpg(process_group, 0)
+                except ProcessLookupError:
+                    return
+                time.sleep(0.05)
+            try:
+                os.killpg(process_group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return
+        except (AttributeError, OSError):
+            pass
+    proc.terminate()
 
 
 def validate_output_paths(name: str, out_dir: Path, result_json: str | None) -> None:
@@ -346,6 +454,121 @@ def validate_output_paths(name: str, out_dir: Path, result_json: str | None) -> 
     }
     if result_path in reserved:
         raise ValueError("--result-json must not overwrite the raw match JSON or text log")
+
+
+def validate_raw_match_evidence(
+    raw_json_path: Path,
+    kifu_dir: Path,
+    *,
+    games_played: int,
+    wins: int,
+    losses: int,
+    draws: int,
+    allow_running_snapshot: bool,
+    games_per_position: int | None = None,
+) -> str | None:
+    """Return an error when durable match evidence disagrees with stdout.
+
+    An early SPRT stop may leave the latest incremental snapshot marked
+    ``running``. That state is acceptable only because the match runner emits
+    each scraped result line after persisting the corresponding kifu and
+    JSON/JSONL snapshot. Normal game-limit completion must publish
+    ``complete``. Any missing artifact, engine/protocol fault, or count
+    mismatch invalidates the gate rather than silently shrinking its evidence.
+    """
+    try:
+        raw = json.loads(raw_json_path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return f"cannot read raw match JSON: {type(error).__name__}: {error}"
+    if not isinstance(raw, dict):
+        return "raw match JSON must contain one object"
+
+    allowed_statuses = {"complete", "running"} if allow_running_snapshot else {"complete"}
+    status = raw.get("status")
+    if status not in allowed_statuses:
+        return f"raw match status {status!r} is not one of {sorted(allowed_statuses)!r}"
+
+    failures = raw.get("artifact_write_failures")
+    if not isinstance(failures, list):
+        return "raw match JSON is missing artifact_write_failures"
+    if failures:
+        return f"raw match reports artifact write failures: {failures!r}"
+    invalid_games = raw.get("invalid_games")
+    if not isinstance(invalid_games, list):
+        return "raw match JSON is missing invalid_games"
+    if invalid_games:
+        return f"raw match reports invalid games: {invalid_games!r}"
+
+    expected_counts = {
+        "games": games_played,
+        "engine1_wins": wins,
+        "engine2_wins": losses,
+        "draws": draws,
+        "artifact_files_expected": games_played,
+    }
+    for field, expected in expected_counts.items():
+        actual = raw.get(field)
+        if type(actual) is not int or actual != expected:
+            return f"raw match {field}={actual!r}, expected {expected}"
+
+    try:
+        actual_kifu = {path.name for path in kifu_dir.glob("game*.txt") if path.is_file()}
+    except OSError as error:
+        return f"cannot enumerate kifu artifacts: {type(error).__name__}: {error}"
+    expected_kifu = {f"game{index:04}.txt" for index in range(1, games_played + 1)}
+    if actual_kifu != expected_kifu:
+        missing = sorted(expected_kifu - actual_kifu)
+        extra = sorted(actual_kifu - expected_kifu)
+        return f"kifu artifact set mismatch: missing={missing!r}, extra={extra!r}"
+    for name in sorted(expected_kifu):
+        try:
+            if (kifu_dir / name).stat().st_size == 0:
+                return f"kifu artifact {name} is empty"
+        except OSError as error:
+            return f"cannot inspect kifu artifact {name}: {type(error).__name__}: {error}"
+
+    records_path = raw_json_path.with_suffix(".jsonl")
+    try:
+        record_lines = [
+            line for line in records_path.read_text(encoding="utf-8").splitlines() if line.strip()
+        ]
+        records = [json.loads(line) for line in record_lines]
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        return f"cannot read raw match JSONL: {type(error).__name__}: {error}"
+    if len(records) != games_played:
+        return f"raw match JSONL has {len(records)} records, expected {games_played}"
+    if not all(isinstance(record, dict) for record in records):
+        return "raw match JSONL must contain one object per line"
+    outcome_counts = {"candidate_win": 0, "baseline_win": 0, "draw": 0}
+    for index, record in enumerate(records, start=1):
+        record_id = record.get("id")
+        result = record.get("result")
+        if not isinstance(record_id, str) or not record_id:
+            return f"raw match JSONL record {index} has no non-empty string id"
+        expected_id = (
+            f"game{index:04}"
+            if games_per_position is None
+            else f"pos{(index - 1) // games_per_position}_pair{((index - 1) % games_per_position) // 2}"
+        )
+        if record_id != expected_id:
+            return (
+                f"raw match JSONL record {index} has id {record_id!r}, "
+                f"expected {expected_id!r}"
+            )
+        if result not in outcome_counts:
+            return f"raw match JSONL record {index} has invalid result {result!r}"
+        outcome_counts[result] += 1
+    expected_outcomes = {
+        "candidate_win": wins,
+        "baseline_win": losses,
+        "draw": draws,
+    }
+    if outcome_counts != expected_outcomes:
+        return (
+            f"raw match JSONL outcomes {outcome_counts!r}, "
+            f"expected {expected_outcomes!r}"
+        )
+    return None
 
 
 def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool, SprtSpec | None]:
@@ -499,6 +722,13 @@ def main() -> int:
             print("--games-per-position needs a non-empty opening file", file=sys.stderr)
             return 2
         games_limit = position_count * args.games_per_position
+        if games_limit > args.games:
+            print(
+                "--games-per-position would exceed the --games hard cap "
+                f"({games_limit} > {args.games})",
+                file=sys.stderr,
+            )
+            return 2
     command = [
         args.match_binary,
         "--engine1", args.engine_a,
@@ -546,6 +776,7 @@ def main() -> int:
     pair_wins = pair_losses = pair_draws = 0
     pending_pair_score: float | None = None
     verdict = ""
+    terminated_for_sprt = False
     process_code: int | None = None
     launch_error: str | None = None
     started_at = datetime.now(timezone.utc)
@@ -553,7 +784,12 @@ def main() -> int:
     try:
         with open(log_path, "w", encoding="utf-8") as log:
             proc = subprocess.Popen(
-                command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, env=env
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                env=env,
+                start_new_session=os.name == "posix",
             )
             assert proc.stdout
             for line in proc.stdout:
@@ -590,7 +826,8 @@ def main() -> int:
                     status += f" LLR {llr:+.2f} [{sprt[2]:.2f}, {sprt[3]:.2f}]"
                     if llr <= sprt[2] or llr >= sprt[3]:
                         verdict = "H1 accepted" if llr >= sprt[3] else "H0 accepted"
-                        proc.terminate()
+                        terminated_for_sprt = True
+                        terminate_match_process_group(proc)
                         print(status, flush=True)
                         break
                 print(status, end="\r", flush=True)
@@ -600,6 +837,61 @@ def main() -> int:
         process_code = 1
 
     games_played = wins + losses + draws
+    if launch_error is None:
+        evidence_error = validate_raw_match_evidence(
+            raw_json_path,
+            out / f"kifu_{args.name}",
+            games_played=games_played,
+            wins=wins,
+            losses=losses,
+            draws=draws,
+            allow_running_snapshot=bool(verdict),
+            games_per_position=args.games_per_position,
+        )
+        if evidence_error is not None:
+            launch_error = f"EvidenceError: {evidence_error}"
+            if process_code in {None, 0} or terminated_for_sprt:
+                process_code = 1
+            # Crossing a numerical boundary is not an accepted verdict when
+            # the durable observations cannot be verified.
+            verdict = ""
+        elif sprt is not None:
+            try:
+                durable_counts, durable_llr, durable_verdict = replay_durable_sprt(
+                    raw_json_path,
+                    sprt=sprt,
+                    paired=args.paired_sprt,
+                )
+            except (OSError, UnicodeError, json.JSONDecodeError, KeyError, ValueError) as error:
+                launch_error = (
+                    "EvidenceError: cannot replay durable SPRT observations: "
+                    f"{type(error).__name__}: {error}"
+                )
+                process_code = 1
+                verdict = ""
+            else:
+                streamed_counts = (
+                    (pair_wins, pair_losses, pair_draws)
+                    if args.paired_sprt
+                    else (wins, losses, draws)
+                )
+                streamed_llr = sprt_llr(*streamed_counts, sprt[0], sprt[1])
+                if (
+                    durable_counts != streamed_counts
+                    or not math.isclose(durable_llr, streamed_llr, rel_tol=1e-12, abs_tol=1e-12)
+                    or durable_verdict != verdict
+                ):
+                    launch_error = (
+                        "EvidenceError: durable SPRT replay disagrees with stdout: "
+                        f"durable={durable_counts}/{durable_llr:+.12f}/{durable_verdict!r}, "
+                        f"streamed={streamed_counts}/{streamed_llr:+.12f}/{verdict!r}"
+                    )
+                    process_code = 1
+                    verdict = ""
+    expected_stop_codes = {-signal.SIGTERM, -signal.SIGKILL} if os.name == "posix" else {1}
+    if verdict and process_code not in ({0} | expected_stop_codes):
+        launch_error = launch_error or f"match process exited unexpectedly with code {process_code}"
+        verdict = ""
     terminal = classify_terminal_status(
         games_played,
         games_limit,
@@ -607,6 +899,7 @@ def main() -> int:
         launch_error,
         verdict,
         sprt is not None,
+        terminated_for_sprt,
     )
 
     estimate, margin = elo(wins, losses, draws)
@@ -621,7 +914,9 @@ def main() -> int:
             else (wins, losses, draws)
         )
         llr = sprt_llr(*llr_counts, sprt[0], sprt[1])
-        outcome = verdict or "inconclusive (game limit reached)"
+        outcome = verdict or (
+            "invalid evidence" if launch_error else "inconclusive (game limit reached)"
+        )
         print(f"SPRT Elo [{sprt[0]:g}, {sprt[1]:g}]: LLR {llr:+.2f}, {outcome}")
     if launch_error:
         print(f"match process failed: {launch_error}", file=sys.stderr)
@@ -733,7 +1028,9 @@ def main() -> int:
                 "outputs": {
                     "log": file_identity(log_path),
                     "raw_match_json": file_identity(raw_json_path),
+                    "raw_match_jsonl": file_identity(raw_json_path.with_suffix(".jsonl")),
                     "kifu_prefix": str((out / f"kifu_{args.name}").resolve()),
+                    "kifu_manifest": kifu_manifest_identity(out / f"kifu_{args.name}"),
                 },
                 "gate_observation_declaration": file_identity(
                     args.gate_observation_declaration
