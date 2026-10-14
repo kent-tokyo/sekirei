@@ -74,4 +74,40 @@ python3 scripts/paired_search_diagnostics.py \
 
 For timing use COOP_LATENCY=0, movetime300 and repeats2. Do not add ordinary
 --diagnostics: cooperative aggregate output differs from independent-worker
-records. Results and verification will be appended after the frozen protocol.
+records. The committed source preserves this protocol before searches.
+
+
+## Completed observations
+
+Clean source `a1822b6d641749081d2c2357552f7983c069c204` produced the standard
+native tune engine SHA-256
+`7183870a09c6bf7792eb7c5a69e1d11263fad599e15cbe9db19a4000c90c1bfa`.
+[results.json](results.json) binds source, build receipts, scripts, tests, raw
+rows/manifests/summaries, PV validation and resource-only timing attempts.
+
+All 20 default-off ABBA blocks (80 searches) matched bestmove, score, PV,
+nodes and depth exactly. The 2T depth10 mechanism lane completed 80 searches
+with correct activation in all rows. Candidate helpers started 5,627 reduced
+probes, completed 5,345 reduced fail lows and started 276 full-depth rechecks;
+245 rechecks completed with fail high. The remaining rechecks include fail lows
+or interruption and are not all claimed as overturned advice. Legacy probe
+counts retain their full-depth meaning, so reduced fail lows must not be
+compared as missing full-depth helper work. These counter-lane observations
+establish activity, not saved nodes or speed.
+
+All 1,258 PV moves across 160 searches replayed legally. Both 300ms timing
+attempts blocked before any search: first on OS service load, second on an
+unrelated compiler. The resource-only retry gap was 85.177236 seconds. No third
+attempt was allowed, no processes were stopped and no load guard was bypassed.
+There are zero timed rows, so completed-depth and NPS improvements are unmeasured.
+The development screen cannot advance without qualified timing; this does not
+establish that the candidate is weaker. No SPRT was started and the existing
+independent aspiration queue is unchanged.
+
+Core 365 tests passed with 4 ignored, tune USI 26 and related Python 81 passed.
+Formatting, workspace default Clippy, tune USI/core Clippy and documentation
+references passed. The helper-TT fixture uses child depths >5 to avoid V2's
+intentional shallow expected-cut TT filter, and notification tests provide the
+required wake channel. Earlier fixture failures are retained separately.
+This is not the ten-million-random-validation or 64-core contention contract.
+COOP_HELPER_LMR remains 0; no strength gain or YaneuraOu-superiority claim follows.
