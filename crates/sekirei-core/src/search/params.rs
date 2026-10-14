@@ -88,6 +88,8 @@ search_params! {
     COOP_DRAIN = 0, 0, 1;
     /// Observe cooperative helper-advice latency without changing search policy.
     COOP_LATENCY = 0, 0, 1;
+    /// Prioritize highest ready helper advice and rescan after each confirmation.
+    COOP_PRIORITY = 0, 0, 1;
     /// Reverse futility pruning: margin per depth in centipawns.
     RFP_MARGIN = 152, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.

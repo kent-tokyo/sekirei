@@ -123,11 +123,18 @@ def work_metrics(row: dict) -> dict:
         for key, value in waiting.items():
             if key != "enabled":
                 result[f"coop_{key}"] = value
+    if row.get("cooperative_root") is not None:
+        result["coop_priority_enabled"] = int(row.get("cooperative_root_policy") is not None)
     latency = row.get("cooperative_root_latency")
     if latency:
         for key, value in latency.items():
             if key != "enabled":
                 result[f"coop_latency_{key}"] = value
+    outcomes = row.get("cooperative_root_outcomes")
+    if outcomes:
+        for key, value in outcomes.items():
+            if key != "enabled":
+                result[f"coop_outcomes_{key}"] = value
     return result
 
 
@@ -274,6 +281,8 @@ def main() -> int:
     activity = host_activity()
     latency_requested = {side: option_value(args.option + side_options, "T_COOP_LATENCY") not in (None, "0")
                          for side, side_options in (("A", args.a_option), ("B", args.b_option))}
+    priority_requested = {side: option_value(args.option + side_options, "T_COOP_PRIORITY") not in (None, "0")
+                          for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     host_idle = activity["available"] and not activity["busy_processes"]
     timing_qualified = host_idle and not args.diagnostics and not any(latency_requested.values())
     manifest = {
@@ -290,6 +299,7 @@ def main() -> int:
         "common_options": args.option, "A_options": args.a_option, "B_options": args.b_option,
         "changed_options": changes, "counter_lane": args.diagnostics,
         "cooperative_latency_instrumentation_requested": latency_requested,
+        "cooperative_priority_requested": priority_requested,
         "identity_policy": "observe_only_policy_change" if args.policy_diagnostic else "require_1T_fixed_depth",
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "cpu_count": os.cpu_count()},
         "schedule": "per-position ABBA; fresh process every slot", "strength_gate_opened": False,
@@ -317,7 +327,8 @@ def main() -> int:
                     depth=args.depth, movetime=args.movetime, repeats=1, timeout=args.timeout, strict_options=True,
                     provenance={"engine_sha256": frozen[side]["sha256"], "effective_positions_sha256": manifest["effective_positions_sha256"],
                                 "evaluator": {"kind": "material-only"}, "counter_overhead_included": args.diagnostics or latency_requested[side],
-                                "cooperative_latency_instrumentation_requested": latency_requested[side]})
+                                "cooperative_latency_instrumentation_requested": latency_requested[side],
+                                "cooperative_priority_requested": priority_requested[side]})
                 row = measure(lane, count, [positions[position]])[0]
                 row.update(repeat=repeat, position=position, side=side, abba_slot=slot, sequence=len(rows))
                 if require_hint and "first_move_beta_cuts" not in row.get("lazy_smp_root_hint", {}):

@@ -457,6 +457,19 @@ def parse_cooperative_root_wait(lines: list[str], *, cooperative_root: dict[str,
     return result
 
 
+def parse_cooperative_root_policy(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
+    """Intrinsic opt-in policy identity; available without latency observers."""
+    prefix = "info string cooperative_root_policy "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    if len(matches) != 1 or matches[0].split() != ["priority", "1"]:
+        raise ValueError("malformed cooperative root policy diagnostic")
+    if cooperative_root is None:
+        raise ValueError("cooperative root policy requires split evidence")
+    return {"priority": 1}
+
+
 COOPERATIVE_ROOT_LATENCY_KEYS = (
     "publications",
     "scout_publications",
@@ -523,6 +536,70 @@ def parse_cooperative_root_latency(lines: list[str], *, cooperative_root: dict[s
         raise ValueError("cooperative latency node-delay subsets inconsistent")
     # Several published candidates can wait over the same main search interval.
     # Their summed delays must not be bounded by root/main/total node counts.
+    return result
+
+
+COOPERATIVE_ROOT_OUTCOME_KEYS = (
+    "scout_confirmations",
+    "research_confirmations",
+    "confirmation_confirmations",
+    "idle_confirmations",
+    "phase_transition_confirmations",
+    "scout_beta_cuts",
+    "research_beta_cuts",
+    "confirmation_beta_cuts",
+    "idle_beta_cuts",
+    "phase_transition_beta_cuts",
+    "priority_choices",
+    "priority_reorders",
+    "reordered_alpha_raises",
+    "reordered_beta_cuts",
+    "reordered_confirmation_nodes",
+)
+
+
+def parse_cooperative_root_outcomes(lines: list[str], *, cooperative_root: dict[str, int] | None,
+                                    latency: dict[str, int] | None,
+                                    policy: dict[str, int] | None) -> dict[str, int] | None:
+    """Observer outcome evidence classified by advice's publication phase."""
+    prefix = "info string cooperative_root_outcomes "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    keys = ("enabled", *COOPERATIVE_ROOT_OUTCOME_KEYS)
+    fields = matches[0].split()
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative root outcomes diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative root outcomes counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative root outcomes counter exceeds u64")
+    if result["enabled"] != 1 or cooperative_root is None or latency is None:
+        raise ValueError("cooperative root outcomes require enabled latency and split evidence")
+    phases = ("scout", "research", "confirmation", "idle", "phase_transition")
+    if sum(result[f"{phase}_confirmations"] for phase in phases) != latency["confirmations"]:
+        raise ValueError("cooperative outcomes confirmation phases do not sum")
+    for phase in phases:
+        if result[f"{phase}_beta_cuts"] > result[f"{phase}_confirmations"] or result[f"{phase}_confirmations"] > latency[f"{phase}_publications"]:
+            raise ValueError("cooperative outcomes phase subsets inconsistent")
+    cuts = sum(result[f"{phase}_beta_cuts"] for phase in phases)
+    if cuts > cooperative_root["confirmed_alpha_raises"]:
+        raise ValueError("cooperative outcomes beta cuts exceed confirmed alpha raises")
+    if result["scout_confirmations"] != latency["scout_confirmations"] or latency["beta_scout_confirmed_cuts"] > result["scout_beta_cuts"]:
+        raise ValueError("cooperative outcomes scout counters differ from latency evidence")
+    if policy is not None:
+        if result["priority_choices"] != latency["confirmations"]:
+            raise ValueError("cooperative priority choices differ from confirmations")
+    elif any(result[key] for key in COOPERATIVE_ROOT_OUTCOME_KEYS[-5:]):
+        raise ValueError("cooperative priority counters without enabled policy")
+    if not (result["reordered_beta_cuts"] <= result["reordered_alpha_raises"]
+            <= result["priority_reorders"] <= result["priority_choices"]):
+        raise ValueError("cooperative priority outcome subsets inconsistent")
+    if result["reordered_alpha_raises"] > cooperative_root["confirmed_alpha_raises"] or result["reordered_beta_cuts"] > cuts:
+        raise ValueError("cooperative reordered outcomes exceed confirmed outcomes")
+    if result["reordered_confirmation_nodes"] > cooperative_root["confirmation_nodes"]:
+        raise ValueError("cooperative reordered confirmation nodes exceed confirmation nodes")
     return result
 
 
@@ -951,6 +1028,11 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 cooperative_root = parse_cooperative_root(lines, total_nodes=nodes)
                 cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
                 cooperative_root_latency = parse_cooperative_root_latency(lines, cooperative_root=cooperative_root)
+                cooperative_root_policy = parse_cooperative_root_policy(lines, cooperative_root=cooperative_root)
+                cooperative_root_outcomes = parse_cooperative_root_outcomes(
+                    lines, cooperative_root=cooperative_root, latency=cooperative_root_latency,
+                    policy=cooperative_root_policy,
+                )
                 if args.require_lazy_diagnostics:
                     require_lazy_diagnostic_record(
                         lazy_smp, lazy_smp_tt, lazy_smp_overlap
@@ -973,6 +1055,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "cooperative_root": cooperative_root,
                     "cooperative_root_wait": cooperative_root_wait,
                     "cooperative_root_latency": cooperative_root_latency,
+                    "cooperative_root_policy": cooperative_root_policy,
+                    "cooperative_root_outcomes": cooperative_root_outcomes,
                     "depth": depth,
                     "nodes": nodes,
                     "nps": nps,
@@ -983,6 +1067,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
                         "cooperative_latency_overhead_included": cooperative_root_latency is not None,
+                        "cooperative_priority_enabled": cooperative_root_policy is not None,
                         **({"counter_overhead_included": True, "timing_qualified": False}
                            if cooperative_root_latency is not None else {}),
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
