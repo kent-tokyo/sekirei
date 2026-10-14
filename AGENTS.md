@@ -91,6 +91,8 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 ## User Instruction Record
 
+* 2026-10-14: Target pgx shogi throughput; pin pgx/JAX/backend and batch conditions, compare matching legal-mask or full-environment work, and keep CPU, accelerator throughput, search NPS, and strength distinct.
+
 * 2026-10-14: Integrate the implemented search experiments and measurement evidence into main; retain disabled defaults for candidates without independent H1.
 
 * 2026-10-14: Fix YaneuraOu as the search-strength target; continue isolated search improvements and equal-condition qualification without NNUE retraining or unqualified default adoption.

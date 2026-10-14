@@ -14,6 +14,10 @@ preserves older per-change notes.
 
 ### Added
 
+- Add a safe Rust PGX shogi environment comparison adapter with dense legal
+  masks, timed action decoding, full observations and probe output. Document
+  pinned-reference CPU timing and correctness requirements separately from
+  search NPS, accelerator throughput and playing strength.
 - Add fresh material-opening generation with full move histories and mandatory
   owner identity exclusions before independent gate qualification. Freeze and
   replay generator/validator provenance; optionally bind corpus and executable
