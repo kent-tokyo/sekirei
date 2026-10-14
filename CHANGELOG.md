@@ -8,6 +8,9 @@ preserves older per-change notes.
 
 ### Changed
 
+- Borrow the completed root-move prefix for V2 history learning, removing
+  a growing vector without changing move order or learning updates.
+
 - Poll empty cooperative root-candidate slots without an atomic swap, retaining
   consuming synchronization and late-publication draining. The root-split mode
   remains opt-in; no measured speed or strength gain is claimed.
