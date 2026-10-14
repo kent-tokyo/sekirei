@@ -691,6 +691,12 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
         parser.error("--openings-manifest requires --result-json")
     if args.openings_manifest and (args.mode != "selfplay" or not material_only):
         parser.error("--openings-manifest is restricted to material-only selfplay")
+    if args.openings_manifest:
+        for option in args.option_a + args.option_b:
+            if any(char in option for char in "\r\n\0"):
+                parser.error("independent material gate options must be single-line")
+            if option.partition("=")[0].strip().casefold() == "evalfile":
+                parser.error("independent material gates cannot load an evaluator through side options")
     args.gate_observation = None
     if args.gate_observation_declaration:
         try:

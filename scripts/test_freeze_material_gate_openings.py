@@ -178,7 +178,10 @@ class IndependentOpeningsTest(unittest.TestCase):
 
     def test_wrapper_requires_material_selfplay_and_machine_readable_result(self):
         base = ["selfplay", "--engine-a", "a", "--engine-b", "b", "--openings-manifest", "manifest.json"]
-        for extra in [[], ["--result-json", "result.json", "--evalfile", "weights.bin"]]:
+        for extra in [[], ["--result-json", "result.json", "--evalfile", "weights.bin"],
+                      ["--result-json", "result.json", "--option-a", "EvalFile=weights.bin"],
+                      ["--result-json", "result.json", "--option-b", "EvalFile = weights.bin"],
+                      ["--result-json", "result.json", "--option-a", "other=x\nsetoption name EvalFile value weights.bin"]]:
             with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
                 match_args(base + extra)
 

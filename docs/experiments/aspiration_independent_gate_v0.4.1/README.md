@@ -100,7 +100,8 @@ set it false on both sides and retain advertised/effective options. Do not
 silently send unsupported options.
 
 The optional openings-manifest contract requires material selfplay and a
-terminal result JSON. Before/after play it replays selection and exclusions,
+terminal result JSON; evaluator-loading side options are rejected. Before/after
+play it replays selection and exclusions,
 binds the runner, both engines and wrapper/artifact-helper sources, and revokes
 a numerical H1 if anything changes. Existing durable JSONL, pair, kifu and
 streamed/replayed SPRT checks remain. Legacy matches retain their path.
