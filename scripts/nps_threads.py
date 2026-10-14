@@ -42,11 +42,13 @@ import platform
 import queue
 import threading
 import statistics
+import stat
 import subprocess
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from collections.abc import Iterable
 
 ROOT = Path(__file__).resolve().parent.parent
 ROOT_HINT_FLAG = 2048
@@ -914,6 +916,99 @@ def summarize_lazy_root_hints(
     return totals
 
 
+# Filesystem binding for the native, single-file nn.bin adapter. This does
+# not prove runtime architecture, loaded weights or evaluation-output identity.
+# Before/after checks detect persistent drift, not transient change/restoration.
+# Keep this dependency inside an already frozen driver source so independent
+# corpus manifests retain their existing four-file source closure.
+PROTECTED_EVALUATOR_OPTIONS = {"evalfile", "evaldir", "fv_scale", "nnueoutput"}
+
+
+def reject_evaluator_overrides(options: Iterable[str]) -> None:
+    for option in options:
+        if not isinstance(option, str) or any(c in option for c in "\r\n\0"):
+            raise ValueError("USI options must be single-line Name=Value entries")
+        name, separator, value = option.partition("=")
+        if not separator or not name.strip():
+            raise ValueError("USI options must be Name=Value entries")
+        tokens = name.split()
+        if any(token.casefold() == "value" for token in tokens):
+            raise ValueError("USI option names cannot contain the reserved value delimiter")
+        # Preserve canonical absolute-output assertions, but never names that
+        # exploit a parser reading only the first whitespace-delimited token.
+        if len(tokens) == 1 and tokens[0].casefold() == "nnueoutput" and value == "absolute":
+            continue
+        if tokens[0].casefold() in PROTECTED_EVALUATOR_OPTIONS:
+            raise ValueError("evaluator override is not allowed; use --evalfile/--fv-scale: " + name.strip())
+
+
+def _lexical_absolute(path: str | Path) -> Path:
+    value = str(path)
+    if not value or value != value.strip() or any(c in value for c in "\r\n\0"):
+        raise ValueError("evaluator/input paths must be nonempty single-line values without edge whitespace")
+    candidate = Path(value).expanduser()
+    # Do not resolve the final-file symlink (or normalize symlink/.. paths)
+    # before choosing EvalDir: Yane opens EvalDir/nn.bin, not the target's sibling.
+    return candidate if candidate.is_absolute() else Path.cwd() / candidate
+
+
+def yaneuraou_eval_dir(evalfile: str | Path) -> str:
+    return str(_lexical_absolute(evalfile).parent)
+
+
+def file_fingerprint(path: str | Path) -> dict:
+    candidate = _lexical_absolute(path)
+    resolved = candidate.resolve(strict=True)
+    if not resolved.is_file():
+        raise ValueError("input must be a regular file: " + str(candidate))
+    digest = hashlib.sha256()
+    with candidate.open("rb") as source:
+        before = os.fstat(source.fileno())
+        if not stat.S_ISREG(before.st_mode):
+            raise ValueError("input must be a regular file: " + str(candidate))
+        for chunk in iter(lambda: source.read(1024 * 1024), b""):
+            digest.update(chunk)
+        after = os.fstat(source.fileno())
+    fields = ("st_dev", "st_ino", "st_size", "st_mtime_ns")
+    if any(getattr(before, key) != getattr(after, key) for key in fields):
+        raise ValueError("input changed while hashing: " + str(candidate))
+    current = candidate.resolve(strict=True)
+    current_stat = current.stat()
+    if current != resolved or any(getattr(current_stat, key) != getattr(after, key) for key in fields):
+        raise ValueError("input path changed while hashing: " + str(candidate))
+    return {"path": str(candidate), "resolved_path": str(resolved),
+            "sha256": digest.hexdigest(), "size_bytes": after.st_size}
+
+
+def check_file_fingerprint(fingerprint: dict) -> None:
+    if file_fingerprint(fingerprint["path"]) != fingerprint:
+        raise ValueError("input identity changed during the run: " + fingerprint["path"])
+
+
+def bind_yaneuraou_evaluator(evalfile: str | Path, fv_scale: int,
+                             option_groups: Iterable[Iterable[str]] = ()) -> dict:
+    for options in option_groups:
+        reject_evaluator_overrides(options)
+    if type(fv_scale) is not int or not 1 <= fv_scale <= 128:
+        raise ValueError("native YaneuraOu FV_SCALE must be in 1..128")
+    selected = file_fingerprint(evalfile)
+    eval_dir = yaneuraou_eval_dir(evalfile)
+    native = file_fingerprint(Path(eval_dir) / "nn.bin")
+    if (selected["sha256"], selected["size_bytes"]) != (native["sha256"], native["size_bytes"]):
+        raise ValueError("requested evaluator differs from native EvalDir/nn.bin")
+    return {"schema": "sekirei.yaneuraou-evaluator-binding.v1",
+            "loader_contract": "native-single-file-nn.bin",
+            "verification_scope": "filesystem binding, not runtime architecture or loaded-output equivalence",
+            "eval_dir": eval_dir, "fv_scale": fv_scale,
+            "requested": selected, "native_nnue": native}
+
+
+def check_yaneuraou_evaluator(binding: dict) -> None:
+    current = bind_yaneuraou_evaluator(binding["requested"]["path"], binding["fv_scale"])
+    if current != binding:
+        raise ValueError("YaneuraOu evaluator binding changed during the run")
+
+
 def sha256_file(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as source:
@@ -945,9 +1040,8 @@ def format_optional_ratio(value: object, *, percentage: bool) -> str:
 
 def engine_options(args: argparse.Namespace, threads: int) -> list[str]:
     if args.yaneuraou:
-        evalfile = Path(args.evalfile).resolve()
         options = [
-            f"EvalDir={evalfile.parent}",
+            f"EvalDir={yaneuraou_eval_dir(args.evalfile)}",
             f"FV_SCALE={args.fv_scale}",
             f"Threads={threads}",
             f"USI_Hash={args.hash}",
@@ -985,6 +1079,35 @@ def read_positions(path: str, limit: int) -> list[str]:
 
 
 def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> list[dict]:
+    # Side options must not override the declared evaluator or inject USI
+    # commands, including on material-only and explicit Sekirei lanes.
+    reject_evaluator_overrides(args.option)
+    yaneuraou_binding = None
+    yaneuraou_binary = None
+    if args.yaneuraou:
+        yaneuraou_binding = bind_yaneuraou_evaluator(
+            args.evalfile, args.fv_scale, option_groups=(args.option,),
+        )
+        yaneuraou_binary = file_fingerprint(args.engine)
+        # A CLI caller may have captured declared input identities before
+        # entering this lane. Never publish that older snapshot beside a
+        # contradictory, newly bound native input.
+        declared_evaluator = args.provenance.get("evaluator", {})
+        for declared, path_key, hash_key, fingerprint in (
+            (declared_evaluator, "path", "sha256", yaneuraou_binding["requested"]),
+            (args.provenance, "engine", "engine_sha256", yaneuraou_binary),
+        ):
+            if not isinstance(declared, dict):
+                raise ValueError("declared input provenance must be an object")
+            if hash_key in declared and declared[hash_key] != fingerprint["sha256"]:
+                raise ValueError(f"declared {hash_key} differs from the bound input")
+            if path_key in declared:
+                try:
+                    resolved = str(Path(declared[path_key]).expanduser().resolve(strict=True))
+                except (OSError, TypeError, ValueError) as error:
+                    raise ValueError(f"invalid declared {path_key} input path") from error
+                if resolved != fingerprint["resolved_path"]:
+                    raise ValueError(f"declared {path_key} differs from the bound input path")
     env = dict(os.environ, RAYON_NUM_THREADS=str(threads))
     engine = Usi(args.engine, env, timeout=getattr(args, "timeout", 120))
     rows = []
@@ -1064,6 +1187,9 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "wall_nps": nodes / elapsed if elapsed > 0 else None,
                     "provenance": {
                         **args.provenance,
+                        **({"yaneuraou_evaluator_binding": yaneuraou_binding,
+                            "yaneuraou_engine_fingerprint": yaneuraou_binary}
+                           if yaneuraou_binding is not None else {}),
                         "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
                         "cooperative_latency_overhead_included": cooperative_root_latency is not None,
@@ -1135,6 +1261,11 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 )
     finally:
         engine.quit()
+    # Keep measured rows private until the bound inputs survive the entire
+    # invocation, including shutdown. This attests filesystem identity only.
+    if yaneuraou_binding is not None:
+        check_yaneuraou_evaluator(yaneuraou_binding)
+        check_file_fingerprint(yaneuraou_binary)
     return rows
 
 

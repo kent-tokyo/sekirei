@@ -921,6 +921,9 @@ class SprtTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             evalfile = Path(directory) / "nn.bin"
             evalfile.write_bytes(b"weights")
+            engines = [Path(directory) / name for name in ("candidate", "yaneuraou", "match")]
+            for engine in engines:
+                engine.write_bytes(b"synthetic executable identity")
             for mode in ("selfplay", "yaneuraou"):
                 result_path = Path(directory) / f"{mode}.json"
                 argv = [
@@ -935,8 +938,11 @@ class SprtTest(unittest.TestCase):
                     argv.extend(["--engine-b", "baseline"])
                 else:
                     argv.extend(
-                        ["--yaneuraou", "yaneuraou", "--evalfile", str(evalfile)]
+                        ["--yaneuraou", str(engines[1]), "--evalfile", str(evalfile),
+                         "--match-binary", str(engines[2])]
                     )
+                if mode == "yaneuraou":
+                    argv[argv.index("--engine-a") + 1] = str(engines[0])
                 process = _FakeMatchProcess(["→ Draw\n"])
                 with patch.object(sys, "argv", argv), patch(
                     "run_ab_match.subprocess.Popen", return_value=process
@@ -948,6 +954,87 @@ class SprtTest(unittest.TestCase):
                 schemas.append(set(json.loads(result_path.read_text())))
 
         self.assertEqual(schemas[0], schemas[1])
+
+
+    @staticmethod
+    def yane_fixture(directory):
+        root = Path(directory)
+        paths = {key: root / name for key, name in (
+            ("requested", "selected.bin"), ("native", "nn.bin"),
+            ("engine_a", "sekirei"), ("engine_b", "YaneuraOu"), ("runner", "match"))}
+        for key, path in paths.items():
+            path.write_bytes(b"synthetic-network" if key in {"requested", "native"} else key.encode())
+        argv = ["run_ab_match.py", "yaneuraou", "--engine-a", str(paths["engine_a"]),
+                "--yaneuraou", str(paths["engine_b"]), "--match-binary", str(paths["runner"]),
+                "--evalfile", str(paths["requested"]), "--games", "1",
+                "--out-dir", str(root / "output"), "--result-json", str(root / "output" / "result.json")]
+        return paths, argv
+
+    def test_yaneuraou_mismatched_native_evaluator_rejected_before_launch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, argv = self.yane_fixture(directory)
+            paths["native"].write_bytes(b"other-network")
+            with patch.object(sys, "argv", argv), patch("run_ab_match.subprocess.Popen") as popen, patch(
+                "sys.stderr", new_callable=io.StringIO
+            ) as errors:
+                self.assertEqual(main(), 2)
+            popen.assert_not_called()
+            self.assertIn("differs", errors.getvalue())
+            self.assertFalse((Path(directory) / "output").exists())
+
+    def test_yaneuraou_protected_overrides_rejected_before_launch(self):
+        for option in (" EvalDir =other", "EvalFile=other", "FV_SCALE=16", "NnueOutput=relative",
+                       "Threads=1\nsetoption name EvalDir value other",
+                       "FV_SCALE value 16=ignored", "EvalDir ignored /other=ignored"):
+            with self.subTest(option=option), tempfile.TemporaryDirectory() as directory:
+                _, argv = self.yane_fixture(directory)
+                argv.extend(["--option-b", option])
+                with patch.object(sys, "argv", argv), patch("run_ab_match.subprocess.Popen") as popen, patch(
+                    "sys.stderr", new_callable=io.StringIO
+                ):
+                    self.assertEqual(main(), 2)
+                popen.assert_not_called()
+                self.assertFalse((Path(directory) / "output").exists())
+
+    def test_yaneuraou_equal_renamed_file_binds_actual_native_and_executables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            paths, argv = self.yane_fixture(directory)
+            with patch.object(sys, "argv", argv), patch(
+                "run_ab_match.subprocess.Popen", return_value=_FakeMatchProcess(["→ Draw\n"])
+            ) as popen, patch("run_ab_match.runner_identity", return_value={}), patch(
+                "sys.stdout", new_callable=io.StringIO
+            ):
+                self.assertEqual(main(), 0)
+            payload = json.loads((Path(directory) / "output" / "result.json").read_text())
+            binding = payload["evidence"]["evaluation"]["native_yaneuraou_binding"]
+            self.assertEqual(binding["requested"]["sha256"], binding["native_nnue"]["sha256"])
+            self.assertEqual(binding["native_nnue"]["path"], str(paths["native"]))
+            self.assertEqual(set(payload["evidence"]["yaneuraou_pinned_inputs_before_match"]),
+                             {"engine_a", "yaneuraou", "match_binary", "wrapper", "artifact_helper", "evaluator_binding_helper"})
+            command = popen.call_args.args[0]
+            self.assertIn("EvalFile=" + str(paths["requested"]), command)
+            self.assertIn("EvalDir=" + str(paths["native"].parent), command)
+            self.assertEqual(payload["terminal_state"], "completed")
+
+    def test_yaneuraou_input_mutation_revokes_a_numerical_h1(self):
+        for changed in ("requested", "native", "engine_a", "engine_b", "runner"):
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as directory:
+                paths, argv = self.yane_fixture(directory)
+                argv.extend(["--sprt", "0,10"])
+                process = _FakeMatchProcess(["→ Engine1 Win\n"],
+                    before_yield=lambda _index, _line: paths[changed].write_bytes(b"changed"))
+                self.replay.return_value = ((1, 0, 0), 4.0, "H1 accepted")
+                with patch.object(sys, "argv", argv), patch("run_ab_match.subprocess.Popen", return_value=process), patch(
+                    "run_ab_match.runner_identity", return_value={}
+                ), patch("run_ab_match.sprt_llr", return_value=4.0), patch(
+                    "sys.stdout", new_callable=io.StringIO
+                ), patch("sys.stderr", new_callable=io.StringIO):
+                    self.assertNotEqual(main(), 0)
+                payload = json.loads((Path(directory) / "output" / "result.json").read_text())
+                self.assertEqual(payload["status"], "error")
+                self.assertFalse(payload["evidence"]["complete"])
+                self.assertNotEqual(payload["result"]["sprt"]["verdict"], "accept_h1")
+                self.assertIn("input drift", payload["evidence"]["process_error"])
 
 
 if __name__ == "__main__":

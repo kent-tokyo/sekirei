@@ -42,6 +42,7 @@ import math
 import os
 import re
 import signal
+import shutil
 import subprocess
 import sys
 import time
@@ -50,6 +51,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from freeze_material_gate_openings import validate_corpus
+from nps_threads import (
+    bind_yaneuraou_evaluator, check_yaneuraou_evaluator,
+    file_fingerprint, check_file_fingerprint, yaneuraou_eval_dir,
+)
 
 from sekirei_tools.artifacts import atomic_write_json, canonical_json_sha256, file_sha256
 
@@ -256,7 +261,7 @@ def yaneuraou_options(
     evalfile: str, fv_scale: int, nodes_limit: int, threads: int = 1, hash_mb: int = 64
 ) -> list[str]:
     options = [
-        f"EvalDir={Path(evalfile).resolve().parent}",
+        f"EvalDir={yaneuraou_eval_dir(evalfile)}",
         f"FV_SCALE={fv_scale}",
         f"Threads={threads}",
         f"USI_Hash={hash_mb}",
@@ -269,6 +274,26 @@ def yaneuraou_options(
         f"NodesLimit={nodes_limit}",
     ]
     return [arg for option in options for arg in ("--engine-option2", option)]
+
+
+def pin_yaneuraou_inputs(args: argparse.Namespace) -> dict:
+    """Bind executable files; resolve PATH before giving paths to the runner."""
+    pinned = {}
+    for name in ("engine_a", "yaneuraou", "match_binary"):
+        value = getattr(args, name)
+        path = Path(value).expanduser()
+        if not path.is_file():
+            found = shutil.which(value)
+            if found is None:
+                raise ValueError("missing comparison executable: " + value)
+            path = Path(found)
+        pinned[name] = file_fingerprint(path)
+        setattr(args, name, pinned[name]["path"])
+    pinned["wrapper"] = file_fingerprint(Path(__file__))
+    pinned["artifact_helper"] = file_fingerprint(Path(sys.modules[atomic_write_json.__module__].__file__))
+    pinned["evaluator_binding_helper"] = file_fingerprint(
+        Path(__file__).with_name("nps_threads.py"))
+    return pinned
 
 
 def elo(wins: int, losses: int, draws: int) -> tuple[float, float]:
@@ -726,6 +751,17 @@ def parse_args(argv: list[str] | None = None) -> tuple[argparse.Namespace, bool,
 def main() -> int:
     args, material_only, sprt = parse_args()
     out = Path(args.out_dir)
+    evaluator_binding = None
+    yaneuraou_pinned_inputs = None
+    if args.mode == "yaneuraou":
+        try:
+            evaluator_binding = bind_yaneuraou_evaluator(
+                args.evalfile, args.fv_scale, (args.option_a, args.option_b))
+            args.evalfile = evaluator_binding["requested"]["path"]
+            yaneuraou_pinned_inputs = pin_yaneuraou_inputs(args)
+        except (OSError, ValueError) as error:
+            print(f"invalid YaneuraOu comparison inputs: {error}", file=sys.stderr)
+            return 2
     corpus_evidence = None
     frozen_inputs = None
     if args.openings_manifest:
@@ -927,6 +963,16 @@ def main() -> int:
             launch_error = f"EvidenceError: {error}"
             process_code = 1
             verdict = ""
+    if evaluator_binding is not None:
+        try:
+            check_yaneuraou_evaluator(evaluator_binding)
+            for fingerprint in yaneuraou_pinned_inputs.values():
+                check_file_fingerprint(fingerprint)
+        except (OSError, ValueError) as error:
+            changed = f"EvidenceError: YaneuraOu comparison input drift: {error}"
+            launch_error = f"{launch_error}; {changed}" if launch_error else changed
+            process_code = 1
+            verdict = ""
     expected_stop_codes = {-signal.SIGTERM, -signal.SIGKILL} if os.name == "posix" else {1}
     if verdict and process_code not in ({0} | expected_stop_codes):
         launch_error = launch_error or f"match process exited unexpectedly with code {process_code}"
@@ -1062,9 +1108,11 @@ def main() -> int:
                 "evaluation": {
                     "mode": "material" if material_only else "halfkp",
                     "file": None if material_only else file_identity(args.evalfile),
+                    **({"native_yaneuraou_binding": evaluator_binding} if evaluator_binding is not None else {}),
                 },
                 "openings": openings,
                 **({"pinned_inputs_before_match": frozen_inputs} if corpus_evidence is not None else {}),
+                **({"yaneuraou_pinned_inputs_before_match": yaneuraou_pinned_inputs} if yaneuraou_pinned_inputs is not None else {}),
                 "outputs": {
                     "log": file_identity(log_path),
                     "raw_match_json": file_identity(raw_json_path),

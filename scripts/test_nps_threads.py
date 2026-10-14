@@ -6,6 +6,8 @@ import io
 import subprocess
 import sys
 import unittest
+import hashlib
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import patch
 
@@ -13,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from nps_threads import (  # noqa: E402
     ELAPSED_SCOPE,
+    bind_yaneuraou_evaluator,
+    reject_evaluator_overrides,
     Usi,
     engine_options,
     format_optional_ratio,
@@ -60,6 +64,177 @@ class ThreadOptionsTest(unittest.TestCase):
         options = engine_options(self.args(yaneuraou=False, evalfile="nn.bin"), 2)
 
         self.assertIn(f"EvalFile={Path('nn.bin').resolve()}", options)
+
+    @staticmethod
+    def measurement_args(*, yaneuraou, evalfile, engine="fake-engine"):
+        args = ThreadOptionsTest.args(yaneuraou=yaneuraou, evalfile=evalfile)
+        args.engine = str(engine)
+        args.repeats = 1
+        args.movetime = 300
+        args.depth = 3
+        args.require_lazy_diagnostics = False
+        args.require_root_hint_diagnostics = False
+        args.provenance = {"evaluator": {"kind": "halfkp" if evalfile else "material-only"}}
+        return args
+
+    @staticmethod
+    def fake_response(token):
+        if token == "bestmove":
+            return ["info depth 3 score cp 12 nodes 100 nps 1000 pv 7g7f", "bestmove 7g7f"]
+        return [token]
+
+    def test_yaneuraou_options_preserve_requested_nn_symlink_directory(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            storage = root / "storage"
+            storage.mkdir()
+            actual = storage / "weights.bin"
+            actual.write_bytes(b"synthetic evaluator")
+            selected = root / "native" / "nn.bin"
+            selected.parent.mkdir()
+            selected.symlink_to(actual)
+            options = engine_options(self.args(yaneuraou=True, evalfile=str(selected)), 2)
+            self.assertIn(f"EvalDir={selected.parent}", options)
+            self.assertNotIn(f"EvalDir={storage}", options)
+            engine = root / "engine"
+            engine.write_bytes(b"synthetic native binary")
+            args = self.measurement_args(yaneuraou=True, evalfile=str(selected), engine=engine)
+            with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                usi.return_value.wait_for.side_effect = self.fake_response
+                rows = measure(args, 2, ["startpos"])
+                usi.return_value.quit.assert_called_once_with()
+            self.assertIn(f"EvalDir={selected.parent}", rows[0]["provenance"]["options"])
+
+    def test_yaneuraou_wrong_native_nn_rejects_before_engine_start(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.bin"
+            selected.write_bytes(b"requested synthetic evaluator")
+            (root / "nn.bin").write_bytes(b"different native evaluator")
+            engine = root / "engine"
+            engine.write_bytes(b"synthetic binary")
+            args = self.measurement_args(yaneuraou=True, evalfile=str(selected), engine=engine)
+            with patch("nps_threads.Usi") as usi, self.assertRaises(ValueError):
+                measure(args, 1, ["startpos"])
+            usi.assert_not_called()
+
+    def test_all_nps_lanes_reject_evaluator_overrides_and_injection_before_start(self):
+        for yaneuraou, evalfile in ((False, None), (False, "weights.bin"), (True, "weights.bin")):
+            for option in ("EvalFile=other.bin", " EvalDir =other", "fV_sCaLe=24",
+                           "nnueoutput=relative", "Hash=1\nquit", "Hash=1\rquit", "Hash=1\x00", "malformed", "FV_SCALE value 16=ignored",
+                           "FV_SCALE ignored 16=ignored", "EvalDir\tvalue /other=ignored"):
+                args = self.measurement_args(yaneuraou=yaneuraou, evalfile=evalfile)
+                args.option = [option]
+                with self.subTest(yaneuraou=yaneuraou, evalfile=evalfile, option=option), patch("nps_threads.Usi") as usi, self.assertRaises(ValueError):
+                    measure(args, 1, ["startpos"])
+                usi.assert_not_called()
+
+    def test_absolute_output_assertion_is_accepted_without_allowing_other_values(self):
+        reject_evaluator_overrides(["NnueOutput=absolute", "Hash=64"])
+        for option in ("NnueOutput=relative", "NnueOutput=Absolute", "NnueOutput= absolute", "NnueOutput=absolute "):
+            with self.subTest(option=option), self.assertRaises(ValueError):
+                reject_evaluator_overrides([option])
+
+    def test_yaneuraou_matching_binding_is_recorded_for_synthetic_search(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            selected = root / "selected.bin"
+            contents = b"synthetic shared evaluator"
+            selected.write_bytes(contents)
+            (root / "nn.bin").write_bytes(contents)
+            engine = root / "engine"
+            binary = b"synthetic native binary"
+            engine.write_bytes(binary)
+            args = self.measurement_args(yaneuraou=True, evalfile=str(selected), engine=engine)
+            args.provenance.update(
+                evaluator={"path": str(selected.resolve()), "sha256": hashlib.sha256(contents).hexdigest()},
+                engine=str(engine.resolve()), engine_sha256=hashlib.sha256(binary).hexdigest(),
+            )
+            expected = bind_yaneuraou_evaluator(str(selected), 24)
+            with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                usi.return_value.wait_for.side_effect = self.fake_response
+                rows = measure(args, 2, ["startpos"])
+                usi.return_value.quit.assert_called_once_with()
+            provenance = rows[0]["provenance"]
+            self.assertEqual(provenance["yaneuraou_evaluator_binding"], expected)
+            self.assertEqual(provenance["yaneuraou_engine_fingerprint"]["sha256"], hashlib.sha256(binary).hexdigest())
+            self.assertEqual(provenance["yaneuraou_engine_fingerprint"]["size_bytes"], len(binary))
+            self.assertIn(f"EvalDir={root}", provenance["options"])
+
+    def test_yaneuraou_stale_cli_snapshot_rejects_before_engine_start(self):
+        for stale in ("evaluator_hash", "evaluator_path", "engine_hash", "engine_path"):
+            with self.subTest(stale=stale), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                native = root / "nn.bin"
+                native.write_bytes(b"synthetic shared evaluator")
+                engine = root / "engine"
+                engine.write_bytes(b"synthetic native binary")
+                other = root / "other"
+                other.write_bytes(b"synthetic shared evaluator" if stale == "evaluator_path" else b"synthetic native binary")
+                args = self.measurement_args(yaneuraou=True, evalfile=str(native), engine=engine)
+                args.provenance.update(
+                    evaluator={"path": str(native.resolve()), "sha256": hashlib.sha256(native.read_bytes()).hexdigest()},
+                    engine=str(engine.resolve()), engine_sha256=hashlib.sha256(engine.read_bytes()).hexdigest(),
+                )
+                if stale == "evaluator_hash":
+                    native.write_bytes(b"changed after CLI snapshot")
+                elif stale == "evaluator_path":
+                    args.provenance["evaluator"]["path"] = str(other.resolve())
+                elif stale == "engine_hash":
+                    engine.write_bytes(b"changed after CLI snapshot")
+                else:
+                    args.provenance["engine"] = str(other.resolve())
+                with patch("nps_threads.Usi") as usi, self.assertRaisesRegex(ValueError, "declared"):
+                    measure(args, 1, ["startpos"])
+                usi.assert_not_called()
+
+    def test_yaneuraou_input_mutation_discards_rows_and_quits(self):
+        for mutated in ("requested", "native", "engine"):
+            with self.subTest(mutated=mutated), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                selected = root / "selected.bin"
+                native = root / "nn.bin"
+                selected.write_bytes(b"synthetic shared evaluator")
+                native.write_bytes(b"synthetic shared evaluator")
+                engine = root / "engine"
+                engine.write_bytes(b"synthetic native binary")
+                args = self.measurement_args(yaneuraou=True, evalfile=str(selected), engine=engine)
+                target = {"requested": selected, "native": native, "engine": engine}[mutated]
+                def response(token):
+                    if token == "bestmove":
+                        target.write_bytes(b"modified during measurement")
+                    return self.fake_response(token)
+                with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                    usi.return_value.wait_for.side_effect = response
+                    with self.assertRaises(ValueError):
+                        measure(args, 1, ["startpos"])
+                    usi.return_value.quit.assert_called_once_with()
+
+    def test_yaneuraou_shutdown_mutation_is_checked_before_accepting_rows(self):
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            native = root / "nn.bin"
+            native.write_bytes(b"synthetic shared evaluator")
+            engine = root / "engine"
+            engine.write_bytes(b"synthetic native binary")
+            args = self.measurement_args(yaneuraou=True, evalfile=str(native), engine=engine)
+            with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                usi.return_value.wait_for.side_effect = self.fake_response
+                usi.return_value.quit.side_effect = lambda: engine.write_bytes(b"changed at shutdown")
+                with self.assertRaises(ValueError):
+                    measure(args, 1, ["startpos"])
+                usi.return_value.quit.assert_called_once_with()
+
+    def test_ordinary_sekirei_measurement_has_no_new_file_binding_reads(self):
+        for evalfile in (None, "does-not-exist.bin"):
+            args = self.measurement_args(yaneuraou=False, evalfile=evalfile)
+            args.option = ["NnueOutput=absolute"]
+            with self.subTest(evalfile=evalfile), patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"), patch("nps_threads.file_fingerprint") as fingerprint, patch("nps_threads.bind_yaneuraou_evaluator") as binding:
+                usi.return_value.wait_for.side_effect = self.fake_response
+                row = measure(args, 1, ["startpos"])[0]
+                fingerprint.assert_not_called()
+                binding.assert_not_called()
+                self.assertNotIn("yaneuraou_evaluator_binding", row["provenance"])
 
     def test_relative_engine_path_is_resolved_before_changing_directory(self):
         with patch("nps_threads.subprocess.Popen") as popen:
