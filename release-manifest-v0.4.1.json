@@ -3,7 +3,7 @@
   "release": "v0.4.1",
   "commit": "ee2de9bf10a98489c52f977dfa862409a445ace7",
   "branch_at_release": "codex/release-v0.4.1",
-  "candidate_state": "planned publication from the locally validated release-preparation commit",
+  "candidate_state": "released from the verified release-preparation commit",
   "packages": {
     "sekirei": "0.4.1",
     "sekirei-core": "0.4.1",
@@ -23,9 +23,9 @@
     "sha256": "b9899ec91990fa24c2ca4bbebab2455bcf276f1bce1eea94aae3b20ed2836ac4"
   },
   "publish": {
-    "workflow_run": null,
+    "workflow_run": "38557461302",
     "registry": "crates.io",
-    "status": "planned",
+    "status": "verified",
     "crates": [
       "sekirei",
       "sekirei-core",
