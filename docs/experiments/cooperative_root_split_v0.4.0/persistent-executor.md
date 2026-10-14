@@ -117,3 +117,24 @@ python3 scripts/paired_search_diagnostics.py \
 Check the executable hash above before reusing the binary. Machine-readable
 results, node accounting and failed timing preflights are preserved in
 [persistent-executor-results.json](persistent-executor-results.json).
+
+## Completed 300 ms screen
+
+The subsequent `persistent-root-300ms-qualified` run completed 40 per-position
+ABBA blocks (160 searches, 20 diagnostic positions, two repeats). Both host
+preflight and final checks were idle. Both arms used the same frozen release
+binary above, material evaluation, 2 participants, Hash 64 and MoveOverhead 0;
+only `T_COOP_PERSISTENT=0/1` differed. Optional node counters were disabled;
+the prototype's intrinsic root work accounting was present in both arms.
+
+Raw median depths were A=17 and B=18, but the median of paired block mean
+B-minus-A depths was 0 ply, and both order-direction medians were 0. Raw
+medians must not be interpreted as a paired +1-ply result. The median paired
+wall-NPS ratio was 1.0042256, and engine-NPS ratio 1.0050863. These small
+throughput signals do not satisfy the intended stable +0.5–1-ply target.
+
+The executor remains disabled and has not advanced to SPRT. This run compares
+two root-split executor variants; it does not establish superiority over
+ordinary Lazy SMP or YaneuraOu. The earlier blocked runs remain separate and
+were not pooled. Full timing provenance and paired outcomes are in
+[persistent-executor-300ms.json](persistent-executor-300ms.json).

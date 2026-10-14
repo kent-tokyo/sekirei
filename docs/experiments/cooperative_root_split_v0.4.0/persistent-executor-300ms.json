@@ -1,0 +1,5937 @@
+{
+  "schema": "sekirei.persistent-root-timing.v1",
+  "source_commit": "ed42c6f",
+  "manifest": {
+    "schema": "sekirei.paired-search-manifest.v1",
+    "status": "complete",
+    "started_at_utc": "2026-10-14T08:00:16.334308+00:00",
+    "engines": {
+      "A": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/persistent-root-300ms-qualified/engine-A",
+        "sha256": "732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3",
+        "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/release/sekirei"
+      },
+      "B": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/useful-depth/persistent-root-300ms-qualified/engine-B",
+        "sha256": "732066ff37eb5932f1e75db0685d8a73b57eceebd87d92077280b20ed66e7af3",
+        "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/release/sekirei"
+      }
+    },
+    "source_ref": "ed42c6f",
+    "source_ref_verified": false,
+    "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+    "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+    "effective_position_count": 20,
+    "threads": [
+      2
+    ],
+    "repeats": 2,
+    "budget": {
+      "depth": null,
+      "movetime_ms": 300
+    },
+    "evaluator": {
+      "kind": "material-only"
+    },
+    "hash_mb": 64,
+    "common_options": [
+      "LazyFlags=16399",
+      "MoveOverhead=0"
+    ],
+    "A_options": [
+      "T_COOP_PERSISTENT=0"
+    ],
+    "B_options": [
+      "T_COOP_PERSISTENT=1"
+    ],
+    "changed_options": {
+      "T_COOP_PERSISTENT": [
+        "0",
+        "1"
+      ]
+    },
+    "counter_lane": false,
+    "host": {
+      "system": "Darwin",
+      "release": "27.0.0",
+      "machine": "arm64",
+      "cpu_count": 10
+    },
+    "schedule": "per-position ABBA; fresh process every slot",
+    "strength_gate_opened": false,
+    "host_activity_before": {
+      "available": true,
+      "busy_process_threshold_percent": 25,
+      "busy_processes": [],
+      "load_average": [
+        1.39892578125,
+        1.43408203125,
+        1.41064453125
+      ]
+    },
+    "timing_qualified": true,
+    "configuration_sha256": "e388848a3dc0b6ac30ae4cae8962b1ced04a270f623218ee8ffbaf1b8b047837",
+    "host_activity_after": {
+      "available": true,
+      "busy_process_threshold_percent": 25,
+      "busy_processes": [],
+      "load_average": [
+        1.91552734375,
+        1.5732421875,
+        1.4619140625
+      ]
+    }
+  },
+  "summary": {
+    "schema": "sekirei.paired-search-summary.v1",
+    "by_threads": {
+      "2": {
+        "raw_side_medians": {
+          "A": {
+            "elapsed_ms": 310.63599999999997,
+            "depth": 17.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 17.0,
+            "nonselected_helper_nodes": 0.0,
+            "nodes": 722944.0,
+            "engine_nps": 2405798.5,
+            "wall_nps": 2326560.5465672547,
+            "nonselected_nodes": 0.0
+          },
+          "B": {
+            "elapsed_ms": 310.728,
+            "depth": 18.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 18.0,
+            "nonselected_helper_nodes": 0.0,
+            "nodes": 716800.0,
+            "engine_nps": 2385364.0,
+            "wall_nps": 2310027.736203448,
+            "nonselected_nodes": 0.0
+          }
+        },
+        "directional_median_paired_delta": {
+          "A_first": {
+            "elapsed_ms": -0.12700000000000955,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "engine_nps": 8391.5,
+            "nodes": 4096.0,
+            "wall_nps": 13242.168929013656,
+            "nonselected_nodes": 0.0
+          },
+          "B_first": {
+            "elapsed_ms": 0.12700000000000955,
+            "depth": 0.0,
+            "worker0_foreign_tt_hits": 0.0,
+            "worker0_depth": 0.0,
+            "nonselected_helper_nodes": 0.0,
+            "engine_nps": 13632.0,
+            "nodes": 4096.5,
+            "wall_nps": 15903.437952798326,
+            "nonselected_nodes": 0.0
+          }
+        },
+        "blocks": 40,
+        "hint_transfer_by_side": {
+          "A": null,
+          "B": null
+        },
+        "exact_identity_blocks": 0,
+        "fixed_depth_identity_required": false,
+        "identity_pass": null,
+        "within_side_nondeterministic_blocks": 39,
+        "median_paired_delta": {
+          "elapsed_ms": -0.09325000000001182,
+          "depth": 0.0,
+          "worker0_foreign_tt_hits": 0.0,
+          "worker0_depth": 0.0,
+          "nonselected_helper_nodes": 0.0,
+          "engine_nps": 11555.5,
+          "nodes": 4096.0,
+          "wall_nps": 9478.792929536663,
+          "nonselected_nodes": 0.0
+        },
+        "median_paired_ratio": {
+          "elapsed_ms": 0.9997000866285555,
+          "depth": 1.0,
+          "worker0_foreign_tt_hits": null,
+          "worker0_depth": 1.0,
+          "nonselected_helper_nodes": null,
+          "engine_nps": 1.005086312692595,
+          "nodes": 1.0056825519824357,
+          "wall_nps": 1.0042256135319383,
+          "nonselected_nodes": null
+        }
+      }
+    },
+    "paired_blocks": [
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 0,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 20.5,
+            "B": 19.5,
+            "B_minus_A": -1.0,
+            "B_over_A": 0.9512195121951219
+          },
+          "elapsed_ms": {
+            "A": 312.2625,
+            "B": 310.709,
+            "B_minus_A": -1.5534999999999854,
+            "B_over_A": 0.9950250190144511
+          },
+          "engine_nps": {
+            "A": 2330954.5,
+            "B": 2307413,
+            "B_minus_A": -23541.5,
+            "B_over_A": 0.9899004892630895
+          },
+          "nodes": {
+            "A": 700416,
+            "B": 692224,
+            "B_minus_A": -8192,
+            "B_over_A": 0.9883040935672515
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2242743.819150204,
+            "B": 2227874.973694166,
+            "B_minus_A": -14868.84545603767,
+            "B_over_A": 0.9933702434807415
+          },
+          "worker0_depth": {
+            "A": 20.5,
+            "B": 19.5,
+            "B_minus_A": -1.0,
+            "B_over_A": 0.9512195121951219
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -3.5989999999999895,
+              "B_over_A": 0.9885378150189975
+            },
+            "engine_nps": {
+              "B_minus_A": -109226,
+              "B_over_A": 0.954545719367487
+            },
+            "nodes": {
+              "B_minus_A": -32768,
+              "B_over_A": 0.9545454545454546
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -78953.77435780922,
+              "B_over_A": 0.9656114374566455
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.9047619047619048
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.49200000000001864,
+              "B_over_A": 1.001584357369194
+            },
+            "engine_nps": {
+              "B_minus_A": 62143,
+              "B_over_A": 1.0275100125148136
+            },
+            "nodes": {
+              "B_minus_A": 16384,
+              "B_over_A": 1.0240963855421688
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 49216.08344573341,
+              "B_over_A": 1.0224776502842017
+            },
+            "worker0_depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.9047619047619048
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 1,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 16,
+            "B": 14.5,
+            "B_minus_A": -1.5,
+            "B_over_A": 0.90625
+          },
+          "elapsed_ms": {
+            "A": 310.3485,
+            "B": 309.866,
+            "B_minus_A": -0.4825000000000159,
+            "B_over_A": 0.9984452961751064
+          },
+          "engine_nps": {
+            "A": 4464639.5,
+            "B": 4293973,
+            "B_minus_A": -170666.5,
+            "B_over_A": 0.961773733355179
+          },
+          "nodes": {
+            "A": 1339392,
+            "B": 1288192,
+            "B_minus_A": -51200,
+            "B_over_A": 0.9617737003058104
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 4315774.077339541,
+            "B": 4157218.880623363,
+            "B_minus_A": -158555.1967161782,
+            "B_over_A": 0.963261469698173
+          },
+          "worker0_depth": {
+            "A": 16,
+            "B": 14.5,
+            "B_minus_A": -1.5,
+            "B_over_A": 0.90625
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": -3,
+              "B_over_A": 0.8235294117647058
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.38700000000000045,
+              "B_over_A": 0.9987530649791694
+            },
+            "engine_nps": {
+              "B_minus_A": 13653,
+              "B_over_A": 1.0031055144775023
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0031055900621118
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 18519.61523388792,
+              "B_over_A": 1.0043579598393642
+            },
+            "worker0_depth": {
+              "B_minus_A": -3,
+              "B_over_A": 0.8235294117647058
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.5780000000000314,
+              "B_over_A": 0.998137502577851
+            },
+            "engine_nps": {
+              "B_minus_A": -354986,
+              "B_over_A": 0.9216868825428985
+            },
+            "nodes": {
+              "B_minus_A": -106496,
+              "B_over_A": 0.9216867469879518
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -335630.00866624294,
+              "B_over_A": 0.9234060951250581
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 2,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 20.5,
+            "B": 20.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.123,
+            "B": 309.81050000000005,
+            "B_minus_A": -0.31249999999994316,
+            "B_over_A": 0.9989923352992202
+          },
+          "engine_nps": {
+            "A": 2464426,
+            "B": 2464426.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.000000202887001
+          },
+          "nodes": {
+            "A": 739328,
+            "B": 739328,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2383982.0232112226,
+            "B": 2386374.1466637654,
+            "B_minus_A": 2392.1234525428154,
+            "B_over_A": 1.0010034150548337
+          },
+          "worker0_depth": {
+            "A": 20.5,
+            "B": 20.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.05
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.25099999999997635,
+              "B_over_A": 0.9991906489318824
+            },
+            "engine_nps": {
+              "B_minus_A": 13654,
+              "B_over_A": 1.0054056707679664
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0054054054054054
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 15196.802794856485,
+              "B_over_A": 1.0062195207286901
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.05
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.3739999999999668,
+              "B_over_A": 0.9987940191086706
+            },
+            "engine_nps": {
+              "B_minus_A": -13653,
+              "B_over_A": 0.9943183189581629
+            },
+            "nodes": {
+              "B_minus_A": -4096,
+              "B_over_A": 0.9943181818181818
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -10412.555889770854,
+              "B_over_A": 0.9955206334191408
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 3,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19,
+            "B": 18,
+            "B_minus_A": -1,
+            "B_over_A": 0.9473684210526315
+          },
+          "elapsed_ms": {
+            "A": 310.4545,
+            "B": 310.2905,
+            "B_minus_A": -0.16399999999998727,
+            "B_over_A": 0.9994717422359799
+          },
+          "engine_nps": {
+            "A": 2669228,
+            "B": 2689708,
+            "B_minus_A": 20480,
+            "B_over_A": 1.0076726304384638
+          },
+          "nodes": {
+            "A": 800768.5,
+            "B": 806912.5,
+            "B_minus_A": 6144.0,
+            "B_over_A": 1.0076726294803056
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2579335.2511828495,
+            "B": 2600519.796828227,
+            "B_minus_A": 21184.5456453776,
+            "B_over_A": 1.008213180367175
+          },
+          "worker0_depth": {
+            "A": 19,
+            "B": 18,
+            "B_minus_A": -1,
+            "B_over_A": 0.9473684210526315
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.18200000000001637,
+              "B_over_A": 0.9994137164578165
+            },
+            "engine_nps": {
+              "B_minus_A": 232106,
+              "B_over_A": 1.0904251547628787
+            },
+            "nodes": {
+              "B_minus_A": 69632,
+              "B_over_A": 1.0904254144866106
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 225893.98495014105,
+              "B_over_A": 1.091064648509973
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.8947368421052632
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.14599999999995816,
+              "B_over_A": 0.9995297588564768
+            },
+            "engine_nps": {
+              "B_minus_A": -191146,
+              "B_over_A": 0.9310347067028524
+            },
+            "nodes": {
+              "B_minus_A": -57344,
+              "B_over_A": 0.9310344827586207
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -183524.89365938585,
+              "B_over_A": 0.9314714999441696
+            },
+            "worker0_depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.8947368421052632
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 4,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 21.5,
+            "B": 22.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0465116279069768
+          },
+          "elapsed_ms": {
+            "A": 309.78049999999996,
+            "B": 310.125,
+            "B_minus_A": 0.3445000000000391,
+            "B_over_A": 1.0011120777453715
+          },
+          "engine_nps": {
+            "A": 2321066,
+            "B": 2245973,
+            "B_minus_A": -75093,
+            "B_over_A": 0.9676471931431506
+          },
+          "nodes": {
+            "A": 696320,
+            "B": 673792,
+            "B_minus_A": -22528,
+            "B_over_A": 0.9676470588235294
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2247784.9872845914,
+            "B": 2172672.7490183865,
+            "B_minus_A": -75112.23826620495,
+            "B_over_A": 0.9665838864966603
+          },
+          "worker0_depth": {
+            "A": 21.5,
+            "B": 22.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0465116279069768
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.02600000000001046,
+              "B_over_A": 0.9999160664882542
+            },
+            "engine_nps": {
+              "B_minus_A": -13653,
+              "B_over_A": 0.9940121204891351
+            },
+            "nodes": {
+              "B_minus_A": -4096,
+              "B_over_A": 0.9940119760479041
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -13043.253711248282,
+              "B_over_A": 0.9940932730941073
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.0952380952380953
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.7150000000000318,
+              "B_over_A": 1.0023080002065903
+            },
+            "engine_nps": {
+              "B_minus_A": -136533,
+              "B_over_A": 0.9421966565990383
+            },
+            "nodes": {
+              "B_minus_A": -40960,
+              "B_over_A": 0.9421965317919075
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -137181.22282116115,
+              "B_over_A": 0.9400265716116841
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.0952380952380953
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 5,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 13,
+            "B": 14.5,
+            "B_minus_A": 1.5,
+            "B_over_A": 1.1153846153846154
+          },
+          "elapsed_ms": {
+            "A": 310.522,
+            "B": 311.11400000000003,
+            "B_minus_A": 0.5920000000000414,
+            "B_over_A": 1.0019064671746287
+          },
+          "engine_nps": {
+            "A": 5888649,
+            "B": 5588478,
+            "B_minus_A": -300171,
+            "B_over_A": 0.9490254895477723
+          },
+          "nodes": {
+            "A": 1769473,
+            "B": 1679360.5,
+            "B_minus_A": -90112.5,
+            "B_over_A": 0.9490738202843445
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 5698515.005917674,
+            "B": 5397801.646619748,
+            "B_minus_A": -300713.3592979256,
+            "B_over_A": 0.9472295222552459
+          },
+          "worker0_depth": {
+            "A": 13,
+            "B": 14.5,
+            "B_minus_A": 1.5,
+            "B_over_A": 1.1153846153846154
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0769230769230769
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.5330000000000155,
+              "B_over_A": 0.9982853907571946
+            },
+            "engine_nps": {
+              "B_minus_A": -212916,
+              "B_over_A": 0.9630108342836177
+            },
+            "nodes": {
+              "B_minus_A": -69631,
+              "B_over_A": 0.9598114518690898
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -214793.25615807157,
+              "B_over_A": 0.9614625617838664
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0769230769230769
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1538461538461537
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.7170000000000414,
+              "B_over_A": 1.005535388444353
+            },
+            "engine_nps": {
+              "B_minus_A": -387426,
+              "B_over_A": 0.9356555567845616
+            },
+            "nodes": {
+              "B_minus_A": -110594,
+              "B_over_A": 0.9387744707801087
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -386633.46243777964,
+              "B_over_A": 0.9336069690658482
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1538461538461537
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 6,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 16,
+            "B": 16.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.03125
+          },
+          "elapsed_ms": {
+            "A": 309.9835,
+            "B": 309.738,
+            "B_minus_A": -0.24549999999999272,
+            "B_over_A": 0.9992080223624806
+          },
+          "engine_nps": {
+            "A": 2853546,
+            "B": 2621440,
+            "B_minus_A": -232106,
+            "B_over_A": 0.9186605017055972
+          },
+          "nodes": {
+            "A": 856064,
+            "B": 786432,
+            "B_minus_A": -69632,
+            "B_over_A": 0.9186602870813397
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2761669.876269787,
+            "B": 2539022.4402475446,
+            "B_minus_A": -222647.43602224253,
+            "B_over_A": 0.9193794168030777
+          },
+          "worker0_depth": {
+            "A": 16,
+            "B": 16.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.03125
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.5190000000000055,
+              "B_over_A": 0.998326777999871
+            },
+            "engine_nps": {
+              "B_minus_A": -191146,
+              "B_over_A": 0.9320390558724249
+            },
+            "nodes": {
+              "B_minus_A": -57344,
+              "B_over_A": 0.9320388349514563
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -180618.87735572783,
+              "B_over_A": 0.9336027115119709
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.02800000000002001,
+              "B_over_A": 1.0000903846836697
+            },
+            "engine_nps": {
+              "B_minus_A": -273066,
+              "B_over_A": 0.9056605859514543
+            },
+            "nodes": {
+              "B_minus_A": -81920,
+              "B_over_A": 0.9056603773584906
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -264675.99468875723,
+              "B_over_A": 0.9055762143621813
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 7,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.4775,
+            "B": 310.884,
+            "B_minus_A": 0.4064999999999941,
+            "B_over_A": 1.0013092736188614
+          },
+          "engine_nps": {
+            "A": 2446713.5,
+            "B": 2467149.5,
+            "B_minus_A": 20436.0,
+            "B_over_A": 1.008352428676263
+          },
+          "nodes": {
+            "A": 735232,
+            "B": 741376.5,
+            "B_minus_A": 6144.5,
+            "B_over_A": 1.0083572260184541
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2368084.7153663794,
+            "B": 2384742.3925794745,
+            "B_minus_A": 16657.67721309513,
+            "B_over_A": 1.0070342404158958
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.35599999999999454,
+              "B_over_A": 1.0011447497467723
+            },
+            "engine_nps": {
+              "B_minus_A": 27216,
+              "B_over_A": 1.011173207292636
+            },
+            "nodes": {
+              "B_minus_A": 8192,
+              "B_over_A": 1.011173184357542
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 23617.746998509858,
+              "B_over_A": 1.010017643407019
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.45699999999999363,
+              "B_over_A": 1.0014743362260863
+            },
+            "engine_nps": {
+              "B_minus_A": 13656,
+              "B_over_A": 1.005556640625
+            },
+            "nodes": {
+              "B_minus_A": 4097,
+              "B_over_A": 1.005556911892361
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 9697.607427680865,
+              "B_over_A": 1.0040771014368333
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 8,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19,
+            "B": 19,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.7305,
+            "B": 310.8695,
+            "B_minus_A": 0.13900000000001,
+            "B_over_A": 1.0004473329782562
+          },
+          "engine_nps": {
+            "A": 2617107.5,
+            "B": 2562562.5,
+            "B_minus_A": -54545.0,
+            "B_over_A": 0.9791582883011111
+          },
+          "nodes": {
+            "A": 786432,
+            "B": 770048,
+            "B_minus_A": -16384,
+            "B_over_A": 0.9791666666666666
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2530918.315520431,
+            "B": 2477077.9163942165,
+            "B_minus_A": -53840.39912621444,
+            "B_over_A": 0.9787269313292146
+          },
+          "worker0_depth": {
+            "A": 19,
+            "B": 19,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.549000000000035,
+              "B_over_A": 1.0017674556365417
+            },
+            "engine_nps": {
+              "B_minus_A": -76794,
+              "B_over_A": 0.970857195552491
+            },
+            "nodes": {
+              "B_minus_A": -20480,
+              "B_over_A": 0.9740932642487047
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -70311.80655571073,
+              "B_over_A": 0.9723729414766673
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.95
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.271000000000015,
+              "B_over_A": 0.9991281828564075
+            },
+            "engine_nps": {
+              "B_minus_A": -32296,
+              "B_over_A": 0.9875742654634911
+            },
+            "nodes": {
+              "B_minus_A": -12288,
+              "B_over_A": 0.9842931937172775
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -37368.99169671768,
+              "B_over_A": 0.9851521954856292
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.95
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 9,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15.5,
+            "B": 16,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.032258064516129
+          },
+          "elapsed_ms": {
+            "A": 310.1735,
+            "B": 311.08500000000004,
+            "B_minus_A": 0.9115000000000464,
+            "B_over_A": 1.0029386778689993
+          },
+          "engine_nps": {
+            "A": 3174399.5,
+            "B": 3272717,
+            "B_minus_A": 98317.5,
+            "B_over_A": 1.0309719995860633
+          },
+          "nodes": {
+            "A": 952320,
+            "B": 985088,
+            "B_minus_A": 32768,
+            "B_over_A": 1.0344086021505376
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 3070285.6398275853,
+            "B": 3166596.461299414,
+            "B_minus_A": 96310.8214718285,
+            "B_over_A": 1.0313686844710763
+          },
+          "worker0_depth": {
+            "A": 15.5,
+            "B": 16,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.032258064516129
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.8410000000000082,
+              "B_over_A": 1.0027113289057967
+            },
+            "engine_nps": {
+              "B_minus_A": 3175,
+              "B_over_A": 1.0010110608464378
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0043478260869565
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 4954.50066793384,
+              "B_over_A": 1.0016312690930678
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0666666666666667
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.9820000000000277,
+              "B_over_A": 1.0031660363610573
+            },
+            "engine_nps": {
+              "B_minus_A": 193460,
+              "B_over_A": 1.0602954683651376
+            },
+            "nodes": {
+              "B_minus_A": 61440,
+              "B_over_A": 1.0638297872340425
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 187667.1422757227,
+              "B_over_A": 1.060472145510946
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0666666666666667
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 10,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 18,
+            "B": 18,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.674,
+            "B": 309.9175,
+            "B_minus_A": -0.75649999999996,
+            "B_over_A": 0.9975649716423004
+          },
+          "engine_nps": {
+            "A": 2371710.5,
+            "B": 2389333,
+            "B_minus_A": 17622.5,
+            "B_over_A": 1.0074302913445803
+          },
+          "nodes": {
+            "A": 712704,
+            "B": 716800,
+            "B_minus_A": 4096,
+            "B_over_A": 1.0057471264367817
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2294040.0601886045,
+            "B": 2312862.490297595,
+            "B_minus_A": 18822.43010899052,
+            "B_over_A": 1.0082049265118078
+          },
+          "worker0_depth": {
+            "A": 18,
+            "B": 18,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.19799999999997908,
+              "B_over_A": 0.9993613953833402
+            },
+            "engine_nps": {
+              "B_minus_A": -27306,
+              "B_over_A": 0.9884395853390268
+            },
+            "nodes": {
+              "B_minus_A": -8192,
+              "B_over_A": 0.9884393063583815
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -24978.535458250437,
+              "B_over_A": 0.9890706672418039
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.3149999999999977,
+              "B_over_A": 0.9957757382820908
+            },
+            "engine_nps": {
+              "B_minus_A": 62551,
+              "B_over_A": 1.0262665370507622
+            },
+            "nodes": {
+              "B_minus_A": 16384,
+              "B_over_A": 1.022857142857143
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 62623.39567623194,
+              "B_over_A": 1.0271965626702713
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 11,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 16.5,
+            "B": 16.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.6685,
+            "B": 310.095,
+            "B_minus_A": -0.5734999999999673,
+            "B_over_A": 0.9981539808509715
+          },
+          "engine_nps": {
+            "A": 2398904,
+            "B": 2355199.5,
+            "B_minus_A": -43704.5,
+            "B_over_A": 0.9817814718721549
+          },
+          "nodes": {
+            "A": 720896,
+            "B": 706560,
+            "B_minus_A": -14336,
+            "B_over_A": 0.9801136363636364
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2320357.25562886,
+            "B": 2278520.600390056,
+            "B_minus_A": -41836.65523880394,
+            "B_over_A": 0.9819697354201323
+          },
+          "worker0_depth": {
+            "A": 16.5,
+            "B": 16.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.9739999999999895,
+              "B_over_A": 0.9968722704619021
+            },
+            "engine_nps": {
+              "B_minus_A": -87409,
+              "B_over_A": 0.9643146276590315
+            },
+            "nodes": {
+              "B_minus_A": -28672,
+              "B_over_A": 0.9611111111111111
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -84938.27359970426,
+              "B_over_A": 0.9641243135971651
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.17300000000000182,
+              "B_over_A": 0.9994418076398143
+            },
+            "engine_nps": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nodes": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 1264.9631220959127,
+              "B_over_A": 1.0005564821220996
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 12,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19.5,
+            "B": 20.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0512820512820513
+          },
+          "elapsed_ms": {
+            "A": 311.2165,
+            "B": 311.1305,
+            "B_minus_A": -0.08600000000001273,
+            "B_over_A": 0.9997236650370401
+          },
+          "engine_nps": {
+            "A": 2047999.5,
+            "B": 2105833.5,
+            "B_minus_A": 57834.0,
+            "B_over_A": 1.0282392647068517
+          },
+          "nodes": {
+            "A": 616448,
+            "B": 632832,
+            "B_minus_A": 16384,
+            "B_over_A": 1.026578073089701
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 1980785.2638111443,
+            "B": 2034060.5029769193,
+            "B_minus_A": 53275.23916577501,
+            "B_over_A": 1.026896019542911
+          },
+          "worker0_depth": {
+            "A": 19.5,
+            "B": 20.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0512820512820513
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.17200000000002547,
+              "B_over_A": 1.0005523956951676
+            },
+            "engine_nps": {
+              "B_minus_A": 34020,
+              "B_over_A": 1.0168919254411664
+            },
+            "nodes": {
+              "B_minus_A": 8192,
+              "B_over_A": 1.0135135135135136
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 25221.405666426057,
+              "B_over_A": 1.012954640921629
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.3439999999999941,
+              "B_over_A": 0.9988941111418302
+            },
+            "engine_nps": {
+              "B_minus_A": 81648,
+              "B_over_A": 1.0392157804515714
+            },
+            "nodes": {
+              "B_minus_A": 24576,
+              "B_over_A": 1.0392156862745099
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 81329.07266512397,
+              "B_over_A": 1.0403684468950065
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 13,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15,
+            "B": 15.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0333333333333334
+          },
+          "elapsed_ms": {
+            "A": 310.6115,
+            "B": 312.044,
+            "B_minus_A": 1.4325000000000045,
+            "B_over_A": 1.004611870455537
+          },
+          "engine_nps": {
+            "A": 2133208,
+            "B": 2204491,
+            "B_minus_A": 71283,
+            "B_over_A": 1.0334158694323292
+          },
+          "nodes": {
+            "A": 641024,
+            "B": 663552,
+            "B_minus_A": 22528,
+            "B_over_A": 1.035143769968051
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2063773.382533222,
+            "B": 2126496.016433523,
+            "B_minus_A": 62722.633900301065,
+            "B_over_A": 1.0303922099350418
+          },
+          "worker0_depth": {
+            "A": 15,
+            "B": 15.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0333333333333334
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9333333333333333
+            },
+            "elapsed_ms": {
+              "B_minus_A": 2.223000000000013,
+              "B_over_A": 1.007172517931295
+            },
+            "engine_nps": {
+              "B_minus_A": -7122,
+              "B_over_A": 0.9966775099331816
+            },
+            "nodes": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -14773.064145822776,
+              "B_over_A": 0.9928800185742052
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9333333333333333
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1333333333333333
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.6419999999999959,
+              "B_over_A": 1.0020623855568762
+            },
+            "engine_nps": {
+              "B_minus_A": 149688,
+              "B_over_A": 1.0705129865939214
+            },
+            "nodes": {
+              "B_minus_A": 45056,
+              "B_over_A": 1.0705128205128205
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 140218.33194642514,
+              "B_over_A": 1.0683101234943442
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1333333333333333
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 14,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 18.5,
+            "B": 19.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.054054054054054
+          },
+          "elapsed_ms": {
+            "A": 310.9475,
+            "B": 310.808,
+            "B_minus_A": -0.13949999999999818,
+            "B_over_A": 0.9995513712121821
+          },
+          "engine_nps": {
+            "A": 2412489.5,
+            "B": 2355199.5,
+            "B_minus_A": -57290.0,
+            "B_over_A": 0.9762527463850101
+          },
+          "nodes": {
+            "A": 724992,
+            "B": 706560,
+            "B_minus_A": -18432,
+            "B_over_A": 0.9745762711864406
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2331501.1227924493,
+            "B": 2273303.0673395116,
+            "B_minus_A": -58198.055452937726,
+            "B_over_A": 0.975038375540976
+          },
+          "worker0_depth": {
+            "A": 18.5,
+            "B": 19.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.054054054054054
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1111111111111112
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.15799999999995862,
+              "B_over_A": 1.0005084963954685
+            },
+            "engine_nps": {
+              "B_minus_A": 13653,
+              "B_over_A": 1.005847810444079
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0058479532163742
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 12032.065250849351,
+              "B_over_A": 1.0053376868968142
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1111111111111112
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.4370000000000118,
+              "B_over_A": 0.9985956455370771
+            },
+            "engine_nps": {
+              "B_minus_A": -128233,
+              "B_over_A": 0.9485061593994841
+            },
+            "nodes": {
+              "B_minus_A": -40960,
+              "B_over_A": 0.9453551912568307
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -128428.1761567248,
+              "B_over_A": 0.9466844185410804
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 15,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 18,
+            "B_minus_A": 1,
+            "B_over_A": 1.0588235294117647
+          },
+          "elapsed_ms": {
+            "A": 311.335,
+            "B": 310.935,
+            "B_minus_A": -0.39999999999997726,
+            "B_over_A": 0.9987152103040134
+          },
+          "engine_nps": {
+            "A": 2238511,
+            "B": 2235540,
+            "B_minus_A": -2971,
+            "B_over_A": 0.9986727784674724
+          },
+          "nodes": {
+            "A": 673792,
+            "B": 671744,
+            "B_minus_A": -2048,
+            "B_over_A": 0.9969604863221885
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2164190.306316433,
+            "B": 2160504.877199378,
+            "B_minus_A": -3685.429117055144,
+            "B_over_A": 0.9982970863947136
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 18,
+            "B_minus_A": 1,
+            "B_over_A": 1.0588235294117647
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.20300000000003138,
+              "B_over_A": 1.000652307336369
+            },
+            "engine_nps": {
+              "B_minus_A": -40824,
+              "B_over_A": 0.9814814394796804
+            },
+            "nodes": {
+              "B_minus_A": -12288,
+              "B_over_A": 0.9814814814814815
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -40847.45680036256,
+              "B_over_A": 0.9808427230709552
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.002999999999986,
+              "B_over_A": 0.9967797551586525
+            },
+            "engine_nps": {
+              "B_minus_A": 34882,
+              "B_over_A": 1.0153494055746655
+            },
+            "nodes": {
+              "B_minus_A": 8192,
+              "B_over_A": 1.0119760479041917
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 33476.59856625274,
+              "B_over_A": 1.0152432116824501
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 16,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19.5,
+            "B": 20,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0256410256410255
+          },
+          "elapsed_ms": {
+            "A": 310.4865,
+            "B": 311.851,
+            "B_minus_A": 1.364500000000021,
+            "B_over_A": 1.0043947160343527
+          },
+          "engine_nps": {
+            "A": 2440090.5,
+            "B": 2337577.5,
+            "B_minus_A": -102513.0,
+            "B_over_A": 0.9579880336405555
+          },
+          "nodes": {
+            "A": 733184,
+            "B": 702464,
+            "B_minus_A": -30720,
+            "B_over_A": 0.9581005586592178
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2361640.0480320957,
+            "B": 2252416.1085736547,
+            "B_minus_A": -109223.93945844099,
+            "B_over_A": 0.9537508099299659
+          },
+          "worker0_depth": {
+            "A": 19.5,
+            "B": 20,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0256410256410255
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.4430000000000405,
+              "B_over_A": 0.9985759427548273
+            },
+            "engine_nps": {
+              "B_minus_A": -19595,
+              "B_over_A": 0.9915296182384459
+            },
+            "nodes": {
+              "B_minus_A": -8192,
+              "B_over_A": 0.9882352941176471
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -23179.229093652684,
+              "B_over_A": 0.989644603173113
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "elapsed_ms": {
+              "B_minus_A": 3.1720000000000255,
+              "B_over_A": 1.0102358901545712
+            },
+            "engine_nps": {
+              "B_minus_A": -185431,
+              "B_over_A": 0.9277586404376456
+            },
+            "nodes": {
+              "B_minus_A": -53248,
+              "B_over_A": 0.9308510638297872
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -195268.64982322883,
+              "B_over_A": 0.921418163942899
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 17,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 16,
+            "B": 16,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 311.1725,
+            "B": 310.36850000000004,
+            "B_minus_A": -0.8039999999999736,
+            "B_over_A": 0.9974162241200621
+          },
+          "engine_nps": {
+            "A": 3264552.5,
+            "B": 3440639.5,
+            "B_minus_A": 176087.0,
+            "B_over_A": 1.053939092724041
+          },
+          "nodes": {
+            "A": 980992,
+            "B": 1032192,
+            "B_minus_A": 51200,
+            "B_over_A": 1.0521920668058455
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 3152604.6864500297,
+            "B": 3325440.123935659,
+            "B_minus_A": 172835.43748562923,
+            "B_over_A": 1.0548230605088167
+          },
+          "worker0_depth": {
+            "A": 16,
+            "B": 16,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.49200000000001864,
+              "B_over_A": 1.0015852660475968
+            },
+            "engine_nps": {
+              "B_minus_A": 341333,
+              "B_over_A": 1.1041665649414063
+            },
+            "nodes": {
+              "B_minus_A": 102400,
+              "B_over_A": 1.1041666666666667
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 324407.2283170619,
+              "B_over_A": 1.1024194803997063
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -2.1000000000000227,
+              "B_over_A": 0.9932689503088269
+            },
+            "engine_nps": {
+              "B_minus_A": 10841,
+              "B_over_A": 1.0033333282087626
+            },
+            "nodes": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 21263.646654196084,
+              "B_over_A": 1.0067766691070787
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 18,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 20.5,
+            "B": 21,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.024390243902439
+          },
+          "elapsed_ms": {
+            "A": 310.3895,
+            "B": 310.36699999999996,
+            "B_minus_A": -0.02250000000003638,
+            "B_over_A": 0.9999275104344701
+          },
+          "engine_nps": {
+            "A": 2409813,
+            "B": 2252799.5,
+            "B_minus_A": -157013.5,
+            "B_over_A": 0.9348441144603337
+          },
+          "nodes": {
+            "A": 722944,
+            "B": 675840,
+            "B_minus_A": -47104,
+            "B_over_A": 0.9348441926345609
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2329154.1386794285,
+            "B": 2177542.401350785,
+            "B_minus_A": -151611.73732864344,
+            "B_over_A": 0.9349069540693414
+          },
+          "worker0_depth": {
+            "A": 20.5,
+            "B": 21,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.024390243902439
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.14400000000000546,
+              "B_over_A": 1.0004638607386982
+            },
+            "engine_nps": {
+              "B_minus_A": -109227,
+              "B_over_A": 0.9540228481950431
+            },
+            "nodes": {
+              "B_minus_A": -32768,
+              "B_over_A": 0.9540229885057471
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -106569.78253774159,
+              "B_over_A": 0.9535805311089447
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.18900000000002137,
+              "B_over_A": 0.9993909924889073
+            },
+            "engine_nps": {
+              "B_minus_A": -204800,
+              "B_over_A": 0.9162010944595339
+            },
+            "nodes": {
+              "B_minus_A": -61440,
+              "B_over_A": 0.9162011173184358
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -196653.69211954484,
+              "B_over_A": 0.9167606595159193
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 0,
+        "threads": 2,
+        "position": 19,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15,
+            "B": 15,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 311.3,
+            "B": 309.8695,
+            "B_minus_A": -1.430499999999995,
+            "B_over_A": 0.9954047542563443
+          },
+          "engine_nps": {
+            "A": 2170474.5,
+            "B": 2198186.5,
+            "B_minus_A": 27712.0,
+            "B_over_A": 1.0127677150779704
+          },
+          "nodes": {
+            "A": 653312.5,
+            "B": 659456,
+            "B_minus_A": 6143.5,
+            "B_over_A": 1.0094036161867406
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2098661.0898053795,
+            "B": 2128179.162679177,
+            "B_minus_A": 29518.072873797268,
+            "B_over_A": 1.014065192811353
+          },
+          "worker0_depth": {
+            "A": 15,
+            "B": 15,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.18299999999999272,
+              "B_over_A": 0.9994100390083498
+            },
+            "engine_nps": {
+              "B_minus_A": 13653,
+              "B_over_A": 1.0062891546285377
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0062893081761006
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 14452.272607177962,
+              "B_over_A": 1.0068834629880712
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -2.6779999999999973,
+              "B_over_A": 0.9914279312441984
+            },
+            "engine_nps": {
+              "B_minus_A": 41771,
+              "B_over_A": 1.0192486967004275
+            },
+            "nodes": {
+              "B_minus_A": 8191,
+              "B_over_A": 1.0124984550499647
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 44583.87314041704,
+              "B_over_A": 1.0212531064225134
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 0,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 20.5,
+            "B": 20,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.975609756097561
+          },
+          "elapsed_ms": {
+            "A": 310.4765,
+            "B": 311.315,
+            "B_minus_A": 0.8385000000000105,
+            "B_over_A": 1.002700687491646
+          },
+          "engine_nps": {
+            "A": 2174100,
+            "B": 2187640,
+            "B_minus_A": 13540,
+            "B_over_A": 1.0062278644036613
+          },
+          "nodes": {
+            "A": 653312,
+            "B": 657408,
+            "B_minus_A": 4096,
+            "B_over_A": 1.006269592476489
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2104235.8192914505,
+            "B": 2111746.5874628364,
+            "B_minus_A": 7510.768171385862,
+            "B_over_A": 1.0035693566769122
+          },
+          "worker0_depth": {
+            "A": 20.5,
+            "B": 20,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.975609756097561
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.6529999999999632,
+              "B_over_A": 1.002100509204605
+            },
+            "engine_nps": {
+              "B_minus_A": -20094,
+              "B_over_A": 0.9907129886438163
+            },
+            "nodes": {
+              "B_minus_A": -8192,
+              "B_over_A": 0.9874213836477987
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -30686.94532790361,
+              "B_over_A": 0.9853517729786289
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.024000000000001,
+              "B_over_A": 1.0033024161818394
+            },
+            "engine_nps": {
+              "B_minus_A": 47174,
+              "B_over_A": 1.0215945467520975
+            },
+            "nodes": {
+              "B_minus_A": 16384,
+              "B_over_A": 1.025
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 45708.48167067487,
+              "B_over_A": 1.0216264420865746
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 1,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 14.5,
+            "B": 14.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 309.7625,
+            "B": 310.81449999999995,
+            "B_minus_A": 1.051999999999964,
+            "B_over_A": 1.0033961502764213
+          },
+          "engine_nps": {
+            "A": 4130133,
+            "B": 4444159.5,
+            "B_minus_A": 314026.5,
+            "B_over_A": 1.0760330236338636
+          },
+          "nodes": {
+            "A": 1239040,
+            "B": 1333248,
+            "B_minus_A": 94208,
+            "B_over_A": 1.0760330578512396
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 3999959.5332278106,
+            "B": 4289611.84132522,
+            "B_minus_A": 289652.3080974091,
+            "B_over_A": 1.0724138096126365
+          },
+          "worker0_depth": {
+            "A": 14.5,
+            "B": 14.5,
+            "B_minus_A": 0.0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.771000000000015,
+              "B_over_A": 1.0024892889544663
+            },
+            "engine_nps": {
+              "B_minus_A": 464213,
+              "B_over_A": 1.1144780322758838
+            },
+            "nodes": {
+              "B_minus_A": 139264,
+              "B_over_A": 1.1144781144781144
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 438772.3522378532,
+              "B_over_A": 1.1117126894261624
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.33299999999997,
+              "B_over_A": 1.0043028037624515
+            },
+            "engine_nps": {
+              "B_minus_A": 163840,
+              "B_over_A": 1.0389610451376454
+            },
+            "nodes": {
+              "B_minus_A": 49152,
+              "B_over_A": 1.0389610389610389
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 140532.26395696495,
+              "B_over_A": 1.0345098763566039
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 2,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19.5,
+            "B": 20.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0512820512820513
+          },
+          "elapsed_ms": {
+            "A": 310.6725,
+            "B": 310.572,
+            "B_minus_A": -0.10050000000001091,
+            "B_over_A": 0.9996765082200709
+          },
+          "engine_nps": {
+            "A": 2463043,
+            "B": 2535369.5,
+            "B_minus_A": 72326.5,
+            "B_over_A": 1.0293646923744328
+          },
+          "nodes": {
+            "A": 741376,
+            "B": 761856,
+            "B_minus_A": 20480,
+            "B_over_A": 1.0276243093922652
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2386364.4363313895,
+            "B": 2453124.273332866,
+            "B_minus_A": 66759.83700147644,
+            "B_over_A": 1.0279755413653866
+          },
+          "worker0_depth": {
+            "A": 19.5,
+            "B": 20.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0512820512820513
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.05
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.5409999999999968,
+              "B_over_A": 0.9982589890551234
+            },
+            "engine_nps": {
+              "B_minus_A": 131045,
+              "B_over_A": 1.0535000928785618
+            },
+            "nodes": {
+              "B_minus_A": 36864,
+              "B_over_A": 1.05
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 122976.44475155277,
+              "B_over_A": 1.051830405059571
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.05
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.34000000000003183,
+              "B_over_A": 1.0010946343599287
+            },
+            "engine_nps": {
+              "B_minus_A": 13608,
+              "B_over_A": 1.005494516587117
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0054945054945055
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 10543.229251400568,
+              "B_over_A": 1.004392904343425
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 3,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 18,
+            "B": 17.5,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.9722222222222222
+          },
+          "elapsed_ms": {
+            "A": 310.4385,
+            "B": 310.29600000000005,
+            "B_minus_A": -0.14249999999992724,
+            "B_over_A": 0.9995409718833201
+          },
+          "engine_nps": {
+            "A": 2787389,
+            "B": 2684992,
+            "B_minus_A": -102397,
+            "B_over_A": 0.9632641873810939
+          },
+          "nodes": {
+            "A": 837632,
+            "B": 806913,
+            "B_minus_A": -30719,
+            "B_over_A": 0.9633263772157702
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2698141.750673948,
+            "B": 2600211.539765595,
+            "B_minus_A": -97930.21090835286,
+            "B_over_A": 0.9637045715319102
+          },
+          "worker0_depth": {
+            "A": 18,
+            "B": 17.5,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.9722222222222222
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.2729999999999677,
+              "B_over_A": 0.9959070156260048
+            },
+            "engine_nps": {
+              "B_minus_A": -290935,
+              "B_over_A": 0.8972127479015763
+            },
+            "nodes": {
+              "B_minus_A": -90111,
+              "B_over_A": 0.8942319429837741
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -279657.63851042604,
+              "B_over_A": 0.8979079025333961
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9444444444444444
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.9879999999999995,
+              "B_over_A": 1.003188567629584
+            },
+            "engine_nps": {
+              "B_minus_A": 86141,
+              "B_over_A": 1.0313888322061566
+            },
+            "nodes": {
+              "B_minus_A": 28673,
+              "B_over_A": 1.0348270852767414
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 83797.21669372031,
+              "B_over_A": 1.0315381011948659
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9444444444444444
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 4,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 22,
+            "B": 21,
+            "B_minus_A": -1,
+            "B_over_A": 0.9545454545454546
+          },
+          "elapsed_ms": {
+            "A": 311.3295,
+            "B": 310.65250000000003,
+            "B_minus_A": -0.6769999999999641,
+            "B_over_A": 0.9978254550243393
+          },
+          "engine_nps": {
+            "A": 2197687,
+            "B": 2323925.5,
+            "B_minus_A": 126238.5,
+            "B_over_A": 1.0574415282977057
+          },
+          "nodes": {
+            "A": 661504,
+            "B": 698368.5,
+            "B_minus_A": 36864.5,
+            "B_over_A": 1.0557283100328947
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2124807.2987261396,
+            "B": 2248032.895827561,
+            "B_minus_A": 123225.59710142156,
+            "B_over_A": 1.0579937753297899
+          },
+          "worker0_depth": {
+            "A": 22,
+            "B": 21,
+            "B_minus_A": -1,
+            "B_over_A": 0.9545454545454546
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9545454545454546
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.2300000000000182,
+              "B_over_A": 0.9992606498566303
+            },
+            "engine_nps": {
+              "B_minus_A": 136080,
+              "B_over_A": 1.0606061955672144
+            },
+            "nodes": {
+              "B_minus_A": 40960,
+              "B_over_A": 1.0606060606060606
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 133376.25356534543,
+              "B_over_A": 1.0613920810773536
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9545454545454546
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9545454545454546
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.1239999999999668,
+              "B_over_A": 0.9963925218647197
+            },
+            "engine_nps": {
+              "B_minus_A": 116397,
+              "B_over_A": 1.0541366539243806
+            },
+            "nodes": {
+              "B_minus_A": 32769,
+              "B_over_A": 1.0506344565862342
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 113074.94063749816,
+              "B_over_A": 1.054439305620755
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9545454545454546
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 5,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 14.5,
+            "B": 13.5,
+            "B_minus_A": -1.0,
+            "B_over_A": 0.9310344827586207
+          },
+          "elapsed_ms": {
+            "A": 310.80100000000004,
+            "B": 310.66949999999997,
+            "B_minus_A": -0.13150000000007367,
+            "B_over_A": 0.9995768996882247
+          },
+          "engine_nps": {
+            "A": 5085866,
+            "B": 5447681,
+            "B_minus_A": 361815,
+            "B_over_A": 1.0711412766282085
+          },
+          "nodes": {
+            "A": 1525760,
+            "B": 1634304.5,
+            "B_minus_A": 108544.5,
+            "B_over_A": 1.0711412673028524
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 4909209.407758098,
+            "B": 5260608.405719036,
+            "B_minus_A": 351398.99796093814,
+            "B_over_A": 1.0715795495310543
+          },
+          "worker0_depth": {
+            "A": 14.5,
+            "B": 13.5,
+            "B_minus_A": -1.0,
+            "B_over_A": 0.9310344827586207
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.521000000000015,
+              "B_over_A": 0.9983259323046867
+            },
+            "engine_nps": {
+              "B_minus_A": 191150,
+              "B_over_A": 1.0380441467343733
+            },
+            "nodes": {
+              "B_minus_A": 57345,
+              "B_over_A": 1.038044141686481
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 192703.12131194863,
+              "B_over_A": 1.0397874598282109
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.8666666666666667
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.25799999999998136,
+              "B_over_A": 1.0008312284138356
+            },
+            "engine_nps": {
+              "B_minus_A": 532480,
+              "B_over_A": 1.1034482892604403
+            },
+            "nodes": {
+              "B_minus_A": 159744,
+              "B_over_A": 1.103448275862069
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 510094.87460992765,
+              "B_over_A": 1.1025294522848168
+            },
+            "worker0_depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.8666666666666667
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 6,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 16.5,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.9705882352941176
+          },
+          "elapsed_ms": {
+            "A": 310.66650000000004,
+            "B": 310.6785,
+            "B_minus_A": 0.011999999999943611,
+            "B_over_A": 1.0000386266301644
+          },
+          "engine_nps": {
+            "A": 2744319.5,
+            "B": 2821182,
+            "B_minus_A": 76862.5,
+            "B_over_A": 1.028007854041776
+          },
+          "nodes": {
+            "A": 823296,
+            "B": 847872,
+            "B_minus_A": 24576,
+            "B_over_A": 1.0298507462686568
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2650103.67149697,
+            "B": 2728793.9261409235,
+            "B_minus_A": 78690.2546439534,
+            "B_over_A": 1.029693274074634
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 16.5,
+            "B_minus_A": -0.5,
+            "B_over_A": 0.9705882352941176
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.3170000000000073,
+              "B_over_A": 1.0010198861716948
+            },
+            "engine_nps": {
+              "B_minus_A": 303912,
+              "B_over_A": 1.1112959256093569
+            },
+            "nodes": {
+              "B_minus_A": 94208,
+              "B_over_A": 1.115
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 300103.37145478325,
+              "B_over_A": 1.113864584150223
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.29300000000000637,
+              "B_over_A": 0.9990564032539595
+            },
+            "engine_nps": {
+              "B_minus_A": -150187,
+              "B_over_A": 0.9455444270121571
+            },
+            "nodes": {
+              "B_minus_A": -45056,
+              "B_over_A": 0.9455445544554455
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -142722.86216687644,
+              "B_over_A": 0.9464372325491154
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 7,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": false,
+          "B": false
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.9435,
+            "B": 311.171,
+            "B_minus_A": 0.22750000000002046,
+            "B_over_A": 1.0007316441732985
+          },
+          "engine_nps": {
+            "A": 2426256,
+            "B": 2435827,
+            "B_minus_A": 9571,
+            "B_over_A": 1.0039447609815288
+          },
+          "nodes": {
+            "A": 729088,
+            "B": 733184,
+            "B_minus_A": 4096,
+            "B_over_A": 1.0056179775280898
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2344760.6716992958,
+            "B": 2356207.489386983,
+            "B_minus_A": 11446.817687687464,
+            "B_over_A": 1.0048818703869644
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.22500000000002274,
+              "B_over_A": 0.9992770921755669
+            },
+            "engine_nps": {
+              "B_minus_A": 13608,
+              "B_over_A": 1.005617989124848
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0056179775280898
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 14862.074187769555,
+              "B_over_A": 1.006344527715823
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.6800000000000068,
+              "B_over_A": 1.0021890009142298
+            },
+            "engine_nps": {
+              "B_minus_A": 5534,
+              "B_over_A": 1.0022770916922363
+            },
+            "nodes": {
+              "B_minus_A": 4096,
+              "B_over_A": 1.0056179775280898
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 8031.561187605839,
+              "B_over_A": 1.003422027211663
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 8,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17.5,
+            "B": 18.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0571428571428572
+          },
+          "elapsed_ms": {
+            "A": 311.231,
+            "B": 311.3195,
+            "B_minus_A": 0.08850000000001046,
+            "B_over_A": 1.0002843547075966
+          },
+          "engine_nps": {
+            "A": 2712545,
+            "B": 2633142,
+            "B_minus_A": -79403,
+            "B_over_A": 0.970727490235185
+          },
+          "nodes": {
+            "A": 815104,
+            "B": 792576,
+            "B_minus_A": -22528,
+            "B_over_A": 0.9723618090452262
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2619002.4263003487,
+            "B": 2545858.8026713394,
+            "B_minus_A": -73143.62362900935,
+            "B_over_A": 0.9720719527043992
+          },
+          "worker0_depth": {
+            "A": 17.5,
+            "B": 18.5,
+            "B_minus_A": 1.0,
+            "B_over_A": 1.0571428571428572
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.6650000000000205,
+              "B_over_A": 1.0021391509661564
+            },
+            "engine_nps": {
+              "B_minus_A": -104374,
+              "B_over_A": 0.9619672632929105
+            },
+            "nodes": {
+              "B_minus_A": -28672,
+              "B_over_A": 0.9651741293532339
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -97687.94891484268,
+              "B_over_A": 0.9631137506706198
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.48799999999999955,
+              "B_over_A": 0.9984338443664933
+            },
+            "engine_nps": {
+              "B_minus_A": -54432,
+              "B_over_A": 0.9796953860271489
+            },
+            "nodes": {
+              "B_minus_A": -16384,
+              "B_over_A": 0.9796954314720813
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -48599.29834317649,
+              "B_over_A": 0.9812332420500244
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 9,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15,
+            "B": 15.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0333333333333334
+          },
+          "elapsed_ms": {
+            "A": 310.71900000000005,
+            "B": 310.26800000000003,
+            "B_minus_A": -0.45100000000002183,
+            "B_over_A": 0.9985485277694637
+          },
+          "engine_nps": {
+            "A": 3153919.5,
+            "B": 3365546,
+            "B_minus_A": 211626.5,
+            "B_over_A": 1.0670995248927564
+          },
+          "nodes": {
+            "A": 946176,
+            "B": 1009664,
+            "B_minus_A": 63488,
+            "B_over_A": 1.067099567099567
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 3045102.977021961,
+            "B": 3254215.7649113825,
+            "B_minus_A": 209112.78788942145,
+            "B_over_A": 1.0686718280029823
+          },
+          "worker0_depth": {
+            "A": 15,
+            "B": 15.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0333333333333334
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.05500000000000682,
+              "B_over_A": 0.9998229096903817
+            },
+            "engine_nps": {
+              "B_minus_A": 177493,
+              "B_over_A": 1.056768458392516
+            },
+            "nodes": {
+              "B_minus_A": 53248,
+              "B_over_A": 1.056768558951965
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 172016.43038545782,
+              "B_over_A": 1.0569564429233267
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0666666666666667
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.8470000000000368,
+              "B_over_A": 0.9972753183084454
+            },
+            "engine_nps": {
+              "B_minus_A": 245760,
+              "B_over_A": 1.077253235073522
+            },
+            "nodes": {
+              "B_minus_A": 73728,
+              "B_over_A": 1.0772532188841202
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 246209.14539338555,
+              "B_over_A": 1.0801966952719302
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0666666666666667
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 10,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17.5,
+            "B": 19,
+            "B_minus_A": 1.5,
+            "B_over_A": 1.0857142857142856
+          },
+          "elapsed_ms": {
+            "A": 311.04650000000004,
+            "B": 310.8465,
+            "B_minus_A": -0.20000000000004547,
+            "B_over_A": 0.9993570093217572
+          },
+          "engine_nps": {
+            "A": 2296844,
+            "B": 2412670.5,
+            "B_minus_A": 115826.5,
+            "B_over_A": 1.0504285445594042
+          },
+          "nodes": {
+            "A": 690176,
+            "B": 724992,
+            "B_minus_A": 34816,
+            "B_over_A": 1.0504451038575668
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2218985.2348293755,
+            "B": 2332336.2368321046,
+            "B_minus_A": 113351.0020027291,
+            "B_over_A": 1.0510823597307284
+          },
+          "worker0_depth": {
+            "A": 17.5,
+            "B": 19,
+            "B_minus_A": 1.5,
+            "B_over_A": 1.0857142857142856
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.6259999999999764,
+              "B_over_A": 0.9979915491059828
+            },
+            "engine_nps": {
+              "B_minus_A": 136080,
+              "B_over_A": 1.0606061955672144
+            },
+            "nodes": {
+              "B_minus_A": 40960,
+              "B_over_A": 1.0606060606060606
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 136050.72692296794,
+              "B_over_A": 1.0627437954818748
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0555555555555556
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1176470588235294
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.2259999999999991,
+              "B_over_A": 1.0007280693276634
+            },
+            "engine_nps": {
+              "B_minus_A": 95573,
+              "B_over_A": 1.0406975382530799
+            },
+            "nodes": {
+              "B_minus_A": 28672,
+              "B_over_A": 1.0406976744186047
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 90651.2770824898,
+              "B_over_A": 1.0399412223592257
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1176470588235294
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 11,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.524,
+            "B": 311.09349999999995,
+            "B_minus_A": 0.5694999999999482,
+            "B_over_A": 1.0018339967281111
+          },
+          "engine_nps": {
+            "A": 2307414.5,
+            "B": 2392122.5,
+            "B_minus_A": 84708.0,
+            "B_over_A": 1.0367112194189645
+          },
+          "nodes": {
+            "A": 692224.5,
+            "B": 718848,
+            "B_minus_A": 26623.5,
+            "B_over_A": 1.0384607883714025
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2229226.5029397365,
+            "B": 2310723.9318860206,
+            "B_minus_A": 81497.42894628411,
+            "B_over_A": 1.0365586129712756
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.5669999999999504,
+              "B_over_A": 1.0018253873716674
+            },
+            "engine_nps": {
+              "B_minus_A": 95570,
+              "B_over_A": 1.0421671543590523
+            },
+            "nodes": {
+              "B_minus_A": 28671,
+              "B_over_A": 1.0421671419557987
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 88149.46894321265,
+              "B_over_A": 1.0402697817874822
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0588235294117647
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.5720000000000027,
+              "B_over_A": 1.001842611353965
+            },
+            "engine_nps": {
+              "B_minus_A": 73846,
+              "B_over_A": 1.0314456008479063
+            },
+            "nodes": {
+              "B_minus_A": 24576,
+              "B_over_A": 1.0348837209302326
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 74845.38894935558,
+              "B_over_A": 1.0329790929838067
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9411764705882353
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 12,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 22,
+            "B": 21,
+            "B_minus_A": -1,
+            "B_over_A": 0.9545454545454546
+          },
+          "elapsed_ms": {
+            "A": 311.227,
+            "B": 310.4115,
+            "B_minus_A": -0.8154999999999859,
+            "B_over_A": 0.9973797260520456
+          },
+          "engine_nps": {
+            "A": 2242162.5,
+            "B": 2157228,
+            "B_minus_A": -84934.5,
+            "B_over_A": 0.9621193825157632
+          },
+          "nodes": {
+            "A": 673792,
+            "B": 647168.5,
+            "B_minus_A": -26623.5,
+            "B_over_A": 0.9604870642572189
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2164870.8389645894,
+            "B": 2084896.9963371432,
+            "B_minus_A": -79973.84262744617,
+            "B_over_A": 0.9630583768841859
+          },
+          "worker0_depth": {
+            "A": 22,
+            "B": 21,
+            "B_minus_A": -1,
+            "B_over_A": 0.9545454545454546
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9565217391304348
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.6450000000000387,
+              "B_over_A": 0.9979234075433427
+            },
+            "engine_nps": {
+              "B_minus_A": -27303,
+              "B_over_A": 0.9875793040261379
+            },
+            "nodes": {
+              "B_minus_A": -8191,
+              "B_over_A": 0.9875791561529503
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -22008.792121130973,
+              "B_over_A": 0.9896338291726251
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9565217391304348
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.98599999999999,
+              "B_over_A": 0.9968382133660842
+            },
+            "engine_nps": {
+              "B_minus_A": -142566,
+              "B_over_A": 0.9376389624602879
+            },
+            "nodes": {
+              "B_minus_A": -45056,
+              "B_over_A": 0.9345238095238095
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -137938.89313376113,
+              "B_over_A": 0.9374881953327663
+            },
+            "worker0_depth": {
+              "B_minus_A": -1,
+              "B_over_A": 0.9523809523809523
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 13,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15.5,
+            "B": 16,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.032258064516129
+          },
+          "elapsed_ms": {
+            "A": 310.601,
+            "B": 311.51,
+            "B_minus_A": 0.9089999999999918,
+            "B_over_A": 1.0029265842672754
+          },
+          "engine_nps": {
+            "A": 2208120,
+            "B": 2085489,
+            "B_minus_A": -122631,
+            "B_over_A": 0.9444636161078203
+          },
+          "nodes": {
+            "A": 663552,
+            "B": 628736,
+            "B_minus_A": -34816,
+            "B_over_A": 0.9475308641975309
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2136298.3545796275,
+            "B": 2018375.9632143122,
+            "B_minus_A": -117922.3913653153,
+            "B_over_A": 0.944800598140928
+          },
+          "worker0_depth": {
+            "A": 15.5,
+            "B": 16,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.032258064516129
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.33799999999996544,
+              "B_over_A": 1.0010858460925602
+            },
+            "engine_nps": {
+              "B_minus_A": -224396,
+              "B_over_A": 0.8994509583919394
+            },
+            "nodes": {
+              "B_minus_A": -65536,
+              "B_over_A": 0.9024390243902439
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -212646.89868845954,
+              "B_over_A": 0.9014618680370315
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.4800000000000182,
+              "B_over_A": 1.0047753642828565
+            },
+            "engine_nps": {
+              "B_minus_A": -20866,
+              "B_over_A": 0.9904483017651827
+            },
+            "nodes": {
+              "B_minus_A": -4096,
+              "B_over_A": 0.99375
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -23197.88404217083,
+              "B_over_A": 0.9890295567110322
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 14,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19,
+            "B": 19,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.7925,
+            "B": 310.78549999999996,
+            "B_minus_A": -0.007000000000061846,
+            "B_over_A": 0.999977476933967
+          },
+          "engine_nps": {
+            "A": 2330705.5,
+            "B": 2330660,
+            "B_minus_A": -45.5,
+            "B_over_A": 0.9999804780140605
+          },
+          "nodes": {
+            "A": 700416,
+            "B": 700416,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2253511.213103327,
+            "B": 2253478.5417585913,
+            "B_minus_A": -32.67134473565966,
+            "B_over_A": 0.9999855020269943
+          },
+          "worker0_depth": {
+            "A": 19,
+            "B": 19,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.9
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.2370000000000232,
+              "B_over_A": 0.9960269537623494
+            },
+            "engine_nps": {
+              "B_minus_A": -183118,
+              "B_over_A": 0.9239736096862465
+            },
+            "nodes": {
+              "B_minus_A": -57344,
+              "B_over_A": 0.9209039548022598
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -175630.8855762696,
+              "B_over_A": 0.9245753620753445
+            },
+            "worker0_depth": {
+              "B_minus_A": -2,
+              "B_over_A": 0.9
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1111111111111112
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.2229999999999563,
+              "B_over_A": 1.00394214745501
+            },
+            "engine_nps": {
+              "B_minus_A": 183027,
+              "B_over_A": 1.081244229403409
+            },
+            "nodes": {
+              "B_minus_A": 57344,
+              "B_over_A": 1.084848484848485
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 175565.5428867978,
+              "B_over_A": 1.080591539095588
+            },
+            "worker0_depth": {
+              "B_minus_A": 2,
+              "B_over_A": 1.1111111111111112
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 15,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 310.8885,
+            "B": 310.8505,
+            "B_minus_A": -0.038000000000010914,
+            "B_over_A": 0.9998777696826997
+          },
+          "engine_nps": {
+            "A": 2211839.5,
+            "B": 2296821.5,
+            "B_minus_A": 84982.0,
+            "B_over_A": 1.038421413488637
+          },
+          "nodes": {
+            "A": 663552,
+            "B": 690176,
+            "B_minus_A": 26624,
+            "B_over_A": 1.0401234567901234
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2134383.902653142,
+            "B": 2220360.321073993,
+            "B_minus_A": 85976.41842085123,
+            "B_over_A": 1.0402816092803073
+          },
+          "worker0_depth": {
+            "A": 17,
+            "B": 17,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.8540000000000418,
+              "B_over_A": 1.0027492692223496
+            },
+            "engine_nps": {
+              "B_minus_A": 33430,
+              "B_over_A": 1.015021390766001
+            },
+            "nodes": {
+              "B_minus_A": 12288,
+              "B_over_A": 1.01840490797546
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 33559.495076845866,
+              "B_over_A": 1.0156138031027777
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.9300000000000068,
+              "B_over_A": 0.9970110782936792
+            },
+            "engine_nps": {
+              "B_minus_A": 136534,
+              "B_over_A": 1.0621121233598976
+            },
+            "nodes": {
+              "B_minus_A": 40960,
+              "B_over_A": 1.062111801242236
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 138393.34176485613,
+              "B_over_A": 1.0652977459144626
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 16,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19.5,
+            "B": 20,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0256410256410255
+          },
+          "elapsed_ms": {
+            "A": 311.10749999999996,
+            "B": 312.9705,
+            "B_minus_A": 1.8630000000000564,
+            "B_over_A": 1.00598828379258
+          },
+          "engine_nps": {
+            "A": 2194580,
+            "B": 2252119,
+            "B_minus_A": 57539,
+            "B_over_A": 1.0262186842129246
+          },
+          "nodes": {
+            "A": 659456,
+            "B": 677888,
+            "B_minus_A": 18432,
+            "B_over_A": 1.0279503105590062
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2119717.097348159,
+            "B": 2165950.5360119464,
+            "B_minus_A": 46233.43866378721,
+            "B_over_A": 1.0218111363642002
+          },
+          "worker0_depth": {
+            "A": 19.5,
+            "B": 20,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.0256410256410255
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.5620000000000118,
+              "B_over_A": 1.0050183449100103
+            },
+            "engine_nps": {
+              "B_minus_A": 27216,
+              "B_over_A": 1.0125786454200207
+            },
+            "nodes": {
+              "B_minus_A": 8192,
+              "B_over_A": 1.0125786163522013
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 15735.335531266173,
+              "B_over_A": 1.0075203682890645
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "elapsed_ms": {
+              "B_minus_A": 2.1639999999999873,
+              "B_over_A": 1.0069591615560993
+            },
+            "engine_nps": {
+              "B_minus_A": 87862,
+              "B_over_A": 1.0394797916686325
+            },
+            "nodes": {
+              "B_minus_A": 28672,
+              "B_over_A": 1.0429447852760736
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 76731.54179630848,
+              "B_over_A": 1.0357377617778298
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0526315789473684
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 17,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 16,
+            "B": 16.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.03125
+          },
+          "elapsed_ms": {
+            "A": 311.6485,
+            "B": 310.712,
+            "B_minus_A": -0.9365000000000236,
+            "B_over_A": 0.9969950120087213
+          },
+          "engine_nps": {
+            "A": 3160746.5,
+            "B": 3426986.5,
+            "B_minus_A": 266240.0,
+            "B_over_A": 1.084233265780726
+          },
+          "nodes": {
+            "A": 948224,
+            "B": 1028096,
+            "B_minus_A": 79872,
+            "B_over_A": 1.0842332613390928
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 3042928.8044303483,
+            "B": 3308887.207586823,
+            "B_minus_A": 265958.4031564747,
+            "B_over_A": 1.0874021116659887
+          },
+          "worker0_depth": {
+            "A": 16,
+            "B": 16.5,
+            "B_minus_A": 0.5,
+            "B_over_A": 1.03125
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "elapsed_ms": {
+              "B_minus_A": -1.9010000000000105,
+              "B_over_A": 0.9939204380098948
+            },
+            "engine_nps": {
+              "B_minus_A": 163840,
+              "B_over_A": 1.0533333333333332
+            },
+            "nodes": {
+              "B_minus_A": 49152,
+              "B_over_A": 1.0533333333333332
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 176182.2896597511,
+              "B_over_A": 1.0597763161372322
+            },
+            "worker0_depth": {
+              "B_minus_A": 1,
+              "B_over_A": 1.0625
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 0.027999999999963165,
+              "B_over_A": 1.0000901451981583
+            },
+            "engine_nps": {
+              "B_minus_A": 368640,
+              "B_over_A": 1.1134453897884993
+            },
+            "nodes": {
+              "B_minus_A": 110592,
+              "B_over_A": 1.1134453781512605
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 355734.5166531978,
+              "B_over_A": 1.1133454593635788
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 18,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 19.5,
+            "B": 21.5,
+            "B_minus_A": 2.0,
+            "B_over_A": 1.1025641025641026
+          },
+          "elapsed_ms": {
+            "A": 311.48400000000004,
+            "B": 312.19,
+            "B_minus_A": 0.7059999999999604,
+            "B_over_A": 1.0022665690693582
+          },
+          "engine_nps": {
+            "A": 2252799.5,
+            "B": 2210890.5,
+            "B_minus_A": -41909.0,
+            "B_over_A": 0.9813969241381667
+          },
+          "nodes": {
+            "A": 675840,
+            "B": 665600,
+            "B_minus_A": -10240,
+            "B_over_A": 0.9848484848484849
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2169661.496471128,
+            "B": 2131638.7721926207,
+            "B_minus_A": -38022.72427850729,
+            "B_over_A": 0.9824752735206161
+          },
+          "worker0_depth": {
+            "A": 19.5,
+            "B": 21.5,
+            "B_minus_A": 2.0,
+            "B_over_A": 1.1025641025641026
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 4,
+              "B_over_A": 1.2105263157894737
+            },
+            "elapsed_ms": {
+              "B_minus_A": -0.07200000000000273,
+              "B_over_A": 0.9997686390190295
+            },
+            "engine_nps": {
+              "B_minus_A": -68266,
+              "B_over_A": 0.9683547296388973
+            },
+            "nodes": {
+              "B_minus_A": -20480,
+              "B_over_A": 0.9683544303797469
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -65343.96308297594,
+              "B_over_A": 0.9685782598272887
+            },
+            "worker0_depth": {
+              "B_minus_A": 4,
+              "B_over_A": 1.2105263157894737
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.4839999999999804,
+              "B_over_A": 1.0047599802415914
+            },
+            "engine_nps": {
+              "B_minus_A": -15552,
+              "B_over_A": 0.9933775426646448
+            },
+            "nodes": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -10701.48547403887,
+              "B_over_A": 0.9952642948497843
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      },
+      {
+        "repeat": 1,
+        "threads": 2,
+        "position": 19,
+        "exact_identity": false,
+        "within_side_nondeterminism": {
+          "A": true,
+          "B": true
+        },
+        "paired_metrics": {
+          "depth": {
+            "A": 15,
+            "B": 15,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "elapsed_ms": {
+            "A": 312.536,
+            "B": 312.21849999999995,
+            "B_minus_A": -0.3175000000000523,
+            "B_over_A": 0.998984117029718
+          },
+          "engine_nps": {
+            "A": 2194557.5,
+            "B": 2166889,
+            "B_minus_A": -27668.5,
+            "B_over_A": 0.9873922191603547
+          },
+          "nodes": {
+            "A": 659456,
+            "B": 653312,
+            "B_minus_A": -6144,
+            "B_over_A": 0.9906832298136646
+          },
+          "nonselected_helper_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "nonselected_nodes": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          },
+          "wall_nps": {
+            "A": 2110131.955037847,
+            "B": 2092493.8887626831,
+            "B_minus_A": -17638.06627516402,
+            "B_over_A": 0.9916412496227764
+          },
+          "worker0_depth": {
+            "A": 15,
+            "B": 15,
+            "B_minus_A": 0,
+            "B_over_A": 1.0
+          },
+          "worker0_foreign_tt_hits": {
+            "A": 0,
+            "B": 0,
+            "B_minus_A": 0,
+            "B_over_A": null
+          }
+        },
+        "directional_metrics": {
+          "A_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": -2.2170000000000414,
+              "B_over_A": 0.992941311317781
+            },
+            "engine_nps": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nodes": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": 14839.463647846598,
+              "B_over_A": 1.0071118160327017
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          },
+          "B_first": {
+            "depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "elapsed_ms": {
+              "B_minus_A": 1.5819999999999936,
+              "B_over_A": 1.0050869639314322
+            },
+            "engine_nps": {
+              "B_minus_A": -55337,
+              "B_over_A": 0.9749814633969908
+            },
+            "nodes": {
+              "B_minus_A": -12288,
+              "B_over_A": 0.9814814814814815
+            },
+            "nonselected_helper_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "nonselected_nodes": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            },
+            "wall_nps": {
+              "B_minus_A": -50115.596198174404,
+              "B_over_A": 0.9765120339431793
+            },
+            "worker0_depth": {
+              "B_minus_A": 0,
+              "B_over_A": 1.0
+            },
+            "worker0_foreign_tt_hits": {
+              "B_minus_A": 0,
+              "B_over_A": null
+            }
+          }
+        }
+      }
+    ],
+    "interpretation": "Multiworker order is nondeterministic. No Elo inference or automatic adoption."
+  },
+  "rows_sha256": "8bbaa5c4b931226cc294bd36e37f5f2e031c67303051740d44d30529a6eaa3cc",
+  "decision": "No stable useful-depth increase: median paired block depth delta 0, both order directions 0. Remains disabled; no SPRT advanced.",
+  "scope": "Same 2-participant cooperative prototype, persistent factor only; not a comparison with ordinary Lazy SMP or YaneuraOu."
+}
