@@ -90,3 +90,52 @@ python3 scripts/paired_search_diagnostics.py \
 
 Do not add --diagnostics to this coordinated prototype lane. Results and
 interpretations will be recorded separately from this prospective plan.
+
+## Completed observations
+
+The clean standard native tune build at 1290743 has SHA-256
+`cb771a3a51613865f7f4b69bc3ef0a52c7550549e138e5db8bc5ceae15d0c894`.
+No external rustflags or LLVM profile override was present. Build receipts,
+raw-row/manifests/summary hashes and local validation are in
+[results.json](results.json). The identity control is the retained standard
+62573f9 tune build; neither arm uses PGO.
+
+All twenty one-worker ABBA blocks (80 searches) matched exactly in bestmove,
+score, PV, nodes and depth. All 80 two-worker depth-10 searches completed,
+with forty ON records and no latency record in the forty OFF searches. The
+ON-side observer overhead was recorded and the lane was marked timing
+unqualified. Every root attribution and telemetry arithmetic check passed.
+
+| ON-side advice near-publication phase | Publications |
+| --- | ---: |
+| Owned null-window scout, including full-depth re-scout | 45 |
+| Owned full-window re-search | 100 |
+| Another helper-advice confirmation | 89 |
+| Outside main root child | 63 |
+| Activity epoch changed during sampling | 1 |
+| Total accepted | 298 |
+
+Of these 298 accepted publications, 245 started confirmation and 53 remained
+unconfirmed at generation/invocation end; none were rejected at publication.
+Only the 245 confirmation starts have delay samples: their maximum was
+4,370 us and 10,021 private-main nodes. Their summed node intervals were
+177,970, including 37,232 for 44 scout-arrival confirmations. These intervals
+can overlap. They cannot be interpreted as unique wasted nodes or saved work.
+Unconfirmed publications are censored; the maximum is not an all-advice bound.
+
+Zero scout-arrival publications reported a lower bound at least the fixed
+aspiration-pass beta. All beta-scout confirmation/cut counters were therefore
+zero. This is no evidence for immediate scout interruption under that condition.
+It also does not prove all true beta opportunities were absent: a smaller
+null-window LOWER bound does not exclude a higher true value. A future
+diagnostics-only follow-up should record eventual main-confirmed cuts by
+arrival phase before defining a separate preemption policy. No such policy
+was added, and no search factor was promoted from these observations.
+
+All 1,283 PV moves over 160 searches replayed legally with the frozen Sekirei
+legal tool. Core 357 tests passed with 4 ignored, root 33, tune USI 24 and
+Python 46 passed; formatting and tune Clippy passed. These are bounded
+development checks, not ten-million random validations or 64-core contention
+proof. The fixed-depth lanes overlapped, and instrumented latency reflects
+this shared host; no NPS, useful-depth or Elo improvement is established.
+COOP_LATENCY stays zero and the independent aspiration gate remains unchanged.
