@@ -102,6 +102,8 @@ jobs:
         run: RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
       - name: test
         run: cargo test --release
+      - name: Material gate opening generator tests
+        run: RUST_MIN_STACK=16777216 cargo test --release -p sekirei-core --example gate_openings
       - name: Optional opening-book contract
         run: |
           if cargo tree -p sekirei --no-default-features | grep -q 'lineprior'; then
@@ -384,8 +386,8 @@ jobs:
   python-tools:
     # Independent job (not a step in `test` above) so a Rust fmt/clippy
     # failure elsewhere can't mask a Python regression here, and vice
-    # versa. Only runs this one file, not `unittest discover` across
-    # scripts/, so it doesn't sweep in unrelated/WIP test_*.py files.
+    # versa. Run explicit parser/search-tool suites rather than discovering
+    # unrelated or in-progress test_*.py files across scripts/.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -396,7 +398,8 @@ jobs:
           python3 -m unittest \
             scripts/test_nps_threads.py \
             scripts/test_paired_search_diagnostics.py \
-            scripts/test_compare_yaneura_speed.py
+            scripts/test_compare_yaneura_speed.py \
+            scripts/test_freeze_material_gate_openings.py
 
   king-relative-feature:
     # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module

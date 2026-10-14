@@ -14,7 +14,7 @@
 //!   --byoyomi <ms>       byoyomi per move in ms (default: 10000)
 //!   --output <dir>       directory to write USI game records (optional)
 //!   --max-moves <n>      max moves before draw declaration (default: 512)
-//!   --positions <file>   file with one SFEN per line; games start from random positions
+//!   --positions <file>   one startpos/raw SFEN per line, with optional legal moves prefix
 //!   --json <file>        write result summary as JSON
 //! ```
 
@@ -41,7 +41,7 @@ use sekirei_core::{
     color::Color,
     movegen::{generate_legal_moves, is_in_check},
     piece::PieceKind,
-    sfen::{PositionHistory, board_to_sfen, move_from_usi, move_to_usi, parse_position_cmd},
+    sfen::{PositionHistory, board_to_sfen, move_from_usi, move_to_usi},
 };
 
 // ---- Args ----
@@ -218,7 +218,7 @@ fn print_usage() {
     eprintln!("  --output <dir>       write USI game records to this directory");
     eprintln!("  --csa-output <dir>   write replay-validated CSA games for training");
     eprintln!("  --max-moves <n>      max moves before declaring draw (default: 512)");
-    eprintln!("  --positions <file>   file with one SFEN per line for random openings");
+    eprintln!("  --positions <file>   startpos/raw SFEN lines with optional moves prefix");
     eprintln!(
         "  --games-per-position <n>  play N games per position (covers all; overrides --games)"
     );
@@ -270,15 +270,16 @@ fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<S
         }
     };
 
-    let mut board = if start_pos == "startpos" {
-        Board::startpos()
-    } else {
-        Board::from_sfen(start_pos).map_err(|e| format!("invalid initial SFEN: {e}"))?
+    let opening = parse_opening(start_pos)?;
+    let mut board = match &opening.initial_sfen {
+        Some(sfen) => {
+            Board::from_sfen(sfen).map_err(|error| format!("invalid initial SFEN: {error}"))?
+        }
+        None => Board::startpos(),
     };
-    let mut text = if start_pos == "startpos" {
-        String::from("V2.2\nPI\n+\n")
-    } else {
-        format!("V2.2\n'sekirei_initial_sfen: {start_pos}\n")
+    let mut text = match &opening.initial_sfen {
+        None => String::from("V2.2\nPI\n+\n"),
+        Some(sfen) => format!("V2.2\n'sekirei_initial_sfen: {sfen}\n"),
     };
     if let EndReason::PerpetualCheck(loser) = reason {
         let loser = match loser {
@@ -291,7 +292,7 @@ fn game_to_csa(start_pos: &str, moves: &[String], reason: EndReason) -> Result<S
         // into a draw, while ordinary CSA consumers still see a repetition.
         let _ = writeln!(text, "'sekirei_perpetual_check_loser: {loser}");
     }
-    for move_text in moves {
+    for move_text in opening.prefix_moves.iter().chain(moves) {
         let mv = move_from_usi(move_text, &board)
             .map_err(|error| format!("cannot replay USI move {move_text:?}: {error}"))?;
         let sign = if board.side_to_move == Color::Black {
@@ -480,22 +481,98 @@ impl Transcript {
     }
 }
 
-fn position_prefix(start_pos: &str) -> String {
-    if start_pos == "startpos" {
-        "position startpos".to_string()
+/// Join both opening and played moves into one USI move sequence.
+/// Every caller uses the same representation for engine requests and kifu.
+fn append_position_moves(prefix: &str, moves: &[String]) -> String {
+    if moves.is_empty() {
+        prefix.to_string()
     } else {
-        format!("position sfen {start_pos}")
+        let separator = if prefix.split_whitespace().any(|token| token == "moves") {
+            " "
+        } else {
+            " moves "
+        };
+        format!("{prefix}{separator}{}", moves.join(" "))
     }
 }
 
+fn position_prefix(start_pos: &str) -> String {
+    let position = start_pos.split_whitespace().collect::<Vec<_>>().join(" ");
+    if position.split_whitespace().next() == Some("startpos") {
+        format!("position {position}")
+    } else {
+        format!("position sfen {position}")
+    }
+}
+
+struct Opening {
+    command: String,
+    board: Board,
+    history: PositionHistory,
+    // The CSA exporter replays the complete prefix from this initial board.
+    initial_sfen: Option<String>,
+    prefix_moves: Vec<String>,
+}
+
+/// Parse an opening once with the real repetition history, rejecting a
+/// prefix that already ended rather than reviving it as a fresh SFEN.
+fn parse_opening(start_pos: &str) -> Result<Opening, String> {
+    let tokens: Vec<&str> = start_pos.split_whitespace().collect();
+    let moves_index = tokens.iter().position(|token| *token == "moves");
+    let base_end = moves_index.unwrap_or(tokens.len());
+    let initial_sfen = if tokens.first() == Some(&"startpos") {
+        if base_end != 1 {
+            return Err(format!("invalid match startpos suffix: {start_pos:?}"));
+        }
+        None
+    } else {
+        if !(3..=4).contains(&base_end) {
+            return Err(format!(
+                "invalid match start position {start_pos:?}: expected 3 or 4 SFEN fields"
+            ));
+        }
+        Some(tokens[..base_end].join(" "))
+    };
+    let mut board = match &initial_sfen {
+        Some(sfen) => Board::from_sfen(sfen)
+            .map_err(|error| format!("invalid match start position {start_pos:?}: {error}"))?,
+        None => Board::startpos(),
+    };
+    let mut history = PositionHistory::initial(board.hash());
+    let prefix_moves: Vec<String> = moves_index
+        .map(|index| {
+            tokens[index + 1..]
+                .iter()
+                .map(|token| (*token).to_string())
+                .collect()
+        })
+        .unwrap_or_default();
+    for (ply, move_text) in prefix_moves.iter().enumerate() {
+        let mover = board.side_to_move;
+        // move_from_usi validates the candidate against legal move generation.
+        let mv = move_from_usi(move_text, &board)
+            .map_err(|error| format!("invalid opening move at ply {}: {error}", ply + 1))?;
+        board.do_move(mv);
+        history.push_after_move(board.hash(), mover, is_in_check(&board, board.side_to_move));
+        if let Some(outcome) = history.outcome_at_current_position() {
+            return Err(format!(
+                "opening prefix already ended by repetition at ply {}: {outcome:?}",
+                ply + 1
+            ));
+        }
+    }
+    Ok(Opening {
+        command: position_prefix(start_pos),
+        board,
+        history,
+        initial_sfen,
+        prefix_moves,
+    })
+}
+
 fn parse_start_position(start_pos: &str) -> Result<(String, Board), String> {
-    let prefix = position_prefix(start_pos);
-    let command = prefix
-        .strip_prefix("position ")
-        .expect("position_prefix always includes the USI command prefix");
-    let board = parse_position_cmd(command)
-        .map_err(|error| format!("invalid match start position {start_pos:?}: {error}"))?;
-    Ok((prefix, board))
+    let opening = parse_opening(start_pos)?;
+    Ok((opening.command, opening.board))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -506,7 +583,7 @@ fn run_game(
     byoyomi_ms: u64,
     fischer: Option<(u64, u64)>,
     max_moves: usize,
-    start_pos: &str, // "startpos" or SFEN string
+    start_pos: &str, // startpos or raw SFEN, each with an optional moves prefix
     game_num: usize,
     transcript: &mut Transcript,
 ) -> (Outcome, Vec<String>, EndReason) {
@@ -543,10 +620,14 @@ fn run_game(
     // boundary fail-closed as well: silently falling back to startpos would
     // leave the engines and the runner's legality board on different
     // positions and misreport the first move as illegal.
-    let (pos_prefix, mut board) = parse_start_position(start_pos).unwrap_or_else(|error| {
+    let Opening {
+        command: pos_prefix,
+        mut board,
+        history: mut position_history,
+        ..
+    } = parse_opening(start_pos).unwrap_or_else(|error| {
         fatal_protocol_error(e1, e2, &format!("game {game_num} cannot start: {error}"))
     });
-    let mut position_history = PositionHistory::initial(board.hash());
 
     for ply in 0..max_moves {
         // Arbitrary SFENs may begin with White to move. Engine assignment is
@@ -556,11 +637,7 @@ fn run_game(
         let mover_pid = mover.pid();
         let mover_name = mover.name.clone();
 
-        let pos_cmd = if moves.is_empty() {
-            pos_prefix.clone()
-        } else {
-            format!("{} moves {}", pos_prefix, moves.join(" "))
-        };
+        let pos_cmd = append_position_moves(&pos_prefix, &moves);
         let sfen_before = board_to_sfen(&board);
         let side_idx = usize::from(board.side_to_move != Color::Black);
         let go_cmd = match (clocks, fischer) {
@@ -1071,7 +1148,7 @@ fn load_positions(path: &Path) -> Result<Vec<String>, String> {
 
 fn run_validate_positions(args: &[String]) {
     if args.len() != 1 {
-        eprintln!("usage: sekirei-match validate-positions <one-sfen-per-line-file>");
+        eprintln!("usage: sekirei-match validate-positions <opening-file>");
         std::process::exit(2);
     }
     match load_positions(Path::new(&args[0])) {
@@ -2175,11 +2252,7 @@ fn main() {
             }
             let _ = writeln!(content, "# Result: {result_str}{reason_tag}");
             let pos_line = position_prefix(start_pos);
-            if moves.is_empty() {
-                let _ = writeln!(content, "{pos_line}");
-            } else {
-                let _ = writeln!(content, "{pos_line} moves {}", moves.join(" "));
-            }
+            let _ = writeln!(content, "{}", append_position_moves(&pos_line, &moves));
             if let Err(e) = fs::write(&path, content) {
                 fatal_evidence_error(
                     &mut e1,
@@ -2418,6 +2491,137 @@ mod tests {
     }
 
     #[test]
+    fn opening_prefix_retains_moves_and_appends_only_one_moves_token() {
+        let opening = parse_opening("startpos moves 7g7f 3c3d").unwrap();
+        assert_eq!(opening.history.entries().len(), 3);
+        assert_eq!(opening.command, "position startpos moves 7g7f 3c3d");
+        assert_eq!(
+            append_position_moves(&opening.command, &[]),
+            opening.command
+        );
+        let played = vec!["2g2f".to_string(), "8c8d".to_string()];
+        let command = append_position_moves(&opening.command, &played);
+        assert_eq!(command, "position startpos moves 7g7f 3c3d 2g2f 8c8d");
+        assert_eq!(
+            command
+                .split_whitespace()
+                .filter(|token| *token == "moves")
+                .count(),
+            1
+        );
+        let (board, history) = sekirei_core::sfen::parse_position_cmd_with_history(
+            command.strip_prefix("position ").unwrap(),
+        )
+        .unwrap();
+        assert_eq!(history.entries().len(), 5);
+        let replayed = parse_opening(command.strip_prefix("position ").unwrap()).unwrap();
+        assert_eq!(replayed.board.hash(), board.hash());
+        assert_eq!(
+            append_position_moves(&position_prefix("startpos"), &played),
+            "position startpos moves 2g2f 8c8d"
+        );
+        // An empty explicit prefix remains appendable without a second keyword.
+        assert_eq!(
+            append_position_moves(&parse_opening("startpos moves").unwrap().command, &played),
+            "position startpos moves 2g2f 8c8d"
+        );
+    }
+
+    #[test]
+    fn raw_sfen_opening_prefix_preserves_white_to_move_history() {
+        let base = "4k4/9/9/9/9/9/9/9/4K4 w - 1";
+        let opening = parse_opening(&format!("{base} moves 5a5b 5i5h")).unwrap();
+        assert_eq!(opening.initial_sfen.as_deref(), Some(base));
+        assert_eq!(opening.history.entries().len(), 3);
+        assert_eq!(opening.history.entries()[1].mover, Some(Color::White));
+        assert_eq!(opening.history.entries()[2].mover, Some(Color::Black));
+        assert_eq!(opening.board.side_to_move, Color::White);
+        assert_eq!(
+            opening.command,
+            format!("position sfen {base} moves 5a5b 5i5h")
+        );
+        let played = vec!["5b5a".to_string()];
+        assert_eq!(
+            append_position_moves(&opening.command, &played),
+            format!("position sfen {base} moves 5a5b 5i5h 5b5a")
+        );
+    }
+
+    #[test]
+    fn opening_prefix_rejects_illegal_moves_and_unknown_suffixes() {
+        let initial = board_to_sfen(&Board::startpos());
+        for prefix in ["startpos".to_string(), initial] {
+            let error = match parse_opening(&format!("{prefix} moves 7g7e")) {
+                Ok(_) => panic!("a pawn cannot move two squares"),
+                Err(error) => error,
+            };
+            assert!(error.contains("invalid opening move at ply 1"), "{error}");
+            assert!(error.contains("illegal move"), "{error}");
+        }
+        assert!(parse_opening("startpos ignored").is_err());
+        assert!(parse_opening("startpos moves 7g7f moves 3c3d").is_err());
+    }
+
+    #[test]
+    fn opening_prefix_rejects_repetition_at_or_before_its_last_move() {
+        let base = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+        let cycle = "5i5h 5a5b 5h5i 5b5a";
+        let prefix = format!("{base} moves {cycle} {cycle} {cycle}");
+        for opening in [prefix.clone(), format!("{prefix} 5i5h")] {
+            let error = match parse_opening(&opening) {
+                Ok(_) => panic!("fourfold repetition must not become a new opening"),
+                Err(error) => error,
+            };
+            assert!(
+                error.contains("already ended by repetition at ply 12"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn opening_prefix_history_adjudicates_repetition_on_the_next_cycle() {
+        let base = "4k4/9/9/9/9/9/9/9/4K4 b - 1";
+        let cycle = "5i5h 5a5b 5h5i 5b5a";
+        let mut opening = parse_opening(&format!("{base} moves {cycle} {cycle}")).unwrap();
+        assert_eq!(opening.history.entries().len(), 9);
+        assert_eq!(opening.history.outcome_at_current_position(), None);
+        for (index, text) in cycle.split_whitespace().enumerate() {
+            let mover = opening.board.side_to_move;
+            let mv = move_from_usi(text, &opening.board).unwrap();
+            opening.board.do_move(mv);
+            opening.history.push_after_move(
+                opening.board.hash(),
+                mover,
+                is_in_check(&opening.board, opening.board.side_to_move),
+            );
+            assert_eq!(
+                opening.history.outcome_at_current_position(),
+                (index == 3).then_some(RepetitionOutcome::Draw)
+            );
+        }
+    }
+
+    #[test]
+    fn csa_replays_the_opening_prefix_before_played_moves() {
+        let played = vec!["2g2f".to_string()];
+        let csa = game_to_csa("startpos moves 7g7f 3c3d", &played, EndReason::Resign).unwrap();
+        assert_eq!(csa, "V2.2\nPI\n+\n+7776FU\n-3334FU\n+2726FU\n%TORYO\n");
+        let base = board_to_sfen(&Board::startpos());
+        let csa = game_to_csa(
+            &format!("{base} moves 7g7f 3c3d"),
+            &played,
+            EndReason::Resign,
+        )
+        .unwrap();
+        assert_eq!(
+            csa,
+            format!("V2.2\n'sekirei_initial_sfen: {base}\n+7776FU\n-3334FU\n+2726FU\n%TORYO\n")
+        );
+        assert!(game_to_csa("startpos moves 7g7e", &played, EndReason::Resign).is_err());
+    }
+
+    #[test]
     fn opening_loader_reports_the_physical_source_line() {
         let path = std::env::temp_dir().join(format!(
             "sekirei-match-invalid-openings-{}-{}.sfen",
@@ -2438,10 +2642,11 @@ mod tests {
             now_ms()
         ));
         let sfen = "4k4/9/9/9/9/9/9/9/4K4 w - 1";
-        fs::write(&path, format!("startpos\n{sfen}\n")).unwrap();
+        let prefixed = "startpos moves 7g7f 3c3d";
+        fs::write(&path, format!("startpos\n{sfen}\n{prefixed}\n")).unwrap();
         let positions = load_positions(&path).unwrap();
         let _ = fs::remove_file(path);
-        assert_eq!(positions, ["startpos", sfen]);
+        assert_eq!(positions, ["startpos", sfen, prefixed]);
     }
 
     #[test]

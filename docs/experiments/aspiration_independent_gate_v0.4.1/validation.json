@@ -1,0 +1,118 @@
+{
+  "schema": "sekirei.independent-material-gate-preparation.v1",
+  "base_commit": "bec248e",
+  "source_working_tree_dirty_when_tested": true,
+  "source_sha256": {
+    "crates/sekirei-core/examples/gate_openings.rs": "e189b20f8ee078f06148c8258cdd272cd632519ee7fac115991a2f61949897b5",
+    "crates/sekirei-match-runner/src/main.rs": "e82643e83b75031be01bbe5e98ccf406480c9b36924da23ef1c59eadd9264245",
+    "scripts/freeze_material_gate_openings.py": "79d43719e8b6a897ccbc079e584499aaf0a4ac4c19ab2a292dd4a9cdf531ef3f",
+    "scripts/run_ab_match.py": "920601af0dcff7a5af48859677a5fd61237f7b5a2523a94c5a9e05d8e21dd1c0",
+    "scripts/test_freeze_material_gate_openings.py": "396ff52fbd6d63cc4fa31cb3e14efab4efd27ac165235b5a76b71e05152344b8",
+    "scripts/test_run_ab_match.py": "4f70c15f37105500857d7b99c0c94a891a8a7235d52fe0994e4e5379d3ab22b2"
+  },
+  "runner_tests": {
+    "passed": 91,
+    "failed": 0
+  },
+  "generator_tests": {
+    "passed": 4,
+    "failed": 0
+  },
+  "python_tests": {
+    "passed": 99,
+    "failed": 0
+  },
+  "workspace_all_target_clippy_passed": true,
+  "coverage_remeasured": false,
+  "native_smoke": {
+    "schema": "sekirei.gate-preparation-smoke.v1",
+    "diagnostic_only": true,
+    "strength_gate_started": false,
+    "independence_qualified": false,
+    "reason": "Code/format smoke only; owner hold-out and prior-gate exclusion attestations are not supplied.",
+    "generator_version": "0.4.1",
+    "configuration": {
+      "seed": 2026101408,
+      "trajectories": 3,
+      "random_plies": 2,
+      "min_ply": 6,
+      "max_ply": 8,
+      "depth": 2,
+      "nodes": 256,
+      "hash_mb": 1
+    },
+    "artifacts": {
+      "generator": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/gate-preparation-smoke-v041/generator",
+        "sha256": "a63f7992eb8cce447abd1612e5414354cb05c9e90022dae7b356b6b77af06318"
+      },
+      "match": {
+        "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/gate-preparation-smoke-v041/match",
+        "sha256": "8796adb7fdda03da45b9977f1b331fa91c7b942f7614fea40897c8f1aeac0e82"
+      }
+    },
+    "positions": [
+      {
+        "trajectory": 0,
+        "ply": 8,
+        "sfen": "1n1gkgsnl/1r1s3b1/l1ppppppp/pp7/9/P8/LPPPPPPPP/1B1K3R1/1NSG1GSNL b - 9",
+        "identity_sha256": "5f38437d8075778b6d4a6fd6c4782e018be3d970c98e8fe6b6cf335f297d25c2",
+        "position": "startpos moves 9i9h 7a6b 9g9f 9c9d 9h9g 9a9c 5i6h 8c8d"
+      },
+      {
+        "trajectory": 1,
+        "ply": 7,
+        "sfen": "1nsgkgsnl/1r5b1/l1ppppppp/pp7/9/P5P2/LPPPPP1PP/1B3K1R1/1NSG1GSNL w - 8",
+        "identity_sha256": "58f8844971af461dfbcb76ed6b40a85fa192b02d4e439d1a5725c2537e62f5c8",
+        "position": "startpos moves 3g3f 8c8d 9g9f 9c9d 9i9g 9a9c 5i4h"
+      },
+      {
+        "trajectory": 2,
+        "ply": 7,
+        "sfen": "1ns1kgsnl/1r1g3b1/lpppppppp/p8/9/P8/LPPPPPPPP/1B1KG2R1/1NS2GSNL w - 8",
+        "identity_sha256": "60c7ac8a06fa015c801f0ef7696662739f3d74f5c2d94e12331166ad9896d9dd",
+        "position": "startpos moves 6i5h 6a6b 9g9f 9c9d 9i9g 9a9c 5i6h"
+      }
+    ],
+    "rejected": [],
+    "raw_sha256": "87245aac8c2fb17ad9da920e082732b825f85eb613995e46e963a7436bd27619",
+    "openings_sha256": "44c37f4aec863b11298e0908c38c78982a9d9630ab2f3dfc948f30c3dbe5d7a0",
+    "validation_returncode": 0
+  },
+  "independent_corpus_frozen": false,
+  "strength_gate_started": false,
+  "candidate_default_changed": false,
+  "pending": [
+    "complete owner exclusion attestations",
+    "clean tune executable with retained activation check",
+    "no overlapping legacy gate and sufficient stable resources"
+  ],
+  "generation_recipe": {
+    "seed": 2026101409,
+    "trajectories": 800,
+    "selected": 400,
+    "random_plies": 12,
+    "min_ply": 24,
+    "max_ply": 48,
+    "depth": 4,
+    "nodes": 2000,
+    "hash_mb": 16
+  },
+  "gate_recipe": {
+    "candidate": "T_ASP_VOLATILITY=1",
+    "baseline": "T_ASP_VOLATILITY=0",
+    "threads": 1,
+    "search_mode": "Speculative",
+    "spec_top_n": 0,
+    "hash_mb": 64,
+    "move_overhead_ms": 0,
+    "byoyomi_ms": 300,
+    "games_cap": 800,
+    "games_per_position": 2,
+    "sprt_model": "paired trinomial BayesElo",
+    "h0": 0,
+    "h1": 10,
+    "alpha": 0.05,
+    "beta": 0.05
+  }
+}

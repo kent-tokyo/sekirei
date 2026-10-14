@@ -6,6 +6,20 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+### Added
+
+- Add fresh material-opening generation with full move histories and mandatory
+  owner identity exclusions before independent gate qualification. Freeze and
+  replay generator/validator provenance; optionally bind corpus and executable
+  identities before and after a match, revoking H1 if inputs change.
+
+### Fixed
+
+- Preserve match-opening repetition history from legal USI move prefixes in
+  runner adjudication and recorded USI/CSA games. Reject prefixes that already
+  ended by repetition and avoid duplicate moves keywords. Bare openings remain
+  supported; search defaults and NNUE are unchanged.
+
 ## [0.4.1] – 2026-10-14
 
 Version 0.4.1 improves search correctness, behavior-preserving HalfKP update

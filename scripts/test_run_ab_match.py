@@ -482,6 +482,45 @@ class SprtTest(unittest.TestCase):
         self.assertEqual(result["status"], "pass")
         self.assertEqual(result["result"]["sprt"]["verdict"], "accept_h1")
 
+    def test_independent_input_mutation_revokes_an_otherwise_accepted_h1(self):
+        for mutation in ("manifest", "engine"):
+            with self.subTest(mutation=mutation), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                engine = root / "engine"
+                runner = root / "match"
+                openings = root / "openings.usi"
+                engine.write_bytes(b"frozen-engine")
+                runner.write_bytes(b"frozen-runner")
+                openings.write_text("startpos\n")
+                snapshot = {"sha256": "1" * 64, "match_binary_sha256": hashlib.sha256(runner.read_bytes()).hexdigest()}
+                changed = dict(snapshot, sha256="2" * 64)
+
+                def mutate_engine(index, _line):
+                    if mutation == "engine" and index == 1:
+                        engine.write_bytes(b"changed-engine")
+
+                process = _FakeMatchProcess(["→ Engine1 Win\n"] * 600, before_yield=mutate_engine)
+                self.replay.side_effect = lambda _path, *, sprt, paired: (
+                    (process.lines_read, 0, 0),
+                    sprt_llr(process.lines_read, 0, 0, sprt[0], sprt[1]),
+                    "H1 accepted",
+                )
+                result_path = root / "result.json"
+                argv = ["run_ab_match.py", "selfplay", "--engine-a", str(engine), "--engine-b", str(engine),
+                        "--match-binary", str(runner), "--openings", str(openings),
+                        "--openings-manifest", str(root / "manifest.json"),
+                        "--games", "600", "--sprt", "0,10", "--out-dir", str(root / "match-output"),
+                        "--result-json", str(result_path)]
+                with patch.object(sys, "argv", argv), patch("run_ab_match.validate_corpus", side_effect=[snapshot, changed if mutation == "manifest" else snapshot]), patch("run_ab_match.subprocess.Popen", return_value=process), patch("run_ab_match.runner_identity", return_value={}), patch("sys.stdout", new_callable=io.StringIO), patch("sys.stderr", new_callable=io.StringIO):
+                    self.assertEqual(main(), 1)
+                result = json.loads(result_path.read_text())
+                self.assertTrue(process.terminated)
+                self.assertEqual(result["status"], "error")
+                self.assertEqual(result["result"]["sprt"]["verdict"], "inconclusive")
+                self.assertFalse(result["evidence"]["complete"])
+                self.assertIn("inputs changed", result["evidence"]["process_error"])
+                self.assertEqual(result["evidence"]["openings"]["independent_corpus"], snapshot)
+
     def test_result_json_fails_closed_when_raw_evidence_is_invalid(self):
         process = _FakeMatchProcess(
             ["→ Engine1 Win\n"] * 300
