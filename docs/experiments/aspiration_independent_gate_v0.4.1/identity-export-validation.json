@@ -1,0 +1,142 @@
+{
+  "schema": "sekirei.owner-identity-export-validation.v1",
+  "source_commit": "0e187f3cb96daca6de32ec610780640f20d9fd46",
+  "synthetic_only": true,
+  "actual_holdout_or_label_data_read": false,
+  "new_tests": 17,
+  "related_python_tests_passed": 115,
+  "new_tests_ignored": 0,
+  "existing_gate_rules_changed": false,
+  "actual_owner_exclusion_roles": {
+    "diagnostic": "unavailable",
+    "previous-strength-gates": "unavailable",
+    "nnue-holdouts": "unavailable"
+  },
+  "independent_corpus_qualified": false,
+  "independent_match_started": false,
+  "search_defaults_changed": false,
+  "strength_claim": false,
+  "cli_smoke": {
+    "schema": "sekirei.opening-identity-export-synthetic-smoke.v1",
+    "synthetic_only": true,
+    "independent_scope_qualified": false,
+    "gate_rejected_unattested": true,
+    "source_commit": "0e187f3cb96daca6de32ec610780640f20d9fd46",
+    "source_dirty": "",
+    "python": "3.13.6 (v3.13.6:4e665351082, Aug  6 2025, 11:22:35) [Clang 16.0.0 (clang-1600.0.26.6)]",
+    "argv": [
+      "/Library/Frameworks/Python.framework/Versions/3.13/bin/python3",
+      "-B",
+      "scripts/export_opening_identity_exclusions.py",
+      "--role",
+      "diagnostic",
+      "--input",
+      "jsonl",
+      "target/opening-identity-export-synthetic-draft/input.jsonl",
+      "--output",
+      "target/opening-identity-export-synthetic-draft/draft-identities.json"
+    ],
+    "returncode": 0,
+    "utc": "2026-10-15T00:19:23.790551+00:00",
+    "summary": {
+      "role": "diagnostic",
+      "complete_for_scope": false,
+      "records": 2,
+      "unique_identities": 1
+    },
+    "artifacts": [
+      {
+        "path": "target/opening-identity-export-synthetic-draft/draft-identities.json",
+        "sha256": "a94fcd3e7469a666b05b51b6e71c06e0146f3535fab650469fecb6c8b3c28740",
+        "bytes": 1381
+      },
+      {
+        "path": "target/opening-identity-export-synthetic-draft/input.jsonl",
+        "sha256": "405ec62362587dcf74984ead7622323565938b3deb4c45942e1ceeb1bf885818",
+        "bytes": 231
+      },
+      {
+        "path": "target/opening-identity-export-synthetic-draft/stderr.log",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "bytes": 0
+      },
+      {
+        "path": "target/opening-identity-export-synthetic-draft/stdout.log",
+        "sha256": "689797592b617eee4fc41c51e0f8f7d9ad5588d509302741cfc250118f70ae0e",
+        "bytes": 90
+      }
+    ]
+  },
+  "artifacts": [
+    {
+      "path": "scripts/export_opening_identity_exclusions.py",
+      "bytes": 9722,
+      "sha256": "bba66e65523dd81bfc72fb42aa3ad5cf8d7d0205a5ac317fe49319d587e7066d"
+    },
+    {
+      "path": "scripts/test_export_opening_identity_exclusions.py",
+      "bytes": 20283,
+      "sha256": "c5e2f90b143ccd21faf320914459516cf4319a86e00afbb15353248476efb0d3"
+    },
+    {
+      "path": "scripts/freeze_material_gate_openings.py",
+      "bytes": 19274,
+      "sha256": "79d43719e8b6a897ccbc079e584499aaf0a4ac4c19ab2a292dd4a9cdf531ef3f"
+    },
+    {
+      "path": "scripts/generate_search_diagnostic.py",
+      "bytes": 7895,
+      "sha256": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "bytes": 25142,
+      "sha256": "5c00d55de53683968801f201914868b435a7175e56ad99656668d505592cdd5d"
+    },
+    {
+      "path": "target/opening-identity-export-full-python.log",
+      "bytes": 295,
+      "sha256": "49af5d33fecc9d6014e11db34a5538e45d74fef0278c898022f939633a06f20e"
+    },
+    {
+      "path": "target/opening-identity-export-related-low-disk.log",
+      "bytes": 4571,
+      "sha256": "7e3fc8a500c78c3f3e2b7f6453ffc03066feb0c473a8925b88f215f1a6ed2b54"
+    },
+    {
+      "path": "target/opening-identity-export-object-cleanup.json",
+      "bytes": 18562,
+      "sha256": "5fdead395c76ae960b8784ab9b383b750cd6e7c8bdc51b8fed12bb4f049cefa9"
+    },
+    {
+      "path": "target/opening-identity-export-commit.log",
+      "bytes": 357,
+      "sha256": "ed5888ad013ce62079d7035fca5f1f5ce5318eaeae0e7d7a6b55cd49ebe58fa6"
+    },
+    {
+      "path": "target/opening-identity-export-synthetic-draft/stderr.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "target/opening-identity-export-synthetic-draft/stdout.log",
+      "bytes": 90,
+      "sha256": "689797592b617eee4fc41c51e0f8f7d9ad5588d509302741cfc250118f70ae0e"
+    },
+    {
+      "path": "target/opening-identity-export-synthetic-draft/input.jsonl",
+      "bytes": 231,
+      "sha256": "405ec62362587dcf74984ead7622323565938b3deb4c45942e1ceeb1bf885818"
+    },
+    {
+      "path": "target/opening-identity-export-synthetic-draft/draft-identities.json",
+      "bytes": 1381,
+      "sha256": "a94fcd3e7469a666b05b51b6e71c06e0146f3535fab650469fecb6c8b3c28740"
+    },
+    {
+      "path": "target/opening-identity-export-synthetic-draft/receipt.json",
+      "bytes": 1708,
+      "sha256": "87459eced52d4f6067b668727ee0fe268ca3d66c22e41d0e0c74188e501a5a58"
+    }
+  ]
+}
