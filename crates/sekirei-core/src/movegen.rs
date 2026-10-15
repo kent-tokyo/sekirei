@@ -2475,6 +2475,129 @@ pub fn diagnostic_legal_with_check_hint_into(
     generate_legal_moves_into_sink(board, moves, (!in_check).then_some(Bitboard::EMPTY));
 }
 
+/// Squares attacked by one piece, with `occupied` as the ray blockers.
+fn piece_attacks(kind: PieceKind, color: Color, sq: Square, occupied: Bitboard) -> Bitboard {
+    let i = sq.index() as usize;
+    let c = color.index();
+    match kind {
+        PieceKind::Fu => PAWN_ATTACKS[c][i],
+        PieceKind::Kei => KNIGHT_ATTACKS[c][i],
+        PieceKind::Gin => SILVER_ATTACKS[c][i],
+        PieceKind::Kin
+        | PieceKind::Tokin
+        | PieceKind::Narikyo
+        | PieceKind::Narikei
+        | PieceKind::Narigin => GOLD_ATTACKS[c][i],
+        PieceKind::Kyou => sliding_attacks_index(
+            sq,
+            occupied,
+            match color {
+                Color::Black => 0,
+                Color::White => 1,
+            },
+        ),
+        PieceKind::Kaku => (4..8).fold(Bitboard::EMPTY, |acc, d| {
+            acc | sliding_attacks_index(sq, occupied, d)
+        }),
+        PieceKind::Hisha => (0..4).fold(Bitboard::EMPTY, |acc, d| {
+            acc | sliding_attacks_index(sq, occupied, d)
+        }),
+        PieceKind::Ou => KING_ATTACKS[i],
+        PieceKind::Uma => {
+            piece_attacks(PieceKind::Kaku, color, sq, occupied) | ORTHOGONAL_STEP_ATTACKS[i]
+        }
+        PieceKind::Ryu => {
+            piece_attacks(PieceKind::Hisha, color, sq, occupied) | DIAGONAL_STEP_ATTACKS[i]
+        }
+    }
+}
+
+/// Validate one TT candidate without generating any sibling moves.
+/// Movement, promotion, pin/evasion and pawn-drop rules share the full
+/// generator's predicates. No evaluator updates or move-list allocation.
+pub(crate) fn is_legal_move(board: &mut Board, m: Move) -> bool {
+    if m.to.index() >= 81 || m.from.is_some_and(|from| from.index() >= 81) {
+        return false;
+    }
+    let mover = board.side_to_move;
+    let opponent = mover.flip();
+    if board
+        .piece_at(m.to)
+        .is_some_and(|p| p.color == mover || p.kind == PieceKind::Ou)
+    {
+        return false;
+    }
+    if let Some(from) = m.from {
+        if !board
+            .piece_at(from)
+            .is_some_and(|p| p.color == mover && p.kind == m.piece_kind)
+        {
+            return false;
+        }
+        let (zone, stuck) = promotion_masks(m.piece_kind, mover);
+        if m.promote {
+            if !m.piece_kind.is_promotable() || !(zone.contains(from) || zone.contains(m.to)) {
+                return false;
+            }
+        } else if stuck.contains(m.to) {
+            return false;
+        }
+        if !piece_attacks(m.piece_kind, mover, from, board.occ()).contains(m.to) {
+            return false;
+        }
+        if m.piece_kind == PieceKind::Ou {
+            return board.king_square(mover) == Some(from)
+                && king_destination_is_safe(board, mover, m);
+        }
+        let constraints = current_king_constraints(board, None);
+        if checker_count(constraints.checkers) >= 2 {
+            return false;
+        }
+        let restrictions = MoveRestrictions {
+            allowed: if constraints.checkers.is_empty() {
+                Bitboard::FULL
+            } else {
+                constraints.evasion_mask
+            },
+            pinned: constraints.pinned,
+            king: board.king_square(mover),
+            unrestricted: false,
+        };
+        return restrictions
+            .targets::<true>(from, Bitboard::from_square(m.to))
+            .contains(m.to);
+    }
+    if m.promote
+        || !m.piece_kind.is_hand_piece()
+        || board.hand(mover).get(m.piece_kind) == 0
+        || board.piece_at(m.to).is_some()
+        || !drop_targets(board, mover, m.piece_kind, Bitboard::from_square(m.to)).contains(m.to)
+    {
+        return false;
+    }
+    let constraints = current_king_constraints(board, None);
+    if checker_count(constraints.checkers) >= 2
+        || (!constraints.checkers.is_empty() && !constraints.evasion_mask.contains(m.to))
+    {
+        return false;
+    }
+    if m.piece_kind == PieceKind::Fu
+        && board.king_square(opponent).is_some_and(|king| {
+            PAWN_ATTACKS[opponent.index()][king.index() as usize].contains(m.to)
+        })
+        && !pawn_drop_has_king_escape(board, opponent, m.to)
+    {
+        let tok = board.do_pawn_drop_for_probe(mover, m.to);
+        let mate = is_uchifuzume(board, opponent, m.to);
+        board.undo_pawn_drop_for_probe(tok);
+        return !mate;
+    }
+    true
+}
+
+#[cfg(test)]
+mod single_move_tests;
+
 /// Generate fully legal moves, including king-safety and uchifuzume checks.
 pub fn generate_legal_moves(board: &mut Board) -> Vec<Move> {
     let mut legals = take_move_buffer();
@@ -3352,17 +3475,40 @@ fn generate_legal_captures_into_sink(
     }
 }
 
+#[cfg(test)]
+thread_local! {
+    pub(crate) static VALIDATED_TACTICAL_CACHE_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Generate the tactical subset used by SEARCH_V2 outside check: legal
 /// captures and legal non-capturing pawn promotions. Drops and other quiet
 /// moves are deliberately deferred until the search reaches its quiet stage.
 #[inline]
-fn generate_legal_v2_tacticals_into_sink(board: &mut Board, legals: &mut impl MoveSink) {
+fn generate_legal_v2_tacticals_into_sink<const REUSE_VALIDATED: bool>(
+    board: &mut Board,
+    legals: &mut impl MoveSink,
+) {
     legals.clear();
     let mover = board.side_to_move;
     let opponent = mover.flip();
     let opponent_king = board.pieces(opponent, PieceKind::Ou);
     let king = board.king_square(mover);
-    let constraints = current_king_constraints(board, Some(Bitboard::EMPTY));
+    let constraints = if REUSE_VALIDATED {
+        match board.legality_cache() {
+            Some((checkers, pinned, evasion_mask)) if checkers.is_empty() => {
+                #[cfg(test)]
+                VALIDATED_TACTICAL_CACHE_HITS.with(|hits| hits.set(hits.get() + 1));
+                KingConstraints {
+                    checkers,
+                    pinned,
+                    evasion_mask,
+                }
+            }
+            _ => current_king_constraints(board, Some(Bitboard::EMPTY)),
+        }
+    } else {
+        current_king_constraints(board, Some(Bitboard::EMPTY))
+    };
     debug_assert!(constraints.checkers.is_empty());
     let restrictions = MoveRestrictions {
         allowed: Bitboard::FULL.and_not(opponent_king),
@@ -3536,7 +3682,16 @@ impl MoveBuffer {
     #[inline]
     pub(crate) fn v2_tacticals_outside_check(board: &mut Board) -> Self {
         let mut moves = take_fixed_move_buffer();
-        generate_legal_v2_tacticals_into_sink(board, &mut moves);
+        generate_legal_v2_tacticals_into_sink::<false>(board, &mut moves);
+        Self { moves: Some(moves) }
+    }
+
+    /// Reuse constraints from quiet TT validation when available; otherwise
+    /// keep the established outside-check scan. The ordinary path is unchanged.
+    #[inline]
+    pub(crate) fn v2_tacticals_after_validated_quiet_tt(board: &mut Board) -> Self {
+        let mut moves = take_fixed_move_buffer();
+        generate_legal_v2_tacticals_into_sink::<true>(board, &mut moves);
         Self { moves: Some(moves) }
     }
 

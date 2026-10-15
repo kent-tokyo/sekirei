@@ -602,6 +602,9 @@ search_params! {
     /// legal move list until the quiet stage (1), or generates all moves at
     /// node entry (0).
     V2_STAGE_GEN = 1, 0, 1;
+    /// Extend staged generation to independently validated non-PV quiet TT moves.
+    /// Default off until legality and independent speed qualification pass.
+    V2_QUIET_TT_STAGE = 0, 0, 1;
     /// Reuse the proven non-negative exchange of a fast-classified tactical
     /// move only for non-positive SEE thresholds (1). Default off; exact
     /// values, move order and pruning predicates are unchanged.

@@ -40,7 +40,9 @@ use super::{
 use crate::board::Board;
 use crate::color::Color;
 use crate::eval::PIECE_VALUE;
-use crate::movegen::{CheckSquares, MoveBuffer, is_in_check, mate_in_one, see_exchange};
+use crate::movegen::{
+    CheckSquares, MoveBuffer, is_in_check, is_legal_move, mate_in_one, see_exchange,
+};
 use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::tt::Bound;
@@ -99,6 +101,24 @@ fn ft_key(color: Color, m: Move) -> usize {
 fn is_tactical(board: &Board, m: Move) -> bool {
     (m.from.is_some() && board.piece_at(m.to).is_some())
         || (m.promote && m.piece_kind == PieceKind::Fu)
+}
+
+/// Independently validated quiet TT hint for the optional staged path.
+#[inline]
+fn staged_quiet_tt(
+    board: &mut Board,
+    tt_move: Option<Move>,
+    in_check: bool,
+    pv: bool,
+) -> Option<Move> {
+    if p::V2_QUIET_TT_STAGE() == 0 || p::V2_STAGE_GEN() == 0 || in_check || pv {
+        return None;
+    }
+    tt_move.filter(|&m| {
+        !is_tactical(board, m)
+            && (p::SKIP_NONPROMO() == 0 || !useless_non_promotion(m, board.side_to_move))
+            && is_legal_move(board, m)
+    })
 }
 
 /// Captured kind index for the capture history (7: a pawn promotion).
@@ -248,6 +268,40 @@ fn dead_quiet_count(
 /// and cached exchange value
 /// (`i32::MIN`: not computed).
 type Entry = (i32, Move, u8, i32);
+
+/// Resolve tactical entries saved behind a quiet TT move. Their keys were
+/// computed before that move (and its singular search) could update capture
+/// history. Only board-dependent exchange work is delayed until this point.
+#[inline]
+fn finish_pending_tacticals(
+    board: &Board,
+    list: &mut Vec<Entry>,
+    bad_list: &mut Vec<Entry>,
+    goodcap_div: i32,
+    cache_see_bound: bool,
+) {
+    debug_assert!(!list.is_empty());
+    debug_assert!(!is_tactical(board, list[0].1));
+    debug_assert!(bad_list.is_empty());
+    let mut good_end = 1;
+    for read in 1..list.len() {
+        let (s, m, _, _) = list[read];
+        let (se, proven) = if s >= 0 && captures_up(board, m) {
+            (i32::MIN, cache_see_bound)
+        } else {
+            (see2(board, m), false)
+        };
+        let entry = (s, m, 4 | if proven { 8 } else { 0 }, se);
+        if se == i32::MIN || se >= -s / goodcap_div.max(1) {
+            list[good_end] = entry;
+            good_end += 1;
+        } else {
+            bad_list.push(entry);
+        }
+    }
+    list.truncate(good_end);
+    list[1..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+}
 
 /// Per-depth V2 null-move counters. The final bucket includes depths 31+.
 /// Columns are attempts, fail-highs, verification attempts, verification
@@ -1504,13 +1558,20 @@ fn node(
         }
     }
 
-    // Move generation (needed for ProbCut as well). The experimental staged
-    // path is limited to nodes outside check whose TT move, if any, belongs
-    // to the tactical subset and can therefore be validated immediately.
-    let staged_generation =
-        p::V2_STAGE_GEN() != 0 && !in_check && tt_move.is_none_or(|m| is_tactical(board, m));
+    // ProbCut stays before TT search; capture keys are frozen before child search.
+    // Quiet TT nodes defer tactical SEE and sorting until the TT move is exhausted.
+    // A validated quiet TT move can avoid generating its quiet siblings
+    // until they are needed. Invalid quiet candidates keep the old path.
+    let quiet_tt = staged_quiet_tt(board, tt_move, in_check, pv);
+    let staged_generation = p::V2_STAGE_GEN() != 0
+        && !in_check
+        && (tt_move.is_none_or(|m| is_tactical(board, m)) || quiet_tt.is_some());
     let mut buf = if staged_generation {
-        MoveBuffer::v2_tacticals_outside_check(board)
+        if quiet_tt.is_some() {
+            MoveBuffer::v2_tacticals_after_validated_quiet_tt(board)
+        } else {
+            MoveBuffer::v2_tacticals_outside_check(board)
+        }
     } else {
         MoveBuffer::legal_with_in_check(board, in_check)
     };
@@ -1526,8 +1587,8 @@ fn node(
             .retain(|m| !useless_non_promotion(*m, stm));
     }
     let moves = buf.as_slice();
-    let mut any_generated_move = !moves.is_empty();
-    let tt_move = tt_move.filter(|t| moves.contains(t));
+    let mut any_generated_move = !moves.is_empty() || quiet_tt.is_some();
+    let tt_move = quiet_tt.or_else(|| tt_move.filter(|t| moves.contains(t)));
 
     // ProbCut.
     let pc_beta = beta + p::V2_PC_MARGIN() - p::V2_PC_IMP() * i32::from(improving);
@@ -1629,6 +1690,9 @@ fn node(
     // Order in stages: the TT move, winning tactical moves, quiet moves
     // (scored only when the loop reaches them), losing tactical moves.
     let (list, quiet_list, bad_list) = lists;
+    // Preserve eager losing-sort experiments and every other TT path. A
+    // quiet hint exists only for the enabled non-PV staged path.
+    let mut pending_tacticals = quiet_tt.is_some() && p::V2_EAGER_LOSING_SORT() == 0;
     let pawn_bucket = HistoryTable::pawn_bucket(board);
     let low_ply = (ply as usize) < LOW_PLIES;
     let mut first_sorted = 0;
@@ -1647,6 +1711,12 @@ fn node(
         }
         if is_tactical(board, m) {
             let s = p::V2_MVV_W() * victim_value(board, m) + d.capt_score(board, stm, m);
+            if pending_tacticals {
+                // Snapshot keys in the original order after ProbCut, before
+                // the TT child can change this worker's capture-history table.
+                list.push((s, m, 4, i32::MIN));
+                continue;
+            }
             // A capture of a piece worth at least the capturer cannot lose
             // the exchange: with a non-negative key it is a winning move
             // without computing the exchange (computed later only if needed).
@@ -1666,7 +1736,9 @@ fn node(
         }
     }
     drop(buf);
-    list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+    if !pending_tacticals {
+        list[first_sorted..].sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
+    }
     if p::V2_EAGER_LOSING_SORT() != 0 {
         bad_list.sort_unstable_by_key(|&(k, _, _, _)| std::cmp::Reverse(k));
     }
@@ -1696,6 +1768,18 @@ fn node(
     let lazy_sort = p::V2_SORT() != 0;
     let (mut picks, mut tail_sorted) = (0u32, false);
     loop {
+        // Resolve before testing list exhaustion: even zero winning captures,
+        // zero captures or an excluded TT move must enter the original stages.
+        if pending_tacticals && idx == 1 {
+            pending_tacticals = false;
+            finish_pending_tacticals(
+                board,
+                list,
+                bad_list,
+                p::V2_GOODCAP_DIV(),
+                p::V2_SEE_BOUND_CACHE() != 0,
+            );
+        }
         if idx < quiet_end {
             if skip_quiets {
                 // Every remaining quiet move would be counted and skipped.
@@ -1744,7 +1828,17 @@ fn node(
                                     .retain(|m| !useless_non_promotion(*m, stm));
                             }
                             any_generated_move |= !quiet_buf.is_empty();
-                            quiet_list.extend(quiet_buf.as_slice().iter().copied());
+                            if quiet_tt.is_some() {
+                                quiet_list.extend(
+                                    quiet_buf
+                                        .as_slice()
+                                        .iter()
+                                        .copied()
+                                        .filter(|m| Some(*m) != tt_move),
+                                );
+                            } else {
+                                quiet_list.extend(quiet_buf.as_slice().iter().copied());
+                            }
                         }
                         // Generate/filter legal quiets above even when none will
                         // be searched: terminal detection still needs them.
@@ -2338,6 +2432,359 @@ fn node(
 mod tests {
     use super::*;
     use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    #[test]
+    fn quiet_tt_stage_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL
+            .iter()
+            .find(|s| s.name == "V2_QUIET_TT_STAGE")
+            .unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global tuning parameters"]
+    fn quiet_tt_stage_selects_only_enabled_legal_quiet_hints() {
+        use crate::square::Square;
+        struct Restore([i32; 3]);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for (name, value) in ["V2_QUIET_TT_STAGE", "V2_STAGE_GEN", "SKIP_NONPROMO"]
+                    .into_iter()
+                    .zip(self.0)
+                {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        let _restore = Restore([
+            p::V2_QUIET_TT_STAGE(),
+            p::V2_STAGE_GEN(),
+            p::SKIP_NONPROMO(),
+        ]);
+        for enabled in [0, 1] {
+            assert!(p::set("V2_QUIET_TT_STAGE", enabled));
+            for staged in [0, 1] {
+                assert!(p::set("V2_STAGE_GEN", staged));
+                for skip in [0, 1, 2] {
+                    assert!(p::set("SKIP_NONPROMO", skip));
+                    for (in_check, pv) in
+                        [(false, false), (false, true), (true, false), (true, true)]
+                    {
+                        for (sfen, mv, allowed) in [
+                            (
+                                "k8/9/9/9/4P4/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 5),
+                                    Square::from_shogi(5, 4),
+                                    PieceKind::Fu,
+                                    false,
+                                ),
+                                true,
+                            ),
+                            (
+                                "k8/9/9/9/9/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 5),
+                                    Square::from_shogi(5, 4),
+                                    PieceKind::Fu,
+                                    false,
+                                ),
+                                false,
+                            ),
+                            (
+                                "k8/9/4P4/9/9/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 3),
+                                    Square::from_shogi(5, 2),
+                                    PieceKind::Fu,
+                                    false,
+                                ),
+                                skip == 0,
+                            ),
+                            (
+                                "k8/9/4P4/9/9/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 3),
+                                    Square::from_shogi(5, 2),
+                                    PieceKind::Fu,
+                                    true,
+                                ),
+                                false,
+                            ),
+                            (
+                                "k8/9/9/4p4/4P4/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 5),
+                                    Square::from_shogi(5, 4),
+                                    PieceKind::Fu,
+                                    false,
+                                ),
+                                false,
+                            ),
+                            (
+                                "k8/9/4L4/9/9/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 3),
+                                    Square::from_shogi(5, 2),
+                                    PieceKind::Kyou,
+                                    false,
+                                ),
+                                skip < 2,
+                            ),
+                            (
+                                "k8/9/9/4S4/9/9/9/9/8K b - 1",
+                                Move::normal(
+                                    Square::from_shogi(5, 4),
+                                    Square::from_shogi(4, 3),
+                                    PieceKind::Gin,
+                                    true,
+                                ),
+                                true,
+                            ),
+                            (
+                                "k8/9/9/9/4P4/9/9/9/8K b P 1",
+                                Move::drop(Square::from_shogi(5, 4), PieceKind::Fu),
+                                false,
+                            ),
+                            (
+                                "k8/9/9/9/9/9/9/9/8K b P 1",
+                                Move::drop(Square::from_shogi(5, 5), PieceKind::Fu),
+                                true,
+                            ),
+                        ] {
+                            let mut board = Board::from_sfen(sfen).unwrap();
+                            let expected =
+                                (enabled != 0 && staged != 0 && !in_check && !pv && allowed)
+                                    .then_some(mv);
+                            assert_eq!(
+                                staged_quiet_tt(&mut board, Some(mv), in_check, pv),
+                                expected,
+                                "enabled={enabled} staged={staged} skip={skip} in_check={in_check} pv={pv} {sfen}"
+                            );
+                            assert_eq!(staged_quiet_tt(&mut board, None, in_check, pv), None);
+                        }
+                    }
+                }
+            }
+        }
+
+        // The selector matrix above cannot prove that a real non-PV search
+        // reaches the validated tactical generator. Count its cache hits in
+        // this test thread only, with a fresh searcher/history for each arm.
+        use super::super::{SearchConfig, Searcher};
+        use crate::halfkp::{self, HalfKpNetwork};
+        use crate::movegen::VALIDATED_TACTICAL_CACHE_HITS;
+        use crate::tt::Tt;
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_EAGER_LOSING_SORT(), 0);
+        assert_eq!(p::V2_QUIET_LMP_SKIP(), 0);
+        assert_eq!(p::V2_SEE_BOUND_CACHE(), 0);
+        assert!(!halfkp::is_active(), "run this test in an isolated process");
+        let original_skip = _restore.0[2];
+        std::thread::Builder::new()
+            .stack_size(16 * 1024 * 1024)
+            .spawn(move || {
+                halfkp::install_network(HalfKpNetwork::random(11)).unwrap();
+                assert!(halfkp::is_active());
+                for sfen in [
+                    crate::sfen::STARTPOS_SFEN,
+                    "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2",
+                ] {
+                    let mut baseline = None;
+                    for enabled in [0, 1] {
+                        assert!(p::set("V2_QUIET_TT_STAGE", enabled));
+                        assert!(p::set("V2_STAGE_GEN", 1));
+                        assert!(p::set("SKIP_NONPROMO", original_skip));
+                        let mut board = Board::from_sfen(sfen).unwrap();
+                        board.refresh_acc();
+                        let before = (
+                            crate::sfen::board_to_sfen(&board),
+                            board.hash(),
+                            board.acc.clone(),
+                            board.hkp.clone(),
+                        );
+                        let mut searcher = Searcher::new(Tt::new(4));
+                        searcher.set_ybw_split(false);
+                        searcher.clear_tt();
+                        VALIDATED_TACTICAL_CACHE_HITS.with(|hits| hits.set(0));
+                        let result = searcher.search(
+                            &mut board,
+                            SearchConfig { max_depth: 8, ..SearchConfig::default() },
+                        );
+                        let hits = VALIDATED_TACTICAL_CACHE_HITS.with(|hits| hits.get());
+                        assert!(!result.aborted, "{sfen} enabled={enabled}");
+                        assert_eq!(result.depth, 8);
+                        assert_eq!(
+                            (crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone()),
+                            before,
+                            "root state changed for enabled={enabled} {sfen}",
+                        );
+                        let signature = (result.best_move, result.score, result.pv, result.nodes, result.depth);
+                        if enabled == 0 {
+                            assert_eq!(hits, 0, "disabled arm reused validated constraints");
+                            baseline = Some(signature);
+                        } else {
+                            assert!(hits > 0, "real non-PV validated tactical cache path was not exercised: {sfen}");
+                            assert_eq!(baseline.as_ref().unwrap(), &signature, "real search changed: {sfen}");
+                        }
+                        eprintln!("quiet TT actual own HalfKP depth8 enabled={enabled} cached_tactical_hits={hits}");
+                    }
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    // Independent allocating reference for the original eager split. The
+    // delayed implementation must compact in place without changing either
+    // sort input, the bad-list order, the cached exchange, or proof flags.
+    fn eager_pending_reference(
+        board: &Board,
+        saved: &[Entry],
+        goodcap_div: i32,
+        cache_see_bound: bool,
+    ) -> (Vec<Entry>, Vec<Entry>) {
+        let classified: Vec<_> = saved[1..]
+            .iter()
+            .map(|&(key, m, _, _)| {
+                let fast = key >= 0 && captures_up(board, m);
+                let exact = if fast { i32::MIN } else { see2(board, m) };
+                let flags = 4 | if fast && cache_see_bound { 8 } else { 0 };
+                (key, m, flags, exact)
+            })
+            .collect();
+        let (mut good, bad): (Vec<_>, Vec<_>) = classified
+            .into_iter()
+            .partition(|e| e.3 == i32::MIN || e.3 >= -e.0 / goodcap_div.max(1));
+        good.sort_unstable_by_key(|e| std::cmp::Reverse(e.0));
+        good.insert(0, saved[0]);
+        (good, bad)
+    }
+
+    #[test]
+    fn pending_tacticals_match_eager_order_and_see_states_at_boundaries() {
+        let mut saw_zero = false;
+        let mut saw_all_good = false;
+        let mut saw_all_bad = false;
+        let mut saw_mixed = false;
+        let mut saw_tied_good = false;
+        let mut saw_pawn_promotion = false;
+        let mut saw_proven = false;
+        let mut saw_exact = false;
+        for sfen in [
+            crate::sfen::STARTPOS_SFEN,
+            // Rook captures lose to the gold; pawn captures include both
+            // promotion choices and take up, supplying mixed good/bad ties.
+            "4k4/3g1g3/3p1p3/3R1P3/9/9/9/9/4K4 b - 1",
+            // A non-capturing pawn promotion still belongs to this list.
+            "4k4/9/4P4/9/9/9/9/9/4K4 b - 1",
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            let legal = generate_legal_moves(&mut board);
+            let tt = *legal.iter().find(|&&m| !is_tactical(&board, m)).unwrap();
+            let caps: Vec<_> = legal
+                .into_iter()
+                .filter(|&m| is_tactical(&board, m))
+                .collect();
+            saw_zero |= caps.is_empty();
+            saw_pawn_promotion |= caps.iter().any(|m| {
+                m.promote && m.piece_kind == PieceKind::Fu && board.piece_at(m.to).is_none()
+            });
+            let before = (board.hash(), board.acc.clone(), board.hkp.clone());
+            for key in [-1_000_000, 0, 1_000_000] {
+                for divisor in [1, 16, 64] {
+                    for cache_bound in [false, true] {
+                        let mut pending = vec![(i32::MAX, tt, 0, i32::MIN)];
+                        pending.extend(caps.iter().enumerate().map(|(n, &m)| {
+                            let varied_key = key
+                                + if key == 1_000_000 {
+                                    (n % 3) as i32 * 100
+                                } else {
+                                    0
+                                };
+                            (varied_key, m, 4, i32::MIN)
+                        }));
+                        let expected =
+                            eager_pending_reference(&board, &pending, divisor, cache_bound);
+                        let mut bad = Vec::new();
+                        finish_pending_tacticals(
+                            &board,
+                            &mut pending,
+                            &mut bad,
+                            divisor,
+                            cache_bound,
+                        );
+                        assert_eq!(
+                            (&pending, &bad),
+                            (&expected.0, &expected.1),
+                            "{sfen} key={key} div={divisor} bound={cache_bound}"
+                        );
+                        assert_eq!(pending[0], (i32::MAX, tt, 0, i32::MIN));
+                        assert_eq!(pending.len() - 1 + bad.len(), caps.len());
+                        if !caps.is_empty() {
+                            saw_all_good |= bad.is_empty();
+                            saw_all_bad |= pending.len() == 1;
+                            saw_mixed |= pending.len() > 1 && !bad.is_empty();
+                        }
+                        saw_tied_good |= pending[1..].windows(2).any(|w| w[0].0 == w[1].0);
+                        saw_proven |= pending
+                            .iter()
+                            .chain(&bad)
+                            .any(|e| e.2 & 8 != 0 && e.3 == i32::MIN);
+                        saw_exact |= pending.iter().chain(&bad).any(|e| e.3 != i32::MIN);
+                    }
+                }
+            }
+            assert_eq!((board.hash(), board.acc.clone(), board.hkp.clone()), before);
+        }
+        assert!(saw_zero && saw_all_good && saw_all_bad && saw_mixed && saw_tied_good);
+        assert!(saw_pawn_promotion && saw_proven && saw_exact);
+    }
+
+    #[test]
+    fn pending_tacticals_keep_pre_child_keys_when_capture_history_changes() {
+        let mut board = Board::from_sfen("4k4/3g1g3/3p1p3/3R1P3/9/9/9/9/4K4 b - 1").unwrap();
+        let legal = generate_legal_moves(&mut board);
+        let tt = *legal.iter().find(|&&m| !is_tactical(&board, m)).unwrap();
+        let stm = board.side_to_move;
+        let mut d = Data::new();
+        d.capt.fill(128);
+        let mut pending = vec![(i32::MAX, tt, 0, i32::MIN)];
+        pending.extend(
+            legal
+                .into_iter()
+                .filter(|&m| is_tactical(&board, m))
+                .map(|m| {
+                    (
+                        4 * victim_value(&board, m) + d.capt_score(&board, stm, m),
+                        m,
+                        4,
+                        i32::MIN,
+                    )
+                }),
+        );
+        assert!(pending.len() > 1);
+        let saved = pending.clone();
+        let expected = eager_pending_reference(&board, &saved, 16, true);
+        // Model a TT child or same-ply singular search updating capture
+        // history. Classification must use the already saved ordering keys;
+        // later futility/LMR history consumers must still see this new value.
+        d.capt.fill(-4096);
+        for &(key, m, _, _) in &saved[1..] {
+            assert_ne!(
+                key,
+                4 * victim_value(&board, m) + d.capt_score(&board, stm, m)
+            );
+            assert_eq!(d.capt_score(&board, stm, m), -4096);
+        }
+        let mut bad = Vec::new();
+        finish_pending_tacticals(&board, &mut pending, &mut bad, 16, true);
+        assert_eq!((pending, bad), expected);
+        assert_eq!(d.capt_score(&board, stm, saved[1].1), -4096);
+    }
 
     #[test]
     fn dead_quiet_skip_is_disabled_and_boolean_by_default() {

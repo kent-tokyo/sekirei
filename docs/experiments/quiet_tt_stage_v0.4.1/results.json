@@ -1,0 +1,106 @@
+{
+  "schema": "sekirei.quiet-tt-stage.own-4t-results.v1",
+  "integration": "validated opt-in experiment only",
+  "parameter": "V2_QUIET_TT_STAGE",
+  "default": 0,
+  "external_comparison_executed": false,
+  "target_4t_yaneura_qualified": false,
+  "strength_claim": false,
+  "external_evaluator_used_for_selection": false,
+  "conditions": {
+    "threads": 4,
+    "hash_mib": 64,
+    "fv_scale": 16,
+    "movetime_ms": 1000,
+    "flags": 15,
+    "search_mode": "Auto",
+    "spec_top_n": 0,
+    "diagnostics": false,
+    "evaluator_sha256": "60db2e5a2888d4fb72ff45431e009f504ae0c86e8b7c8a14fb69a4b10b11c20e",
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "accepted_calls_per_revision": 128,
+    "whole_quartet_minimum_elapsed_ms": 700,
+    "position_bootstrap_draws": 5000,
+    "position_bootstrap_seed": 20261014,
+    "adoption_gate": "point>=1 and lower95>1"
+  },
+  "r1": {
+    "schema": "sekirei.quiet-tt-r1-local-outcome.v1",
+    "base_commit": "eea038febf94843deff606aa2449e37e62f352f7",
+    "source_verification_sha256": "23072ae3c572a9be0fb66aa11ae27752482c6bedb221e2108f4c7e316a5e0ea2",
+    "native_build_sha256": "2a6858f16f33b7483455d353c1702d718d6b3e01b1c0d446dcdc190e270fe478",
+    "first_trial": "ENOSPC before search; zero calls; separate capture-interrupted-1",
+    "completed_report_sha256": "bace784def84d4e814039c059e7d3010954baeeb9f3b39c45299f2027888b6ce",
+    "status": "complete_rejected",
+    "accepted_calls": 128,
+    "actual_calls": 156,
+    "host_rejected_quartets": 7,
+    "eligible_positions": 32,
+    "candidate_over_baseline_wall_nps": 0.9812500414613538,
+    "bootstrap_95pct": [
+      0.9673090186838624,
+      0.9950027925975671
+    ],
+    "independent_raw_point_recalculated": true,
+    "gate_passed": false,
+    "external_comparison_executed": false,
+    "default_enabled": false,
+    "strength_claim": false
+  },
+  "r2": {
+    "schema": "sekirei.quiet-tt-r2-outcome.v1",
+    "status": "complete_rejected",
+    "base_commit": "a2619c52b9bba72ec8dcac48adc3eae825833cd4",
+    "source_verification_sha256": "61dbc2e9d207beb2fa607aafc6aee15cfaabaf6429c47471e3466085f5fe6a99",
+    "native_manifest_sha256": "c7e88399b3dfa9f179575567401f3a131d37af6a11c8f70e39dc6f1c65194e53",
+    "native_correctness_report": {
+      "path": "/private/tmp/sekirei-quiet-tt-r2-fixed-correctness-1/report.json",
+      "sha256": "271a516b014d2085075463a874f4e1ec129c58516c0d55d39d46db3ab82c2bb8"
+    },
+    "own_h1_report": {
+      "path": "/private/tmp/sekirei-quiet-tt-r2-4t-H1-1/report.json",
+      "sha256": "1d3fc9bad534f1fea1943555b5c22a641ff5b45f5a0dbcfa4479e9db55031eeb"
+    },
+    "accepted_calls": 128,
+    "eligible_positions": 30,
+    "attempted_quartets": 37,
+    "actual_search_calls": 148,
+    "excluded_under_700ms": [
+      1,
+      31
+    ],
+    "geomean_candidate_over_baseline": 0.9610156454176877,
+    "bootstrap_95pct": [
+      0.9498141602729777,
+      0.9724387164561369
+    ],
+    "independent_point_recalculation": true,
+    "frozen_inputs_count": 1328,
+    "all_frozen_inputs_unchanged": true,
+    "defaults_changed": false,
+    "source_adopted": false,
+    "external_comparison_run": false,
+    "strength_claim": false,
+    "external_evaluator_used_for_selection": false
+  },
+  "r2_correctness": {
+    "ordinary_core_passed": 417,
+    "ordinary_core_ignored": 6,
+    "fixed_depth_searches": 144,
+    "legality_position_visits": 10000000,
+    "legality_seed": "0x6a09e667f3bcc909",
+    "unique_positions_claimed": false,
+    "native_correctness_processes": 72,
+    "fmt_passed": true,
+    "release_clippy_default_and_tune_passed": true,
+    "isolated_active_halfkp_and_actual_non_pv_cache_path_passed": true
+  },
+  "r2_modified_compiler_inputs": {
+    "crates/sekirei-core/src/movegen.rs": "a9a081f13d39b3f653d9bc7e6adeb473d992d37a158c07f91585abb93a29ad50",
+    "crates/sekirei-core/src/movegen/single_move_tests.rs": "1ead3f8d557e9ea78b574ed071f94da9409bd47a6b15ddf21917690b98f3f758",
+    "crates/sekirei-core/src/search/params.rs": "9df156fc446b11ae9b85a002c6268fda985f7055cf771da490bae9e555950a2c",
+    "crates/sekirei-core/src/search/v2.rs": "85bf3144587761fc9cbe7bd52bfc63c32e6bbe2e2204c4d0a969c1a87b83e476",
+    "crates/sekirei-core/tests/quiet_tt_stage.rs": "01064ec60d3e4e50a7a57e961ddad7955dc64396df68b4cc5639186d17745da2"
+  },
+  "raw_evidence": "Raw logs, native source snapshots, fixed binaries, host samples and reports are retained locally in the two frozen experiment worktrees; report hashes above identify completed runs. Timings are not pooled."
+}

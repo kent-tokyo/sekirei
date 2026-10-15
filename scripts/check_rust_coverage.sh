@@ -95,6 +95,46 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Quiet TT legality and stage selection use process-global tuning/network
+# state only in these isolated tests. Keep coverage separate from speed runs.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test quiet_tt_stage \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-tt-stage-summary.json" \
+  -- quiet_tt_stage_preserves_material_and_own_halfkp_fixed_depth \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-tt-stage-gate-summary.json" \
+  -- search::v2::tests::quiet_tt_stage_selects_only_enabled_legal_quiet_hints \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+cargo llvm-cov -p sekirei-core \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/quiet-tt-halfkp-pawn-probe-summary.json" \
+  -- movegen::single_move_tests::single_move_checking_pawn_drop_restores_active_halfkp \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the disabled SEE lower-bound cache with material and an own
 # deterministic synthetic HalfKP evaluator; keep global tuning state serial.
 cargo llvm-cov -p sekirei-core \
