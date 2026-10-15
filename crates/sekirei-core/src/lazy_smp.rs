@@ -734,9 +734,7 @@ impl LazySmpSearcher {
             .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let split_stats = std::sync::OnceLock::new();
-        let multi = super::search::params::COOP_MULTI() != 0
-            && super::search::params::COOP_PERSISTENT() == 0
-            && matches!(self.workers, 4 | 8);
+        let multi = super::search::params::COOP_MULTI() != 0 && matches!(self.workers, 4 | 8);
         let cooperative =
             (self.workers == 2 || multi) && self.flags & LAZY_ROOT_SPLIT != 0 && self.share_tt;
         let participants = if cooperative { 1 } else { self.workers };
@@ -1976,6 +1974,8 @@ mod tests {
                 (0, 0, true, false),
                 (1, 0, true, false),
                 (1, 1, true, false),
+                (0, 1, true, false),
+                (1, 1, true, true),
                 (1, 0, false, false),
                 (1, 0, true, true),
             ] {
@@ -1997,8 +1997,7 @@ mod tests {
                 );
                 let active = split
                     && !isolated
-                    && (workers == 2
-                        || (multi == 1 && persistent == 0 && matches!(workers, 4 | 8)));
+                    && (workers == 2 || (multi == 1 && matches!(workers, 4 | 8)));
                 assert_eq!(searcher.cooperative_root_stats().is_some(), active);
                 assert_eq!(info.worker_results.len(), if active { 1 } else { workers });
                 if active {
@@ -2013,6 +2012,11 @@ mod tests {
                         stats.physical_helper_threads_started,
                         stats.physical_helper_threads_joined
                     );
+                    if persistent == 1 {
+                        assert!(stats.physical_helper_threads_started <= (workers - 1) as u64);
+                    } else {
+                        assert_eq!(stats.physical_helper_threads_started, stats.helpers_started);
+                    }
                 }
                 assert!(info.result.best_move.is_some());
             }

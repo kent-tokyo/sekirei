@@ -469,6 +469,7 @@ struct Invocation {
     helper_lmr: bool,
     latency: Option<Arc<LatencyCounters>>,
     executor: RefCell<Option<HelperExecutor>>,
+    group_executors: RefCell<Vec<HelperExecutor>>,
     helpers: usize,
     extra_helper_tables: Vec<HelperTables>,
 }
@@ -484,9 +485,59 @@ impl Invocation {
                 work,
                 finished,
                 dispatched: Instant::now(),
+                lease: None,
             })
             .unwrap_or_else(|_| panic!("cooperative root executor disconnected"));
         Some(completion)
+    }
+
+    fn dispatch_group(
+        &self,
+        works: Vec<HelperWork>,
+        leases: Vec<HelperLease>,
+    ) -> Vec<mpsc::Receiver<()>> {
+        assert_eq!(works.len(), self.helpers);
+        assert_eq!(leases.len(), self.helpers);
+        let mut executors = self.group_executors.borrow_mut();
+        if executors.is_empty() {
+            executors.extend((0..self.helpers).map(|_| HelperExecutor::new(self.counters.clone())));
+        }
+        let mut completions = Vec::with_capacity(self.helpers);
+        for ((executor, work), lease) in executors.iter().zip(works).zip(leases) {
+            let Some(sender) = &executor.sender else {
+                self.counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+                drop(lease);
+                continue;
+            };
+            let (finished, completion) = mpsc::sync_channel(1);
+            sender
+                .send(HelperJob {
+                    work,
+                    finished,
+                    dispatched: Instant::now(),
+                    lease: Some(lease),
+                })
+                .unwrap_or_else(|_| panic!("cooperative root group executor disconnected"));
+            completions.push(completion);
+        }
+        completions
+    }
+}
+
+impl Drop for Invocation {
+    fn drop(&mut self) {
+        // Join all cached workers before propagating any worker panic. The
+        // generation's cancellation guard has already run when unwinding here.
+        for executor in self.group_executors.get_mut().iter_mut() {
+            drop(executor.sender.take());
+        }
+        let mut failed = false;
+        for executor in self.group_executors.get_mut() {
+            failed |= executor.shutdown();
+        }
+        if failed && !std::thread::panicking() {
+            panic!("cooperative root group executor panicked");
+        }
     }
 }
 
@@ -503,6 +554,7 @@ impl Activation {
             helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
+            group_executors: RefCell::new(Vec::new()),
             helpers: 1,
             extra_helper_tables: Vec::new(),
         }))
@@ -642,7 +694,7 @@ impl Searcher {
         )
     }
 
-    /// Scoped group entry used only after the Lazy SMP opt-in eligibility check.
+    /// Group entry used only after the Lazy SMP opt-in eligibility check.
     pub(crate) fn search_cooperative_root_group_with_history_and_wait_stats(
         &self,
         board: &mut Board,
@@ -655,7 +707,7 @@ impl Searcher {
             board,
             config,
             history,
-            false,
+            p::COOP_PERSISTENT() != 0,
             p::COOP_DRAIN() != 0,
             p::COOP_LATENCY() != 0,
             p::COOP_PRIORITY() != 0,
@@ -677,7 +729,7 @@ impl Searcher {
         helper_lmr: bool,
         helpers: usize,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
-        assert!((1..=7).contains(&helpers) && (helpers == 1 || !persistent));
+        assert!(matches!(helpers, 1 | 3 | 7));
         let counters = Arc::new(Counters::default());
         if helper_lmr && latency {
             counters
@@ -702,6 +754,7 @@ impl Searcher {
             helper_lmr,
             latency,
             executor: RefCell::new(None),
+            group_executors: RefCell::new(Vec::new()),
             helpers,
             extra_helper_tables: (1..helpers).map(|_| HelperTables::default()).collect(),
         });
@@ -1181,6 +1234,9 @@ struct HelperJob {
     work: HelperWork,
     finished: mpsc::SyncSender<()>,
     dispatched: Instant,
+    // Group jobs own their reservation before dispatch. Legacy jobs reserve
+    // at worker entry to preserve the existing single-helper fallback contract.
+    lease: Option<HelperLease>,
 }
 
 struct HelperExecutor {
@@ -1211,7 +1267,11 @@ impl HelperExecutor {
                     let finished = job.finished;
                     // Work ownership and participation are released before
                     // replying. A lost receiver during unwind must not block.
-                    run_helper(job.work, &worker_counters);
+                    if let Some(lease) = job.lease {
+                        run_helper_with_lease(job.work, &worker_counters, lease);
+                    } else {
+                        run_helper(job.work, &worker_counters);
+                    }
                     let _ = finished.send(());
                 }
             })
@@ -1224,17 +1284,24 @@ impl HelperExecutor {
     }
 }
 
-impl Drop for HelperExecutor {
-    fn drop(&mut self) {
+impl HelperExecutor {
+    fn shutdown(&mut self) -> bool {
         drop(self.sender.take());
         if let Some(worker) = self.worker.take() {
             let result = worker.join();
             self.counters
                 .physical_helper_threads_joined
                 .fetch_add(1, Ordering::Relaxed);
-            if result.is_err() && !std::thread::panicking() {
-                panic!("cooperative root executor panicked");
-            }
+            return result.is_err();
+        }
+        false
+    }
+}
+
+impl Drop for HelperExecutor {
+    fn drop(&mut self) {
+        if self.shutdown() && !std::thread::panicking() {
+            panic!("cooperative root executor panicked");
         }
     }
 }
@@ -1902,7 +1969,7 @@ pub(super) fn search(
             depth,
             helper_lmr: invocation.helper_lmr,
         };
-        if invocation.persistent {
+        if invocation.persistent && invocation.helpers == 1 {
             let _cancel_on_drop = CancelOnDrop(&generation);
             let completion = invocation.dispatch(work);
             if completion.is_none() {
@@ -1974,32 +2041,11 @@ pub(super) fn search(
                 });
                 budgets.push(budget);
             }
-            std::thread::scope(|scope| {
-                // Must cancel BEFORE the scope's implicit join during unwind.
+            if invocation.persistent {
+                // This guard precedes dispatch: a worker or dispatch failure
+                // must cancel the generation before invocation teardown joins.
                 let _cancel_on_drop = CancelOnDrop(&generation);
-                let mut helpers = Vec::with_capacity(invocation.helpers);
-                for (work, lease) in works.into_iter().zip(leases) {
-                    let worker_counters = counters.clone();
-                    let spawn_start = Instant::now();
-                    let helper = std::thread::Builder::new()
-                        .name("sekirei-root-helper".to_owned())
-                        .stack_size(super::RECURSIVE_SEARCH_STACK_BYTES)
-                        .spawn_scoped(scope, move || {
-                            worker_counters
-                                .physical_helper_threads_started
-                                .fetch_add(1, Ordering::Relaxed);
-                            worker_counters
-                                .helper_start_delay_us
-                                .fetch_add(elapsed_us(spawn_start), Ordering::Relaxed);
-                            run_helper_with_lease(work, &worker_counters, lease);
-                        });
-                    match helper {
-                        Ok(helper) => helpers.push(helper),
-                        Err(_) => {
-                            counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                }
+                let completions = invocation.dispatch_group(works, leases);
                 run_main(
                     &mut result,
                     &generation,
@@ -2027,28 +2073,98 @@ pub(super) fn search(
                         &counters,
                     );
                 }
-                // Join every handle before propagating a helper panic.
-                let mut panic = None;
-                for helper in helpers {
-                    let join_start = Instant::now();
-                    let joined = helper.join();
-                    counters
-                        .physical_helper_threads_joined
-                        .fetch_add(1, Ordering::Relaxed);
+                let mut failed = false;
+                for completion in completions {
+                    let wait_start = Instant::now();
+                    if completion.recv().is_err() {
+                        generation.stop();
+                        failed = true;
+                    }
                     counters
                         .join_wait_us
-                        .fetch_add(elapsed_us(join_start), Ordering::Relaxed);
-                    if let Err(payload) = joined {
-                        generation.stop();
-                        if panic.is_none() {
-                            panic = Some(payload);
+                        .fetch_add(elapsed_us(wait_start), Ordering::Relaxed);
+                }
+                assert!(
+                    !failed,
+                    "cooperative root group executor failed before completing work"
+                );
+            } else {
+                std::thread::scope(|scope| {
+                    // Must cancel BEFORE the scope's implicit join during unwind.
+                    let _cancel_on_drop = CancelOnDrop(&generation);
+                    let mut helpers = Vec::with_capacity(invocation.helpers);
+                    for (work, lease) in works.into_iter().zip(leases) {
+                        let worker_counters = counters.clone();
+                        let spawn_start = Instant::now();
+                        let helper = std::thread::Builder::new()
+                            .name("sekirei-root-helper".to_owned())
+                            .stack_size(super::RECURSIVE_SEARCH_STACK_BYTES)
+                            .spawn_scoped(scope, move || {
+                                worker_counters
+                                    .physical_helper_threads_started
+                                    .fetch_add(1, Ordering::Relaxed);
+                                worker_counters
+                                    .helper_start_delay_us
+                                    .fetch_add(elapsed_us(spawn_start), Ordering::Relaxed);
+                                run_helper_with_lease(work, &worker_counters, lease);
+                            });
+                        match helper {
+                            Ok(helper) => helpers.push(helper),
+                            Err(_) => {
+                                counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+                            }
                         }
                     }
-                }
-                if let Some(payload) = panic {
-                    std::panic::resume_unwind(payload);
-                }
-            });
+                    run_main(
+                        &mut result,
+                        &generation,
+                        &main_state,
+                        state,
+                        board,
+                        ordered,
+                        depth,
+                        hi,
+                        history,
+                        &counters,
+                    );
+                    if let Some(notifications) = &notifications {
+                        drain_while_waiting(
+                            &mut result,
+                            &generation,
+                            notifications,
+                            &main_state,
+                            state,
+                            board,
+                            ordered,
+                            depth,
+                            hi,
+                            history,
+                            &counters,
+                        );
+                    }
+                    // Join every handle before propagating a helper panic.
+                    let mut panic = None;
+                    for helper in helpers {
+                        let join_start = Instant::now();
+                        let joined = helper.join();
+                        counters
+                            .physical_helper_threads_joined
+                            .fetch_add(1, Ordering::Relaxed);
+                        counters
+                            .join_wait_us
+                            .fetch_add(elapsed_us(join_start), Ordering::Relaxed);
+                        if let Err(payload) = joined {
+                            generation.stop();
+                            if panic.is_none() {
+                                panic = Some(payload);
+                            }
+                        }
+                    }
+                    if let Some(payload) = panic {
+                        std::panic::resume_unwind(payload);
+                    }
+                });
+            }
             // The legacy first helper is accounted below, exactly once.
             counters.helper_nodes.fetch_add(
                 budgets.iter().skip(1).map(|budget| budget.nodes()).sum(),
@@ -2123,6 +2239,7 @@ mod tests {
             helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
+            group_executors: RefCell::new(Vec::new()),
             helpers: 1,
             extra_helper_tables: Vec::new(),
         })
@@ -3040,6 +3157,7 @@ mod tests {
                 latency: None,
                 helpers: 1,
                 extra_helper_tables: Vec::new(),
+                group_executors: RefCell::new(Vec::new()),
                 executor: RefCell::new(Some(HelperExecutor {
                     sender: None,
                     worker: None,
@@ -3129,6 +3247,7 @@ mod tests {
                     helper_lmr: false,
                     latency: None,
                     executor: RefCell::new(None),
+                    group_executors: RefCell::new(Vec::new()),
                     helpers: 1,
                     extra_helper_tables: Vec::new(),
                 });
@@ -4355,18 +4474,322 @@ mod tests {
                 let control =
                     Searcher::with_pruning(Tt::new(2), pruning).search(&mut board, config);
                 for helpers in [3, 7] {
-                    let history = PositionHistory::initial(board.hash());
-                    let (info, _, _) = Searcher::with_pruning(Tt::new(2), pruning)
-                        .search_cooperative_root_group_controls(
-                            &mut board, config, &history, false, false, false, false, false,
-                            helpers,
+                    for persistent in [false, true] {
+                        let history = PositionHistory::initial(board.hash());
+                        let (info, _, _) = Searcher::with_pruning(Tt::new(2), pruning)
+                            .search_cooperative_root_group_controls(
+                                &mut board, config, &history, persistent, false, false, false,
+                                false, helpers,
+                            );
+                        assert_eq!(
+                            (info.score, info.bound, info.depth),
+                            (control.score, control.bound, control.depth)
                         );
-                    assert_eq!(
-                        (info.score, info.bound, info.depth),
-                        (control.score, control.bound, control.depth)
-                    );
+                    }
                 }
             }
         });
+    }
+
+    fn persistent_group_invocation(
+        counters: Arc<Counters>,
+        helpers: usize,
+        unavailable: &[usize],
+    ) -> Rc<Invocation> {
+        let executors = if unavailable.is_empty() {
+            Vec::new()
+        } else {
+            (0..helpers)
+                .map(|index| {
+                    if unavailable.contains(&index) {
+                        HelperExecutor {
+                            sender: None,
+                            worker: None,
+                            counters: counters.clone(),
+                        }
+                    } else {
+                        HelperExecutor::new(counters.clone())
+                    }
+                })
+                .collect()
+        };
+        Rc::new(Invocation {
+            counters,
+            persistent: true,
+            drain: true,
+            priority: false,
+            helper_lmr: false,
+            latency: None,
+            executor: RefCell::new(None),
+            group_executors: RefCell::new(executors),
+            helpers,
+            extra_helper_tables: (1..helpers).map(|_| HelperTables::default()).collect(),
+        })
+    }
+
+    fn persistent_group_jobs(
+        invocation: &Invocation,
+        generation: &Arc<Generation>,
+        panic_slot: Option<usize>,
+    ) -> (Vec<HelperWork>, Vec<HelperLease>) {
+        generation
+            .remaining_helpers
+            .store(invocation.helpers, Ordering::Release);
+        let leases = (0..invocation.helpers)
+            .map(|_| HelperLease(generation.clone()))
+            .collect();
+        // Empty task set deliberately covers helpers arriving after main has
+        // claimed everything; every reserved job must still complete exactly once.
+        generation.next.store(2, Ordering::Relaxed);
+        let works = (0..invocation.helpers)
+            .map(|index| {
+                work(
+                    test_state(),
+                    generation.clone(),
+                    if panic_slot == Some(index) { 0 } else { 2 },
+                )
+            })
+            .collect();
+        (works, leases)
+    }
+
+    #[test]
+    fn persistent_multi_reuses_only_requested_threads_and_starts_fresh_each_go() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                for _ in 0..2 {
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let history = PositionHistory::initial(hash);
+                    let (info, stats, wait) = Searcher::new(Tt::new(2))
+                        .search_cooperative_root_group_controls(
+                            &mut board,
+                            SearchConfig {
+                                max_depth: 4,
+                                ..SearchConfig::default()
+                            },
+                            &history,
+                            true,
+                            true,
+                            true,
+                            true,
+                            false,
+                            helpers,
+                        );
+                    assert_eq!(info.depth, 4);
+                    assert!(stats.generations >= 4);
+                    assert_eq!(stats.helpers_started, stats.generations * helpers as u64);
+                    assert_eq!(stats.physical_helper_threads_started, helpers as u64);
+                    assert_eq!(stats.physical_helper_threads_joined, helpers as u64);
+                    assert_eq!(stats.spawn_failures, 0);
+                    assert_eq!(
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                        stats.helper_nodes
+                    );
+                    assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+                    assert!(stats.main_confirmations <= stats.helper_fail_highs);
+                    assert_eq!(wait.workers as usize, helpers + 1);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    for mv in info.pv {
+                        assert!(generate_legal_moves(&mut board).contains(&mv));
+                        board.do_move(mv);
+                    }
+                    assert!(!enabled());
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn persistent_multi_is_lazy_on_stop_and_obeys_shared_node_budget() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                for stopped in [false, true] {
+                    let searcher = Searcher::new(Tt::new(2));
+                    searcher.abort_flag().store(stopped, Ordering::Relaxed);
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let history = PositionHistory::initial(hash);
+                    let (info, stats, _) = searcher.search_cooperative_root_group_controls(
+                        &mut board,
+                        SearchConfig {
+                            max_depth: 50,
+                            node_limit: Some(250),
+                            ..SearchConfig::default()
+                        },
+                        &history,
+                        true,
+                        true,
+                        false,
+                        false,
+                        false,
+                        helpers,
+                    );
+                    assert!(info.aborted);
+                    assert_eq!(
+                        stats.helpers_started + stats.spawn_failures,
+                        stats.generations * helpers as u64
+                    );
+                    let physical = if stopped { 0 } else { helpers as u64 };
+                    assert_eq!(stats.physical_helper_threads_started, physical);
+                    assert_eq!(stats.physical_helper_threads_joined, physical);
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+                    if stopped {
+                        assert_eq!(stats.generations, 0);
+                    }
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    for mv in info.pv {
+                        assert!(generate_legal_moves(&mut board).contains(&mv));
+                        board.do_move(mv);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn persistent_multi_caches_partial_and_total_spawn_failure_without_losing_moves() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                for unavailable in [vec![0, helpers - 1], (0..helpers).collect()] {
+                    let counters = Arc::new(Counters::default());
+                    let invocation =
+                        persistent_group_invocation(counters.clone(), helpers, &unavailable);
+                    for _ in 0..2 {
+                        let mut board = Board::startpos();
+                        let hash = board.hash();
+                        let acc = board.acc.clone();
+                        let ordered = generate_legal_moves(&mut board);
+                        let game = PositionHistory::initial(hash);
+                        let history = SearchHistory::root(&game);
+                        let state = test_state();
+                        let result = {
+                            let _activation = Activation::with_invocation(invocation.clone());
+                            search(&state, &mut board, 2, &ordered, -10_000, 10_000, &history)
+                        };
+                        assert!(result.0.is_some());
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, acc);
+                    }
+                    drop(invocation);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.generations, 2);
+                    assert_eq!(stats.spawn_failures, 2 * unavailable.len() as u64);
+                    assert_eq!(
+                        stats.helpers_started + stats.spawn_failures,
+                        stats.generations * helpers as u64
+                    );
+                    assert_eq!(
+                        stats.physical_helper_threads_started,
+                        (helpers - unavailable.len()) as u64
+                    );
+                    assert_eq!(
+                        stats.physical_helper_threads_started,
+                        stats.physical_helper_threads_joined
+                    );
+                    assert!(stats.main_tasks >= 2);
+                    if unavailable.len() == helpers {
+                        assert_eq!(stats.main_tasks, 2 * 30);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn persistent_multi_lost_receivers_and_main_unwind_cancel_and_join_all_slots() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                let counters = Arc::new(Counters::default());
+                let generation = Arc::new(Generation::new(0, 2));
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let invocation = persistent_group_invocation(counters.clone(), helpers, &[]);
+                    let _cancel = CancelOnDrop(&generation);
+                    let (works, leases) = persistent_group_jobs(&invocation, &generation, None);
+                    drop(invocation.dispatch_group(works, leases));
+                    panic!("main fails with persistent group jobs dispatched");
+                }));
+                assert!(failed.is_err());
+                assert!(generation.cancel.load(Ordering::Acquire));
+                assert!(generation.helper_finished.load(Ordering::Acquire));
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_started,
+                    helpers as u64
+                );
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn persistent_multi_helper_panic_cancels_peers_and_joins_before_propagation() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                let counters = Arc::new(Counters::default());
+                let generation = Arc::new(Generation::new(0, 2));
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let invocation = persistent_group_invocation(counters.clone(), helpers, &[]);
+                    let _cancel = CancelOnDrop(&generation);
+                    let (works, leases) =
+                        persistent_group_jobs(&invocation, &generation, Some(helpers / 2));
+                    let completions = invocation.dispatch_group(works, leases);
+                    let mut disconnected = false;
+                    for completion in completions {
+                        disconnected |= completion.recv().is_err();
+                    }
+                    assert!(disconnected);
+                    assert!(generation.cancel.load(Ordering::Acquire));
+                    drop(invocation); // Propagates only after joining every physical thread.
+                }));
+                assert!(failed.is_err());
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_started,
+                    helpers as u64
+                );
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn persistent_multi_queued_job_owns_lease_until_disconnect() {
+        let generation = Arc::new(Generation::new(0, 2));
+        generation.remaining_helpers.store(3, Ordering::Release);
+        let mut leases: Vec<_> = (0..3).map(|_| HelperLease(generation.clone())).collect();
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let (finished, completion) = mpsc::sync_channel(1);
+        sender
+            .send(HelperJob {
+                work: work(test_state(), generation.clone(), 2),
+                finished,
+                dispatched: Instant::now(),
+                lease: Some(leases.pop().unwrap()),
+            })
+            .unwrap_or_else(|_| panic!("first queued job must be accepted"));
+        assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 3);
+        drop(receiver);
+        assert!(completion.recv().is_err());
+        assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 2);
+        drop(leases);
+        assert!(generation.helper_finished.load(Ordering::Acquire));
+        assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
     }
 }
