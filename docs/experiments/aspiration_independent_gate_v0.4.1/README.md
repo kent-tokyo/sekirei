@@ -95,6 +95,13 @@ Parsing streams input bytes, while the deduplicated identity set uses memory
 proportional to the number of unique positions. No score or result selection
 is performed. Exporting identities alone does not qualify fresh openings or H1.
 
+Owner-export validation: new17 plus related98 Python tests passed (115 total).
+A real CLI synthetic draft remained incomplete and was rejected by the existing
+loader. Mutation during manifest fsync, source aliases, duplicate JSON keys,
+control characters and no-clobber races are covered. See
+[identity-export-validation.json](identity-export-validation.json). No real
+owner scope was attested and no independent match started.
+
 ## Build, freeze and match
 
 From a clean committed checkout:
