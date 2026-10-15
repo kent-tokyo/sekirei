@@ -1,0 +1,1726 @@
+{
+  "schema": "sekirei.cooperative-root-multi-validation.v1",
+  "base_commit": "94c5ffaf71d4f691259b8285dcda029d53263c32",
+  "frozen_source_commit": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+  "build_lane": "standard native normal for default identity; identical tune binary A/B for multi mechanism and timing; no PGO",
+  "builds": {
+    "normal": {
+      "schema": "sekirei.cooperative-root-multi-native-build.v1",
+      "mode": "normal",
+      "base_commit": "94c5ffaf71d4f691259b8285dcda029d53263c32",
+      "source_commit": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified": true,
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "build_environment": {},
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei"
+      ],
+      "features": [],
+      "pgo": false,
+      "build_controls": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "protocol_path": "docs/experiments/cooperative_root_multi_v0.4.1/README.md",
+      "protocol_sha256": "6f5ebfe7baa236c64220f20019b495f5faa446852db98d7f28b39e88a054bcb4",
+      "driver_sha256": "af4ed64c1b668879430c8045f45352eb0297d006416f1ae86392f7ade8745788",
+      "started_at": "2026-10-15T05:44:01.381771+00:00",
+      "disk_free_before_bytes": 2448158720,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T05:44:49.214920+00:00",
+      "source_commit_after": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_dirty_after": "",
+      "build_log_sha256": "707ed7c96335c83703ed85f49dcb1ad33adc3cb7f4fb251aa8b7ac58a0c2bfea",
+      "disk_free_after_bytes": 2252234752,
+      "status": "complete",
+      "engine_sha256": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd",
+      "engine_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-build/normal/engine"
+    },
+    "tune": {
+      "schema": "sekirei.cooperative-root-multi-native-build.v1",
+      "mode": "tune",
+      "base_commit": "94c5ffaf71d4f691259b8285dcda029d53263c32",
+      "source_commit": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified": true,
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "build_environment": {},
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei",
+        "--features",
+        "tune"
+      ],
+      "features": [
+        "tune"
+      ],
+      "pgo": false,
+      "build_controls": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "protocol_path": "docs/experiments/cooperative_root_multi_v0.4.1/README.md",
+      "protocol_sha256": "6f5ebfe7baa236c64220f20019b495f5faa446852db98d7f28b39e88a054bcb4",
+      "driver_sha256": "af4ed64c1b668879430c8045f45352eb0297d006416f1ae86392f7ade8745788",
+      "started_at": "2026-10-15T05:44:49.371690+00:00",
+      "disk_free_before_bytes": 2248060928,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T05:45:42.290923+00:00",
+      "source_commit_after": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_dirty_after": "",
+      "build_log_sha256": "63fbca235571b9f947611b19fc6bab3edd369e061072d0b32e878497a192e6ae",
+      "disk_free_after_bytes": 2260516864,
+      "status": "complete",
+      "engine_sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "engine_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-build/tune/engine"
+    }
+  },
+  "presearch_binding": {
+    "source": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+    "frozen_before_first_search": "2026-10-15T05:48:21.797494+00:00",
+    "inputs_sha256": {
+      "target/build-cooperative-root-multi.py": "af4ed64c1b668879430c8045f45352eb0297d006416f1ae86392f7ade8745788",
+      "target/analyze-cooperative-root-multi.py": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+      "scripts/paired_search_diagnostics.py": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+      "scripts/nps_threads.py": "9872ef625b0d0d3366a19eadfb5356857c49f24c85f6cd3f31d14012d0a09e8d",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "target/cooperative-root-multi-prospective-protocol.md": "6f5ebfe7baa236c64220f20019b495f5faa446852db98d7f28b39e88a054bcb4",
+      "target/cooperative-root-multi-normal-usi.txt": "0e32633a4af50c57ef181a5d9d4458ac170b2a337d4e9245827303cd675d0d29",
+      "target/cooperative-root-multi-tune-usi.txt": "733cfff2927cbc60026116770459101b7465fabdde50bfe942025e7d63dff209",
+      "target/correction-key-unroll-build/A/engine": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "target/correction-key-unroll-build/A/receipt.json": "0dc272d85698beaf9c312275c3723fc612849eff2475cc37e1ce333b319d0ab3",
+      "target/useful-depth/pv-validation.legal-moves": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "target/cooperative-root-multi-build/normal/engine": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd",
+      "target/cooperative-root-multi-build/normal/build.log": "707ed7c96335c83703ed85f49dcb1ad33adc3cb7f4fb251aa8b7ac58a0c2bfea",
+      "target/cooperative-root-multi-build/normal/receipt.json": "8caf6ba851b2073c4867a4477c4751260b6881fbb443f5d6796b859dc08e69d3",
+      "target/cooperative-root-multi-build/tune/engine": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "target/cooperative-root-multi-build/tune/build.log": "63fbca235571b9f947611b19fc6bab3edd369e061072d0b32e878497a192e6ae",
+      "target/cooperative-root-multi-build/tune/receipt.json": "67c07de45ef2f5b733e8c218c5e1613057667acef7b2472d8267437e50089d56"
+    }
+  },
+  "tests": {
+    "full_core": {
+      "passed": 389,
+      "failed": 0,
+      "ignored": 4,
+      "raw_log": "target/cooperative-root-multi-full-core.log"
+    },
+    "isolated_tune_activation": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/cooperative-root-multi-activation-tests.log"
+    },
+    "expanded_mate_contract": {
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/cooperative-root-multi-mate-expanded.log"
+    },
+    "legacy_two_worker_selection": {
+      "passed": 41,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/cooperative-root-multi-legacy-tests.log"
+    },
+    "multi_name_selection_includes_eight_new_and_two_existing": {
+      "passed": 10,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/cooperative-root-multi-new-tests.log"
+    },
+    "tune_core_clippy": {
+      "completed": true,
+      "raw_log": "target/cooperative-root-multi-tune-clippy.log"
+    },
+    "source_commit_workspace_clippy_hook": {
+      "completed": true,
+      "raw_log": "target/cooperative-root-multi-source-commit.log"
+    },
+    "parser": {
+      "passed": 46,
+      "raw_log": "target/cooperative-root-multi-parser-tests.log"
+    },
+    "combined_measurement_tools": {
+      "passed": 69,
+      "raw_log": "target/cooperative-root-multi-measurement-tools-tests.log",
+      "includes_parser_subset": true
+    }
+  },
+  "default_identity": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-15T05:48:21.875874+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-default-identity/engine-A",
+          "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/correction-key-unroll-build/A/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-default-identity/engine-B",
+          "sha256": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-build/normal/engine"
+        }
+      },
+      "source_ref": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+        "nps_threads.py": "9872ef625b0d0d3366a19eadfb5356857c49f24c85f6cd3f31d14012d0a09e8d"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1,
+        4,
+        8
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=15",
+        "MoveOverhead=0"
+      ],
+      "A_options": [],
+      "B_options": [],
+      "changed_options": {},
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_helper_lmr_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          1.26611328125,
+          1.939453125,
+          2.1484375
+        ]
+      },
+      "timing_qualified": true,
+      "configuration_sha256": "46088fd7703767f2da33fb8b4850d4c9d5e77e264480ed66efa299f2c4e8c7b1",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          1.5078125,
+          1.95849609375,
+          2.1513671875
+        ]
+      }
+    },
+    "development_screen": {
+      "schema": "sekirei.cooperative-root-multi-development-screen.v1",
+      "mode": "identity",
+      "source_ref": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 240,
+      "all_positions_retained": true,
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 20,
+          "within_side_nondeterministic_blocks": 0,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.0008951865999673,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.0218018802226234,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.1120526943413018,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "reasons": [],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure.",
+      "inputs_sha256": {
+        "target/cooperative-root-multi-default-identity/manifest.json": "3afc875bbbac8174cbbcddd07886366a6c98eff0356458d535aa9eb36bf3af7f",
+        "target/cooperative-root-multi-default-identity/rows.jsonl": "813dba0b6b49e8383b19ab7ca9eaf76dc1edf4d7033535059945a5ec7cd1eb8c",
+        "target/cooperative-root-multi-default-identity/summary.json": "530fd8e8b9e8ca729eade1ce12801f614022a2395082cb1d8a0ed3cc1a197800",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-multi-build/normal/receipt.json": "8caf6ba851b2073c4867a4477c4751260b6881fbb443f5d6796b859dc08e69d3",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-multi.py": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+        "target/correction-key-unroll-build/A/receipt.json": "0dc272d85698beaf9c312275c3723fc612849eff2475cc37e1ce333b319d0ab3",
+        "target/cooperative-root-multi-default-identity/pv-validation.json": "1f959ec2b4e697307d06c9438b27758e54e4599ae582a87181738c207bfcb63f"
+      }
+    },
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 240,
+      "pv_moves": 1489,
+      "unique_board_probes": 467,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-default-identity/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-default-identity",
+          "engine_sha256": {
+            "A": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+            "B": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "mechanism": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-15T05:51:39.461120+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-mechanism/engine-A",
+          "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-build/tune/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-mechanism/engine-B",
+          "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-build/tune/engine"
+        }
+      },
+      "source_ref": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+        "nps_threads.py": "9872ef625b0d0d3366a19eadfb5356857c49f24c85f6cd3f31d14012d0a09e8d"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=16399",
+        "T_COOP_PERSISTENT=0",
+        "T_COOP_DRAIN=0",
+        "T_COOP_PRIORITY=0",
+        "T_COOP_LATENCY=0",
+        "T_COOP_HELPER_LMR=0",
+        "T_SEARCH_V2=1",
+        "MoveOverhead=0"
+      ],
+      "A_options": [
+        "T_COOP_MULTI=0"
+      ],
+      "B_options": [
+        "T_COOP_MULTI=1"
+      ],
+      "changed_options": {
+        "T_COOP_MULTI": [
+          "0",
+          "1"
+        ]
+      },
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_helper_lmr_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          1.24658203125,
+          1.64111328125,
+          1.9755859375
+        ]
+      },
+      "timing_qualified": true,
+      "configuration_sha256": "0515f0c07f5092b2bdcbdcca4797e23c3f700cd9a738c1feef3ce5de7318b9c7",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [],
+        "load_average": [
+          1.70751953125,
+          1.7236328125,
+          1.9990234375
+        ]
+      }
+    },
+    "development_screen": {
+      "schema": "sekirei.cooperative-root-multi-development-screen.v1",
+      "mode": "mechanism",
+      "source_ref": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 320,
+      "all_positions_retained": true,
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 20,
+          "within_side_nondeterministic_blocks": 0,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.9984212969857926,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          }
+        },
+        "2": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 2,
+          "within_side_nondeterministic_blocks": 18,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.9988136955250664,
+          "root_census_totals": {
+            "A": {
+              "generations": 449,
+              "helper_nodes": 55525,
+              "helper_probes": 4690,
+              "helper_fail_highs": 231,
+              "main_confirmations": 225,
+              "confirmed_alpha_raises": 29,
+              "main_nodes": 337865,
+              "main_tasks": 9686,
+              "confirmation_nodes": 30381,
+              "helper_completed_nodes": 53863,
+              "helper_aborted_nodes": 1662,
+              "helper_aborted_probes": 5,
+              "spawn_failures": 0,
+              "helpers_started": 449,
+              "helper_start_delay_us": 6842,
+              "join_wait_us": 18576,
+              "alpha_gap_sum": 4996,
+              "alpha_gap_max": 1842,
+              "physical_helper_threads_started": 449,
+              "physical_helper_threads_joined": 449,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            },
+            "B": {
+              "generations": 443,
+              "helper_nodes": 41511,
+              "helper_probes": 4631,
+              "helper_fail_highs": 167,
+              "main_confirmations": 163,
+              "confirmed_alpha_raises": 25,
+              "main_nodes": 316292,
+              "main_tasks": 9667,
+              "confirmation_nodes": 26556,
+              "helper_completed_nodes": 41504,
+              "helper_aborted_nodes": 7,
+              "helper_aborted_probes": 3,
+              "spawn_failures": 0,
+              "helpers_started": 443,
+              "helper_start_delay_us": 6697,
+              "join_wait_us": 18323,
+              "alpha_gap_sum": 4467,
+              "alpha_gap_max": 1994,
+              "physical_helper_threads_started": 443,
+              "physical_helper_threads_joined": 443,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.2356514690616181,
+          "root_census_totals": {
+            "A": {},
+            "B": {
+              "generations": 440,
+              "helper_nodes": 100512,
+              "helper_probes": 8165,
+              "helper_fail_highs": 491,
+              "main_confirmations": 463,
+              "confirmed_alpha_raises": 58,
+              "main_nodes": 328234,
+              "main_tasks": 6070,
+              "confirmation_nodes": 68087,
+              "helper_completed_nodes": 98316,
+              "helper_aborted_nodes": 2196,
+              "helper_aborted_probes": 6,
+              "spawn_failures": 0,
+              "helpers_started": 1320,
+              "helper_start_delay_us": 20297,
+              "join_wait_us": 46469,
+              "alpha_gap_sum": 17641,
+              "alpha_gap_max": 6455,
+              "physical_helper_threads_started": 1320,
+              "physical_helper_threads_joined": 1320,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.17456435118045144,
+          "root_census_totals": {
+            "A": {},
+            "B": {
+              "generations": 427,
+              "helper_nodes": 97476,
+              "helper_probes": 11278,
+              "helper_fail_highs": 577,
+              "main_confirmations": 570,
+              "confirmed_alpha_raises": 97,
+              "main_nodes": 354996,
+              "main_tasks": 2605,
+              "confirmation_nodes": 72235,
+              "helper_completed_nodes": 97196,
+              "helper_aborted_nodes": 280,
+              "helper_aborted_probes": 2,
+              "spawn_failures": 0,
+              "helpers_started": 2989,
+              "helper_start_delay_us": 76001,
+              "join_wait_us": 94743,
+              "alpha_gap_sum": 26041,
+              "alpha_gap_max": 5649,
+              "physical_helper_threads_started": 2989,
+              "physical_helper_threads_joined": 2989,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "reasons": [],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure.",
+      "inputs_sha256": {
+        "target/cooperative-root-multi-mechanism/manifest.json": "a9027a1570a71fc6a172799b293a632d8913af5f167860e3a974f50133f16345",
+        "target/cooperative-root-multi-mechanism/rows.jsonl": "97b5f6a81d47be7136736369ce39e6168646af12547e9a8c50d9b7183af04b7b",
+        "target/cooperative-root-multi-mechanism/summary.json": "111ec5c71a3968a383749f7cf8d65419af067b9d3e5c02e8bf8718403e6964c1",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-multi-build/tune/receipt.json": "67c07de45ef2f5b733e8c218c5e1613057667acef7b2472d8267437e50089d56",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-multi.py": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+        "target/cooperative-root-multi-default-identity/development-screen.json": "281eb053be7aba5db046fc40f7f435193abbf6dde829e314b59dec39736d6bea",
+        "target/cooperative-root-multi-mechanism/pv-validation.json": "89fb85ca85a9dde024a579a671f875886b89950891e9aabd67bbc040d017b0c6"
+      }
+    },
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 320,
+      "pv_moves": 2177,
+      "unique_board_probes": 633,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-mechanism/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-mechanism",
+          "engine_sha256": {
+            "A": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+            "B": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "pv_validation": {
+    "rows": 1200,
+    "moves": 10944,
+    "violations": 0,
+    "scope": "frozen same-rules replay; not an independent oracle or mate proof"
+  },
+  "timing": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "complete",
+        "started_at_utc": "2026-10-15T05:57:36.743760+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.34716796875,
+            1.79296875,
+            1.8955078125
+          ]
+        },
+        "host_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            4.5595703125,
+            2.7412109375,
+            2.2470703125
+          ]
+        },
+        "timing_qualified": true,
+        "completed_searches": 640
+      }
+    ],
+    "attempt_gap_seconds": null,
+    "completed_searches": 640,
+    "qualified": true,
+    "any_presearch_block": false,
+    "qualification_rule": "overall qualification is false if any attempt blocked; preserve completed-run raw analysis separately",
+    "raw_development_screen": {
+      "schema": "sekirei.cooperative-root-multi-development-screen.v1",
+      "mode": "timing",
+      "source_ref": "4707c1a51dd5e10a70f925fd29ce567292e64f80",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 640,
+      "all_positions_retained": true,
+      "timing_qualified": true,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 5,
+          "within_side_nondeterministic_blocks": 30,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "13": 4,
+              "15": 4,
+              "16": 20,
+              "17": 12,
+              "19": 12,
+              "20": 8,
+              "21": 8,
+              "22": 12
+            },
+            "B": {
+              "13": 4,
+              "15": 4,
+              "16": 20,
+              "17": 12,
+              "19": 12,
+              "20": 8,
+              "21": 8,
+              "22": 12
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.0004151641017796,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          }
+        },
+        "2": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 39,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.75,
+            -1.25,
+            -0.25,
+            1.25,
+            0.75,
+            0.0,
+            0.0,
+            0.0,
+            0.25,
+            -0.75,
+            0.25,
+            0.25,
+            -0.25,
+            0.5,
+            -0.5,
+            -0.25,
+            0.0,
+            -0.5,
+            -0.25
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.25,
+            0.2375
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "13": 2,
+              "14": 5,
+              "15": 5,
+              "16": 17,
+              "17": 10,
+              "18": 6,
+              "19": 12,
+              "20": 15,
+              "21": 6,
+              "22": 1,
+              "23": 1
+            },
+            "B": {
+              "14": 2,
+              "15": 13,
+              "16": 12,
+              "17": 15,
+              "18": 6,
+              "19": 14,
+              "20": 6,
+              "21": 9,
+              "22": 2,
+              "23": 1
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.010572130817592,
+          "root_census_totals": {
+            "A": {
+              "generations": 2545,
+              "helper_nodes": 5102108,
+              "helper_probes": 29487,
+              "helper_fail_highs": 2156,
+              "main_confirmations": 1775,
+              "confirmed_alpha_raises": 121,
+              "main_nodes": 59668524,
+              "main_tasks": 51946,
+              "confirmation_nodes": 2849509,
+              "helper_completed_nodes": 4853118,
+              "helper_aborted_nodes": 248990,
+              "helper_aborted_probes": 42,
+              "spawn_failures": 0,
+              "helpers_started": 2545,
+              "helper_start_delay_us": 47194,
+              "join_wait_us": 434533,
+              "alpha_gap_sum": 98905,
+              "alpha_gap_max": 7233,
+              "physical_helper_threads_started": 2545,
+              "physical_helper_threads_joined": 2545,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            },
+            "B": {
+              "generations": 2489,
+              "helper_nodes": 5135485,
+              "helper_probes": 28406,
+              "helper_fail_highs": 2221,
+              "main_confirmations": 1848,
+              "confirmed_alpha_raises": 106,
+              "main_nodes": 60245452,
+              "main_tasks": 50902,
+              "confirmation_nodes": 2387456,
+              "helper_completed_nodes": 5052903,
+              "helper_aborted_nodes": 82582,
+              "helper_aborted_probes": 30,
+              "spawn_failures": 0,
+              "helpers_started": 2489,
+              "helper_start_delay_us": 46283,
+              "join_wait_us": 391488,
+              "alpha_gap_sum": 67948,
+              "alpha_gap_max": 6352,
+              "physical_helper_threads_started": 2489,
+              "physical_helper_threads_joined": 2489,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 40,
+          "median_completed_depth_delta": {
+            "all": -0.5,
+            "quiet": -0.25,
+            "tactical": -0.5
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            -0.25,
+            -1.25,
+            -1.0,
+            0.0,
+            0.0,
+            -1.25,
+            0.5,
+            -0.75,
+            0.5,
+            -0.25,
+            0.5,
+            -0.25,
+            -1.5,
+            -0.75,
+            -0.5,
+            0.0,
+            0.25,
+            -0.5,
+            -1.75,
+            -0.25
+          ],
+          "mean_position_completed_depth_delta": -0.425,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.7125,
+            -0.15
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "14": 2,
+              "15": 6,
+              "16": 13,
+              "17": 16,
+              "18": 14,
+              "19": 6,
+              "20": 12,
+              "21": 7,
+              "22": 4
+            },
+            "B": {
+              "13": 2,
+              "14": 2,
+              "15": 8,
+              "16": 19,
+              "17": 8,
+              "18": 9,
+              "19": 18,
+              "20": 7,
+              "21": 7
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.266310099754537,
+          "root_census_totals": {
+            "A": {},
+            "B": {
+              "generations": 2486,
+              "helper_nodes": 10630713,
+              "helper_probes": 43945,
+              "helper_fail_highs": 3348,
+              "main_confirmations": 2575,
+              "confirmed_alpha_raises": 224,
+              "main_nodes": 57912347,
+              "main_tasks": 35903,
+              "confirmation_nodes": 4384097,
+              "helper_completed_nodes": 10098371,
+              "helper_aborted_nodes": 532342,
+              "helper_aborted_probes": 68,
+              "spawn_failures": 0,
+              "helpers_started": 7458,
+              "helper_start_delay_us": 120280,
+              "join_wait_us": 1089498,
+              "alpha_gap_sum": 172328,
+              "alpha_gap_max": 17691,
+              "physical_helper_threads_started": 7458,
+              "physical_helper_threads_joined": 7458,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 40,
+          "median_completed_depth_delta": {
+            "all": 0.5,
+            "quiet": 0.5,
+            "tactical": 0.75
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 1.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.25,
+            -0.75,
+            1.5,
+            0.5,
+            0.5,
+            0.75,
+            -0.75,
+            0.5,
+            1.25,
+            2.25,
+            1.25,
+            1.0,
+            0.25,
+            -0.75,
+            0.75,
+            1.25,
+            0.5,
+            0.5,
+            -0.5,
+            0.5
+          ],
+          "mean_position_completed_depth_delta": 0.5375,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.2,
+            0.875
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "13": 3,
+              "14": 2,
+              "15": 13,
+              "16": 19,
+              "17": 12,
+              "18": 9,
+              "19": 14,
+              "20": 6,
+              "21": 2
+            },
+            "B": {
+              "13": 2,
+              "14": 3,
+              "15": 11,
+              "16": 8,
+              "17": 16,
+              "18": 10,
+              "19": 15,
+              "20": 11,
+              "21": 3,
+              "22": 1
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.18864822180996949,
+          "root_census_totals": {
+            "A": {},
+            "B": {
+              "generations": 2364,
+              "helper_nodes": 12970963,
+              "helper_probes": 58037,
+              "helper_fail_highs": 3595,
+              "main_confirmations": 3031,
+              "confirmed_alpha_raises": 352,
+              "main_nodes": 54462081,
+              "main_tasks": 18533,
+              "confirmation_nodes": 4725198,
+              "helper_completed_nodes": 12227903,
+              "helper_aborted_nodes": 743060,
+              "helper_aborted_probes": 116,
+              "spawn_failures": 0,
+              "helpers_started": 16548,
+              "helper_start_delay_us": 600649,
+              "join_wait_us": 1687773,
+              "alpha_gap_sum": 184856,
+              "alpha_gap_max": 15662,
+              "physical_helper_threads_started": 16548,
+              "physical_helper_threads_joined": 16548,
+              "executor_start_delay_us": 0,
+              "helper_dispatch_delay_us": 0
+            }
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "reasons": [
+        "4T overall or category median regressed."
+      ],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure.",
+      "inputs_sha256": {
+        "target/cooperative-root-multi-timed-attempt1/manifest.json": "50701d2c4a4f8c962f5e6fdc5e6300d89f4d6820c5fedecf59a42916b511f59e",
+        "target/cooperative-root-multi-timed-attempt1/rows.jsonl": "c7ee19a60d2ba00556a68f2095f33199742a6aaa1745978a640e42e09011e209",
+        "target/cooperative-root-multi-timed-attempt1/summary.json": "866608ccb245f4e32a9f451505585b7b225bf232e4b62949e60f78f0d201e1fe",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-multi-build/tune/receipt.json": "67c07de45ef2f5b733e8c218c5e1613057667acef7b2472d8267437e50089d56",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-multi.py": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+        "target/cooperative-root-multi-default-identity/development-screen.json": "281eb053be7aba5db046fc40f7f435193abbf6dde829e314b59dec39736d6bea",
+        "target/cooperative-root-multi-mechanism/development-screen.json": "31082558231d4ac0309d57071a92f550c821b550d0fe988069aee254c940ca63",
+        "target/cooperative-root-multi-timed-attempt1/pv-validation.json": "fb0d90f0ea8e18579ee259c1292793f69dca34a51de96ef9f190a11711e8784e"
+      }
+    },
+    "completed_run_pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 640,
+      "pv_moves": 7278,
+      "unique_board_probes": 2851,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-timed-attempt1/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-timed-attempt1",
+          "engine_sha256": {
+            "A": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+            "B": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    },
+    "development_screen_advance": false,
+    "further_attempt_permitted": false
+  },
+  "independent_h1": false,
+  "strength_claim": false,
+  "default_enabled": false,
+  "artifacts": {
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-multi.py": {
+      "sha256": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+      "bytes": 17862
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/collect-cooperative-root-multi.py": {
+      "sha256": "c26c8b4fabb4f6965bf94ea2d48635d2c9ad5133fa4ae77274afda4ebc03247d",
+      "bytes": 18876
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-default-identity/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-mechanism/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-multi-timed-attempt1/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "9872ef625b0d0d3366a19eadfb5356857c49f24c85f6cd3f31d14012d0a09e8d",
+      "bytes": 75926
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+      "bytes": 21697
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/analyze-cooperative-root-multi.py": {
+      "sha256": "4194f1a564a2b3fdf52848c08b2c94b16163970626c142fd1b310b9ede360f70",
+      "bytes": 17862
+    },
+    "target/build-cooperative-root-multi.py": {
+      "sha256": "af4ed64c1b668879430c8045f45352eb0297d006416f1ae86392f7ade8745788",
+      "bytes": 6086
+    },
+    "target/cooperative-root-multi-activation-tests.log": {
+      "sha256": "cb549b4fdd30f3c114ccf33b07eb9f8d3284240dace857da3fe2249f99036ab5",
+      "bytes": 480
+    },
+    "target/cooperative-root-multi-build-normal-driver.log": {
+      "sha256": "8caf6ba851b2073c4867a4477c4751260b6881fbb443f5d6796b859dc08e69d3",
+      "bytes": 1845
+    },
+    "target/cooperative-root-multi-build-tune-driver.log": {
+      "sha256": "67c07de45ef2f5b733e8c218c5e1613057667acef7b2472d8267437e50089d56",
+      "bytes": 1885
+    },
+    "target/cooperative-root-multi-build/normal/build.log": {
+      "sha256": "707ed7c96335c83703ed85f49dcb1ad33adc3cb7f4fb251aa8b7ac58a0c2bfea",
+      "bytes": 293
+    },
+    "target/cooperative-root-multi-build/normal/engine": {
+      "sha256": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd",
+      "bytes": 4140592
+    },
+    "target/cooperative-root-multi-build/normal/receipt.json": {
+      "sha256": "8caf6ba851b2073c4867a4477c4751260b6881fbb443f5d6796b859dc08e69d3",
+      "bytes": 1845
+    },
+    "target/cooperative-root-multi-build/tune/build.log": {
+      "sha256": "63fbca235571b9f947611b19fc6bab3edd369e061072d0b32e878497a192e6ae",
+      "bytes": 293
+    },
+    "target/cooperative-root-multi-build/tune/engine": {
+      "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "bytes": 4674592
+    },
+    "target/cooperative-root-multi-build/tune/receipt.json": {
+      "sha256": "67c07de45ef2f5b733e8c218c5e1613057667acef7b2472d8267437e50089d56",
+      "bytes": 1885
+    },
+    "target/cooperative-root-multi-compile.log": {
+      "sha256": "18d70b1f683ac3a21aec585fffd6e7e99b7f62033c2429b9826b48d2117db1bc",
+      "bytes": 1276
+    },
+    "target/cooperative-root-multi-default-analysis.log": {
+      "sha256": "281eb053be7aba5db046fc40f7f435193abbf6dde829e314b59dec39736d6bea",
+      "bytes": 5182
+    },
+    "target/cooperative-root-multi-default-identity.log": {
+      "sha256": "3c5c3fee5e23041914032bd4ec467e659238cd64999bcbcc11d3477b9b04474a",
+      "bytes": 43954
+    },
+    "target/cooperative-root-multi-default-identity/development-screen.json": {
+      "sha256": "281eb053be7aba5db046fc40f7f435193abbf6dde829e314b59dec39736d6bea",
+      "bytes": 5182
+    },
+    "target/cooperative-root-multi-default-identity/engine-A": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/cooperative-root-multi-default-identity/engine-B": {
+      "sha256": "d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd",
+      "bytes": 4140592
+    },
+    "target/cooperative-root-multi-default-identity/manifest.json": {
+      "sha256": "3afc875bbbac8174cbbcddd07886366a6c98eff0356458d535aa9eb36bf3af7f",
+      "bytes": 2806
+    },
+    "target/cooperative-root-multi-default-identity/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-multi-default-identity/pv-validation.json": {
+      "sha256": "1f959ec2b4e697307d06c9438b27758e54e4599ae582a87181738c207bfcb63f",
+      "bytes": 926
+    },
+    "target/cooperative-root-multi-default-identity/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-multi-default-identity/rows.jsonl": {
+      "sha256": "813dba0b6b49e8383b19ab7ca9eaf76dc1edf4d7033535059945a5ec7cd1eb8c",
+      "bytes": 665720
+    },
+    "target/cooperative-root-multi-default-identity/summary.json": {
+      "sha256": "530fd8e8b9e8ca729eade1ce12801f614022a2395082cb1d8a0ed3cc1a197800",
+      "bytes": 241229
+    },
+    "target/cooperative-root-multi-default-pv.log": {
+      "sha256": "4f2754c539ac48b2355ea2f7ea5b9c54b37df691268d296a737d7dfe330fded8",
+      "bytes": 49
+    },
+    "target/cooperative-root-multi-full-core.log": {
+      "sha256": "dd9e40517034cf82cc20928c0c0e12aef3b0c88beb96ec763b412f72b4c74bca",
+      "bytes": 33209
+    },
+    "target/cooperative-root-multi-legacy-tests.log": {
+      "sha256": "a8bd4fc9aaedb3844ee951840aca3ccd2e56ecfbb24d33cd5e5362044adf7b4d",
+      "bytes": 4573
+    },
+    "target/cooperative-root-multi-mate-expanded.log": {
+      "sha256": "e05ebde55cf712cecf4a9b906d7c2d516814543d5ac4365aea6d1ce0f8c7a34b",
+      "bytes": 473
+    },
+    "target/cooperative-root-multi-measurement-tools-tests.log": {
+      "sha256": "9120746f47f669d582e96ca0d12221d9781bce218ec707b914caf5505c15a188",
+      "bytes": 168
+    },
+    "target/cooperative-root-multi-mechanism-analysis.log": {
+      "sha256": "31082558231d4ac0309d57071a92f550c821b550d0fe988069aee254c940ca63",
+      "bytes": 9565
+    },
+    "target/cooperative-root-multi-mechanism-pv.log": {
+      "sha256": "070b058edbac5034c5f8b9d6a47a0c8e06bbf7a0ad073faa282441ceb05ce413",
+      "bytes": 49
+    },
+    "target/cooperative-root-multi-mechanism.log": {
+      "sha256": "48a7eddfcc607a5390f7e056f298c1ecd1245448bc75b476a2828f15d78316e5",
+      "bytes": 58822
+    },
+    "target/cooperative-root-multi-mechanism/development-screen.json": {
+      "sha256": "31082558231d4ac0309d57071a92f550c821b550d0fe988069aee254c940ca63",
+      "bytes": 9565
+    },
+    "target/cooperative-root-multi-mechanism/engine-A": {
+      "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "bytes": 4674592
+    },
+    "target/cooperative-root-multi-mechanism/engine-B": {
+      "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "bytes": 4674592
+    },
+    "target/cooperative-root-multi-mechanism/manifest.json": {
+      "sha256": "a9027a1570a71fc6a172799b293a632d8913af5f167860e3a974f50133f16345",
+      "bytes": 3058
+    },
+    "target/cooperative-root-multi-mechanism/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-multi-mechanism/pv-validation.json": {
+      "sha256": "89fb85ca85a9dde024a579a671f875886b89950891e9aabd67bbc040d017b0c6",
+      "bytes": 912
+    },
+    "target/cooperative-root-multi-mechanism/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-multi-mechanism/rows.jsonl": {
+      "sha256": "97b5f6a81d47be7136736369ce39e6168646af12547e9a8c50d9b7183af04b7b",
+      "bytes": 861134
+    },
+    "target/cooperative-root-multi-mechanism/summary.json": {
+      "sha256": "111ec5c71a3968a383749f7cf8d65419af067b9d3e5c02e8bf8718403e6964c1",
+      "bytes": 311776
+    },
+    "target/cooperative-root-multi-new-tests.log": {
+      "sha256": "85d1ef135a48f0f5b72884aa022a20ce0a594dba89c911c313aa46cebd20d541",
+      "bytes": 1349
+    },
+    "target/cooperative-root-multi-normal-usi.txt": {
+      "sha256": "0e32633a4af50c57ef181a5d9d4458ac170b2a337d4e9245827303cd675d0d29",
+      "bytes": 1043
+    },
+    "target/cooperative-root-multi-parser-tests.log": {
+      "sha256": "b22cf91653c8c1514934a02659877fda2c3c4e4b1692231f3bb48e36f6800823",
+      "bytes": 145
+    },
+    "target/cooperative-root-multi-presearch-binding.json": {
+      "sha256": "8f3a3681be5fb30fab9b103a27349438016fca8049cef4334e7568c3016aeb0e",
+      "bytes": 2474
+    },
+    "target/cooperative-root-multi-primary-before.json": {
+      "sha256": "8d29bf1151a5926f0712d8e0a89b88c5aa50c61ba1e61ccb22b22a572a8bd3c0",
+      "bytes": 1080
+    },
+    "target/cooperative-root-multi-prospective-protocol.md": {
+      "sha256": "6f5ebfe7baa236c64220f20019b495f5faa446852db98d7f28b39e88a054bcb4",
+      "bytes": 9079
+    },
+    "target/cooperative-root-multi-source-commit.log": {
+      "sha256": "dceeee2de9b3510a85a918dea34de68acd1af3882b960daecd51a8aebb9954ef",
+      "bytes": 1146
+    },
+    "target/cooperative-root-multi-timed-analysis.log": {
+      "sha256": "f95cd275a5836625bce7ef2fe57ffc4fc8232b944532816b8ffdac7331db811d",
+      "bytes": 11234
+    },
+    "target/cooperative-root-multi-timed-attempt1.log": {
+      "sha256": "ecea19672260ba7e303ad745541b2e8a0ce218c3968e99b83683250a30dd4cee",
+      "bytes": 108033
+    },
+    "target/cooperative-root-multi-timed-attempt1/development-screen.json": {
+      "sha256": "f95cd275a5836625bce7ef2fe57ffc4fc8232b944532816b8ffdac7331db811d",
+      "bytes": 11234
+    },
+    "target/cooperative-root-multi-timed-attempt1/engine-A": {
+      "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "bytes": 4674592
+    },
+    "target/cooperative-root-multi-timed-attempt1/engine-B": {
+      "sha256": "851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f",
+      "bytes": 4674592
+    },
+    "target/cooperative-root-multi-timed-attempt1/manifest.json": {
+      "sha256": "50701d2c4a4f8c962f5e6fdc5e6300d89f4d6820c5fedecf59a42916b511f59e",
+      "bytes": 3066
+    },
+    "target/cooperative-root-multi-timed-attempt1/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-multi-timed-attempt1/pv-validation.json": {
+      "sha256": "fb0d90f0ea8e18579ee259c1292793f69dca34a51de96ef9f190a11711e8784e",
+      "bytes": 923
+    },
+    "target/cooperative-root-multi-timed-attempt1/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-multi-timed-attempt1/rows.jsonl": {
+      "sha256": "c7ee19a60d2ba00556a68f2095f33199742a6aaa1745978a640e42e09011e209",
+      "bytes": 1764608
+    },
+    "target/cooperative-root-multi-timed-attempt1/summary.json": {
+      "sha256": "866608ccb245f4e32a9f451505585b7b225bf232e4b62949e60f78f0d201e1fe",
+      "bytes": 629254
+    },
+    "target/cooperative-root-multi-timed-pv.log": {
+      "sha256": "9ab1e95cfb553c8ffd0d1491d83cc84356b0064d6abd99268f07fbf641bfe14f",
+      "bytes": 49
+    },
+    "target/cooperative-root-multi-tune-clippy.log": {
+      "sha256": "ab3753cebfc9d057b2c29ecb2781257f0696c00e0ca764df3a0ec83a9e4af030",
+      "bytes": 178
+    },
+    "target/cooperative-root-multi-tune-usi.txt": {
+      "sha256": "733cfff2927cbc60026116770459101b7465fabdde50bfe942025e7d63dff209",
+      "bytes": 17145
+    },
+    "target/correction-key-unroll-build/A/engine": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/correction-key-unroll-build/A/receipt.json": {
+      "sha256": "0dc272d85698beaf9c312275c3723fc612849eff2475cc37e1ce333b319d0ab3",
+      "bytes": 1154
+    },
+    "target/useful-depth/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    }
+  }
+}

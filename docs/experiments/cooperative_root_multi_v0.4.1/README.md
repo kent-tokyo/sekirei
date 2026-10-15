@@ -163,3 +163,56 @@ mechanism report. Override their directory paths only with `--identity-run`
 and `--mechanism-run` when the same frozen lanes were stored elsewhere.
 Unqualified or malformed inputs cannot advance. These are development screens,
 not an independent oracle, Elo result or proof of YaneuraOu superiority.
+
+## Completed observation (2026-10-15)
+
+Frozen source: `4707c1a51dd5e10a70f925fd29ce567292e64f80`.
+Normal native SHA-256:
+`d76018507dc884f48520f1061d510258f008c73d82caa000859617e25614aedd`;
+tune native SHA-256:
+`851e06a1cf4536082a3e05695e9445b916fd509509c7ddf6d66c0de043da5e2f`.
+Both clean builds use Rust/Cargo 1.97.0, the same native configuration and no
+PGO. The pre-search binding preserves the committed prospective protocol and
+all analysis inputs. Final observations are in [results.json](results.json),
+with SHA-256 and sizes for 74 local evidence artifacts.
+
+Core tests: 389 passed, 4 ignored; the isolated tune activation/fallback matrix
+passed separately. The expanded shallow sequential comparison includes a mate
+position. All 41 legacy root-split tests, the 10-test multi-name selection
+(including eight new tests), tune Clippy and the workspace commit hook passed.
+Measurement tooling: 69 tests passed (including the 46 parser tests).
+
+Default identity retained all 240 rows: all 20 one-thread positions matched
+bestmove, score/bound, PV, nodes and depth exactly. Parallel arms varied within
+each arm on all 20 positions at both 4T and 8T; no deterministic parallel node
+identity is asserted. The 320-row mechanism lane activated only the intended
+4T/8T groups, retained the legacy 2T path and passed all job/node/join checks.
+
+The first timed attempt completed all 640 searches with both 25-percent CPU
+checks idle; no retry was run or remains permitted. Material-only, 300ms,
+20 positions, two ABBA repeats per position:
+
+| Threads | Median paired depth delta | Quiet | Tactical | Mean position delta | Position-bootstrap 95% interval | Raw wall-NPS ratio |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| 1 | 0 | 0 | 0 | 0 | [0, 0] | 1.0004 |
+| 2 | 0 | 0 | 0 | 0 | [-0.2500, 0.2375] | 1.0106 |
+| 4 | -0.5 | -0.25 | -0.5 | -0.4250 | [-0.7125, -0.1500] | 0.2663 |
+| 8 | +0.5 | +0.5 | +0.75 | +0.5375 | [0.2000, 0.8750] | 0.1886 |
+
+8T meets its depth criteria in this development corpus; its A-first/B-first
+medians were +1.0/0.0, so order sensitivity remains visible. The combined screen
+**does not advance**, because 4T regressed. NPS is reported as raw node
+throughput and is not an acceptance criterion. These are completed-depth
+observations, not equivalent-tree work or playing-strength measurements.
+
+Timed B4T started and joined all 7,458 helper jobs across 2,486 generations;
+B8T started and joined all 16,548 across 2,364 generations. Neither had a spawn
+failure. Worker0 confirmed 2,575/3,031 helper candidates at 4T/8T; 224/352
+confirmations raised alpha. All 1,200 rows across the three lanes replayed
+10,944 legal PV moves with zero violations using the frozen same-rules tool.
+This replay is not an independent move-generation oracle or a mate proof.
+
+COOP_MULTI remains default OFF. No independent H1, NNUE change, Elo claim or
+YaneuraOu superiority claim is made. The measured 4T regression must be
+resolved in a separately frozen candidate before this combined screen can
+advance; this completed run must not be repeated to seek a favorable sample.
