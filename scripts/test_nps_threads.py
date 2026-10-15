@@ -26,6 +26,9 @@ from nps_threads import (  # noqa: E402
     parse_cooperative_root_wait,
     parse_cooperative_root_latency,
     parse_cooperative_root_policy,
+    parse_cooperative_root_helper_lmr_policy,
+    parse_cooperative_root_helper_lmr,
+    COOPERATIVE_ROOT_HELPER_LMR_KEYS,
     parse_cooperative_root_outcomes,
     COOPERATIVE_ROOT_OUTCOME_KEYS,
     COOPERATIVE_ROOT_LATENCY_KEYS,
@@ -758,6 +761,68 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertTrue(row["provenance"]["cooperative_priority_enabled"])
         self.assertFalse(row["provenance"]["counter_overhead_included"])
         self.assertTrue(row["provenance"]["timing_qualified"])
+
+    def test_helper_lmr_policy_is_optional_intrinsic_identity(self):
+        line = "info string cooperative_root_helper_lmr_policy enabled 1"
+        self.assertIsNone(parse_cooperative_root_helper_lmr_policy([], cooperative_root=None))
+        self.assertEqual(parse_cooperative_root_helper_lmr_policy([line], cooperative_root={}), {"enabled": 1})
+        for bad in ([line, line], [line + " extra 0"], [line.replace("enabled 1", "enabled 0")],
+                    [line.replace("enabled 1", "enabled 2")], [line.replace("enabled 1", "enabled １")]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse_cooperative_root_helper_lmr_policy(bad, cooperative_root={})
+        with self.assertRaisesRegex(ValueError, "requires split"):
+            parse_cooperative_root_helper_lmr_policy([line], cooperative_root=None)
+
+    def test_helper_lmr_counters_preserve_legacy_full_depth_probe_accounting(self):
+        stats = dict(reduced_probes=6, reduced_fail_highs=2, full_depth_rechecks=2,
+                     full_depth_fail_highs=1, completed_reduced_fail_lows=3)
+        def line(values=stats):
+            return "info string cooperative_root_helper_lmr " + " ".join(f"{key} {values[key]}" for key in COOPERATIVE_ROOT_HELPER_LMR_KEYS)
+        def parse(lines, *, root={"helper_probes": 0, "helper_fail_highs": 0}, policy={"enabled": 1}, latency={}):
+            return parse_cooperative_root_helper_lmr(lines, cooperative_root=root, policy=policy, latency=latency)
+        self.assertIsNone(parse([], root=None, policy=None, latency=None))
+        # Reduced fail lows do not count as legacy full-depth completions, and
+        # cancellation can separate rechecks from legacy publication counts.
+        self.assertEqual(parse([line()]), stats)
+        for bad in ([line(), line()], [line() + " extra 0"],
+                    [line().replace("reduced_probes 6", "reduced_probes -1")],
+                    [line().replace("reduced_probes 6", "reduced_probes ６")],
+                    [line().replace("reduced_probes 6", f"reduced_probes {1 << 64}")]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                parse(bad)
+        for key, value in (("reduced_fail_highs", 3), ("full_depth_rechecks", 1),
+                           ("completed_reduced_fail_lows", 5), ("full_depth_fail_highs", 3)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                parse([line({**stats, key: value})])
+        for absent in ("root", "policy", "latency"):
+            with self.subTest(absent=absent), self.assertRaisesRegex(ValueError, "requires policy"):
+                parse([line()], **{absent: None})
+
+    def test_measure_observes_helper_lmr_with_and_without_counter_overhead(self):
+        root_line = ("info string cooperative_root generations 1 helper_nodes 0 helper_probes 0 "
+                     "helper_fail_highs 0 main_confirmations 0 confirmed_alpha_raises 0 "
+                     "main_nodes 100 main_tasks 1 confirmation_nodes 0 helper_completed_nodes 0 "
+                     "helper_aborted_nodes 0 helper_aborted_probes 0 spawn_failures 0 helpers_started 1 "
+                     "helper_start_delay_us 0 join_wait_us 0 alpha_gap_sum 0 alpha_gap_max 0 "
+                     "physical_helper_threads_started 1 physical_helper_threads_joined 1 "
+                     "executor_start_delay_us 0 helper_dispatch_delay_us 0")
+        for instrumented in (False, True):
+            args = self.measurement_args(yaneuraou=False, evalfile=None)
+            args.option = ["T_COOP_HELPER_LMR=1", f"T_COOP_LATENCY={int(instrumented)}"]
+            args.provenance.update(counter_overhead_included=False, timing_qualified=True)
+            outputs = [root_line, "info string cooperative_root_helper_lmr_policy enabled 1"]
+            if instrumented:
+                outputs += ["info string cooperative_root_latency enabled 1 " + " ".join(f"{key} 0" for key in COOPERATIVE_ROOT_LATENCY_KEYS),
+                            "info string cooperative_root_helper_lmr " + " ".join(f"{key} 0" for key in COOPERATIVE_ROOT_HELPER_LMR_KEYS)]
+            outputs += ["info depth 3 score cp 0 nodes 100 nps 1000 pv 7g7f", "bestmove 7g7f"]
+            with self.subTest(instrumented=instrumented), patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+                row = measure(args, 2, ["startpos"])[0]
+            self.assertEqual(row["cooperative_root_helper_lmr_policy"], {"enabled": 1})
+            self.assertEqual(row["cooperative_root_helper_lmr"] is not None, instrumented)
+            self.assertTrue(row["provenance"]["cooperative_helper_lmr_enabled"])
+            self.assertEqual(row["provenance"]["counter_overhead_included"], instrumented)
+            self.assertEqual(row["provenance"]["timing_qualified"], not instrumented)
 
     def test_go_command_keeps_time_and_fixed_depth_budgets_distinct(self):
         self.assertEqual(

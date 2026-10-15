@@ -573,6 +573,7 @@ fn cooperative_priority_identity_is_counter_free_and_outcomes_are_optional() {
         (2, 0, 1),
         (2, 1, 1),
         (1, 1, 1),
+        (4, 1, 1),
         (2, 0, 0),
     ] {
         for command in [
@@ -678,6 +679,97 @@ fn cooperative_priority_identity_is_counter_free_and_outcomes_are_optional() {
                     assert_eq!(outcomes[key], 0);
                 }
             }
+        }
+        assert!(!lines.iter().any(|line| line == "bestmove resign"));
+    }
+    send(&mut stdin, "quit");
+    assert!(child.wait().unwrap().success());
+}
+
+#[cfg(feature = "tune")]
+#[test]
+fn cooperative_helper_lmr_identity_is_counter_free_and_observers_are_opt_in() {
+    let (mut child, rx, mut stdin) = spawn_engine();
+    send(&mut stdin, "usi");
+    let handshake = recv_until(&rx, |line| line == "usiok", Duration::from_secs(30));
+    assert!(
+        handshake.iter().any(|line| {
+            line == "option name T_COOP_HELPER_LMR type spin default 0 min 0 max 1"
+        })
+    );
+    for (threads, lmr, latency) in [
+        (2, 0, 0),
+        (2, 1, 0),
+        (2, 0, 1),
+        (2, 1, 1),
+        (1, 1, 1),
+        (2, 0, 0),
+    ] {
+        for command in [
+            format!("setoption name Threads value {threads}"),
+            "setoption name Hash value 2".into(),
+            "setoption name LazyFlags value 16399".into(),
+            "setoption name T_COOP_DRAIN value 0".into(),
+            format!("setoption name T_COOP_HELPER_LMR value {lmr}"),
+            format!("setoption name T_COOP_LATENCY value {latency}"),
+            "isready".into(),
+        ] {
+            send(&mut stdin, &command);
+        }
+        recv_until(&rx, |line| line == "readyok", Duration::from_secs(30));
+        send(&mut stdin, "position startpos");
+        send(&mut stdin, "go depth 3");
+        let lines = recv_until(
+            &rx,
+            |line| line.starts_with("bestmove"),
+            Duration::from_secs(30),
+        );
+        let policies: Vec<_> = lines
+            .iter()
+            .filter(|line| line.starts_with("info string cooperative_root_helper_lmr_policy "))
+            .collect();
+        let active = threads == 2 && lmr == 1;
+        assert_eq!(policies.len(), usize::from(active), "{lines:?}");
+        if let Some(line) = policies.first() {
+            assert_eq!(
+                line.as_str(),
+                "info string cooperative_root_helper_lmr_policy enabled 1"
+            );
+        }
+        let details: Vec<_> = lines
+            .iter()
+            .filter(|line| line.starts_with("info string cooperative_root_helper_lmr "))
+            .collect();
+        assert_eq!(
+            details.len(),
+            usize::from(active && latency == 1),
+            "{lines:?}"
+        );
+        if let Some(line) = details.first() {
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.starts_with("info string cooperative_root "))
+            );
+            assert!(
+                lines
+                    .iter()
+                    .any(|line| line.starts_with("info string cooperative_root_latency "))
+            );
+            let fields: Vec<_> = line.split_whitespace().skip(3).collect();
+            assert_eq!(fields.len(), 10);
+            let stats: std::collections::HashMap<_, _> = fields
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|pair| (pair[0], pair[1].parse::<u64>().unwrap()))
+                .collect();
+            assert_eq!(stats["full_depth_rechecks"], stats["reduced_fail_highs"]);
+            assert!(
+                stats["reduced_fail_highs"] + stats["completed_reduced_fail_lows"]
+                    <= stats["reduced_probes"]
+            );
+            assert!(stats["full_depth_fail_highs"] <= stats["full_depth_rechecks"]);
         }
         assert!(!lines.iter().any(|line| line == "bestmove resign"));
     }

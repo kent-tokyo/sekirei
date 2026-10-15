@@ -472,6 +472,55 @@ def parse_cooperative_root_policy(lines: list[str], *, cooperative_root: dict[st
     return {"priority": 1}
 
 
+def parse_cooperative_root_helper_lmr_policy(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
+    """Intrinsic helper-only LMR activation, independent of observer overhead."""
+    prefix = "info string cooperative_root_helper_lmr_policy "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    if len(matches) != 1 or matches[0].split() != ["enabled", "1"]:
+        raise ValueError("malformed cooperative root helper LMR policy diagnostic")
+    if cooperative_root is None:
+        raise ValueError("cooperative root helper LMR policy requires split evidence")
+    return {"enabled": 1}
+
+
+COOPERATIVE_ROOT_HELPER_LMR_KEYS = (
+    "reduced_probes", "reduced_fail_highs", "full_depth_rechecks",
+    "full_depth_fail_highs", "completed_reduced_fail_lows",
+)
+
+
+def parse_cooperative_root_helper_lmr(lines: list[str], *, cooperative_root: dict[str, int] | None,
+                                     policy: dict[str, int] | None,
+                                     latency: dict[str, int] | None) -> dict[str, int] | None:
+    """Observer counts; legacy helper_probes continues to mean full-depth completions."""
+    prefix = "info string cooperative_root_helper_lmr "
+    matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
+    if not matches:
+        return None
+    fields = matches[0].split()
+    keys = COOPERATIVE_ROOT_HELPER_LMR_KEYS
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative root helper LMR diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative root helper LMR counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative root helper LMR counter exceeds u64")
+    if cooperative_root is None or policy is None or latency is None:
+        raise ValueError("cooperative root helper LMR requires policy, latency and split evidence")
+    if result["full_depth_rechecks"] != result["reduced_fail_highs"]:
+        raise ValueError("cooperative helper LMR fail highs differ from recheck starts")
+    if result["reduced_fail_highs"] + result["completed_reduced_fail_lows"] > result["reduced_probes"]:
+        raise ValueError("cooperative helper LMR completed reductions exceed reduced probes")
+    if result["full_depth_fail_highs"] > result["full_depth_rechecks"]:
+        raise ValueError("cooperative helper LMR full-depth fail highs exceed rechecks")
+    # Cancellation can intervene before legacy publication accounting. Do not
+    # compare these completed helper rechecks to legacy helper_fail_highs.
+    return result
+
+
 COOPERATIVE_ROOT_LATENCY_KEYS = (
     "publications",
     "scout_publications",
@@ -1152,6 +1201,13 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
                 cooperative_root_latency = parse_cooperative_root_latency(lines, cooperative_root=cooperative_root)
                 cooperative_root_policy = parse_cooperative_root_policy(lines, cooperative_root=cooperative_root)
+                cooperative_root_helper_lmr_policy = parse_cooperative_root_helper_lmr_policy(
+                    lines, cooperative_root=cooperative_root,
+                )
+                cooperative_root_helper_lmr = parse_cooperative_root_helper_lmr(
+                    lines, cooperative_root=cooperative_root, policy=cooperative_root_helper_lmr_policy,
+                    latency=cooperative_root_latency,
+                )
                 cooperative_root_outcomes = parse_cooperative_root_outcomes(
                     lines, cooperative_root=cooperative_root, latency=cooperative_root_latency,
                     policy=cooperative_root_policy,
@@ -1179,6 +1235,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "cooperative_root_wait": cooperative_root_wait,
                     "cooperative_root_latency": cooperative_root_latency,
                     "cooperative_root_policy": cooperative_root_policy,
+                    "cooperative_root_helper_lmr_policy": cooperative_root_helper_lmr_policy,
+                    "cooperative_root_helper_lmr": cooperative_root_helper_lmr,
                     "cooperative_root_outcomes": cooperative_root_outcomes,
                     "depth": depth,
                     "nodes": nodes,
@@ -1194,6 +1252,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         "options": effective_options,
                         "cooperative_latency_overhead_included": cooperative_root_latency is not None,
                         "cooperative_priority_enabled": cooperative_root_policy is not None,
+                        "cooperative_helper_lmr_enabled": cooperative_root_helper_lmr_policy is not None,
                         **({"counter_overhead_included": True, "timing_qualified": False}
                            if cooperative_root_latency is not None else {}),
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,

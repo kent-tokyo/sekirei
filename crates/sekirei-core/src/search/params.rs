@@ -90,6 +90,8 @@ search_params! {
     COOP_LATENCY = 0, 0, 1;
     /// Prioritize highest ready helper advice and rescan after each confirmation.
     COOP_PRIORITY = 0, 0, 1;
+    /// One-ply reduction for late quiet non-checking cooperative helper root probes.
+    COOP_HELPER_LMR = 0, 0, 1;
     /// Reverse futility pruning: margin per depth in centipawns.
     RFP_MARGIN = 152, 20, 400;
     /// Per-depth RFP margin removed when the static eval is improving.

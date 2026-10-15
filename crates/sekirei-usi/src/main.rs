@@ -1025,6 +1025,25 @@ fn emit_search_result(
     {
         println!("info string cooperative_root_policy priority 1");
     }
+    if info
+        .cooperative_root_wait
+        .is_some_and(|stats| stats.helper_lmr_enabled)
+    {
+        println!("info string cooperative_root_helper_lmr_policy enabled 1");
+    }
+    if let Some(stats) = info
+        .cooperative_root_wait
+        .and_then(|stats| stats.helper_lmr)
+    {
+        println!(
+            "info string cooperative_root_helper_lmr reduced_probes {} reduced_fail_highs {} full_depth_rechecks {} full_depth_fail_highs {} completed_reduced_fail_lows {}",
+            stats.reduced_probes,
+            stats.reduced_fail_highs,
+            stats.full_depth_rechecks,
+            stats.full_depth_fail_highs,
+            stats.completed_reduced_fail_lows,
+        );
+    }
     if let Some(stats) = info.cooperative_root_wait.and_then(|stats| stats.latency) {
         println!(
             "info string cooperative_root_latency enabled 1 publications {} scout_publications {} research_publications {} confirmation_publications {} idle_publications {} phase_transition_publications {} beta_scout_publications {} confirmations {} confirmation_latency_us_sum {} confirmation_latency_us_max {} confirmation_main_nodes_sum {} confirmation_main_nodes_max {} scout_confirmations {} scout_delay_nodes_sum {} beta_scout_confirmations {} beta_scout_delay_nodes_sum {} beta_scout_confirmed_cuts {} unconfirmed_publications {} rejected_publications {}",
