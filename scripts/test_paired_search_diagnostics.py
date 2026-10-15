@@ -109,6 +109,8 @@ class PairedDiagnosticsTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "complete")
             self.assertFalse(manifest["timing_qualified"])
             self.assertFalse(manifest["counter_lane"])
+            self.assertEqual(manifest["budget"], {"depth": 10, "movetime_ms": None})
+            self.assertNotIn("measurement_phase", manifest)
             self.assertEqual(manifest["cooperative_latency_instrumentation_requested"], {"A": False, "B": True})
             self.assertEqual([lane.provenance["cooperative_latency_instrumentation_requested"] for lane in observed], [False, True, True, False])
             self.assertTrue(all(not lane.require_lazy_diagnostics for lane in observed))
@@ -432,6 +434,8 @@ class CooperativePrestartPairingTests(unittest.TestCase):
                 self.assertEqual(paired_main(), 0)
             manifest = json.loads((output / "manifest.json").read_text())
             self.assertEqual(manifest["status"], "complete")
+            self.assertEqual(manifest["budget"], {"depth": None, "movetime_ms": 300})
+            self.assertNotIn("measurement_phase", manifest)
             self.assertEqual(manifest["cooperative_prestart_instrumentation_requested"], requested)
             self.assertEqual(manifest["timing_qualified"], qualified)
             self.assertFalse(manifest["counter_lane"])
@@ -439,6 +443,64 @@ class CooperativePrestartPairingTests(unittest.TestCase):
             self.assertEqual([lane.provenance["cooperative_prestart_instrumentation_requested"] for lane in observed], abba)
             self.assertEqual([lane.provenance["counter_overhead_included"] for lane in observed], abba)
             self.assertTrue(all(not lane.require_lazy_diagnostics for lane in observed))
+
+
+class FixedNodePairingTests(unittest.TestCase):
+    def test_fixed_node_work_runs_on_idle_busy_or_unknown_host_without_identity_gate(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        hosts = [dict(available=True, busy_processes=[]),
+                 dict(available=True, busy_processes=[{"pid": 23, "cpu_percent": 831.0}]),
+                 dict(available=False, busy_processes=[])]
+        for host in hosts:
+            with self.subTest(host=host), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                engine = root / "engine"
+                engine.write_bytes(b"fixed-node mocked engine")
+                positions = root / "positions.sfen"
+                positions.write_text("startpos\n")
+                output = root / "out"
+                args = ["paired_search_diagnostics.py", "--baseline", str(engine), "--candidate", str(engine),
+                        "--positions", str(positions), "--output", str(output), "--threads", "1", "--count", "1",
+                        "--repeats", "1", "--nodes", "1000", "--a-option", "T_COOP_PRESTART=0",
+                        "--b-option", "T_COOP_PRESTART=1"]
+                lanes = []
+                def fake_measure(lane, threads, positions):
+                    lanes.append(lane)
+                    different = "T_COOP_PRESTART=1" in lane.option
+                    return [dict(threads=threads, depth=9 if different else 8, nodes=1008 if different else 1001,
+                                 node_limit_overshoot=8 if different else 1, wall_nps=1000, elapsed_ms=100,
+                                 bestmove="2g2f" if different else "7g7f", score=["cp", "1" if different else "0"],
+                                 pv=["2g2f"] if different else ["7g7f"], provenance=lane.provenance)]
+                with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=host), patch("paired_search_diagnostics.measure", side_effect=fake_measure), patch("builtins.print"):
+                    self.assertEqual(paired_main(), 0)
+                manifest = json.loads((output / "manifest.json").read_text())
+                self.assertEqual(manifest["status"], "complete")
+                self.assertEqual(manifest["budget"], {"depth": None, "movetime_ms": None, "node_limit": 1000})
+                self.assertEqual(manifest["measurement_phase"], "fixed_node_work_diagnostic")
+                self.assertEqual(manifest["identity_policy"], "observe_only_fixed_node_work")
+                self.assertFalse(manifest["timing_qualified"])
+                self.assertEqual(len(lanes), 4)
+                self.assertTrue(all(lane.nodes == 1000 and lane.depth is None for lane in lanes))
+                self.assertTrue(all(lane.provenance["timing_qualified"] is False for lane in lanes))
+                summary = json.loads((output / "summary.json").read_text())["by_threads"]["1"]
+                self.assertIsNone(summary["identity_pass"])
+                self.assertFalse(summary["fixed_depth_identity_required"])
+                self.assertEqual(summary["exact_identity_blocks"], 0)
+                self.assertEqual(summary["median_paired_delta"]["node_limit_overshoot"], 7)
+
+    def test_fixed_node_cli_rejects_budget_conflicts_and_invalid_u64_before_filesystem_changes(self):
+        flags = (["--nodes", "1", "--depth", "8"], ["--nodes", "1", "--movetime", "300"],
+                 ["--nodes", "0"], ["--nodes", str(1 << 64)], ["--nodes", "-1"], ["--nodes", "１"])
+        for extra in flags:
+            args = ["paired_search_diagnostics.py", "--baseline", "unused-A", "--candidate", "unused-B",
+                    "--positions", "unused-positions", "--output", "unused-output", *extra]
+            with self.subTest(flags=extra), patch("sys.argv", args), patch("sys.stderr"), patch("paired_search_diagnostics.freeze") as freeze:
+                with self.assertRaises(SystemExit) as error:
+                    paired_main()
+                self.assertEqual(error.exception.code, 2)
+                freeze.assert_not_called()
 
 
 if __name__ == "__main__":

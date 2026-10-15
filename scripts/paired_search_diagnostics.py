@@ -18,7 +18,7 @@ import statistics
 from datetime import datetime, timezone
 from pathlib import Path
 
-from nps_threads import ASPIRATION_KEYS, effective_positions_sha256, measure, option_value, summarize_lazy_root_hints
+from nps_threads import positive_u64, ASPIRATION_KEYS, effective_positions_sha256, measure, option_value, summarize_lazy_root_hints
 
 
 def schedule(threads: list[int], positions: int, repeats: int):
@@ -106,6 +106,8 @@ def work_metrics(row: dict) -> dict:
         known = main["tt_local_hits"] + main["tt_foreign_hits"]
         result["worker0_foreign_tt_hits"] = main["tt_foreign_hits"]
         result["worker0_foreign_tt_hit_rate"] = main["tt_foreign_hits"] / known if known else None
+    if "node_limit_overshoot" in row:
+        result["node_limit_overshoot"] = row["node_limit_overshoot"]
     retirement = row.get("retirement", [])
     if retirement:
         result["helper_completed_iterations"] = sum(item["completed_iterations"] for item in retirement if item["worker"])
@@ -241,6 +243,7 @@ def main() -> int:
     budget = parser.add_mutually_exclusive_group()
     budget.add_argument("--movetime", type=int, default=300)
     budget.add_argument("--depth", type=int)
+    budget.add_argument("--nodes", type=positive_u64, help="fixed node budget; unqualified work diagnostic")
     parser.add_argument("--option", action="append", default=[])
     parser.add_argument("--a-option", action="append", default=[])
     parser.add_argument("--b-option", action="append", default=[])
@@ -297,7 +300,7 @@ def main() -> int:
     prestart_diag_requested = {side: option_value(args.option + side_options, "T_COOP_PRESTART_DIAG") not in (None, "0")
                               for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     host_idle = activity["available"] and not activity["busy_processes"]
-    timing_qualified = host_idle and not args.diagnostics and not any(latency_requested.values()) and not any(prestart_diag_requested.values())
+    timing_qualified = args.nodes is None and host_idle and not args.diagnostics and not any(latency_requested.values()) and not any(prestart_diag_requested.values())
     manifest = {
         "schema": "sekirei.paired-search-manifest.v1", "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(), "engines": frozen,
@@ -307,7 +310,8 @@ def main() -> int:
         "positions_sha256": hashlib.sha256(source_data).hexdigest(),
         "effective_positions_sha256": effective_positions_sha256(positions),
         "effective_position_count": len(positions), "threads": threads, "repeats": args.repeats,
-        "budget": {"depth": args.depth, "movetime_ms": args.movetime if args.depth is None else None},
+        "budget": {"depth": args.depth, "movetime_ms": args.movetime if args.depth is None and args.nodes is None else None,
+                   **({"node_limit": args.nodes} if args.nodes is not None else {})},
         "evaluator": {"kind": "material-only"}, "hash_mb": args.hash,
         "common_options": args.option, "A_options": args.a_option, "B_options": args.b_option,
         "changed_options": changes, "counter_lane": args.diagnostics,
@@ -315,7 +319,9 @@ def main() -> int:
         "cooperative_prestart_instrumentation_requested": prestart_diag_requested,
         "cooperative_priority_requested": priority_requested,
         "cooperative_helper_lmr_requested": helper_lmr_requested,
-        "identity_policy": "observe_only_policy_change" if args.policy_diagnostic else "require_1T_fixed_depth",
+        "identity_policy": ("observe_only_fixed_node_work" if args.nodes is not None else
+                            "observe_only_policy_change" if args.policy_diagnostic else "require_1T_fixed_depth"),
+        **({"measurement_phase": "fixed_node_work_diagnostic"} if args.nodes is not None else {}),
         "host": {"system": platform.system(), "release": platform.release(), "machine": platform.machine(), "cpu_count": os.cpu_count()},
         "schedule": "per-position ABBA; fresh process every slot", "strength_gate_opened": False,
         "host_activity_before": activity, "timing_qualified": timing_qualified,
@@ -325,7 +331,7 @@ def main() -> int:
     def save_manifest():
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     save_manifest()
-    if args.depth is None and not args.diagnostics and not host_idle and not args.allow_busy:
+    if args.depth is None and args.nodes is None and not args.diagnostics and not host_idle and not args.allow_busy:
         manifest.update(status="blocked_host_busy", error="timing requires an idle host; no processes stopped")
         save_manifest()
         print(json.dumps({"error": manifest["error"], "host_activity": activity}))
@@ -339,13 +345,15 @@ def main() -> int:
                 lane = argparse.Namespace(engine=frozen[side]["path"], yaneuraou=False, evalfile=None, fv_scale=24,
                     hash=args.hash, option=options, lazy_diagnostics=args.diagnostics, label=f"{side} slot{slot} ", position_offset=position,
                     require_lazy_diagnostics=args.diagnostics, require_root_hint_diagnostics=require_hint,
-                    depth=args.depth, movetime=args.movetime, repeats=1, timeout=args.timeout, strict_options=True,
+                    depth=args.depth, movetime=args.movetime, nodes=args.nodes, repeats=1, timeout=args.timeout, strict_options=True,
                     provenance={"engine_sha256": frozen[side]["sha256"], "effective_positions_sha256": manifest["effective_positions_sha256"],
                                 "evaluator": {"kind": "material-only"}, "counter_overhead_included": args.diagnostics or latency_requested[side] or prestart_diag_requested[side],
                                 "cooperative_latency_instrumentation_requested": latency_requested[side],
                                 "cooperative_prestart_instrumentation_requested": prestart_diag_requested[side],
                                 "cooperative_priority_requested": priority_requested[side],
-                                "cooperative_helper_lmr_requested": helper_lmr_requested[side]})
+                                "cooperative_helper_lmr_requested": helper_lmr_requested[side],
+                                **({"measurement_phase": "fixed_node_work_diagnostic", "node_limit": args.nodes,
+                                    "timing_qualified": False} if args.nodes is not None else {})})
                 row = measure(lane, count, [positions[position]])[0]
                 row.update(repeat=repeat, position=position, side=side, abba_slot=slot, sequence=len(rows))
                 if require_hint and "first_move_beta_cuts" not in row.get("lazy_smp_root_hint", {}):

@@ -881,7 +881,22 @@ def require_lazy_diagnostic_record(
         raise ValueError("missing required Lazy SMP diagnostics: " + ", ".join(missing))
 
 
+def positive_u64(value: str) -> int:
+    normalized = value.lstrip("0") or "0"
+    if (not value.isascii() or not value.isdigit() or len(normalized) > 20
+            or not 1 <= int(normalized) <= (1 << 64) - 1):
+        raise argparse.ArgumentTypeError("node limit must be a positive unsigned 64-bit decimal integer")
+    return int(normalized)
+
+
 def go_command(args: argparse.Namespace) -> str:
+    nodes = getattr(args, "nodes", None)
+    if nodes is not None:
+        if getattr(args, "depth", None) is not None:
+            raise ValueError("depth and node budgets are mutually exclusive")
+        if isinstance(nodes, bool) or not isinstance(nodes, int) or not 1 <= nodes <= (1 << 64) - 1:
+            raise ValueError("node limit must be a positive u64")
+        return f"go nodes {nodes}"
     if args.depth is not None:
         return f"go depth {args.depth}"
     return f"go movetime {args.movetime}"
@@ -1253,6 +1268,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     raise ValueError(f"invalid declared {path_key} input path") from error
                 if resolved != fingerprint["resolved_path"]:
                     raise ValueError(f"declared {path_key} differs from the bound input path")
+    go_command(args)
     env = dict(os.environ, RAYON_NUM_THREADS=str(threads))
     engine = Usi(args.engine, env, timeout=getattr(args, "timeout", 120))
     rows = []
@@ -1361,8 +1377,12 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                            if cooperative_root_latency is not None or cooperative_root_prestart_diag is not None else {}),
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
                         "budget": go_command(args),
+                        **({"measurement_phase": "fixed_node_work_diagnostic", "node_limit": args.nodes,
+                            "timing_qualified": False} if getattr(args, "nodes", None) is not None else {}),
                     },
                 }
+                if getattr(args, "nodes", None) is not None:
+                    row["node_limit_overshoot"] = max(0, nodes - args.nodes)
                 if lazy_smp is not None:
                     row["lazy_smp"] = lazy_smp
                 if lazy_smp_tt is not None:
@@ -1447,6 +1467,7 @@ def main() -> int:
     budget = parser.add_mutually_exclusive_group()
     budget.add_argument("--movetime", type=int, default=2000, help="ms per position")
     budget.add_argument("--depth", type=int, help="fixed depth instead of wall time")
+    budget.add_argument("--nodes", type=positive_u64, help="fixed node budget; work diagnostic without timing qualification")
     parser.add_argument(
         "--positions", default=str(ROOT / "data/gate/openings_standard.sfen")
     )
@@ -1561,7 +1582,7 @@ def main() -> int:
     budget_label = (
         f"fixed depth {args.depth}"
         if args.depth is not None
-        else f"{args.movetime} ms each"
+        else (f"fixed node budget {args.nodes} (work diagnostic; timing unqualified)" if args.nodes is not None else f"{args.movetime} ms each")
     )
     print(f"{label}: {len(positions)} positions x {args.repeats} repeats, {budget_label}")
     print("threads  median NPS   ratio  median depth  min..max depth  bestmove stability")
