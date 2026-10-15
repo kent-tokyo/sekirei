@@ -144,3 +144,62 @@ Reports normalize JSON keys and record the two independent thread screens.
 The legal replay uses the same rules as Sekirei; it is not an independent
 move-generation oracle or mate proof. Counter totals for alpha_gap_max sum
 per-go maxima and must not be described as a global maximum.
+
+## Completed observation (2026-10-15)
+
+Frozen source: `2db51b4628ae284d800b8304892751ab426634dc`.
+Native normal SHA-256:
+`44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444`;
+tune SHA-256:
+`59cca40f9f6f509375b20bc485fe2f461717fb7b5877a1de85971f7e322ec301`.
+Both use clean Rust/Cargo 1.97.0 native builds without PGO. Twenty inputs,
+including the collector, were hashed before the first benchmark search.
+[results.json](results.json) binds 70 completed evidence artifacts.
+
+Core tests: 395 passed, 4 ignored. The isolated tune activation test passed
+35 setting combinations; all-target tune Clippy and workspace commit-hook
+Clippy passed. Measurement tooling: 70 tests passed. The six new tests cover
+per-go reuse/fresh starts, stopped/node-budget search, partial/total cached
+spawn failure, lost receivers/main unwind, helper panic/all joins, and queued
+lease ownership. The existing shallow sequential score/bound/depth comparison
+also passed with persistent groups, including a mate position.
+
+Default identity completed all 240 rows, with exact bestmove/score/bound/PV/
+nodes/depth identity for all 20 one-thread positions. Parallel runs varied
+within arms; no deterministic parallel node-identity claim is made. The
+320-row mechanism run activated both scoped and persistent groups at 4T/8T,
+with all requested helpers and no fallback or spawn failure. Each persistent
+go started exactly 3/7 physical helpers and joined all of them. They handled
+an average of 10.775/10.650 jobs per physical helper at depth8.
+
+The first timed attempt completed all 640 searches and passed both idle-host
+checks at the 25-percent threshold. No retry occurred or remains permitted.
+The comparison is persistent versus scoped cooperative groups, both with
+COOP_MULTI1; it does not compare against independent Lazy SMP or YaneuraOu.
+Material-only, 300ms, 20 development positions, two ABBA repeats:
+
+| Threads | Median paired depth delta | Quiet | Tactical | Mean position delta | Position-bootstrap 95% interval | Raw wall-NPS ratio |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| 1 | 0 | 0 | 0 | 0 | [0, 0] | 0.9987 |
+| 2 | 0 | 0 | 0 | +0.0375 | [-0.2625, 0.3250] | 1.0024 |
+| 4 | 0 | 0 | 0 | -0.0750 | [-0.2875, 0.1250] | 1.0078 |
+| 8 | 0 | 0 | 0 | +0.0125 | [-0.3250, 0.3500] | 1.0021 |
+
+Neither independent 4T nor 8T screen advances: both median depth changes are
+below +0.5ply and both position-bootstrap intervals include zero. Both ABBA
+direction medians are zero. Raw NPS is retained for reference and does not
+rescue either failure. These deltas cannot be added to the previous root-group
+screen's result against independent Lazy SMP.
+
+At 4T, scoped A started/joined 7,446 threads; persistent B started/joined 240
+and served 7,434 helper jobs over 2,478 generations. At 8T, A started/joined
+16,625; B started/joined 560 and served 16,905 jobs over 2,415 generations.
+Neither arm had a spawn failure. B averaged 30.975/30.1875 jobs per physical
+helper. About 97% fewer physical starts did not meet the completed-depth
+improvement criterion in this run.
+
+Across all three lanes, 1,200 rows replayed 12,072 legal PV moves with zero
+violations using the frozen same-rules tool. This is not an independent rules
+oracle or a mate proof. COOP_MULTI and COOP_PERSISTENT remain default OFF;
+no independent H1, evaluator change, Elo claim or YaneuraOu superiority is
+established. All negative evidence and raw distributions are retained.
