@@ -412,7 +412,8 @@ jobs:
             scripts/test_yaneuraou_evaluator_binding.py \
             scripts/test_paired_search_diagnostics.py \
             scripts/test_compare_yaneura_speed.py \
-            scripts/test_freeze_material_gate_openings.py
+            scripts/test_freeze_material_gate_openings.py \
+            scripts/test_export_opening_identity_exclusions.py
 
   king-relative-feature:
     # Default-off Cargo feature (crates/sekirei-core/src/nnue.rs's module

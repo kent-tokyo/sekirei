@@ -51,6 +51,50 @@ labels or weights. identity_hash() hashes canonical board, side and hands,
 space-separated without move number/newline, normalizing hand order. This is
 position exclusion, not an opening-family independence claim.
 
+## Owner-side identity export
+
+Owners can now export final-position identities without sharing raw SFEN or
+labels with the gate operator. The exporter reads only explicitly supplied,
+uncompressed UTF-8 files; it does not discover datasets or start a match.
+
+```sh
+python3 -B scripts/export_opening_identity_exclusions.py \
+  --role nnue-holdouts --input jsonl /owner/all-holdouts.jsonl \
+  --attest-complete-for-scope --attested-by "<source owner>" \
+  --output /owner/holdout-identities.json
+```
+
+Omit both attestation options to create a review copy with complete_for_scope
+false; the existing gate rejects it. True is the named owner's explicit
+self-attestation that the supplied files cover the whole role. The tool cannot
+verify ownership or discover omitted files. Each of the three roles still
+needs its own complete manifest, and empty scopes cannot be filled with dummy
+identities. This command was tested only on synthetic data in this task.
+
+| Input format | Record contract |
+|---|---|
+| `--input sfen PATH` | One final full SFEN per nonblank line; # comment lines allowed. |
+| `--input tsv PATH` | SFEN column0 by default; choose --tsv-sfen-column explicitly. With --tsv-header, the selected header must be sfen. Other columns are ignored. |
+| `--input jsonl PATH` | One object with a string sfen field per nonblank line; duplicate keys and nonstandard constants are rejected. Other fields are ignored. |
+
+Repeat --input for every source belonging to the role. USI move prefixes,
+compressed files, automatic format detection and nested JSON corpora are not
+supported; supply final SFEN records in one of these formats. Identity hashing
+reuses the gate's canonical board/side/hands scheme, ignoring move number and
+normalizing hand order. Only sorted hashes, counts, source paths/stream hashes,
+producer hashes and owner metadata are published; errors do not echo records.
+
+Every nonblank data record is processed or rejected, never silently skipped.
+Each source must contain records, and each encoded record is limited to 1MiB.
+Source bytes are hashed during parsing; resolved paths and file metadata are
+checked before/after reading and again before publication. These are endpoint
+checks, not a continuously immutable filesystem snapshot. A private temporary
+file is completed before an atomic no-clobber publication. Existing output
+(including source aliases), duplicate input files and changing sources are rejected.
+Parsing streams input bytes, while the deduplicated identity set uses memory
+proportional to the number of unique positions. No score or result selection
+is performed. Exporting identities alone does not qualify fresh openings or H1.
+
 ## Build, freeze and match
 
 From a clean committed checkout:
