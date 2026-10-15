@@ -28,9 +28,10 @@ use sekirei_core::{
     movegen::generate_legal_moves,
     nnue::load_evaluator,
     search::{
-        AspirationSnapshot, CooperativeRootStats, CooperativeRootWaitStats, MATE_SCORE,
-        NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES, SearchConfig, SearchDiagnostics,
-        SearchDiagnosticsSnapshot, SearchInfo, Searcher, SpecSearchInfo, SpeculativeSearcher,
+        AspirationSnapshot, CooperativeRootPrestartStats, CooperativeRootStats,
+        CooperativeRootWaitStats, MATE_SCORE, NmpSnapshot, RECURSIVE_SEARCH_STACK_BYTES,
+        SearchConfig, SearchDiagnostics, SearchDiagnosticsSnapshot, SearchInfo, Searcher,
+        SpecSearchInfo, SpeculativeSearcher,
     },
     sfen::{PositionHistory, RepetitionOutcome, move_to_usi, parse_position_cmd_with_history},
     tt::{Tt, TtWriteSnapshot},
@@ -960,6 +961,25 @@ fn emit_lazy_smp_root_hint_diagnostics(info: &SearchResult) {
     println!("{}", lazy_smp_root_hint_diagnostic_line(stats));
 }
 
+fn cooperative_root_prestart_lines(stats: CooperativeRootPrestartStats) -> Vec<String> {
+    let mut lines = vec![format!(
+        "info string cooperative_root_prestart passes {} first_beta_cuts {} first_aborts {} helper_nodes {}",
+        stats.passes, stats.first_beta_cuts, stats.first_aborts, stats.helper_nodes,
+    )];
+    if let Some(diag) = stats.diagnostics {
+        lines.push(format!(
+            "info string cooperative_root_prestart_diag helper_jobs_before_first_return {} helper_completed_probes_before_first_return {} helper_fail_highs_before_first_return {} first_main_nodes {} first_main_us {} first_beta_helper_nodes {}",
+            diag.helper_jobs_before_first_return,
+            diag.helper_completed_probes_before_first_return,
+            diag.helper_fail_highs_before_first_return,
+            diag.first_main_nodes,
+            diag.first_main_us,
+            diag.first_beta_helper_nodes,
+        ));
+    }
+    lines
+}
+
 /// Emit the complete response for one search generation.  Keeping this in one
 /// place prevents `go`, `stop`, and `ponderhit` from rendering a completed
 /// result with subtly different score/PV/ponder semantics.
@@ -1016,6 +1036,11 @@ fn emit_search_result(
             stats.executor_start_delay_us,
             stats.helper_dispatch_delay_us,
         );
+    }
+    if let Some(stats) = info.cooperative_root_wait.and_then(|stats| stats.prestart) {
+        for line in cooperative_root_prestart_lines(stats) {
+            println!("{line}");
+        }
     }
     if let Some(stats) = info.cooperative_root_wait.filter(|stats| stats.enabled) {
         println!(
@@ -2311,6 +2336,32 @@ mod tests {
         assert_eq!(event_rx.recv().unwrap(), "evaluator-mutated");
         assert!(search_abort.is_none());
         assert!(search_handle.is_none());
+    }
+
+    #[test]
+    fn prestart_wire_format_separates_intrinsic_census_from_observer() {
+        let mut stats = CooperativeRootPrestartStats::default();
+        stats.passes = 2;
+        stats.first_beta_cuts = 1;
+        stats.helper_nodes = 30;
+        assert_eq!(
+            cooperative_root_prestart_lines(stats),
+            vec![
+                "info string cooperative_root_prestart passes 2 first_beta_cuts 1 first_aborts 0 helper_nodes 30",
+            ]
+        );
+        let mut diag = sekirei_core::search::CooperativeRootPrestartDiagnostics::default();
+        diag.helper_jobs_before_first_return = 3;
+        diag.helper_completed_probes_before_first_return = 2;
+        diag.helper_fail_highs_before_first_return = 1;
+        diag.first_main_nodes = 100;
+        diag.first_main_us = 200;
+        diag.first_beta_helper_nodes = 10;
+        stats.diagnostics = Some(diag);
+        assert_eq!(
+            cooperative_root_prestart_lines(stats)[1],
+            "info string cooperative_root_prestart_diag helper_jobs_before_first_return 3 helper_completed_probes_before_first_return 2 helper_fail_highs_before_first_return 1 first_main_nodes 100 first_main_us 200 first_beta_helper_nodes 10"
+        );
     }
 
     #[test]

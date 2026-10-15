@@ -457,6 +457,77 @@ def parse_cooperative_root(
     return result
 
 
+COOPERATIVE_ROOT_PRESTART_KEYS = ("passes", "first_beta_cuts", "first_aborts", "helper_nodes")
+COOPERATIVE_ROOT_PRESTART_DIAG_KEYS = (
+    "helper_jobs_before_first_return", "helper_completed_probes_before_first_return",
+    "helper_fail_highs_before_first_return", "first_main_nodes", "first_main_us",
+    "first_beta_helper_nodes",
+)
+
+
+def _parse_prestart_counters(lines: list[str], prefix: str, keys: tuple[str, ...]) -> dict[str, int] | None:
+    matches = [line[len(prefix):].split() for line in lines
+               if line == prefix or line.startswith(prefix + " ")]
+    if not matches:
+        return None
+    fields = matches[0]
+    if len(matches) != 1 or len(fields) != len(keys) * 2 or fields[::2] != list(keys):
+        raise ValueError("malformed cooperative prestart diagnostic")
+    if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+        raise ValueError("cooperative prestart counters must be unsigned decimal integers")
+    result = dict(zip(keys, map(int, fields[1::2]), strict=True))
+    if any(value > (1 << 64) - 1 for value in result.values()):
+        raise ValueError("cooperative prestart counter exceeds u64")
+    return result
+
+
+def parse_cooperative_root_prestart(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
+    result = _parse_prestart_counters(lines, "info string cooperative_root_prestart", COOPERATIVE_ROOT_PRESTART_KEYS)
+    if result is None:
+        return None
+    if cooperative_root is None or cooperative_root.get("workers") not in (4, 8):
+        raise ValueError("cooperative prestart requires a four/eight-worker root group")
+    if result["passes"] > cooperative_root["generations"]:
+        raise ValueError("prestart passes exceed root generations")
+    if result["first_beta_cuts"] + result["first_aborts"] > result["passes"]:
+        raise ValueError("prestart first-child outcomes exceed passes")
+    if result["helper_nodes"] > cooperative_root["helper_nodes"]:
+        raise ValueError("prestart helper nodes exceed total helper nodes")
+    if result["passes"] == 0 and any(result.values()):
+        raise ValueError("prestart work without eligible passes")
+    return result
+
+
+def parse_cooperative_root_prestart_diag(lines: list[str], *, cooperative_root: dict[str, int] | None,
+                                        prestart: dict[str, int] | None) -> dict[str, int] | None:
+    result = _parse_prestart_counters(lines, "info string cooperative_root_prestart_diag", COOPERATIVE_ROOT_PRESTART_DIAG_KEYS)
+    if result is None:
+        return None
+    if cooperative_root is None or prestart is None:
+        raise ValueError("prestart observer requires intrinsic prestart evidence")
+    if result["helper_jobs_before_first_return"] > min(
+        cooperative_root["helpers_started"], prestart["passes"] * cooperative_root["helpers"],
+    ):
+        raise ValueError("prestart early jobs exceed reserved/started jobs")
+    if result["helper_completed_probes_before_first_return"] > cooperative_root["helper_probes"]:
+        raise ValueError("prestart early probes exceed full-depth probes")
+    if result["helper_fail_highs_before_first_return"] > min(
+        result["helper_completed_probes_before_first_return"], cooperative_root["helper_fail_highs"],
+    ):
+        raise ValueError("prestart early fail highs exceed completed probes")
+    if result["helper_completed_probes_before_first_return"] and not result["helper_jobs_before_first_return"]:
+        raise ValueError("prestart early probes without early jobs")
+    if result["first_main_nodes"] > cooperative_root["main_nodes"]:
+        raise ValueError("prestart first-child nodes exceed private main nodes")
+    if result["first_beta_helper_nodes"] > prestart["helper_nodes"]:
+        raise ValueError("prestart first-beta work exceeds prestart helper nodes")
+    if not prestart["first_beta_cuts"] and result["first_beta_helper_nodes"]:
+        raise ValueError("prestart first-beta work without first beta")
+    if prestart["passes"] == 0 and any(result.values()):
+        raise ValueError("prestart observations without eligible passes")
+    return result
+
+
 def parse_cooperative_root_wait(lines: list[str], *, cooperative_root: dict[str, int] | None) -> dict[str, int] | None:
     """Additive wait-drain evidence; absent for established and fallback paths."""
     prefix = "info string cooperative_root_wait "
@@ -1223,6 +1294,10 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
                 cooperative_root = parse_cooperative_root(lines, total_nodes=nodes, workers=threads)
+                cooperative_root_prestart = parse_cooperative_root_prestart(lines, cooperative_root=cooperative_root)
+                cooperative_root_prestart_diag = parse_cooperative_root_prestart_diag(
+                    lines, cooperative_root=cooperative_root, prestart=cooperative_root_prestart,
+                )
                 cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
                 cooperative_root_latency = parse_cooperative_root_latency(lines, cooperative_root=cooperative_root)
                 cooperative_root_policy = parse_cooperative_root_policy(lines, cooperative_root=cooperative_root)
@@ -1257,6 +1332,8 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "nmp": parse_nmp(lines),
                     "aspiration": parse_aspiration(lines, total_nodes=nodes),
                     "cooperative_root": cooperative_root,
+                    "cooperative_root_prestart": cooperative_root_prestart,
+                    "cooperative_root_prestart_diag": cooperative_root_prestart_diag,
                     "cooperative_root_wait": cooperative_root_wait,
                     "cooperative_root_latency": cooperative_root_latency,
                     "cooperative_root_policy": cooperative_root_policy,
@@ -1275,11 +1352,13 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                            if yaneuraou_binding is not None else {}),
                         "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
+                        "cooperative_prestart_enabled": cooperative_root_prestart is not None,
+                        "cooperative_prestart_overhead_included": cooperative_root_prestart_diag is not None,
                         "cooperative_latency_overhead_included": cooperative_root_latency is not None,
                         "cooperative_priority_enabled": cooperative_root_policy is not None,
                         "cooperative_helper_lmr_enabled": cooperative_root_helper_lmr_policy is not None,
                         **({"counter_overhead_included": True, "timing_qualified": False}
-                           if cooperative_root_latency is not None else {}),
+                           if cooperative_root_latency is not None or cooperative_root_prestart_diag is not None else {}),
                         "opening_book_available": "UseBook" in advertised if not args.yaneuraou else None,
                         "budget": go_command(args),
                     },

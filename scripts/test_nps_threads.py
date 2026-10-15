@@ -24,6 +24,10 @@ from nps_threads import (  # noqa: E402
     measure,
     parse_bestmove,
     parse_cooperative_root,
+    parse_cooperative_root_prestart,
+    parse_cooperative_root_prestart_diag,
+    COOPERATIVE_ROOT_PRESTART_KEYS,
+    COOPERATIVE_ROOT_PRESTART_DIAG_KEYS,
     parse_cooperative_root_wait,
     parse_cooperative_root_latency,
     parse_cooperative_root_policy,
@@ -1165,6 +1169,123 @@ class ThreadOptionsTest(unittest.TestCase):
                 ],
                 require_all=True,
             )
+
+
+class CooperativePrestartTests(unittest.TestCase):
+    @staticmethod
+    def root(workers=4):
+        return dict(workers=workers, helpers=workers - 1, generations=2,
+                    helpers_started=2 * (workers - 1), helper_nodes=30,
+                    helper_probes=3, helper_fail_highs=1, main_nodes=100)
+
+    @staticmethod
+    def basic():
+        return dict(passes=1, first_beta_cuts=1, first_aborts=0, helper_nodes=20)
+
+    @staticmethod
+    def observer():
+        return dict(helper_jobs_before_first_return=2, helper_completed_probes_before_first_return=2,
+                    helper_fail_highs_before_first_return=1, first_main_nodes=15,
+                    first_main_us=80, first_beta_helper_nodes=5)
+
+    @staticmethod
+    def line(values, *, diagnostic=False):
+        prefix = "info string cooperative_root_prestart" + ("_diag" if diagnostic else "")
+        return prefix + " " + " ".join(f"{key} {value}" for key, value in values.items())
+
+    def test_prestart_and_observer_are_optional_and_have_distinct_prefixes(self):
+        self.assertIsNone(parse_cooperative_root_prestart([], cooperative_root=None))
+        self.assertIsNone(parse_cooperative_root_prestart_diag([], cooperative_root=None, prestart=None))
+        basic, observer = self.basic(), self.observer()
+        lines = [self.line(observer, diagnostic=True), self.line(basic)]
+        for workers in (4, 8):
+            with self.subTest(workers=workers):
+                root = self.root(workers)
+                self.assertEqual(parse_cooperative_root_prestart(lines, cooperative_root=root), basic)
+                self.assertEqual(parse_cooperative_root_prestart_diag(lines, cooperative_root=root, prestart=basic), observer)
+        zero = dict.fromkeys(COOPERATIVE_ROOT_PRESTART_KEYS, 0)
+        self.assertEqual(parse_cooperative_root_prestart([self.line(zero)], cooperative_root=self.root()), zero)
+        empty = dict.fromkeys(COOPERATIVE_ROOT_PRESTART_DIAG_KEYS, 0)
+        self.assertEqual(parse_cooperative_root_prestart_diag([self.line(empty, diagnostic=True)], cooperative_root=self.root(), prestart=zero), empty)
+
+    def test_prestart_rejects_wrong_group_or_inconsistent_intrinsic_census(self):
+        basic = self.basic()
+        for root in (None, {}, {**self.root(), "workers": 2}, {**self.root(), "workers": 16}):
+            with self.subTest(root=root), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart([self.line(basic)], cooperative_root=root)
+        for key, value in (("passes", 3), ("first_beta_cuts", 2), ("first_aborts", 1), ("helper_nodes", 31)):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart([self.line({**basic, key: value})], cooperative_root=self.root())
+        for key in COOPERATIVE_ROOT_PRESTART_KEYS[1:]:
+            with self.subTest(no_pass_key=key), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart([self.line({**dict.fromkeys(COOPERATIVE_ROOT_PRESTART_KEYS, 0), key: 1})], cooperative_root=self.root())
+
+    def test_prestart_observer_rejects_orphan_and_nonprivate_subsets(self):
+        basic, observer, root = self.basic(), self.observer(), self.root()
+        for absent in ("root", "prestart"):
+            with self.subTest(absent=absent), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart_diag([self.line(observer, diagnostic=True)],
+                    cooperative_root=None if absent == "root" else root,
+                    prestart=None if absent == "prestart" else basic)
+        changes = (("helper_jobs_before_first_return", 4), ("helper_completed_probes_before_first_return", 4),
+                   ("helper_fail_highs_before_first_return", 2), ("helper_completed_probes_before_first_return", 0),
+                   ("helper_jobs_before_first_return", 0),
+                   ("first_main_nodes", 101), ("first_beta_helper_nodes", 21))
+        for key, value in changes:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart_diag([self.line({**observer, key: value}, diagnostic=True)], cooperative_root=root, prestart=basic)
+        with self.assertRaisesRegex(ValueError, "started jobs"):
+            parse_cooperative_root_prestart_diag([self.line(observer, diagnostic=True)], cooperative_root={**root, "helpers_started": 1}, prestart=basic)
+        with self.assertRaisesRegex(ValueError, "first beta"):
+            parse_cooperative_root_prestart_diag([self.line(observer, diagnostic=True)], cooperative_root=root, prestart={**basic, "first_beta_cuts": 0})
+        zero = dict.fromkeys(COOPERATIVE_ROOT_PRESTART_KEYS, 0)
+        for key in ("first_main_nodes", "first_main_us"):
+            with self.subTest(no_pass_key=key), self.assertRaises(ValueError):
+                parse_cooperative_root_prestart_diag([self.line({**dict.fromkeys(COOPERATIVE_ROOT_PRESTART_DIAG_KEYS, 0), key: 1}, diagnostic=True)], cooperative_root=root, prestart=zero)
+
+    def test_prestart_records_are_strict_ordered_ascii_u64(self):
+        for diagnostic, values in ((False, self.basic()), (True, self.observer())):
+            def parse(lines):
+                if diagnostic:
+                    return parse_cooperative_root_prestart_diag(lines, cooperative_root=self.root(), prestart=self.basic())
+                return parse_cooperative_root_prestart(lines, cooperative_root=self.root())
+            line = self.line(values, diagnostic=diagnostic)
+            malformed = ([line, line], [line + " extra 0"], [line.rsplit(" ", 2)[0]],
+                         [self.line(dict(reversed(list(values.items()))), diagnostic=diagnostic)],
+                         [line.split(" ")[0] + " string cooperative_root_prestart" + ("_diag" if diagnostic else "")])
+            for lines in malformed:
+                with self.subTest(diagnostic=diagnostic, lines=lines), self.assertRaises(ValueError):
+                    parse(lines)
+            for key in values:
+                for token in ("-1", "+1", "１", "1.0", "1e1", str(1 << 64)):
+                    with self.subTest(diagnostic=diagnostic, key=key, token=token), self.assertRaises(ValueError):
+                        parse([self.line({**values, key: token}, diagnostic=diagnostic)])
+        maximum = (1 << 64) - 1
+        basic = {**self.basic(), "helper_nodes": maximum}
+        self.assertEqual(parse_cooperative_root_prestart([self.line(basic)], cooperative_root={**self.root(), "helper_nodes": maximum}), basic)
+        observer = {**self.observer(), "first_main_us": maximum}
+        self.assertEqual(parse_cooperative_root_prestart_diag([self.line(observer, diagnostic=True)], cooperative_root=self.root(), prestart=self.basic()), observer)
+
+    def test_measure_separates_intrinsic_prestart_and_observer_timing(self):
+        for diagnostic in (False, True):
+            with self.subTest(diagnostic=diagnostic):
+                args = ThreadOptionsTest.measurement_args(yaneuraou=False, evalfile=None)
+                args.provenance = {"counter_overhead_included": False, "timing_qualified": True}
+                args.option = ["T_COOP_PRESTART=1", f"T_COOP_PRESTART_DIAG={int(diagnostic)}"]
+                outputs = [ThreadOptionsTest.cooperative_root_line(4),
+                           "info string cooperative_root_group workers 4 helpers 3", self.line(self.basic())]
+                if diagnostic:
+                    outputs.append(self.line(self.observer(), diagnostic=True))
+                outputs += ["info depth 3 score cp 0 nodes 130 nps 1000 pv 7g7f", "bestmove 7g7f"]
+                with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                    usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+                    row = measure(args, 4, ["startpos"])[0]
+                self.assertEqual(row["cooperative_root_prestart"], self.basic())
+                self.assertEqual(row["cooperative_root_prestart_diag"], self.observer() if diagnostic else None)
+                self.assertTrue(row["provenance"]["cooperative_prestart_enabled"])
+                self.assertEqual(row["provenance"]["cooperative_prestart_overhead_included"], diagnostic)
+                self.assertEqual(row["provenance"]["counter_overhead_included"], diagnostic)
+                self.assertEqual(row["provenance"]["timing_qualified"], not diagnostic)
 
 
 if __name__ == "__main__":

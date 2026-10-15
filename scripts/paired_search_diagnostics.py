@@ -126,6 +126,10 @@ def work_metrics(row: dict) -> dict:
     if row.get("cooperative_root") is not None:
         result["coop_priority_enabled"] = int(row.get("cooperative_root_policy") is not None)
         result["coop_helper_lmr_enabled"] = int(row.get("cooperative_root_helper_lmr_policy") is not None)
+    for field, prefix in (("cooperative_root_prestart", "coop_prestart_"),
+                          ("cooperative_root_prestart_diag", "coop_prestart_diag_")):
+        for key, value in (row.get(field) or {}).items():
+            result[prefix + key] = value
     latency = row.get("cooperative_root_latency")
     if latency:
         for key, value in latency.items():
@@ -290,8 +294,10 @@ def main() -> int:
                           for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     helper_lmr_requested = {side: option_value(args.option + side_options, "T_COOP_HELPER_LMR") not in (None, "0")
                             for side, side_options in (("A", args.a_option), ("B", args.b_option))}
+    prestart_diag_requested = {side: option_value(args.option + side_options, "T_COOP_PRESTART_DIAG") not in (None, "0")
+                              for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     host_idle = activity["available"] and not activity["busy_processes"]
-    timing_qualified = host_idle and not args.diagnostics and not any(latency_requested.values())
+    timing_qualified = host_idle and not args.diagnostics and not any(latency_requested.values()) and not any(prestart_diag_requested.values())
     manifest = {
         "schema": "sekirei.paired-search-manifest.v1", "status": "running",
         "started_at_utc": datetime.now(timezone.utc).isoformat(), "engines": frozen,
@@ -306,6 +312,7 @@ def main() -> int:
         "common_options": args.option, "A_options": args.a_option, "B_options": args.b_option,
         "changed_options": changes, "counter_lane": args.diagnostics,
         "cooperative_latency_instrumentation_requested": latency_requested,
+        "cooperative_prestart_instrumentation_requested": prestart_diag_requested,
         "cooperative_priority_requested": priority_requested,
         "cooperative_helper_lmr_requested": helper_lmr_requested,
         "identity_policy": "observe_only_policy_change" if args.policy_diagnostic else "require_1T_fixed_depth",
@@ -334,8 +341,9 @@ def main() -> int:
                     require_lazy_diagnostics=args.diagnostics, require_root_hint_diagnostics=require_hint,
                     depth=args.depth, movetime=args.movetime, repeats=1, timeout=args.timeout, strict_options=True,
                     provenance={"engine_sha256": frozen[side]["sha256"], "effective_positions_sha256": manifest["effective_positions_sha256"],
-                                "evaluator": {"kind": "material-only"}, "counter_overhead_included": args.diagnostics or latency_requested[side],
+                                "evaluator": {"kind": "material-only"}, "counter_overhead_included": args.diagnostics or latency_requested[side] or prestart_diag_requested[side],
                                 "cooperative_latency_instrumentation_requested": latency_requested[side],
+                                "cooperative_prestart_instrumentation_requested": prestart_diag_requested[side],
                                 "cooperative_priority_requested": priority_requested[side],
                                 "cooperative_helper_lmr_requested": helper_lmr_requested[side]})
                 row = measure(lane, count, [positions[position]])[0]
@@ -358,7 +366,7 @@ def main() -> int:
         print(json.dumps(summary["by_threads"], indent=2))
         return 1 if failed_identity else 0
     except BaseException as error:
-        manifest.update(status="incomplete", error=str(error), completed_searches=len(rows))
+        manifest.update(status="incomplete", error=str(error), completed_searches=len(rows), timing_qualified=False)
         save_manifest()
         raise
 
