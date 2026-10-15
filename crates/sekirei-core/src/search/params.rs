@@ -745,6 +745,9 @@ search_params! {
     /// SEARCH_V2 continuation histories: one table (0) or one per (was the
     /// earlier move made in check, did it capture) (1).
     V2_CONT_SPLIT = 0, 0, 1;
+    /// Cache continuation-history row references once per nonempty quiet
+    /// scoring batch (0: original per-move lookup; experimental, default off).
+    V2_CONT_ROWS = 0, 0, 1;
     /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
     /// moves before a node (0: not used).
     V2_CORR_CONT_W = 0, 0, 128;

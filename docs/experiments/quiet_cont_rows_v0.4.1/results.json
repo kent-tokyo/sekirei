@@ -1,0 +1,84 @@
+{
+  "base_commit": "a7eff77e4142ad89929e44a6e50c2e2ee958ebb5",
+  "parameter": "V2_CONT_ROWS",
+  "default": 0,
+  "implementation": "five explicitly unrolled optional row references, acquired once per quiet-scoring batch",
+  "correctness": {
+    "normal_core_passed": 420,
+    "normal_core_ignored": 6,
+    "fixed_depth_searches": 144,
+    "legality_visits": 10000000,
+    "native_correctness_search_processes": 72,
+    "source_verification_sha256": "2b47f119a86136a590d44c4f47816a9b12ec79dcf6575856b4397df773c2d990",
+    "native_manifest_sha256": "7bf19ff7b7d581ed97f22e7561108e56b706291f8423109ca7128c900a1c0fe5"
+  },
+  "r1": {
+    "status": "complete_rejected",
+    "h1_report": {
+      "path": "/private/tmp/sekirei-quiet-cont-rows-4t-H1-1/report.json",
+      "sha256": "3a6539564944c2707134462a43aae2eacdb9dd43e47206274067721fa0563ea8"
+    },
+    "summary": {
+      "primary_metric": "aggregate_nodes_per_wall_second",
+      "total_searches": 128,
+      "eligible_positions": 32,
+      "geomean_candidate_over_baseline": 0.9917343786637498,
+      "bootstrap_95pct": [
+        0.9754829775214318,
+        1.0067357557257666
+      ],
+      "excluded_by_700ms_filter": []
+    },
+    "accepted_calls": 128,
+    "quartet_attempts": 38,
+    "native_manifest_sha256": "3c0d83c255fc5147025f7f9e65b462c853e6acc8b30a456957a67572f23aa971",
+    "source_verification_sha256": "00a3a815765bb3fa285007802c5988bfc2d04e63641f5db66bb08c7eb4c4079e",
+    "source_adopted": false,
+    "defaults_changed": false,
+    "external_model_executed": false,
+    "strength_claim": false,
+    "supplemental_metadata": {
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-rows/sekirei/results/quiet-cont-rows-20261015/development6-provenance.json": "1d1fe28e9adbcc22c21e7f18ee5b53c2dbd8474cc60c76d03633772f8f6a597a",
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-rows/sekirei/results/quiet-cont-rows-20261015/qualification/h1/generation-execution.log": "b136e495a65bf7b764ec2bc5dceff978711148cde0fa85487d3eec9fa9048089",
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-rows/sekirei/results/quiet-cont-rows-20261015/asm-audit.json": "4e2374db2bea3743514dbd3de3c47ace4d120b3cbdd4f03881b6d5fe829eb7de"
+    },
+    "independently_recomputed_raw_ratio": 0.9917343786637498,
+    "actual_search_calls": 152,
+    "host_rejected_quartets": 6
+  },
+  "r2": {
+    "status": "interrupted_unqualified",
+    "reason": "RuntimeError('three host/disk-rejected quartets; H1 interrupted')",
+    "accepted_calls": 96,
+    "quartet_attempts": 35,
+    "actual_search_calls": 140,
+    "attempt_statuses": {
+      "accepted": 24,
+      "rejected_host_or_disk": 11
+    },
+    "h1_report": {
+      "path": "/private/tmp/sekirei-quiet-cont-unrolled-4t-H1-3/report.json",
+      "sha256": "bf17a76f35fa1c8bafc389dd764c0476d91f5f4ccd8e8126a8d3a503ce1bafe0"
+    },
+    "native_manifest_sha256": "7bf19ff7b7d581ed97f22e7561108e56b706291f8423109ca7128c900a1c0fe5",
+    "source_verification_sha256": "2b47f119a86136a590d44c4f47816a9b12ec79dcf6575856b4397df773c2d990",
+    "all_frozen_bindings_currently_unchanged": true,
+    "verified_binding_count": 1339,
+    "nps_statistics_computed": false,
+    "speed_verdict": "unqualified; incomplete128protocol",
+    "source_adopted": false,
+    "defaults_changed": false,
+    "external_model_executed": false,
+    "strength_claim": false,
+    "supplemental_metadata": {
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-unrolled/sekirei/results/quiet-cont-unrolled-20261015/development6-provenance.json": "211e90f12c34ad405d9d0e7e4e179c690fd804d9e8e6d1eb397bfba5c00d0873",
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-unrolled/sekirei/results/quiet-cont-unrolled-20261015/qualification/h1/generation-execution.log": "698e867456f28be9ee4f016eca63e5177e2698938dc2db630c8ca3fccb20d845",
+      "/Users/k_tanabe/.codex/worktrees/quiet-cont-unrolled/sekirei/results/quiet-cont-unrolled-20261015/asm-audit.json": "b6b37ddc6471daa494647197908d8232aae46da0dbf76076fbaecb1ae9888bce"
+    }
+  },
+  "source_adopted": false,
+  "defaults_changed": false,
+  "strength_claim": false,
+  "external_evaluator_used_for_selection": false,
+  "external_yaneuraou_comparison_executed": false
+}
