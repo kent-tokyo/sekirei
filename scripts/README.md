@@ -343,53 +343,23 @@ instrumentation only after its evidence is retained and no live workflow or
 document references it. `cleanup_runs.sh` is dry-run by default and requires
 `APPLY=1` for deletion.
 
-### Useful Lazy SMP depth experiments
+## Experiment playbooks
 
-`generate_search_diagnostic.py` makes score-blind legal-play diagnostics using
-Sekirei's rule tools. `paired_search_diagnostics.py` freezes binaries/corpus
-and compares one option in per-position ABBA order, saving complete raw USI
-logs and paired depth/work metrics. Counter-free NPS and instrumented TT/NMP
-lanes stay separate. See [experiment specification](../docs/experiments/lazy_smp_useful_depth_v0.4.0/README.md).
+Keep experiment-specific commands and decision rules with their dated
+evidence instead of extending this tool index:
 
-### Pinned YaneuraOu throughput comparison
+- [Useful Lazy SMP depth](../docs/experiments/lazy_smp_useful_depth_v0.4.0/README.md):
+  score-blind corpus generation, ABBA diagnostics, and separate counter-free
+  and instrumented lanes.
+- [`compare_yaneura_speed.py`](compare_yaneura_speed.py): shared-evaluator
+  ABBA throughput comparison. Pin both builds, evaluator, corpus, hash, CPU,
+  compiler and ISA; keep NPS, completed work, and playing strength separate.
+- [Independent material-opening gate](../docs/experiments/aspiration_independent_gate_v0.4.1/README.md):
+  unused-opening exclusions, frozen manifests, paired SPRT, and fail-closed
+  evidence requirements.
 
-`compare_yaneura_speed.py` runs the existing NPS driver in sequential ABBA
-order for each requested thread count. Supply an explicit shared HalfKP file
-named `nn.bin`, since YaneuraOu loads `EvalDir/nn.bin`. The runner fixes hash
-size to 64 MiB, FV_SCALE to 24, books off, and Sekirei's MoveOverhead to zero.
-It disables diagnostic counters, verifies complete position coverage and
-artifact hashes before and after each arm, preserves logs, and kills only its
-own subprocess session on timeout. Ordinary Lazy SMP completion summaries
-with zero TT counters are allowed.
-The NPS driver waits for `readyok` after each new-game and position command
-before timing `go` through `bestmove`. Rows identify this boundary in
-`provenance.elapsed_scope`; reported engine NPS remains a separate metric.
-
-```bash
-python3 scripts/compare_yaneura_speed.py \
-  --engine /path/to/sekirei --reference /path/to/YaneuraOu \
-  --evalfile /path/to/nn.bin --positions /path/to/positions.sfen \
-  --threads 1,2,4,8 --count 4 --movetime 1000 \
-  --output-directory results/new-throughput-capture
-cargo run --release -p sekirei-core --example halfkp_synthetic_fixture -- \
-  results/synthetic-halfkp.bin 20261014
-```
-
-The output directory must be new. Pin the reference revision, compiler and
-ISA flags separately and retain startup logs confirming evaluation loading.
-For short runs on a shared machine, supply one position per capture so each
-ABBA quartet stays close in time. Cross-engine NPS counts different trees;
-completed depths are descriptive and do not establish equivalent search work
-or playing strength. Use synthetic or material evaluation to qualify local
-optimizations. The external shared-evaluator lane measures Sekirei versus
-YaneuraOu and must not select candidates, tune defaults or generate training
-labels. The synthetic fixture carries no playing strength.
-
-### Independent material-opening gate input
-
-The core gate_openings example generates fresh default-material trajectories
-with full move prefixes. freeze_material_gate_openings.py requires identity
-exclusions from diagnostics, prior strength gates and the NNUE hold-out owner,
-then freezes tools and validates complete histories.
-run_ab_match.py --openings-manifest replays this contract before/after material
-selfplay and revokes H1 on changed input. See the [gate preparation contract](../docs/experiments/aspiration_independent_gate_v0.4.1/README.md).
+The corresponding entry points are `generate_search_diagnostic.py`,
+`paired_search_diagnostics.py`, `compare_yaneura_speed.py`,
+`freeze_material_gate_openings.py`, and `run_ab_match.py`. Always inspect
+`--help` and use a new output directory; the dated playbook, not this index,
+defines the experiment contract.

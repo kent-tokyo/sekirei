@@ -133,3 +133,31 @@ openings, independent of this diagnostic corpus and Claude's hold-out. The
 existing diagnostic generator explicitly marks its output diagnostic-only;
 changing the seed alone does not create a strength gate. No SPRT or opponent
 match was launched, and superiority over YaneuraOu has not been established.
+
+## v0.4.1 independent-gate queue
+
+The v0.4.1 release did not adopt this candidate. It remains the sole next
+strength candidate because the qualified one-worker timing lane is the only
+completed opt-in search diagnostic with a positive completed-depth signal.
+The four-worker timing evidence is not used to select or tune it.
+
+The independent gate contract is fixed as follows before opening any result:
+
+- candidate A: `T_ASP_VOLATILITY=1`; baseline B: `T_ASP_VOLATILITY=0`;
+- the same clean v0.4.1-or-later executable on both sides, with its source
+  commit and SHA-256 frozen before play;
+- one worker, `SearchMode=Speculative`, `SpecTopN=0`, `Hash=64`,
+  `MoveOverhead=0`, `UseBook=false`, and material evaluation;
+- 300 ms per move, opposite-colour two-game pairs, paired trinomial SPRT with
+  H0=0 Elo, H1=+10 Elo, alpha=beta=0.05, and an 800-game hard cap;
+- a newly generated Sekirei material opening set that is disjoint from this
+  diagnostic corpus, previous strength gates, and NNUE hold-outs;
+- durable raw JSONL, exact kifu set, terminal `result.json`, artifact hashes,
+  and fail-closed rejection of incomplete pairs, invalid games, write errors,
+  or raw/result disagreement.
+
+The gate is queued, not running. The legacy depth-consensus supervisor has
+terminated, but that run is unusable for adoption because its evidence set is
+incomplete. Before starting this gate, the host must pass the disk preflight
+and the unused-opening exclusions must be frozen. No result, pass, Elo, or
+adoption claim exists yet.

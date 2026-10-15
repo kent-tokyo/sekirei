@@ -93,6 +93,13 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 
 * 2026-10-15: Implement lower-memory JSONL ingestion, durable audit manifests and optional Pure Rust gzip/zstd input in isolation; preserve sample selection, shuffle, resume and hold-out contracts, and keep ingestion measurements separate from training throughput or strength.
 
+* 2026-10-15: Delete verified-unused, regenerable build caches and temporary files to reclaim space; preserve sources, evaluation/training data, measurement evidence, and active jobs.
+
+* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 8 threads under equal conditions; qualify 8T independently from 4T.
+
+* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 4 threads under equal benchmark conditions.
+
+* 2026-10-15: Keep current documentation concise and synchronized; move older release detail to archives without deleting evidence, and keep diagnostics, gate verdicts, and strength claims distinct.
 * 2026-10-14: Target pgx shogi throughput; pin pgx/JAX/backend and batch conditions, compare matching legal-mask or full-environment work, and keep CPU, accelerator throughput, search NPS, and strength distinct.
 
 * 2026-10-14: Integrate the implemented search experiments and measurement evidence into main; retain disabled defaults for candidates without independent H1.
@@ -106,8 +113,6 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * 2026-10-14: Commit validated search-speed changes and push them to main.
 * 2026-10-14: For Sinfonietta CPU-throughput comparisons, pin its executable, evaluation architecture and CPU mode, and keep NNUE, PV-MCTS and ensemble measurements distinct.
 * 2026-10-14: Aim to exceed YaneuraOu speed with Pure Safe Rust. Pin the reference build and compare identical hardware, evaluator, thread counts, hash size, and corpus; keep raw NPS, effective search work, and strength distinct.
-* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 8 threads under equal conditions; qualify 8T independently from 4T.
-
 * 2026-10-13: When `lineprior`, `shogiesa-core`, or `veridict` has already shipped a needed capability, update Sekirei's dependency and local adapter instead of filing another upstream issue.
 * 2026-10-12: Prepare v0.4.0 as a compatibility and operations milestone with all seven workspace versions, v0.3.73 patch-level public API compatibility, a validated planned manifest, and a reproducible WASM asset; do not bundle or adopt an unqualified self-NNUE candidate.
 * 2026-10-12: Release v0.3.73 after verifying opt-in Lazy SMP useful-work diagnostics, process-lifecycle fixes, bounded WebAssembly evaluator and MultiPV contracts, all seven workspace crate versions, six-crate publication, WASM asset, manifest, and GitHub Release; keep the default search and evaluator unchanged and make no playing-strength claim.

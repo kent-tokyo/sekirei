@@ -243,8 +243,8 @@ intermediate SFEN to inspect later attacking turns with the same contract.
 - Sequential search only. `searchCapabilities()` reports `maxWorkers = 1`,
   `effectiveWorkers = 1`, `workerThreadsSupported = false`, and
   `sharedArrayBufferRequired = false`. It also reports
-  `maxCandidateLines = 1` and `multiPvSupported = false`; browser analysis
-  currently exposes only the primary PV.
+  `maxCandidateLines = 4` and `multiPvSupported = true`; MultiPV remains
+  sequential and shares one bounded node budget across the requested lines.
 - Every `computerMove` result repeats the actual `effectiveWorkers` value. Do
   not derive a core selector from `navigator.hardwareConcurrency`; this build
   accepts no worker-count setting and always falls back to one worker.

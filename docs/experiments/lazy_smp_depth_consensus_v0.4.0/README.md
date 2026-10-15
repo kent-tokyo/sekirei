@@ -1,8 +1,8 @@
 # Lazy SMP depth-preserving consensus (v0.4.0 base)
 
-Status: fixed diagnostics passed on 2026-10-13. The playing default is
-unchanged. An independent material-only strength gate is still required before
-adoption.
+Status: fixed diagnostics passed on 2026-10-13. The independent gate reached
+its cap on 2026-10-14 but is invalid for adoption because its evidence set is
+incomplete. The playing default is unchanged.
 
 ## Candidate
 
@@ -78,4 +78,16 @@ with another run.
 
 The frozen 80-position gate subset has SHA-256
 `d801423c58d889683aff2c7c4281411b5f577233fe04fd817066acdf185a2092`.
-No gate games have been played yet.
+
+The run reached the 800-game cap at 377-384-39. Its paired trinomial SPRT was
+`INCONCLUSIVE` with LLR -0.4024 (bounds +/-2.9444), and the candidate Elo
+estimate was -3.0 +/-23.5. The terminal result has SHA-256
+`f81b103181cc3cded335b897f755c036bcc699671dbccb82c93002b7b1848203`.
+
+Those statistics are diagnostic only. The durable evidence contains 799 of
+800 expected kifu files: `game0064.txt` was not written after the host ran out
+of disk space. It also records `game0031: TimeForfeit` and an artifact-write
+failure. The result therefore fails the preregistered completeness contract
+and cannot authorize a default change, be repaired after the fact, or be
+pooled with another run. The LaunchAgent has terminated; any later candidate
+requires a fresh run and unused openings.
