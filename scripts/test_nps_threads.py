@@ -27,6 +27,8 @@ from nps_threads import (  # noqa: E402
     parse_bestmove,
     parse_cooperative_root,
     parse_cooperative_root_prestart,
+    parse_cooperative_root_prestart_cap,
+    COOPERATIVE_ROOT_PRESTART_CAP_KEYS,
     parse_cooperative_root_prestart_diag,
     COOPERATIVE_ROOT_PRESTART_KEYS,
     COOPERATIVE_ROOT_PRESTART_DIAG_KEYS,
@@ -1334,6 +1336,89 @@ class FixedNodeMeasurementTests(unittest.TestCase):
                 self.assertEqual(row["provenance"]["measurement_phase"], "fixed_node_work_diagnostic")
                 self.assertEqual(row["provenance"]["budget"], f"go nodes {limit}")
                 self.assertFalse(row["provenance"]["timing_qualified"])
+
+
+class CooperativePrestartCapTests(unittest.TestCase):
+    @staticmethod
+    def cap():
+        return dict(limit=1, passes=1, initial_claims=1, park_calls=3,
+                    resumed_helpers=2, cancelled_helpers=1)
+
+    @staticmethod
+    def line(values):
+        return "info string cooperative_root_prestart_cap " + " ".join(f"{key} {value}" for key, value in values.items())
+
+    def parse(self, lines, *, root=None, prestart=None):
+        return parse_cooperative_root_prestart_cap(lines, cooperative_root=root, prestart=prestart)
+
+    def test_cap_is_optional_distinct_from_observer_and_accepts_four_eight_groups(self):
+        self.assertIsNone(self.parse([]))
+        cap = self.cap()
+        basic = CooperativePrestartTests.basic()
+        lines = [self.line(cap), CooperativePrestartTests.line(basic)]
+        for count in (4, 8):
+            with self.subTest(count=count):
+                root = CooperativePrestartTests.root(count)
+                self.assertEqual(self.parse(lines, root=root, prestart=basic), cap)
+                self.assertEqual(parse_cooperative_root_prestart(lines, cooperative_root=root), basic)
+                self.assertIsNone(parse_cooperative_root_prestart_diag(lines, cooperative_root=root, prestart=basic))
+        zero = dict.fromkeys(COOPERATIVE_ROOT_PRESTART_CAP_KEYS, 0)
+        zero["limit"] = 8
+        self.assertEqual(self.parse([self.line(zero)], root=CooperativePrestartTests.root(), prestart=dict.fromkeys(COOPERATIVE_ROOT_PRESTART_KEYS, 0)), zero)
+        maximum = {**cap, "park_calls": (1 << 64) - 1}
+        self.assertEqual(self.parse([self.line(maximum)], root=CooperativePrestartTests.root(), prestart=basic), maximum)
+
+    def test_cap_rejects_orphan_wrong_group_and_census_bounds(self):
+        cap, root, basic = self.cap(), CooperativePrestartTests.root(), CooperativePrestartTests.basic()
+        for other_root, other_basic in ((None, basic), (root, None), ({**root, "workers": 2}, basic), ({**root, "workers": 16}, basic)):
+            with self.subTest(root=other_root, prestart=other_basic), self.assertRaises(ValueError):
+                self.parse([self.line(cap)], root=other_root, prestart=other_basic)
+        for updates in ({"limit": 0}, {"limit": 9}, {"passes": 2}, {"initial_claims": 2},
+                        {"resumed_helpers": 6, "park_calls": 7}, {"cancelled_helpers": 5, "park_calls": 7}, {"park_calls": 2}):
+            with self.subTest(updates=updates), self.assertRaises(ValueError):
+                self.parse([self.line({**cap, **updates})], root=root, prestart=basic)
+        zero = dict.fromkeys(COOPERATIVE_ROOT_PRESTART_CAP_KEYS, 0)
+        zero["limit"] = 1
+        for key in COOPERATIVE_ROOT_PRESTART_CAP_KEYS[2:]:
+            with self.subTest(no_pass_key=key), self.assertRaises(ValueError):
+                self.parse([self.line({**zero, key: 1})], root=root, prestart=dict.fromkeys(COOPERATIVE_ROOT_PRESTART_KEYS, 0))
+
+    def test_cap_keys_are_unique_ordered_ascii_unsigned_u64(self):
+        cap, root, basic = self.cap(), CooperativePrestartTests.root(), CooperativePrestartTests.basic()
+        line = self.line(cap)
+        for lines in ([line, line], [line + " extra 0"], [self.line(dict(reversed(list(cap.items()))))],
+                      [line.rsplit(" ", 2)[0]], ["info string cooperative_root_prestart_cap"]):
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                self.parse(lines, root=root, prestart=basic)
+        for key in cap:
+            for token in ("-1", "+1", "１", "1.0", "1e1", str(1 << 64)):
+                with self.subTest(key=key, token=token), self.assertRaises(ValueError):
+                    self.parse([self.line({**cap, key: token})], root=root, prestart=basic)
+
+    def test_actual_cap_is_policy_without_observer_overhead_in_time_and_node_lanes(self):
+        for node_limit in (None, 100):
+            for diagnostic in (False, True):
+                with self.subTest(node_limit=node_limit, diagnostic=diagnostic):
+                    args = ThreadOptionsTest.measurement_args(yaneuraou=False, evalfile=None)
+                    args.depth, args.nodes = None, node_limit
+                    args.provenance = {"counter_overhead_included": False, "timing_qualified": True}
+                    args.option = ["T_COOP_PRESTART=1", "T_COOP_PRESTART_CAP=1", f"T_COOP_PRESTART_DIAG={int(diagnostic)}"]
+                    outputs = [ThreadOptionsTest.cooperative_root_line(4),
+                               "info string cooperative_root_group workers 4 helpers 3",
+                               CooperativePrestartTests.line(CooperativePrestartTests.basic()), self.line(self.cap())]
+                    if diagnostic:
+                        outputs.append(CooperativePrestartTests.line(CooperativePrestartTests.observer(), diagnostic=True))
+                    outputs += ["info depth 3 score cp 0 nodes 130 nps 1000 pv 7g7f", "bestmove 7g7f"]
+                    with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                        usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+                        row = measure(args, 4, ["startpos"])[0]
+                    self.assertEqual(row["cooperative_root_prestart_cap"], self.cap())
+                    self.assertTrue(row["provenance"]["cooperative_prestart_cap_enabled"])
+                    self.assertEqual(row["provenance"]["counter_overhead_included"], diagnostic)
+                    self.assertEqual(row["provenance"]["cooperative_prestart_overhead_included"], diagnostic)
+                    self.assertEqual(row["provenance"]["timing_qualified"], node_limit is None and not diagnostic)
+                    if node_limit is not None:
+                        self.assertEqual(row["node_limit_overshoot"], 30)
 
 
 if __name__ == "__main__":

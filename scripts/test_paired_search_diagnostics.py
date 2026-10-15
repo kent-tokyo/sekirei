@@ -436,6 +436,7 @@ class CooperativePrestartPairingTests(unittest.TestCase):
             self.assertEqual(manifest["status"], "complete")
             self.assertEqual(manifest["budget"], {"depth": None, "movetime_ms": 300})
             self.assertNotIn("measurement_phase", manifest)
+            self.assertNotIn("cooperative_prestart_cap_requested", manifest)
             self.assertEqual(manifest["cooperative_prestart_instrumentation_requested"], requested)
             self.assertEqual(manifest["timing_qualified"], qualified)
             self.assertFalse(manifest["counter_lane"])
@@ -501,6 +502,50 @@ class FixedNodePairingTests(unittest.TestCase):
                     paired_main()
                 self.assertEqual(error.exception.code, 2)
                 freeze.assert_not_called()
+
+
+class CooperativePrestartCapPairingTests(unittest.TestCase):
+    def test_cap_metrics_keep_policy_census_separate_from_observer(self):
+        base = dict(depth=8, nodes=100, wall_nps=1000, elapsed_ms=100)
+        cap = dict(limit=1, passes=2, initial_claims=2, park_calls=5, resumed_helpers=3, cancelled_helpers=2)
+        observed = work_metrics({**base, "cooperative_root_prestart_cap": cap})
+        self.assertEqual(observed["coop_prestart_cap_limit"], 1)
+        self.assertEqual(observed["coop_prestart_cap_initial_claims"], 2)
+        self.assertEqual(observed["coop_prestart_cap_park_calls"], 5)
+        self.assertNotIn("coop_prestart_diag_first_main_us", observed)
+
+    def test_cap_request_does_not_disqualify_time_and_node_lane_remains_unqualified(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        for nodes, observer in ((False, False), (False, True), (True, False)):
+            with self.subTest(nodes=nodes, observer=observer), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                engine = root / "engine"
+                engine.write_bytes(b"mocked cap engine")
+                positions = root / "positions.sfen"
+                positions.write_text("startpos\n")
+                output = root / "out"
+                args = ["paired_search_diagnostics.py", "--baseline", str(engine), "--candidate", str(engine),
+                        "--positions", str(positions), "--output", str(output), "--threads", "4", "--count", "1", "--repeats", "1",
+                        "--option", "T_COOP_PRESTART=1", "--option", f"T_COOP_PRESTART_DIAG={int(observer)}",
+                        "--a-option", "T_COOP_PRESTART_CAP=0", "--b-option", "T_COOP_PRESTART_CAP=1"]
+                if nodes:
+                    args += ["--nodes", "1000"]
+                idle = dict(available=True, busy_processes=[], load_average=[0, 0, 0])
+                lanes = []
+                def fake_measure(lane, threads, positions):
+                    lanes.append(lane)
+                    return [dict(threads=threads, depth=8, nodes=1000, wall_nps=1000, elapsed_ms=100,
+                                 bestmove="7g7f", score=["cp", "0"], pv=["7g7f"])]
+                with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=idle), patch("paired_search_diagnostics.measure", side_effect=fake_measure), patch("builtins.print"):
+                    self.assertEqual(paired_main(), 0)
+                manifest = json.loads((output / "manifest.json").read_text())
+                self.assertEqual(manifest["cooperative_prestart_cap_requested"], {"A": False, "B": True})
+                self.assertEqual(manifest["timing_qualified"], not nodes and not observer)
+                self.assertEqual([lane.provenance["cooperative_prestart_cap_requested"] for lane in lanes], [False, True, True, False])
+                self.assertEqual([lane.provenance["counter_overhead_included"] for lane in lanes], [observer] * 4)
+                self.assertEqual(manifest["budget"], {"depth": None, "movetime_ms": None, "node_limit": 1000} if nodes else {"depth": None, "movetime_ms": 300})
 
 
 if __name__ == "__main__":

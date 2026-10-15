@@ -129,6 +129,7 @@ def work_metrics(row: dict) -> dict:
         result["coop_priority_enabled"] = int(row.get("cooperative_root_policy") is not None)
         result["coop_helper_lmr_enabled"] = int(row.get("cooperative_root_helper_lmr_policy") is not None)
     for field, prefix in (("cooperative_root_prestart", "coop_prestart_"),
+                          ("cooperative_root_prestart_cap", "coop_prestart_cap_"),
                           ("cooperative_root_prestart_diag", "coop_prestart_diag_")):
         for key, value in (row.get(field) or {}).items():
             result[prefix + key] = value
@@ -299,6 +300,10 @@ def main() -> int:
                             for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     prestart_diag_requested = {side: option_value(args.option + side_options, "T_COOP_PRESTART_DIAG") not in (None, "0")
                               for side, side_options in (("A", args.a_option), ("B", args.b_option))}
+    cap_requested = {side: option_value(args.option + side_options, "T_COOP_PRESTART_CAP") not in (None, "0")
+                     for side, side_options in (("A", args.a_option), ("B", args.b_option))}
+    cap_explicit = any(option_value(args.option + side_options, "T_COOP_PRESTART_CAP") is not None
+                       for side_options in (args.a_option, args.b_option))
     host_idle = activity["available"] and not activity["busy_processes"]
     timing_qualified = args.nodes is None and host_idle and not args.diagnostics and not any(latency_requested.values()) and not any(prestart_diag_requested.values())
     manifest = {
@@ -317,6 +322,7 @@ def main() -> int:
         "changed_options": changes, "counter_lane": args.diagnostics,
         "cooperative_latency_instrumentation_requested": latency_requested,
         "cooperative_prestart_instrumentation_requested": prestart_diag_requested,
+        **({"cooperative_prestart_cap_requested": cap_requested} if cap_explicit else {}),
         "cooperative_priority_requested": priority_requested,
         "cooperative_helper_lmr_requested": helper_lmr_requested,
         "identity_policy": ("observe_only_fixed_node_work" if args.nodes is not None else
@@ -350,6 +356,7 @@ def main() -> int:
                                 "evaluator": {"kind": "material-only"}, "counter_overhead_included": args.diagnostics or latency_requested[side] or prestart_diag_requested[side],
                                 "cooperative_latency_instrumentation_requested": latency_requested[side],
                                 "cooperative_prestart_instrumentation_requested": prestart_diag_requested[side],
+                                **({"cooperative_prestart_cap_requested": cap_requested[side]} if cap_explicit else {}),
                                 "cooperative_priority_requested": priority_requested[side],
                                 "cooperative_helper_lmr_requested": helper_lmr_requested[side],
                                 **({"measurement_phase": "fixed_node_work_diagnostic", "node_limit": args.nodes,
