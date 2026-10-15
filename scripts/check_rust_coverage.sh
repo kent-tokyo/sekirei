@@ -135,6 +135,34 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Prepare continuation rows once per quiet batch without changing the tree.
+# These tests own the process-global tuning/network state in isolated runs.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test quiet_cont_rows \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-cont-rows-summary.json" \
+  -- quiet_cont_rows_preserve_material_and_own_halfkp_fixed_depth \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-cont-rows-mechanism-summary.json" \
+  -- search::v2::tests::quiet_cont_rows_exercises_real_batch_and_restores_search \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the disabled SEE lower-bound cache with material and an own
 # deterministic synthetic HalfKP evaluator; keep global tuning state serial.
 cargo llvm-cov -p sekirei-core \

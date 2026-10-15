@@ -64,6 +64,40 @@ const FT_NB: usize = 2 * (SQ + 7) * SQ;
 const PAWN_NB: usize = 512;
 const LOW_PLIES: usize = 4;
 
+/// References remain live only while one quiet batch is scored; no history
+/// update or recursive search runs during that batch.
+struct ContRows<'a>([Option<&'a [i16; PT_NB]>; 5]);
+
+impl ContRows<'_> {
+    #[inline]
+    fn score(&self, pt: u32) -> i32 {
+        let pt = pt as usize;
+        let mut sum = 0;
+        // Fixed predecessor order avoids a descriptor iterator in the hot loop.
+        if let Some(row) = self.0[0] {
+            sum += i32::from(row[pt]);
+        }
+        if let Some(row) = self.0[1] {
+            sum += i32::from(row[pt]);
+        }
+        if let Some(row) = self.0[2] {
+            sum += i32::from(row[pt]);
+        }
+        if let Some(row) = self.0[3] {
+            sum += i32::from(row[pt]);
+        }
+        if let Some(row) = self.0[4] {
+            sum += i32::from(row[pt]);
+        }
+        sum
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    static CONT_ROW_BATCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 const MAIN_LIM: i32 = 7000;
 const CORR_CONT_BITS: u32 = 16;
 const CORR_CONT_NB: usize = 1 << CORR_CONT_BITS;
@@ -606,6 +640,29 @@ impl Data {
             }
         }
         s
+    }
+
+    /// Prepare only the selected preceding frames. In short mode even their
+    /// unused frame addresses must not be evaluated.
+    #[inline]
+    fn cont_rows(&self, i: usize, short: bool) -> ContRows<'_> {
+        let mut rows = [None; 5];
+        for (slot, k) in [1, 2, 3, 4, 6]
+            .into_iter()
+            .enumerate()
+            .take(if short { 2 } else { 5 })
+        {
+            let f = &self.ss[i - k];
+            if f.pt != NO_PT {
+                let start = self.cont_index(f, 0);
+                rows[slot] = Some(
+                    self.cont[start..start + PT_NB]
+                        .try_into()
+                        .expect("complete continuation row"),
+                );
+            }
+        }
+        ContRows(rows)
     }
 
     #[inline]
@@ -1864,11 +1921,25 @@ fn node(
                             }
                             continue;
                         }
+                        // These references expire before searching a child or
+                        // updating histories. Empty and dead batches prepare none.
+                        let cont_rows = if p::V2_CONT_ROWS() != 0 && !quiet_list.is_empty() {
+                            #[cfg(test)]
+                            CONT_ROW_BATCHES.with(|batches| batches.set(batches.get() + 1));
+                            Some(d.cont_rows(i, p::V2_DIAG() & 1 != 0))
+                        } else {
+                            None
+                        };
                         let start = list.len();
                         for &m in quiet_list.iter() {
                             let ft = ft_key(stm, m);
                             let pt = pt_key(stm, m);
-                            let mut s = 2 * i32::from(d.main[ft]) + d.cont_score(i, pt);
+                            let continuation = if let Some(rows) = &cont_rows {
+                                rows.score(pt)
+                            } else {
+                                d.cont_score(i, pt)
+                            };
+                            let mut s = 2 * i32::from(d.main[ft]) + continuation;
                             if p::V2_DIAG() & 2 == 0 {
                                 s += 2 * i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
                             }
@@ -2432,6 +2503,144 @@ fn node(
 mod tests {
     use super::*;
     use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    #[test]
+    fn quiet_cont_rows_are_disabled_and_boolean_by_default() {
+        let spec = p::ALL.iter().find(|s| s.name == "V2_CONT_ROWS").unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[test]
+    fn quiet_cont_rows_match_indexed_history_across_tables_and_boundaries() {
+        let mut d = Data::new();
+        let i = OFF + 6;
+        let points = [0, 1, PT_NB / 2, PT_NB - 1];
+        for split in [0, 1] {
+            d.cont_split = split;
+            d.cont
+                .resize((if split == 0 { 1 } else { 4 }) * PT_NB * PT_NB, 0);
+            for (slot, k) in [1, 2, 3, 4, 6].into_iter().enumerate() {
+                d.ss[i - k] = Frame::EMPTY;
+                d.ss[i - k].pt = (slot + 1) as u32;
+                d.ss[i - k].in_check = slot & 2 != 0;
+                d.ss[i - k].capture = slot & 1 != 0;
+                for (column, pt) in points.into_iter().enumerate() {
+                    let index = d.cont_index(&d.ss[i - k], pt as u32);
+                    d.cont[index] = [i16::MIN, i16::MAX, -1, 1][(slot + column) % 4];
+                }
+            }
+            for missing in [None, Some(1), Some(3), Some(6)] {
+                let previous = missing.map(|k| (k, d.ss[i - k].pt));
+                if let Some(k) = missing {
+                    d.ss[i - k].pt = NO_PT;
+                }
+                for short in [false, true] {
+                    let rows = d.cont_rows(i, short);
+                    for pt in points {
+                        // Independent reference retains the original indexed
+                        // lookup and explicitly selected addition order.
+                        let distances: &[usize] = if short { &[1, 2] } else { &[1, 2, 3, 4, 6] };
+                        let mut expected = 0;
+                        for &k in distances {
+                            let frame = &d.ss[i - k];
+                            if frame.pt != NO_PT {
+                                expected += i32::from(d.cont[d.cont_index(frame, pt as u32)]);
+                            }
+                        }
+                        assert_eq!(
+                            rows.score(pt as u32),
+                            expected,
+                            "split={split} short={short} missing={missing:?} pt={pt}"
+                        );
+                    }
+                    if d.ss[i - 1].pt != NO_PT {
+                        let start = d.cont_index(&d.ss[i - 1], 0);
+                        assert_eq!(rows.0[0].unwrap().as_ptr(), d.cont[start..].as_ptr());
+                    }
+                }
+                if let Some((k, pt)) = previous {
+                    d.ss[i - k].pt = pt;
+                }
+            }
+            let index = d.cont_index(&d.ss[i - 1], 0);
+            let before = d.cont_rows(i, false).score(0);
+            d.cont[index] += 1;
+            assert_eq!(d.cont_rows(i, false).score(0), before + 1);
+            // A later batch observes a changed predecessor, rather than a
+            // descriptor retained across a history/frame update.
+            d.ss[i - 1].pt = NO_PT;
+            assert!(d.cont_rows(i, false).0[0].is_none());
+        }
+    }
+
+    #[test]
+    fn short_cont_rows_do_not_read_unused_prior_frames() {
+        let mut d = Data::new();
+        d.ss[1].pt = 0;
+        d.cont[0] = i16::MIN;
+        let rows = d.cont_rows(2, true);
+        assert_eq!(rows.score(0), i32::from(i16::MIN));
+        assert!(rows.0[1..].iter().all(Option::is_none));
+        // Reading a 3/4/6-ply predecessor here would underflow the frame index.
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global tuning parameters and own synthetic evaluator"]
+    fn quiet_cont_rows_exercises_real_batch_and_restores_search() {
+        use super::super::{SearchConfig, Searcher};
+        use crate::halfkp::{self, HalfKpNetwork};
+        use crate::tt::Tt;
+        struct Restore([i32; 3]);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for (name, value) in ["V2_CONT_ROWS", "V2_DIAG", "V2_CONT_SPLIT"]
+                    .into_iter()
+                    .zip(self.0)
+                {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        let _restore = Restore([p::V2_CONT_ROWS(), p::V2_DIAG(), p::V2_CONT_SPLIT()]);
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_QUIET_TT_STAGE(), 0);
+        assert_eq!(p::V2_QUIET_LMP_SKIP(), 0);
+        assert_eq!(p::V2_SEE_BOUND_CACHE(), 0);
+        assert!(!halfkp::is_active(), "run this test in an isolated process");
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            halfkp::install_network(HalfKpNetwork::random(11)).unwrap();
+            for (position, sfen) in [crate::sfen::STARTPOS_SFEN, "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2"].into_iter().enumerate() {
+                let mut baseline = None;
+                for enabled in [0, 1] {
+                    assert!(p::set("V2_CONT_ROWS", enabled));
+                    assert!(p::set("V2_DIAG", 0));
+                    assert!(p::set("V2_CONT_SPLIT", 0));
+                    let mut board = Board::from_sfen(sfen).unwrap();
+                    board.refresh_acc();
+                    let before = (crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone());
+                    let mut searcher = Searcher::new(Tt::new(4));
+                    searcher.set_ybw_split(false);
+                    searcher.clear_tt();
+                    CONT_ROW_BATCHES.with(|count| count.set(0));
+                    let result = searcher.search(&mut board, SearchConfig { max_depth: 8, ..SearchConfig::default() });
+                    let batches = CONT_ROW_BATCHES.with(|count| count.get());
+                    assert!(!result.aborted);
+                    assert_eq!(result.depth, 8);
+                    assert_eq!((crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone()), before);
+                    let signature = (result.best_move, result.score, result.pv, result.nodes, result.depth, result.bound, result.completed_bound);
+                    if enabled == 0 {
+                        assert_eq!(batches, 0);
+                        baseline = Some(signature);
+                    } else {
+                        assert!(batches > 0, "quiet row batch never reached: {sfen}");
+                        assert_eq!(baseline.as_ref().unwrap(), &signature);
+                    }
+                    eprintln!("quiet continuation rows actual own HalfKP random11 depth8 position={position} enabled={enabled} batches={batches}");
+                }
+            }
+        }).unwrap().join().unwrap();
+    }
 
     #[test]
     fn quiet_tt_stage_is_disabled_and_boolean_by_default() {
