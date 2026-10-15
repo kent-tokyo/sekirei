@@ -211,6 +211,191 @@ pub struct CooperativeRootPrestartStats {
     pub helper_nodes: u64,
     /// Optional adjacent observations; absent when COOP_PRESTART_DIAG is disabled.
     pub diagnostics: Option<CooperativeRootPrestartDiagnostics>,
+    /// Optional global quota on helper claims before the first child is accepted.
+    pub cap: Option<CooperativeRootPrestartCapStats>,
+}
+
+/// Evidence for the opt-in initial helper-claim quota; not a timing observer.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootPrestartCapStats {
+    /// Global initial helper-task quota per eligible prestart pass.
+    pub limit: u64,
+    /// Eligible prestart passes that installed this quota.
+    pub passes: u64,
+    /// Actual root tasks granted under the initial quota, including release races.
+    pub initial_claims: u64,
+    /// Calls to thread::park, including returns caused by stale unpark tokens.
+    pub park_calls: u64,
+    /// Parked helper jobs that first exited the gate without observing cancellation.
+    pub resumed_helpers: u64,
+    /// Parked helper jobs that observed cancellation when first exiting the gate.
+    pub cancelled_helpers: u64,
+}
+
+struct PrestartCapCounters {
+    limit: u64,
+    passes: AtomicU64,
+    initial_claims: AtomicU64,
+    park_calls: AtomicU64,
+    resumed_helpers: AtomicU64,
+    cancelled_helpers: AtomicU64,
+}
+
+impl PrestartCapCounters {
+    fn new(limit: u64) -> Self {
+        Self {
+            limit,
+            passes: AtomicU64::new(0),
+            initial_claims: AtomicU64::new(0),
+            park_calls: AtomicU64::new(0),
+            resumed_helpers: AtomicU64::new(0),
+            cancelled_helpers: AtomicU64::new(0),
+        }
+    }
+
+    fn snapshot(&self) -> CooperativeRootPrestartCapStats {
+        CooperativeRootPrestartCapStats {
+            limit: self.limit,
+            passes: self.passes.load(Ordering::Relaxed),
+            initial_claims: self.initial_claims.load(Ordering::Relaxed),
+            park_calls: self.park_calls.load(Ordering::Relaxed),
+            resumed_helpers: self.resumed_helpers.load(Ordering::Relaxed),
+            cancelled_helpers: self.cancelled_helpers.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// A generation-local initial quota. All executor thread handles are registered
+/// before any job is sent, so cancellation cannot miss a parked participant.
+struct PrestartGate {
+    pending: AtomicBool,
+    quota: AtomicUsize,
+    waiters: OnceLock<Vec<std::thread::Thread>>,
+    counters: Arc<PrestartCapCounters>,
+    #[cfg(test)]
+    before_park: Option<Arc<dyn Fn() + Send + Sync>>,
+}
+
+impl PrestartGate {
+    fn new(counters: Arc<PrestartCapCounters>) -> Self {
+        Self {
+            pending: AtomicBool::new(true),
+            quota: AtomicUsize::new(counters.limit as usize),
+            waiters: OnceLock::new(),
+            counters,
+            #[cfg(test)]
+            before_park: None,
+        }
+    }
+
+    fn try_reserve_initial(&self) -> bool {
+        let mut quota = self.quota.load(Ordering::Acquire);
+        while let Some(next) = quota.checked_sub(1) {
+            match self
+                .quota
+                .compare_exchange_weak(quota, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return true,
+                Err(observed) => quota = observed,
+            }
+        }
+        false
+    }
+
+    fn unpark_all(&self) {
+        if let Some(waiters) = self.waiters.get() {
+            for waiter in waiters {
+                waiter.unpark();
+            }
+        }
+    }
+
+    fn open(&self) {
+        // MainResult::accept publishes alpha before this Release. An acquiring
+        // helper therefore resumes with the newly accepted shared-alpha bound.
+        self.pending.store(false, Ordering::Release);
+        self.unpark_all();
+    }
+}
+
+/// One classification when a parked helper first exits the gate. Cancellation
+/// is sampled first; later normal generation cleanup never reclassifies a job.
+/// Unwind before gate exit cancels peers before classifying this job.
+struct GateWaitAccounting<'a> {
+    generation: &'a Generation,
+    gate: &'a PrestartGate,
+    parked: bool,
+    settled: bool,
+}
+
+impl GateWaitAccounting<'_> {
+    fn settle(&mut self) {
+        if !self.parked || self.settled {
+            return;
+        }
+        let counter = if self.generation.cancel.load(Ordering::Acquire) {
+            &self.gate.counters.cancelled_helpers
+        } else {
+            &self.gate.counters.resumed_helpers
+        };
+        counter.fetch_add(1, Ordering::Relaxed);
+        self.settled = true;
+    }
+
+    fn claim(&mut self, moves: usize) -> Option<RootTask> {
+        loop {
+            if self.generation.cancel.load(Ordering::Acquire) {
+                self.settle();
+                return None;
+            }
+            if !self.gate.pending.load(Ordering::Acquire) {
+                self.settle();
+                return self.generation.claim(moves);
+            }
+            if self.gate.try_reserve_initial() {
+                let task = self.generation.claim(moves);
+                if task.is_some() {
+                    self.gate
+                        .counters
+                        .initial_claims
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+                return task;
+            }
+            // Recheck the predicate before parking. An unpark racing after
+            // this check leaves a token, so wake-before-park cannot be lost.
+            if self.generation.cancel.load(Ordering::Acquire)
+                || !self.gate.pending.load(Ordering::Acquire)
+            {
+                continue;
+            }
+            self.parked = true;
+            self.gate
+                .counters
+                .park_calls
+                .fetch_add(1, Ordering::Relaxed);
+            #[cfg(test)]
+            if let Some(hook) = &self.gate.before_park {
+                hook();
+            }
+            std::thread::park();
+            // A stale token or spurious wake only rechecks this predicate; it
+            // never grants another initial task or bypasses cancellation.
+        }
+    }
+}
+
+impl Drop for GateWaitAccounting<'_> {
+    fn drop(&mut self) {
+        if !self.parked || self.settled {
+            return;
+        }
+        if std::thread::panicking() {
+            self.generation.stop();
+        }
+        self.settle();
+    }
 }
 
 /// Observations sampled before worker 0 marks its first child returned.
@@ -239,6 +424,7 @@ struct PrestartCounters {
     first_aborts: AtomicU64,
     helper_nodes: AtomicU64,
     diagnostics: Option<PrestartDiagnosticsCounters>,
+    cap: Option<Arc<PrestartCapCounters>>,
 }
 
 #[derive(Default)]
@@ -258,6 +444,7 @@ impl PrestartCounters {
             first_beta_cuts: self.first_beta_cuts.load(Ordering::Relaxed),
             first_aborts: self.first_aborts.load(Ordering::Relaxed),
             helper_nodes: self.helper_nodes.load(Ordering::Relaxed),
+            cap: self.cap.as_ref().map(|cap| cap.snapshot()),
             diagnostics: self
                 .diagnostics
                 .as_ref()
@@ -856,9 +1043,11 @@ impl Searcher {
         if p::COOP_PRESTART() != 0
             && prestart_mode(persistent, helpers, drain, priority, helper_lmr, latency)
         {
+            let cap_limit = p::COOP_PRESTART_CAP() as u64;
             counters
                 .prestart
                 .set(Arc::new(PrestartCounters {
+                    cap: (cap_limit != 0).then(|| Arc::new(PrestartCapCounters::new(cap_limit))),
                     diagnostics: (p::COOP_PRESTART_DIAG() != 0)
                         .then(PrestartDiagnosticsCounters::default),
                     ..PrestartCounters::default()
@@ -1148,6 +1337,7 @@ struct Generation {
     remaining_helpers: AtomicUsize,
     latency: Option<LatencyObserver>,
     prestart: Option<PrestartObserver>,
+    cap: Option<PrestartGate>,
     #[cfg(test)]
     prestart_hooks: Option<Arc<PrestartGenerationHooks>>,
     priority: bool,
@@ -1172,6 +1362,7 @@ impl Generation {
             remaining_helpers: AtomicUsize::new(1),
             latency: None,
             prestart: None,
+            cap: None,
             #[cfg(test)]
             prestart_hooks: None,
             priority: false,
@@ -1287,6 +1478,9 @@ impl Generation {
 
     fn stop(&self) {
         self.cancel.store(true, Ordering::Release);
+        if let Some(gate) = &self.cap {
+            gate.unpark_all();
+        }
         #[cfg(test)]
         if let Some(hooks) = &self.prestart_hooks {
             (hooks.cancelled)();
@@ -1454,6 +1648,12 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
     // including when the helper panics before or during its first probe.
     let _finished = finished;
     let _participation = Participation::new(&work.generation);
+    let mut gate_wait = work.generation.cap.as_ref().map(|gate| GateWaitAccounting {
+        generation: &work.generation,
+        gate,
+        parked: false,
+        settled: false,
+    });
     counters.helpers_started.fetch_add(1, Ordering::Relaxed);
     if let Some(observer) = &work.generation.prestart {
         observer.observe(true, false);
@@ -1468,7 +1668,12 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
     super::path::reset_root_path();
     let history = SearchHistory::root(&work.history);
     while !work.state.budget.should_abort() {
-        let Some(task) = work.generation.claim(work.ordered.len()) else {
+        let task = if let Some(wait) = &mut gate_wait {
+            wait.claim(work.ordered.len())
+        } else {
+            work.generation.claim(work.ordered.len())
+        };
+        let Some(task) = task else {
             break;
         };
         let before_nodes = work.state.budget.nodes();
@@ -2090,7 +2295,33 @@ impl GenerationJobs<'_> {
                 (0..invocation.helpers).map(|_| HelperExecutor::new(invocation.counters.clone())),
             );
         }
-        for ((executor, work), lease) in executors.iter().zip(works).zip(leases) {
+        if let Some(gate) = &self.generation.cap {
+            let handles = executors
+                .iter()
+                .filter_map(|executor| {
+                    executor
+                        .worker
+                        .as_ref()
+                        .map(|worker| worker.thread().clone())
+                })
+                .collect();
+            gate.waiters
+                .set(handles)
+                .expect("one waiter registration per generation");
+        }
+        let jobs = executors.iter().zip(works).zip(leases);
+        #[cfg(test)]
+        let jobs = {
+            let mut hook = PRESTART_DISPATCH_HOOK.with(|hook| hook.borrow_mut().take());
+            let generation = self.generation.clone();
+            jobs.enumerate().map(move |(slot, job)| {
+                if let Some(hook) = &mut hook {
+                    hook(slot, &generation);
+                }
+                job
+            })
+        };
+        for ((executor, work), lease) in jobs {
             let Some(sender) = &executor.sender else {
                 self.counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
                 drop(lease);
@@ -2162,8 +2393,12 @@ struct PrestartGenerationHooks {
 #[cfg(test)]
 type PrestartFirstHook = Box<dyn FnOnce(&mut GenerationJobs<'_>) -> Option<i32>>;
 #[cfg(test)]
+type PrestartDispatchHook = Box<dyn FnMut(usize, &Arc<Generation>)>;
+#[cfg(test)]
 thread_local! {
     static PRESTART_FIRST_HOOK: RefCell<Option<PrestartFirstHook>> = const { RefCell::new(None) };
+    static PRESTART_DISPATCH_HOOK: RefCell<Option<PrestartDispatchHook>> = const { RefCell::new(None) };
+    static PRESTART_CAP_PARK_HOOK: RefCell<Option<Arc<dyn Fn() + Send + Sync>>> = const { RefCell::new(None) };
     static PRESTART_GENERATION_HOOKS: RefCell<Option<Arc<PrestartGenerationHooks>>> = const { RefCell::new(None) };
 }
 
@@ -2190,6 +2425,14 @@ fn search_prestart(
             pending: AtomicBool::new(true),
             counters: prestart.clone(),
         });
+    }
+    if let Some(cap) = &prestart.cap {
+        generation.cap = Some(PrestartGate::new(cap.clone()));
+        #[cfg(test)]
+        {
+            generation.cap.as_mut().unwrap().before_park =
+                PRESTART_CAP_PARK_HOOK.with(|hook| hook.borrow_mut().take());
+        }
     }
     #[cfg(test)]
     {
@@ -2234,6 +2477,9 @@ fn search_prestart(
     }
     counters.generations.fetch_add(1, Ordering::Relaxed);
     prestart.passes.fetch_add(1, Ordering::Relaxed);
+    if let Some(cap) = &prestart.cap {
+        cap.passes.fetch_add(1, Ordering::Relaxed);
+    }
     jobs.dispatch(invocation, works, leases);
     let mut result = MainResult {
         alpha: lo,
@@ -2294,6 +2540,9 @@ fn search_prestart(
     if aborted || first_beta || generation.cancel.load(Ordering::Acquire) {
         jobs.collect(true);
     } else {
+        if let Some(gate) = &generation.cap {
+            gate.open();
+        }
         run_main(
             &mut result,
             &generation,
@@ -5982,6 +6231,792 @@ mod tests {
                         counters.snapshot().physical_helper_threads_joined,
                         helpers as u64
                     );
+                }
+            }
+        });
+    }
+
+    fn cap_test_invocation(helpers: usize, unavailable: &[usize], limit: u64) -> Rc<Invocation> {
+        let counters = Arc::new(Counters::default());
+        counters
+            .prestart
+            .set(Arc::new(PrestartCounters {
+                cap: (limit != 0).then(|| Arc::new(PrestartCapCounters::new(limit))),
+                ..PrestartCounters::default()
+            }))
+            .ok()
+            .unwrap();
+        let mut invocation = persistent_group_invocation(counters, helpers, unavailable);
+        Rc::get_mut(&mut invocation).unwrap().drain = false;
+        invocation
+    }
+
+    #[test]
+    fn cap_global_initial_quota_and_wake_before_park_resume_at_latest_alpha() {
+        for helpers in [3, 7] {
+            for limit in 1..=8 {
+                let counters = Arc::new(PrestartCapCounters::new(limit));
+                let mut generation = Generation::new(-100, 64);
+                generation.cap = Some(PrestartGate::new(counters.clone()));
+                let (parked, parks) = mpsc::channel();
+                generation.cap.as_mut().unwrap().before_park = Some(Arc::new(move || {
+                    parked.send(std::thread::current().id()).unwrap();
+                }));
+                let generation = Arc::new(generation);
+                let _cancel = CancelOnDrop(&generation);
+                let entry = Arc::new(std::sync::Barrier::new(helpers + 1));
+                let (finished, completions) = mpsc::channel();
+                let mut workers = Vec::new();
+                for _ in 0..helpers {
+                    let generation = generation.clone();
+                    let entry = entry.clone();
+                    let finished = finished.clone();
+                    workers.push(std::thread::spawn(move || {
+                        entry.wait();
+                        // A stale token must not bypass a closed, exhausted gate.
+                        std::thread::current().unpark();
+                        let gate = generation.cap.as_ref().unwrap();
+                        let mut wait = GateWaitAccounting {
+                            generation: &generation,
+                            gate,
+                            parked: false,
+                            settled: false,
+                        };
+                        let mut tasks = Vec::new();
+                        while let Some(task) = wait.claim(64) {
+                            tasks.push(task);
+                        }
+                        drop(wait);
+                        finished.send(tasks).unwrap();
+                    }));
+                }
+                generation
+                    .cap
+                    .as_ref()
+                    .unwrap()
+                    .waiters
+                    .set(
+                        workers
+                            .iter()
+                            .map(|worker| worker.thread().clone())
+                            .collect(),
+                    )
+                    .ok()
+                    .unwrap();
+                entry.wait();
+                // Stale tokens cause another park attempt; use the shared
+                // initial-claim count, not the number of wake notifications.
+                let mut parked_jobs = std::collections::HashSet::new();
+                while parked_jobs.len() < helpers {
+                    parked_jobs.insert(parks.recv_timeout(Duration::from_secs(10)).unwrap());
+                }
+                assert_eq!(counters.initial_claims.load(Ordering::Relaxed), limit);
+                assert!(
+                    generation
+                        .cap
+                        .as_ref()
+                        .unwrap()
+                        .pending
+                        .load(Ordering::Acquire)
+                );
+                generation.alpha.store(123, Ordering::Release);
+                generation.cap.as_ref().unwrap().open();
+                let mut tasks = Vec::new();
+                for _ in 0..helpers {
+                    tasks.extend(completions.recv_timeout(Duration::from_secs(10)).unwrap());
+                }
+                for worker in workers {
+                    worker.join().unwrap();
+                }
+                tasks.sort_by_key(|task| task.move_index);
+                assert_eq!(
+                    tasks.iter().map(|task| task.move_index).collect::<Vec<_>>(),
+                    (1..64).collect::<Vec<_>>()
+                );
+                assert!(
+                    tasks
+                        .iter()
+                        .skip(limit as usize)
+                        .all(|task| task.alpha_snapshot == 123)
+                );
+                let stats = counters.snapshot();
+                assert_eq!(stats.initial_claims, limit);
+                assert_eq!(
+                    stats.resumed_helpers + stats.cancelled_helpers,
+                    helpers as u64
+                );
+                assert_eq!(stats.cancelled_helpers, 0);
+                assert!(stats.park_calls >= helpers as u64);
+                // Later normal cleanup does not reclassify already resumed jobs.
+                generation.stop();
+                assert_eq!(counters.snapshot().resumed_helpers, stats.resumed_helpers);
+            }
+        }
+    }
+
+    #[test]
+    fn cap_predicate_recheck_ignores_spurious_token_and_cancel_before_actual_park() {
+        for cancel in [false, true] {
+            let counters = Arc::new(PrestartCapCounters::new(1));
+            let mut generation = Generation::new(-100, 4);
+            let mut gate = PrestartGate::new(counters.clone());
+            gate.quota.store(0, Ordering::Relaxed);
+            let (attempted, attempts) = mpsc::channel();
+            let release = Arc::new(AtomicUsize::new(0));
+            let released = release.clone();
+            let attempt_epoch = AtomicUsize::new(0);
+            gate.before_park = Some(Arc::new(move || {
+                let epoch = attempt_epoch.fetch_add(1, Ordering::Relaxed) + 1;
+                attempted.send(epoch).unwrap();
+                // A blocking channel receive here can consume Thread's unpark
+                // token internally. Keep this test-only handoff nonblocking so
+                // the exact wake-before-park token survives until park itself.
+                let start = Instant::now();
+                while released.load(Ordering::Acquire) < epoch {
+                    assert!(
+                        start.elapsed() < Duration::from_secs(10),
+                        "main must release the park hook"
+                    );
+                    std::thread::yield_now();
+                }
+            }));
+            generation.cap = Some(gate);
+            let generation = Arc::new(generation);
+            let _cancel = CancelOnDrop(&generation);
+            let (finished, completion) = mpsc::channel();
+            let worker_generation = generation.clone();
+            let worker = std::thread::spawn(move || {
+                let gate = worker_generation.cap.as_ref().unwrap();
+                let mut wait = GateWaitAccounting {
+                    generation: &worker_generation,
+                    gate,
+                    parked: false,
+                    settled: false,
+                };
+                let task = wait.claim(4);
+                drop(wait);
+                finished.send(task).unwrap();
+            });
+            generation
+                .cap
+                .as_ref()
+                .unwrap()
+                .waiters
+                .set(vec![worker.thread().clone()])
+                .ok()
+                .unwrap();
+            assert_eq!(attempts.recv_timeout(Duration::from_secs(10)).unwrap(), 1);
+            // The worker is past its last predicate read but has not parked.
+            worker.thread().unpark();
+            release.store(1, Ordering::Release);
+            assert_eq!(attempts.recv_timeout(Duration::from_secs(10)).unwrap(), 2);
+            assert_eq!(counters.initial_claims.load(Ordering::Relaxed), 0);
+            if cancel {
+                generation.stop();
+            } else {
+                generation.alpha.store(321, Ordering::Release);
+                generation.cap.as_ref().unwrap().open();
+            }
+            release.store(2, Ordering::Release);
+            let task = completion.recv_timeout(Duration::from_secs(10)).unwrap();
+            worker.join().unwrap();
+            if cancel {
+                assert!(task.is_none());
+            } else {
+                assert_eq!(task.unwrap().alpha_snapshot, 321);
+            }
+            let stats = counters.snapshot();
+            assert_eq!(stats.park_calls, 2);
+            assert_eq!(stats.cancelled_helpers, u64::from(cancel));
+            assert_eq!(stats.resumed_helpers, u64::from(!cancel));
+        }
+    }
+
+    #[test]
+    fn cap_valid_claims_exclude_exhausted_root_indices_and_allow_release_race() {
+        for limit in 1..=8 {
+            let counters = Arc::new(PrestartCapCounters::new(limit));
+            let mut generation = Generation::new(10, 2);
+            generation.cap = Some(PrestartGate::new(counters.clone()));
+            let gate = generation.cap.as_ref().unwrap();
+            let mut wait = GateWaitAccounting {
+                generation: &generation,
+                gate,
+                parked: false,
+                settled: false,
+            };
+            assert_eq!(wait.claim(2).unwrap().move_index, 1);
+            // Opening with unused quota is permitted; no initial quota permit
+            // is counted for an out-of-range task, before or after release.
+            if limit == 1 {
+                gate.open();
+            }
+            assert!(wait.claim(2).is_none());
+            assert_eq!(counters.initial_claims.load(Ordering::Relaxed), 1);
+            assert!(!wait.parked);
+        }
+    }
+
+    #[test]
+    fn cap_first_child_open_beta_abort_and_unwind_release_all_parked_helpers() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for mode in 0..5 {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
+                    let invocation = cap_test_invocation(helpers, &[], 1);
+                    let counters = invocation.counters.clone();
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget =
+                        Arc::new(Budget::new(None, None, stop.clone()));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
+                    let (fail_helper, helper_failure) = mpsc::channel();
+                    let helper_failure = std::sync::Mutex::new(helper_failure);
+                    let park_index = AtomicUsize::new(0);
+                    PRESTART_CAP_PARK_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Arc::new(move || {
+                            let index = park_index.fetch_add(1, Ordering::Relaxed);
+                            parked.send(std::thread::current().id()).unwrap();
+                            if mode == 4 && index == 0 {
+                                helper_failure
+                                    .lock()
+                                    .unwrap()
+                                    .recv_timeout(Duration::from_secs(10))
+                                    .unwrap();
+                                panic!("helper fails at the exhausted initial cap");
+                            }
+                        }))
+                    });
+                    let seen = Arc::new(OnceLock::new());
+                    let hook_seen = seen.clone();
+                    PRESTART_FIRST_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                            let mut parked_jobs = std::collections::HashSet::new();
+                            while parked_jobs.len() < helpers {
+                                parked_jobs
+                                    .insert(parks.recv_timeout(Duration::from_secs(10)).unwrap());
+                            }
+                            let gate = jobs.generation.cap.as_ref().unwrap();
+                            assert!(gate.pending.load(Ordering::Acquire));
+                            assert_eq!(gate.counters.initial_claims.load(Ordering::Relaxed), 1);
+                            assert_eq!(
+                                jobs.generation.participants.load(Ordering::Acquire),
+                                helpers
+                            );
+                            hook_seen.set(jobs.generation.clone()).ok().unwrap();
+                            if mode == 2 {
+                                stop.store(true, Ordering::Release);
+                            }
+                            if mode == 3 {
+                                panic!("main fails while capped helpers are parked");
+                            }
+                            if mode == 4 {
+                                fail_helper.send(()).unwrap();
+                                jobs.collect(false);
+                                assert!(jobs.failed);
+                            }
+                            Some(if mode == 1 { 10000 } else { 100 })
+                        }))
+                    });
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _activation = Activation::with_invocation(invocation.clone());
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history),
+                        )
+                    }));
+                    assert_eq!(result.is_err(), matches!(mode, 3 | 4));
+                    if mode == 1 {
+                        assert_eq!(*result.as_ref().unwrap(), (Some(ordered[0]), 10000));
+                    }
+                    if mode == 2 {
+                        assert_eq!(*result.as_ref().unwrap(), (None, -10000));
+                    }
+                    let generation = seen.get().unwrap();
+                    assert!(generation.cancel.load(Ordering::Acquire));
+                    assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                    assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    let cap = p.cap.unwrap();
+                    assert_eq!(cap.passes, p.passes);
+                    assert_eq!(cap.initial_claims, 1);
+                    assert_eq!(cap.resumed_helpers + cap.cancelled_helpers, helpers as u64);
+                    if mode != 0 {
+                        assert_eq!(cap.cancelled_helpers, helpers as u64);
+                        assert_eq!(stats.main_confirmations, 0);
+                    }
+                    if matches!(mode, 2..=4) {
+                        assert!(state.tt.probe(hash).is_none());
+                    }
+                    let failed =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(invocation)));
+                    assert_eq!(failed.is_err(), mode == 4);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        helpers as u64
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn cap_partial_spawn_failure_and_shared_node_budget_preserve_root_accounting() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for unavailable in [
+                    vec![0],
+                    vec![helpers / 2],
+                    vec![helpers - 1],
+                    (0..helpers).collect(),
+                ] {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
+                    let invocation = cap_test_invocation(helpers, &unavailable, 1);
+                    let counters = invocation.counters.clone();
+                    let state = test_state();
+                    let mut board = Board::startpos();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(board.hash());
+                    let live = helpers - unavailable.len();
+                    let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
+                    PRESTART_CAP_PARK_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Arc::new(move || {
+                            parked.send(std::thread::current().id()).unwrap();
+                        }))
+                    });
+                    PRESTART_FIRST_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                            let mut parked_jobs = std::collections::HashSet::new();
+                            while parked_jobs.len() < live {
+                                parked_jobs
+                                    .insert(parks.recv_timeout(Duration::from_secs(10)).unwrap());
+                            }
+                            assert_eq!(
+                                jobs.generation.remaining_helpers.load(Ordering::Acquire),
+                                live
+                            );
+                            Some(100)
+                        }))
+                    });
+                    let _activation = Activation::with_invocation(invocation.clone());
+                    let result = search(
+                        &state,
+                        &mut board,
+                        2,
+                        &ordered,
+                        -10000,
+                        10000,
+                        &SearchHistory::root(&history),
+                    );
+                    assert!(ordered.contains(&result.0.unwrap()));
+                    assert_eq!(counters.snapshot().spawn_failures, unavailable.len() as u64);
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    let cap = p.cap.unwrap();
+                    assert_eq!(cap.initial_claims, u64::from(live > 0));
+                    assert_eq!(cap.passes, p.passes);
+                    assert_eq!(cap.resumed_helpers + cap.cancelled_helpers, live as u64);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    drop(_activation);
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        live as u64
+                    );
+                }
+                for stopped in [false, true] {
+                    let invocation = cap_test_invocation(helpers, &[], 1);
+                    let counters = invocation.counters.clone();
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget = Arc::new(Budget::new(
+                        None,
+                        Some(1),
+                        Arc::new(AtomicBool::new(stopped)),
+                    ));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let activation = Activation::with_invocation(invocation.clone());
+                    assert_eq!(
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history)
+                        ),
+                        (None, -10000)
+                    );
+                    drop(activation);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    assert_eq!(p.cap.unwrap().passes, p.passes);
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        counters.snapshot().physical_helper_threads_started
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn cap_zero_and_ineligible_windows_preserve_existing_generation_paths() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for limit in [0, 1] {
+                    for (lo, hi) in [
+                        (super::super::NEG_INF, super::super::POS_INF),
+                        (-10000, 10000),
+                        (super::super::MATE_SCORE - 10, super::super::MATE_SCORE),
+                    ] {
+                        let invocation = cap_test_invocation(helpers, &[], limit);
+                        let counters = invocation.counters.clone();
+                        let state = test_state();
+                        let mut board = Board::startpos();
+                        let hash = board.hash();
+                        let ordered = generate_legal_moves(&mut board);
+                        let history = PositionHistory::initial(hash);
+                        let activation = Activation::with_invocation(invocation.clone());
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            lo,
+                            hi,
+                            &SearchHistory::root(&history),
+                        );
+                        drop(activation);
+                        let p = counters.prestart.get().unwrap().snapshot();
+                        if limit == 0 {
+                            assert!(p.cap.is_none());
+                        } else {
+                            let cap = p.cap.unwrap();
+                            assert_eq!(cap.limit, 1);
+                            assert_eq!(cap.passes, p.passes);
+                            if !prestart_window(2, ordered.len(), lo, hi) {
+                                assert_eq!(cap.passes, 0);
+                                assert_eq!(cap.initial_claims, 0);
+                                assert_eq!(cap.park_calls, 0);
+                            }
+                        }
+                        assert_eq!(board.hash(), hash);
+                        drop(invocation);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn cap_disconnected_dispatch_wakes_already_parked_jobs_and_releases_unsent_leases() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for slot in [0, helpers / 2, helpers - 1] {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
+                    let invocation = cap_test_invocation(helpers, &[slot], 1);
+                    let counters = invocation.counters.clone();
+                    let (sender, receiver) = mpsc::sync_channel(1);
+                    drop(receiver);
+                    invocation.group_executors.borrow_mut()[slot].sender = Some(sender);
+                    let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
+                    PRESTART_CAP_PARK_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Arc::new(move || {
+                            parked.send(std::thread::current().id()).unwrap();
+                        }))
+                    });
+                    let seen = Arc::new(OnceLock::new());
+                    let hook_seen = seen.clone();
+                    PRESTART_DISPATCH_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |index, generation| {
+                            if index == slot {
+                                // No later jobs have been sent. Every surviving
+                                // earlier job is past its final closed-gate check.
+                                let mut parked_jobs = std::collections::HashSet::new();
+                                while parked_jobs.len() < slot {
+                                    parked_jobs.insert(
+                                        parks.recv_timeout(Duration::from_secs(10)).unwrap(),
+                                    );
+                                }
+                                hook_seen.set(generation.clone()).ok().unwrap();
+                            }
+                        }))
+                    });
+                    let state = test_state();
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _activation = Activation::with_invocation(invocation.clone());
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history),
+                        );
+                    }));
+                    assert!(failed.is_err());
+                    let generation = seen.get().unwrap();
+                    assert!(generation.cancel.load(Ordering::Acquire));
+                    assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                    assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    assert!(state.tt.probe(hash).is_none());
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_tasks, 0);
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    let cap = p.cap.unwrap();
+                    assert_eq!(cap.passes, p.passes);
+                    assert_eq!(cap.cancelled_helpers, slot as u64);
+                    assert_eq!(cap.resumed_helpers, 0);
+                    assert!(cap.initial_claims <= 1);
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        (helpers - 1) as u64
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn cap_next_generation_on_same_executors_rechecks_old_unpark_tokens_and_old_cancel() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                // Retain each receiver past its FnOnce first-child hook. Old
+                // generation wakes or spurious returns may notify another park
+                // while the current generation is still pending. Declaration
+                // before Invocation also keeps receivers alive during its
+                // physical-thread joins on unwind.
+                let mut park_receivers = Vec::new();
+                let invocation = cap_test_invocation(helpers, &[], 1);
+                let counters = invocation.counters.clone();
+                let mut previous: Option<Arc<Generation>> = None;
+                for pass in 0..2 {
+                    let state = test_state();
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
+                    PRESTART_CAP_PARK_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Arc::new(move || {
+                            parked.send(std::thread::current().id()).unwrap();
+                        }))
+                    });
+                    let old = previous.clone();
+                    let seen = Arc::new(OnceLock::new());
+                    let hook_seen = seen.clone();
+                    PRESTART_FIRST_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                            let mut jobs_seen = std::collections::HashSet::new();
+                            while jobs_seen.len() < helpers {
+                                jobs_seen
+                                    .insert(parks.recv_timeout(Duration::from_secs(10)).unwrap());
+                            }
+                            if let Some(old) = old {
+                                assert_ne!(old.id, jobs.generation.id);
+                                old.stop(); // May wake the same cached threads again.
+                                assert!(!jobs.generation.cancel.load(Ordering::Acquire));
+                            }
+                            assert!(
+                                jobs.generation
+                                    .cap
+                                    .as_ref()
+                                    .unwrap()
+                                    .pending
+                                    .load(Ordering::Acquire)
+                            );
+                            assert_eq!(jobs.generation.next.load(Ordering::Relaxed), 2);
+                            hook_seen.set(jobs.generation.clone()).ok().unwrap();
+                            Some(10000) // Cut without reopening the initial quota.
+                        }))
+                    });
+                    let activation = Activation::with_invocation(invocation.clone());
+                    assert_eq!(
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history)
+                        ),
+                        (Some(ordered[0]), 10000)
+                    );
+                    drop(activation);
+                    previous = Some(seen.get().unwrap().clone());
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    let cap = p.cap.unwrap();
+                    assert_eq!(cap.passes, pass + 1);
+                    assert_eq!(cap.initial_claims, pass + 1);
+                    assert_eq!(cap.cancelled_helpers, (pass + 1) * helpers as u64);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_started,
+                        helpers as u64
+                    );
+                    assert_eq!(board.hash(), hash);
+                }
+                drop(previous);
+                drop(invocation);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn cap_shallow_finite_score_bounds_match_sequential_with_fresh_and_preseeded_tt() {
+        on_search_stack(|| {
+            for sfen in [
+                crate::sfen::STARTPOS_SFEN,
+                "4k4/9/4p4/9/4P4/9/9/9/4K4 b - 1",
+                "4k4/9/4P4/9/9/9/9/9/4K4 b G 1",
+            ] {
+                for helpers in [3, 7] {
+                    for preseed in [false, true] {
+                        for (lo, hi) in [(-10000, 10000), (10000, 11000), (-11000, -10000)] {
+                            let state = test_state();
+                            let invocation = cap_test_invocation(helpers, &[], 1);
+                            let counters = invocation.counters.clone();
+                            let mut board = Board::from_sfen(sfen).unwrap();
+                            let hash = board.hash();
+                            let acc = board.acc.clone();
+                            let ordered = generate_legal_moves(&mut board);
+                            let history = PositionHistory::initial(hash);
+                            let history = SearchHistory::root(&history);
+                            let sequential = test_state();
+                            let mut seq_board = board.clone();
+                            let exact = ordered
+                                .iter()
+                                .map(|&mv| {
+                                    child(
+                                        &sequential,
+                                        &mut seq_board,
+                                        mv,
+                                        1,
+                                        super::super::NEG_INF,
+                                        super::super::POS_INF,
+                                        &history,
+                                    )
+                                })
+                                .max()
+                                .unwrap();
+                            if preseed {
+                                for &mv in &ordered {
+                                    child(
+                                        &state,
+                                        &mut board,
+                                        mv,
+                                        1,
+                                        super::super::NEG_INF,
+                                        super::super::POS_INF,
+                                        &history,
+                                    );
+                                }
+                            }
+                            let before = state.budget.nodes();
+                            let activation = Activation::with_invocation(invocation.clone());
+                            let (best, score) =
+                                search(&state, &mut board, 2, &ordered, lo, hi, &history);
+                            drop(activation);
+                            if exact <= lo {
+                                assert_eq!((best, score), (None, lo));
+                                assert!(state.tt.probe(hash).is_none());
+                            } else if exact >= hi {
+                                assert!(score >= hi);
+                                assert_eq!(state.tt.probe(hash).unwrap().bound, Bound::Lower);
+                            } else {
+                                assert_eq!(score, exact);
+                                assert!(ordered.contains(&best.unwrap()));
+                                assert_eq!(state.tt.probe(hash).unwrap().bound, Bound::Exact);
+                            }
+                            assert_eq!(board.hash(), hash);
+                            assert_eq!(board.acc, acc);
+                            let stats = counters.snapshot();
+                            assert_eq!(
+                                stats.main_nodes + stats.helper_nodes,
+                                state.budget.nodes() - before
+                            );
+                            assert_eq!(
+                                stats.helper_nodes,
+                                stats.helper_completed_nodes + stats.helper_aborted_nodes
+                            );
+                            let p = counters.prestart.get().unwrap().snapshot();
+                            let cap = p.cap.unwrap();
+                            assert_eq!(cap.passes, p.passes);
+                            assert!(cap.initial_claims <= cap.limit * cap.passes);
+                            assert!(
+                                cap.resumed_helpers + cap.cancelled_helpers
+                                    <= stats.helpers_started
+                            );
+                            drop(invocation);
+                        }
+                    }
                 }
             }
         });

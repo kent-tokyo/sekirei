@@ -245,6 +245,20 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Bounded prestart cap activation is isolated from other process-wide tune tests.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/cooperative-root-prestart-cap-summary.json" \
+  -- lazy_smp::tests::tuned_prestart_cap_activation_preserves_fallbacks_and_census \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release

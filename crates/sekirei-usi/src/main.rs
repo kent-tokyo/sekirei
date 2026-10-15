@@ -966,6 +966,12 @@ fn cooperative_root_prestart_lines(stats: CooperativeRootPrestartStats) -> Vec<S
         "info string cooperative_root_prestart passes {} first_beta_cuts {} first_aborts {} helper_nodes {}",
         stats.passes, stats.first_beta_cuts, stats.first_aborts, stats.helper_nodes,
     )];
+    if let Some(cap) = stats.cap {
+        lines.push(format!(
+            "info string cooperative_root_prestart_cap limit {} passes {} initial_claims {} park_calls {} resumed_helpers {} cancelled_helpers {}",
+            cap.limit, cap.passes, cap.initial_claims, cap.park_calls, cap.resumed_helpers, cap.cancelled_helpers,
+        ));
+    }
     if let Some(diag) = stats.diagnostics {
         lines.push(format!(
             "info string cooperative_root_prestart_diag helper_jobs_before_first_return {} helper_completed_probes_before_first_return {} helper_fail_highs_before_first_return {} first_main_nodes {} first_main_us {} first_beta_helper_nodes {}",
@@ -2362,6 +2368,33 @@ mod tests {
             cooperative_root_prestart_lines(stats)[1],
             "info string cooperative_root_prestart_diag helper_jobs_before_first_return 3 helper_completed_probes_before_first_return 2 helper_fail_highs_before_first_return 1 first_main_nodes 100 first_main_us 200 first_beta_helper_nodes 10"
         );
+    }
+
+    #[test]
+    fn prestart_cap_wire_format_keeps_policy_census_before_optional_observer() {
+        let mut stats = CooperativeRootPrestartStats::default();
+        stats.passes = 2;
+        let mut cap = sekirei_core::search::CooperativeRootPrestartCapStats::default();
+        cap.limit = 1;
+        cap.passes = 2;
+        cap.initial_claims = 2;
+        cap.park_calls = 5;
+        cap.resumed_helpers = 3;
+        cap.cancelled_helpers = 2;
+        stats.cap = Some(cap);
+        assert_eq!(
+            cooperative_root_prestart_lines(stats),
+            vec![
+                "info string cooperative_root_prestart passes 2 first_beta_cuts 0 first_aborts 0 helper_nodes 0",
+                "info string cooperative_root_prestart_cap limit 1 passes 2 initial_claims 2 park_calls 5 resumed_helpers 3 cancelled_helpers 2",
+            ]
+        );
+        stats.diagnostics =
+            Some(sekirei_core::search::CooperativeRootPrestartDiagnostics::default());
+        let lines = cooperative_root_prestart_lines(stats);
+        assert_eq!(lines.len(), 3);
+        assert!(lines[1].starts_with("info string cooperative_root_prestart_cap "));
+        assert!(lines[2].starts_with("info string cooperative_root_prestart_diag "));
     }
 
     #[test]

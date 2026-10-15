@@ -88,6 +88,8 @@ search_params! {
     COOP_MULTI = 0, 0, 1;
     /// Opt-in persistent root helpers before the first finite-window root child.
     COOP_PRESTART = 0, 0, 1;
+    /// Limit helper root claims before the first child returns (0: unbounded).
+    COOP_PRESTART_CAP = 0, 0, 8;
     /// Observe pre-first helper work separately from the ordinary timing lane.
     COOP_PRESTART_DIAG = 0, 0, 1;
     /// Confirm ready root candidates while awaiting the cooperative helper.

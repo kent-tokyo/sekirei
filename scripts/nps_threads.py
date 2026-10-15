@@ -458,6 +458,9 @@ def parse_cooperative_root(
 
 
 COOPERATIVE_ROOT_PRESTART_KEYS = ("passes", "first_beta_cuts", "first_aborts", "helper_nodes")
+COOPERATIVE_ROOT_PRESTART_CAP_KEYS = (
+    "limit", "passes", "initial_claims", "park_calls", "resumed_helpers", "cancelled_helpers",
+)
 COOPERATIVE_ROOT_PRESTART_DIAG_KEYS = (
     "helper_jobs_before_first_return", "helper_completed_probes_before_first_return",
     "helper_fail_highs_before_first_return", "first_main_nodes", "first_main_us",
@@ -495,6 +498,29 @@ def parse_cooperative_root_prestart(lines: list[str], *, cooperative_root: dict[
         raise ValueError("prestart helper nodes exceed total helper nodes")
     if result["passes"] == 0 and any(result.values()):
         raise ValueError("prestart work without eligible passes")
+    return result
+
+
+def parse_cooperative_root_prestart_cap(lines: list[str], *, cooperative_root: dict[str, int] | None,
+                                       prestart: dict[str, int] | None) -> dict[str, int] | None:
+    result = _parse_prestart_counters(lines, "info string cooperative_root_prestart_cap", COOPERATIVE_ROOT_PRESTART_CAP_KEYS)
+    if result is None:
+        return None
+    if cooperative_root is None or cooperative_root.get("workers") not in (4, 8) or prestart is None:
+        raise ValueError("prestart cap requires intrinsic prestart and a four/eight-worker root group")
+    if not 1 <= result["limit"] <= 8:
+        raise ValueError("prestart cap limit must be in 1..8")
+    if result["passes"] != prestart["passes"]:
+        raise ValueError("prestart cap passes differ from intrinsic prestart passes")
+    if result["initial_claims"] > result["limit"] * result["passes"]:
+        raise ValueError("prestart initial claims exceed capped passes")
+    completed = result["resumed_helpers"] + result["cancelled_helpers"]
+    if completed > cooperative_root["helpers_started"]:
+        raise ValueError("prestart cap helper outcomes exceed started jobs")
+    if result["park_calls"] < completed:
+        raise ValueError("prestart cap helper outcomes exceed park calls")
+    if result["passes"] == 0 and any(result[key] for key in COOPERATIVE_ROOT_PRESTART_CAP_KEYS[2:]):
+        raise ValueError("prestart cap work without eligible passes")
     return result
 
 
@@ -1311,6 +1337,9 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
                 cooperative_root = parse_cooperative_root(lines, total_nodes=nodes, workers=threads)
                 cooperative_root_prestart = parse_cooperative_root_prestart(lines, cooperative_root=cooperative_root)
+                cooperative_root_prestart_cap = parse_cooperative_root_prestart_cap(
+                    lines, cooperative_root=cooperative_root, prestart=cooperative_root_prestart,
+                )
                 cooperative_root_prestart_diag = parse_cooperative_root_prestart_diag(
                     lines, cooperative_root=cooperative_root, prestart=cooperative_root_prestart,
                 )
@@ -1349,6 +1378,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                     "aspiration": parse_aspiration(lines, total_nodes=nodes),
                     "cooperative_root": cooperative_root,
                     "cooperative_root_prestart": cooperative_root_prestart,
+                    "cooperative_root_prestart_cap": cooperative_root_prestart_cap,
                     "cooperative_root_prestart_diag": cooperative_root_prestart_diag,
                     "cooperative_root_wait": cooperative_root_wait,
                     "cooperative_root_latency": cooperative_root_latency,
@@ -1369,6 +1399,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                         "elapsed_scope": ELAPSED_SCOPE,
                         "options": effective_options,
                         "cooperative_prestart_enabled": cooperative_root_prestart is not None,
+                        "cooperative_prestart_cap_enabled": cooperative_root_prestart_cap is not None,
                         "cooperative_prestart_overhead_included": cooperative_root_prestart_diag is not None,
                         "cooperative_latency_overhead_included": cooperative_root_latency is not None,
                         "cooperative_priority_enabled": cooperative_root_policy is not None,
