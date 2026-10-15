@@ -6,6 +6,15 @@ preserves older per-change notes.
 
 ## [Unreleased]
 
+No changes yet.
+
+## [0.4.2] – 2026-10-16
+
+Version 0.4.2 improves search-boundary correctness, bounded training-data
+ingestion, reproducible performance evidence, and disabled-by-default search
+experiments. The default evaluator and ordinary search policy remain
+unchanged, so this release does not claim a general playing-strength gain.
+
 ### Changed
 
 - Bind native YaneuraOu comparisons to the actual `nn.bin`, reject evaluator
