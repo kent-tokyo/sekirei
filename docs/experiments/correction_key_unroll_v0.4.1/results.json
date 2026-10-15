@@ -1,0 +1,351 @@
+{
+  "schema": "sekirei.correction-key-unroll-validation.v1",
+  "base_commit": "89f34715ff72dfb989c73a29a1113938fb5600b4",
+  "frozen_source_commit": "72706632774c15e6b3690d1847dd0fc465a643ca",
+  "normal_native_without_tune_or_pgo": true,
+  "builds": {
+    "A": {
+      "source_commit": "72706632774c15e6b3690d1847dd0fc465a643ca",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei"
+      ],
+      "features": [],
+      "started_at": "2026-10-15T04:43:55.480542+00:00",
+      "disk_free_before_bytes": 2140278784,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T04:44:43.838139+00:00",
+      "source_commit_after": "72706632774c15e6b3690d1847dd0fc465a643ca",
+      "source_dirty_after": "",
+      "build_log_sha256": "10d2fda2caf3d78938ce30430da55aa1a48561db34e72cbf37625a91b4bf7550",
+      "engine_sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4"
+    },
+    "B": {
+      "source_commit": "72706632774c15e6b3690d1847dd0fc465a643ca",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei",
+        "--features",
+        "correction_key_unroll"
+      ],
+      "features": [
+        "correction_key_unroll"
+      ],
+      "started_at": "2026-10-15T04:44:43.996971+00:00",
+      "disk_free_before_bytes": 2006482944,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T04:45:43.304013+00:00",
+      "source_commit_after": "72706632774c15e6b3690d1847dd0fc465a643ca",
+      "source_dirty_after": "",
+      "build_log_sha256": "ac045c8b4bd1beb2178a231e0327216250a2d52ac99c4de97c0f8baed06f45c7",
+      "engine_sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741"
+    }
+  },
+  "codegen": {
+    "schema": "sekirei.correction-key-codegen.v1",
+    "source": "72706632774c15e6b3690d1847dd0fc465a643ca",
+    "arms": {
+      "A": {
+        "symbol": "__RNvMs0_NtNtCs9ejJSMLncWA_12sekirei_core6search10heuristicsNtB5_8CorrKeys2of",
+        "instruction_count": 89,
+        "code_bytes": 356,
+        "engine_sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+        "assembly_sha256": "53873f5ec8a4eba6c94c70c6f4dec68c349d3db910211ee61c09f6be9f39da6a"
+      },
+      "B": {
+        "symbol": "__RNvMs0_NtNtCsjyGYvE8qZ7l_12sekirei_core6search10heuristicsNtB5_8CorrKeys2of",
+        "instruction_count": 234,
+        "code_bytes": 936,
+        "engine_sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741",
+        "assembly_sha256": "5cc28b36c82d25a4cdca33113d516fd4dfa4ea8b4c25aea951ecf8b12ca9c489"
+      }
+    }
+  },
+  "tests": {
+    "core_default_passed": 381,
+    "core_enabled_passed": 381,
+    "ignored_per_core_run": 4,
+    "default_workspace_clippy": true,
+    "feature_core_clippy": true
+  },
+  "fixed_depth": {
+    "1": {
+      "blocks": 20,
+      "exact_identity_blocks": 20,
+      "within_side_nondeterministic_blocks": 0,
+      "identity_pass": true
+    },
+    "4": {
+      "blocks": 20,
+      "exact_identity_blocks": 0,
+      "within_side_nondeterministic_blocks": 20,
+      "identity_pass": null
+    },
+    "8": {
+      "blocks": 20,
+      "exact_identity_blocks": 0,
+      "within_side_nondeterministic_blocks": 20,
+      "identity_pass": null
+    }
+  },
+  "pv_validation": {
+    "rows": 240,
+    "moves": 1484,
+    "violations": 0,
+    "scope": "same-rules replay; not independent oracle or mate proof"
+  },
+  "timing": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "blocked_host_busy",
+        "started_at_utc": "2026-10-15T04:49:46.643591+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 98841,
+              "cpu_percent": 296.7,
+              "command": "/Users/k_tanabe/Documents/Documents/oss_rust/sekirei/results/yaneura-main-4t-pgo-20261015-attempt2/sekirei-generate"
+            }
+          ],
+          "load_average": [
+            5.81591796875,
+            4.29052734375,
+            3.20703125
+          ]
+        },
+        "host_after": null,
+        "timing_qualified": false
+      },
+      {
+        "attempt": 2,
+        "status": "blocked_host_busy",
+        "started_at_utc": "2026-10-15T04:51:02.894186+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 99074,
+              "cpu_percent": 97.9,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 99131,
+              "cpu_percent": 26.7,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            4.3095703125,
+            4.208984375,
+            3.267578125
+          ]
+        },
+        "host_after": null,
+        "timing_qualified": false
+      }
+    ],
+    "attempt_gap_seconds": 76.250595,
+    "completed_searches": 0,
+    "qualified": false,
+    "raw_development_screen": null,
+    "development_screen_advance": false,
+    "further_attempt_permitted": false
+  },
+  "independent_h1": false,
+  "strength_claim": false,
+  "default_enabled": false,
+  "artifacts": {
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/collect-correction-key-unroll.py": {
+      "sha256": "6dbdb48db5656d4c9afc16f7809448376cf01814fd0f84d73e21b24f41ab6244",
+      "bytes": 5008
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "c53f618d1272c5ec14cea98b2f2148a3c95ec3181fa576e2856305ee0d05e7eb",
+      "bytes": 74439
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+      "bytes": 21697
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/analyze-correction-key-unroll.py": {
+      "sha256": "4f681a9a4d1b4f051999dc9c2313e4065f8dd4d8b14d6d551ac6a1fa3a2917e8",
+      "bytes": 3347
+    },
+    "target/build-correction-key-unroll.py": {
+      "sha256": "996305c1c437efc1757987020747df6fb8a702e416d294020d0a51122d8b7cc4",
+      "bytes": 2032
+    },
+    "target/correction-key-unroll-build/A/build.log": {
+      "sha256": "10d2fda2caf3d78938ce30430da55aa1a48561db34e72cbf37625a91b4bf7550",
+      "bytes": 293
+    },
+    "target/correction-key-unroll-build/A/correction-key.asm": {
+      "sha256": "53873f5ec8a4eba6c94c70c6f4dec68c349d3db910211ee61c09f6be9f39da6a",
+      "bytes": 3275
+    },
+    "target/correction-key-unroll-build/A/engine": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/correction-key-unroll-build/A/receipt.json": {
+      "sha256": "0dc272d85698beaf9c312275c3723fc612849eff2475cc37e1ce333b319d0ab3",
+      "bytes": 1154
+    },
+    "target/correction-key-unroll-build/B/build.log": {
+      "sha256": "ac045c8b4bd1beb2178a231e0327216250a2d52ac99c4de97c0f8baed06f45c7",
+      "bytes": 293
+    },
+    "target/correction-key-unroll-build/B/correction-key.asm": {
+      "sha256": "5cc28b36c82d25a4cdca33113d516fd4dfa4ea8b4c25aea951ecf8b12ca9c489",
+      "bytes": 8786
+    },
+    "target/correction-key-unroll-build/B/engine": {
+      "sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741",
+      "bytes": 4123792
+    },
+    "target/correction-key-unroll-build/B/receipt.json": {
+      "sha256": "28a6a1e4c10cd76936abdf230ce3c4646b2cb6ea50c434358d11e0ce8ec2397e",
+      "bytes": 1232
+    },
+    "target/correction-key-unroll-codegen.json": {
+      "sha256": "3c1e17734500e785b9e39c13a46587afcfa1b54c37680da1c5f53a9dc4e53a4a",
+      "bytes": 833
+    },
+    "target/correction-key-unroll-default-core.log": {
+      "sha256": "fdbf16fd6c008762f27d3271b85562c20b0cdb0b807ecaf6e8a4367a6446e6c0",
+      "bytes": 32387
+    },
+    "target/correction-key-unroll-enabled-core.log": {
+      "sha256": "64e5a1479584d294d3336ef2ed40c4490bfa77068a9d08501a6dc3a57d31f080",
+      "bytes": 32387
+    },
+    "target/correction-key-unroll-fixed-pv.json": {
+      "sha256": "85f97bbf5a90ba3a333116fa8bec7c92a45051e0168bf1e2153c3344570efd08",
+      "bytes": 891
+    },
+    "target/correction-key-unroll-fixed-pv.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/correction-key-unroll-fixed-pv.log": {
+      "sha256": "744abd72e9bd02222622f2329c0b61886c0152a53ce0407b5152a5e634c6e6b4",
+      "bytes": 49
+    },
+    "target/correction-key-unroll-fixed.log": {
+      "sha256": "a87ac1bb29f31412a4239aa4b00f491f7cc3b311ab8f5bef2df217e641058ab2",
+      "bytes": 44033
+    },
+    "target/correction-key-unroll-fixed/engine-A": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/correction-key-unroll-fixed/engine-B": {
+      "sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741",
+      "bytes": 4123792
+    },
+    "target/correction-key-unroll-fixed/manifest.json": {
+      "sha256": "2e52c221255ef255101a96d16c94061f9ff0b8d99ebb6ce5edecd77121df8239",
+      "bytes": 4029
+    },
+    "target/correction-key-unroll-fixed/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/correction-key-unroll-fixed/rows.jsonl": {
+      "sha256": "7a851901e5951c8be3c4ed51254e4853ddac0f13c8fe31452dcfa86408ec8815",
+      "bytes": 666616
+    },
+    "target/correction-key-unroll-fixed/summary.json": {
+      "sha256": "000e8049d4b96f299ef15a2652f0aba600e1b84fc5b4b57963deaaa81d623dd2",
+      "bytes": 241831
+    },
+    "target/correction-key-unroll-presearch-binding.json": {
+      "sha256": "b245df6d28a2d4b878490a10e531792a71041ad9c0f9e3a8ebeb89b69d04255b",
+      "bytes": 1111
+    },
+    "target/correction-key-unroll-timed-attempt1.log": {
+      "sha256": "dd4d4b00854ef5a320185f84d517045400f9d39e6a68737e7a3ccb3dcacf8e25",
+      "bytes": 388
+    },
+    "target/correction-key-unroll-timed-attempt1/engine-A": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/correction-key-unroll-timed-attempt1/engine-B": {
+      "sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741",
+      "bytes": 4123792
+    },
+    "target/correction-key-unroll-timed-attempt1/manifest.json": {
+      "sha256": "7ca37aa1d0b2b01a759803cc932a1a9429c9944552bda14618de78b12df5837c",
+      "bytes": 2876
+    },
+    "target/correction-key-unroll-timed-attempt1/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/correction-key-unroll-timed-attempt2.log": {
+      "sha256": "94e5b2421fb257b18c46303bfacb7850c3e41b22f7f3ea67cc30ad177d102fa7",
+      "bytes": 466
+    },
+    "target/correction-key-unroll-timed-attempt2/engine-A": {
+      "sha256": "59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4",
+      "bytes": 4123760
+    },
+    "target/correction-key-unroll-timed-attempt2/engine-B": {
+      "sha256": "bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741",
+      "bytes": 4123792
+    },
+    "target/correction-key-unroll-timed-attempt2/manifest.json": {
+      "sha256": "4359ecb14e92e58f91064d3bc8df2645ce5965eab88230da955f2776696ffee3",
+      "bytes": 2992
+    },
+    "target/correction-key-unroll-timed-attempt2/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    }
+  }
+}

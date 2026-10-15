@@ -45,3 +45,31 @@ cannot be rescued by a speed/depth observation.
 This is a development screen, not an independent H1 or YaneuraOu comparison.
 The feature remains default off; later adoption requires a separately pinned
 independent gate. The queued aspiration strength candidate is unchanged.
+
+## Completed observations
+
+Clean native source: `72706632774c15e6b3690d1847dd0fc465a643ca`.
+A SHA256: `59d99aabf1aaade97e742f994d3d919cd81a464aed40313da28a48ec6c448be4`.
+B SHA256: `bedd89c31f348896df4a576a6243b376b62bdcbe74be849a9a2a6ccbceeca741`.
+[results.json](results.json) binds receipts, raw captures, machine code,
+test logs, presearch input hashes and PV validation.
+
+Both core configurations passed 381 tests with 4 ignored. Default workspace
+Clippy and feature-enabled core Clippy passed. The native machine code uses
+fixed bitboard offsets and removes the kind-loop/exclusion branches; the
+function grows from 89 instructions / 356 bytes to 234 instructions / 936 bytes.
+These sizes describe static code, not dynamically executed instruction counts.
+
+All 20 1T fixed-depth ABBA blocks matched bestmove, score/unit/bound, PV, nodes
+and completed depth. The 4T and 8T lanes each varied within arms in all 20
+blocks and had no exact cross-arm blocks; no parallel identity is claimed.
+The 240 searches replayed 1,484 PV moves with zero legality violations through
+the frozen same-rules validator.
+
+Both timed attempts stopped before any search because an unrelated Sekirei
+data-generation job exceeded the 25%-CPU threshold. Attempt 2 began more than
+60 seconds after attempt 1. No timed search ran, no process was stopped, no
+busy-host override was used and no third attempt is permitted by this protocol.
+There is no qualified 1T/4T/8T NPS or completed-depth result. The development
+screen does not advance; no independent H1 or YaneuraOu comparison was opened.
+The feature remains default off.
