@@ -984,6 +984,13 @@ fn emit_search_result(
         }
     }
     if let Some(stats) = info.cooperative_root {
+        if let Some(group) = info.cooperative_root_wait.filter(|group| group.workers > 2) {
+            println!(
+                "info string cooperative_root_group workers {} helpers {}",
+                group.workers,
+                group.workers - 1,
+            );
+        }
         println!(
             "info string cooperative_root generations {} helper_nodes {} helper_probes {} helper_fail_highs {} main_confirmations {} confirmed_alpha_raises {} main_nodes {} main_tasks {} confirmation_nodes {} helper_completed_nodes {} helper_aborted_nodes {} helper_aborted_probes {} spawn_failures {} helpers_started {} helper_start_delay_us {} join_wait_us {} alpha_gap_sum {} alpha_gap_max {} physical_helper_threads_started {} physical_helper_threads_joined {} executor_start_delay_us {} helper_dispatch_delay_us {}",
             stats.generations,

@@ -149,6 +149,20 @@ cargo llvm-cov -p sekirei-core \
   -- correction_key_fold \
   --test-threads=1
 
+# Multi-worker cooperative activation is opt-in and uses global tune state.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/cooperative-root-multi-summary.json" \
+  -- lazy_smp::tests::tuned_multi_cooperative_activation_preserves_fallbacks_and_group_census \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release
