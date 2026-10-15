@@ -1006,13 +1006,29 @@ fn refresh_full(
     mailbox: &[Option<Piece>; 81],
     hand: &[[u8; 7]; 2],
 ) {
+    if crate::search::params::NNUE_REFRESH_TILE() != 0 {
+        refresh_full_impl::<true>(net, perspective, king, acc, mailbox, hand);
+    } else {
+        refresh_full_impl::<false>(net, perspective, king, acc, mailbox, hand);
+    }
+}
+
+fn refresh_full_impl<const TILE: bool>(
+    net: &HalfKpNetwork,
+    perspective: Color,
+    king: Square,
+    acc: &mut [i16; HALF_DIMS],
+    mailbox: &[Option<Piece>; 81],
+    hand: &[[u8; 7]; 2],
+) {
     *acc = *net.ft_bias;
+    let mut columns = RefreshColumns::new();
     for (i, cell) in mailbox.iter().enumerate() {
         if let Some(piece) = cell
             && let Some(f) =
                 board_feature(king, Square(i as u8), piece.kind, piece.color, perspective)
         {
-            add_assign(acc, net.column(f));
+            refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
         }
     }
     for color in PERSPECTIVES {
@@ -1020,10 +1036,13 @@ fn refresh_full(
             let kind = PieceKind::from_u8(k as u8).unwrap();
             for n in 1..=count {
                 if let Some(f) = hand_feature(king, kind, n, color, perspective) {
-                    add_assign(acc, net.column(f));
+                    refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
                 }
             }
         }
+    }
+    if TILE {
+        columns.flush(acc);
     }
 }
 
@@ -1060,6 +1079,21 @@ fn refresh_from_cache(
     mailbox: &[Option<Piece>; 81],
     hand: &[[u8; 7]; 2],
 ) {
+    if crate::search::params::NNUE_REFRESH_TILE() != 0 {
+        refresh_from_cache_impl::<true>(net, perspective, king, acc, mailbox, hand);
+    } else {
+        refresh_from_cache_impl::<false>(net, perspective, king, acc, mailbox, hand);
+    }
+}
+
+fn refresh_from_cache_impl<const TILE: bool>(
+    net: &HalfKpNetwork,
+    perspective: Color,
+    king: Square,
+    acc: &mut [i16; HALF_DIMS],
+    mailbox: &[Option<Piece>; 81],
+    hand: &[[u8; 7]; 2],
+) {
     REFRESH_CACHE.with(|cell| {
         let mut slot = cell.borrow_mut();
         let cache = slot.get_or_insert_with(|| {
@@ -1085,9 +1119,10 @@ fn refresh_from_cache(
         }
         let e = &mut cache.entries[perspective.index() * 81 + king.0 as usize];
         if !e.valid {
-            refresh_full(net, perspective, king, acc, mailbox, hand);
+            refresh_full_impl::<TILE>(net, perspective, king, acc, mailbox, hand);
         } else {
             *acc = e.values;
+            let mut columns = RefreshColumns::new();
             for (i, (old, new)) in e.mailbox.iter().zip(mailbox.iter()).enumerate() {
                 if old == new {
                     continue;
@@ -1096,12 +1131,12 @@ fn refresh_from_cache(
                 if let Some(piece) = old
                     && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
                 {
-                    sub_assign(acc, net.column(f));
+                    refresh_column::<TILE, true>(&mut columns, acc, net.column(f));
                 }
                 if let Some(piece) = new
                     && let Some(f) = board_feature(king, sq, piece.kind, piece.color, perspective)
                 {
-                    add_assign(acc, net.column(f));
+                    refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
                 }
             }
             for color in PERSPECTIVES {
@@ -1114,13 +1149,16 @@ fn refresh_from_cache(
                     for n in now.min(was) + 1..=now.max(was) {
                         if let Some(f) = hand_feature(king, kind, n, color, perspective) {
                             if now > was {
-                                add_assign(acc, net.column(f));
+                                refresh_column::<TILE, false>(&mut columns, acc, net.column(f));
                             } else {
-                                sub_assign(acc, net.column(f));
+                                refresh_column::<TILE, true>(&mut columns, acc, net.column(f));
                             }
                         }
                     }
                 }
+            }
+            if TILE {
+                columns.flush(acc);
             }
         }
         e.values = *acc;
@@ -1128,6 +1166,172 @@ fn refresh_from_cache(
         e.hand = *hand;
         e.valid = true;
     });
+}
+
+// At most four immutable feature columns; no feature list or accumulator copy.
+// The subtraction mask is dispatched once per batch, outside the SIMD loop.
+struct RefreshColumns<'a> {
+    columns: [&'a [i16]; 4],
+    subtract: u8,
+    len: usize,
+}
+
+impl<'a> RefreshColumns<'a> {
+    const fn new() -> Self {
+        Self {
+            columns: [&[]; 4],
+            subtract: 0,
+            len: 0,
+        }
+    }
+
+    #[inline(always)]
+    fn push<const SUB: bool>(&mut self, acc: &mut [i16; HALF_DIMS], column: &'a [i16]) {
+        debug_assert_eq!(column.len(), HALF_DIMS);
+        self.columns[self.len] = column;
+        self.subtract |= u8::from(SUB) << self.len;
+        self.len += 1;
+        if self.len == 4 {
+            self.flush(acc);
+        }
+    }
+
+    #[inline(always)]
+    fn flush(&mut self, acc: &mut [i16; HALF_DIMS]) {
+        if self.len == 4 {
+            // Const masks eliminate per-element sign branches. Preserve the
+            // original feature order, including subtraction of i16::MIN.
+            macro_rules! dispatch {
+                ($($mask:literal),*) => {
+                    match self.subtract {
+                        $($mask => refresh_four::<$mask>(acc, self.columns),)*
+                        _ => unreachable!("four columns have four sign bits"),
+                    }
+                };
+            }
+            dispatch!(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15);
+        } else if self.len == 3 {
+            macro_rules! dispatch {
+                ($($mask:literal),*) => {
+                    match self.subtract {
+                        $($mask => refresh_three::<$mask>(acc, self.columns),)*
+                        _ => unreachable!("three columns have three sign bits"),
+                    }
+                };
+            }
+            dispatch!(0, 1, 2, 3, 4, 5, 6, 7);
+        } else if self.len == 2 {
+            macro_rules! dispatch {
+                ($($mask:literal),*) => {
+                    match self.subtract {
+                        $($mask => refresh_two::<$mask>(acc, self.columns),)*
+                        _ => unreachable!("two columns have two sign bits"),
+                    }
+                };
+            }
+            dispatch!(0, 1, 2, 3);
+        } else {
+            // A one-column tail keeps the authoritative operation; zero is inert.
+            for i in 0..self.len {
+                if self.subtract & (1 << i) != 0 {
+                    sub_assign(acc, self.columns[i]);
+                } else {
+                    add_assign(acc, self.columns[i]);
+                }
+            }
+        }
+        self.len = 0;
+        self.subtract = 0;
+    }
+}
+
+#[inline(always)]
+fn refresh_column<'a, const TILE: bool, const SUB: bool>(
+    columns: &mut RefreshColumns<'a>,
+    acc: &mut [i16; HALF_DIMS],
+    column: &'a [i16],
+) {
+    if TILE {
+        columns.push::<SUB>(acc, column);
+    } else if SUB {
+        sub_assign(acc, column);
+    } else {
+        add_assign(acc, column);
+    }
+}
+
+#[inline(always)]
+fn refresh_two<const MASK: u8>(acc: &mut [i16; HALF_DIMS], columns: [&[i16]; 4]) {
+    for ((a, &w0), &w1) in acc.iter_mut().zip(columns[0]).zip(columns[1]) {
+        let a0 = if MASK & 1 != 0 {
+            a.wrapping_sub(w0)
+        } else {
+            a.wrapping_add(w0)
+        };
+        *a = if MASK & 2 != 0 {
+            a0.wrapping_sub(w1)
+        } else {
+            a0.wrapping_add(w1)
+        };
+    }
+}
+
+#[inline(always)]
+fn refresh_three<const MASK: u8>(acc: &mut [i16; HALF_DIMS], columns: [&[i16]; 4]) {
+    for (((a, &w0), &w1), &w2) in acc
+        .iter_mut()
+        .zip(columns[0])
+        .zip(columns[1])
+        .zip(columns[2])
+    {
+        let a0 = if MASK & 1 != 0 {
+            a.wrapping_sub(w0)
+        } else {
+            a.wrapping_add(w0)
+        };
+        let a1 = if MASK & 2 != 0 {
+            a0.wrapping_sub(w1)
+        } else {
+            a0.wrapping_add(w1)
+        };
+        *a = if MASK & 4 != 0 {
+            a1.wrapping_sub(w2)
+        } else {
+            a1.wrapping_add(w2)
+        };
+    }
+}
+
+#[inline(always)]
+fn refresh_four<const MASK: u8>(acc: &mut [i16; HALF_DIMS], columns: [&[i16]; 4]) {
+    for ((((a, &w0), &w1), &w2), &w3) in acc
+        .iter_mut()
+        .zip(columns[0])
+        .zip(columns[1])
+        .zip(columns[2])
+        .zip(columns[3])
+    {
+        let a0 = if MASK & 1 != 0 {
+            a.wrapping_sub(w0)
+        } else {
+            a.wrapping_add(w0)
+        };
+        let a1 = if MASK & 2 != 0 {
+            a0.wrapping_sub(w1)
+        } else {
+            a0.wrapping_add(w1)
+        };
+        let a2 = if MASK & 4 != 0 {
+            a1.wrapping_sub(w2)
+        } else {
+            a1.wrapping_add(w2)
+        };
+        *a = if MASK & 8 != 0 {
+            a2.wrapping_sub(w3)
+        } else {
+            a2.wrapping_add(w3)
+        };
+    }
 }
 
 #[inline(always)]
@@ -1440,6 +1644,508 @@ mod tests {
                     .wrapping_add(1_442_695_040_888_963_407);
                 b.do_move(moves[(seed >> 33) as usize % moves.len()]);
             }
+        }
+    }
+
+    #[test]
+    fn refresh_tiles_preserve_wrapping_signs_and_short_tails() {
+        #[cfg(not(feature = "tune"))]
+        assert_eq!(crate::search::params::NNUE_REFRESH_TILE(), 0);
+        let extremes = [i16::MIN, i16::MAX, -1, 0, 1];
+        let columns: [[i16; HALF_DIMS]; 9] =
+            std::array::from_fn(|c| std::array::from_fn(|i| extremes[(i + c) % extremes.len()]));
+        for count in 0..=columns.len() {
+            for mask in 0..16 {
+                let initial = std::array::from_fn(|i| extremes[i % extremes.len()]);
+                let mut expected = initial;
+                let mut actual = initial;
+                let mut tile = RefreshColumns::new();
+                for (c, column) in columns.iter().take(count).enumerate() {
+                    if mask & (1 << (c % 4)) != 0 {
+                        sub_assign(&mut expected, column);
+                        tile.push::<true>(&mut actual, column);
+                    } else {
+                        add_assign(&mut expected, column);
+                        tile.push::<false>(&mut actual, column);
+                    }
+                }
+                tile.flush(&mut actual);
+                assert_eq!(actual, expected, "count={count} mask={mask}");
+                // A completed tile can be reused; flushing an empty one is inert.
+                assert_eq!(tile.len, 0);
+                tile.flush(&mut actual);
+                assert_eq!(actual, expected);
+            }
+        }
+    }
+
+    #[derive(Clone)]
+    struct RefreshFixture {
+        mailbox: [Option<Piece>; 81],
+        hand: [[u8; 7]; 2],
+        kings: [Square; 2],
+    }
+
+    fn export_refresh_fixture(state: &RefreshFixture) {
+        if std::env::var_os("SEKIREI_REFRESH_TILE_EXPORT_FIXTURES").is_some() {
+            let cells: [u8; 81] = state.mailbox.map(|piece| {
+                piece.map_or(0, |piece| {
+                    1 + piece.kind as u8 + 16 * piece.color.index() as u8
+                })
+            });
+            eprintln!(
+                "halfkp refresh tile fixture cells={cells:?} hand={:?}",
+                state.hand
+            );
+        }
+    }
+
+    fn refresh_fixtures() -> Vec<RefreshFixture> {
+        use crate::{board::Board, movegen::MoveBuffer, sfen::move_from_usi};
+        let mut states = Vec::new();
+        let mut record = |board: &Board| {
+            let state = RefreshFixture {
+                mailbox: *board.mailbox_for_eval(),
+                hand: board.hand_counts_for_eval(),
+                kings: std::array::from_fn(|p| board.king_square(PERSPECTIVES[p]).unwrap()),
+            };
+            export_refresh_fixture(&state);
+            states.push(state);
+        };
+        for (sfen, moves) in [
+            (
+                "4k4/9/4p4/9/9/9/4P4/9/4K4 b - 1",
+                &[
+                    "5i6i", "5a6a", "6i5i", "6a5a", "5g5f", "5c5d", "5i6i", "5a6a", "6i5i", "6a5a",
+                ][..],
+            ),
+            (
+                "k8/4P4/9/9/9/9/9/9/4K4 b P 1",
+                &["5b5a+", "9a8a", "P*5e", "8a9a", "5e5d"][..],
+            ),
+            (
+                "k8/9/4p4/4P4/9/9/9/9/4K4 b - 1",
+                &["5d5c+", "9a8a", "P*5e"][..],
+            ),
+            (
+                "4k4/9/9/9/9/9/4p4/4P4/K8 w p 1",
+                &["5g5h+", "9i8i", "P*5e"][..],
+            ),
+        ] {
+            let mut board = Board::from_sfen(sfen).unwrap();
+            record(&board);
+            let mut tokens = Vec::new();
+            for usi in moves {
+                let mv = move_from_usi(usi, &board).unwrap();
+                assert!(
+                    MoveBuffer::legal(&mut board).as_slice().contains(&mv),
+                    "{usi}"
+                );
+                tokens.push(board.do_move_for_search(mv));
+                record(&board);
+            }
+            while let Some(token) = tokens.pop() {
+                board.undo_move_for_search(token);
+                record(&board);
+            }
+        }
+        let mut board = Board::startpos();
+        let mut seed = 0x2026_1016_0000_0001u64;
+        for _ in 0..96 {
+            record(&board);
+            let moves = MoveBuffer::legal(&mut board);
+            if moves.as_slice().is_empty() {
+                break;
+            }
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            let mv = moves.as_slice()[seed as usize % moves.as_slice().len()];
+            board.do_move_for_search(mv);
+        }
+        states
+    }
+
+    fn check_refresh_sequence<const TILE: bool>(
+        net: &HalfKpNetwork,
+        states: &[RefreshFixture],
+    ) -> Vec<[[i16; HALF_DIMS]; 2]> {
+        // Each arm starts cold and replays the same cache history. Running the
+        // arms interleaved would silently turn the second arm into zero deltas.
+        REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+        let (mut cold, mut changed_warm) = (0, 0);
+        let mut outputs = Vec::new();
+        for state in states {
+            let mut both = [[0; HALF_DIMS]; 2];
+            for perspective in PERSPECTIVES {
+                let p = perspective.index();
+                let king = state.kings[p];
+                REFRESH_CACHE.with(|cell| {
+                    let cache = cell.borrow();
+                    let entry = cache
+                        .as_ref()
+                        .map(|cache| &cache.entries[p * 81 + king.0 as usize]);
+                    if let Some(e) = entry.filter(|e| e.valid) {
+                        changed_warm +=
+                            usize::from(e.mailbox != state.mailbox || e.hand != state.hand);
+                    } else {
+                        cold += 1;
+                    }
+                });
+                let mut expected = [0; HALF_DIMS];
+                refresh_full_impl::<false>(
+                    net,
+                    perspective,
+                    king,
+                    &mut expected,
+                    &state.mailbox,
+                    &state.hand,
+                );
+                refresh_full_impl::<TILE>(
+                    net,
+                    perspective,
+                    king,
+                    &mut both[p],
+                    &state.mailbox,
+                    &state.hand,
+                );
+                assert_eq!(both[p], expected, "full TILE={TILE}");
+                refresh_from_cache_impl::<TILE>(
+                    net,
+                    perspective,
+                    king,
+                    &mut both[p],
+                    &state.mailbox,
+                    &state.hand,
+                );
+                assert_eq!(both[p], expected, "cache TILE={TILE}");
+                REFRESH_CACHE.with(|cell| {
+                    let cache = cell.borrow();
+                    let e = &cache.as_ref().unwrap().entries[p * 81 + king.0 as usize];
+                    assert!(e.valid);
+                    assert_eq!(e.values, expected);
+                    assert_eq!(e.mailbox, state.mailbox);
+                    assert_eq!(e.hand, state.hand);
+                });
+            }
+            outputs.push(both);
+        }
+        assert!(cold > 0 && changed_warm > 0);
+        outputs
+    }
+
+    #[test]
+    fn refresh_tiles_match_full_and_finny_across_legal_moves_and_undo() {
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        let old = check_refresh_sequence::<false>(&net, &states);
+        let new = check_refresh_sequence::<true>(&net, &states);
+        assert_eq!(old, new);
+        for (old, new) in old.iter().zip(&new) {
+            assert_eq!(net.forward(&old[0], &old[1]), net.forward(&new[0], &new[1]));
+        }
+    }
+
+    #[test]
+    fn refresh_tiles_keep_missing_kings_duplicate_features_and_hand_semantics() {
+        let net = HalfKpNetwork::random(11);
+        // Explicit king arguments also cover refresh_perspective's retained
+        // previous king when the mailbox has no king. Duplicate feature
+        // contributions from malformed hands retain their old multiplicity.
+        let empty = RefreshFixture {
+            mailbox: [None; 81],
+            hand: [[0; 7]; 2],
+            kings: [Square(0), Square(80)],
+        };
+        let mut states = vec![empty.clone()];
+        let mut crowded = empty.clone();
+        for i in 0..5 {
+            crowded.mailbox[10 + i] = Some(Piece::new(PERSPECTIVES[i % 2], PieceKind::Fu));
+            states.push(crowded.clone());
+        }
+        crowded.hand = [[19, 5, 4, 4, 4, 2, 2], [18, 4, 5, 4, 4, 2, 2]];
+        states.push(crowded.clone());
+        crowded.mailbox[0] = Some(Piece::new(Color::Black, PieceKind::Ou));
+        crowded.mailbox[1] = Some(Piece::new(Color::Black, PieceKind::Ou));
+        states.push(crowded.clone());
+        crowded.hand = [[0; 7]; 2];
+        states.push(crowded);
+        states.push(empty.clone());
+        states.push(empty);
+        assert_eq!(
+            check_refresh_sequence::<false>(&net, &states),
+            check_refresh_sequence::<true>(&net, &states)
+        );
+        // Public refresh still retains the previous square for a missing king
+        // and chooses the last matching king for duplicate-king mailboxes.
+        for state in &states {
+            let mut acc = boundary_acc([true, true]);
+            for perspective in PERSPECTIVES {
+                let p = perspective.index();
+                acc.refresh_perspective(&net, perspective, &state.mailbox, &state.hand);
+                let mut tiled = [0; HALF_DIMS];
+                refresh_full_impl::<true>(
+                    &net,
+                    perspective,
+                    acc.king[p],
+                    &mut tiled,
+                    &state.mailbox,
+                    &state.hand,
+                );
+                assert_eq!(acc.values[p], tiled);
+                assert!(!acc.dirty[p]);
+                if state
+                    .mailbox
+                    .iter()
+                    .all(|piece| *piece != Some(Piece::new(perspective, PieceKind::Ou)))
+                {
+                    assert_eq!(acc.king[p], [Square(0), Square(80)][p]);
+                }
+            }
+        }
+        // A different immutable network must invalidate warmed entries; then
+        // switching back must rebuild rather than reuse the other network.
+        let alternate = HalfKpNetwork::random(12);
+        for active in [&net, &alternate, &net] {
+            for perspective in PERSPECTIVES {
+                let state = &states[5];
+                let king = state.kings[perspective.index()];
+                let mut full = [0; HALF_DIMS];
+                let mut cached = [0; HALF_DIMS];
+                refresh_full_impl::<false>(
+                    active,
+                    perspective,
+                    king,
+                    &mut full,
+                    &state.mailbox,
+                    &state.hand,
+                );
+                refresh_from_cache_impl::<true>(
+                    active,
+                    perspective,
+                    king,
+                    &mut cached,
+                    &state.mailbox,
+                    &state.hand,
+                );
+                assert_eq!(full, cached);
+                REFRESH_CACHE.with(|cell| {
+                    assert_eq!(
+                        cell.borrow().as_ref().unwrap().net,
+                        active as *const HalfKpNetwork as usize
+                    )
+                });
+            }
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "isolated process: changes NNUE refresh tuning parameters"]
+    fn refresh_tile_runtime_flag_keeps_full_and_finny_exact() {
+        use crate::search::params;
+        struct Restore(i32, i32);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(params::set("NNUE_REFRESH_TILE", self.0));
+                assert!(params::set("NNUE_FINNY", self.1));
+            }
+        }
+        let _restore = Restore(params::NNUE_REFRESH_TILE(), params::NNUE_FINNY());
+        assert_eq!(params::NNUE_REFRESH_TILE(), 0);
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        for finny in [0, 1] {
+            let mut reference = Vec::new();
+            for tiled in [0, 1] {
+                assert!(params::set("NNUE_REFRESH_TILE", tiled));
+                assert!(params::set("NNUE_FINNY", finny));
+                assert_eq!(params::NNUE_REFRESH_TILE(), tiled);
+                REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+                let mut acc = HalfKpAcc::new();
+                for (i, state) in states.iter().enumerate() {
+                    acc.dirty = [true, true];
+                    acc.refresh(&net, &state.mailbox, &state.hand);
+                    assert!(!acc.needs_refresh());
+                    if tiled == 0 {
+                        reference.push(acc.clone());
+                    } else {
+                        assert_eq!(acc, reference[i], "finny={finny} state={i}");
+                        assert_eq!(
+                            acc.evaluate(&net, Color::Black, 16),
+                            reference[i].evaluate(&net, Color::Black, 16)
+                        );
+                    }
+                }
+            }
+        }
+        eprintln!(
+            "halfkp refresh tile runtime own random11: modes=2 arms=2 states={} completed_refreshes={} exact=true",
+            states.len(),
+            4 * states.len()
+        );
+    }
+
+    #[test]
+    #[ignore = "development microbench only: run optimized, one arm per process; not an adoption gate"]
+    fn refresh_tile_development_microbench() {
+        let arm = std::env::var("SEKIREI_REFRESH_TILE_BENCH_ARM").expect("set legacy or tiled");
+        let iterations: usize = std::env::var("SEKIREI_REFRESH_TILE_BENCH_ITERATIONS")
+            .unwrap_or_else(|_| "1000".into())
+            .parse()
+            .unwrap();
+        assert!((1..=1_000_000).contains(&iterations));
+        let net = HalfKpNetwork::random(11);
+        let states = refresh_fixtures();
+        // The legal king-return fixture changes both pawns but retains kings.
+        let (a, small, b) = (&states[0], &states[5], &states[6]);
+        assert_eq!(a.kings, b.kings);
+        assert_eq!(a.kings, small.kings);
+        assert_ne!(a.mailbox, b.mailbox);
+        assert_ne!(a.mailbox, small.mailbox);
+        let board = crate::board::Board::startpos();
+        let full = RefreshFixture {
+            mailbox: *board.mailbox_for_eval(),
+            hand: board.hand_counts_for_eval(),
+            kings: std::array::from_fn(|p| board.king_square(PERSPECTIVES[p]).unwrap()),
+        };
+        assert_eq!(
+            full.mailbox
+                .iter()
+                .flatten()
+                .filter(|piece| piece.kind != PieceKind::Ou)
+                .count(),
+            38
+        );
+        export_refresh_fixture(&full);
+        // One cold batch has eighteen distinct (perspective, king) entries.
+        // Relocate only kings to empty middle ranks, keeping all 38 features.
+        let cold: Vec<_> = (0..9)
+            .map(|file| {
+                let mut state = full.clone();
+                for king in state.kings {
+                    state.mailbox[king.0 as usize] = None;
+                }
+                state.kings = [Square::from_fr(file, 3), Square::from_fr(file, 5)];
+                for (p, &perspective) in PERSPECTIVES.iter().enumerate() {
+                    assert!(state.mailbox[state.kings[p].0 as usize].is_none());
+                    state.mailbox[state.kings[p].0 as usize] =
+                        Some(Piece::new(perspective, PieceKind::Ou));
+                }
+                export_refresh_fixture(&state);
+                state
+            })
+            .collect();
+        assert_eq!(
+            check_refresh_sequence::<false>(&net, &states),
+            check_refresh_sequence::<true>(&net, &states)
+        );
+        let keys: std::collections::HashSet<_> = cold
+            .iter()
+            .flat_map(|state| (0..2).map(move |p| (p, state.kings[p])))
+            .collect();
+        assert_eq!(keys.len(), 18);
+        match arm.as_str() {
+            "legacy" => {
+                run_refresh_development::<false>(&net, iterations, &full, a, small, b, &cold)
+            }
+            "tiled" => run_refresh_development::<true>(&net, iterations, &full, a, small, b, &cold),
+            _ => panic!("unknown arm"),
+        }
+    }
+
+    fn run_refresh_development<const TILE: bool>(
+        net: &HalfKpNetwork,
+        iterations: usize,
+        full: &RefreshFixture,
+        a: &RefreshFixture,
+        small: &RefreshFixture,
+        b: &RefreshFixture,
+        cold: &[RefreshFixture],
+    ) {
+        use std::{
+            hint::black_box,
+            time::{Duration, Instant},
+        };
+        fn operation<const TILE: bool>(
+            net: &HalfKpNetwork,
+            state: &RefreshFixture,
+            full: bool,
+        ) -> i32 {
+            let mut acc = [[0; HALF_DIMS]; 2];
+            for perspective in PERSPECTIVES {
+                let p = perspective.index();
+                let (mailbox, hand) = (black_box(&state.mailbox), black_box(&state.hand));
+                if full {
+                    refresh_full_impl::<TILE>(
+                        net,
+                        perspective,
+                        state.kings[p],
+                        &mut acc[p],
+                        mailbox,
+                        hand,
+                    );
+                } else {
+                    refresh_from_cache_impl::<TILE>(
+                        net,
+                        perspective,
+                        state.kings[p],
+                        &mut acc[p],
+                        mailbox,
+                        hand,
+                    );
+                }
+            }
+            let score = net.forward(black_box(&acc[0]), black_box(&acc[1]));
+            black_box(&acc);
+            black_box(score)
+        }
+        for mode in ["full", "cold", "warm2", "warm4"] {
+            REFRESH_CACHE.with(|cell| *cell.borrow_mut() = None);
+            // Each independent arm uses exactly the same prewarm A. This also
+            // allocates the Finny cache outside all measured regions.
+            black_box(operation::<TILE>(net, a, false));
+            let mut checksum = 0i64;
+            let (elapsed, operations) = if mode == "cold" {
+                let mut elapsed = Duration::ZERO;
+                for _ in 0..iterations {
+                    REFRESH_CACHE.with(|cell| {
+                        for entry in &mut cell.borrow_mut().as_mut().unwrap().entries {
+                            entry.valid = false;
+                        }
+                    });
+                    let start = Instant::now();
+                    for state in cold {
+                        checksum =
+                            checksum.wrapping_add(i64::from(operation::<TILE>(net, state, false)));
+                    }
+                    elapsed += start.elapsed();
+                }
+                (elapsed, iterations * cold.len())
+            } else {
+                let start = Instant::now();
+                for i in 0..iterations {
+                    let changed = if mode == "warm2" { small } else { b };
+                    let state = if mode == "full" {
+                        full
+                    } else if i % 2 == 0 {
+                        changed
+                    } else {
+                        a
+                    };
+                    checksum = checksum.wrapping_add(i64::from(operation::<TILE>(
+                        net,
+                        state,
+                        mode == "full",
+                    )));
+                }
+                (start.elapsed(), iterations)
+            };
+            eprintln!(
+                "refresh tile development tiled={TILE} mode={mode} seed=11 half_dims={HALF_DIMS} iterations={iterations} refresh_calls={} forward_calls={operations} elapsed_ns={} checksum={checksum} includes_forward=true",
+                2 * operations,
+                elapsed.as_nanos()
+            );
         }
     }
 

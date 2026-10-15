@@ -229,6 +229,40 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Verify the disabled refresh control through both full and Finny paths.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-refresh-tile-wire-summary.json" \
+  -- halfkp::tests::refresh_tile_runtime_flag_keeps_full_and_finny_exact \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+# Two instrumented iterations cover the development fixture/export paths.
+# These are bounded correctness/coverage checks, never speed measurements.
+for refresh_tile_arm in legacy tiled; do
+  SEKIREI_REFRESH_TILE_BENCH_ARM="${refresh_tile_arm}" \
+  SEKIREI_REFRESH_TILE_BENCH_ITERATIONS=2 \
+  SEKIREI_REFRESH_TILE_EXPORT_FIXTURES=1 \
+  cargo llvm-cov -p sekirei-core \
+    --features tune \
+    --lib \
+    --no-clean \
+    --json \
+    --summary-only \
+    --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+    --output-path "${COVERAGE_DIR}/refresh-tile-fixture-${refresh_tile_arm}-summary.json" \
+    -- halfkp::tests::refresh_tile_development_microbench \
+    --ignored \
+    --exact \
+    --test-threads=1
+done
+
 # Isolate the disabled SEE lower-bound cache with material and an own
 # deterministic synthetic HalfKP evaluator; keep global tuning state serial.
 cargo llvm-cov -p sekirei-core \

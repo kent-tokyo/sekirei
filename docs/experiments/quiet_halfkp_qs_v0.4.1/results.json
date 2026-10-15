@@ -102,5 +102,13 @@
     "qs_mechanism_calls": 64,
     "workspace_and_tune_clippy": "passed",
     "hosted_ci": "pending"
+  },
+  "hosted_ci_followup": {
+    "commit": "75b885b311a7e2926afd029c1b3eb339e5a5fdb3",
+    "status": "success",
+    "ci": "https://github.com/kent-tokyo/sekirei/actions/runs/38781451142",
+    "coverage": "https://github.com/kent-tokyo/sekirei/actions/runs/38781451039",
+    "coverage_minimum_percent": 98,
+    "scope": "QS integration before refresh-tile experiment"
   }
 }

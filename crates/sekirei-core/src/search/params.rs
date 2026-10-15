@@ -623,6 +623,9 @@ search_params! {
     /// NNUE refresh after a king move starts from the accumulator kept for the
     /// new king square (1) or rebuilds from scratch (0). Same values either way.
     NNUE_FINNY = 1, 0, 1;
+    /// Fuse four HalfKP refresh feature columns in one accumulator traversal.
+    /// Default off; feature order, wrapping sums and Finny cache are unchanged.
+    NNUE_REFRESH_TILE = 0, 0, 1;
     /// SEARCH_V2 weight of the captured piece's value in tactical move keys.
     V2_MVV_W = 6, 1, 16;
     /// SEARCH_V2: a tactical move is ordered with the winning ones when its

@@ -1,0 +1,195 @@
+{
+  "schema": "sekirei.halfkp-refresh-tail-outcome.v1",
+  "status": "complete",
+  "candidate_kind": "halfkp_refresh_tail_compiledefault_native_4t",
+  "base_commit": "75b885b311a7e2926afd029c1b3eb339e5a5fdb3",
+  "default_parameter": {
+    "NNUE_REFRESH_TILE": 0
+  },
+  "native_compile_controls": {
+    "baseline": 0,
+    "candidate": 1
+  },
+  "native_usi_sha256": {
+    "baseline": "799d22801fae508d5769ebc4aaaa3a4b715444edaaca5cddb1750b8466f2b559",
+    "candidate": "042e900eabb6c6518b043612493c1ca6f7b30a0352907c82622764bc359afc69"
+  },
+  "decision": "rejected",
+  "gate_passed": false,
+  "reason": "Independent4T own-speed CI lower bound did not exceed1.0. No established engine speed gain.",
+  "summary": {
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "total_searches": 128,
+    "eligible_positions": 31,
+    "geomean_candidate_over_baseline": 1.0004625044147428,
+    "bootstrap_95pct": [
+      0.9886941786061689,
+      1.01132960275718
+    ],
+    "excluded_by_700ms_filter": [
+      {
+        "position": 5,
+        "elapsed_ms": [
+          2.642,
+          3.722,
+          2.593,
+          5.446
+        ]
+      }
+    ]
+  },
+  "accepted_calls": 128,
+  "eligible_positions": 31,
+  "attempted_quartets": 33,
+  "host_rejected_quartets": 1,
+  "raw_calls_preserved": 132,
+  "correctness": {
+    "normal_core_passed": 434,
+    "normal_core_ignored": 9,
+    "refresh_tile_wire_completed_refreshes": 568,
+    "status": "passed",
+    "one_t_exact_pairs": 31,
+    "isolated4t_worker_zero_pairs": 4,
+    "lifecycle4t_arm_cases": 2,
+    "fresh_search_processes": 72,
+    "scope": "halfkp-refresh-tail compiledefault0/1 correctness only; no speed claim"
+  },
+  "development_component_studies": {
+    "R1_four_column": {
+      "report": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tile/sekirei/results/halfkp-refresh-tile-20261016/micro-ABBA-1/report.json",
+        "sha256": "02d56794c550c04164eb894b07798cad79f3f1679652b4ef9a2c9f47d5de1be9"
+      },
+      "summary": {
+        "full": {
+          "tiled_over_legacy_component_throughput": 1.2193519447597128,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "cold": {
+          "tiled_over_legacy_component_throughput": 1.1117192985974043,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "warm2": {
+          "tiled_over_legacy_component_throughput": 0.9417882577039834,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "warm4": {
+          "tiled_over_legacy_component_throughput": 1.0181651762107602,
+          "same_checksum": true,
+          "accepted_calls": 4
+        }
+      },
+      "scope": "Development component throughput only; separate study, never pooled with H1; no engine speed claim."
+    },
+    "R2_with_two_three_column_tails": {
+      "report": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/micro-ABBA-1/report.json",
+        "sha256": "99d5e85297b192dc8dcd2aae15b35affa5620c9c755a01ead3240746da55b901"
+      },
+      "summary": {
+        "full": {
+          "tiled_over_legacy_component_throughput": 1.2355017291500046,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "cold": {
+          "tiled_over_legacy_component_throughput": 1.1214741528823517,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "warm2": {
+          "tiled_over_legacy_component_throughput": 0.9561461285408728,
+          "same_checksum": true,
+          "accepted_calls": 4
+        },
+        "warm4": {
+          "tiled_over_legacy_component_throughput": 1.0135667548003793,
+          "same_checksum": true,
+          "accepted_calls": 4
+        }
+      },
+      "scope": "Development component throughput only; separate study, never pooled with H1; no engine speed claim."
+    }
+  },
+  "durable_reports": {
+    "correctness": {
+      "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/qualification/correctness-capture-completed/report.json",
+      "sha256": "75b0d972f8aae4e158c8fc0f8a183149b691ba26e167c3e9cbc7cc806bbc3e37"
+    },
+    "H1": {
+      "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/qualification/h1/capture-completed/report.json",
+      "sha256": "f7d6064268cfc6270250e31654572fd1b70ea049fbee98b9601ea96184ce6dcc"
+    }
+  },
+  "preservation_receipt": {
+    "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/qualification/capture-preservation-receipt.json",
+    "sha256": "7cc631ef9fd9801bbe0e79a7f50e06df3b56ad520637dd9b2bcc20da2daf0493"
+  },
+  "source_adopted": false,
+  "defaults_changed": false,
+  "engine_speed_gain_established": false,
+  "strength_claim": false,
+  "external_evaluator_used_for_selection": false,
+  "external_comparison_performed": false,
+  "rescue_rerun_performed": false,
+  "scope": "Own synthetic evaluator only, same-path native compiledefault0/1,4T actual aggregate nodes/wall time. R1 micro,R2 micro,and independent R2 H1 are separate evidence lanes; no historic timings pooled.",
+  "source_verification": {
+    "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/source-verification.json",
+    "sha256": "a72a64ce510de307fe5a45a6cd93da5512e89695a73fdff6856f38997c174912"
+  },
+  "native_manifest": {
+    "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/qualification/native-build-manifest.json",
+    "sha256": "f436ad107d8c4422a13be70f377dcc02e910dcccb125484ed9d40f0b4365b114"
+  },
+  "independent_engine_review": {
+    "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/audit/h1-independent-review.json",
+    "sha256": "28ffeaa0038f69ac774069fab550aeac5c84b3c7d2b44d1589e59fde7821f1e1"
+  },
+  "experiment_outcome": {
+    "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/outcome.json",
+    "sha256": "d20892775bfcf66e47a729f49547e8edc272a08adf9a826b1d6ba299eb916afd"
+  },
+  "component_evidence": {
+    "r1": {
+      "report": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tile/sekirei/results/halfkp-refresh-tile-20261016/micro-ABBA-1/report.json",
+        "sha256": "02d56794c550c04164eb894b07798cad79f3f1679652b4ef9a2c9f47d5de1be9"
+      },
+      "qa": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tile/sekirei/results/halfkp-refresh-tile-20261016/audit/micro-independent-review.json",
+        "sha256": "4e63e86ff1327579ab2f99a3ba8359dfbec95be098a3d9ca45b6849ce92c0177"
+      }
+    },
+    "r2": {
+      "report": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/micro-ABBA-1/report.json",
+        "sha256": "99d5e85297b192dc8dcd2aae15b35affa5620c9c755a01ead3240746da55b901"
+      },
+      "qa": {
+        "path": "/Users/k_tanabe/.codex/worktrees/halfkp-refresh-tail/sekirei/results/halfkp-refresh-tail-20261016/audit/micro-independent-review.json",
+        "sha256": "35eea360d6efb5dd02765b03edb0a2a69ab25b38a558c40a3d9450861b9738ab"
+      }
+    },
+    "scope": "development components including forward; not engine NPS or adoption evidence"
+  },
+  "main_integration": {
+    "base_commit": "75b885b311a7e2926afd029c1b3eb339e5a5fdb3",
+    "proof": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-tt-main/sekirei/results/halfkp-refresh-tail-integration-20261016/integration-validation.json",
+      "sha256": "0365279ba69fb8aa3a0d5bfdb68b69e4b3c0045a55865741740d68899d72b90c"
+    },
+    "source_count": 148,
+    "workspace_passed": 1057,
+    "core_passed": 434,
+    "core_ignored": 9,
+    "runtime_wire_refreshes": 568,
+    "bounded_fixture_iterations_per_arm": 2,
+    "workspace_and_tune_clippy": "passed",
+    "experimental_code_added": true,
+    "default_adopted": false,
+    "hosted_ci": "pending"
+  }
+}
