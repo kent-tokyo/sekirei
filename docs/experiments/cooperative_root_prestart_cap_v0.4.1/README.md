@@ -193,3 +193,18 @@ Elo or YaneuraOu superiority claims. The native observations apply to source
 1298cf71a458, based on fea5e719b476. A later integration of the separate
 V2_CONT_ROWS default-off change requires combined-source CI; it is not a
 remeasurement of this candidate on the combined source.
+
+### Integration-only repairs
+
+The first combined-source full-core run passed428 tests and failed the cached
+executor reuse test. Its first-child hook dropped a park-notification receiver
+before an old-generation wake could cause another park notification. Keepalive
+receivers now outlive job cleanup and physical joins in four lifecycle tests;
+their send assertions remain active. The original failed log is preserved.
+
+The first hosted CI also rejected fetch_update under its newer stable compiler
+because that API was renamed. The integration source uses an explicit
+compare_exchange_weak quota loop with the same Acquire/AcqRel memory ordering,
+zero-quota behavior and retry semantics. No gate policy changed. This small
+compatibility repair is outside the frozen native source; the node observations
+above remain scoped to1298cf71a458 and are not a speed measurement of the repair.

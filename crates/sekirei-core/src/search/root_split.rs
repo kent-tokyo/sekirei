@@ -289,6 +289,20 @@ impl PrestartGate {
         }
     }
 
+    fn try_reserve_initial(&self) -> bool {
+        let mut quota = self.quota.load(Ordering::Acquire);
+        while let Some(next) = quota.checked_sub(1) {
+            match self
+                .quota
+                .compare_exchange_weak(quota, next, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) => return true,
+                Err(observed) => quota = observed,
+            }
+        }
+        false
+    }
+
     fn unpark_all(&self) {
         if let Some(waiters) = self.waiters.get() {
             for waiter in waiters {
@@ -339,14 +353,7 @@ impl GateWaitAccounting<'_> {
                 self.settle();
                 return self.generation.claim(moves);
             }
-            if self
-                .gate
-                .quota
-                .fetch_update(Ordering::AcqRel, Ordering::Acquire, |quota| {
-                    quota.checked_sub(1)
-                })
-                .is_ok()
-            {
+            if self.gate.try_reserve_initial() {
                 let task = self.generation.claim(moves);
                 if task.is_some() {
                     self.gate
@@ -6455,6 +6462,9 @@ mod tests {
         on_search_stack(|| {
             for helpers in [3, 7] {
                 for mode in 0..5 {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
                     let invocation = cap_test_invocation(helpers, &[], 1);
                     let counters = invocation.counters.clone();
                     let stop = Arc::new(AtomicBool::new(false));
@@ -6467,6 +6477,8 @@ mod tests {
                     let ordered = generate_legal_moves(&mut board);
                     let history = PositionHistory::initial(hash);
                     let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
                     let (fail_helper, helper_failure) = mpsc::channel();
                     let helper_failure = std::sync::Mutex::new(helper_failure);
                     let park_index = AtomicUsize::new(0);
@@ -6580,6 +6592,9 @@ mod tests {
                     vec![helpers - 1],
                     (0..helpers).collect(),
                 ] {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
                     let invocation = cap_test_invocation(helpers, &unavailable, 1);
                     let counters = invocation.counters.clone();
                     let state = test_state();
@@ -6588,6 +6603,8 @@ mod tests {
                     let history = PositionHistory::initial(board.hash());
                     let live = helpers - unavailable.len();
                     let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
                     PRESTART_CAP_PARK_HOOK.with(|hook| {
                         *hook.borrow_mut() = Some(Arc::new(move || {
                             parked.send(std::thread::current().id()).unwrap();
@@ -6739,12 +6756,17 @@ mod tests {
         on_search_stack(|| {
             for helpers in [3, 7] {
                 for slot in [0, helpers / 2, helpers - 1] {
+                    // Keep notifications connected through job cleanup and Invocation
+                    // joins, even after the first-child/dispatch hook returns.
+                    let mut park_receivers = Vec::new();
                     let invocation = cap_test_invocation(helpers, &[slot], 1);
                     let counters = invocation.counters.clone();
                     let (sender, receiver) = mpsc::sync_channel(1);
                     drop(receiver);
                     invocation.group_executors.borrow_mut()[slot].sender = Some(sender);
                     let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
                     PRESTART_CAP_PARK_HOOK.with(|hook| {
                         *hook.borrow_mut() = Some(Arc::new(move || {
                             parked.send(std::thread::current().id()).unwrap();
@@ -6820,6 +6842,12 @@ mod tests {
     fn cap_next_generation_on_same_executors_rechecks_old_unpark_tokens_and_old_cancel() {
         on_search_stack(|| {
             for helpers in [3, 7] {
+                // Retain each receiver past its FnOnce first-child hook. Old
+                // generation wakes or spurious returns may notify another park
+                // while the current generation is still pending. Declaration
+                // before Invocation also keeps receivers alive during its
+                // physical-thread joins on unwind.
+                let mut park_receivers = Vec::new();
                 let invocation = cap_test_invocation(helpers, &[], 1);
                 let counters = invocation.counters.clone();
                 let mut previous: Option<Arc<Generation>> = None;
@@ -6830,6 +6858,8 @@ mod tests {
                     let ordered = generate_legal_moves(&mut board);
                     let history = PositionHistory::initial(hash);
                     let (parked, parks) = mpsc::channel();
+                    let parks = Rc::new(parks);
+                    park_receivers.push(parks.clone());
                     PRESTART_CAP_PARK_HOOK.with(|hook| {
                         *hook.borrow_mut() = Some(Arc::new(move || {
                             parked.send(std::thread::current().id()).unwrap();
