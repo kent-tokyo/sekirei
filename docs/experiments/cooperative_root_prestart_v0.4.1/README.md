@@ -172,3 +172,35 @@ future mutable CI/watch/PR/integration captures. Existing evidence is verified
 without overwriting. The same-rules legal replay is not an independent movegen
 oracle or mate proof. alpha_gap_max totals sum per-go maxima and cannot be
 called a global maximum.
+
+## Observed result (2026-10-15)
+
+Frozen native source: `d7d4a5bc857ebf9d17432780841e46bf7e614207`.
+The 240-row default identity, 320-row mechanism and 160-row observer lanes
+completed. All20 one-thread default and mechanism positions retained exact
+bestmove/score/PV/nodes/depth identity. Persistent4T/8T group census, generation
+completion and physical joins passed. All720 PV rows (4938 moves) replayed
+legally with the frozen same-rules tool; this is not an independent oracle.
+
+| Observer aggregate | 4T | 8T |
+|---|---:|---:|
+| Eligible prestart passes | 466 | 473 |
+| Helper job starts before first-child return marker | 1367 | 3235 |
+| Completed helper probes before marker | 10396 | 12468 |
+| Helper fail-highs before marker | 570 | 752 |
+| First-child beta cuts | 74 | 83 |
+| Helper nodes in first-child beta-cut passes | 17785 | 18474 |
+
+These observations establish activation, not useful-depth or speed gains.
+Both permitted300ms timing attempts blocked before any search because other
+processes exceeded the25-percent busy threshold (retry gap60.089894seconds).
+Timing has0completed searches, is unqualified and has no4T/8T advancement
+verdict. No further attempt belongs to this frozen protocol. Other jobs were
+not stopped. A future timing run needs a new prospective measurement record.
+
+Local validation:406core tests passed (4ignored), two isolated tune activation
+tests passed,79measurement-tool tests passed, USI wire-format test passed,
+and default workspace/tune-core Clippy passed. Detailed receipts, both blocked
+attempts and90hashed artifacts are bound in [results.json](results.json).
+`COOP_PRESTART` and `COOP_PRESTART_DIAG` remainOFF; independentH1 and
+YaneuraOu superiority are unproven.

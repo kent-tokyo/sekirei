@@ -1,0 +1,2041 @@
+{
+  "schema": "sekirei.cooperative-root-prestart-validation.v1",
+  "base_commit": "eea038febf94843deff606aa2449e37e62f352f7",
+  "frozen_source_commit": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+  "build_lane": "standard native normal for default identity; identical tune binary A/B for prestart mechanism, observer-only diagnostic lane and counter-free timing; no PGO",
+  "builds": {
+    "normal": {
+      "schema": "sekirei.cooperative-root-prestart-native-build.v1",
+      "mode": "normal",
+      "base_commit": "eea038febf94843deff606aa2449e37e62f352f7",
+      "source_commit": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified": true,
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "build_environment": {},
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei"
+      ],
+      "features": [],
+      "pgo": false,
+      "build_controls": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "protocol_path": "docs/experiments/cooperative_root_prestart_v0.4.1/README.md",
+      "protocol_sha256": "42472983b82225a186dae6241f36188c409971f627aa27227c1d5ec83be5d066",
+      "driver_sha256": "858019fca9c9a25256be3f08b8c3b636b96e0176bce122a6c6cd6b508fc62fc8",
+      "started_at": "2026-10-15T11:00:05.936689+00:00",
+      "disk_free_before_bytes": 11170086912,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T11:01:24.796096+00:00",
+      "source_commit_after": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_dirty_after": "",
+      "build_log_sha256": "4ce4cc1ee6845169510ac2fc173cb584b16f5e4cf6cf3dc97e988d176aec6501",
+      "disk_free_after_bytes": 10268020736,
+      "status": "complete",
+      "engine_sha256": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8",
+      "engine_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/normal/engine"
+    },
+    "tune": {
+      "schema": "sekirei.cooperative-root-prestart-native-build.v1",
+      "mode": "tune",
+      "base_commit": "eea038febf94843deff606aa2449e37e62f352f7",
+      "source_commit": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified": true,
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "build_environment": {},
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei",
+        "--features",
+        "tune"
+      ],
+      "features": [
+        "tune"
+      ],
+      "pgo": false,
+      "build_controls": {
+        "CARGO_INCREMENTAL": "0",
+        "CARGO_BUILD_JOBS": "1"
+      },
+      "protocol_path": "docs/experiments/cooperative_root_prestart_v0.4.1/README.md",
+      "protocol_sha256": "42472983b82225a186dae6241f36188c409971f627aa27227c1d5ec83be5d066",
+      "driver_sha256": "858019fca9c9a25256be3f08b8c3b636b96e0176bce122a6c6cd6b508fc62fc8",
+      "started_at": "2026-10-15T11:01:24.994429+00:00",
+      "disk_free_before_bytes": 10263838720,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T11:02:35.847851+00:00",
+      "source_commit_after": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_dirty_after": "",
+      "build_log_sha256": "f5802fe2a4a67d66b445da7e7f3e5a5e4d26ceffc556ac78cda09870ad2139e7",
+      "disk_free_after_bytes": 10119385088,
+      "status": "complete",
+      "engine_sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "engine_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/tune/engine"
+    }
+  },
+  "presearch_binding": {
+    "source": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+    "frozen_before_first_search": "2026-10-15T11:02:46.324615+00:00",
+    "inputs_sha256": {
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/run-cooperative-root-prestart-lanes.py": "6a61bfd7069547b7318d90530b951404c75f32fba0eac1c9787c4e5f1e26ba8c",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "scripts/nps_threads.py": "e499d41f243e085ee3cc3d0e3365489c649b68ff4c272e26bd2dede271637aba",
+      "scripts/paired_search_diagnostics.py": "19256f0985a5ec05059bfd4413b41235f5ab8c579844c7fb4331de59b274b889",
+      "scripts/test_nps_threads.py": "e47d6a00435441600729bed7c00b3060635e320e929e1577b23c76c036a89f4f",
+      "scripts/test_paired_search_diagnostics.py": "5825445b6a1157e1f0bf97bb0211731cf0f742e5d04cf11a4df1110a220bc296",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/analyze-cooperative-root-prestart.py": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+      "target/build-cooperative-root-prestart.py": "858019fca9c9a25256be3f08b8c3b636b96e0176bce122a6c6cd6b508fc62fc8",
+      "target/collect-cooperative-root-prestart.py": "a90e92377d0f7182bea0b91fae4e8b19553bf0d9a6d46a042ffe2b8b01e8e942",
+      "target/cooperative-persistent-group-build/normal/build.log": "3f950cb80a218e294ecaf684832d09039bdf4970db7b32be9c90c5bb027ab195",
+      "target/cooperative-persistent-group-build/normal/engine": "44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444",
+      "target/cooperative-persistent-group-build/normal/receipt.json": "1e65fc369636348bf4f28a00c4b9cc2b3ba44d593fc51557a401b6f7fc46c819",
+      "target/cooperative-root-prestart-build/normal/build.log": "4ce4cc1ee6845169510ac2fc173cb584b16f5e4cf6cf3dc97e988d176aec6501",
+      "target/cooperative-root-prestart-build/normal/engine": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8",
+      "target/cooperative-root-prestart-build/normal/receipt.json": "0d0e9ada0662664a28e9264cd17728fa07549d805a05d9c24b38ab0bc7124bce",
+      "target/cooperative-root-prestart-build/tune/build.log": "f5802fe2a4a67d66b445da7e7f3e5a5e4d26ceffc556ac78cda09870ad2139e7",
+      "target/cooperative-root-prestart-build/tune/engine": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "target/cooperative-root-prestart-build/tune/receipt.json": "2542422ffd19ce6b4ad7470533e6113475d59a91625af26798cb96dbd7a80d77",
+      "target/cooperative-root-prestart-normal-usi.txt": "0e32633a4af50c57ef181a5d9d4458ac170b2a337d4e9245827303cd675d0d29",
+      "target/cooperative-root-prestart-prospective-protocol.md": "42472983b82225a186dae6241f36188c409971f627aa27227c1d5ec83be5d066",
+      "target/cooperative-root-prestart-tune-usi.txt": "d4351ab3a4cf782808f682c44f762f1cbd89063fd097d26cd59d696c173d5bea",
+      "target/useful-depth/pv-validation.legal-moves": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00"
+    }
+  },
+  "tests": {
+    "full_core": {
+      "passed": 406,
+      "failed": 0,
+      "ignored": 4,
+      "raw_log": "target/cooperative-root-prestart-full-core.log"
+    },
+    "isolated_tune_activation": {
+      "passed": 2,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/cooperative-root-prestart-activation-tests.log"
+    },
+    "tune_core_clippy": {
+      "completed": true,
+      "raw_log": "target/cooperative-root-prestart-tune-clippy.log"
+    },
+    "source_commit_workspace_clippy_hook": {
+      "completed": true,
+      "raw_log": "target/cooperative-root-prestart-source-commit.log"
+    },
+    "combined_measurement_tools": {
+      "passed": 79,
+      "raw_log": "target/cooperative-root-prestart-measurement-tools-tests.log",
+      "includes_parser_subset": true
+    }
+  },
+  "default_identity": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-15T11:02:46.398751+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-default-identity/engine-A",
+          "sha256": "44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-persistent-group-build/normal/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-default-identity/engine-B",
+          "sha256": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/normal/engine"
+        }
+      },
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "19256f0985a5ec05059bfd4413b41235f5ab8c579844c7fb4331de59b274b889",
+        "nps_threads.py": "e499d41f243e085ee3cc3d0e3365489c649b68ff4c272e26bd2dede271637aba"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1,
+        4,
+        8
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=15",
+        "MoveOverhead=0"
+      ],
+      "A_options": [],
+      "B_options": [],
+      "changed_options": {},
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_prestart_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_helper_lmr_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70126,
+            "cpu_percent": 36.7,
+            "command": "(obabel)"
+          }
+        ],
+        "load_average": [
+          4.29931640625,
+          4.9296875,
+          3.62548828125
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "46088fd7703767f2da33fb8b4850d4c9d5e77e264480ed66efa299f2c4e8c7b1",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70223,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          4.22021484375,
+          4.8828125,
+          3.63134765625
+        ]
+      }
+    },
+    "development_screen": {
+      "schema": "sekirei.cooperative-root-prestart-development-screen.v1",
+      "mode": "identity",
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 240,
+      "all_positions_retained": true,
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 20,
+          "within_side_nondeterministic_blocks": 0,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.00122286144437,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {},
+            "B": {}
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": null,
+            "B": null
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 0.970492221137825,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {},
+            "B": {}
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": null,
+            "B": null
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.140945933892459,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {},
+            "B": {}
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": null,
+            "B": null
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "independent_thread_screens": {},
+      "reasons": [],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Diagnostic mode includes observer overhead and is never timed or qualified. Other modes contain counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure. Thread screens are independent; one failing cannot reject the other. alpha_gap_max totals sum per-go maxima, not a global maximum.",
+      "inputs_sha256": {
+        "target/cooperative-root-prestart-default-identity/manifest.json": "31de6b90f8668117ef4e2623410205b4712fe7c3186957c84534465061e96e7f",
+        "target/cooperative-root-prestart-default-identity/rows.jsonl": "4cf394dbb523b2af3aa70f29add916f57694e58cd8a8f70993460f7e39f60046",
+        "target/cooperative-root-prestart-default-identity/summary.json": "a96229751d3548eda229bcab76e5409d9e557eed8ace5a504678eaa49c002edc",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-prestart-build/normal/receipt.json": "0d0e9ada0662664a28e9264cd17728fa07549d805a05d9c24b38ab0bc7124bce",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-prestart.py": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+        "target/cooperative-persistent-group-build/normal/receipt.json": "1e65fc369636348bf4f28a00c4b9cc2b3ba44d593fc51557a401b6f7fc46c819",
+        "target/cooperative-root-prestart-default-identity/pv-validation.json": "ccc4705513b67f2843409161806188f8951ce144149846f4cda872a490378ade"
+      }
+    },
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 240,
+      "pv_moves": 1453,
+      "unique_board_probes": 429,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-default-identity/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-default-identity",
+          "engine_sha256": {
+            "A": "44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444",
+            "B": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "mechanism": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-15T11:03:04.216217+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-mechanism/engine-A",
+          "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/tune/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-mechanism/engine-B",
+          "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/tune/engine"
+        }
+      },
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "19256f0985a5ec05059bfd4413b41235f5ab8c579844c7fb4331de59b274b889",
+        "nps_threads.py": "e499d41f243e085ee3cc3d0e3365489c649b68ff4c272e26bd2dede271637aba"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        1,
+        2,
+        4,
+        8
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=16399",
+        "T_COOP_MULTI=1",
+        "T_COOP_PERSISTENT=1",
+        "T_COOP_DRAIN=0",
+        "T_COOP_PRIORITY=0",
+        "T_COOP_LATENCY=0",
+        "T_COOP_HELPER_LMR=0",
+        "T_SEARCH_V2=1",
+        "MoveOverhead=0",
+        "T_COOP_PRESTART_DIAG=0"
+      ],
+      "A_options": [
+        "T_COOP_PRESTART=0"
+      ],
+      "B_options": [
+        "T_COOP_PRESTART=1"
+      ],
+      "changed_options": {
+        "T_COOP_PRESTART": [
+          "0",
+          "1"
+        ]
+      },
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_prestart_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_helper_lmr_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70223,
+            "cpu_percent": 99.8,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          },
+          {
+            "pid": 70562,
+            "cpu_percent": 37.5,
+            "command": "/System/Library/PrivateFrameworks/OSAnalyticsPrivate.framework/XPCServices/ReportCrashService.xpc/Contents/MacOS/ReportCrashService"
+          },
+          {
+            "pid": 70563,
+            "cpu_percent": 44.1,
+            "command": "(obabel)"
+          }
+        ],
+        "load_average": [
+          4.22021484375,
+          4.8828125,
+          3.63134765625
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "48b967624dff5116d3ba39b855c83c71022bbcaaf1768a3c835e282f3fa469d3",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70223,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          4.42041015625,
+          4.861328125,
+          3.66650390625
+        ]
+      }
+    },
+    "development_screen": {
+      "schema": "sekirei.cooperative-root-prestart-development-screen.v1",
+      "mode": "mechanism",
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 320,
+      "all_positions_retained": true,
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 20,
+          "within_side_nondeterministic_blocks": 0,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.011077940232889,
+          "root_census_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {},
+            "B": {}
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": null,
+            "B": null
+          }
+        },
+        "2": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 2,
+          "within_side_nondeterministic_blocks": 18,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.017590973150285,
+          "root_census_totals": {
+            "A": {
+              "generations": 435,
+              "helper_nodes": 39070,
+              "helper_probes": 4470,
+              "helper_fail_highs": 200,
+              "main_confirmations": 196,
+              "confirmed_alpha_raises": 31,
+              "main_nodes": 339218,
+              "main_tasks": 9459,
+              "confirmation_nodes": 32902,
+              "helper_completed_nodes": 39044,
+              "helper_aborted_nodes": 26,
+              "helper_aborted_probes": 5,
+              "spawn_failures": 0,
+              "helpers_started": 435,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 33934,
+              "alpha_gap_sum": 3174,
+              "alpha_gap_max": 1472,
+              "physical_helper_threads_started": 40,
+              "physical_helper_threads_joined": 40,
+              "executor_start_delay_us": 1532,
+              "helper_dispatch_delay_us": 4826
+            },
+            "B": {
+              "generations": 437,
+              "helper_nodes": 45752,
+              "helper_probes": 4444,
+              "helper_fail_highs": 177,
+              "main_confirmations": 174,
+              "confirmed_alpha_raises": 29,
+              "main_nodes": 316667,
+              "main_tasks": 9528,
+              "confirmation_nodes": 27070,
+              "helper_completed_nodes": 45686,
+              "helper_aborted_nodes": 66,
+              "helper_aborted_probes": 6,
+              "spawn_failures": 0,
+              "helpers_started": 437,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 31935,
+              "alpha_gap_sum": 4804,
+              "alpha_gap_max": 1916,
+              "physical_helper_threads_started": 40,
+              "physical_helper_threads_joined": 40,
+              "executor_start_delay_us": 1679,
+              "helper_dispatch_delay_us": 5053
+            }
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {}
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {
+              "1": 40
+            },
+            "B": {
+              "1": 40
+            }
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": 10.875,
+            "B": 10.925
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.1606773949731501,
+          "root_census_totals": {
+            "A": {
+              "generations": 441,
+              "helper_nodes": 69319,
+              "helper_probes": 7746,
+              "helper_fail_highs": 365,
+              "main_confirmations": 347,
+              "confirmed_alpha_raises": 37,
+              "main_nodes": 311528,
+              "main_tasks": 6597,
+              "confirmation_nodes": 42449,
+              "helper_completed_nodes": 68651,
+              "helper_aborted_nodes": 668,
+              "helper_aborted_probes": 7,
+              "spawn_failures": 0,
+              "helpers_started": 1323,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 87397,
+              "alpha_gap_sum": 9846,
+              "alpha_gap_max": 1507,
+              "physical_helper_threads_started": 120,
+              "physical_helper_threads_joined": 120,
+              "executor_start_delay_us": 5841,
+              "helper_dispatch_delay_us": 15019
+            },
+            "B": {
+              "generations": 500,
+              "helper_nodes": 146201,
+              "helper_probes": 13314,
+              "helper_fail_highs": 991,
+              "main_confirmations": 894,
+              "confirmed_alpha_raises": 91,
+              "main_nodes": 321553,
+              "main_tasks": 2791,
+              "confirmation_nodes": 93657,
+              "helper_completed_nodes": 143677,
+              "helper_aborted_nodes": 2524,
+              "helper_aborted_probes": 43,
+              "spawn_failures": 0,
+              "helpers_started": 1500,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 84098,
+              "alpha_gap_sum": 67279,
+              "alpha_gap_max": 10045,
+              "physical_helper_threads_started": 120,
+              "physical_helper_threads_joined": 120,
+              "executor_start_delay_us": 6028,
+              "helper_dispatch_delay_us": 15765
+            }
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {
+              "passes": 460,
+              "first_beta_cuts": 73,
+              "first_aborts": 0,
+              "helper_nodes": 145634
+            }
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {
+              "3": 40
+            },
+            "B": {
+              "3": 40
+            }
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": 11.025,
+            "B": 12.5
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 19,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.1117094245621248,
+          "root_census_totals": {
+            "A": {
+              "generations": 426,
+              "helper_nodes": 86959,
+              "helper_probes": 9204,
+              "helper_fail_highs": 489,
+              "main_confirmations": 478,
+              "confirmed_alpha_raises": 78,
+              "main_nodes": 340793,
+              "main_tasks": 4664,
+              "confirmation_nodes": 77838,
+              "helper_completed_nodes": 86737,
+              "helper_aborted_nodes": 222,
+              "helper_aborted_probes": 2,
+              "spawn_failures": 0,
+              "helpers_started": 2982,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 134704,
+              "alpha_gap_sum": 21796,
+              "alpha_gap_max": 6388,
+              "physical_helper_threads_started": 280,
+              "physical_helper_threads_joined": 280,
+              "executor_start_delay_us": 13059,
+              "helper_dispatch_delay_us": 49323
+            },
+            "B": {
+              "generations": 506,
+              "helper_nodes": 155755,
+              "helper_probes": 14663,
+              "helper_fail_highs": 1329,
+              "main_confirmations": 1175,
+              "confirmed_alpha_raises": 109,
+              "main_nodes": 284194,
+              "main_tasks": 1714,
+              "confirmation_nodes": 83189,
+              "helper_completed_nodes": 153733,
+              "helper_aborted_nodes": 2022,
+              "helper_aborted_probes": 29,
+              "spawn_failures": 0,
+              "helpers_started": 3542,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 119636,
+              "alpha_gap_sum": 102077,
+              "alpha_gap_max": 10428,
+              "physical_helper_threads_started": 280,
+              "physical_helper_threads_joined": 280,
+              "executor_start_delay_us": 13142,
+              "helper_dispatch_delay_us": 62495
+            }
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {
+              "passes": 466,
+              "first_beta_cuts": 79,
+              "first_aborts": 0,
+              "helper_nodes": 154679
+            }
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {}
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {
+              "7": 40
+            },
+            "B": {
+              "7": 40
+            }
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": 10.65,
+            "B": 12.65
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "independent_thread_screens": {},
+      "reasons": [],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Diagnostic mode includes observer overhead and is never timed or qualified. Other modes contain counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure. Thread screens are independent; one failing cannot reject the other. alpha_gap_max totals sum per-go maxima, not a global maximum.",
+      "inputs_sha256": {
+        "target/cooperative-root-prestart-mechanism/manifest.json": "8c567dd4a0a9ded69fcacb4829bdfea9d381430d7e318cb43736f296b80063a1",
+        "target/cooperative-root-prestart-mechanism/rows.jsonl": "f76d6c629710fdc60e5a53587826c5fecbb7f431b5975dd2071441e21dd8ae27",
+        "target/cooperative-root-prestart-mechanism/summary.json": "9eedcf5b51382ae35c4d59e8571db64ca81890851e14fde2b2401280de40e6c5",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-prestart-build/tune/receipt.json": "2542422ffd19ce6b4ad7470533e6113475d59a91625af26798cb96dbd7a80d77",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-prestart.py": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+        "target/cooperative-root-prestart-default-identity/development-screen.json": "f0e9269f0699d5e1033f5f847a73f125cbd71491742b5d204437bf031355ab36",
+        "target/cooperative-root-prestart-mechanism/pv-validation.json": "3007446aa52fa3eeb87505ea82076dc5e2809be5d34c7e1e16ad7ee51c7240e2"
+      }
+    },
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 320,
+      "pv_moves": 2333,
+      "unique_board_probes": 645,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-mechanism/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-mechanism",
+          "engine_sha256": {
+            "A": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+            "B": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "diagnostic": {
+    "manifest": {
+      "schema": "sekirei.paired-search-manifest.v1",
+      "status": "complete",
+      "started_at_utc": "2026-10-15T11:03:32.020412+00:00",
+      "engines": {
+        "A": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-diagnostic/engine-A",
+          "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/tune/engine"
+        },
+        "B": {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-diagnostic/engine-B",
+          "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+          "source_path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-build/tune/engine"
+        }
+      },
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified": false,
+      "measurement_source_sha256": {
+        "paired_search_diagnostics.py": "19256f0985a5ec05059bfd4413b41235f5ab8c579844c7fb4331de59b274b889",
+        "nps_threads.py": "e499d41f243e085ee3cc3d0e3365489c649b68ff4c272e26bd2dede271637aba"
+      },
+      "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+      "effective_position_count": 20,
+      "threads": [
+        4,
+        8
+      ],
+      "repeats": 1,
+      "budget": {
+        "depth": 8,
+        "movetime_ms": null
+      },
+      "evaluator": {
+        "kind": "material-only"
+      },
+      "hash_mb": 64,
+      "common_options": [
+        "LazyFlags=16399",
+        "T_COOP_MULTI=1",
+        "T_COOP_PERSISTENT=1",
+        "T_COOP_DRAIN=0",
+        "T_COOP_PRIORITY=0",
+        "T_COOP_LATENCY=0",
+        "T_COOP_HELPER_LMR=0",
+        "T_SEARCH_V2=1",
+        "MoveOverhead=0",
+        "T_COOP_PRESTART_DIAG=1"
+      ],
+      "A_options": [
+        "T_COOP_PRESTART=0"
+      ],
+      "B_options": [
+        "T_COOP_PRESTART=1"
+      ],
+      "changed_options": {
+        "T_COOP_PRESTART": [
+          "0",
+          "1"
+        ]
+      },
+      "counter_lane": false,
+      "cooperative_latency_instrumentation_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_prestart_instrumentation_requested": {
+        "A": true,
+        "B": true
+      },
+      "cooperative_priority_requested": {
+        "A": false,
+        "B": false
+      },
+      "cooperative_helper_lmr_requested": {
+        "A": false,
+        "B": false
+      },
+      "identity_policy": "require_1T_fixed_depth",
+      "host": {
+        "system": "Darwin",
+        "release": "27.0.0",
+        "machine": "arm64",
+        "cpu_count": 10
+      },
+      "schedule": "per-position ABBA; fresh process every slot",
+      "strength_gate_opened": false,
+      "host_activity_before": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70223,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          4.42041015625,
+          4.861328125,
+          3.66650390625
+        ]
+      },
+      "timing_qualified": false,
+      "configuration_sha256": "8f31e09099971eab402a8062e118815335534c46871308ebe275211691a44a00",
+      "host_activity_after": {
+        "available": true,
+        "busy_process_threshold_percent": 25,
+        "busy_processes": [
+          {
+            "pid": 70223,
+            "cpu_percent": 100.0,
+            "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+          }
+        ],
+        "load_average": [
+          4.4560546875,
+          4.8505859375,
+          3.68310546875
+        ]
+      }
+    },
+    "development_screen": {
+      "schema": "sekirei.cooperative-root-prestart-development-screen.v1",
+      "mode": "diagnostic",
+      "source_ref": "d7d4a5bc857ebf9d17432780841e46bf7e614207",
+      "source_ref_verified_by_build_receipt": true,
+      "rows": 160,
+      "all_positions_retained": true,
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "legal_pv_replay_pass": true,
+      "bootstrap_unit": "position mean paired completed-depth delta across repeats",
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "by_threads": {
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.264435282799547,
+          "root_census_totals": {
+            "A": {
+              "generations": 431,
+              "helper_nodes": 71899,
+              "helper_probes": 7620,
+              "helper_fail_highs": 344,
+              "main_confirmations": 337,
+              "confirmed_alpha_raises": 43,
+              "main_nodes": 309305,
+              "main_tasks": 6390,
+              "confirmation_nodes": 36385,
+              "helper_completed_nodes": 71719,
+              "helper_aborted_nodes": 180,
+              "helper_aborted_probes": 4,
+              "spawn_failures": 0,
+              "helpers_started": 1293,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 82972,
+              "alpha_gap_sum": 10329,
+              "alpha_gap_max": 3077,
+              "physical_helper_threads_started": 120,
+              "physical_helper_threads_joined": 120,
+              "executor_start_delay_us": 5845,
+              "helper_dispatch_delay_us": 14672
+            },
+            "B": {
+              "generations": 506,
+              "helper_nodes": 133169,
+              "helper_probes": 13672,
+              "helper_fail_highs": 920,
+              "main_confirmations": 822,
+              "confirmed_alpha_raises": 88,
+              "main_nodes": 299409,
+              "main_tasks": 2604,
+              "confirmation_nodes": 88641,
+              "helper_completed_nodes": 132613,
+              "helper_aborted_nodes": 556,
+              "helper_aborted_probes": 48,
+              "spawn_failures": 0,
+              "helpers_started": 1518,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 80442,
+              "alpha_gap_sum": 64574,
+              "alpha_gap_max": 8522,
+              "physical_helper_threads_started": 120,
+              "physical_helper_threads_joined": 120,
+              "executor_start_delay_us": 5397,
+              "helper_dispatch_delay_us": 15906
+            }
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {
+              "passes": 466,
+              "first_beta_cuts": 74,
+              "first_aborts": 0,
+              "helper_nodes": 132713
+            }
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {
+              "helper_jobs_before_first_return": 1367,
+              "helper_completed_probes_before_first_return": 10396,
+              "helper_fail_highs_before_first_return": 570,
+              "first_main_nodes": 203833,
+              "first_main_us": 119903,
+              "first_beta_helper_nodes": 17785
+            }
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {
+              "3": 40
+            },
+            "B": {
+              "3": 40
+            }
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": 10.775,
+            "B": 12.65
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 20,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.0,
+          "position_bootstrap_depth_delta_95_percent": [
+            0.0,
+            0.0
+          ],
+          "raw_depth_distribution": {
+            "A": {
+              "8": 40
+            },
+            "B": {
+              "8": 40
+            }
+          },
+          "raw_median_paired_wall_nps_ratio": 1.2896966552393734,
+          "root_census_totals": {
+            "A": {
+              "generations": 424,
+              "helper_nodes": 97373,
+              "helper_probes": 9244,
+              "helper_fail_highs": 416,
+              "main_confirmations": 412,
+              "confirmed_alpha_raises": 70,
+              "main_nodes": 332691,
+              "main_tasks": 4509,
+              "confirmation_nodes": 87785,
+              "helper_completed_nodes": 97373,
+              "helper_aborted_nodes": 0,
+              "helper_aborted_probes": 0,
+              "spawn_failures": 0,
+              "helpers_started": 2968,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 134834,
+              "alpha_gap_sum": 22617,
+              "alpha_gap_max": 5513,
+              "physical_helper_threads_started": 280,
+              "physical_helper_threads_joined": 280,
+              "executor_start_delay_us": 13659,
+              "helper_dispatch_delay_us": 34331
+            },
+            "B": {
+              "generations": 513,
+              "helper_nodes": 151585,
+              "helper_probes": 14891,
+              "helper_fail_highs": 1235,
+              "main_confirmations": 1077,
+              "confirmed_alpha_raises": 94,
+              "main_nodes": 297112,
+              "main_tasks": 1790,
+              "confirmation_nodes": 85399,
+              "helper_completed_nodes": 148665,
+              "helper_aborted_nodes": 2920,
+              "helper_aborted_probes": 54,
+              "spawn_failures": 0,
+              "helpers_started": 3591,
+              "helper_start_delay_us": 0,
+              "join_wait_us": 124891,
+              "alpha_gap_sum": 86830,
+              "alpha_gap_max": 10338,
+              "physical_helper_threads_started": 280,
+              "physical_helper_threads_joined": 280,
+              "executor_start_delay_us": 14335,
+              "helper_dispatch_delay_us": 42780
+            }
+          },
+          "prestart_totals": {
+            "A": {},
+            "B": {
+              "passes": 473,
+              "first_beta_cuts": 83,
+              "first_aborts": 0,
+              "helper_nodes": 150627
+            }
+          },
+          "prestart_diagnostic_totals": {
+            "A": {},
+            "B": {
+              "helper_jobs_before_first_return": 3235,
+              "helper_completed_probes_before_first_return": 12468,
+              "helper_fail_highs_before_first_return": 752,
+              "first_main_nodes": 208467,
+              "first_main_us": 108744,
+              "first_beta_helper_nodes": 18474
+            }
+          },
+          "physical_threads_per_go_distribution": {
+            "A": {
+              "7": 40
+            },
+            "B": {
+              "7": 40
+            }
+          },
+          "helper_jobs_per_physical_thread": {
+            "A": 10.6,
+            "B": 12.825
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "independent_thread_screens": {},
+      "reasons": [],
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Diagnostic mode includes observer overhead and is never timed or qualified. Other modes contain counter-free node/job facts; raw timing unqualified unless both guards pass. NPS cannot rescue a depth failure. Thread screens are independent; one failing cannot reject the other. alpha_gap_max totals sum per-go maxima, not a global maximum.",
+      "inputs_sha256": {
+        "target/cooperative-root-prestart-diagnostic/manifest.json": "802f0251e6bc652a4d3935f0bebe3a0813a21389557278ce3d3efd1fe8c12754",
+        "target/cooperative-root-prestart-diagnostic/rows.jsonl": "0a64b192eaa34a9d68adb8bb98fc43fdf7c89915cf0d564e1d782b59c1ddc75f",
+        "target/cooperative-root-prestart-diagnostic/summary.json": "b9a247f5151b0066a7c8f35a1d1b3d7b0901a0ae8bf90cdea30747e1f1031605",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/cooperative-root-prestart-build/tune/receipt.json": "2542422ffd19ce6b4ad7470533e6113475d59a91625af26798cb96dbd7a80d77",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-prestart.py": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+        "target/cooperative-root-prestart-default-identity/development-screen.json": "f0e9269f0699d5e1033f5f847a73f125cbd71491742b5d204437bf031355ab36",
+        "target/cooperative-root-prestart-mechanism/development-screen.json": "aa1219c389639a9dea800e18f1b1dc5a9c60b043c9182ddbd22b4fbc388deae7",
+        "target/cooperative-root-prestart-diagnostic/pv-validation.json": "a818f33ba0d6b5596c24be403c86d1241b877af9364e5abc9980dbcf98284d04"
+      }
+    },
+    "pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 160,
+      "pv_moves": 1152,
+      "unique_board_probes": 476,
+      "violations": [],
+      "legal_tool_sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-diagnostic/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-diagnostic",
+          "engine_sha256": {
+            "A": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+            "B": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    }
+  },
+  "pv_validation": {
+    "rows": 720,
+    "moves": 4938,
+    "violations": 0,
+    "scope": "frozen same-rules replay; not an independent oracle or mate proof"
+  },
+  "timing": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "blocked_host_busy",
+        "started_at_utc": "2026-10-15T11:03:49.200618+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 70223,
+              "cpu_percent": 100.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            4.4560546875,
+            4.8505859375,
+            3.68310546875
+          ]
+        },
+        "host_after": null,
+        "timing_qualified": false,
+        "completed_searches": 0
+      },
+      {
+        "attempt": 2,
+        "status": "blocked_host_busy",
+        "started_at_utc": "2026-10-15T11:04:49.290512+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 70223,
+              "cpu_percent": 99.6,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            },
+            {
+              "pid": 72229,
+              "cpu_percent": 28.4,
+              "command": "(obabel)"
+            }
+          ],
+          "load_average": [
+            3.2587890625,
+            4.43505859375,
+            3.60546875
+          ]
+        },
+        "host_after": null,
+        "timing_qualified": false,
+        "completed_searches": 0
+      }
+    ],
+    "attempt_gap_seconds": 60.089894,
+    "completed_searches": 0,
+    "qualified": false,
+    "any_presearch_block": true,
+    "qualification_rule": "incomplete runs retain raw rows without completed PV/analysis and never qualify; a completed run must pass both host guards; only a presearch-blocked first attempt permits one retry after 60 seconds",
+    "raw_development_screen": null,
+    "completed_run_pv_validation": null,
+    "independent_thread_screens": {},
+    "development_screen_advance": false,
+    "further_attempt_permitted": false
+  },
+  "independent_h1": false,
+  "strength_claim": false,
+  "default_enabled": false,
+  "artifacts": {
+    ".cargo/config.toml": {
+      "sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "bytes": 48
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-cooperative-root-prestart.py": {
+      "sha256": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+      "bytes": 24798
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/collect-cooperative-root-prestart.py": {
+      "sha256": "a90e92377d0f7182bea0b91fae4e8b19553bf0d9a6d46a042ffe2b8b01e8e942",
+      "bytes": 22388
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-default-identity/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-diagnostic/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/cooperative-root-prestart-mechanism/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/run-cooperative-root-prestart-lanes.py": {
+      "sha256": "6a61bfd7069547b7318d90530b951404c75f32fba0eac1c9787c4e5f1e26ba8c",
+      "bytes": 10231
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "e499d41f243e085ee3cc3d0e3365489c649b68ff4c272e26bd2dede271637aba",
+      "bytes": 80813
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "19256f0985a5ec05059bfd4413b41235f5ab8c579844c7fb4331de59b274b889",
+      "bytes": 22479
+    },
+    "scripts/test_nps_threads.py": {
+      "sha256": "e47d6a00435441600729bed7c00b3060635e320e929e1577b23c76c036a89f4f",
+      "bytes": 69164
+    },
+    "scripts/test_paired_search_diagnostics.py": {
+      "sha256": "5825445b6a1157e1f0bf97bb0211731cf0f742e5d04cf11a4df1110a220bc296",
+      "bytes": 31020
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/analyze-cooperative-root-prestart.py": {
+      "sha256": "6fd8c3a927a289b8ed4db4a17e2e02ac728e87620aa0e0b87826ae22ef23cc47",
+      "bytes": 24798
+    },
+    "target/build-cooperative-root-prestart.py": {
+      "sha256": "858019fca9c9a25256be3f08b8c3b636b96e0176bce122a6c6cd6b508fc62fc8",
+      "bytes": 6231
+    },
+    "target/collect-cooperative-root-prestart.py": {
+      "sha256": "a90e92377d0f7182bea0b91fae4e8b19553bf0d9a6d46a042ffe2b8b01e8e942",
+      "bytes": 22388
+    },
+    "target/cooperative-persistent-group-build/normal/build.log": {
+      "sha256": "3f950cb80a218e294ecaf684832d09039bdf4970db7b32be9c90c5bb027ab195",
+      "bytes": 293
+    },
+    "target/cooperative-persistent-group-build/normal/engine": {
+      "sha256": "44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444",
+      "bytes": 4141536
+    },
+    "target/cooperative-persistent-group-build/normal/receipt.json": {
+      "sha256": "1e65fc369636348bf4f28a00c4b9cc2b3ba44d593fc51557a401b6f7fc46c819",
+      "bytes": 1863
+    },
+    "target/cooperative-root-prestart-activation-tests.log": {
+      "sha256": "e7ecf6e844f5da1be54288e7ff3a75c67a778a3e58112fff6a68f8bbe7e3172d",
+      "bytes": 897
+    },
+    "target/cooperative-root-prestart-build/normal/build.log": {
+      "sha256": "4ce4cc1ee6845169510ac2fc173cb584b16f5e4cf6cf3dc97e988d176aec6501",
+      "bytes": 347
+    },
+    "target/cooperative-root-prestart-build/normal/engine": {
+      "sha256": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8",
+      "bytes": 4142656
+    },
+    "target/cooperative-root-prestart-build/normal/receipt.json": {
+      "sha256": "0d0e9ada0662664a28e9264cd17728fa07549d805a05d9c24b38ab0bc7124bce",
+      "bytes": 1856
+    },
+    "target/cooperative-root-prestart-build/tune/build.log": {
+      "sha256": "f5802fe2a4a67d66b445da7e7f3e5a5e4d26ceffc556ac78cda09870ad2139e7",
+      "bytes": 293
+    },
+    "target/cooperative-root-prestart-build/tune/engine": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-build/tune/receipt.json": {
+      "sha256": "2542422ffd19ce6b4ad7470533e6113475d59a91625af26798cb96dbd7a80d77",
+      "bytes": 1896
+    },
+    "target/cooperative-root-prestart-default-identity-analysis.log": {
+      "sha256": "f0e9269f0699d5e1033f5f847a73f125cbd71491742b5d204437bf031355ab36",
+      "bytes": 6458
+    },
+    "target/cooperative-root-prestart-default-identity-pv.log": {
+      "sha256": "4858fa470513479dc854a9a75ad57a902ec9d44941464589755b9d562ec43149",
+      "bytes": 49
+    },
+    "target/cooperative-root-prestart-default-identity.log": {
+      "sha256": "2ab9718a480e6488dc5119f6d4b1e5c3fc4c7ecb6b9a6808abcb9ad4ea656d2b",
+      "bytes": 44060
+    },
+    "target/cooperative-root-prestart-default-identity/development-screen.json": {
+      "sha256": "f0e9269f0699d5e1033f5f847a73f125cbd71491742b5d204437bf031355ab36",
+      "bytes": 6458
+    },
+    "target/cooperative-root-prestart-default-identity/engine-A": {
+      "sha256": "44707e344889eedff100cf163c539b1be0b1bf4b231a7232123ad6d63fd28444",
+      "bytes": 4141536
+    },
+    "target/cooperative-root-prestart-default-identity/engine-B": {
+      "sha256": "5dc3b38e1274125d85cbf44d4a1119e96ac7127ec237b50e774a8e14c1b3faa8",
+      "bytes": 4142656
+    },
+    "target/cooperative-root-prestart-default-identity/manifest.json": {
+      "sha256": "31de6b90f8668117ef4e2623410205b4712fe7c3186957c84534465061e96e7f",
+      "bytes": 3190
+    },
+    "target/cooperative-root-prestart-default-identity/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-prestart-default-identity/pv-validation.json": {
+      "sha256": "ccc4705513b67f2843409161806188f8951ce144149846f4cda872a490378ade",
+      "bytes": 932
+    },
+    "target/cooperative-root-prestart-default-identity/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-prestart-default-identity/rows.jsonl": {
+      "sha256": "4cf394dbb523b2af3aa70f29add916f57694e58cd8a8f70993460f7e39f60046",
+      "bytes": 718655
+    },
+    "target/cooperative-root-prestart-default-identity/summary.json": {
+      "sha256": "a96229751d3548eda229bcab76e5409d9e557eed8ace5a504678eaa49c002edc",
+      "bytes": 241377
+    },
+    "target/cooperative-root-prestart-diagnostic-analysis.log": {
+      "sha256": "b6688821285b46347173849d89cf1d2b14145f6dcc0abc114a04640f67b156ff",
+      "bytes": 9470
+    },
+    "target/cooperative-root-prestart-diagnostic-pv.log": {
+      "sha256": "322c4632054d8e44e2833c26fb5d328519fc82f195080f221e49048f8a2a6e17",
+      "bytes": 49
+    },
+    "target/cooperative-root-prestart-diagnostic.log": {
+      "sha256": "956b794658e9bca7efeacc761af30f0ef9f35b67a9142e2feae1de5f3276c13e",
+      "bytes": 31151
+    },
+    "target/cooperative-root-prestart-diagnostic/development-screen.json": {
+      "sha256": "b6688821285b46347173849d89cf1d2b14145f6dcc0abc114a04640f67b156ff",
+      "bytes": 9470
+    },
+    "target/cooperative-root-prestart-diagnostic/engine-A": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-diagnostic/engine-B": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-diagnostic/manifest.json": {
+      "sha256": "802f0251e6bc652a4d3935f0bebe3a0813a21389557278ce3d3efd1fe8c12754",
+      "bytes": 3541
+    },
+    "target/cooperative-root-prestart-diagnostic/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-prestart-diagnostic/pv-validation.json": {
+      "sha256": "a818f33ba0d6b5596c24be403c86d1241b877af9364e5abc9980dbcf98284d04",
+      "bytes": 920
+    },
+    "target/cooperative-root-prestart-diagnostic/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-prestart-diagnostic/rows.jsonl": {
+      "sha256": "0a64b192eaa34a9d68adb8bb98fc43fdf7c89915cf0d564e1d782b59c1ddc75f",
+      "bytes": 497367
+    },
+    "target/cooperative-root-prestart-diagnostic/summary.json": {
+      "sha256": "b9a247f5151b0066a7c8f35a1d1b3d7b0901a0ae8bf90cdea30747e1f1031605",
+      "bytes": 179192
+    },
+    "target/cooperative-root-prestart-full-core.log": {
+      "sha256": "d3a3cc20b0c4dd0e528dcc93a087b18bbaf1e95ba213996b050db461dcf2014a",
+      "bytes": 36632
+    },
+    "target/cooperative-root-prestart-measurement-tools-tests.log": {
+      "sha256": "b37313eb47e42389e34b93607241611b55603e3c699a8ae983e47c354c7e8b9b",
+      "bytes": 178
+    },
+    "target/cooperative-root-prestart-mechanism-analysis.log": {
+      "sha256": "aa1219c389639a9dea800e18f1b1dc5a9c60b043c9182ddbd22b4fbc388deae7",
+      "bytes": 13266
+    },
+    "target/cooperative-root-prestart-mechanism-pv.log": {
+      "sha256": "93426698b4fe3b787773c2c43fa6e3861c885c63920947495977ebbc577b9394",
+      "bytes": 49
+    },
+    "target/cooperative-root-prestart-mechanism.log": {
+      "sha256": "472eb18725efee1cfd38dbf72de04e7c455b3a055ab2c8eb0718335dfc4e8138",
+      "bytes": 59867
+    },
+    "target/cooperative-root-prestart-mechanism/development-screen.json": {
+      "sha256": "aa1219c389639a9dea800e18f1b1dc5a9c60b043c9182ddbd22b4fbc388deae7",
+      "bytes": 13266
+    },
+    "target/cooperative-root-prestart-mechanism/engine-A": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-mechanism/engine-B": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-mechanism/manifest.json": {
+      "sha256": "8c567dd4a0a9ded69fcacb4829bdfea9d381430d7e318cb43736f296b80063a1",
+      "bytes": 3871
+    },
+    "target/cooperative-root-prestart-mechanism/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-prestart-mechanism/pv-validation.json": {
+      "sha256": "3007446aa52fa3eeb87505ea82076dc5e2809be5d34c7e1e16ad7ee51c7240e2",
+      "bytes": 918
+    },
+    "target/cooperative-root-prestart-mechanism/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/cooperative-root-prestart-mechanism/rows.jsonl": {
+      "sha256": "f76d6c629710fdc60e5a53587826c5fecbb7f431b5975dd2071441e21dd8ae27",
+      "bytes": 901465
+    },
+    "target/cooperative-root-prestart-mechanism/summary.json": {
+      "sha256": "9eedcf5b51382ae35c4d59e8571db64ca81890851e14fde2b2401280de40e6c5",
+      "bytes": 339358
+    },
+    "target/cooperative-root-prestart-multi-activation-tests.log": {
+      "sha256": "bf87d2d281e90553e8125dddbdffdc47b0fe25a203e3feae295c5d0273af84b2",
+      "bytes": 418
+    },
+    "target/cooperative-root-prestart-native-normal.log": {
+      "sha256": "0d0e9ada0662664a28e9264cd17728fa07549d805a05d9c24b38ab0bc7124bce",
+      "bytes": 1856
+    },
+    "target/cooperative-root-prestart-native-tune.log": {
+      "sha256": "2542422ffd19ce6b4ad7470533e6113475d59a91625af26798cb96dbd7a80d77",
+      "bytes": 1896
+    },
+    "target/cooperative-root-prestart-normal-usi.txt": {
+      "sha256": "0e32633a4af50c57ef181a5d9d4458ac170b2a337d4e9245827303cd675d0d29",
+      "bytes": 1043
+    },
+    "target/cooperative-root-prestart-presearch-binding.json": {
+      "sha256": "c394a8b964e503adf62ee01a89db35c4cb50baffda5976c2459b74f22d049855",
+      "bytes": 3282
+    },
+    "target/cooperative-root-prestart-prestart-activation-tests.log": {
+      "sha256": "28fb70a4b37bddb0a11f470864f7c30410ba21d90e408089e3c2abedf6c18173",
+      "bytes": 479
+    },
+    "target/cooperative-root-prestart-primary-before.json": {
+      "sha256": "8d29bf1151a5926f0712d8e0a89b88c5aa50c61ba1e61ccb22b22a572a8bd3c0",
+      "bytes": 1080
+    },
+    "target/cooperative-root-prestart-prospective-protocol.md": {
+      "sha256": "42472983b82225a186dae6241f36188c409971f627aa27227c1d5ec83be5d066",
+      "bytes": 10328
+    },
+    "target/cooperative-root-prestart-protocol-driver-tests.log": {
+      "sha256": "2dcda8a18f138694b5f5a833f28bd05923c2654e48ff62883dd54d23cda8e679",
+      "bytes": 160
+    },
+    "target/cooperative-root-prestart-source-commit.log": {
+      "sha256": "45bc2ebe61d38f61a6e4f10dc1b077c4c520243e766c7d1d62b91e1c509bb3bd",
+      "bytes": 288
+    },
+    "target/cooperative-root-prestart-timed-attempt1.log": {
+      "sha256": "d724bcf3a383a3a842f2149f926b1e1553fddb9ba0f73fb58d8fa916ddafef72",
+      "bytes": 346
+    },
+    "target/cooperative-root-prestart-timed-attempt1/engine-A": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-timed-attempt1/engine-B": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-timed-attempt1/manifest.json": {
+      "sha256": "1c0bbf3c80966d34a303b05a29a99a7c022f9efd9f958c650414c0b1d363d5a2",
+      "bytes": 3263
+    },
+    "target/cooperative-root-prestart-timed-attempt1/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-prestart-timed-attempt2.log": {
+      "sha256": "c3ad155ac5c8b42c32bff7aae49a48ec60dd6f35818f7559d2108ee7c24a5e1f",
+      "bytes": 403
+    },
+    "target/cooperative-root-prestart-timed-attempt2/engine-A": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-timed-attempt2/engine-B": {
+      "sha256": "17f71bfbe029130dad9dfc0e650dd2a73018908744699982efc61d2f8483031b",
+      "bytes": 4693776
+    },
+    "target/cooperative-root-prestart-timed-attempt2/manifest.json": {
+      "sha256": "4c8579c3c152a39d01465ee4cf6e5b95dae2ad73df4b5aefb842f9038a8f2a1d",
+      "bytes": 3358
+    },
+    "target/cooperative-root-prestart-timed-attempt2/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/cooperative-root-prestart-tune-clippy.log": {
+      "sha256": "522bf6260aa916b69d3f53a4f7beb7519a2f3e5842b618d0640017d9d80bac2c",
+      "bytes": 178
+    },
+    "target/cooperative-root-prestart-tune-usi.txt": {
+      "sha256": "d4351ab3a4cf782808f682c44f762f1cbd89063fd097d26cd59d696c173d5bea",
+      "bytes": 17270
+    },
+    "target/cooperative-root-prestart-usi-wire-tests.log": {
+      "sha256": "90f3585a966fdc06f3b537f63ba407d31d6206ce3ccf11c05fff6dc0cbf336af",
+      "bytes": 194
+    },
+    "target/cooperative-root-prestart-workspace-clippy.log": {
+      "sha256": "8f7f1918cb75cd83c01f66730a937667db4b1bdcade68b42dcfd20db9984271f",
+      "bytes": 899
+    },
+    "target/useful-depth/pv-validation.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    }
+  }
+}
