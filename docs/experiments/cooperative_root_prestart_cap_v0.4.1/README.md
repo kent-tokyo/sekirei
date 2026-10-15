@@ -144,3 +144,52 @@ receives its own legal-PV receipt and development-screen.json. Collect all
 finalized inputs/raw observations into results.json with hashes; exclude
 growing orchestration/CI/integration logs from that frozen artifact list.
 No past experiment output is overwritten or pooled with these observations.
+
+## Observed result (frozen source 1298cf71a458)
+
+[results.json](results.json) retains 107 hashed local artifacts, the original
+presearch binding and all four completed diagnostic lanes. All1840 rows and
+14333 PV moves replayed legally. The identity/mechanism lanes each matched
+all20 one-thread blocks; both node lanes matched all40 one-thread blocks.
+The historical normal control check does not qualify current-main speed.
+
+At20000 requested nodes, the paired completed-depth observations were:
+
+| Comparison (B minus A) | Threads | Median all / quiet / tactical | Mean | Position-bootstrap95% interval |
+|---|---:|---|---:|---|
+| CAP1 versus unbounded prestart |4|+0.25 / +0.5 / 0|+0.4125|[+0.1625, +0.7000]|
+| CAP1 versus unbounded prestart |8|0 / +0.5 / 0|+0.1875|[-0.0375, +0.4250]|
+| Bounded prestart versus post-first cooperative |4|0 / -0.25 / 0|-0.2000|[-0.4750, +0.0625]|
+| Bounded prestart versus post-first cooperative |8|0 / 0 / 0|+0.0250|[-0.2750, +0.3250]|
+
+Against unbounded prestart, CAP reduced main confirmations from1999 to969
+at4T and2595 to1248 at8T; helper nodes fell from485464 to320314 and
+520285 to385917 respectively. This recovers part of the prior unbounded
+prestart work loss. It does not demonstrate an advantage over post-first
+cooperative search: the corresponding comparisons still have intervals
+crossing zero and4T's quiet-position median is negative.
+
+CAP totals in the node-cap lane were1299passes/1297initial claims/3761park
+calls at4T, and1285/1285/8838 at8T. Maximum node overshoots A/B were3/3
+and7/5 in that lane, and3/3 and6/6 in nodes-baseline. All node rows retained
+positive completed depth and consumed at least their requested node budget.
+Counters passed all participant, join, cancellation and quota checks.
+These are work diagnostics, not speed or strength results.
+
+Both permitted300ms attempts were blocked before search by the25-percent
+host-busy guard, with zero completed timed rows. No further attempt is
+permitted under this protocol. Neither4T nor8T advances its timed-depth
+screen. This is an unmeasured timing result, not a measured slowdown.
+
+Local validation passed426 core tests (six intentionally ignored), nine
+focused cap tests, the isolated28-case activation test, two USI wire tests,
+91 Python tooling tests and ten driver contract tests, plus Clippy/fmt.
+The first full-core attempt exposed an unpark-token-consuming test hook;
+its corrected bounded atomic synchronization passed the full run. The raw
+failed attempt remains in the artifact set; production waiting does not spin.
+
+The implementation and evidence remain defaultOFF, without independentH1,
+Elo or YaneuraOu superiority claims. The native observations apply to source
+1298cf71a458, based on fea5e719b476. A later integration of the separate
+V2_CONT_ROWS default-off change requires combined-source CI; it is not a
+remeasurement of this candidate on the combined source.
