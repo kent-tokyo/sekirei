@@ -90,3 +90,40 @@ Replay with the prior frozen legal tool (SHA-256
 `dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00`)
 and analyze with the newly frozen node-analysis driver. Store receipts and
 negative observations in this experiment's results.json. Defaults remainOFF.
+
+## Observed result
+
+The single640-row run completed. All40 one-thread ABBA blocks retained exact
+bestmove/score/PV/nodes/depth identity. All5255 recorded PV moves replayed
+legally; no rows were excluded. Both4T/8T arms activated and reused all
+persistent helpers, with zero spawn failures and all physical threads joined.
+Every row consumed at least the requested node budget and had depth>0.
+
+| Completed-depth delta, B minus A | 4T | 8T |
+|---|---:|---:|
+| Overall median | -0.5 | 0.0 |
+| Quiet median | -0.75 | -0.75 |
+| Tactical median | -0.5 | 0.0 |
+| Mean of position means | -0.6375 | -0.3875 |
+| Position-bootstrap95% interval | [-1.0875, -0.2375] | [-0.7625, -0.0375] |
+| Maximum node overshoot A / B | 2 / 3 | 6 / 7 |
+
+The frozen candidate did not improve completed depth per requested node in
+this development corpus. The number of main confirmations increased from
+851 to2302 at4T and from938 to2633 at8T. Helper nodes increased from257220
+to494368 and319270 to510246 respectively. This is consistent with extra
+work from probing against the weaker pre-first aspiration lower bound, but
+the experiment does not isolate that cause. No elapsed-time/NPS result was
+used to select a candidate or claim speed.
+
+Keep COOP_PRESTART=0. Do not send this unbounded-pre-first-work candidate to
+H1 on the basis of these observations. A future separate candidate could
+cap work before the first child returns; it needs its own prospective
+comparison. These results concern the historical native source, under the
+recorded host load, and do not prove current-main strength or a loss in Elo.
+The prior blocked timing protocol remains closed.
+
+Tool validation:85measurement-tool tests and10analysis-contract tests passed.
+The commit hook passed fmt/workspace Clippy. [results.json](results.json)
+binds the complete diagnostics and57hashed artifacts, including separately
+archived historical measurement drivers. No NNUE or evaluator changes.
