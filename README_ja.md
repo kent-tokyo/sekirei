@@ -90,6 +90,11 @@ python3 scripts/check_release_metadata.py --allow-planned-release-manifest
 0.4へのバージョン更新だけを理由に互換性の破壊を許可しません。処理単位の時間は
 総合速度や棋力順位を示しません。
 
+ソースを変えずにPGOを適用したバイナリは、Apple M4・4Tの実測NPSで、固定した
+やねうらおうビルドを7.1%上回りました（95%信頼区間：+5.1〜+9.0%）。
+[測定条件と証跡](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)の範囲の結果であり、
+通常のCargoビルドにはこのプロファイルを適用していません。
+
 ## 対局と学習
 
 ローカルUSI対局には`sekirei-match`を使います。記録を残す自己対局では、

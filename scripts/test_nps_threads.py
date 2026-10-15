@@ -277,7 +277,7 @@ class ThreadOptionsTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "exited"):
                 engine.wait_for("readyok")
 
-    def test_position_ready_barrier_excludes_pending_reset_on_every_repeat(self):
+    def test_newgame_ready_barrier_excludes_pending_reset_on_every_repeat(self):
         for reported_nps in (98765, 0):
             with self.subTest(reported_nps=reported_nps):
                 args = self.args(yaneuraou=False, evalfile=None)
@@ -330,10 +330,48 @@ class ThreadOptionsTest(unittest.TestCase):
                 for index, event in enumerate(events):
                     if event == ("send", "go movetime 1000"):
                         self.assertEqual(events[index - 1][0], "clock")
-                        self.assertEqual(events[index - 2], ("wait", "readyok"))
-                        self.assertEqual(events[index - 3], ("send", "isready"))
-                        self.assertTrue(events[index - 4][1].startswith("position "))
+                        self.assertTrue(events[index - 2][1].startswith("position "))
+                        self.assertEqual(events[index - 3], ("wait", "readyok"))
+                        self.assertEqual(events[index - 4], ("send", "isready"))
                 self.assertEqual(events.count(("wait", "readyok")), 5)
+
+    def test_ready_reset_cannot_replace_the_requested_position(self):
+        args = self.args(yaneuraou=False, evalfile=None)
+        args.engine = "fake-engine"
+        args.repeats = 2
+        args.movetime = 1000
+        args.depth = None
+        args.require_lazy_diagnostics = False
+        args.require_root_hint_diagnostics = False
+        args.provenance = {"counter_overhead_included": False}
+        current = "startpos"
+        searched = []
+        positions = ["startpos moves 7g7f", "startpos moves 2g2f 8c8d"]
+
+        def send(line):
+            nonlocal current
+            if line == "isready":
+                # Model the pinned reference's real board-reset behavior.
+                current = "startpos"
+            elif line.startswith("position "):
+                current = line.removeprefix("position ")
+            elif line.startswith("go "):
+                searched.append(current)
+
+        def wait_for(token):
+            if token == "bestmove":
+                return ["info depth 4 score cp 0 nodes 900 nps 7200 pv 7g7f",
+                        "bestmove 7g7f"]
+            return [token]
+
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.send.side_effect = send
+            usi.return_value.wait_for.side_effect = wait_for
+            rows = measure(args, 4, positions)
+            usi.return_value.quit.assert_called_once_with()
+
+        self.assertEqual(len(rows), 4)
+        self.assertEqual(searched, [position for position in positions for _ in range(2)])
 
     def test_lazy_smp_diagnostics_are_parsed(self):
         diagnostics = parse_lazy_smp(

@@ -27,9 +27,10 @@ YaneuraOu (same positions, same evaluation file)::
 Run on an otherwise idle machine; the thread counts must not exceed the
 physical cores.  Outputs one JSON line per (threads, position) with
 ``--json`` for later comparison.  Results are speed diagnostics, not
-playing-strength claims. A readyok barrier after every position keeps pending
-new-game reset work outside elapsed_ms; NPS still uses the engine's last info
-value, falling back to nodes/elapsed only when that value is zero.
+playing-strength claims. The readyok barrier precedes each position command,
+because isready may reset an engine's board. elapsed_ms covers go-send to
+bestmove and can include queued position processing. Reported NPS still uses
+the engine's last info value, falling back to nodes/elapsed only when it is zero.
 """
 
 from __future__ import annotations
@@ -57,7 +58,7 @@ ROOT_HINT_TRANSFER_KEYS = ROOT_HINT_KEYS + (
     "first_move_beta_cuts", "researches", "research_nodes", "stale_research_nodes", "stale_reads",
     "depth_gap_sum", "depth_gap_max", "generation_gap_sum", "generation_gap_max",
 )
-ELAPSED_SCOPE = "go-send-to-bestmove-after-position-readyok"
+ELAPSED_SCOPE = "go-send-to-bestmove-after-newgame-readyok-and-position"
 
 
 class Usi:
@@ -1322,11 +1323,11 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
         for index, position in enumerate(positions):
             for repeat in range(args.repeats):
                 engine.send("usinewgame")
-                engine.send(f"position {position}")
-                # Both commands may leave reset/position work queued in the
-                # engine. Acknowledge it before timing the search itself.
+                # Some engines reset their board on isready. Finish the
+                # new-game reset before setting the requested position.
                 engine.send("isready")
                 engine.wait_for("readyok")
+                engine.send(f"position {position}")
                 start = time.perf_counter()
                 engine.send(go_command(args))
                 lines = engine.wait_for("bestmove")

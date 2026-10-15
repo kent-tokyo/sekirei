@@ -95,6 +95,11 @@ v0.3.73 before merge and again before publication; the 0.4 version bump does
 not by itself authorize a compatibility break. Component timings are not
 overall speed or strength rankings.
 
+A source-identical PGO binary exceeded the pinned YaneuraOu build by 7.1%
+in a completed Apple M4 4T wall-NPS study (95% interval: +5.1% to +9.0%).
+[Conditions and evidence](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)
+apply to that binary and workload; ordinary Cargo builds do not use its profile.
+
 ## Matches and training
 
 Use `sekirei-match` for local USI matches. Durable offline self-play requires

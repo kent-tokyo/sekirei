@@ -1,0 +1,346 @@
+{
+  "schema": "sekirei.compiler-pgo-4t-evidence.v1",
+  "status": "own_and_pinned_reference_4t_qualified",
+  "base_commit": "4dd3a64ca7279dcc0ba07cdbf8e8ce2a60a4e705",
+  "source_count": 148,
+  "source_changed": false,
+  "candidate_kind": "compiler_PGO_4T_only",
+  "summary": {
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "total_searches": 128,
+    "eligible_positions": 32,
+    "geomean_candidate_over_baseline": 1.057865292111761,
+    "bootstrap_95pct": [
+      1.0464143295042323,
+      1.0690356572878545
+    ],
+    "excluded_by_700ms_filter": []
+  },
+  "throughput_gain_percent": 5.786529211176106,
+  "throughput_gain_bootstrap_95pct_percent": [
+    4.64143295042323,
+    6.903565728785455
+  ],
+  "correctness": {
+    "fresh_fixed_identity_calls": 384,
+    "material_calls": 192,
+    "own_synthetic_calls": 192,
+    "depth": 12,
+    "fields": [
+      "bestmove",
+      "score",
+      "PV",
+      "nodes",
+      "depth",
+      "bound"
+    ],
+    "elapsed_statistics_interpreted": false,
+    "pgo_core_passed": 434,
+    "pgo_core_ignored": 9
+  },
+  "protocol": {
+    "threads": 4,
+    "rayon_num_threads": 4,
+    "hash_mib": 64,
+    "fv_scale": 16,
+    "movetime_ms": 1000,
+    "parallel_flags": 15,
+    "process_per_search": "fresh",
+    "order": [
+      "baseline",
+      "candidate",
+      "candidate",
+      "baseline"
+    ],
+    "positions": 32,
+    "holdout_seed": 202610175,
+    "prior_corpora": {
+      "refresh_tail": 32,
+      "prior_qs": 32,
+      "refresh_development": 256,
+      "halfkp_edge_b": 32,
+      "cont_unrolled_r2": 32,
+      "cont_rows_r1": 32,
+      "halfkp_edge_development": 6,
+      "r2_quiet_tt": 32,
+      "r1_quiet_tt": 32,
+      "small_sort": 32,
+      "pgo760": 32,
+      "pgo": 32,
+      "shared": 15,
+      "private4t": 32,
+      "private8t": 32,
+      "quiet8t": 32,
+      "see8t": 32
+    },
+    "training_positions": 64,
+    "quick_positions": 31,
+    "minimum_free_mib": 512,
+    "quiet_samples": 5,
+    "quiet_wait_seconds": 600,
+    "maximum_host_attempts": 3,
+    "whole_quartet_minimum_elapsed_ms": 700,
+    "minimum_eligible_positions": 8,
+    "bootstrap_draws": 5000,
+    "bootstrap_seed": 20261014,
+    "point_required_at_least": 1,
+    "ci_lower_required_greater_than": 1,
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "engine_reported_nps": "descriptive only",
+    "old_timing_rows_reused": 0
+  },
+  "host": {
+    "cpu": "Apple M4",
+    "physical_cores": 10,
+    "logical_cores": 10,
+    "affinity_fixed": false,
+    "hardware_record_source": "parent host record"
+  },
+  "compiler": {
+    "rustc": "1.97.0",
+    "llvm": "22.1.6",
+    "target_cpu": "native",
+    "opt_level": 3,
+    "lto": "thin",
+    "codegen_units": 1,
+    "same_checkout_target_and_build_argv": true,
+    "successful_phases": 19,
+    "runtime_audits": 6,
+    "timed_profile_runtime_hooks": 0,
+    "atomic_profile_updates": true,
+    "profile_modes": [
+      {
+        "mode": "material",
+        "threads": 4,
+        "positions": 64,
+        "movetime_ms": 1000,
+        "proof_sha256": "879bf54d3459386340c033922631dfc5ce82d8763f77bb1b273de714aaff197a",
+        "instrumented_speed_excluded": true
+      },
+      {
+        "mode": "synthetic",
+        "threads": 4,
+        "positions": 64,
+        "movetime_ms": 1000,
+        "proof_sha256": "7b0527a74d59eecb898cb5d572db2bad54f5726a9fab8461117622b1f1afd31e",
+        "instrumented_speed_excluded": true
+      }
+    ],
+    "raw_profile_count_by_mode": {
+      "material": 1,
+      "synthetic": 1
+    },
+    "build_script_profiles_excluded": true,
+    "model_training_performed": false
+  },
+  "host_rejected_quartets": 0,
+  "artifact_bindings": {
+    "baseline_usi": {
+      "artifact_name": "sekirei-baseline",
+      "sha256": "61f1cd0e498d58c36cb11174fe9c0807b04d7967e2ee466959d5dc0ea60a88a5"
+    },
+    "baseline_diag": {
+      "artifact_name": "sekirei-search-diagnostic-baseline",
+      "sha256": "6d558cac074a6fd95ab820a7c2a5b144e14475304d72ca69535c0c579af5e65f"
+    },
+    "candidate_usi": {
+      "artifact_name": "sekirei-candidate",
+      "sha256": "11508d7d5b6d387edf92e0df8bef9c57d6f9eb5bc99dea61bcd045da7307ee44"
+    },
+    "candidate_diag": {
+      "artifact_name": "sekirei-search-diagnostic-candidate",
+      "sha256": "a6a77f34b054edb9fc9b11280759c264d674780152d42f7a412e01bbcbeee5ff"
+    },
+    "merged_profile": {
+      "artifact_name": "merged.profdata",
+      "sha256": "2c3d55df5fa77296dcd0d17a9c69cd8bbb532264ead00dbd6d621bbed11b8920"
+    },
+    "weights": {
+      "artifact_name": "synthetic-halfkp.bin",
+      "sha256": "60db2e5a2888d4fb72ff45431e009f504ae0c86e8b7c8a14fb69a4b10b11c20e"
+    },
+    "native_manifest": {
+      "artifact_name": "native-build-manifest.json",
+      "sha256": "a60c060d2edde734e10f8d9cd10a60c2bac056f21bcaa21e4c8e8526b4ca02a2"
+    },
+    "verification": {
+      "artifact_name": "verification.json",
+      "sha256": "5f78984c357c2fe3fcfb089aa172ae973171e867bc8be84d43b3495c9ec7ff2d"
+    },
+    "build_report": {
+      "artifact_name": "build-report.json",
+      "sha256": "82f19f39700d6b7bc5d277977544cd3072314e0b7e8e5bfc8b3634e1dff18203"
+    },
+    "holdout": {
+      "artifact_name": "holdout32.sfen",
+      "sha256": "a7edd63629414ce85f994167262994d8b3b4acf8bfbe400c938049b51eeb454a"
+    },
+    "holdout_provenance": {
+      "artifact_name": "holdout-provenance.json",
+      "sha256": "42323134b9202b87b085b5e5bb1d5ffe29c1d7f6b0e5a89a949ba5528b0e9281"
+    }
+  },
+  "local_evidence": {
+    "qa-final.json": {
+      "artifact_name": "qa-final.json",
+      "sha256": "ef749b4ffebd9ec851d1e89b66d91c03377ba3faa6023d1698dcc1bbc8c9d19d"
+    },
+    "selection-decision.json": {
+      "artifact_name": "selection-decision.json",
+      "sha256": "11dde0c64cb69475a2057c9e86c660743b4ebae4716bd9a06c2e4caf549ccbfa"
+    },
+    "build-report.json": {
+      "artifact_name": "build-report.json",
+      "sha256": "82f19f39700d6b7bc5d277977544cd3072314e0b7e8e5bfc8b3634e1dff18203"
+    },
+    "verification.json": {
+      "artifact_name": "verification.json",
+      "sha256": "5f78984c357c2fe3fcfb089aa172ae973171e867bc8be84d43b3495c9ec7ff2d"
+    },
+    "native-build-manifest.json": {
+      "artifact_name": "native-build-manifest.json",
+      "sha256": "a60c060d2edde734e10f8d9cd10a60c2bac056f21bcaa21e4c8e8526b4ca02a2"
+    },
+    "holdout-provenance.json": {
+      "artifact_name": "holdout-provenance.json",
+      "sha256": "42323134b9202b87b085b5e5bb1d5ffe29c1d7f6b0e5a89a949ba5528b0e9281"
+    },
+    "plan.json": {
+      "artifact_name": "plan.json",
+      "sha256": "ab78f54e2d46ce01538f24ff200c46a6432a7aa843a406037a8d95bc69294bf0"
+    },
+    "qualification-plan.json": {
+      "artifact_name": "qualification-plan.json",
+      "sha256": "7cdf411da796a09a8f530c90afd23513d93d10413b1511ad97b32162174216dc"
+    },
+    "qualification_report": {
+      "artifact_name": "report.json",
+      "sha256": "ef0addd8fc2c0feda6e7dc7d8581baa49d1658907424195bc4a01d537e558e6b",
+      "availability": "local completed capture"
+    }
+  },
+  "selection_decision": "frozen_PGO_only_for_fixed_reference_comparison",
+  "selection_basis": "completed independent own synthetic4T H1 and exact own fixed-depth correctness only",
+  "engine_child_lifecycle_limit": {
+    "driver_calls_exited_zero": 128,
+    "source_bound_finally_quit_wait_or_kill_wait": true,
+    "normal_quit_without_fallback_directly_observable": false,
+    "limit": "Frozen driver does not persist raw engine USI transcript or quit returncode; normal versus fallback shutdown cannot be independently distinguished. Driver exit0 and finally reap contract are source-bound."
+  },
+  "pv_replay_quartets": 32,
+  "pv_replay_normal_exit_protocol_passed": true,
+  "completion_limit": "positive selected-worker completed depth validated; explicit completed bound is unavailable in USI",
+  "external_comparison": {
+    "status": "complete_independent_QA_passed",
+    "reference_surpassed": true,
+    "scope": "raw aggregate nodes per measured wall second for this pinned 4T binary, host and corpus",
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "secondary_metric": "engine_reported_nps",
+    "geomean_sekirei_over_reference": 1.0708027738218018,
+    "bootstrap_95pct": [
+      1.050983511388202,
+      1.0896751191258454
+    ],
+    "secondary_reported_nps_ratio": 1.0714950803126826,
+    "accepted_searches": 124,
+    "eligible_positions": 30,
+    "excluded_positions": [
+      28
+    ],
+    "whole_quartet_min_elapsed_ms": 700,
+    "total_attempts": 35,
+    "host_rejected_quartets": 4,
+    "all_actual_calls": 140,
+    "protocol_audits": 140,
+    "normal_shutdowns": 140,
+    "pv_replay_quartets": 35,
+    "frozen_inputs_before_after": 1954,
+    "frozen_inputs_identical": true,
+    "protocol_revision": "newgame-ready-position-go-r2",
+    "elapsed_scope": "go-send-to-bestmove-after-newgame-readyok-and-position",
+    "elapsed_limit": "Queued position processing may enter the go-to-bestmove interval for either engine.",
+    "options": {
+      "threads": 4,
+      "hash_mib": 64,
+      "movetime_ms": 1000,
+      "fv_scale": 24,
+      "parallel_flags": 15,
+      "diagnostics": false,
+      "process_per_arm": "fresh",
+      "order": [
+        "reference",
+        "Sekirei",
+        "Sekirei",
+        "reference"
+      ]
+    },
+    "corpus": {
+      "artifact_name": "openings_quick.sfen",
+      "positions": 31,
+      "turns": "all White",
+      "sha256": "d554106e3b6682f4365c2169a4aca048f5cefb043bd3c8cbc023d0f42981a06d"
+    },
+    "reference": {
+      "source_commit": "c1b80eaa09fe13d5f12b1599d1ae4d53c224de30",
+      "binary_sha256": "83ed10ca6708eda4dd7984096ebdd0adebcee115f4085eb0c003d169a4e5f26c",
+      "compiler": "Apple clang 21.0.0",
+      "edition": "YANEURAOU_ENGINE_NNUE",
+      "target": "APPLEM1 plus USE_NEON_DOTPROD, armv8.2-a+dotprod and mcpu=native on Apple M4"
+    },
+    "evaluator": {
+      "sha256": "768068f0d534a0603a5d38bcd143de6bbca820d5f1c95a14d40863e5b7892d76",
+      "size_bytes": 64217066,
+      "architecture": "HalfKP 256x2-32-32",
+      "use": "private comparison only after own candidate selection frozen",
+      "binding_scope": "requested/native file identity; not proof of bitwise loaded-output equivalence"
+    },
+    "protocol_smoke": {
+      "status": "passed",
+      "actual_calls": 8,
+      "positions": 2,
+      "turns": [
+        "White",
+        "Black"
+      ],
+      "pv_replays": 2,
+      "normal_shutdowns": 8,
+      "pooled_into_speed": false
+    },
+    "reference_completion_limit": "Positive reported depth is descriptive; explicit lower/upper score bounds are retained, not treated as a completed exact iteration.",
+    "node_semantics_limit": "Different search trees and node accounting; no useful-work, strength or other-thread-count equivalence.",
+    "raw_report_sha256": "01a656d81321b75988a882acb41df47b08466113d933beb2675337eead4ee557",
+    "smoke_report_sha256": "36ac2632ed8ccf6d5a9e9f3ad98d23bb599e2a60fa0fc377c2f32f32e19fd475",
+    "historical_protocol_audit_sha256": "e97aedc385c38a8bfa3921e15deedc46e15e888d003d1f716a5917aedc647a93",
+    "independent_QA": {
+      "artifact_name": "reference-r2/qa-final.json",
+      "sha256": "ef4941b1e7a8b54fcfb2cbce22b1e8f489a3e09c2adc94dc7d3d40eb4ff4f426",
+      "status": "passed",
+      "closure_current_verified_before_post_measurement_main_edits": true
+    },
+    "reported_nps_secondary_CI_status": "point descriptive only; no secondary adoption gate"
+  },
+  "ordinary_cargo_defaults_changed": false,
+  "search_defaults_changed": false,
+  "general_thread_count_claim": false,
+  "strength_claim": false,
+  "external_evaluator_used_for_selection": false,
+  "public_nnue_weights_distributed": false,
+  "raw_capture_publication": "local only",
+  "invalidated_historical_external_4t_comparisons": {
+    "bases": [
+      "7c739cb44510f189bc366ccb1a0418fefde42d3f",
+      "760d"
+    ],
+    "reason": "post-position isready resets the pinned YaneuraOu board to startpos; requested White-position PVs illegal",
+    "old_speed_statistics_reused": false,
+    "own_PGO_qualifications_affected": false
+  },
+  "frozen_inputs_identical_at_own_qualification_QA": 583,
+  "post_measurement_tool_correction": {
+    "compiler_inputs_changed": false,
+    "measurements_completed_and_closure_verified_before_edits": true,
+    "old_driver_sha256": "aede238740afd5b05587a423b80b73c57b1d08fc5c70572c0f6b38c1e969530b",
+    "corrected_driver_sha256": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+    "original_driver_preserved_locally": true
+  }
+}
