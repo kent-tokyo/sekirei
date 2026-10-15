@@ -84,7 +84,7 @@ search_params! {
     ASP_VOLATILITY = 0, 0, 1;
     /// Opt-in root-split executor reuse within one go; requires cooperative root mode.
     COOP_PERSISTENT = 0, 0, 1;
-    /// Opt-in scoped cooperative root groups for exactly four or eight workers.
+    /// Opt-in cooperative root groups for exactly four or eight workers.
     COOP_MULTI = 0, 0, 1;
     /// Confirm ready root candidates while awaiting the cooperative helper.
     COOP_DRAIN = 0, 0, 1;

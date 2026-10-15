@@ -693,6 +693,28 @@ class ThreadOptionsTest(unittest.TestCase):
         }
         return "info string cooperative_root " + " ".join(f"{key} {value}" for key, value in values.items())
 
+    def test_cooperative_groups_allow_executor_reuse_without_losing_job_census(self):
+        for workers in (4, 8):
+            helpers = workers - 1
+            jobs = 2 * helpers
+            group = f"info string cooperative_root_group workers {workers} helpers {helpers}"
+            root = self.cooperative_root_line(workers).replace(
+                f"physical_helper_threads_started {jobs} physical_helper_threads_joined {jobs}",
+                f"physical_helper_threads_started {helpers} physical_helper_threads_joined {helpers}",
+            )
+            with self.subTest(workers=workers):
+                result = parse_cooperative_root([group, root], workers=workers, total_nodes=130)
+                self.assertEqual(result["helpers_started"], jobs)
+                self.assertEqual(result["physical_helper_threads_started"], helpers)
+                self.assertEqual(result["physical_helper_threads_joined"], helpers)
+                self.assertEqual(result["spawn_failures"], 0)
+                with self.assertRaises(ValueError):
+                    parse_cooperative_root([group, root.replace("helpers_started " + str(jobs),
+                                                               "helpers_started " + str(jobs - 1))])
+                with self.assertRaises(ValueError):
+                    parse_cooperative_root([group, root.replace("physical_helper_threads_joined " + str(helpers),
+                                                               "physical_helper_threads_joined " + str(helpers - 1))])
+
     def test_cooperative_groups_bind_size_and_preserve_legacy_contract(self):
         self.assertIsNone(parse_cooperative_root([], workers=4))
         legacy = parse_cooperative_root([self.cooperative_root_line()], workers=2)
