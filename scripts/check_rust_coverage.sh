@@ -79,6 +79,37 @@ cargo llvm-cov -p sekirei-core \
   --ignored \
   --exact
 
+# The disabled quiet-LMP preparation shortcut must preserve fixed-depth
+# signatures with material and own synthetic HalfKP in one isolated process.
+# Tuning globals and evaluator activation must not overlap another test.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test quiet_lmp_skip \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-lmp-skip-summary.json" \
+  -- quiet_lmp_skip_preserves_material_and_own_halfkp_fixed_depth \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+# Isolate the disabled SEE lower-bound cache with material and an own
+# deterministic synthetic HalfKP evaluator; keep global tuning state serial.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test see_bound_cache \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-see-bound-cache-summary.json" \
+  -- see_bound_cache_preserves_material_and_own_halfkp_fixed_depth \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the completed-score aspiration flag while checking real activation,
 # fixed-root/MultiPV exclusions and observer noninterference.
 cargo llvm-cov -p sekirei-core \

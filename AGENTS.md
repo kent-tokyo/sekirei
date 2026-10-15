@@ -106,6 +106,7 @@ You (the AI) will act as a multi-agent team collaborating on this codebase. Swit
 * 2026-10-14: Commit validated search-speed changes and push them to main.
 * 2026-10-14: For Sinfonietta CPU-throughput comparisons, pin its executable, evaluation architecture and CPU mode, and keep NNUE, PV-MCTS and ensemble measurements distinct.
 * 2026-10-14: Aim to exceed YaneuraOu speed with Pure Safe Rust. Pin the reference build and compare identical hardware, evaluator, thread counts, hash size, and corpus; keep raw NPS, effective search work, and strength distinct.
+* 2026-10-15: Prioritize surpassing YaneuraOu throughput at 8 threads under equal conditions; qualify 8T independently from 4T.
 
 * 2026-10-13: When `lineprior`, `shogiesa-core`, or `veridict` has already shipped a needed capability, update Sekirei's dependency and local adapter instead of filing another upstream issue.
 * 2026-10-12: Prepare v0.4.0 as a compatibility and operations milestone with all seven workspace versions, v0.3.73 patch-level public API compatibility, a validated planned manifest, and a reproducible WASM asset; do not bundle or adopt an unqualified self-NNUE candidate.

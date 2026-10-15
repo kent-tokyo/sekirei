@@ -140,6 +140,26 @@ fn see2(board: &Board, m: Move) -> i32 {
     2 * see_exchange(board, m)
 }
 
+/// Compare a cached exchange or a proven lower bound without pretending the
+/// bound is an exact score. Positive thresholds always need the exact value.
+/// The caller supplies the compile-time feature gate, so normal default-off
+/// builds retain the original exact/unknown comparison with no flag test.
+#[inline]
+fn see_below(
+    cached: i32,
+    proven_non_negative: bool,
+    threshold: i32,
+    exact: impl FnOnce() -> i32,
+) -> bool {
+    if cached != i32::MIN {
+        cached < threshold
+    } else if proven_non_negative && threshold <= 0 {
+        false
+    } else {
+        exact() < threshold
+    }
+}
+
 #[inline]
 fn gravity(e: &mut i16, bonus: i32, limit: i32) {
     let b = bonus.clamp(-limit, limit);
@@ -201,8 +221,31 @@ fn lmp_limit(depth: i32, improving: bool) -> u32 {
     ((p::V2_LMP_BASE() + depth * depth) / (2 - i32::from(improving))) as u32
 }
 
+/// Number of quiet entries whose first non-excluded move already reaches
+/// LMP. An empty/all-excluded list is eligible but must not set skip_quiets:
+/// no move would have executed the pruning gate in the ordinary loop.
+#[inline]
+fn dead_quiet_count(
+    quiets: &[Move],
+    excluded: Option<Move>,
+    move_count: u32,
+    best_value: i32,
+    lmp_allowed: bool,
+    limit: u32,
+) -> Option<u32> {
+    if best_value <= -MATE_BOUND || !lmp_allowed || move_count + 1 < limit {
+        return None;
+    }
+    Some(if excluded.is_some() {
+        quiets.iter().filter(|&&m| Some(m) != excluded).count() as u32
+    } else {
+        quiets.len() as u32
+    })
+}
+
 /// A move-list entry: ordering key, move, flags (bits 0-1: gives check, 0
-/// unknown, 1 no, 2 yes; bit 2: tactical) and cached exchange value
+/// unknown, 1 no, 2 yes; bit 2: tactical; bit 3: exchange proven non-negative)
+/// and cached exchange value
 /// (`i32::MIN`: not computed).
 type Entry = (i32, Move, u8, i32);
 
@@ -1607,15 +1650,16 @@ fn node(
             // A capture of a piece worth at least the capturer cannot lose
             // the exchange: with a non-negative key it is a winning move
             // without computing the exchange (computed later only if needed).
-            let se = if s >= 0 && captures_up(board, m) {
-                i32::MIN
+            let (se, proven) = if s >= 0 && captures_up(board, m) {
+                (i32::MIN, p::V2_SEE_BOUND_CACHE() != 0)
             } else {
-                see2(board, m)
+                (see2(board, m), false)
             };
+            let flags = 4 | if proven { 8 } else { 0 };
             if se == i32::MIN || se >= -s / p::V2_GOODCAP_DIV().max(1) {
-                list.push((s, m, 4, se));
+                list.push((s, m, flags, se));
             } else {
-                bad_list.push((s, m, 4, se));
+                bad_list.push((s, m, flags, se));
             }
         } else {
             quiet_list.push(m);
@@ -1702,6 +1746,30 @@ fn node(
                             any_generated_move |= !quiet_buf.is_empty();
                             quiet_list.extend(quiet_buf.as_slice().iter().copied());
                         }
+                        // Generate/filter legal quiets above even when none will
+                        // be searched: terminal detection still needs them.
+                        // Their scores, check tags and SEE cannot be consumed
+                        // when the first non-excluded quiet already reaches LMP.
+                        if p::V2_QUIET_LMP_SKIP() != 0
+                            && let Some(n) = dead_quiet_count(
+                                quiet_list,
+                                excluded,
+                                move_count,
+                                best_value,
+                                lmp_allowed,
+                                lmp_limit(depth, improving),
+                            )
+                        {
+                            if n != 0 {
+                                move_count += n;
+                                d.ss[i].move_count = move_count;
+                                skip_quiets = true;
+                                if let Some(c) = state.counters() {
+                                    c.move_stages[1].fetch_add(1, Ordering::Relaxed);
+                                }
+                            }
+                            continue;
+                        }
                         let start = list.len();
                         for &m in quiet_list.iter() {
                             let ft = ft_key(stm, m);
@@ -1765,12 +1833,13 @@ fn node(
             }
         }
         let (_, m, check_flag, see_cached) = list[idx];
-        let see_of = |board: &Board| {
-            if see_cached == i32::MIN {
-                see2(board, m)
-            } else {
-                see_cached
-            }
+        let see_below = |board: &Board, threshold| {
+            see_below(
+                see_cached,
+                p::V2_SEE_BOUND_CACHE() != 0 && check_flag & 8 != 0,
+                threshold,
+                || see2(board, m),
+            )
         };
         idx += 1;
         if Some(m) == excluded {
@@ -1827,7 +1896,7 @@ fn node(
                 let see_hist = (capt_hist / 32).clamp(-150 * depth, 150 * depth);
                 if (!gives_check || p::V2_CHK() & 1 == 0)
                     && (p::V2_SHAPE() & 2 == 0 || alpha >= 0)
-                    && see_of(board) < -p::V2_SEE_T() * depth - see_hist
+                    && see_below(board, -p::V2_SEE_T() * depth - see_hist)
                 {
                     continue;
                 }
@@ -1858,7 +1927,7 @@ fn node(
                     }
                 }
                 let ld = lmr_depth.max(0);
-                if see_of(board) < -p::V2_SEE_Q() * ld * ld {
+                if see_below(board, -p::V2_SEE_Q() * ld * ld) {
                     continue;
                 }
             }
@@ -2269,6 +2338,205 @@ fn node(
 mod tests {
     use super::*;
     use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    #[test]
+    fn dead_quiet_skip_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL
+            .iter()
+            .find(|s| s.name == "V2_QUIET_LMP_SKIP")
+            .unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[test]
+    fn dead_quiet_skip_matches_consumed_picker_state() {
+        // Use genuine legal quiet moves, then different ordering keys and a
+        // checking tag. The reference consumes the ordinary sorted picker;
+        // the shortcut must preserve counts used by the later bad tacticals.
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let quiets = &moves[..4];
+        for excluded in [None, Some(quiets[0]), Some(quiets[3])] {
+            for count in [0, 1, 4] {
+                for limit in [0, count + 1, count + 2] {
+                    for best in [-MATE_BOUND - 1, -MATE_BOUND, -MATE_BOUND + 1, 0] {
+                        for allowed in [false, true] {
+                            let fast =
+                                dead_quiet_count(quiets, excluded, count, best, allowed, limit);
+                            let mut entries: Vec<Entry> = quiets
+                                .iter()
+                                .enumerate()
+                                .map(|(i, &m)| ((i % 2) as i32, m, 1 + u8::from(i == 1), 0))
+                                .collect();
+                            entries.sort_unstable_by_key(|e| std::cmp::Reverse(e.0));
+                            let mut ordinary_count = count;
+                            let mut ordinary_skip = false;
+                            let mut searched = Vec::new();
+                            for &(_, m, _, _) in &entries {
+                                if Some(m) == excluded {
+                                    continue;
+                                }
+                                ordinary_count += 1;
+                                if best > -MATE_BOUND {
+                                    if allowed && ordinary_count >= limit {
+                                        ordinary_skip = true;
+                                    }
+                                    if ordinary_skip {
+                                        continue;
+                                    }
+                                }
+                                searched.push(m);
+                            }
+                            if let Some(n) = fast {
+                                assert!(searched.is_empty());
+                                assert_eq!(ordinary_count, count + n);
+                                assert_eq!(ordinary_skip, n != 0);
+                            } else {
+                                assert!(!searched.is_empty());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dead_quiet_skip_empty_excluded_and_existing_skip_boundaries() {
+        let mut board = Board::startpos();
+        let moves = generate_legal_moves(&mut board);
+        let m = moves[0];
+        assert_eq!(dead_quiet_count(&[], None, 1, 0, true, 2), Some(0));
+        assert_eq!(dead_quiet_count(&[m], Some(m), 1, 0, true, 2), Some(0));
+        assert_eq!(dead_quiet_count(&[m], None, 0, 0, true, 2), None);
+        assert_eq!(dead_quiet_count(&[m], None, 1, 0, true, 2), Some(1));
+        // The optimization is nested in the existing !skip_quiets branch.
+        // Already skipped stages must not generate or count missing quiets.
+        for enabled in [false, true] {
+            for preexisting_skip in [false, true] {
+                let mut generated = false;
+                let mut count = 1;
+                let mut skip = preexisting_skip;
+                if !skip {
+                    generated = true;
+                    if enabled
+                        && let Some(n) = dead_quiet_count(&[m], None, count, 0, true, 2)
+                        && n != 0
+                    {
+                        count += n;
+                        skip = true;
+                    }
+                }
+                assert_eq!(generated, !preexisting_skip);
+                assert_eq!(count, if enabled && !preexisting_skip { 2 } else { 1 });
+                assert_eq!(skip, preexisting_skip || enabled);
+            }
+        }
+    }
+
+    #[test]
+    fn see_bound_keeps_unknown_exact_and_positive_thresholds_distinct() {
+        use std::cell::Cell;
+        for exact_value in [-400, 0, 400] {
+            for threshold in [-500, -1, 0, 1, 500] {
+                for (cached, proven) in
+                    [(i32::MIN, false), (exact_value, false), (exact_value, true)]
+                {
+                    let calls = Cell::new(0);
+                    let result = see_below(cached, proven, threshold, || {
+                        calls.set(calls.get() + 1);
+                        exact_value
+                    });
+                    assert_eq!(result, exact_value < threshold);
+                    assert_eq!(calls.get(), usize::from(cached == i32::MIN));
+                }
+            }
+        }
+        // A non-negative lower bound is not zero: a positive threshold may
+        // lie on either side of the exact exchange, so both must be queried.
+        for exact_value in [0, 400] {
+            for threshold in [-1, 0, 1, 500] {
+                let calls = Cell::new(0);
+                let result = see_below(i32::MIN, true, threshold, || {
+                    calls.set(calls.get() + 1);
+                    exact_value
+                });
+                assert_eq!(result, exact_value < threshold);
+                assert_eq!(calls.get(), usize::from(threshold > 0));
+            }
+        }
+    }
+
+    #[test]
+    fn see_bound_matches_exact_legal_capture_corpus_and_eliminates_calls() {
+        use std::cell::Cell;
+        let mut eliminated = 0;
+        let mut promoted = 0;
+        let mut zero_bound = 0;
+        let mut losing_unknown = 0;
+        let mut check_position = |board: &mut Board| {
+            let hash = board.hash();
+            let accumulator = board.acc.clone();
+            let hkp = board.hkp.clone();
+            for m in generate_legal_captures(board) {
+                let exact = see2(board, m);
+                // A zero/non-negative ordering key exercises the same proof
+                // precondition as fast tactical classification, promotions
+                // included. Unknown/TT entries never carry this proof.
+                let proven = captures_up(board, m);
+                if proven {
+                    assert!(exact >= 0, "{m:?}");
+                    promoted += usize::from(m.promote);
+                    zero_bound += usize::from(exact == 0);
+                } else {
+                    losing_unknown += usize::from(exact < 0);
+                }
+                for threshold in [-2000, -1, 0, 1, 2000, exact - 1, exact, exact + 1] {
+                    let calls = Cell::new(0);
+                    let actual = see_below(i32::MIN, proven, threshold, || {
+                        calls.set(calls.get() + 1);
+                        see2(board, m)
+                    });
+                    assert_eq!(actual, exact < threshold, "{m:?} threshold={threshold}");
+                    assert_eq!(calls.get(), usize::from(!proven || threshold > 0));
+                    eliminated += 1 - calls.get();
+                    // An already computed exact value is reused even if the
+                    // proof flag is present and the threshold is positive.
+                    assert_eq!(
+                        see_below(exact, proven, threshold, || panic!("cached SEE recomputed")),
+                        exact < threshold,
+                    );
+                }
+            }
+            assert_eq!(board.hash(), hash);
+            assert_eq!(board.acc, accumulator);
+            assert_eq!(board.hkp, hkp);
+        };
+        for sfen in [
+            "4k4/4g4/4p4/4P4/9/9/9/9/4K4 b - 1",
+            "4k4/9/9/9/9/4p4/4P4/9/4K4 w - 1",
+            "4k4/4g4/4p4/4R4/9/9/9/9/4K4 b - 1",
+        ] {
+            check_position(&mut Board::from_sfen(sfen).unwrap());
+        }
+        let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+        for _ in 0..4 {
+            let mut board = Board::startpos();
+            for _ in 0..64 {
+                check_position(&mut board);
+                let moves = generate_legal_moves(&mut board);
+                if moves.is_empty() {
+                    break;
+                }
+                seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                let _ = board.do_move(moves[(seed as usize) % moves.len()]);
+            }
+        }
+        assert!(eliminated > 0);
+        assert!(promoted > 0);
+        assert!(zero_bound > 0);
+        assert!(losing_unknown > 0);
+    }
 
     fn diagnostic_state() -> (Arc<SearchState>, Arc<super::super::SearchDiagnostics>) {
         use super::super::{

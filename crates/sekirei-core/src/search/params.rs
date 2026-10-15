@@ -584,6 +584,10 @@ search_params! {
     /// SEARCH_V2 quiet move order: picked best first one at a time for the
     /// first few, ties in generation order (1), or fully sorted at once (0).
     V2_SORT = 0, 0, 1;
+    /// Skip quiet scoring/check/SEE/sorting only when the first non-excluded
+    /// quiet already reaches existing LMP (1). Legal generation, move counts
+    /// and searched moves are unchanged; disabled by default (0).
+    V2_QUIET_LMP_SKIP = 0, 0, 1;
     /// SEARCH_V2 measurement baseline: sort losing tactical moves eagerly
     /// (1) instead of waiting until their stage is reached (0). This changes
     /// sort timing only; keys, tie order and searched moves remain identical.
@@ -592,6 +596,10 @@ search_params! {
     /// legal move list until the quiet stage (1), or generates all moves at
     /// node entry (0).
     V2_STAGE_GEN = 1, 0, 1;
+    /// Reuse the proven non-negative exchange of a fast-classified tactical
+    /// move only for non-positive SEE thresholds (1). Default off; exact
+    /// values, move order and pruning predicates are unchanged.
+    V2_SEE_BOUND_CACHE = 0, 0, 1;
     /// SEARCH_V2 depth adjustment by the reduction of the move that led to
     /// the node (1) or none (0).
     V2_HINDSIGHT = 0, 0, 1;
