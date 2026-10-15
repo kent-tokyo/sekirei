@@ -197,6 +197,117 @@ impl HelperLmrCounters {
     }
 }
 
+/// Evidence for bounded helper dispatch before the first full-window root child.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootPrestartStats {
+    /// Eligible finite-window passes that dispatched a helper generation.
+    pub passes: u64,
+    /// Completed first children that cut at the pass beta.
+    pub first_beta_cuts: u64,
+    /// Passes aborted before accepting the first child by the parent hard budget.
+    pub first_aborts: u64,
+    /// All helper nodes in these passes, including cancelled work.
+    pub helper_nodes: u64,
+    /// Optional adjacent observations; absent when COOP_PRESTART_DIAG is disabled.
+    pub diagnostics: Option<CooperativeRootPrestartDiagnostics>,
+}
+
+/// Observations sampled before worker 0 marks its first child returned.
+/// These observations do not prove simultaneous CPU execution or saved time.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CooperativeRootPrestartDiagnostics {
+    /// Helper job starts that observed the first-child pending marker.
+    pub helper_jobs_before_first_return: u64,
+    /// Completed helper probes that observed the first-child pending marker.
+    pub helper_completed_probes_before_first_return: u64,
+    /// Completed fail-high probes that observed the first-child pending marker.
+    pub helper_fail_highs_before_first_return: u64,
+    /// Summed private main nodes spent in first root children.
+    pub first_main_nodes: u64,
+    /// Summed elapsed microseconds spent in first root children.
+    pub first_main_us: u64,
+    /// All helper nodes in passes cut by the first root child, including cancelled work.
+    pub first_beta_helper_nodes: u64,
+}
+
+#[derive(Default)]
+struct PrestartCounters {
+    passes: AtomicU64,
+    first_beta_cuts: AtomicU64,
+    first_aborts: AtomicU64,
+    helper_nodes: AtomicU64,
+    diagnostics: Option<PrestartDiagnosticsCounters>,
+}
+
+#[derive(Default)]
+struct PrestartDiagnosticsCounters {
+    helper_jobs_before_first_return: AtomicU64,
+    helper_completed_probes_before_first_return: AtomicU64,
+    helper_fail_highs_before_first_return: AtomicU64,
+    first_main_nodes: AtomicU64,
+    first_main_us: AtomicU64,
+    first_beta_helper_nodes: AtomicU64,
+}
+
+impl PrestartCounters {
+    fn snapshot(&self) -> CooperativeRootPrestartStats {
+        CooperativeRootPrestartStats {
+            passes: self.passes.load(Ordering::Relaxed),
+            first_beta_cuts: self.first_beta_cuts.load(Ordering::Relaxed),
+            first_aborts: self.first_aborts.load(Ordering::Relaxed),
+            helper_nodes: self.helper_nodes.load(Ordering::Relaxed),
+            diagnostics: self
+                .diagnostics
+                .as_ref()
+                .map(|d| CooperativeRootPrestartDiagnostics {
+                    helper_jobs_before_first_return: d
+                        .helper_jobs_before_first_return
+                        .load(Ordering::Relaxed),
+                    helper_completed_probes_before_first_return: d
+                        .helper_completed_probes_before_first_return
+                        .load(Ordering::Relaxed),
+                    helper_fail_highs_before_first_return: d
+                        .helper_fail_highs_before_first_return
+                        .load(Ordering::Relaxed),
+                    first_main_nodes: d.first_main_nodes.load(Ordering::Relaxed),
+                    first_main_us: d.first_main_us.load(Ordering::Relaxed),
+                    first_beta_helper_nodes: d.first_beta_helper_nodes.load(Ordering::Relaxed),
+                }),
+        }
+    }
+}
+
+struct PrestartObserver {
+    pending: AtomicBool,
+    counters: Arc<PrestartCounters>,
+}
+
+impl PrestartObserver {
+    fn observe(&self, job: bool, fail_high: bool) {
+        // This observer exists only in the separately enabled diagnostic lane.
+        if self.pending.load(Ordering::Acquire) {
+            let d = self
+                .counters
+                .diagnostics
+                .as_ref()
+                .expect("prestart diagnostics");
+            if job {
+                d.helper_jobs_before_first_return
+                    .fetch_add(1, Ordering::Relaxed);
+            } else {
+                d.helper_completed_probes_before_first_return
+                    .fetch_add(1, Ordering::Relaxed);
+                if fail_high {
+                    d.helper_fail_highs_before_first_return
+                        .fetch_add(1, Ordering::Relaxed);
+                }
+            }
+        }
+    }
+}
+
 /// Evidence for opt-in candidate confirmation while worker 0 awaits its helper.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -223,6 +334,8 @@ pub struct CooperativeRootWaitStats {
     pub helper_lmr_enabled: bool,
     /// Present only when helper LMR and COOP_LATENCY are both enabled.
     pub helper_lmr: Option<CooperativeRootHelperLmrStats>,
+    /// Present only for an eligible persistent group with COOP_PRESTART enabled.
+    pub prestart: Option<CooperativeRootPrestartStats>,
 }
 
 #[derive(Default)]
@@ -352,6 +465,7 @@ struct HelperTables {
 
 #[derive(Default)]
 struct Counters {
+    prestart: OnceLock<Arc<PrestartCounters>>,
     helper_lmr: OnceLock<HelperLmrCounters>,
     latency: OnceLock<Arc<LatencyCounters>>,
     waiting_confirmations: AtomicU64,
@@ -392,6 +506,7 @@ impl Counters {
     fn wait_snapshot_for(&self, enabled: bool, priority_enabled: bool) -> CooperativeRootWaitStats {
         CooperativeRootWaitStats {
             workers: 2,
+            prestart: self.prestart.get().map(|counters| counters.snapshot()),
             enabled,
             waiting_confirmations: self.waiting_confirmations.load(Ordering::Relaxed),
             waiting_confirmation_nodes: self.waiting_confirmation_nodes.load(Ordering::Relaxed),
@@ -738,6 +853,19 @@ impl Searcher {
                 .ok()
                 .expect("fresh helper LMR counters");
         }
+        if p::COOP_PRESTART() != 0
+            && prestart_mode(persistent, helpers, drain, priority, helper_lmr, latency)
+        {
+            counters
+                .prestart
+                .set(Arc::new(PrestartCounters {
+                    diagnostics: (p::COOP_PRESTART_DIAG() != 0)
+                        .then(PrestartDiagnosticsCounters::default),
+                    ..PrestartCounters::default()
+                }))
+                .ok()
+                .expect("fresh prestart counters");
+        }
         let latency = latency.then(|| Arc::new(LatencyCounters::default()));
         if let Some(latency) = &latency {
             counters
@@ -1019,6 +1147,9 @@ struct Generation {
     helper_finished: AtomicBool,
     remaining_helpers: AtomicUsize,
     latency: Option<LatencyObserver>,
+    prestart: Option<PrestartObserver>,
+    #[cfg(test)]
+    prestart_hooks: Option<Arc<PrestartGenerationHooks>>,
     priority: bool,
     candidates: Vec<CandidateSlot>,
 }
@@ -1040,6 +1171,9 @@ impl Generation {
             helper_finished: AtomicBool::new(false),
             remaining_helpers: AtomicUsize::new(1),
             latency: None,
+            prestart: None,
+            #[cfg(test)]
+            prestart_hooks: None,
             priority: false,
             candidates: (0..moves).map(|_| CandidateSlot::default()).collect(),
         }
@@ -1153,6 +1287,10 @@ impl Generation {
 
     fn stop(&self) {
         self.cancel.store(true, Ordering::Release);
+        #[cfg(test)]
+        if let Some(hooks) = &self.prestart_hooks {
+            (hooks.cancelled)();
+        }
     }
 }
 
@@ -1317,6 +1455,13 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
     let _finished = finished;
     let _participation = Participation::new(&work.generation);
     counters.helpers_started.fetch_add(1, Ordering::Relaxed);
+    if let Some(observer) = &work.generation.prestart {
+        observer.observe(true, false);
+    }
+    #[cfg(test)]
+    if let Some(hooks) = &work.generation.prestart_hooks {
+        (hooks.helper_entry)(&work.generation);
+    }
     assert!(work.depth > 0, "root helper jobs require positive depth");
     // A fresh scoped thread used to provide this initial path state. Keep
     // that contract when reusing the executor; retained histories are separate.
@@ -1368,6 +1513,9 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
         // contribute completed nodes, but have not completed a full-depth probe.
         if full_depth {
             counters.helper_probes.fetch_add(1, Ordering::Relaxed);
+            if let Some(observer) = &work.generation.prestart {
+                observer.observe(false, score > task.alpha_snapshot);
+            }
         }
         if score > task.alpha_snapshot {
             counters.helper_fail_highs.fetch_add(1, Ordering::Relaxed);
@@ -1892,6 +2040,301 @@ fn run_main(
     }
 }
 
+fn prestart_mode(
+    persistent: bool,
+    helpers: usize,
+    drain: bool,
+    priority: bool,
+    helper_lmr: bool,
+    latency: bool,
+) -> bool {
+    persistent && matches!(helpers, 3 | 7) && !drain && !priority && !helper_lmr && !latency
+}
+
+fn prestart_window(depth: u32, moves: usize, lo: i32, hi: i32) -> bool {
+    depth >= 2
+        && moves >= 2
+        && super::NEG_INF < lo
+        && lo < hi
+        && hi < super::POS_INF
+        && lo.unsigned_abs() < (super::MATE_SCORE - 1000) as u32
+        && hi.unsigned_abs() < (super::MATE_SCORE - 1000) as u32
+}
+
+/// Owns every dispatched generation job and its accounting, even during unwind.
+/// Completion is collected before propagating a failed executor. Drop never
+/// panics: the enclosing Invocation owns physical-thread joining.
+struct GenerationJobs<'a> {
+    generation: Arc<Generation>,
+    counters: &'a Counters,
+    prestart: &'a PrestartCounters,
+    budgets: Vec<Arc<Budget>>,
+    completions: Vec<mpsc::Receiver<()>>,
+    failed: bool,
+    collected: bool,
+    nodes: u64,
+}
+
+impl GenerationJobs<'_> {
+    fn dispatch(
+        &mut self,
+        invocation: &Invocation,
+        works: Vec<HelperWork>,
+        leases: Vec<HelperLease>,
+    ) {
+        assert_eq!(works.len(), invocation.helpers);
+        assert_eq!(leases.len(), invocation.helpers);
+        let mut executors = invocation.group_executors.borrow_mut();
+        if executors.is_empty() {
+            executors.extend(
+                (0..invocation.helpers).map(|_| HelperExecutor::new(invocation.counters.clone())),
+            );
+        }
+        for ((executor, work), lease) in executors.iter().zip(works).zip(leases) {
+            let Some(sender) = &executor.sender else {
+                self.counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+                drop(lease);
+                continue;
+            };
+            let (finished, completion) = mpsc::sync_channel(1);
+            // Own the receiver before sending: a failed send drops its job and
+            // lease, and all earlier jobs remain owned by this guard.
+            self.completions.push(completion);
+            if sender
+                .send(HelperJob {
+                    work,
+                    finished,
+                    dispatched: Instant::now(),
+                    lease: Some(lease),
+                })
+                .is_err()
+            {
+                self.failed = true;
+                self.generation.stop();
+                break;
+            }
+        }
+    }
+
+    fn collect(&mut self, cancel: bool) {
+        if cancel {
+            self.generation.stop();
+        }
+        if self.collected {
+            return;
+        }
+        for completion in self.completions.drain(..) {
+            let start = Instant::now();
+            if completion.recv().is_err() {
+                self.failed = true;
+                self.generation.stop();
+            }
+            self.counters
+                .join_wait_us
+                .fetch_add(elapsed_us(start), Ordering::Relaxed);
+        }
+        self.nodes = self
+            .budgets
+            .iter()
+            .fold(0u64, |sum, budget| sum.saturating_add(budget.nodes()));
+        self.counters
+            .helper_nodes
+            .fetch_add(self.nodes, Ordering::Relaxed);
+        self.prestart
+            .helper_nodes
+            .fetch_add(self.nodes, Ordering::Relaxed);
+        self.collected = true;
+    }
+}
+
+impl Drop for GenerationJobs<'_> {
+    fn drop(&mut self) {
+        self.collect(true);
+    }
+}
+
+#[cfg(test)]
+struct PrestartGenerationHooks {
+    helper_entry: Arc<dyn Fn(&Generation) + Send + Sync>,
+    cancelled: Arc<dyn Fn() + Send + Sync>,
+}
+
+#[cfg(test)]
+type PrestartFirstHook = Box<dyn FnOnce(&mut GenerationJobs<'_>) -> Option<i32>>;
+#[cfg(test)]
+thread_local! {
+    static PRESTART_FIRST_HOOK: RefCell<Option<PrestartFirstHook>> = const { RefCell::new(None) };
+    static PRESTART_GENERATION_HOOKS: RefCell<Option<Arc<PrestartGenerationHooks>>> = const { RefCell::new(None) };
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_prestart(
+    invocation: &Invocation,
+    state: &Arc<SearchState>,
+    main_state: &Arc<SearchState>,
+    board: &mut Board,
+    depth: u32,
+    ordered: &[Move],
+    lo: i32,
+    hi: i32,
+    history: &SearchHistory<'_>,
+) -> MainResult {
+    let counters = &invocation.counters;
+    let prestart = counters
+        .prestart
+        .get()
+        .expect("eligible prestart invocation");
+    let mut generation = Generation::with_wake(lo, ordered.len(), None);
+    if prestart.diagnostics.is_some() {
+        generation.prestart = Some(PrestartObserver {
+            pending: AtomicBool::new(true),
+            counters: prestart.clone(),
+        });
+    }
+    #[cfg(test)]
+    {
+        generation.prestart_hooks =
+            PRESTART_GENERATION_HOOKS.with(|hooks| hooks.borrow_mut().take());
+    }
+    generation
+        .remaining_helpers
+        .store(invocation.helpers, Ordering::Release);
+    let generation = Arc::new(generation);
+    // Installed before constructing any work or dispatching a single job.
+    let mut jobs = GenerationJobs {
+        generation: generation.clone(),
+        counters,
+        prestart,
+        budgets: Vec::with_capacity(invocation.helpers),
+        completions: Vec::with_capacity(invocation.helpers),
+        failed: false,
+        collected: false,
+        nodes: 0,
+    };
+    let leases: Vec<_> = (0..invocation.helpers)
+        .map(|_| HelperLease(generation.clone()))
+        .collect();
+    let mut works = Vec::with_capacity(invocation.helpers);
+    debug_assert!(history.entry.is_none() && history.parent.is_none());
+    for tables in std::iter::once(&counters.helper_tables).chain(&invocation.extra_helper_tables) {
+        let budget = Arc::new(Budget::cooperative_child(
+            state.budget.clone(),
+            generation.cancel.clone(),
+        ));
+        works.push(HelperWork {
+            state: participant_state(state, budget.clone(), Some(tables)),
+            generation: generation.clone(),
+            board: board.clone(),
+            ordered: Arc::from(ordered),
+            history: history.game.clone(),
+            depth,
+            helper_lmr: false,
+        });
+        jobs.budgets.push(budget);
+    }
+    counters.generations.fetch_add(1, Ordering::Relaxed);
+    prestart.passes.fetch_add(1, Ordering::Relaxed);
+    jobs.dispatch(invocation, works, leases);
+    let mut result = MainResult {
+        alpha: lo,
+        best: None,
+        raised: Vec::new(),
+        searched: Vec::new(),
+    };
+    // A disconnected executor is fatal; do not start/export any main result.
+    if jobs.failed {
+        jobs.collect(true);
+        panic!("cooperative root prestart executor disconnected");
+    }
+    if state.budget.should_abort() {
+        prestart.first_aborts.fetch_add(1, Ordering::Relaxed);
+        jobs.collect(true);
+        assert!(
+            !jobs.failed,
+            "cooperative root prestart executor failed before completing work"
+        );
+        return result;
+    }
+    counters.main_tasks.fetch_add(1, Ordering::Relaxed);
+    let first_observation = prestart
+        .diagnostics
+        .as_ref()
+        .map(|_| (Instant::now(), main_state.budget.nodes()));
+    #[cfg(test)]
+    let injected = PRESTART_FIRST_HOOK
+        .with(|hook| hook.borrow_mut().take())
+        .and_then(|hook| hook(&mut jobs));
+    #[cfg(test)]
+    let first_score = injected
+        .unwrap_or_else(|| child(main_state, board, ordered[0], depth - 1, lo, hi, history));
+    #[cfg(not(test))]
+    let first_score = child(main_state, board, ordered[0], depth - 1, lo, hi, history);
+    if let Some(observer) = &generation.prestart {
+        observer.pending.store(false, Ordering::Release);
+    }
+    if let (Some(diagnostics), Some((start, nodes))) = (&prestart.diagnostics, first_observation) {
+        diagnostics
+            .first_main_us
+            .fetch_add(elapsed_us(start), Ordering::Relaxed);
+        diagnostics
+            .first_main_nodes
+            .fetch_add(main_state.budget.nodes() - nodes, Ordering::Relaxed);
+    }
+    let aborted = state.budget.should_abort();
+    let first_beta = !aborted && first_score >= hi;
+    if aborted {
+        prestart.first_aborts.fetch_add(1, Ordering::Relaxed);
+    } else {
+        result.accept(&generation, ordered[0], first_score);
+        if first_beta {
+            prestart.first_beta_cuts.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    // Helper panic cancellation is also handled before any further main work.
+    if aborted || first_beta || generation.cancel.load(Ordering::Acquire) {
+        jobs.collect(true);
+    } else {
+        run_main(
+            &mut result,
+            &generation,
+            main_state,
+            state,
+            board,
+            ordered,
+            depth,
+            hi,
+            history,
+            counters,
+        );
+        jobs.collect(result.alpha >= hi || state.budget.should_abort());
+    }
+    assert!(
+        !jobs.failed,
+        "cooperative root prestart executor failed before completing work"
+    );
+    if first_beta && let Some(diagnostics) = &prestart.diagnostics {
+        diagnostics
+            .first_beta_helper_nodes
+            .fetch_add(jobs.nodes, Ordering::Relaxed);
+    }
+    // Jobs may have finished while index 0 was active. Their ready LOWER
+    // advice must still be confirmed against worker 0's latest alpha.
+    if !aborted && result.alpha < hi && !state.budget.should_abort() {
+        result.confirm_ready(
+            &generation,
+            main_state,
+            board,
+            ordered,
+            depth,
+            hi,
+            history,
+            counters,
+        );
+    }
+    generation.stop();
+    result
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn search(
     state: &Arc<SearchState>,
@@ -1920,6 +2363,24 @@ pub(super) fn search(
         budget: main_budget.clone(),
     };
     let main_state = participant_state(state, main_budget, None);
+    if invocation.counters.prestart.get().is_some() && prestart_window(depth, ordered.len(), lo, hi)
+    {
+        if state.budget.should_abort() {
+            return (None, lo);
+        }
+        let result = search_prestart(
+            &invocation,
+            state,
+            &main_state,
+            board,
+            depth,
+            ordered,
+            lo,
+            hi,
+            history,
+        );
+        return finish_root(state, &main_state, board, depth, ordered, hi, result);
+    }
     counters.main_tasks.fetch_add(1, Ordering::Relaxed);
     let first_score = child(&main_state, board, first, depth - 1, lo, hi, history);
     let mut result = MainResult {
@@ -2186,10 +2647,22 @@ pub(super) fn search(
             .fetch_add(helper_budget.nodes(), Ordering::Relaxed);
     }
     generation.stop();
+    finish_root(state, &main_state, board, depth, ordered, hi, result)
+}
+
+fn finish_root(
+    state: &Arc<SearchState>,
+    main_state: &Arc<SearchState>,
+    board: &mut Board,
+    depth: u32,
+    ordered: &[Move],
+    hi: i32,
+    mut result: MainResult,
+) -> (Option<Move>, i32) {
     if !state.budget.should_abort() {
         let v2_root = p::SEARCH_V2() != 0 && p::V2_ROOT() != 0;
         if v2_root && let Some(best) = result.best {
-            v2::root_learn(&main_state, board, best, &result.searched, depth);
+            v2::root_learn(main_state, board, best, &result.searched, depth);
         }
         if p::ROOT_ORDER() != 0 || v2_root {
             result
@@ -2206,7 +2679,7 @@ pub(super) fn search(
         }
         if let Some(mv) = result.best {
             store_tt_for_search(
-                &main_state,
+                main_state,
                 board.hash(),
                 TtEntry {
                     score: score_to_tt(result.alpha, 0),
@@ -2933,11 +3406,11 @@ mod tests {
     #[test]
     fn participation_is_released_when_a_task_unwinds() {
         let generation = Generation::new(0, 2);
-        let result = std::panic::catch_unwind(|| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _participation = Participation::new(&generation);
             assert_eq!(generation.participants.load(Ordering::Acquire), 1);
             panic!("task fails");
-        });
+        }));
         assert!(result.is_err());
         assert_eq!(generation.participants.load(Ordering::Acquire), 0);
     }
@@ -3972,10 +4445,10 @@ mod tests {
     #[test]
     fn unwind_guard_cancels_generation_before_join() {
         let generation = Generation::new(0, 2);
-        let result = std::panic::catch_unwind(|| {
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let _cancel = CancelOnDrop(&generation);
             panic!("main participant fails");
-        });
+        }));
         assert!(result.is_err());
         assert!(generation.cancel.load(Ordering::Acquire));
     }
@@ -4791,5 +5264,726 @@ mod tests {
         drop(leases);
         assert!(generation.helper_finished.load(Ordering::Acquire));
         assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+    }
+
+    fn prestart_test_invocation(
+        helpers: usize,
+        unavailable: &[usize],
+        diagnostics: bool,
+    ) -> Rc<Invocation> {
+        let counters = Arc::new(Counters::default());
+        counters
+            .prestart
+            .set(Arc::new(PrestartCounters {
+                diagnostics: diagnostics.then(PrestartDiagnosticsCounters::default),
+                ..PrestartCounters::default()
+            }))
+            .ok()
+            .unwrap();
+        let mut invocation = persistent_group_invocation(counters, helpers, unavailable);
+        Rc::get_mut(&mut invocation).unwrap().drain = false;
+        invocation
+    }
+
+    #[test]
+    fn prestart_eligibility_excludes_other_policies_and_unbounded_or_mate_windows() {
+        for helpers in [1, 3, 7] {
+            for persistent in [false, true] {
+                for bit in 0..5 {
+                    let policy = bit > 0;
+                    assert_eq!(
+                        prestart_mode(persistent, helpers, bit == 1, bit == 2, bit == 3, bit == 4),
+                        persistent && helpers > 1 && !policy
+                    );
+                }
+            }
+        }
+        for (depth, moves, lo, hi, eligible) in [
+            (2, 2, -100, 100, true),
+            (1, 2, -100, 100, false),
+            (2, 1, -100, 100, false),
+            (2, 2, super::super::NEG_INF, 100, false),
+            (2, 2, -100, super::super::POS_INF, false),
+            (2, 2, 10, 10, false),
+            (2, 2, 20, 10, false),
+            (2, 2, i32::MIN, 100, false),
+            (2, 2, -100, i32::MAX, false),
+            (2, 2, -super::super::MATE_SCORE + 1000, 100, false),
+            (2, 2, -100, super::super::MATE_SCORE - 1000, false),
+        ] {
+            assert_eq!(prestart_window(depth, moves, lo, hi), eligible);
+        }
+    }
+
+    #[test]
+    fn prestart_dispatches_all_jobs_and_keeps_ready_advice_when_first_returns_last() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                let invocation = prestart_test_invocation(helpers, &[], true);
+                let counters = invocation.counters.clone();
+                let state = test_state();
+                let mut board = Board::startpos();
+                let hash = board.hash();
+                let acc = board.acc.clone();
+                let ordered = generate_legal_moves(&mut board);
+                let moves = ordered.len();
+                // This hook is inside the first-child call boundary. Waiting on
+                // owned completion channels is deterministic, with no sleeps.
+                PRESTART_FIRST_HOOK.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                        assert_eq!(jobs.generation.alpha.load(Ordering::Acquire), -10_000);
+                        jobs.collect(false);
+                        assert!(!jobs.failed);
+                        assert!(jobs.generation.helper_finished.load(Ordering::Acquire));
+                        assert_eq!(jobs.generation.participants.load(Ordering::Acquire), 0);
+                        assert_eq!(
+                            jobs.counters.helper_probes.load(Ordering::Relaxed),
+                            moves as u64 - 1
+                        );
+                        assert_eq!(
+                            jobs.counters.helpers_started.load(Ordering::Relaxed),
+                            helpers as u64
+                        );
+                        assert!(
+                            jobs.generation
+                                .candidates
+                                .iter()
+                                .skip(1)
+                                .any(|slot| slot.ready.load(Ordering::Acquire))
+                        );
+                        None
+                    }))
+                });
+                let history = PositionHistory::initial(hash);
+                let activation = Activation::with_invocation(invocation.clone());
+                let (best, score) = search(
+                    &state,
+                    &mut board,
+                    2,
+                    &ordered,
+                    -10_000,
+                    10_000,
+                    &SearchHistory::root(&history),
+                );
+                drop(activation);
+                assert!(best.is_some());
+                assert!(score > -10_000);
+                assert_eq!(board.hash(), hash);
+                assert_eq!(board.acc, acc);
+                let stats = counters.snapshot();
+                assert!(stats.main_confirmations > 0);
+                assert_eq!(
+                    stats.helper_nodes,
+                    stats.helper_completed_nodes + stats.helper_aborted_nodes
+                );
+                assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                let p = counters.prestart.get().unwrap().snapshot();
+                let d = p.diagnostics.unwrap();
+                assert_eq!(d.helper_jobs_before_first_return, helpers as u64);
+                assert_eq!(
+                    d.helper_completed_probes_before_first_return,
+                    moves as u64 - 1
+                );
+                assert_eq!(
+                    d.helper_fail_highs_before_first_return,
+                    stats.helper_fail_highs
+                );
+                assert!(d.first_main_nodes > 0);
+                assert!(d.first_main_nodes <= stats.main_nodes);
+                assert_eq!(p.helper_nodes, stats.helper_nodes);
+                drop(invocation);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_first_beta_or_abort_collects_and_accounts_without_confirmations() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for abort in [false, true] {
+                    let invocation = prestart_test_invocation(helpers, &[], true);
+                    let counters = invocation.counters.clone();
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget =
+                        Arc::new(Budget::new(None, None, stop.clone()));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    PRESTART_FIRST_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                            jobs.collect(false);
+                            if abort {
+                                stop.store(true, Ordering::Release);
+                            }
+                            Some(if abort {
+                                0
+                            } else {
+                                super::super::MATE_SCORE - 1
+                            })
+                        }))
+                    });
+                    let history = PositionHistory::initial(hash);
+                    let activation = Activation::with_invocation(invocation.clone());
+                    let result = search(
+                        &state,
+                        &mut board,
+                        2,
+                        &ordered,
+                        -100,
+                        100,
+                        &SearchHistory::root(&history),
+                    );
+                    drop(activation);
+                    assert_eq!(
+                        result,
+                        if abort {
+                            (None, -100)
+                        } else {
+                            (Some(ordered[0]), super::super::MATE_SCORE - 1)
+                        }
+                    );
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    let stats = counters.snapshot();
+                    let p = counters.prestart.get().unwrap().snapshot();
+                    assert_eq!(stats.main_confirmations, 0);
+                    assert_eq!(stats.main_tasks, 1);
+                    assert_eq!(p.first_aborts, u64::from(abort));
+                    assert_eq!(p.first_beta_cuts, u64::from(!abort));
+                    assert_eq!(p.helper_nodes, stats.helper_nodes);
+                    assert_eq!(
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                        stats.helper_nodes
+                    );
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        p.diagnostics.unwrap().first_beta_helper_nodes,
+                        if abort { 0 } else { stats.helper_nodes }
+                    );
+                    if abort {
+                        assert!(state.tt.probe(hash).is_none());
+                    }
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        helpers as u64
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_shallow_finite_windows_match_sequential_bounds_and_preserve_board() {
+        on_search_stack(|| {
+            for sfen in [
+                crate::sfen::STARTPOS_SFEN,
+                "4k4/9/4p4/9/4P4/9/9/9/4K4 b - 1",
+                "4k4/9/4P4/9/9/9/9/9/4K4 b G 1",
+            ] {
+                for helpers in [3, 7] {
+                    for (lo, hi) in [(-10000, 10000), (10000, 11000), (-11000, -10000)] {
+                        let state = test_state();
+                        let invocation = prestart_test_invocation(helpers, &[], false);
+                        let counters = invocation.counters.clone();
+                        let mut board = Board::from_sfen(sfen).unwrap();
+                        let hash = board.hash();
+                        let acc = board.acc.clone();
+                        let ordered = generate_legal_moves(&mut board);
+                        let history = PositionHistory::initial(hash);
+                        let history = SearchHistory::root(&history);
+                        let sequential_state = test_state();
+                        let mut sequential_board = board.clone();
+                        let exact = ordered
+                            .iter()
+                            .map(|&mv| {
+                                child(
+                                    &sequential_state,
+                                    &mut sequential_board,
+                                    mv,
+                                    1,
+                                    super::super::NEG_INF,
+                                    super::super::POS_INF,
+                                    &history,
+                                )
+                            })
+                            .max()
+                            .unwrap();
+                        let activation = Activation::with_invocation(invocation.clone());
+                        let (best, score) =
+                            search(&state, &mut board, 2, &ordered, lo, hi, &history);
+                        drop(activation);
+                        if exact <= lo {
+                            assert_eq!((best, score), (None, lo));
+                            assert!(
+                                state.tt.probe(hash).is_none(),
+                                "fail-low must not export Exact at lo"
+                            );
+                        } else if exact >= hi {
+                            assert!(score >= hi);
+                            assert_eq!(state.tt.probe(hash).unwrap().bound, Bound::Lower);
+                        } else {
+                            assert_eq!(score, exact);
+                            assert!(ordered.contains(&best.unwrap()));
+                            assert_eq!(state.tt.probe(hash).unwrap().bound, Bound::Exact);
+                        }
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, acc);
+                        let stats = counters.snapshot();
+                        assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                        assert_eq!(
+                            stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                            stats.helper_nodes
+                        );
+                        assert!(
+                            counters
+                                .prestart
+                                .get()
+                                .unwrap()
+                                .snapshot()
+                                .diagnostics
+                                .is_none()
+                        );
+                        drop(invocation);
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_cached_spawn_failure_keeps_unclaimed_moves_and_accounts_survivors() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for unavailable in [
+                    vec![0],
+                    vec![helpers / 2],
+                    vec![helpers - 1],
+                    (0..helpers).collect(),
+                ] {
+                    let invocation = prestart_test_invocation(helpers, &unavailable, false);
+                    let counters = invocation.counters.clone();
+                    let state = test_state();
+                    let mut board = Board::startpos();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(board.hash());
+                    let activation = Activation::with_invocation(invocation.clone());
+                    let (best, score) = search(
+                        &state,
+                        &mut board,
+                        2,
+                        &ordered,
+                        -10_000,
+                        10_000,
+                        &SearchHistory::root(&history),
+                    );
+                    drop(activation);
+                    assert!(ordered.contains(&best.unwrap()));
+                    assert!(score > -10000);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.spawn_failures, unavailable.len() as u64);
+                    assert_eq!(stats.helpers_started + stats.spawn_failures, helpers as u64);
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes,
+                        stats.helper_nodes
+                    );
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        (helpers - unavailable.len()) as u64
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_main_unwind_drains_jobs_and_accounts_before_invocation_joins() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                let invocation = prestart_test_invocation(helpers, &[], false);
+                let counters = invocation.counters.clone();
+                let state = test_state();
+                let mut board = Board::startpos();
+                let ordered = generate_legal_moves(&mut board);
+                let history = PositionHistory::initial(board.hash());
+                let generation_seen = std::sync::Arc::new(OnceLock::new());
+                let hook_generation = generation_seen.clone();
+                PRESTART_FIRST_HOOK.with(|hook| {
+                    *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                        hook_generation.set(jobs.generation.clone()).ok().unwrap();
+                        panic!("first main child panics");
+                    }))
+                });
+                let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let _activation = Activation::with_invocation(invocation.clone());
+                    search(
+                        &state,
+                        &mut board,
+                        2,
+                        &ordered,
+                        -10000,
+                        10000,
+                        &SearchHistory::root(&history),
+                    );
+                }));
+                assert!(failed.is_err());
+                let generation = generation_seen.get().unwrap();
+                assert!(generation.cancel.load(Ordering::Acquire));
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                let stats = counters.snapshot();
+                assert_eq!(
+                    stats.helper_nodes,
+                    stats.helper_completed_nodes + stats.helper_aborted_nodes
+                );
+                assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                assert!(state.tt.probe(board.hash()).is_none());
+                drop(invocation);
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_disconnected_dispatch_collects_every_prior_job_before_failure() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for slot in [0, helpers / 2, helpers - 1] {
+                    let invocation = prestart_test_invocation(helpers, &[slot], false);
+                    let counters = invocation.counters.clone();
+                    let (sender, receiver) = mpsc::sync_channel(1);
+                    drop(receiver);
+                    invocation.group_executors.borrow_mut()[slot].sender = Some(sender);
+                    let state = test_state();
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _activation = Activation::with_invocation(invocation.clone());
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history),
+                        );
+                    }));
+                    assert!(failed.is_err());
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    assert!(state.tt.probe(hash).is_none());
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_tasks, 0);
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        (helpers - 1) as u64
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_helper_failure_is_collected_before_any_result_export_and_all_workers_join() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                let invocation = prestart_test_invocation(helpers, &[], false);
+                let counters = invocation.counters.clone();
+                let prestart = counters.prestart.get().unwrap().clone();
+                let generation = Arc::new(Generation::new(-100, 2));
+                let (works, leases) =
+                    persistent_group_jobs(&invocation, &generation, Some(helpers / 2));
+                let budgets = works.iter().map(|work| work.state.budget.clone()).collect();
+                let mut jobs = GenerationJobs {
+                    generation: generation.clone(),
+                    counters: &counters,
+                    prestart: &prestart,
+                    budgets,
+                    completions: Vec::new(),
+                    failed: false,
+                    collected: false,
+                    nodes: 0,
+                };
+                jobs.dispatch(&invocation, works, leases);
+                jobs.collect(false);
+                assert!(jobs.failed);
+                assert!(generation.cancel.load(Ordering::Acquire));
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                let first_account = counters.helper_nodes.load(Ordering::Relaxed);
+                jobs.collect(true);
+                assert_eq!(counters.helper_nodes.load(Ordering::Relaxed), first_account);
+                drop(jobs);
+                let failed =
+                    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(invocation)));
+                assert!(failed.is_err());
+                assert_eq!(
+                    counters.snapshot().physical_helper_threads_joined,
+                    helpers as u64
+                );
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_parent_stop_before_dispatch_and_shared_node_exhaustion_preserve_board() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                for stopped in [false, true] {
+                    let invocation = prestart_test_invocation(helpers, &[], false);
+                    let counters = invocation.counters.clone();
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget = Arc::new(Budget::new(
+                        None,
+                        Some(1),
+                        Arc::new(AtomicBool::new(stopped)),
+                    ));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let activation = Activation::with_invocation(invocation.clone());
+                    assert_eq!(
+                        search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -10000,
+                            10000,
+                            &SearchHistory::root(&history)
+                        ),
+                        (None, -10000)
+                    );
+                    drop(activation);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    assert!(state.tt.probe(hash).is_none());
+                    let stats = counters.snapshot();
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    if stopped {
+                        assert_eq!(stats.generations, 0);
+                        assert_eq!(stats.physical_helper_threads_started, 0);
+                    } else {
+                        assert_eq!(counters.prestart.get().unwrap().snapshot().first_aborts, 1);
+                    }
+                    drop(invocation);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_started,
+                        counters.snapshot().physical_helper_threads_joined
+                    );
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn prestart_alpha_uses_each_current_window_and_never_previous_iteration_score() {
+        let mut board = Board::startpos();
+        let ordered = generate_legal_moves(&mut board);
+        for (lo, first, later, expected) in
+            [(100, 110, 140, 140), (100, 50, 90, 100), (0, 110, 140, 140)]
+        {
+            let generation = Generation::new(lo, ordered.len());
+            let task = generation.claim(ordered.len()).unwrap();
+            assert_eq!(task.move_index, 1);
+            assert_eq!(task.alpha_snapshot, lo);
+            let mut result = MainResult {
+                alpha: lo,
+                best: None,
+                raised: Vec::new(),
+                searched: Vec::new(),
+            };
+            result.accept(&generation, ordered[0], first);
+            assert_eq!(generation.alpha.load(Ordering::Acquire), lo.max(first));
+            // For [100,200], previous-depth 150 cannot influence this task:
+            // later 140 fails high at current lo and requires confirmation.
+            if later > task.alpha_snapshot {
+                result.accept(&generation, ordered[1], later);
+            }
+            assert_eq!(result.alpha, expected);
+            generation.stop();
+            let retry = Generation::new(lo - 50, ordered.len());
+            assert_ne!(retry.id, generation.id);
+            assert_eq!(retry.claim(ordered.len()).unwrap().alpha_snapshot, lo - 50);
+            assert!(!retry.publish(RootCandidate {
+                alpha_snapshot: lo,
+                generation: generation.id,
+                move_index: 1,
+                score: later,
+                searched_depth: 2
+            }));
+        }
+    }
+
+    #[test]
+    fn prestart_first_beta_abort_and_helper_panic_cancel_running_jobs_before_result_export() {
+        on_search_stack(|| {
+            for helpers in [3, 7] {
+                // Each helper enters with participation held, then waits until
+                // cancellation has been observed by the coordinator. Main's
+                // first-child hook therefore cannot accidentally test only
+                // helpers that had already completed.
+                for mode in 0..3 {
+                    let invocation = prestart_test_invocation(helpers, &[], false);
+                    let counters = invocation.counters.clone();
+                    let stop = Arc::new(AtomicBool::new(false));
+                    let mut state = test_state();
+                    Arc::get_mut(&mut state).unwrap().budget =
+                        Arc::new(Budget::new(None, None, stop.clone()));
+                    let mut board = Board::startpos();
+                    let hash = board.hash();
+                    let acc = board.acc.clone();
+                    let ordered = generate_legal_moves(&mut board);
+                    let history = PositionHistory::initial(hash);
+                    let release =
+                        Arc::new((std::sync::Mutex::new(false), std::sync::Condvar::new()));
+                    let (started, starts) = mpsc::channel();
+                    let (cancelled, cancellation) = mpsc::channel();
+                    let entered = Arc::new(AtomicUsize::new(0));
+                    let helper_release = release.clone();
+                    let hook_entered = entered.clone();
+                    PRESTART_GENERATION_HOOKS.with(|hooks| {
+                        *hooks.borrow_mut() = Some(Arc::new(PrestartGenerationHooks {
+                            helper_entry: Arc::new(move |_| {
+                                let index = hook_entered.fetch_add(1, Ordering::AcqRel);
+                                started.send(()).unwrap();
+                                let (ready, wake) = &*helper_release;
+                                let lock = ready.lock().unwrap();
+                                let (lock, timeout) = wake
+                                    .wait_timeout_while(lock, Duration::from_secs(10), |ready| {
+                                        !*ready
+                                    })
+                                    .unwrap();
+                                assert!(
+                                    *lock && !timeout.timed_out(),
+                                    "coordinator must release every helper"
+                                );
+                                drop(lock);
+                                if mode == 2 && index == 0 {
+                                    panic!("helper fails while first main child is pending");
+                                }
+                            }),
+                            cancelled: Arc::new(move || {
+                                let _ = cancelled.send(());
+                            }),
+                        }))
+                    });
+                    let seen = Arc::new(OnceLock::new());
+                    let hook_seen = seen.clone();
+                    // For the helper-panic case the coordinator starts helpers
+                    // after all entries, then main waits on every completion.
+                    let (release_request, release_requests) = mpsc::channel();
+                    let coordinator = std::thread::spawn(move || {
+                        if mode == 2 {
+                            release_requests
+                                .recv_timeout(Duration::from_secs(10))
+                                .unwrap();
+                        } else {
+                            cancellation.recv_timeout(Duration::from_secs(10)).unwrap();
+                        }
+                        let (ready, wake) = &*release;
+                        *ready.lock().unwrap() = true;
+                        wake.notify_all();
+                    });
+                    PRESTART_FIRST_HOOK.with(|hook| {
+                        *hook.borrow_mut() = Some(Box::new(move |jobs| {
+                            for _ in 0..helpers {
+                                starts.recv_timeout(Duration::from_secs(10)).unwrap();
+                            }
+                            assert_eq!(
+                                jobs.generation.participants.load(Ordering::Acquire),
+                                helpers
+                            );
+                            assert_eq!(
+                                jobs.generation.remaining_helpers.load(Ordering::Acquire),
+                                helpers
+                            );
+                            hook_seen.set(jobs.generation.clone()).ok().unwrap();
+                            if mode == 1 {
+                                stop.store(true, Ordering::Release);
+                            }
+                            if mode == 2 {
+                                release_request.send(()).unwrap();
+                                jobs.collect(false);
+                                assert!(jobs.failed);
+                            }
+                            Some(if mode == 1 { 0 } else { 100 })
+                        }))
+                    });
+                    let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let _activation = Activation::with_invocation(invocation.clone());
+                        let result = search(
+                            &state,
+                            &mut board,
+                            2,
+                            &ordered,
+                            -100,
+                            100,
+                            &SearchHistory::root(&history),
+                        );
+                        assert_eq!(
+                            result,
+                            if mode == 1 {
+                                (None, -100)
+                            } else {
+                                (Some(ordered[0]), 100)
+                            }
+                        );
+                    }));
+                    coordinator.join().unwrap();
+                    assert_eq!(failed.is_err(), mode == 2);
+                    let generation = seen.get().unwrap();
+                    assert!(generation.cancel.load(Ordering::Acquire));
+                    assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                    assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, acc);
+                    let stats = counters.snapshot();
+                    assert_eq!(stats.main_confirmations, 0);
+                    assert_eq!(stats.main_nodes + stats.helper_nodes, state.budget.nodes());
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    if mode != 0 {
+                        assert!(state.tt.probe(hash).is_none());
+                    }
+                    let shutdown =
+                        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| drop(invocation)));
+                    assert_eq!(shutdown.is_err(), mode == 2);
+                    assert_eq!(
+                        counters.snapshot().physical_helper_threads_joined,
+                        helpers as u64
+                    );
+                }
+            }
+        });
     }
 }

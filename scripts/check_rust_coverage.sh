@@ -163,6 +163,20 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Prestart activation and observer separation use isolated process-wide tune state.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/cooperative-root-prestart-summary.json" \
+  -- lazy_smp::tests::tuned_prestart_activation_separates_observer_and_preserves_fallbacks \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release

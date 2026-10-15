@@ -346,5 +346,100 @@ class PairedDiagnosticsTests(unittest.TestCase):
         self.assertEqual(dropped, "4k4/9/4p4/9/9/9/9/9/4K4 b - 2")
 
 
+class CooperativePrestartPairingTests(unittest.TestCase):
+    def test_interrupted_abba_preserves_partial_rows_and_disqualifies_timing(self):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        # Exercise both ordinary exceptions and BaseException cancellation.
+        for error in (RuntimeError("synthetic engine failure"), KeyboardInterrupt()):
+            with self.subTest(error=type(error).__name__), TemporaryDirectory() as tmp:
+                root = Path(tmp)
+                engine = root / "engine"
+                engine.write_bytes(b"frozen interrupted engine fixture")
+                positions = root / "positions.sfen"
+                positions.write_text("startpos\n")
+                output = root / "out"
+                args = ["paired_search_diagnostics.py", "--baseline", str(engine),
+                        "--candidate", str(engine), "--positions", str(positions),
+                        "--output", str(output), "--threads", "4", "--count", "1", "--repeats", "1"]
+                idle = {"available": True, "busy_processes": [], "load_average": [0, 0, 0]}
+                first = [dict(threads=4, depth=8, nodes=100, wall_nps=1000, elapsed_ms=100,
+                              bestmove="7g7f", score=["cp", "0"], pv=["7g7f"])]
+                with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=idle), patch("paired_search_diagnostics.measure", side_effect=[first, error]), patch("builtins.print"):
+                    with self.assertRaises(type(error)):
+                        paired_main()
+                manifest = json.loads((output / "manifest.json").read_text())
+                self.assertEqual(manifest["status"], "incomplete")
+                self.assertEqual(manifest["completed_searches"], 1)
+                self.assertFalse(manifest["timing_qualified"])
+                rows = [json.loads(line) for line in (output / "rows.jsonl").read_text().splitlines()]
+                self.assertEqual(len(rows), 1)
+                self.assertEqual((rows[0]["side"], rows[0]["abba_slot"]), ("A", 0))
+                self.assertFalse((output / "summary.json").exists())
+
+    def test_prestart_metrics_keep_intrinsic_and_observer_names_separate(self):
+        base = dict(depth=8, nodes=100, wall_nps=1000, elapsed_ms=100)
+        intrinsic = dict(passes=2, first_beta_cuts=1, first_aborts=0, helper_nodes=20)
+        observer = dict(helper_jobs_before_first_return=3, helper_completed_probes_before_first_return=2,
+                        helper_fail_highs_before_first_return=1, first_main_nodes=15,
+                        first_main_us=80, first_beta_helper_nodes=5)
+        plain = work_metrics({**base, "cooperative_root_prestart": intrinsic})
+        self.assertEqual(plain["coop_prestart_helper_nodes"], 20)
+        self.assertNotIn("coop_prestart_diag_first_main_us", plain)
+        observed = work_metrics({**base, "cooperative_root_prestart": intrinsic,
+                                 "cooperative_root_prestart_diag": observer})
+        self.assertEqual(observed["coop_prestart_passes"], 2)
+        self.assertEqual(observed["coop_prestart_diag_helper_completed_probes_before_first_return"], 2)
+        self.assertEqual(observed["coop_prestart_diag_first_main_nodes"], 15)
+
+    def test_prestart_without_observer_retains_abba_timing_qualification(self):
+        self.check_lane(common_diag=0, side_options=["--a-option", "T_COOP_PRESTART=0",
+                                                    "--b-option", "T_COOP_PRESTART=1"],
+                        requested={"A": False, "B": False}, qualified=True)
+
+    def test_prestart_observer_request_excludes_timing_and_tracks_each_abba_arm(self):
+        # Per-arm overrides take precedence over common options.
+        self.check_lane(common_diag=1, side_options=["--a-option", "T_COOP_PRESTART_DIAG=0",
+                                                    "--b-option", "T_COOP_PRESTART_DIAG=1"],
+                        requested={"A": False, "B": True}, qualified=False)
+        self.check_lane(common_diag=1, side_options=["--a-option", "T_COOP_PRESTART=0",
+                                                    "--b-option", "T_COOP_PRESTART=1"],
+                        requested={"A": True, "B": True}, qualified=False)
+
+    def check_lane(self, *, common_diag, side_options, requested, qualified):
+        import json
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            engine = root / "engine"
+            engine.write_bytes(b"frozen prestart engine fixture")
+            positions = root / "positions.sfen"
+            positions.write_text("startpos\n")
+            output = root / "out"
+            args = ["paired_search_diagnostics.py", "--baseline", str(engine),
+                    "--candidate", str(engine), "--positions", str(positions),
+                    "--output", str(output), "--threads", "4", "--count", "1", "--repeats", "1",
+                    "--option", f"T_COOP_PRESTART_DIAG={common_diag}", *side_options]
+            idle = {"available": True, "busy_processes": [], "load_average": [0, 0, 0]}
+            observed = []
+            def fake_measure(lane, threads, positions):
+                observed.append(lane)
+                return [dict(threads=threads, depth=8, nodes=100, wall_nps=1000, elapsed_ms=100,
+                             bestmove="7g7f", score=["cp", "0"], pv=["7g7f"])]
+            with patch("sys.argv", args), patch("paired_search_diagnostics.host_activity", return_value=idle), patch("paired_search_diagnostics.measure", side_effect=fake_measure), patch("builtins.print"):
+                self.assertEqual(paired_main(), 0)
+            manifest = json.loads((output / "manifest.json").read_text())
+            self.assertEqual(manifest["status"], "complete")
+            self.assertEqual(manifest["cooperative_prestart_instrumentation_requested"], requested)
+            self.assertEqual(manifest["timing_qualified"], qualified)
+            self.assertFalse(manifest["counter_lane"])
+            abba = [requested[side] for side in "ABBA"]
+            self.assertEqual([lane.provenance["cooperative_prestart_instrumentation_requested"] for lane in observed], abba)
+            self.assertEqual([lane.provenance["counter_overhead_included"] for lane in observed], abba)
+            self.assertTrue(all(not lane.require_lazy_diagnostics for lane in observed))
+
+
 if __name__ == "__main__":
     unittest.main()

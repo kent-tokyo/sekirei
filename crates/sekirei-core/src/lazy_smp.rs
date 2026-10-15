@@ -2022,4 +2022,94 @@ mod tests {
             }
         }
     }
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-wide cooperative tuning parameters"]
+    fn tuned_prestart_activation_separates_observer_and_preserves_fallbacks() {
+        use crate::search::params as p;
+        struct Restore(Vec<(&'static str, i32)>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for &(name, value) in &self.0 {
+                    let _ = p::set(name, value);
+                }
+            }
+        }
+        let _restore = Restore(vec![
+            ("COOP_MULTI", p::COOP_MULTI()),
+            ("COOP_PERSISTENT", p::COOP_PERSISTENT()),
+            ("COOP_PRESTART", p::COOP_PRESTART()),
+            ("COOP_PRESTART_DIAG", p::COOP_PRESTART_DIAG()),
+            ("COOP_DRAIN", p::COOP_DRAIN()),
+            ("COOP_PRIORITY", p::COOP_PRIORITY()),
+            ("COOP_HELPER_LMR", p::COOP_HELPER_LMR()),
+            ("COOP_LATENCY", p::COOP_LATENCY()),
+            ("SEARCH_V2", p::SEARCH_V2()),
+        ]);
+        for name in [
+            "COOP_DRAIN",
+            "COOP_PRIORITY",
+            "COOP_HELPER_LMR",
+            "COOP_LATENCY",
+        ] {
+            assert!(p::set(name, 0));
+        }
+        assert!(p::set("COOP_MULTI", 1));
+        assert!(p::set("SEARCH_V2", 1));
+        for workers in [1, 2, 4, 8] {
+            for (enabled, observer, persistent, isolated, conflicting) in [
+                (0, 0, 1, false, false),
+                (1, 0, 1, false, false),
+                (1, 1, 1, false, false),
+                (1, 1, 0, false, false),
+                (1, 1, 1, true, false),
+                (1, 1, 1, false, true),
+            ] {
+                assert!(p::set("COOP_PRESTART", enabled));
+                assert!(p::set("COOP_PRESTART_DIAG", observer));
+                assert!(p::set("COOP_PERSISTENT", persistent));
+                assert!(p::set("COOP_LATENCY", i32::from(conflicting)));
+                let flags = LAZY_DEFAULT_FLAGS
+                    | LAZY_ROOT_SPLIT
+                    | if isolated { LAZY_ISOLATED_TT } else { 0 };
+                let searcher = LazySmpSearcher::with_flags(Tt::new(1), workers, flags);
+                let board = Board::startpos();
+                let history = PositionHistory::initial(board.hash());
+                let info = searcher.search_with_history(
+                    &board,
+                    SearchConfig {
+                        max_depth: 6,
+                        ..SearchConfig::default()
+                    },
+                    &history,
+                );
+                let prestart = searcher
+                    .cooperative_root_wait_stats()
+                    .and_then(|s| s.prestart);
+                let eligible = enabled == 1
+                    && persistent == 1
+                    && matches!(workers, 4 | 8)
+                    && !isolated
+                    && !conflicting;
+                assert_eq!(prestart.is_some(), eligible);
+                if let Some(prestart) = prestart {
+                    assert!(prestart.passes > 0);
+                    assert_eq!(prestart.diagnostics.is_some(), observer == 1);
+                    let stats = searcher.cooperative_root_stats().unwrap();
+                    assert!(prestart.helper_nodes <= stats.helper_nodes);
+                    assert_eq!(stats.physical_helper_threads_started, (workers - 1) as u64);
+                    assert_eq!(
+                        stats.physical_helper_threads_started,
+                        stats.physical_helper_threads_joined
+                    );
+                    assert_eq!(
+                        stats.helpers_started,
+                        stats.generations * (workers - 1) as u64
+                    );
+                    assert_eq!(stats.spawn_failures, 0);
+                }
+                assert!(info.result.best_move.is_some());
+            }
+        }
+    }
 }

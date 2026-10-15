@@ -86,6 +86,10 @@ search_params! {
     COOP_PERSISTENT = 0, 0, 1;
     /// Opt-in cooperative root groups for exactly four or eight workers.
     COOP_MULTI = 0, 0, 1;
+    /// Opt-in persistent root helpers before the first finite-window root child.
+    COOP_PRESTART = 0, 0, 1;
+    /// Observe pre-first helper work separately from the ordinary timing lane.
+    COOP_PRESTART_DIAG = 0, 0, 1;
     /// Confirm ready root candidates while awaiting the cooperative helper.
     COOP_DRAIN = 0, 0, 1;
     /// Observe cooperative helper-advice latency without changing search policy.
