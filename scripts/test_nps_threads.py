@@ -21,6 +21,8 @@ from nps_threads import (  # noqa: E402
     engine_options,
     format_optional_ratio,
     go_command,
+    positive_u64,
+    main as nps_main,
     measure,
     parse_bestmove,
     parse_cooperative_root,
@@ -1286,6 +1288,52 @@ class CooperativePrestartTests(unittest.TestCase):
                 self.assertEqual(row["provenance"]["cooperative_prestart_overhead_included"], diagnostic)
                 self.assertEqual(row["provenance"]["counter_overhead_included"], diagnostic)
                 self.assertEqual(row["provenance"]["timing_qualified"], not diagnostic)
+
+
+class FixedNodeMeasurementTests(unittest.TestCase):
+    def test_positive_node_limit_is_strict_ascii_u64_and_builds_go_command(self):
+        for token, expected in (("1", 1), ("00010", 10), ("0" * 5000 + "1", 1), (str((1 << 64) - 1), (1 << 64) - 1)):
+            with self.subTest(token=token):
+                self.assertEqual(positive_u64(token), expected)
+                self.assertEqual(go_command(argparse.Namespace(depth=None, nodes=expected, movetime=300)), f"go nodes {expected}")
+        for token in ("0", "-1", "+1", "１", "1.0", "1e3", "", " 1", str(1 << 64), "9" * 5000):
+            with self.subTest(token=token[:30]), self.assertRaises(argparse.ArgumentTypeError):
+                positive_u64(token)
+
+    def test_node_cli_rejects_conflicting_budgets_before_reading_inputs(self):
+        for flags in (["--nodes", "10", "--depth", "3"], ["--depth", "3", "--nodes", "10"],
+                      ["--nodes", "10", "--movetime", "300"], ["--nodes", "0"], ["--nodes", str(1 << 64)]):
+            with self.subTest(flags=flags), patch("sys.argv", ["nps_threads.py", "fake-engine", *flags]), patch("nps_threads.sys.stderr"), patch("nps_threads.read_positions") as read:
+                with self.assertRaises(SystemExit) as error:
+                    nps_main()
+                self.assertEqual(error.exception.code, 2)
+                read.assert_not_called()
+
+    def test_node_namespace_validation_precedes_engine_start(self):
+        for depth, nodes in ((3, 10), (None, 0), (None, -1), (None, 1 << 64), (None, True), (None, "10")):
+            with self.subTest(depth=depth, nodes=nodes), patch("nps_threads.Usi") as usi:
+                args = ThreadOptionsTest.measurement_args(yaneuraou=False, evalfile=None)
+                args.depth, args.nodes = depth, nodes
+                with self.assertRaises(ValueError):
+                    measure(args, 1, ["startpos"])
+                usi.assert_not_called()
+
+    def test_node_measurement_records_overshoot_without_timing_qualification(self):
+        for limit, overshoot in ((90, 10), (100, 0), (200, 0)):
+            with self.subTest(limit=limit):
+                args = ThreadOptionsTest.measurement_args(yaneuraou=False, evalfile=None)
+                args.depth, args.nodes = None, limit
+                args.provenance.update(timing_qualified=True)
+                with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+                    usi.return_value.wait_for.side_effect = ThreadOptionsTest.fake_response
+                    row = measure(args, 1, ["startpos"])[0]
+                usi.return_value.send.assert_any_call(f"go nodes {limit}")
+                self.assertEqual(row["nodes"], 100)
+                self.assertEqual(row["node_limit_overshoot"], overshoot)
+                self.assertEqual(row["provenance"]["node_limit"], limit)
+                self.assertEqual(row["provenance"]["measurement_phase"], "fixed_node_work_diagnostic")
+                self.assertEqual(row["provenance"]["budget"], f"go nodes {limit}")
+                self.assertFalse(row["provenance"]["timing_qualified"])
 
 
 if __name__ == "__main__":
