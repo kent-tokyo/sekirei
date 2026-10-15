@@ -22,6 +22,7 @@ sha2 = { version = "0.10", optional = true }
 default = []
 opening-book = ["dep:lineprior", "dep:serde", "dep:serde_json", "dep:sha2"]
 tune = ["sekirei-core/tune"]
+repetition_filter2 = ["sekirei-core/repetition_filter2"]
 king_relative_b_small = ["sekirei-core/king_relative_b_small"]
 nnue_l1_384 = ["sekirei-core/nnue_l1_384"]
 nnue_l1_128 = ["sekirei-core/nnue_l1_128"]

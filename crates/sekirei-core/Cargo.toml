@@ -14,6 +14,9 @@ web-time = "1.1"
 # Search constants become run-time settable (USI options T_<NAME>) for
 # self-play tuning. Never enabled in release builds.
 tune = []
+# Opt-in CPU experiment: two bits in the existing repetition Bloom filter.
+# A compile-time mode prevents mixed filter rules during an active search.
+repetition_filter2 = []
 king_relative_b_small = []
 nnue_l1_384 = []
 nnue_l1_128 = []

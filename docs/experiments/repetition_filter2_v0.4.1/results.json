@@ -1,0 +1,356 @@
+{
+  "schema": "sekirei.repetition-filter2-validation.v1",
+  "base_commit": "0f015b3a3f467e5e8e6d1400b0ab0df1c5a061c2",
+  "frozen_source_commit": "d4ff3765c95b758adb886c3cc1d1b3e5e414ea36",
+  "normal_native_without_tune_or_pgo": true,
+  "builds": {
+    "A": {
+      "source_commit": "d4ff3765c95b758adb886c3cc1d1b3e5e414ea36",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei"
+      ],
+      "features": [],
+      "started_at": "2026-10-15T03:55:28.799262+00:00",
+      "disk_free_before_bytes": 3666116608,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T03:56:32.141556+00:00",
+      "source_commit_after": "d4ff3765c95b758adb886c3cc1d1b3e5e414ea36",
+      "source_dirty_after": "",
+      "build_log_sha256": "03d8dd358646ee8b6a4e64806196531703467514e40a54a4a362e6a41dfc0471",
+      "engine_sha256": "65399ac891055aaac226adfb57d868a4cf6788abb24a3716e2758eec1df15f34"
+    },
+    "B": {
+      "source_commit": "d4ff3765c95b758adb886c3cc1d1b3e5e414ea36",
+      "source_dirty_before": "",
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "build_environment": {
+        "RUSTFLAGS": null,
+        "CARGO_ENCODED_RUSTFLAGS": null,
+        "CARGO_BUILD_RUSTFLAGS": null,
+        "LLVM_PROFILE_FILE": null
+      },
+      "build_command": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "-p",
+        "sekirei",
+        "--features",
+        "repetition_filter2"
+      ],
+      "features": [
+        "repetition_filter2"
+      ],
+      "started_at": "2026-10-15T03:56:32.328031+00:00",
+      "disk_free_before_bytes": 3670999040,
+      "exit_code": 0,
+      "completed_at": "2026-10-15T03:57:47.236582+00:00",
+      "source_commit_after": "d4ff3765c95b758adb886c3cc1d1b3e5e414ea36",
+      "source_dirty_after": "",
+      "build_log_sha256": "636db891d849a07703480f81de66d0f1d3bdf264ba89184bb8178e21eb05284a",
+      "engine_sha256": "90cd2a219b2e2a3ae5b1c6eb493a75a6abc1c96e45a65c6b5ceafadb142f271e"
+    }
+  },
+  "tests": {
+    "core_default_passed": 379,
+    "core_enabled_passed": 379,
+    "ignored_per_core_run": 4,
+    "final_expanded_contract_tests_per_build": 2,
+    "default_workspace_clippy": true,
+    "feature_core_clippy": true
+  },
+  "fixed_depth": {
+    "1": {
+      "blocks": 20,
+      "exact_identity_blocks": 20,
+      "within_side_nondeterministic_blocks": 0,
+      "identity_pass": true
+    },
+    "4": {
+      "blocks": 20,
+      "exact_identity_blocks": 0,
+      "within_side_nondeterministic_blocks": 20,
+      "identity_pass": null
+    },
+    "8": {
+      "blocks": 20,
+      "exact_identity_blocks": 0,
+      "within_side_nondeterministic_blocks": 20,
+      "identity_pass": null
+    }
+  },
+  "pv_validation": {
+    "rows": 720,
+    "moves": 5701,
+    "violations": 0,
+    "scope": "same-rules replay; not independent oracle or mate proof"
+  },
+  "timing": {
+    "attempts": 1,
+    "completed_searches": 480,
+    "qualified": false,
+    "host_before": {
+      "available": true,
+      "busy_process_threshold_percent": 25,
+      "busy_processes": [],
+      "load_average": [
+        3.09912109375,
+        3.80126953125,
+        3.1064453125
+      ]
+    },
+    "host_after": {
+      "available": true,
+      "busy_process_threshold_percent": 25,
+      "busy_processes": [
+        {
+          "pid": 81513,
+          "cpu_percent": 99.0,
+          "command": "/private/tmp/chematic-openbabel-v3000-20261014/openbabel-v3000"
+        }
+      ],
+      "load_average": [
+        6.45458984375,
+        4.81591796875,
+        3.64453125
+      ]
+    },
+    "retry_permitted_after_completed_run": false,
+    "raw_development_screen": {
+      "schema": "sekirei.repetition-filter2-development-screen.v1",
+      "timing_qualified": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261015,
+      "percentile_rule": "sorted samples at floor(p*(n-1))",
+      "all_positions_retained": true,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 40,
+          "geometric_mean_nps_ratio": 0.9984583105559652,
+          "position_bootstrap_95_percent": [
+            0.9840692861496866,
+            1.0086103413427814
+          ],
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_geometric_mean_nps_ratio": {
+            "A_first": 0.9968570357462557,
+            "B_first": 1.0000247616896845
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 40,
+          "geometric_mean_nps_ratio": 1.014184028470436,
+          "position_bootstrap_95_percent": [
+            1.0013399019719766,
+            1.0274120918800533
+          ],
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_geometric_mean_nps_ratio": {
+            "A_first": 1.0174619775989864,
+            "B_first": 1.0114899902836185
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 40,
+          "geometric_mean_nps_ratio": 1.0009743562520115,
+          "position_bootstrap_95_percent": [
+            0.9814407842078536,
+            1.0158812928747376
+          ],
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": -0.25
+          },
+          "directional_geometric_mean_nps_ratio": {
+            "A_first": 1.0034641344952144,
+            "B_first": 0.9951650770867407
+          }
+        }
+      },
+      "development_screen_advance": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "inputs_sha256": {
+        "target/repetition-filter2-timed-attempt1/manifest.json": "f68b137793af445b8f707588a35082cb746e243358cb5f6abf1565488680f85f",
+        "target/repetition-filter2-timed-attempt1/rows.jsonl": "1d37a409d1742ddb54fc81ee722ab68ea9d05c29db03a6690466ebf0e56884c4",
+        "target/repetition-filter2-timed-attempt1/summary.json": "49bc13638cdec8ad414f1fa2c7ac9b02e16d7336a50546cc8bf249a1850194e6",
+        "/Users/k_tanabe/.codex/worktrees/lazy-smp-useful-depth/sekirei/target/analyze-repetition-filter2.py": "2832a4768b81c48b931f737f2a6ff5f0047e3a1a7bc6d9b03719810ac0b215b2"
+      }
+    }
+  },
+  "independent_h1": false,
+  "strength_claim": false,
+  "default_enabled": false,
+  "artifacts": {
+    "scripts/nps_threads.py": {
+      "sha256": "c53f618d1272c5ec14cea98b2f2148a3c95ec3181fa576e2856305ee0d05e7eb",
+      "bytes": 74439
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0422a8850567d0be1623da90cf009216c010b053bc22d513f522ae2f35693fbf",
+      "bytes": 21697
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/analyze-repetition-filter2.py": {
+      "sha256": "2832a4768b81c48b931f737f2a6ff5f0047e3a1a7bc6d9b03719810ac0b215b2",
+      "bytes": 3344
+    },
+    "target/build-repetition-filter2.py": {
+      "sha256": "0c21b3f77d068cc7465d0cce1bff4bb80d09d1ba7ac5638477de1642e3910f38",
+      "bytes": 2023
+    },
+    "target/repetition-filter2-build/A/build.log": {
+      "sha256": "03d8dd358646ee8b6a4e64806196531703467514e40a54a4a362e6a41dfc0471",
+      "bytes": 293
+    },
+    "target/repetition-filter2-build/A/engine": {
+      "sha256": "65399ac891055aaac226adfb57d868a4cf6788abb24a3716e2758eec1df15f34",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-build/A/receipt.json": {
+      "sha256": "5e2083c1ebafb8d2c796dde0626a7bd274bd5ec143bdae9ebf487a03a875ec14",
+      "bytes": 1154
+    },
+    "target/repetition-filter2-build/B/build.log": {
+      "sha256": "636db891d849a07703480f81de66d0f1d3bdf264ba89184bb8178e21eb05284a",
+      "bytes": 293
+    },
+    "target/repetition-filter2-build/B/engine": {
+      "sha256": "90cd2a219b2e2a3ae5b1c6eb493a75a6abc1c96e45a65c6b5ceafadb142f271e",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-build/B/receipt.json": {
+      "sha256": "3d20bafe8311125baf8f00959713e07b927810c32014fa7cca3724c8f5cf48d7",
+      "bytes": 1226
+    },
+    "target/repetition-filter2-default-core.log": {
+      "sha256": "356d8ca3e80211e87c4d04598b70aee91c067376696f344b70ca6e55ab30fa4b",
+      "bytes": 32312
+    },
+    "target/repetition-filter2-default-final.log": {
+      "sha256": "c70c570ef2445793ac77340c643a3242601656d38e05ba0b1a3a72efe6422a81",
+      "bytes": 883
+    },
+    "target/repetition-filter2-enabled-core.log": {
+      "sha256": "5c056c46d57d3e7c566ce2f687d1f5a41d905a69990b4badfafbdd3e3ef46697",
+      "bytes": 32312
+    },
+    "target/repetition-filter2-enabled-final.log": {
+      "sha256": "4afbd7872cd3cf448fbb8d2ea6d1ab02a4caeb8ba600aaa449e799d3bf04ec74",
+      "bytes": 883
+    },
+    "target/repetition-filter2-feature-clippy.log": {
+      "sha256": "e796ea9c735946e5e8e86051a6a23a1a963b7f19c0854ac466adf5527803cf3f",
+      "bytes": 233
+    },
+    "target/repetition-filter2-fixed/engine-A": {
+      "sha256": "65399ac891055aaac226adfb57d868a4cf6788abb24a3716e2758eec1df15f34",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-fixed/engine-B": {
+      "sha256": "90cd2a219b2e2a3ae5b1c6eb493a75a6abc1c96e45a65c6b5ceafadb142f271e",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-fixed/manifest.json": {
+      "sha256": "d6a6f3c3c10b9d44ba2ccb71bf285b5fe53732afcbb0658ec980b10bbe582db4",
+      "bytes": 3109
+    },
+    "target/repetition-filter2-fixed/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/repetition-filter2-fixed/rows.jsonl": {
+      "sha256": "0837486be9226e1f96fb8ff7fdd4c4c97a8174fa9d7e637b3654e8e8783ddb5f",
+      "bytes": 665966
+    },
+    "target/repetition-filter2-fixed/summary.json": {
+      "sha256": "0731ae6c41319fc125964bf676d7a7ae9ccf548de2f2696ac61806e544fd58f3",
+      "bytes": 241208
+    },
+    "target/repetition-filter2-fixed-pv.json": {
+      "sha256": "cf948cc9cc6b94798d197830b750ac0bb4fcc4453cd3c3ee8c4044be1f4904ea",
+      "bytes": 885
+    },
+    "target/repetition-filter2-fixed-pv.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    },
+    "target/repetition-filter2-presearch-binding.json": {
+      "sha256": "49592bf497b983fcb1b3895c565bc1a6cba90b8d97d25456c2b74779f1952c73",
+      "bytes": 1099
+    },
+    "target/repetition-filter2-timed-attempt1/development-screen.json": {
+      "sha256": "9453f4fde5fc1dd663529ea1258a1fd1555958f8be37a03ecf556533bdee74f7",
+      "bytes": 2350
+    },
+    "target/repetition-filter2-timed-attempt1/engine-A": {
+      "sha256": "65399ac891055aaac226adfb57d868a4cf6788abb24a3716e2758eec1df15f34",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-timed-attempt1/engine-B": {
+      "sha256": "90cd2a219b2e2a3ae5b1c6eb493a75a6abc1c96e45a65c6b5ceafadb142f271e",
+      "bytes": 4123760
+    },
+    "target/repetition-filter2-timed-attempt1/manifest.json": {
+      "sha256": "f68b137793af445b8f707588a35082cb746e243358cb5f6abf1565488680f85f",
+      "bytes": 2948
+    },
+    "target/repetition-filter2-timed-attempt1/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/repetition-filter2-timed-attempt1/rows.jsonl": {
+      "sha256": "1d37a409d1742ddb54fc81ee722ab68ea9d05c29db03a6690466ebf0e56884c4",
+      "bytes": 1359462
+    },
+    "target/repetition-filter2-timed-attempt1/summary.json": {
+      "sha256": "49bc13638cdec8ad414f1fa2c7ac9b02e16d7336a50546cc8bf249a1850194e6",
+      "bytes": 487444
+    },
+    "target/repetition-filter2-timed-attempt1.log": {
+      "sha256": "57c68624a6b563e68b462a19eb9dc6b7c2a06da44b176d199e56eb84f7e59966",
+      "bytes": 80700
+    },
+    "target/repetition-filter2-timed-pv.json": {
+      "sha256": "bbdf8123db8e44c00cbdf25dbe84adfec0e8ae37dc049da2d276dd983bc5ce9e",
+      "bytes": 895
+    },
+    "target/repetition-filter2-timed-pv.legal-moves": {
+      "sha256": "dfbe08d01ced743c0bbd409fe0ca816599d53daa4ef6dcbaa447e381c8d9dc00",
+      "bytes": 708704
+    }
+  }
+}

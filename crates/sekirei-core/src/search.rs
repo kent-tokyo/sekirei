@@ -2510,6 +2510,33 @@ fn extract_pv(tt: &Tt, board: &mut Board, first: Option<Move>, depth: u32) -> Ve
 // Root search with Aspiration Window
 // ============================================================
 
+// Test-only mechanism observations; absent from every benchmark executable.
+#[cfg(test)]
+#[derive(Clone, Copy, Debug, Default)]
+struct RepetitionFilterStats {
+    queries: u64,
+    fast_misses: u64,
+    exact_scans: u64,
+    visited_frames: u64,
+}
+
+#[cfg(test)]
+thread_local! {
+    static REPETITION_FILTER_STATS: std::cell::Cell<RepetitionFilterStats> =
+        const { std::cell::Cell::new(RepetitionFilterStats {
+            queries: 0, fast_misses: 0, exact_scans: 0, visited_frames: 0,
+        }) };
+}
+
+#[cfg(test)]
+fn record_repetition_filter(update: impl FnOnce(&mut RepetitionFilterStats)) {
+    REPETITION_FILTER_STATS.with(|cell| {
+        let mut stats = cell.get();
+        update(&mut stats);
+        cell.set(stats);
+    });
+}
+
 /// Repetition history as seen from one search node: the game history
 /// supplied with the position, followed by the moves of the current line.
 ///
@@ -2542,8 +2569,18 @@ impl<'a> SearchHistory<'a> {
     }
 
     #[inline(always)]
-    fn hash_bit(hash: u64) -> u64 {
-        1u64 << (hash >> 58)
+    fn hash_bits(hash: u64) -> u64 {
+        let first = 1u64 << (hash >> 58);
+        // Both indices are fixed for the executable. A runtime switch could
+        // require a bit that an already-created ancestor never inserted.
+        #[cfg(feature = "repetition_filter2")]
+        {
+            first | (1u64 << ((hash >> 52) & 63))
+        }
+        #[cfg(not(feature = "repetition_filter2"))]
+        {
+            first
+        }
     }
 
     #[inline]
@@ -2552,7 +2589,7 @@ impl<'a> SearchHistory<'a> {
             game: self.game,
             parent: Some(self),
             prior_hashes: self.prior_hashes
-                | self.entry.map_or(0, |entry| Self::hash_bit(entry.hash)),
+                | self.entry.map_or(0, |entry| Self::hash_bits(entry.hash)),
             entry: Some(PositionHistoryEntry {
                 hash,
                 mover: Some(mover),
@@ -2571,11 +2608,20 @@ impl<'a> SearchHistory<'a> {
         // The current frame contributes one occurrence. With fewer than
         // three occurrences in game history and no possible prior line match,
         // fourfold repetition is impossible.
-        if count < 3 && self.prior_hashes & Self::hash_bit(current.hash) == 0 {
+        #[cfg(test)]
+        record_repetition_filter(|stats| stats.queries += 1);
+        let bits = Self::hash_bits(current.hash);
+        if count < 3 && self.prior_hashes & bits != bits {
+            #[cfg(test)]
+            record_repetition_filter(|stats| stats.fast_misses += 1);
             return None;
         }
+        #[cfg(test)]
+        record_repetition_filter(|stats| stats.exact_scans += 1);
         let mut frame = Some(self);
         while let Some(f) = frame {
+            #[cfg(test)]
+            record_repetition_filter(|stats| stats.visited_frames += 1);
             if f.entry.is_some_and(|e| e.hash == current.hash) {
                 count += 1;
             }
@@ -7362,6 +7408,151 @@ mod regression_tests {
         // create a repetition verdict for a different hash.
         let collision = h1.after_move(2 + (1 << 20), Color::White, false);
         assert_eq!(collision.outcome_at_current_position(), None);
+    }
+
+    fn compare_history_prefixes<'a>(
+        history: &'a SearchHistory<'a>,
+        owned: &PositionHistory,
+        steps: &[(u64, Color, bool)],
+    ) {
+        assert_eq!(
+            history.outcome_at_current_position(),
+            owned.outcome_at_current_position()
+        );
+        if let Some((&(hash, mover, check), rest)) = steps.split_first() {
+            let child = history.after_move(hash, mover, check);
+            compare_history_prefixes(&child, &owned.after_move(hash, mover, check), rest);
+        }
+    }
+
+    #[test]
+    fn repetition_filter_matches_owned_history_at_every_prefix() {
+        for target in [1, (3 << 58) | (11 << 52) | 1] {
+            for checking in [None, Some(Color::Black), Some(Color::White)] {
+                let game = PositionHistory::initial(target);
+                let steps: Vec<_> = (0..6)
+                    .map(|i| {
+                        let mover = if i % 2 == 0 {
+                            Color::Black
+                        } else {
+                            Color::White
+                        };
+                        (
+                            if i % 2 == 0 { target ^ 2 } else { target },
+                            mover,
+                            checking == Some(mover),
+                        )
+                    })
+                    .collect();
+                compare_history_prefixes(&SearchHistory::root(&game), &game, &steps);
+                let mut owned = game.clone();
+                for &(hash, mover, check) in &steps {
+                    owned.push_after_move(hash, mover, check);
+                }
+                assert_eq!(
+                    owned.outcome_at_current_position(),
+                    Some(match checking {
+                        None => RepetitionOutcome::Draw,
+                        Some(color) => RepetitionOutcome::PerpetualCheck(color),
+                    })
+                );
+            }
+        }
+        // Three game occurrences plus this frame must bypass a filter miss.
+        let mut game = PositionHistory::initial(1);
+        for hash in [2, 1, 2, 1, 2] {
+            game.push_after_move(hash, Color::Black, false);
+        }
+        let root = SearchHistory::root(&game);
+        let repeated = root.after_move(1, Color::White, false);
+        assert_eq!(repeated.prior_hashes, 0);
+        assert_eq!(
+            repeated.outcome_at_current_position(),
+            Some(RepetitionOutcome::Draw)
+        );
+        let sibling = root.after_move(9, Color::White, false);
+        assert_eq!(sibling.outcome_at_current_position(), None);
+
+        let mut rng = 0x243f_6a88_85a3_08d3u64;
+        for _ in 0..48 {
+            let game = PositionHistory::initial(rng);
+            let mut steps = Vec::new();
+            for i in 0..80 {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                // Small hash family deliberately exercises repetitions and
+                // filter collisions. These are history contracts, not SFENs.
+                let bucket = rng & 15;
+                let hash = (bucket << 58) | ((15 - bucket) << 52) | bucket;
+                steps.push((
+                    hash,
+                    if i % 2 == 0 {
+                        Color::Black
+                    } else {
+                        Color::White
+                    },
+                    rng & 32 != 0,
+                ));
+            }
+            compare_history_prefixes(&SearchHistory::root(&game), &game, &steps);
+        }
+    }
+
+    fn repetition_filter_fixture(priors: &[u64], target: u64) -> RepetitionFilterStats {
+        fn descend<'a>(
+            history: &'a SearchHistory<'a>,
+            priors: &[u64],
+            target: u64,
+        ) -> RepetitionFilterStats {
+            if let Some((&hash, rest)) = priors.split_first() {
+                let next = history.after_move(hash, Color::Black, false);
+                return descend(&next, rest, target);
+            }
+            let current = history.after_move(target, Color::White, false);
+            REPETITION_FILTER_STATS.with(|cell| cell.set(RepetitionFilterStats::default()));
+            assert_eq!(current.outcome_at_current_position(), None);
+            REPETITION_FILTER_STATS.with(|cell| cell.get())
+        }
+        let game = PositionHistory::initial(u64::MAX);
+        descend(&SearchHistory::root(&game), priors, target)
+    }
+
+    #[test]
+    fn repetition_filter_records_saved_scans_and_saturation_cost() {
+        let hash = |a: u64, b: u64, low: u64| (a << 58) | (b << 52) | low;
+        let short = repetition_filter_fixture(&[hash(3, 7, 1)], hash(3, 11, 2));
+        assert_eq!(short.queries, 1);
+        if cfg!(feature = "repetition_filter2") {
+            assert_eq!(
+                (short.fast_misses, short.exact_scans, short.visited_frames),
+                (1, 0, 0)
+            );
+        } else {
+            assert_eq!(
+                (short.fast_misses, short.exact_scans, short.visited_frames),
+                (0, 1, 3)
+            );
+        }
+        // Different ancestors can provide the two bits: still only a filter
+        // hit, never evidence of an exact repetition.
+        let combined = repetition_filter_fixture(&[hash(3, 7, 1), hash(11, 13, 2)], hash(3, 11, 3));
+        assert_eq!((combined.exact_scans, combined.visited_frames), (1, 4));
+        let same_indices = repetition_filter_fixture(&[hash(4, 4, 1)], hash(4, 4, 2));
+        assert_eq!(same_indices.exact_scans, 1);
+        // A real counterexample: two-bit saturation can make long paths
+        // scan more than the original filter. Do not promise universal gains.
+        let long: Vec<_> = (0..32).map(|i| hash(i, i + 32, i)).collect();
+        let saturated = repetition_filter_fixture(&long, hash(50, 51, 3));
+        if cfg!(feature = "repetition_filter2") {
+            assert_eq!((saturated.exact_scans, saturated.visited_frames), (1, 34));
+        } else {
+            assert_eq!((saturated.fast_misses, saturated.visited_frames), (1, 0));
+        }
+        println!(
+            "repetition_filter2={} short={short:?} combined={combined:?} saturated={saturated:?}",
+            cfg!(feature = "repetition_filter2")
+        );
     }
 
     #[test]
