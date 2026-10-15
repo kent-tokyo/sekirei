@@ -222,6 +222,24 @@ impl CorrKeys {
         if p::CORR_W_NP() != 0 {
             for (owner, c) in [Color::Black, Color::White].into_iter().enumerate() {
                 let mut key = 0x2545_f491_4f6c_dd1du64 ^ owner as u64;
+                // Keep the historical kind order: this hash is not commutative.
+                #[cfg(feature = "correction_key_unroll")]
+                {
+                    macro_rules! mix {
+                        ($($kind:ident),+ $(,)?) => {$(
+                            let bb = board.pieces(c, PieceKind::$kind).0;
+                            if bb != 0 {
+                                key = (key ^ fold(bb)).wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                                    ^ PieceKind::$kind.index() as u64;
+                            }
+                        )+};
+                    }
+                    mix!(
+                        Kyou, Kei, Gin, Kin, Kaku, Hisha, Tokin, Narikyo, Narikei, Narigin, Uma,
+                        Ryu
+                    );
+                }
+                #[cfg(not(feature = "correction_key_unroll"))]
                 for kind in (0..PieceKind::COUNT as u8).filter_map(PieceKind::from_u8) {
                     if kind == PieceKind::Fu || kind == PieceKind::Ou {
                         continue;
@@ -560,6 +578,134 @@ mod tests {
             kind,
             false,
         )
+    }
+
+    // Independent reference for the pre-experiment key contract, including
+    // the ascending, non-commutative fold and the skip for empty kinds.
+    fn legacy_correction_keys(board: &Board, stm: Color) -> CorrKeys {
+        let fold = |x: u128| (x as u64) ^ ((x >> 64) as u64).rotate_left(29);
+        let bucket = |x: u64| (x.wrapping_mul(0x9E37_79B9_7F4A_7C15) >> 50) as usize;
+        let side = stm.index();
+        let pawns = fold(board.pieces(Color::Black, PieceKind::Fu).0)
+            ^ fold(board.pieces(Color::White, PieceKind::Fu).0).rotate_left(17);
+        let hands = u64::from(board.hand(Color::Black).packed())
+            | (u64::from(board.hand(Color::White).packed()) << 32);
+        let king = |c| board.king_square(c).map_or(0, |sq| sq.index() as usize);
+        let mut np = [0; 2];
+        if p::CORR_W_NP() != 0 {
+            for (owner, c) in [Color::Black, Color::White].into_iter().enumerate() {
+                let mut key = 0x2545_f491_4f6c_dd1du64 ^ owner as u64;
+                for index in 0..PieceKind::COUNT as u8 {
+                    let kind = PieceKind::from_u8(index).unwrap();
+                    if matches!(kind, PieceKind::Fu | PieceKind::Ou) {
+                        continue;
+                    }
+                    let bb = board.pieces(c, kind).0;
+                    if bb != 0 {
+                        key =
+                            (key ^ fold(bb)).wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ u64::from(index);
+                    }
+                }
+                np[owner] = (side * 2 + owner) * CORR_BUCKETS + bucket(key);
+            }
+        }
+        CorrKeys {
+            pawn: side * CORR_BUCKETS + bucket(pawns),
+            hand: side * CORR_BUCKETS + bucket(hands ^ 0x5bd1_e995),
+            king: (side * Square::NUM + king(Color::Black)) * Square::NUM + king(Color::White),
+            np,
+        }
+    }
+
+    fn assert_correction_keys(board: &Board) {
+        for stm in [Color::Black, Color::White] {
+            assert_eq!(CorrKeys::of(board, stm), legacy_correction_keys(board, stm));
+        }
+    }
+
+    #[test]
+    fn correction_key_fold_matches_every_piece_kind_and_square() {
+        use crate::piece::Piece;
+
+        // Adding a kind must force this fixed-kind optimization to be reviewed.
+        assert_eq!(PieceKind::COUNT, 14);
+        assert_correction_keys(&Board::empty());
+        for c in [Color::Black, Color::White] {
+            for index in 0..PieceKind::COUNT as u8 {
+                let kind = PieceKind::from_u8(index).unwrap();
+                for square in 0..Square::NUM {
+                    let mut board = Board::empty();
+                    board.setup_piece(Square::from_index(square as u8), Piece::new(c, kind));
+                    assert_correction_keys(&board);
+                }
+            }
+        }
+        // A nonempty bitboard can fold to zero. It must still mix its kind.
+        for c in [Color::Black, Color::White] {
+            let mut board = Board::empty();
+            for square in [29, 64] {
+                board.setup_piece(Square::from_index(square), Piece::new(c, PieceKind::Gin));
+            }
+            let bb = board.pieces(c, PieceKind::Gin).0;
+            assert_ne!(bb, 0);
+            assert_eq!((bb as u64) ^ ((bb >> 64) as u64).rotate_left(29), 0);
+            assert_correction_keys(&board);
+        }
+        // Mixed, multi-square kinds exercise fold ordering, both u128 halves
+        // and changing subsets of empty kinds without relying on legal play.
+        let mut rng = 0x2026_1015_1224u64;
+        for _ in 0..128 {
+            let mut board = Board::empty();
+            for square in 0..Square::NUM {
+                rng ^= rng << 13;
+                rng ^= rng >> 7;
+                rng ^= rng << 17;
+                if rng & 3 == 0 {
+                    continue;
+                }
+                let c = if rng & 4 == 0 {
+                    Color::Black
+                } else {
+                    Color::White
+                };
+                let kind = PieceKind::from_u8((rng >> 3) as u8 % PieceKind::COUNT as u8).unwrap();
+                board.setup_piece(Square::from_index(square as u8), Piece::new(c, kind));
+            }
+            assert_correction_keys(&board);
+        }
+        for sfen in [
+            "9/9/9/9/9/9/9/9/9 b 18P4L4N4S4G2B2R18p4l4n4s4g2b2r 1",
+            "4k4/9/2+b3+r2/9/2+P+L+N+S3/9/9/9/4K4 w R2P3n 1",
+        ] {
+            assert_correction_keys(&Board::from_sfen_rules_only(sfen).unwrap());
+        }
+    }
+
+    #[test]
+    fn correction_key_fold_preserves_legal_move_and_undo_prefixes() {
+        use crate::movegen::generate_legal_moves;
+
+        for seed in 1..=8u64 {
+            let mut board = Board::startpos();
+            let initial = crate::sfen::board_to_sfen(&board);
+            let mut tokens = Vec::new();
+            let mut rng = seed;
+            assert_correction_keys(&board);
+            for _ in 0..64 {
+                let moves = generate_legal_moves(&mut board);
+                if moves.is_empty() {
+                    break;
+                }
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                tokens.push(board.do_move_for_search(moves[rng as usize % moves.len()]));
+                assert_correction_keys(&board);
+            }
+            while let Some(token) = tokens.pop() {
+                board.undo_move_for_search(token);
+                assert_correction_keys(&board);
+            }
+            assert_eq!(crate::sfen::board_to_sfen(&board), initial);
+        }
     }
 
     #[test]
