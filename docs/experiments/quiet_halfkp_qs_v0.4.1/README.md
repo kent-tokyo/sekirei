@@ -21,9 +21,10 @@ are absent. CONT rows and cooperative prestart cap remain disabled.
 
 The source is based on `46b5f6917d50ce52fd0a95e15e2094bc53956e38`.
 Both native arms use the same checkout/build flags, with only the compile-time
-candidate default changed. H1 uses fresh disjoint own32 seed202610171,
-Threads/Rayon4, Hash64, own synthetic HalfKP/FV16, Auto, SpecTopN0, LazyFlags15,
-MoveOverhead0, diagnostics off and fresh-process per-position ABBA at one second.
+candidate default changed. H1 uses fresh disjoint own32 seed 202610171:
+Threads/Rayon 4, Hash 64, own synthetic HalfKP/FV16, Auto, SpecTopN 0,
+LazyFlags 15, MoveOverhead 0, diagnostics off, and fresh-process per-position
+ABBA at one second.
 The complete result was evaluated once; it was not pooled with earlier attempts
 or rerun to rescue a negative verdict. This is an own-engine speed comparison,
 not a current YaneuraOu speed ratio.

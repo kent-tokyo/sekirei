@@ -22,12 +22,12 @@ make/materialize/undo differential, fmt and default/tune release clippy.
 Visits are selected legal-move attempts, not 10M unique positions. The fresh
 native pair passed 31 exact 1T pairs, four isolated 4T worker-zero pairs and
 two lifecycle cases (72 search processes). Current-main integration includes
-the disabled CONT candidate: on505f18e, 1,044 workspace tests (422 core),
-four isolated checks including a bounded100k differential and144 identities,
-and workspace/tune clippy passed. After rebasing onto4c46fdf, 1,054 workspace
-tests (431 core), workspace/tune clippy, the actual mechanism and144 identities
-passed on148 frozen compiler inputs. B runtime/test files remained byte-identical.
-Hosted coverage is checked separately after push.
+the disabled CONT candidate: on `505f18e`, 1,044 workspace tests (422 core),
+four isolated checks including a bounded 100k differential and 144 identities,
+and workspace/tune clippy passed. After rebasing onto `4c46fdf`, 1,054
+workspace tests (431 core), workspace/tune clippy, the actual mechanism and
+144 identities passed on 148 frozen compiler inputs. B runtime/test files
+remained byte-identical. Hosted coverage is checked separately after push.
 
 | Independent own 4T attempt | Accepted / actual calls | Result |
 | --- | --- | --- |
@@ -39,12 +39,13 @@ were calculated or pooled. All 1,354 frozen inputs were unchanged after each
 stop. The candidate was not used for private YaneuraOu comparison or default
 adoption. These interruptions are neither a speed gain nor a measured regression.
 
-H1 used fresh own32 seed202610169, excluding development and all prior corpora;
-Threads/Rayon4, Hash64, own synthetic HalfKP/FV16, Auto, SpecTopN0, LazyFlags15,
-MoveOverhead0, diagnostics off, fresh-process per-position ABBA at one second.
+H1 used fresh own32 seed 202610169, excluding development and all prior corpora:
+Threads/Rayon 4, Hash 64, own synthetic HalfKP/FV16, Auto, SpecTopN 0,
+LazyFlags 15, MoveOverhead 0, diagnostics off, and fresh-process per-position
+ABBA at one second.
 The gate retains the 512MiB floor, five quiet samples, 600s wait, three whole
-quartet host retries, 700ms whole-quartet filter, minimum eight eligible states
-and bootstrap95% lower bound above1. The generator's two historical quiet-TT
+quartet host retries, 700 ms whole-quartet filter, minimum eight eligible
+states, and bootstrap 95% lower bound above 1. The generator's two historical quiet-TT
 paths were repaired and independently reviewed before generation or timing;
 old tools were archived, and all 13 exclusions checked against real files.
 

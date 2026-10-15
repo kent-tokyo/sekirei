@@ -24,6 +24,16 @@ preserves older per-change notes.
 
 ### Added
 
+- Add default-off deferred quiet-HalfKP and refresh-column fusion experiments.
+  Independent 4T engine gates did not establish a speed gain, so
+  `V2_LAZY_QUIET_HKP=0` and `NNUE_REFRESH_TILE=0` remain unchanged. Exact
+  conditions and raw-result hashes are retained in dated experiment records.
+- Add default-off quiet-TT staging and continuation-row scoring experiments.
+  Their 4T speed evidence was negative or incomplete, so both defaults remain
+  unchanged.
+- Add default-off cooperative root prestart and initial-work cap experiments.
+  Fixed-node diagnostics did not improve completed depth; qualified timing was
+  blocked before search, so no speed or strength conclusion was adopted.
 - Add a default-off `repetition_filter2` build feature that uses two bits in
   the existing search-line repetition filter. Exact repetition and perpetual
   check adjudication remain authoritative; this is an unqualified CPU candidate.
@@ -143,13 +153,8 @@ not claim a general playing-strength gain.
   to 0.19.5. The update keeps the existing product boundaries and gate
   hypotheses while adopting the upstream query, schema, and fail-closed
   statistical fixes.
-- Update `lineprior` to 0.12.5 and use its allocation-reusing borrowed query
-  API for opening-book lookups.
-- Update `shogiesa-core` to 0.11.5 and consume position JSONL through its
-  line-numbered bounded-memory reader while preserving exact input hashing.
-- Update `veridict` to 0.19.4 and express SPRT execution policy through the
-  typed `SprtRunOptions` API; existing hypotheses and pairing behavior remain
-  unchanged.
+  Opening-book lookups use lineprior's borrowed query API, position JSONL uses
+  shogiesa-core's bounded reader, and SPRT policy uses veridict's typed API.
 
 ### Fixed
 

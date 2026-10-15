@@ -23,21 +23,23 @@ uses artificial king relocation. Each accepted ABBA uses one million iterations;
 R2 rejected one whole quartet for host load. The small-delta regression remained.
 
 R2 engine H1 completed **128 accepted calls / 31 eligible positions**:
-aggregate nodes per wall second ratio **1.00046250**, bootstrap95% interval
+aggregate nodes per wall-second ratio **1.00046250**, bootstrap 95% interval
 **[0.98869418, 1.01132960]**. One host-rejected quartet was retained, and one
-complete quartet was excluded by the preregistered700ms filter. No rescue
+complete quartet was excluded by the preregistered 700 ms filter. No rescue
 rerun, pooling or partial-result selection was performed.
 
-The source pin is75b885b311a7e2926afd029c1b3eb339e5a5fdb3, with only halfkp.rs
-and params.rs changed. H1 uses fresh own32 seed202610172, excluding16 prior
-corpora including256 both-turn development states; Threads/Rayon4, Hash64,
-synthetic HalfKP/FV16, Auto, SpecTopN0, LazyFlags15, MoveOverhead0, diagnostics
-off, fresh-process per-position ABBA at one second. The original host/filter/
-bootstrap gate is unchanged. All1,367 frozen inputs remained identical.
+The source pin is `75b885b311a7e2926afd029c1b3eb339e5a5fdb3`; only `halfkp.rs`
+and `params.rs` changed. H1 uses fresh own32 seed 202610172, excluding 16 prior
+corpora including 256 both-turn development states: Threads/Rayon 4, Hash 64,
+synthetic HalfKP/FV16, Auto, SpecTopN 0, LazyFlags 15, MoveOverhead 0,
+diagnostics off, and fresh-process per-position ABBA at one second. The
+original host/filter/bootstrap gate is unchanged. All 1,367 frozen inputs
+remained identical.
 
-Source checks passed434 ordinary core tests (9ignored), the wrapping/sign/tail
-and full/Finny differential cases,568 real flag-controlled refreshes, fmt and
-default/tune release clippy. The actual native0/1 pair passed72 fresh correctness
-and lifecycle processes. Proofs, independent QA and durable raw captures are
+Source checks passed 434 ordinary core tests (9 ignored), the
+wrapping/sign/tail and full/Finny differential cases, 568 real
+flag-controlled refreshes, fmt, and default/tune release clippy. The actual
+native 0/1 pair passed 72 fresh correctness and lifecycle processes. Proofs,
+independent QA, and durable raw captures are
 bound in `results.json`; main integration and hosted CI are recorded separately.
 Coverage runs only two instrumented fixture iterations per arm, never NPS tests.
