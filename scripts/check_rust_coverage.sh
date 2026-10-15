@@ -163,6 +163,58 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Exercise the disabled quiet HalfKP edge in isolated processes. The bounded
+# 100k coverage run is separate from the formal 10M correctness qualification.
+cargo llvm-cov -p sekirei-core \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/quiet-halfkp-edge-states-summary.json" \
+  -- board::quiet_halfkp::tests::deferred_quiet_halfkp_matches_eager_and_restores_every_edge_state \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+SEKIREI_LAZY_HKP_POSITIONS=100000 cargo llvm-cov -p sekirei-core \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/quiet-halfkp-edge-differential-summary.json" \
+  -- board::quiet_halfkp::tests::deferred_quiet_halfkp_10m_position_differential \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-halfkp-edge-mechanism-summary.json" \
+  -- search::v2::tests::quiet_halfkp_edge_exercises_main_prefix_and_restores_search \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --test quiet_halfkp_edge \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-halfkp-edge-summary.json" \
+  -- quiet_halfkp_edge_preserve_material_and_own_halfkp_fixed_depth \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Isolate the disabled SEE lower-bound cache with material and an own
 # deterministic synthetic HalfKP evaluator; keep global tuning state serial.
 cargo llvm-cov -p sekirei-core \

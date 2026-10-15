@@ -12,6 +12,11 @@ use crate::piece::{Piece, PieceKind};
 use crate::square::Square;
 use crate::zobrist;
 
+mod quiet_halfkp;
+pub(crate) use quiet_halfkp::QuietHalfKpToken;
+#[cfg(all(test, feature = "tune"))]
+pub(crate) use quiet_halfkp::{quiet_halfkp_counts, reset_quiet_halfkp_counts};
+
 /// Extract hand piece counts as [[u8; 7]; 2] for NNUE refresh.
 /// hand_counts[color_idx][kind_idx] = count (kind_idx: Fu=0..Hisha=6)
 fn hand_counts_array(hand: &[Hand; 2]) -> [[u8; 7]; 2] {

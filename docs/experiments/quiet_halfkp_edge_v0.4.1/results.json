@@ -1,0 +1,120 @@
+{
+  "status": "interrupted_unqualified",
+  "candidate": "quiet_halfkp_edge",
+  "default": 0,
+  "source_verification": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/source-verification.json",
+    "sha256": "a5523a56e61a3f7234b083dfc2893a3a5775274f8a038f4b28a0c2171b93d1f3"
+  },
+  "native_manifest": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/qualification/native-build-manifest.json",
+    "sha256": "9abfe1136372c3c7bf51a1b595d0e5c0d90a5b83dc67f3b100d999f1b29bdcda"
+  },
+  "native_correctness": {
+    "path": "/private/tmp/sekirei-quiet-halfkp-edge-fixed-correctness-1/report.json",
+    "sha256": "a9020fa19fe86b9288856ead70f6c7236203efc88d550c3322fb1e75c8fe27e4"
+  },
+  "h1_attempts": [
+    {
+      "status": "interrupted_unqualified",
+      "reason": "host-monitor ENOSPC",
+      "accepted_calls": 68,
+      "actual_calls": 92,
+      "quartets": 23,
+      "host_rejected_quartets": 6,
+      "report": {
+        "path": "/private/tmp/sekirei-quiet-halfkp-edge-4t-H1-1/report.json",
+        "sha256": "c737beb12bc36cc3976b7c8792f649fe865f9c7fb9e6a33fb2ea26052ada1e15"
+      },
+      "capture": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/qualification/h1/capture-interrupted-1",
+      "all_frozen_inputs_unchanged_after_stop": true,
+      "verified_input_count": 1354,
+      "partial_statistics_computed": false,
+      "pooled": false,
+      "receipt": {
+        "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/h1-interruption-1.json",
+        "sha256": "eb81ce7295df0a7fa4c42236736b0ea4e8964f69bcc37c314cf6f062892b6314"
+      }
+    },
+    {
+      "status": "interrupted_unqualified",
+      "reason": "RuntimeError('three host/disk-rejected quartets; H1 interrupted')",
+      "accepted_calls": 88,
+      "actual_calls": 112,
+      "quartets": 28,
+      "host_rejected_quartets": 6,
+      "report": {
+        "path": "/private/tmp/sekirei-quiet-halfkp-edge-4t-H1-2/report.json",
+        "sha256": "0bdf4b6f63918d3f1f5b0df1e440a67ea2caf2604ab5343844cc8cadec903455"
+      },
+      "capture": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/qualification/h1/capture-interrupted-2",
+      "all_frozen_inputs_unchanged_after_stop": true,
+      "verified_input_count": 1354,
+      "partial_statistics_computed": false,
+      "pooled": false,
+      "receipt": {
+        "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/h1-interruption-2.json",
+        "sha256": "b2339a0102ccdc8a604dbef72c425ae25cf0dd1b8038cc81d068c04a84c26c33"
+      }
+    }
+  ],
+  "complete_128_call_h1": false,
+  "partial_statistics_computed": false,
+  "pooled": false,
+  "external_comparison_performed": false,
+  "strength_claim": false,
+  "speed_claim": false,
+  "correctness_summary": {
+    "normal_passed": 419,
+    "normal_ignored": 8,
+    "fixed_depth_searches": 144,
+    "legal_move_visits": 10000000,
+    "quiet_halfkp_visits": 10000000,
+    "native_cases": 72
+  },
+  "parameter": "V2_LAZY_QUIET_HKP",
+  "base_commit": "a7eff77e4142ad89929e44a6e50c2e2ee958ebb5",
+  "main_integration_base": "505f18e4d54240faf9a643cc2f91a2cf6769aa9d",
+  "integration_source_count": 148,
+  "implementation": "one quiet HalfKP edge deferred only through main-node prefix; QS stays eager",
+  "correctness_scope": "frozen a7eff experiment; current-main integration checks separately recorded",
+  "supplemental_metadata": {
+    "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/development6-provenance.json": "92071a53cb7d21ed669eee51d07494cf96a9ac22c0d37ec1f7c3a24f33986547",
+    "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/generation-execution.log": "b519fa97193ba26829d4365083dff21702fc6bb892cacc7c2d8c3067b4e77a76",
+    "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/qualification/h1/holdout-provenance.json": "7c58a5bce162bfe26515b08feeec8e11146b4448133a7720b42366f1f972526c",
+    "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/storage-main-clippy/cleanup-execution-v2.json": "c82327ca4e01e95b09deba342e2add64f205330d34e68fe0cb8fadf357aea1c6",
+    "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-edge/sekirei/results/quiet-halfkp-edge-20261015/storage-completed-native/cleanup-execution-v2.json": "524bc3793cb98e55f938e40ae4ae01d8383c208bdc6bafb78d46975e8a43b1b1"
+  },
+  "main_integration_validation": {
+    "proof": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-tt-main/sekirei/results/quiet-halfkp-edge-integration-20261016/integration-validation.json",
+      "sha256": "b97dbc0cce31a5b4452ba8aed3f792e851c2397a0ed1b7b881c5b9b65bcf75e0"
+    },
+    "base_commit": "505f18e4d54240faf9a643cc2f91a2cf6769aa9d",
+    "source_count": 148,
+    "workspace_passed": 1044,
+    "core_passed": 422,
+    "core_ignored": 8,
+    "isolated_checks": 4,
+    "bounded_differential_visits": 100000,
+    "fixed_depth_searches": 144,
+    "workspace_and_tune_clippy": "passed",
+    "hosted_coverage": "pending"
+  },
+  "post_rebase_integration_validation": {
+    "parent": "4c46fdf2a61b145bdc407fa9b5444a5969db2dfc",
+    "tested_commit": "0a8e1c58544606fe2b3f002195f39f54cd4c9710",
+    "proof": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-tt-main/sekirei/results/quiet-halfkp-edge-integration-20261016/post-rebase-validation.json",
+      "sha256": "7ea73e7ef2328d0d9b7cfc0f41170b600b61ae8231756cb15626ec8045b7b1bb"
+    },
+    "source_count": 148,
+    "workspace_passed": 1054,
+    "core_passed": 431,
+    "core_ignored": 8,
+    "lint": "workspace and tune passed",
+    "mechanism": "passed",
+    "fixed_depth_searches": 144,
+    "hosted_coverage": "pending"
+  }
+}

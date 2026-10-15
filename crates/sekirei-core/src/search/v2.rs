@@ -37,13 +37,13 @@ use super::{
     play, probe_tt_for_search_pv, quiescence, repetition_score, score_from_tt, score_to_tt,
     store_tt_for_search_pv, useless_non_promotion,
 };
-use crate::board::Board;
+use crate::board::{Board, QuietHalfKpToken};
 use crate::color::Color;
 use crate::eval::PIECE_VALUE;
 use crate::movegen::{
     CheckSquares, MoveBuffer, is_in_check, is_legal_move, mate_in_one, see_exchange,
 };
-use crate::mv::Move;
+use crate::mv::{Move, MoveToken};
 use crate::piece::PieceKind;
 use crate::tt::Bound;
 
@@ -1206,6 +1206,51 @@ fn qs2(
     best
 }
 
+/// Owned by one main move loop, borrowed by re-searches, consumed by undo.
+enum V2MoveToken {
+    Eager(MoveToken),
+    QuietHalfKp(QuietHalfKpToken),
+}
+impl V2MoveToken {
+    #[inline]
+    fn pending(&mut self) -> Option<&mut QuietHalfKpToken> {
+        match self {
+            Self::Eager(_) => None,
+            Self::QuietHalfKp(token) => Some(token),
+        }
+    }
+    #[inline]
+    fn undo(self, board: &mut Board) {
+        match self {
+            Self::Eager(token) => board.undo_move_for_search(token),
+            Self::QuietHalfKp(token) => board.undo_quiet_halfkp_for_search(token),
+        }
+    }
+}
+#[inline]
+fn play_main<'a>(
+    board: &mut Board,
+    m: Move,
+    history: &'a SearchHistory<'a>,
+) -> (V2MoveToken, bool, SearchHistory<'a>) {
+    if p::V2_LAZY_QUIET_HKP() != 0
+        && let Some(token) = board.try_do_quiet_halfkp_for_search(m)
+    {
+        let in_check = is_in_check(board, board.side_to_move);
+        let child = history.after_move(board.hash(), board.side_to_move.flip(), in_check);
+        (V2MoveToken::QuietHalfKp(token), in_check, child)
+    } else {
+        let (token, in_check, child) = play(board, m, history);
+        (V2MoveToken::Eager(token), in_check, child)
+    }
+}
+#[inline]
+fn materialize_pending(board: &mut Board, pending: Option<&mut QuietHalfKpToken>) {
+    if let Some(token) = pending {
+        board.materialize_quiet_halfkp_for_search(token);
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 fn search(
     d: &mut Data,
@@ -1219,8 +1264,29 @@ fn search(
     pv: bool,
     history: &SearchHistory<'_>,
 ) -> i32 {
+    search_with_pending(
+        d, state, board, alpha, beta, depth, ply, cut_node, pv, history, None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn search_with_pending(
+    d: &mut Data,
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    depth: i32,
+    ply: u32,
+    cut_node: bool,
+    pv: bool,
+    history: &SearchHistory<'_>,
+    pending: Option<&mut QuietHalfKpToken>,
+) -> i32 {
     let i = ply as usize + OFF;
     if depth <= 0 {
+        // Quiescence retains its eager make/undo contract.
+        materialize_pending(board, pending);
         if let Some(c) = state.counters() {
             c.exit(0);
         }
@@ -1240,7 +1306,7 @@ fn search(
     lists.1.clear();
     lists.2.clear();
     let v = node(
-        d, &mut lists, state, board, alpha, beta, depth, ply, cut_node, pv, history,
+        d, &mut lists, state, board, alpha, beta, depth, ply, cut_node, pv, history, pending,
     );
     d.lists[p] = lists.0;
     d.quiet_lists[p] = lists.1;
@@ -1261,6 +1327,7 @@ fn node(
     cut_node: bool,
     pv: bool,
     history: &SearchHistory<'_>,
+    mut pending: Option<&mut QuietHalfKpToken>,
 ) -> i32 {
     let i = ply as usize + OFF;
     if let Some(c) = state.counters() {
@@ -1285,6 +1352,7 @@ fn node(
         return if in_check {
             0
         } else {
+            materialize_pending(board, pending.as_deref_mut());
             evaluate_for_search(state, board)
         };
     }
@@ -1399,6 +1467,10 @@ fn node(
         );
         return score;
     }
+
+    // Every operation after this prefix retains a clean accumulator,
+    // including in-check nodes that skip static evaluation.
+    materialize_pending(board, pending);
 
     // Static evaluation.
     let mut corr: Option<(CorrKeys, i32)> = None;
@@ -2169,7 +2241,7 @@ fn node(
         d.ss[i].mv = Some(m);
         d.ss[i].pt = pt;
         d.ss[i].capture = capture;
-        let (tok, child_check, child_history) = play(board, m, history);
+        let (mut tok, child_check, child_history) = play_main(board, m, history);
         if let Some(c) = state.counters() {
             if move_count > 1 && child_check {
                 c.searched_checks[usize::from(pv)].fetch_add(1, Ordering::Relaxed);
@@ -2271,7 +2343,7 @@ fn node(
             {
                 c.research[0].fetch_add(1, Ordering::Relaxed);
             }
-            value = -search(
+            value = -search_with_pending(
                 d,
                 state,
                 board,
@@ -2282,6 +2354,7 @@ fn node(
                 true,
                 false,
                 &child_history,
+                tok.pending(),
             );
             d.ss[i].reduction = 0;
             if value > alpha && dd < new_depth {
@@ -2294,7 +2367,7 @@ fn node(
                     if let Some(c) = state.counters() {
                         c.research[1].fetch_add(1, Ordering::Relaxed);
                     }
-                    value = -search(
+                    value = -search_with_pending(
                         d,
                         state,
                         board,
@@ -2305,6 +2378,7 @@ fn node(
                         !cut_node,
                         false,
                         &child_history,
+                        tok.pending(),
                     );
                 }
                 if !tactical {
@@ -2323,7 +2397,7 @@ fn node(
             let nd = new_depth
                 - i32::from(r > p::V2_FULL_R1())
                 - i32::from(r > p::V2_FULL_R2() && new_depth > 2);
-            value = -search(
+            value = -search_with_pending(
                 d,
                 state,
                 board,
@@ -2334,6 +2408,7 @@ fn node(
                 !cut_node,
                 false,
                 &child_history,
+                tok.pending(),
             );
         } else {
             value = -INF;
@@ -2349,7 +2424,7 @@ fn node(
             } else {
                 new_depth
             };
-            value = -search(
+            value = -search_with_pending(
                 d,
                 state,
                 board,
@@ -2360,9 +2435,10 @@ fn node(
                 false,
                 true,
                 &child_history,
+                tok.pending(),
             );
         }
-        board.undo_move_for_search(tok);
+        tok.undo(board);
         if state.budget.should_abort() {
             return 0;
         }
@@ -2638,6 +2714,99 @@ mod tests {
                     }
                     eprintln!("quiet continuation rows actual own HalfKP random11 depth8 position={position} enabled={enabled} batches={batches}");
                 }
+            }
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn quiet_halfkp_edge_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL
+            .iter()
+            .find(|s| s.name == "V2_LAZY_QUIET_HKP")
+            .unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global tuning parameters and own synthetic evaluator"]
+    fn quiet_halfkp_edge_exercises_main_prefix_and_restores_search() {
+        use super::super::{SearchConfig, Searcher};
+        use crate::halfkp::{self, HalfKpNetwork};
+        use crate::tt::Tt;
+        struct Restore([i32; 2]);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for (name, value) in ["V2_LAZY_QUIET_HKP", "V2_QS"].into_iter().zip(self.0) {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        let _restore = Restore([p::V2_LAZY_QUIET_HKP(), p::V2_QS()]);
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_QUIET_TT_STAGE(), 0);
+        assert_eq!(p::V2_QUIET_LMP_SKIP(), 0);
+        assert_eq!(p::V2_SEE_BOUND_CACHE(), 0);
+        assert!(!halfkp::is_active(), "run this test in an isolated process");
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            halfkp::install_network(HalfKpNetwork::random(11)).unwrap();
+            let mut skipped = 0;
+            for qs_mode in [0, 1] {
+                assert!(p::set("V2_QS", qs_mode));
+                for (position, sfen) in [crate::sfen::STARTPOS_SFEN, "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2"].into_iter().enumerate() {
+                    let mut baseline = None;
+                    for enabled in [0, 1] {
+                        assert!(p::set("V2_LAZY_QUIET_HKP", enabled));
+                        let mut board = Board::from_sfen(sfen).unwrap();
+                        board.refresh_acc();
+                        let before = (crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone());
+                        let mut searcher = Searcher::new(Tt::new(4));
+                        searcher.set_ybw_split(false);
+                        searcher.clear_tt();
+                        crate::board::reset_quiet_halfkp_counts();
+                        let result = searcher.search(&mut board, SearchConfig { max_depth: if qs_mode == 0 { 8 } else { 6 }, ..SearchConfig::default() });
+                        let counts = crate::board::quiet_halfkp_counts();
+                        assert!(!result.aborted);
+                        assert_eq!((crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone()), before);
+                        let signature = (result.best_move, result.score, result.pv, result.nodes, result.depth, result.bound, result.completed_bound);
+                        if enabled == 0 {
+                            assert_eq!(counts.made, 0);
+                            assert_eq!(counts.materialized, 0);
+                            assert_eq!(counts.unapplied_undos, 0);
+                            assert_eq!(counts.applied_undos, 0);
+                            baseline = Some(signature);
+                        } else {
+                            assert!(counts.made > 0, "deferred quiet edge never reached");
+                            assert_eq!(counts.made, counts.applied_undos + counts.unapplied_undos);
+                            assert_eq!(counts.materialized, counts.applied_undos);
+                            assert_eq!(baseline.as_ref().unwrap(), &signature);
+                            skipped += counts.unapplied_undos;
+                        }
+                        eprintln!("quiet halfkp edge actual own HalfKP random11 qs={qs_mode} position={position} enabled={enabled} made={} materialized={} unapplied_undos={} applied_undos={}", counts.made, counts.materialized, counts.unapplied_undos, counts.applied_undos);
+                    }
+                }
+            }
+            assert!(skipped > 0, "no real search prefix skipped the HalfKP update");
+            assert!(p::set("V2_QS", 0));
+            let mut baseline = None;
+            for enabled in [0, 1] {
+                assert!(p::set("V2_LAZY_QUIET_HKP", enabled));
+                let mut board = Board::from_sfen(crate::sfen::STARTPOS_SFEN).unwrap();
+                board.refresh_acc();
+                let before = (crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone());
+                let mut searcher = Searcher::new(Tt::new(4));
+                searcher.set_ybw_split(false);
+                searcher.clear_tt();
+                crate::board::reset_quiet_halfkp_counts();
+                let result = searcher.search(&mut board, SearchConfig { max_depth: 24, node_limit: Some(2000), ..SearchConfig::default() });
+                let counts = crate::board::quiet_halfkp_counts();
+                assert!(result.aborted);
+                assert_eq!(counts.made, counts.applied_undos + counts.unapplied_undos);
+                assert_eq!(counts.materialized, counts.applied_undos);
+                assert_eq!((crate::sfen::board_to_sfen(&board), board.hash(), board.acc.clone(), board.hkp.clone()), before);
+                let signature = (result.best_move, result.score, result.pv, result.nodes, result.depth, result.bound, result.completed_bound);
+                if enabled == 0 { baseline = Some(signature); } else { assert!(counts.made > 0); assert_eq!(baseline.as_ref().unwrap(), &signature); }
+                eprintln!("quiet halfkp edge abort own HalfKP random11 enabled={enabled} made={} unapplied_undos={}", counts.made, counts.unapplied_undos);
             }
         }).unwrap().join().unwrap();
     }
