@@ -23,6 +23,7 @@ from nps_threads import (  # noqa: E402
     go_command,
     measure,
     parse_bestmove,
+    parse_cooperative_root,
     parse_cooperative_root_wait,
     parse_cooperative_root_latency,
     parse_cooperative_root_policy,
@@ -675,6 +676,105 @@ class ThreadOptionsTest(unittest.TestCase):
         self.assertTrue(row["provenance"]["cooperative_latency_overhead_included"])
         self.assertTrue(row["provenance"]["counter_overhead_included"])
         self.assertFalse(row["provenance"]["timing_qualified"])
+
+    @staticmethod
+    def cooperative_root_line(workers=2):
+        started = 2 * (workers - 1)
+        values = {
+            "generations": 2, "helper_nodes": 30, "helper_probes": 3,
+            "helper_fail_highs": 1, "main_confirmations": 1, "confirmed_alpha_raises": 1,
+            "main_nodes": 100, "main_tasks": 2, "confirmation_nodes": 20,
+            "helper_completed_nodes": 25, "helper_aborted_nodes": 5,
+            "helper_aborted_probes": 1, "spawn_failures": 0, "helpers_started": started,
+            "helper_start_delay_us": 200, "join_wait_us": 400,
+            "alpha_gap_sum": 10, "alpha_gap_max": 10,
+            "physical_helper_threads_started": started, "physical_helper_threads_joined": started,
+            "executor_start_delay_us": 0, "helper_dispatch_delay_us": 0,
+        }
+        return "info string cooperative_root " + " ".join(f"{key} {value}" for key, value in values.items())
+
+    def test_cooperative_groups_bind_size_and_preserve_legacy_contract(self):
+        self.assertIsNone(parse_cooperative_root([], workers=4))
+        legacy = parse_cooperative_root([self.cooperative_root_line()], workers=2)
+        self.assertNotIn("workers", legacy)
+        self.assertNotIn("helpers", legacy)
+        with self.assertRaisesRegex(ValueError, "requested threads"):
+            parse_cooperative_root([self.cooperative_root_line()], workers=4)
+        for workers in (4, 8):
+            group = f"info string cooperative_root_group workers {workers} helpers {workers - 1}"
+            root = self.cooperative_root_line(workers)
+            with self.subTest(workers=workers):
+                result = parse_cooperative_root([group, root], workers=workers, total_nodes=130)
+                self.assertEqual((result["workers"], result["helpers"]), (workers, workers - 1))
+                self.assertEqual(result["helpers_started"], result["generations"] * result["helpers"])
+                self.assertEqual(parse_cooperative_root([root, group]), result)
+                with self.assertRaisesRegex(ValueError, "requested threads"):
+                    parse_cooperative_root([group, root], workers=2)
+
+    def test_cooperative_groups_reject_malformed_or_orphan_evidence(self):
+        group = "info string cooperative_root_group workers 4 helpers 3"
+        root = self.cooperative_root_line(4)
+        malformed = [
+            [group, group, root],
+            ["info string cooperative_root_group", root],
+            [group.replace("workers 4 helpers 3", "helpers 3 workers 4"), root],
+            [group + " extra 0", root],
+            [group.replace("workers 4", "workers -4"), root],
+            [group.replace("workers 4", "workers ４"), root],
+            [group.replace("workers 4", f"workers {1 << 32}"), root],
+            [group.replace("helpers 3", f"helpers {1 << 32}"), root],
+            [group.replace("workers 4 helpers 3", "workers 2 helpers 1"), root],
+            [group.replace("workers 4 helpers 3", "workers 16 helpers 15"), root],
+            [group.replace("helpers 3", "helpers 2"), root],
+            [group],
+            [group, root, root],
+        ]
+        for lines in malformed:
+            with self.subTest(lines=lines), self.assertRaises(ValueError):
+                parse_cooperative_root(lines)
+
+    def test_cooperative_groups_preserve_node_and_lifecycle_validation(self):
+        group = "info string cooperative_root_group workers 4 helpers 3"
+        root = self.cooperative_root_line(4)
+        failures = root.replace("spawn_failures 0 helpers_started 6", "spawn_failures 2 helpers_started 4")
+        failures = failures.replace("physical_helper_threads_started 6 physical_helper_threads_joined 6",
+                                    "physical_helper_threads_started 4 physical_helper_threads_joined 4")
+        self.assertEqual(parse_cooperative_root([group, failures])["spawn_failures"], 2)
+        for old, new in (
+            ("helpers_started 6", "helpers_started 2"),
+            ("spawn_failures 0", "spawn_failures 1"),
+            ("helper_aborted_probes 1", "helper_aborted_probes 7"),
+            ("physical_helper_threads_joined 6", "physical_helper_threads_joined 5"),
+            ("physical_helper_threads_started 6 physical_helper_threads_joined 6",
+             "physical_helper_threads_started 7 physical_helper_threads_joined 7"),
+            ("helper_completed_nodes 25", "helper_completed_nodes 26"),
+            ("confirmation_nodes 20", "confirmation_nodes 101"),
+            ("alpha_gap_max 10", "alpha_gap_max 11"),
+        ):
+            with self.subTest(new=new), self.assertRaises(ValueError):
+                parse_cooperative_root([group, root.replace(old, new)])
+        with self.assertRaisesRegex(ValueError, "total nodes"):
+            parse_cooperative_root([group, root], total_nodes=129)
+
+    def test_measure_records_cooperative_group_without_optional_observers(self):
+        args = self.measurement_args(yaneuraou=False, evalfile=None)
+        args.option = ["T_COOP_MULTI=1"]
+        args.provenance["counter_overhead_included"] = False
+        group = "info string cooperative_root_group workers 4 helpers 3"
+        root = self.cooperative_root_line(4)
+        outputs = [group, root, "info depth 3 score cp 0 nodes 130 nps 1000 pv 7g7f", "bestmove 7g7f"]
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+            row = measure(args, 4, ["startpos"])[0]
+        self.assertEqual(row["cooperative_root"]["workers"], 4)
+        self.assertEqual(row["cooperative_root"]["helpers"], 3)
+        self.assertIsNone(row["cooperative_root_wait"])
+        self.assertIsNone(row["cooperative_root_latency"])
+        self.assertFalse(row["provenance"]["counter_overhead_included"])
+        with patch("nps_threads.Usi") as usi, patch("nps_threads.sys.stderr"):
+            usi.return_value.wait_for.side_effect = lambda token: outputs if token == "bestmove" else [token]
+            with self.assertRaisesRegex(ValueError, "requested threads"):
+                measure(args, 8, ["startpos"])
 
     def test_cooperative_priority_policy_is_intrinsic_and_strict(self):
         line = "info string cooperative_root_policy priority 1"

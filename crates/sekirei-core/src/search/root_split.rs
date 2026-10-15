@@ -1,7 +1,7 @@
-//! Opt-in, two-participant cooperative root search prototype.
+//! Opt-in cooperative root search prototype (two participants by default).
 //!
 //! Worker 0 searches the first move and owns every accepted root score. A
-//! single scoped helper claims remaining root moves with an atomic index and
+//! helper group claims remaining root moves with an atomic index and
 //! probes a null window at the shared alpha. Helper fail highs are advice:
 //! worker 0 searches them again at its current alpha before accepting them.
 //! Every aspiration pass owns a fresh generation and cancellation budget.
@@ -50,9 +50,9 @@ pub struct CooperativeRootStats {
     pub helper_aborted_nodes: u64,
     /// Helper probes interrupted by cancellation or the shared budget.
     pub helper_aborted_probes: u64,
-    /// Generations unable to start helper work; includes a cached unavailable executor.
+    /// Helper jobs unable to start; includes a cached unavailable executor.
     pub spawn_failures: u64,
-    /// Started helper jobs (root generations), distinct from OS thread starts.
+    /// Started helper jobs; a group requests several per generation.
     pub helpers_started: u64,
     /// Sum of spawn request to helper closure start, in microseconds.
     pub helper_start_delay_us: u64,
@@ -62,7 +62,7 @@ pub struct CooperativeRootStats {
     pub alpha_gap_sum: u64,
     /// Largest positive alpha advance at confirmation.
     pub alpha_gap_max: u64,
-    /// OS helper threads started; one per go in the persistent experiment.
+    /// OS helper threads started; one per go in the single-helper persistent experiment.
     pub physical_helper_threads_started: u64,
     /// OS helper threads joined before returning the invocation result.
     pub physical_helper_threads_joined: u64,
@@ -201,6 +201,8 @@ impl HelperLmrCounters {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CooperativeRootWaitStats {
+    /// Configured participants including worker 0; physical starts are recorded separately.
+    pub workers: u32,
     /// Whether notification-driven confirmation was requested for this invocation.
     pub enabled: bool,
     /// Confirmations started during the wait while the helper was unfinished.
@@ -341,6 +343,13 @@ impl LatencyCounters {
     }
 }
 
+/// Per-helper learning state, reused across root passes within one invocation.
+#[derive(Default)]
+struct HelperTables {
+    history: OnceLock<Arc<HistoryTable>>,
+    countermoves: OnceLock<Arc<CountermoveTable>>,
+}
+
 #[derive(Default)]
 struct Counters {
     helper_lmr: OnceLock<HelperLmrCounters>,
@@ -349,8 +358,7 @@ struct Counters {
     waiting_confirmation_nodes: AtomicU64,
     waiting_alpha_raises: AtomicU64,
     notification_wait_us: AtomicU64,
-    helper_history: OnceLock<Arc<HistoryTable>>,
-    helper_countermoves: OnceLock<Arc<CountermoveTable>>,
+    helper_tables: HelperTables,
     generations: AtomicU64,
     helper_nodes: AtomicU64,
     helper_probes: AtomicU64,
@@ -383,6 +391,7 @@ impl Counters {
 
     fn wait_snapshot_for(&self, enabled: bool, priority_enabled: bool) -> CooperativeRootWaitStats {
         CooperativeRootWaitStats {
+            workers: 2,
             enabled,
             waiting_confirmations: self.waiting_confirmations.load(Ordering::Relaxed),
             waiting_confirmation_nodes: self.waiting_confirmation_nodes.load(Ordering::Relaxed),
@@ -460,6 +469,8 @@ struct Invocation {
     helper_lmr: bool,
     latency: Option<Arc<LatencyCounters>>,
     executor: RefCell<Option<HelperExecutor>>,
+    helpers: usize,
+    extra_helper_tables: Vec<HelperTables>,
 }
 
 impl Invocation {
@@ -492,6 +503,8 @@ impl Activation {
             helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
+            helpers: 1,
+            extra_helper_tables: Vec::new(),
         }))
     }
 
@@ -624,6 +637,47 @@ impl Searcher {
         priority: bool,
         helper_lmr: bool,
     ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        self.search_cooperative_root_group_controls(
+            board, config, history, persistent, drain, latency, priority, helper_lmr, 1,
+        )
+    }
+
+    /// Scoped group entry used only after the Lazy SMP opt-in eligibility check.
+    pub(crate) fn search_cooperative_root_group_with_history_and_wait_stats(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        workers: usize,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        assert!(matches!(workers, 4 | 8));
+        self.search_cooperative_root_group_controls(
+            board,
+            config,
+            history,
+            false,
+            p::COOP_DRAIN() != 0,
+            p::COOP_LATENCY() != 0,
+            p::COOP_PRIORITY() != 0,
+            p::COOP_HELPER_LMR() != 0,
+            workers - 1,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_cooperative_root_group_controls(
+        &self,
+        board: &mut Board,
+        config: SearchConfig,
+        history: &PositionHistory,
+        persistent: bool,
+        drain: bool,
+        latency: bool,
+        priority: bool,
+        helper_lmr: bool,
+        helpers: usize,
+    ) -> (SearchInfo, CooperativeRootStats, CooperativeRootWaitStats) {
+        assert!((1..=7).contains(&helpers) && (helpers == 1 || !persistent));
         let counters = Arc::new(Counters::default());
         if helper_lmr && latency {
             counters
@@ -648,6 +702,8 @@ impl Searcher {
             helper_lmr,
             latency,
             executor: RefCell::new(None),
+            helpers,
+            extra_helper_tables: (1..helpers).map(|_| HelperTables::default()).collect(),
         });
         let info = {
             let _activation = Activation::with_invocation(invocation.clone());
@@ -658,6 +714,7 @@ impl Searcher {
         drop(invocation);
         let mut wait = counters.wait_snapshot_for(drain, priority);
         wait.helper_lmr_enabled = helper_lmr;
+        wait.workers = helpers as u32 + 1;
         (info, counters.snapshot(), wait)
     }
 
@@ -907,6 +964,7 @@ struct Generation {
     participants: AtomicUsize,
     wake: Option<mpsc::SyncSender<()>>,
     helper_finished: AtomicBool,
+    remaining_helpers: AtomicUsize,
     latency: Option<LatencyObserver>,
     priority: bool,
     candidates: Vec<CandidateSlot>,
@@ -927,6 +985,7 @@ impl Generation {
             participants: AtomicUsize::new(0),
             wake,
             helper_finished: AtomicBool::new(false),
+            remaining_helpers: AtomicUsize::new(1),
             latency: None,
             priority: false,
             candidates: (0..moves).map(|_| CandidateSlot::default()).collect(),
@@ -1051,14 +1110,37 @@ impl Drop for Generation {
     }
 }
 
+impl Generation {
+    fn finish_helper(&self) {
+        let previous = self.remaining_helpers.fetch_sub(1, Ordering::AcqRel);
+        assert!(previous > 0, "one completion per reserved helper");
+        if previous == 1 {
+            self.helper_finished.store(true, Ordering::Release);
+            self.notify();
+        }
+    }
+}
+
+/// Owns one reservation even before the OS thread starts. Spawn failure or
+/// dropping an unstarted closure releases it just like normal return/unwind.
+struct HelperLease(Arc<Generation>);
+
+impl Drop for HelperLease {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            self.0.stop();
+        }
+        self.0.finish_helper();
+    }
+}
+
+#[cfg(test)]
 struct HelperFinished<'a>(&'a Generation);
 
+#[cfg(test)]
 impl Drop for HelperFinished<'_> {
     fn drop(&mut self) {
-        if self.0.wake.is_some() {
-            self.0.helper_finished.store(true, Ordering::Release);
-            self.0.notify();
-        }
+        self.0.finish_helper();
     }
 }
 
@@ -1157,10 +1239,15 @@ impl Drop for HelperExecutor {
     }
 }
 
-fn run_helper(mut work: HelperWork, counters: &Counters) {
+fn run_helper(work: HelperWork, counters: &Counters) {
+    let finished = HelperLease(work.generation.clone());
+    run_helper_with_lease(work, counters, finished);
+}
+
+fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: HelperLease) {
     // Declared first so participation is released before completion is visible,
     // including when the helper panics before or during its first probe.
-    let _finished = HelperFinished(&work.generation);
+    let _finished = finished;
     let _participation = Participation::new(&work.generation);
     counters.helpers_started.fetch_add(1, Ordering::Relaxed);
     assert!(work.depth > 0, "root helper jobs require positive depth");
@@ -1286,7 +1373,7 @@ fn helper_probe(
 fn participant_state(
     state: &Arc<SearchState>,
     budget: Arc<Budget>,
-    helper: Option<&Counters>,
+    helper: Option<&HelperTables>,
 ) -> Arc<SearchState> {
     let mut pruning = state.pruning;
     pruning.ybw_split = false;
@@ -1296,7 +1383,7 @@ fn participant_state(
         killers: KillerTable::new(),
         history: if let Some(helper) = helper {
             helper
-                .helper_history
+                .history
                 .get_or_init(|| Arc::new(HistoryTable::new()))
                 .clone()
         } else {
@@ -1304,7 +1391,7 @@ fn participant_state(
         },
         countermoves: if let Some(helper) = helper {
             helper
-                .helper_countermoves
+                .countermoves
                 .get_or_init(|| Arc::new(CountermoveTable::new()))
                 .clone()
         } else {
@@ -1803,7 +1890,8 @@ pub(super) fn search(
             state.budget.clone(),
             generation.cancel.clone(),
         ));
-        let helper_state = participant_state(state, helper_budget.clone(), Some(&counters));
+        let helper_state =
+            participant_state(state, helper_budget.clone(), Some(&counters.helper_tables));
         debug_assert!(history.entry.is_none() && history.parent.is_none());
         let work = HelperWork {
             state: helper_state,
@@ -1857,25 +1945,60 @@ pub(super) fn search(
                     .fetch_add(elapsed_us(wait_start), Ordering::Relaxed);
             }
         } else {
-            let spawn_start = Instant::now();
+            // Reserve the complete group before any closure can start/finish.
+            // Leases are built first: a later work-construction panic also
+            // releases reservations for helpers not yet spawned.
+            generation
+                .remaining_helpers
+                .store(invocation.helpers, Ordering::Release);
+            let leases: Vec<_> = (0..invocation.helpers)
+                .map(|_| HelperLease(generation.clone()))
+                .collect();
+            let mut budgets = Vec::with_capacity(invocation.helpers);
+            let mut works = Vec::with_capacity(invocation.helpers);
+            budgets.push(helper_budget.clone());
+            works.push(work);
+            for tables in &invocation.extra_helper_tables {
+                let budget = Arc::new(Budget::cooperative_child(
+                    state.budget.clone(),
+                    generation.cancel.clone(),
+                ));
+                works.push(HelperWork {
+                    state: participant_state(state, budget.clone(), Some(tables)),
+                    generation: generation.clone(),
+                    board: board.clone(),
+                    ordered: Arc::from(ordered),
+                    history: history.game.clone(),
+                    depth,
+                    helper_lmr: invocation.helper_lmr,
+                });
+                budgets.push(budget);
+            }
             std::thread::scope(|scope| {
                 // Must cancel BEFORE the scope's implicit join during unwind.
                 let _cancel_on_drop = CancelOnDrop(&generation);
-                let worker_counters = counters.clone();
-                let helper = std::thread::Builder::new()
-                    .name("sekirei-root-helper".to_owned())
-                    .stack_size(super::RECURSIVE_SEARCH_STACK_BYTES)
-                    .spawn_scoped(scope, move || {
-                        worker_counters
-                            .physical_helper_threads_started
-                            .fetch_add(1, Ordering::Relaxed);
-                        worker_counters
-                            .helper_start_delay_us
-                            .fetch_add(elapsed_us(spawn_start), Ordering::Relaxed);
-                        run_helper(work, &worker_counters);
-                    });
-                if helper.is_err() {
-                    counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+                let mut helpers = Vec::with_capacity(invocation.helpers);
+                for (work, lease) in works.into_iter().zip(leases) {
+                    let worker_counters = counters.clone();
+                    let spawn_start = Instant::now();
+                    let helper = std::thread::Builder::new()
+                        .name("sekirei-root-helper".to_owned())
+                        .stack_size(super::RECURSIVE_SEARCH_STACK_BYTES)
+                        .spawn_scoped(scope, move || {
+                            worker_counters
+                                .physical_helper_threads_started
+                                .fetch_add(1, Ordering::Relaxed);
+                            worker_counters
+                                .helper_start_delay_us
+                                .fetch_add(elapsed_us(spawn_start), Ordering::Relaxed);
+                            run_helper_with_lease(work, &worker_counters, lease);
+                        });
+                    match helper {
+                        Ok(helper) => helpers.push(helper),
+                        Err(_) => {
+                            counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
                 }
                 run_main(
                     &mut result,
@@ -1889,22 +2012,24 @@ pub(super) fn search(
                     history,
                     &counters,
                 );
-                if let Ok(helper) = helper {
-                    if let Some(notifications) = &notifications {
-                        drain_while_waiting(
-                            &mut result,
-                            &generation,
-                            notifications,
-                            &main_state,
-                            state,
-                            board,
-                            ordered,
-                            depth,
-                            hi,
-                            history,
-                            &counters,
-                        );
-                    }
+                if let Some(notifications) = &notifications {
+                    drain_while_waiting(
+                        &mut result,
+                        &generation,
+                        notifications,
+                        &main_state,
+                        state,
+                        board,
+                        ordered,
+                        depth,
+                        hi,
+                        history,
+                        &counters,
+                    );
+                }
+                // Join every handle before propagating a helper panic.
+                let mut panic = None;
+                for helper in helpers {
                     let join_start = Instant::now();
                     let joined = helper.join();
                     counters
@@ -1913,9 +2038,22 @@ pub(super) fn search(
                     counters
                         .join_wait_us
                         .fetch_add(elapsed_us(join_start), Ordering::Relaxed);
-                    joined.expect("cooperative root helper panicked");
+                    if let Err(payload) = joined {
+                        generation.stop();
+                        if panic.is_none() {
+                            panic = Some(payload);
+                        }
+                    }
+                }
+                if let Some(payload) = panic {
+                    std::panic::resume_unwind(payload);
                 }
             });
+            // The legacy first helper is accounted below, exactly once.
+            counters.helper_nodes.fetch_add(
+                budgets.iter().skip(1).map(|budget| budget.nodes()).sum(),
+                Ordering::Relaxed,
+            );
         }
         result.confirm_ready(
             &generation,
@@ -1985,6 +2123,8 @@ mod tests {
             helper_lmr: false,
             latency: None,
             executor: RefCell::new(None),
+            helpers: 1,
+            extra_helper_tables: Vec::new(),
         })
     }
 
@@ -2352,7 +2492,7 @@ mod tests {
                         state.budget.clone(),
                         generation.cancel.clone(),
                     )),
-                    Some(&counters),
+                    Some(&counters.helper_tables),
                 );
                 drop(invocation.dispatch(work(helper_state, generation.clone(), 50)));
                 panic!("main fails while helper may be running");
@@ -2898,6 +3038,8 @@ mod tests {
                 priority: false,
                 helper_lmr: false,
                 latency: None,
+                helpers: 1,
+                extra_helper_tables: Vec::new(),
                 executor: RefCell::new(Some(HelperExecutor {
                     sender: None,
                     worker: None,
@@ -2987,6 +3129,8 @@ mod tests {
                     helper_lmr: false,
                     latency: None,
                     executor: RefCell::new(None),
+                    helpers: 1,
+                    extra_helper_tables: Vec::new(),
                 });
                 let state = test_state();
                 let result = {
@@ -3721,17 +3865,508 @@ mod tests {
     fn helper_histories_are_private_and_reused_only_within_one_invocation() {
         let state = test_state();
         let first_go = Counters::default();
-        let first = participant_state(&state, state.budget.clone(), Some(&first_go));
-        let next_pass = participant_state(&state, state.budget.clone(), Some(&first_go));
+        let first = participant_state(&state, state.budget.clone(), Some(&first_go.helper_tables));
+        let next_pass =
+            participant_state(&state, state.budget.clone(), Some(&first_go.helper_tables));
         assert!(Arc::ptr_eq(&first.history, &next_pass.history));
         assert!(Arc::ptr_eq(&first.countermoves, &next_pass.countermoves));
         assert!(!Arc::ptr_eq(&first.history, &state.history));
         assert!(!Arc::ptr_eq(&first.countermoves, &state.countermoves));
         let second_go = Counters::default();
-        let second = participant_state(&state, state.budget.clone(), Some(&second_go));
+        let second =
+            participant_state(&state, state.budget.clone(), Some(&second_go.helper_tables));
         assert!(!Arc::ptr_eq(&first.history, &second.history));
         assert!(!Arc::ptr_eq(&first.countermoves, &second.countermoves));
         assert!(!first.pruning.ybw_split);
         assert!(!second.pruning.ybw_split);
+    }
+    // Insert these items inside root_split::tests. No production hooks needed.
+    // Every blocking receive has a failure bound; cancellation waits yield,
+    // rather than relying on sleeps to establish an execution order.
+    fn multi_test_wait_for_cancel(budget: &Budget) {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !budget.should_abort() {
+            assert!(
+                Instant::now() < deadline,
+                "helper never observed cancellation"
+            );
+            std::thread::yield_now();
+        }
+    }
+
+    #[test]
+    fn multi_reserved_helpers_finish_only_after_the_last_late_start() {
+        for count in [1, 3, 7] {
+            for with_wake in [false, true] {
+                let (sender, notifications) = mpsc::sync_channel(1);
+                let generation = Arc::new(Generation::with_wake(0, 2, with_wake.then_some(sender)));
+                generation.remaining_helpers.store(count, Ordering::Release);
+                // No root task remains, so the first real helper returns as
+                // soon as it starts. Other reservations are still unstarted.
+                generation.next.store(2, Ordering::Relaxed);
+                let mut leases: Vec<_> = (0..count)
+                    .map(|_| HelperLease(generation.clone()))
+                    .collect();
+                let main = Participation::new(&generation);
+                let state = test_state();
+                let counters = Counters::default();
+                std::thread::scope(|scope| {
+                    for finished in 1..=count {
+                        let lease = leases.remove(0);
+                        let mut work = work(state.clone(), generation.clone(), 1);
+                        work.ordered = Arc::from(&work.ordered[..2]);
+                        let counters = &counters;
+                        scope
+                            .spawn(move || run_helper_with_lease(work, counters, lease))
+                            .join()
+                            .unwrap();
+                        assert_eq!(
+                            generation.remaining_helpers.load(Ordering::Acquire),
+                            count - finished
+                        );
+                        assert_eq!(
+                            generation.helper_finished.load(Ordering::Acquire),
+                            finished == count
+                        );
+                        // Completion does not imply main participation ended.
+                        assert_eq!(generation.participants.load(Ordering::Acquire), 1);
+                        if finished < count || !with_wake {
+                            assert!(notifications.try_recv().is_err());
+                        } else {
+                            assert!(notifications.try_recv().is_ok());
+                            assert!(notifications.try_recv().is_err());
+                        }
+                    }
+                });
+                assert!(leases.is_empty());
+                assert_eq!(
+                    counters.helpers_started.load(Ordering::Relaxed),
+                    count as u64
+                );
+                drop(main);
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+            }
+        }
+    }
+
+    #[test]
+    fn multi_dropped_unstarted_closures_release_each_reserved_helper_once() {
+        for count in [1, 3, 7] {
+            for failed in [
+                vec![0],
+                vec![count / 2],
+                vec![count - 1],
+                (0..count).collect(),
+            ] {
+                let (wake, notifications) = mpsc::sync_channel(1);
+                let generation = Arc::new(Generation::with_wake(0, 2, Some(wake)));
+                generation.remaining_helpers.store(count, Ordering::Release);
+                generation.next.store(2, Ordering::Relaxed);
+                let leases: Vec<_> = (0..count)
+                    .map(|_| HelperLease(generation.clone()))
+                    .collect();
+                let counters = Counters::default();
+                let state = test_state();
+                let executed = AtomicUsize::new(0);
+                std::thread::scope(|scope| {
+                    for (index, lease) in leases.into_iter().enumerate() {
+                        let mut work = work(state.clone(), generation.clone(), 1);
+                        work.ordered = Arc::from(&work.ordered[..2]);
+                        let counters = &counters;
+                        let executed = &executed;
+                        // Dropping the complete unexecuted closure models the
+                        // ownership path of Builder::spawn_scoped returning Err.
+                        let launch = move || {
+                            executed.fetch_add(1, Ordering::Relaxed);
+                            run_helper_with_lease(work, counters, lease);
+                        };
+                        if failed.contains(&index) {
+                            drop(launch);
+                        } else {
+                            scope.spawn(launch).join().unwrap();
+                        }
+                        assert_eq!(
+                            generation.remaining_helpers.load(Ordering::Acquire),
+                            count - index - 1
+                        );
+                        assert_eq!(
+                            generation.helper_finished.load(Ordering::Acquire),
+                            index + 1 == count
+                        );
+                        assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                        if index + 1 < count {
+                            assert!(notifications.try_recv().is_err());
+                        }
+                    }
+                });
+                let successes = count - failed.len();
+                assert_eq!(executed.load(Ordering::Relaxed), successes);
+                assert_eq!(
+                    counters.helpers_started.load(Ordering::Relaxed),
+                    successes as u64
+                );
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert!(generation.helper_finished.load(Ordering::Acquire));
+                assert!(notifications.try_recv().is_ok());
+                assert!(notifications.try_recv().is_err());
+                assert!(!generation.cancel.load(Ordering::Acquire));
+            }
+        }
+    }
+
+    #[test]
+    fn multi_claims_are_unique_and_old_or_cancelled_advice_is_rejected() {
+        for participants in [4, 8] {
+            for moves in [2, 17, 257] {
+                let generation = Arc::new(Generation::new(23, moves));
+                generation
+                    .remaining_helpers
+                    .store(participants - 1, Ordering::Release);
+                let mut leases: Vec<_> = (1..participants)
+                    .map(|_| HelperLease(generation.clone()))
+                    .collect();
+                let barrier = std::sync::Barrier::new(participants);
+                let mut tasks = Vec::new();
+                std::thread::scope(|scope| {
+                    let _cancel = CancelOnDrop(&generation);
+                    let mut workers = Vec::new();
+                    for index in 0..participants {
+                        let lease = if index == 0 { None } else { leases.pop() };
+                        let generation = &generation;
+                        let barrier = &barrier;
+                        workers.push(scope.spawn(move || {
+                            let _lease = lease;
+                            let _participant = Participation::new(generation);
+                            barrier.wait();
+                            let mut claimed = Vec::new();
+                            while let Some(task) = generation.claim(moves) {
+                                claimed.push(task);
+                            }
+                            claimed
+                        }));
+                    }
+                    for worker in workers {
+                        tasks.extend(worker.join().unwrap());
+                    }
+                });
+                assert!(leases.is_empty());
+                tasks.sort_by_key(|task| task.move_index);
+                assert_eq!(
+                    tasks.iter().map(|task| task.move_index).collect::<Vec<_>>(),
+                    (1..moves).collect::<Vec<_>>()
+                );
+                assert!(
+                    tasks
+                        .iter()
+                        .all(|task| task.generation == generation.id && task.alpha_snapshot == 23)
+                );
+                assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+                assert!(generation.helper_finished.load(Ordering::Acquire));
+                let candidate = RootCandidate {
+                    alpha_snapshot: 23,
+                    generation: generation.id,
+                    move_index: 1,
+                    score: 24,
+                    searched_depth: 4,
+                };
+                let next = Generation::new(23, moves);
+                assert!(!next.publish(candidate));
+                assert!(next.take(1).is_none());
+                assert!(!generation.publish(candidate));
+                assert!(generation.claim(moves).is_none());
+                assert!(!next.cancel.load(Ordering::Acquire));
+                assert!(!next.helper_finished.load(Ordering::Acquire));
+                assert_eq!(next.remaining_helpers.load(Ordering::Acquire), 1);
+                assert_eq!(next.claim(moves).unwrap().move_index, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn multi_main_unwind_cancels_and_implicitly_joins_every_helper() {
+        for count in [1, 3, 7] {
+            let (wake, notifications) = mpsc::sync_channel(1);
+            let generation = Arc::new(Generation::with_wake(0, 2, Some(wake)));
+            generation.remaining_helpers.store(count, Ordering::Release);
+            let leases: Vec<_> = (0..count)
+                .map(|_| HelperLease(generation.clone()))
+                .collect();
+            let parent = test_state().budget.clone();
+            let (started, starts) = mpsc::channel();
+            let (stopped, stops) = mpsc::channel();
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                std::thread::scope(|scope| {
+                    // This guard must unwind before the scope's implicit join.
+                    let _cancel = CancelOnDrop(&generation);
+                    let _main = Participation::new(&generation);
+                    for (index, lease) in leases.into_iter().enumerate() {
+                        let generation = generation.clone();
+                        let budget =
+                            Budget::cooperative_child(parent.clone(), generation.cancel.clone());
+                        let started = started.clone();
+                        let stopped = stopped.clone();
+                        scope.spawn(move || {
+                            let _lease = lease;
+                            let _participant = Participation::new(&generation);
+                            started.send(index).unwrap();
+                            multi_test_wait_for_cancel(&budget);
+                            let _ = stopped.send(index);
+                        });
+                    }
+                    for _ in 0..count {
+                        starts.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }
+                    panic!("injected main panic after every helper starts");
+                });
+            }));
+            assert!(failed.is_err());
+            let mut observed = Vec::new();
+            for _ in 0..count {
+                observed.push(stops.recv_timeout(Duration::from_secs(5)).unwrap());
+            }
+            observed.sort_unstable();
+            assert_eq!(observed, (0..count).collect::<Vec<_>>());
+            assert!(generation.cancel.load(Ordering::Acquire));
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+            assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+            assert!(notifications.try_recv().is_ok());
+            assert!(!parent.should_abort());
+        }
+    }
+
+    #[test]
+    fn multi_helper_unwind_cancels_peers_before_the_main_guard_drops() {
+        for count in [3, 7] {
+            let (wake, notifications) = mpsc::sync_channel(1);
+            let generation = Arc::new(Generation::with_wake(0, 2, Some(wake)));
+            generation.remaining_helpers.store(count, Ordering::Release);
+            let mut leases: Vec<_> = (0..count)
+                .map(|_| HelperLease(generation.clone()))
+                .collect();
+            let parent = test_state().budget.clone();
+            let (started, starts) = mpsc::channel();
+            let (stopped, stops) = mpsc::channel();
+            let (trigger, triggered) = mpsc::sync_channel(1);
+            let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                std::thread::scope(|scope| {
+                    let _cancel = CancelOnDrop(&generation);
+                    let panic_lease = leases.pop().unwrap();
+                    let panic_work = work(test_state(), generation.clone(), 0);
+                    let started_panic = started.clone();
+                    let panic_helper = scope.spawn(move || {
+                        started_panic.send(count - 1).unwrap();
+                        triggered.recv_timeout(Duration::from_secs(5)).unwrap();
+                        run_helper_with_lease(panic_work, &Counters::default(), panic_lease);
+                    });
+                    struct ReleaseTriggerOnDrop(mpsc::SyncSender<()>);
+                    impl Drop for ReleaseTriggerOnDrop {
+                        fn drop(&mut self) {
+                            let _ = self.0.try_send(());
+                        }
+                    }
+                    // On any assertion/receive failure, release the gated
+                    // helper BEFORE the scope's implicit join can wait on it.
+                    let trigger = ReleaseTriggerOnDrop(trigger);
+                    let mut peers = Vec::new();
+                    for (index, lease) in leases.drain(..).enumerate() {
+                        let generation = generation.clone();
+                        let budget =
+                            Budget::cooperative_child(parent.clone(), generation.cancel.clone());
+                        let started = started.clone();
+                        let stopped = stopped.clone();
+                        peers.push(scope.spawn(move || {
+                            let _lease = lease;
+                            let _participant = Participation::new(&generation);
+                            started.send(index).unwrap();
+                            multi_test_wait_for_cancel(&budget);
+                            let _ = stopped.send(index);
+                        }));
+                    }
+                    for _ in 0..count {
+                        starts.recv_timeout(Duration::from_secs(5)).unwrap();
+                    }
+                    trigger.0.send(()).unwrap();
+                    let payload = panic_helper.join().expect_err("depth zero must panic");
+                    // No main-side stop here: peer exit must be caused by the
+                    // panicking helper's lease, while _cancel is still alive.
+                    for peer in peers {
+                        peer.join().unwrap();
+                    }
+                    assert!(generation.cancel.load(Ordering::Acquire));
+                    assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+                    std::panic::resume_unwind(payload);
+                });
+            }));
+            assert!(failed.is_err());
+            let mut observed = Vec::new();
+            for _ in 1..count {
+                observed.push(stops.recv_timeout(Duration::from_secs(5)).unwrap());
+            }
+            observed.sort_unstable();
+            assert_eq!(observed, (0..count - 1).collect::<Vec<_>>());
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!(generation.remaining_helpers.load(Ordering::Acquire), 0);
+            assert_eq!(generation.participants.load(Ordering::Acquire), 0);
+            assert!(notifications.try_recv().is_ok());
+            assert!(!parent.should_abort());
+        }
+    }
+
+    #[test]
+    fn multi_private_tables_and_budgets_are_independent_and_reused_per_slot() {
+        let parent = test_state();
+        let generation = Generation::new(0, 10);
+        let tables: Vec<_> = (0..7).map(|_| HelperTables::default()).collect();
+        let children: Vec<_> = tables
+            .iter()
+            .map(|tables| {
+                participant_state(
+                    &parent,
+                    Arc::new(Budget::cooperative_child(
+                        parent.budget.clone(),
+                        generation.cancel.clone(),
+                    )),
+                    Some(tables),
+                )
+            })
+            .collect();
+        for (i, child) in children.iter().enumerate() {
+            assert!(!Arc::ptr_eq(&child.history, &parent.history));
+            assert!(!Arc::ptr_eq(&child.countermoves, &parent.countermoves));
+            let again = participant_state(&parent, child.budget.clone(), Some(&tables[i]));
+            assert!(Arc::ptr_eq(&child.history, &again.history));
+            assert!(Arc::ptr_eq(&child.countermoves, &again.countermoves));
+            for other in children.iter().take(i) {
+                assert!(!Arc::ptr_eq(&child.history, &other.history));
+                assert!(!Arc::ptr_eq(&child.countermoves, &other.countermoves));
+                assert!(!Arc::ptr_eq(&child.budget, &other.budget));
+            }
+            for _ in 0..i + 1 {
+                assert!(!child.budget.tick());
+            }
+            assert_eq!(child.budget.nodes(), (i + 1) as u64);
+        }
+        assert_eq!(parent.budget.nodes(), 28);
+        generation.stop();
+        assert!(children.iter().all(|child| child.budget.should_abort()));
+        assert!(!parent.budget.should_abort());
+        let other_tables = HelperTables::default();
+        let other = participant_state(&parent, parent.budget.clone(), Some(&other_tables));
+        assert!(
+            children
+                .iter()
+                .all(|child| !Arc::ptr_eq(&child.history, &other.history))
+        );
+        let stop = Arc::new(AtomicBool::new(false));
+        let parent = Arc::new(Budget::new(None, None, stop.clone()));
+        let children: Vec<_> = (0..7)
+            .map(|_| Budget::cooperative_child(parent.clone(), Arc::new(AtomicBool::new(false))))
+            .collect();
+        stop.store(true, Ordering::Relaxed);
+        assert!(children.iter().all(Budget::should_abort));
+    }
+
+    #[test]
+    fn multi_scoped_search_restores_board_replays_pv_and_accounts_every_helper() {
+        on_search_stack(|| {
+            for helpers in [3usize, 7] {
+                for (drain, latency, priority) in [
+                    (false, false, false),
+                    (true, false, false),
+                    (true, true, true),
+                ] {
+                    for node_limit in [None, Some(250)] {
+                        let mut board = Board::startpos();
+                        let hash = board.hash();
+                        let acc = board.acc.clone();
+                        let history = PositionHistory::initial(hash);
+                        let (info, stats, wait) = Searcher::new(Tt::new(2))
+                            .search_cooperative_root_group_controls(
+                                &mut board,
+                                SearchConfig {
+                                    max_depth: 3,
+                                    node_limit,
+                                    ..SearchConfig::default()
+                                },
+                                &history,
+                                false,
+                                drain,
+                                latency,
+                                priority,
+                                false,
+                                helpers,
+                            );
+                        assert_eq!(wait.workers as usize, helpers + 1);
+                        assert_eq!(wait.enabled, drain);
+                        assert_eq!(wait.latency.is_some(), latency);
+                        assert_eq!(wait.priority_enabled, priority);
+                        assert!(!wait.helper_lmr_enabled);
+                        assert_eq!(
+                            stats.helpers_started + stats.spawn_failures,
+                            stats.generations * helpers as u64
+                        );
+                        assert_eq!(
+                            stats.physical_helper_threads_started,
+                            stats.physical_helper_threads_joined
+                        );
+                        assert_eq!(
+                            stats.helper_nodes,
+                            stats.helper_completed_nodes + stats.helper_aborted_nodes
+                        );
+                        assert!(stats.main_nodes + stats.helper_nodes <= info.nodes);
+                        assert!(stats.main_confirmations <= stats.helper_fail_highs);
+                        assert!(stats.helper_fail_highs <= stats.helper_probes);
+                        if node_limit.is_none() {
+                            assert_eq!(info.depth, 3);
+                        }
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, acc);
+                        let mut replay = board.clone();
+                        for mv in info.pv {
+                            assert!(generate_legal_moves(&mut replay).contains(&mv));
+                            replay.do_move(mv);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    #[test]
+    fn multi_shallow_scores_match_sequential_full_depth_search() {
+        on_search_stack(|| {
+            let pruning = PruningConfig {
+                null_move: false,
+                late_move_reduction: false,
+                ybw_split: false,
+            };
+            for sfen in [
+                crate::sfen::STARTPOS_SFEN,
+                "4k4/9/4p4/9/4P4/9/9/9/4K4 b - 1",
+                "4k4/9/4P4/9/9/9/9/9/4K4 b G 1",
+            ] {
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let config = SearchConfig {
+                    max_depth: 2,
+                    ..SearchConfig::default()
+                };
+                let control =
+                    Searcher::with_pruning(Tt::new(2), pruning).search(&mut board, config);
+                for helpers in [3, 7] {
+                    let history = PositionHistory::initial(board.hash());
+                    let (info, _, _) = Searcher::with_pruning(Tt::new(2), pruning)
+                        .search_cooperative_root_group_controls(
+                            &mut board, config, &history, false, false, false, false, false,
+                            helpers,
+                        );
+                    assert_eq!(
+                        (info.score, info.bound, info.depth),
+                        (control.score, control.bound, control.depth)
+                    );
+                }
+            }
+        });
     }
 }

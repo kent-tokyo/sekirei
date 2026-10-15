@@ -734,7 +734,11 @@ impl LazySmpSearcher {
             .map(|root_hint| root_hint.begin_go());
         let tt_before = self.tt_write_stats.as_ref().map(|stats| stats.snapshot());
         let split_stats = std::sync::OnceLock::new();
-        let cooperative = self.workers == 2 && self.flags & LAZY_ROOT_SPLIT != 0 && self.share_tt;
+        let multi = super::search::params::COOP_MULTI() != 0
+            && super::search::params::COOP_PERSISTENT() == 0
+            && matches!(self.workers, 4 | 8);
+        let cooperative =
+            (self.workers == 2 || multi) && self.flags & LAZY_ROOT_SPLIT != 0 && self.share_tt;
         let participants = if cooperative { 1 } else { self.workers };
         let results: Vec<(
             SearchInfo,
@@ -748,12 +752,20 @@ impl LazySmpSearcher {
                     diagnostics.map(|observer| (observer.snapshot(), observer.tt_reuse_snapshot()));
                 let info = if let Some(searcher) = self.persistent.get(index) {
                     if cooperative {
-                        let (info, stats, wait_stats) = searcher
-                            .search_cooperative_root_with_history_and_wait_stats(
+                        let (info, stats, wait_stats) = if multi {
+                            searcher.search_cooperative_root_group_with_history_and_wait_stats(
                                 &mut worker_board,
                                 config,
                                 history,
-                            );
+                                self.workers,
+                            )
+                        } else {
+                            searcher.search_cooperative_root_with_history_and_wait_stats(
+                                &mut worker_board,
+                                config,
+                                history,
+                            )
+                        };
                         let _ = split_stats.set((stats, wait_stats));
                         info
                     } else {
@@ -777,12 +789,20 @@ impl LazySmpSearcher {
                         searcher.set_retirement(channel.clone(), index);
                     }
                     if cooperative {
-                        let (info, stats, wait_stats) = searcher
-                            .search_cooperative_root_with_history_and_wait_stats(
+                        let (info, stats, wait_stats) = if multi {
+                            searcher.search_cooperative_root_group_with_history_and_wait_stats(
                                 &mut worker_board,
                                 config,
                                 history,
-                            );
+                                self.workers,
+                            )
+                        } else {
+                            searcher.search_cooperative_root_with_history_and_wait_stats(
+                                &mut worker_board,
+                                config,
+                                history,
+                            )
+                        };
                         let _ = split_stats.set((stats, wait_stats));
                         info
                     } else {
@@ -1933,5 +1953,69 @@ mod tests {
                 .expect("opt-in diagnostics must report sampled work overlap");
             assert!(overlap.dropped <= overlap.sampled_visits);
         });
+    }
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-wide cooperative tuning parameters"]
+    fn tuned_multi_cooperative_activation_preserves_fallbacks_and_group_census() {
+        use crate::search::params as p;
+        struct Restore(Vec<(&'static str, i32)>);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for &(name, value) in &self.0 {
+                    let _ = p::set(name, value);
+                }
+            }
+        }
+        let _restore = Restore(vec![
+            ("COOP_MULTI", p::COOP_MULTI()),
+            ("COOP_PERSISTENT", p::COOP_PERSISTENT()),
+        ]);
+        for workers in [1, 2, 3, 4, 8] {
+            for (multi, persistent, split, isolated) in [
+                (0, 0, true, false),
+                (1, 0, true, false),
+                (1, 1, true, false),
+                (1, 0, false, false),
+                (1, 0, true, true),
+            ] {
+                assert!(p::set("COOP_MULTI", multi));
+                assert!(p::set("COOP_PERSISTENT", persistent));
+                let flags = LAZY_DEFAULT_FLAGS
+                    | if split { LAZY_ROOT_SPLIT } else { 0 }
+                    | if isolated { LAZY_ISOLATED_TT } else { 0 };
+                let searcher = LazySmpSearcher::with_flags(Tt::new(1), workers, flags);
+                let board = Board::startpos();
+                let history = PositionHistory::initial(board.hash());
+                let info = searcher.search_with_history(
+                    &board,
+                    SearchConfig {
+                        max_depth: 2,
+                        ..SearchConfig::default()
+                    },
+                    &history,
+                );
+                let active = split
+                    && !isolated
+                    && (workers == 2
+                        || (multi == 1 && persistent == 0 && matches!(workers, 4 | 8)));
+                assert_eq!(searcher.cooperative_root_stats().is_some(), active);
+                assert_eq!(info.worker_results.len(), if active { 1 } else { workers });
+                if active {
+                    let stats = searcher.cooperative_root_stats().unwrap();
+                    let wait = searcher.cooperative_root_wait_stats().unwrap();
+                    assert_eq!(wait.workers as usize, workers);
+                    assert_eq!(
+                        stats.helpers_started + stats.spawn_failures,
+                        stats.generations * (workers - 1) as u64
+                    );
+                    assert_eq!(
+                        stats.physical_helper_threads_started,
+                        stats.physical_helper_threads_joined
+                    );
+                }
+                assert!(info.result.best_move.is_some());
+            }
+        }
     }
 }

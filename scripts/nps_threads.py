@@ -372,11 +372,34 @@ def parse_retirement(lines: list[str]) -> list[dict[str, int]]:
     return records
 
 
-def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) -> dict[str, int] | None:
+def parse_cooperative_root(
+    lines: list[str], *, total_nodes: int | None = None, workers: int | None = None,
+) -> dict[str, int] | None:
+    group_prefix = "info string cooperative_root_group"
+    groups = [line[len(group_prefix):].split() for line in lines
+              if line == group_prefix or line.startswith(group_prefix + " ")]
+    group = None
+    if groups:
+        fields = groups[0]
+        if len(groups) != 1 or len(fields) != 4 or fields[::2] != ["workers", "helpers"]:
+            raise ValueError("malformed cooperative root group diagnostic")
+        if any(not value.isascii() or not value.isdigit() for value in fields[1::2]):
+            raise ValueError("cooperative root group counters must be unsigned decimal integers")
+        group = dict(zip(("workers", "helpers"), map(int, fields[1::2]), strict=True))
+        if any(value > (1 << 32) - 1 for value in group.values()):
+            raise ValueError("cooperative root group counter exceeds u32")
+        if group["workers"] not in (4, 8) or group["helpers"] != group["workers"] - 1:
+            raise ValueError("invalid cooperative root group size")
     prefix = "info string cooperative_root "
     matches = [line[len(prefix):] for line in lines if line.startswith(prefix)]
     if not matches:
+        if group is not None:
+            raise ValueError("cooperative root group requires root counters")
         return None
+    actual_workers = group["workers"] if group is not None else 2
+    if workers is not None and workers != actual_workers:
+        raise ValueError("cooperative root workers differ from requested threads")
+    helpers_per_generation = actual_workers - 1
     keys = ("generations", "helper_nodes", "helper_probes", "helper_fail_highs",
             "main_confirmations", "confirmed_alpha_raises",
             "main_nodes",
@@ -414,7 +437,7 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
         raise ValueError("cooperative helper node accounting inconsistent")
     if result["alpha_gap_max"] > result["alpha_gap_sum"]:
         raise ValueError("cooperative alpha gap inconsistent")
-    if result["spawn_failures"] + result["helpers_started"] != result["generations"] or result["helper_aborted_probes"] > result["helpers_started"]:
+    if result["spawn_failures"] + result["helpers_started"] != result["generations"] * helpers_per_generation or result["helper_aborted_probes"] > result["helpers_started"]:
         raise ValueError("cooperative lifecycle counts inconsistent")
     if result["main_confirmations"] == 0 and result["alpha_gap_sum"] != 0:
         raise ValueError("cooperative alpha gap without confirmations")
@@ -429,6 +452,8 @@ def parse_cooperative_root(lines: list[str], *, total_nodes: int | None = None) 
         raise ValueError("cooperative helper thread was not joined")
     if result["physical_helper_threads_started"] > result["helpers_started"]:
         raise ValueError("cooperative physical threads exceed started jobs")
+    if group is not None:
+        result.update(group)
     return result
 
 
@@ -1197,7 +1222,7 @@ def measure(args: argparse.Namespace, threads: int, positions: list[str]) -> lis
                 lazy_smp = parse_lazy_smp(lines)
                 lazy_smp_tt = parse_lazy_smp_tt(lines)
                 lazy_smp_overlap = parse_lazy_smp_overlap(lines)
-                cooperative_root = parse_cooperative_root(lines, total_nodes=nodes)
+                cooperative_root = parse_cooperative_root(lines, total_nodes=nodes, workers=threads)
                 cooperative_root_wait = parse_cooperative_root_wait(lines, cooperative_root=cooperative_root)
                 cooperative_root_latency = parse_cooperative_root_latency(lines, cooperative_root=cooperative_root)
                 cooperative_root_policy = parse_cooperative_root_policy(lines, cooperative_root=cooperative_root)
