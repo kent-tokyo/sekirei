@@ -66,9 +66,10 @@ blocks and had no exact cross-arm blocks; no parallel identity is claimed.
 The 240 searches replayed 1,484 PV moves with zero legality violations through
 the frozen same-rules validator.
 
-Both timed attempts stopped before any search because an unrelated Sekirei
-data-generation job exceeded the 25%-CPU threshold. Attempt 2 began more than
-60 seconds after attempt 1. No timed search ran, no process was stopped, no
+Both timed attempts stopped before any search because the host exceeded the
+25%-CPU threshold. Attempt 1 recorded a Sekirei data-generation process;
+attempt 2 recorded two Rust compiler processes and began more than 60 seconds
+after attempt 1. No timed search ran, no process was stopped, no
 busy-host override was used and no third attempt is permitted by this protocol.
 There is no qualified 1T/4T/8T NPS or completed-depth result. The development
 screen does not advance; no independent H1 or YaneuraOu comparison was opened.
