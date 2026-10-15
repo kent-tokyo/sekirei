@@ -1956,7 +1956,7 @@ pub(super) fn search(
                 board.hash(),
                 TtEntry {
                     score: score_to_tt(result.alpha, 0),
-                    depth: depth as u8,
+                    depth: crate::tt::depth_to_tt(depth),
                     bound: if result.alpha >= hi {
                         Bound::Lower
                     } else {

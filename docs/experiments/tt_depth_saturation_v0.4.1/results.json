@@ -1,0 +1,75 @@
+{
+  "schema": "sekirei.tt-depth-correctness.v1",
+  "base_commit": "760d5b513eee93a755e6fb7dfd58c831481f105d",
+  "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)",
+  "environment": {
+    "CARGO_INCREMENTAL": "0",
+    "CARGO_BUILD_JOBS": "1",
+    "CARGO_PROFILE_DEV_DEBUG": "0",
+    "RUST_MIN_STACK": "16777216"
+  },
+  "new_regression_tests": 7,
+  "observed_before_repair_failures": 6,
+  "validation": [
+    {
+      "phase": "before_repair",
+      "command": "cargo test -p sekirei-core --lib tt::tests:: -- --test-threads=1",
+      "passed": 13,
+      "failed": 3,
+      "ignored": 1,
+      "raw_log": "target/tt-depth-red-all.log",
+      "sha256": "97b7a468fe99102e82f4b005c38ec6e35fdb2bd817109f93e65a73de76f83d57"
+    },
+    {
+      "phase": "before_repair",
+      "command": "cargo test -p sekirei-core --lib requested_depth_does_not_wrap -- --test-threads=1",
+      "passed": 0,
+      "failed": 3,
+      "ignored": 0,
+      "raw_log": "target/tt-depth-probe-red.log",
+      "sha256": "d1417b51ee91d6f089d4127d3b90fe56c764cfbd784f8aab3a5e473deb2f44b2"
+    },
+    {
+      "phase": "after_repair",
+      "command": "cargo test --workspace -- --test-threads=1",
+      "passed": 991,
+      "failed": 0,
+      "ignored": 4,
+      "raw_log": "target/tt-depth-workspace-tests.log",
+      "sha256": "182af682990d74b96e55d1dd5dfe6ff6b89b22c4c5e124e4d019b18608f7be24"
+    },
+    {
+      "phase": "after_repair",
+      "command": "cargo test -p sekirei-core --features tune --lib tt::tests:: -- --test-threads=1",
+      "passed": 16,
+      "failed": 0,
+      "ignored": 1,
+      "raw_log": "target/tt-depth-tune-tt.log",
+      "sha256": "db650ab3bb471ba8988f207f23874ae61596ae7428115208ffbae56f71424c40"
+    },
+    {
+      "phase": "after_repair",
+      "command": "cargo test -p sekirei-core --features tune --lib requested_depth_does_not_wrap -- --test-threads=1",
+      "passed": 3,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/tt-depth-tune-probes-final.log",
+      "sha256": "5060b8e4a980a746f14fee59674f1e53c7399b4fee0f0047cf72d67367bffcd4"
+    },
+    {
+      "phase": "after_repair",
+      "command": "cargo test -p sekirei-core --features tune --lib main_search_stores_deep_tt_entries_without_narrowing_wrap -- --test-threads=1",
+      "passed": 1,
+      "failed": 0,
+      "ignored": 0,
+      "raw_log": "target/tt-depth-tune-store.log",
+      "sha256": "e099b34bfe7ddd7a36c98fe48c2f26abae1ee0a81ee6ce9235814d20f8a80403"
+    }
+  ],
+  "timing_performed": false,
+  "matches_performed": false,
+  "strength_claim": false,
+  "public_api_shape_changed": false,
+  "unsafe_added": false,
+  "review": "independent read-only review: no substantive issue"
+}

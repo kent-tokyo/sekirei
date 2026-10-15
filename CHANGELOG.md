@@ -51,6 +51,10 @@ preserves older per-change notes.
 
 ### Fixed
 
+- Saturate packed TT depths at 127 without corrupting scores, and compare
+  requested depths without narrowing wrap in legacy and speculative probes
+  and singular eligibility. Preserve conservative depth on deep root stores.
+
 - Accept finite fractional wall times and explicitly unavailable optional opening
   books in the pinned YaneuraOu throughput comparator, while retaining strict
   artifact, option, counter, and positive-value checks.
