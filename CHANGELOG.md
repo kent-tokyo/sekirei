@@ -20,6 +20,10 @@ preserves older per-change notes.
 
 ### Added
 
+- Add a default-off `repetition_filter2` build feature that uses two bits in
+  the existing search-line repetition filter. Exact repetition and perpetual
+  check adjudication remain authoritative; this is an unqualified CPU candidate.
+
 - Add independently gated Pure Rust gzip/zstd JSONL decoding with physical and
   decoded hashes, complete-stream integrity checks, and compression/storage
   equivalence tests. Preserve the physical-file SHA contract for resume.

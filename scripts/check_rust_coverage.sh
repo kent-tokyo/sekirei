@@ -123,6 +123,19 @@ cargo llvm-cov -p sekirei-core \
   --ignored \
   --exact
 
+# The repetition filter is a compile-time CPU experiment: exercise its
+# alternative bit rule without a runtime mode change or release counters.
+cargo llvm-cov -p sekirei-core \
+  --features repetition_filter2 \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/repetition-filter2-summary.json" \
+  -- repetition_filter \
+  --test-threads=1
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release
