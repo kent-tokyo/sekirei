@@ -46,7 +46,7 @@ pub enum Bound {
 pub struct TtEntry {
     /// Search score for the stored position.
     pub score: i32,
-    /// Depth the score was searched to.
+    /// Depth the score was searched to; stores saturate at 127 (the packed limit).
     pub depth: u8,
     /// How `score` should be interpreted relative to alpha/beta.
     pub bound: Bound,
@@ -114,10 +114,18 @@ const GEN_MASK_U64: u64 = 0xF;
 const MOVE_BITS: u64 = 0x7F_FFF0;
 /// PV flag bit of the data word.
 const PV_BIT: u64 = 1 << 63;
+/// Maximum conservative depth representable by the packed seven-bit field.
+const MAX_STORED_DEPTH: u8 = 127;
+
+/// Convert a search depth before narrowing to the public entry field.
+#[inline]
+pub(crate) fn depth_to_tt(depth: u32) -> u8 {
+    depth.min(u32::from(MAX_STORED_DEPTH)) as u8
+}
 
 fn pack(entry: &TtEntry) -> u64 {
     let score = u64::from(entry.score as u32 & 0x7FFF_FFFF) << 32;
-    let depth = (entry.depth as u64) << 25;
+    let depth = u64::from(entry.depth.min(MAX_STORED_DEPTH)) << 25;
     let bound = (entry.bound as u64) << 23;
 
     let (to, from, promote, kind) = match entry.mv {
@@ -436,7 +444,10 @@ impl Tt {
         self.store_flags(hash, entry, if pv { PV_BIT } else { 0 })
     }
 
-    fn store_flags(&self, hash: u64, entry: TtEntry, flags: u64) -> bool {
+    fn store_flags(&self, hash: u64, mut entry: TtEntry, flags: u64) -> bool {
+        // Normalize before both replacement and packing: bit 7 would overlap
+        // the score, and diagnostics must compare the same depth we store.
+        entry.depth = entry.depth.min(MAX_STORED_DEPTH);
         if let Some(stats) = &self.write_stats {
             stats.attempted.fetch_add(1, Ordering::Relaxed);
         }
@@ -590,6 +601,120 @@ mod tests {
                 let (got, pv) = tt.probe_pv(h).expect("stored");
                 assert_eq!((got.score, got.depth, pv), (score, 6, false));
             }
+        }
+    }
+
+    #[test]
+    fn every_depth_preserves_score_bound_move_and_pv() {
+        let moves = [
+            None,
+            Some(Move {
+                from: Some(Square::from_index(10)),
+                to: Square::from_index(11),
+                piece_kind: PieceKind::Fu,
+                promote: true,
+            }),
+            Some(Move {
+                from: None,
+                to: Square::from_index(80),
+                piece_kind: PieceKind::Gin,
+                promote: false,
+            }),
+        ];
+        for layout in 0..=3 {
+            let tt = Tt::new_with_layout(1, None, layout);
+            tt.new_search();
+            let mut hash = 0x1234_0000;
+            for depth in 0..=u8::MAX {
+                for score in [-(1 << 30), -899_990, -10, -1, 0, 2, 899_990, (1 << 30) - 1] {
+                    for bound in [Bound::Exact, Bound::Lower, Bound::Upper] {
+                        for mv in moves {
+                            for pv in [false, true] {
+                                hash += 1;
+                                tt.store_pv(
+                                    hash,
+                                    TtEntry {
+                                        score,
+                                        depth,
+                                        bound,
+                                        mv,
+                                    },
+                                    pv,
+                                );
+                                let (got, got_pv) = tt.probe_pv(hash).expect("stored");
+                                assert_eq!(
+                                    (got.score, got.depth, got.bound, got.mv, got_pv),
+                                    (score, depth.min(127), bound, mv, pv),
+                                    "layout={layout}, input_depth={depth}"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn saturated_depth_still_rejects_shallow_replacement() {
+        for layout in 0..=3 {
+            let stats = Arc::new(TtWriteStats::default());
+            let tt = Tt::new_with_layout(1, Some(stats.clone()), layout);
+            let hash = 0x1234_5678;
+            tt.store_pv(
+                hash,
+                TtEntry {
+                    score: -10,
+                    ..entry(128, Bound::Lower, None)
+                },
+                true,
+            );
+            tt.store(
+                hash,
+                TtEntry {
+                    score: 2,
+                    ..entry(100, Bound::Upper, None)
+                },
+            );
+            let (got, pv) = tt.probe_pv(hash).expect("deep entry retained");
+            assert_eq!(
+                (got.score, got.depth, got.bound, pv),
+                (-10, 127, Bound::Lower, true)
+            );
+            assert_eq!(stats.snapshot().shallower_rejections, 1);
+            tt.store(
+                hash,
+                TtEntry {
+                    score: 4,
+                    ..entry(255, Bound::Upper, None)
+                },
+            );
+            let (got, pv) = tt
+                .probe_pv(hash)
+                .expect("equal representable depth replaces");
+            assert_eq!(
+                (got.score, got.depth, got.bound, pv),
+                (4, 127, Bound::Upper, false)
+            );
+            if layout == 0 {
+                assert_eq!(stats.snapshot().equal_depth_overwrites, 1);
+            }
+        }
+    }
+
+    #[test]
+    fn bucket_victim_selection_retains_saturated_deep_entry() {
+        for layout in [1, 3] {
+            let tt = Tt::new_with_layout(1, None, layout);
+            let hashes: Vec<_> = (0..5u64).map(|i| 0x80 + (i << 24)).collect();
+            tt.store(hashes[0], entry(128, Bound::Lower, None));
+            for (i, &hash) in hashes[1..4].iter().enumerate() {
+                tt.store(hash, entry(90 + i as u8, Bound::Lower, None));
+            }
+            tt.store(hashes[4], entry(94, Bound::Lower, None));
+            assert_eq!(tt.probe(hashes[0]).expect("deep entry retained").depth, 127);
+            assert!(tt.probe(hashes[1]).is_none());
+            assert_eq!(tt.probe(hashes[4]).expect("new entry stored").depth, 94);
         }
     }
 

@@ -204,7 +204,7 @@ fn spec_alpha_beta(
     // TT probe — skip if entry was written by an aborted task (we can't tell,
     // but entries with depth=0 or unreasonable scores are naturally harmless)
     if let Some(e) = state.tt.probe(hash)
-        && e.depth >= depth as u8
+        && u32::from(e.depth) >= depth
     {
         match e.bound {
             Bound::Exact => return e.score,
@@ -259,7 +259,7 @@ fn spec_alpha_beta(
                 hash,
                 TtEntry {
                     score: crate::search::score_to_tt(s, ply),
-                    depth: depth as u8,
+                    depth: crate::tt::depth_to_tt(depth),
                     bound: Bound::Lower,
                     mv: best_move,
                 },
@@ -280,7 +280,7 @@ fn spec_alpha_beta(
         hash,
         TtEntry {
             score: crate::search::score_to_tt(best, ply),
-            depth: depth as u8,
+            depth: crate::tt::depth_to_tt(depth),
             bound,
             mv: best_move,
         },
@@ -316,6 +316,34 @@ mod tests {
                     .unwrap(),
             ),
         })
+    }
+
+    #[test]
+    fn requested_depth_does_not_wrap_into_a_shallow_speculative_tt_cutoff() {
+        let state = spec_state();
+        let mut board = Board::from_sfen("k8/2K6/9/9/R8/9/9/9/9 w - 1").unwrap();
+        assert!(MoveBuffer::legal(&mut board).is_empty());
+        state.tt.store(
+            board.hash(),
+            TtEntry {
+                score: 25,
+                depth: 8,
+                bound: Bound::Exact,
+                mv: None,
+            },
+        );
+        for depth in [128, 255, 256, 257, 263, 512, u32::MAX] {
+            let score = spec_alpha_beta(
+                &state,
+                &AtomicBool::new(false),
+                &mut board,
+                -1_000_000,
+                1_000_000,
+                depth,
+                3,
+            );
+            assert_eq!(score, -crate::search::MATE_SCORE + 3, "depth={depth}");
+        }
     }
 
     // Regression: `spec_alpha_beta`'s terminal-mate return used to be written

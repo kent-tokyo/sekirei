@@ -48,7 +48,7 @@ impl SingularContext {
                 && self.depth >= p::SE_MIN_DEPTH() as u32
                 && (!self.in_check || p::SE_IN_CHECK() != 0)
                 && self.tt_move.is_some()
-                && self.tt_depth >= (self.depth as u8).saturating_sub(3)
+                && u32::from(self.tt_depth) >= self.depth.saturating_sub(3)
         }) else {
             return SingularOutcome::Extension(0);
         };

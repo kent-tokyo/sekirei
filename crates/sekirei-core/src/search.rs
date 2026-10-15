@@ -3098,7 +3098,7 @@ fn root_search_inner_tracked(
             board.hash(),
             TtEntry {
                 score: score_to_tt(alpha, 0), // ply=0 at root
-                depth: depth as u8,
+                depth: crate::tt::depth_to_tt(depth),
                 bound,
                 mv: Some(m),
             },
@@ -4759,7 +4759,7 @@ fn store_tt(
         hash,
         TtEntry {
             score: score_to_tt(score, ply),
-            depth: depth as u8,
+            depth: crate::tt::depth_to_tt(depth),
             bound,
             mv,
         },
@@ -7480,6 +7480,69 @@ mod regression_tests {
         assert_eq!(retained.score, seeded.score);
         assert_eq!(retained.depth, seeded.depth);
         assert_eq!(retained.bound, seeded.bound);
+    }
+
+    #[test]
+    fn requested_depth_does_not_wrap_into_shallow_singular_eligibility() {
+        let state = fresh_state(Tt::new(1));
+        state.budget.abort_now();
+        let mut board = Board::startpos();
+        let mv = generate_legal_moves(&mut board)[0];
+        let game = PositionHistory::initial(board.hash());
+        let history = SearchHistory::root(&game);
+        for depth in [256, 257, 263, 512, u32::MAX] {
+            let context = SingularContext {
+                alpha: -100_000,
+                beta: 100_000,
+                depth,
+                ply: 0,
+                prev_move: None,
+                excluded_move: None,
+                in_check: false,
+                tt_move: Some(mv),
+                tt_score: Some(1000),
+                tt_depth: 8,
+                pv: true,
+                cut: false,
+                double_extensions: 0,
+            };
+            assert_eq!(
+                context.probe(&state, &mut board, &history),
+                SingularOutcome::Extension(0)
+            );
+            assert_eq!(
+                state.budget.nodes(),
+                0,
+                "ineligible probe must not start a search: depth={depth}"
+            );
+        }
+    }
+
+    #[test]
+    fn main_search_stores_deep_tt_entries_without_narrowing_wrap() {
+        let tt = Tt::new(1);
+        let state = fresh_state(tt.clone());
+        for (hash, depth) in [0, 1, 126, 127, 128, 255, 256, 512, u32::MAX]
+            .into_iter()
+            .enumerate()
+        {
+            store_tt(
+                &state,
+                hash as u64 + 1,
+                -10,
+                depth,
+                Bound::Lower,
+                None,
+                0,
+                None,
+                true,
+            );
+            let (entry, pv) = tt.probe_pv(hash as u64 + 1).expect("stored");
+            assert_eq!(
+                (entry.score, entry.depth, entry.bound, pv),
+                (-10, depth.min(127) as u8, Bound::Lower, true)
+            );
+        }
     }
 
     #[test]

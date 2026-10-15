@@ -64,7 +64,7 @@ impl TtProbe {
         }
         // TT_PV_CUT 1: no TT cutoffs at PV nodes (the bounds still raise alpha).
         let pv_cut = p::TT_PV_CUT() == 0 || beta - alpha == 1;
-        if entry.depth >= depth as u8 && !excluded && pv_cut {
+        if u32::from(entry.depth) >= depth && !excluded && pv_cut {
             match entry.bound {
                 Bound::Exact => probe.cutoff = Some(adj),
                 Bound::Lower => {
@@ -83,13 +83,13 @@ impl TtProbe {
         } else if !excluded
             && beta - alpha == 1
             && adj.abs() < MATE_SCORE - 1000
-            && let short = depth as i32 - i32::from(entry.depth)
-            && short <= p::TT_SLACK_DEPTH()
+            && let short = i64::from(depth) - i64::from(entry.depth)
+            && short <= i64::from(p::TT_SLACK_DEPTH())
         {
             // TT_SLACK: an entry a few plies too shallow still decides a
             // null-window node when its bound clears the window by
             // TT_SLACK_MARGIN per missing ply.
-            let margin = p::TT_SLACK_MARGIN() * short;
+            let margin = p::TT_SLACK_MARGIN() * short as i32;
             match entry.bound {
                 Bound::Lower | Bound::Exact if adj >= beta + margin => {
                     probe.cutoff = Some(beta + margin);
@@ -141,6 +141,21 @@ mod tests {
                 mv: None,
             },
         );
+    }
+
+    #[test]
+    fn requested_depth_does_not_wrap_into_a_shallow_tt_cutoff() {
+        let state = state();
+        store(&state, 1, Bound::Exact, 25);
+        for depth in [128, 255, 256, 257, 263, 512, 1 << 31, u32::MAX] {
+            for (alpha, beta) in [(0, 10), (0, 1)] {
+                let probe = TtProbe::at(&state, 1, depth, 0, alpha, beta, false);
+                assert!(probe.hit);
+                assert_eq!(probe.cutoff, None, "depth={depth}, beta={beta}");
+                assert_eq!(probe.alpha, alpha);
+                assert_eq!(probe.se_depth, 8);
+            }
+        }
     }
 
     #[test]
