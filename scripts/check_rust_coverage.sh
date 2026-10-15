@@ -136,6 +136,19 @@ cargo llvm-cov -p sekirei-core \
   -- repetition_filter \
   --test-threads=1
 
+# Preserve the historical correction-key fold while exercising the opt-in
+# fixed-kind expansion. No coverage exclusions or thresholds are changed.
+cargo llvm-cov -p sekirei-core \
+  --features correction_key_unroll \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/correction-key-unroll-summary.json" \
+  -- correction_key_fold \
+  --test-threads=1
+
 # These bounded race tests are ignored by the ordinary unit-test pass because
 # they deliberately repeat scheduler and colliding-write scenarios. They are
 # fast enough for the coverage job and make the parallel-search release
