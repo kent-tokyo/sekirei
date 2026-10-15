@@ -202,6 +202,20 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Exercise both QS prefixes, including deferred TT returns and cap semantics.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-quiet-halfkp-qs-prefix-summary.json" \
+  -- search::v2::tests::quiet_halfkp_qs_prefix_defers_tt_returns_and_restores_search \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 cargo llvm-cov -p sekirei-core \
   --features tune \
   --test quiet_halfkp_edge \

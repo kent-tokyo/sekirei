@@ -73,6 +73,13 @@ const _: () = {
     assert!(std::mem::size_of::<QuietHalfKpToken>() == rounded_without_from);
 };
 
+#[cfg(test)]
+impl QuietHalfKpToken {
+    pub(crate) fn is_materialized_for_test(&self) -> bool {
+        self.applied
+    }
+}
+
 impl Board {
     /// Structural eligibility only: caller supplies an already legal move.
     /// Every rejection leaves all Board fields untouched.

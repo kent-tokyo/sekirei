@@ -116,5 +116,12 @@
     "mechanism": "passed",
     "fixed_depth_searches": 144,
     "hosted_coverage": "pending"
+  },
+  "hosted_coverage_followup": {
+    "commit": "46b5f6917d50ce52fd0a95e15e2094bc53956e38",
+    "status": "success",
+    "minimum_percent": 98,
+    "url": "https://github.com/kent-tokyo/sekirei/actions/runs/38773491206",
+    "scope": "historical main-prefix integration before QS extension"
   }
 }

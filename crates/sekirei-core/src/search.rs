@@ -3974,12 +3974,65 @@ fn learn_at_node_exit(
 fn quiescence(
     state: &Arc<SearchState>,
     board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    ply: u32,
+    qply: u32,
+    known_in_check: Option<bool>,
+    history: &SearchHistory<'_>,
+) -> i32 {
+    quiescence_with_pending(
+        state,
+        board,
+        alpha,
+        beta,
+        ply,
+        qply,
+        known_in_check,
+        history,
+        None,
+    )
+}
+
+#[cfg(test)]
+thread_local! {
+    static QUIET_HKP_QS_TT_SKIPS: std::cell::Cell<[u64; 2]> = const { std::cell::Cell::new([0; 2]) };
+}
+
+#[cfg(test)]
+fn record_quiet_halfkp_qs_tt_skip(pending: Option<&crate::board::QuietHalfKpToken>, qs2: bool) {
+    if pending.is_some_and(|token| !token.is_materialized_for_test()) {
+        QUIET_HKP_QS_TT_SKIPS.with(|counter| {
+            let mut counts = counter.get();
+            counts[usize::from(qs2)] += 1;
+            counter.set(counts);
+        });
+    }
+}
+
+#[cfg(all(test, feature = "tune"))]
+fn reset_quiet_halfkp_qs_tt_skips() {
+    QUIET_HKP_QS_TT_SKIPS.with(|counter| counter.set([0; 2]));
+}
+
+#[cfg(all(test, feature = "tune"))]
+fn quiet_halfkp_qs_tt_skips() -> [u64; 2] {
+    QUIET_HKP_QS_TT_SKIPS.with(std::cell::Cell::get)
+}
+
+/// Only the main move loop may lend a pending quiet edge. QS descendants
+/// retain eager transitions and call the original wrapper with None.
+#[allow(clippy::too_many_arguments)]
+fn quiescence_with_pending(
+    state: &Arc<SearchState>,
+    board: &mut Board,
     mut alpha: i32,
     beta: i32,
     ply: u32,
     qply: u32,
     known_in_check: Option<bool>,
     history: &SearchHistory<'_>,
+    pending: Option<&mut crate::board::QuietHalfKpToken>,
 ) -> i32 {
     let _quiescence_timer = state.timer(|d| &d.quiescence_inclusive_ns);
     if let Some(diagnostics) = state.counters() {
@@ -4007,6 +4060,10 @@ fn quiescence(
     if qply >= QSEARCH_MAX_PLY {
         if let Some(diagnostics) = state.counters() {
             diagnostics.qsearch[7].fetch_add(1, Ordering::Relaxed);
+        }
+        // Legacy cap evaluates even in check; preserve that score rule.
+        if let Some(token) = pending {
+            board.materialize_quiet_halfkp_for_search(token);
         }
         return evaluate_for_search(state, board);
     }
@@ -4045,6 +4102,8 @@ fn quiescence(
                 if let Some(diagnostics) = state.counters() {
                     diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                 }
+                #[cfg(test)]
+                record_quiet_halfkp_qs_tt_skip(pending.as_deref(), false);
                 return adj;
             }
             Bound::Lower => {
@@ -4052,6 +4111,8 @@ fn quiescence(
                     if let Some(diagnostics) = state.counters() {
                         diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                     }
+                    #[cfg(test)]
+                    record_quiet_halfkp_qs_tt_skip(pending.as_deref(), false);
                     return adj;
                 }
                 if adj > alpha {
@@ -4063,6 +4124,8 @@ fn quiescence(
                     if let Some(diagnostics) = state.counters() {
                         diagnostics.qsearch[2].fetch_add(1, Ordering::Relaxed);
                     }
+                    #[cfg(test)]
+                    record_quiet_halfkp_qs_tt_skip(pending.as_deref(), false);
                     return adj;
                 }
             }
@@ -4072,6 +4135,12 @@ fn quiescence(
     // bound may have raised alpha and must not make the eventual result look
     // exact merely because the cached bound was present.
     let orig_alpha = alpha;
+
+    // In-check nodes skip stand-pat, but their eager evasions also require
+    // a clean accumulator. Keep one barrier after all TT prefix returns.
+    if let Some(token) = pending {
+        board.materialize_quiet_halfkp_for_search(token);
+    }
 
     let in_check = known_in_check.unwrap_or_else(|| is_in_check(board, board.side_to_move));
     if in_check && let Some(diagnostics) = state.counters() {

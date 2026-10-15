@@ -1,5 +1,9 @@
 # Deferred quiet HalfKP edge
 
+This records the historical main-prefix prototype. The current disabled
+implementation extends through QS; see the [QS experiment](../quiet_halfkp_qs_v0.4.1/README.md)
+for its completed independent 4T result.
+
 `V2_LAZY_QUIET_HKP` remains **0 by default**. Speed is unqualified; no strength claim.
 
 For a clean active HalfKP board, the candidate defers one non-king,

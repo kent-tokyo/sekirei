@@ -1,0 +1,106 @@
+{
+  "schema": "sekirei.quiet-halfkp-qs-outcome.v1",
+  "status": "complete",
+  "candidate_kind": "quiet_halfkp_qs_prefix_compiledefault_native_4t",
+  "base_commit": "46b5f6917d50ce52fd0a95e15e2094bc53956e38",
+  "default_parameter": {
+    "V2_LAZY_QUIET_HKP": 0
+  },
+  "native_compile_controls": {
+    "baseline": 0,
+    "candidate": 1
+  },
+  "native_usi_sha256": {
+    "baseline": "cd1a12c7e2bee1e2f15e4cc5ed7372a5311b83822f6f20379842d6c6f7a4a769",
+    "candidate": "c75d71ba30af2fc7bd56e21636cb89a8bdafeb9658fc5c075150128af33dc3cf"
+  },
+  "decision": "rejected",
+  "gate_passed": false,
+  "reason": "Independent4T own-speed CI lower bound did not exceed1.0. No established speed gain.",
+  "summary": {
+    "primary_metric": "aggregate_nodes_per_wall_second",
+    "total_searches": 128,
+    "eligible_positions": 32,
+    "geomean_candidate_over_baseline": 1.0000106085147635,
+    "bootstrap_95pct": [
+      0.9909378933826603,
+      1.0090767727483914
+    ],
+    "excluded_by_700ms_filter": []
+  },
+  "accepted_calls": 128,
+  "eligible_positions": 32,
+  "attempted_quartets": 34,
+  "host_rejected_quartets": 2,
+  "raw_calls_preserved": 136,
+  "correctness": {
+    "normal_core_passed": 431,
+    "normal_core_ignored": 8,
+    "source_matrix_exact_searches": 288,
+    "fresh_native_search_processes": 72,
+    "one_t_exact_pairs": 31,
+    "isolated_4t_worker_zero_pairs": 4,
+    "lifecycle_4t_cases": 2,
+    "movegen_10m_positions_completed": true,
+    "lazy_edge_10m_legal_attempts_completed": true,
+    "unique_lazy_positions_claim": false,
+    "QS_mechanism_calls": 64,
+    "unapplied_TT_returns_per_QS": [
+      7,
+      7
+    ]
+  },
+  "durable_reports": {
+    "correctness": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/qualification/correctness-capture-completed/report.json",
+      "sha256": "ab12694a719b65cf53d4e441f44312f8fb026b18faa317d358106dfebf42b77c"
+    },
+    "H1": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/qualification/h1/capture-completed/report.json",
+      "sha256": "5925d995ed791152e03b25d572db8d5e7109a1060ed2897633790ae58d35fe24"
+    }
+  },
+  "preservation_receipt": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/qualification/capture-preservation-receipt.json",
+    "sha256": "f1b1911211012e8818680ecddd39ab76f7bf920c321bd6f17a5a48a40cbec8cf"
+  },
+  "source_adopted": false,
+  "defaults_changed": false,
+  "strength_claim": false,
+  "external_evaluator_used_for_selection": false,
+  "external_comparison_performed": false,
+  "rescue_rerun_performed": false,
+  "scope": "Own synthetic evaluator only, native samepath compiledefault0/1,4T actual aggregate nodes/wall time. Existing failed/unfinished study timings never pooled.",
+  "raw_provenance_note": "Raw actual_source free text retains legacy a7eff77 label; structured base_commit/native/source148 maps and hashes consistently pin46b5f6917d50ce52fd0a95e15e2094bc53956e38. Raw report bytes preserved.",
+  "source_verification": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/source-verification.json",
+    "sha256": "f0d3fb0fda585a09c5607a0b0eae9fc374d746785452c35c4f66d28663599fbf"
+  },
+  "native_manifest": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/qualification/native-build-manifest.json",
+    "sha256": "df6adec49538be961b28c31ec30cd810edab89c5e57f62e7df1e15c5b95251b4"
+  },
+  "independent_review": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/audit/h1-independent-review.json",
+    "sha256": "651f318f4f2662216910c53ed34f65e45d64cc26ff5a9e9a6a0151aa67dac325"
+  },
+  "experiment_outcome": {
+    "path": "/Users/k_tanabe/.codex/worktrees/quiet-halfkp-qs/sekirei/results/quiet-halfkp-qs-20261016/outcome.json",
+    "sha256": "932c03b785f1fd83d923c85adad05f8ab5f8abdc3803f37ac3cb772cb9773af8"
+  },
+  "main_integration": {
+    "base_commit": "46b5f6917d50ce52fd0a95e15e2094bc53956e38",
+    "source_count": 148,
+    "proof": {
+      "path": "/Users/k_tanabe/.codex/worktrees/quiet-tt-main/sekirei/results/quiet-halfkp-qs-integration-20261016/integration-validation.json",
+      "sha256": "08ed01736e1540a6d4e3cc454788595bfa3011607e965c1e72c91fdc289fad35"
+    },
+    "workspace_passed": 1054,
+    "core_passed": 431,
+    "core_ignored": 8,
+    "fixed_depth_searches": 288,
+    "qs_mechanism_calls": 64,
+    "workspace_and_tune_clippy": "passed",
+    "hosted_ci": "pending"
+  }
+}

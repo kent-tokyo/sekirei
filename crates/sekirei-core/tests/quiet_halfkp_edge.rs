@@ -1,4 +1,4 @@
-//! Isolated fixed-tree equivalence, not a speed or playing-strength result.
+//! Isolated fixed-tree equivalence across both QS modes, not a speed result.
 //! Run alone: tuning parameters and the own synthetic network are global.
 #![cfg(feature = "tune")]
 
@@ -90,51 +90,54 @@ fn checked_search(sfen: &str, depth: u32) -> SearchInfo {
 
 fn compare_evaluator(label: &str, roots: &[String]) {
     let mut searches = 0;
-    for (position, sfen) in roots.iter().enumerate() {
-        for (diag, split) in [(0, 0), (1, 0), (0, 1)] {
-            assert!(params::set("V2_DIAG", diag));
-            assert!(params::set("V2_CONT_SPLIT", split));
-            for depth in [6, 8] {
-                assert!(params::set("V2_LAZY_QUIET_HKP", 0));
-                let a = checked_search(sfen, depth);
-                assert!(params::set("V2_LAZY_QUIET_HKP", 1));
-                let b = checked_search(sfen, depth);
-                assert_eq!(
-                    (
-                        a.best_move,
-                        a.score,
-                        &a.pv,
-                        a.nodes,
-                        a.depth,
-                        a.bound,
-                        a.completed_bound
-                    ),
-                    (
-                        b.best_move,
-                        b.score,
-                        &b.pv,
-                        b.nodes,
-                        b.depth,
-                        b.bound,
-                        b.completed_bound
-                    ),
-                    "{label} position={position} depth={depth} diag={diag} split={split}",
-                );
-                searches += 2;
+    for qs_mode in [0, 1] {
+        assert!(params::set("V2_QS", qs_mode));
+        for (position, sfen) in roots.iter().enumerate() {
+            for (diag, split) in [(0, 0), (1, 0), (0, 1)] {
+                assert!(params::set("V2_DIAG", diag));
+                assert!(params::set("V2_CONT_SPLIT", split));
+                for depth in [6, 8] {
+                    assert!(params::set("V2_LAZY_QUIET_HKP", 0));
+                    let a = checked_search(sfen, depth);
+                    assert!(params::set("V2_LAZY_QUIET_HKP", 1));
+                    let b = checked_search(sfen, depth);
+                    assert_eq!(
+                        (
+                            a.best_move,
+                            a.score,
+                            &a.pv,
+                            a.nodes,
+                            a.depth,
+                            a.bound,
+                            a.completed_bound
+                        ),
+                        (
+                            b.best_move,
+                            b.score,
+                            &b.pv,
+                            b.nodes,
+                            b.depth,
+                            b.bound,
+                            b.completed_bound
+                        ),
+                        "{label} position={position} depth={depth} qs={qs_mode} diag={diag} split={split}",
+                    );
+                    searches += 2;
+                }
             }
         }
     }
-    assert_eq!(searches, 72);
-    eprintln!("quiet halfkp edge {label}: {searches} completed searches");
+    assert_eq!(searches, 144);
+    eprintln!("quiet halfkp qs prefix {label}: {searches} completed searches");
 }
 
 #[test]
 #[ignore = "run alone with tune: global parameters and own synthetic evaluator"]
 fn quiet_halfkp_edge_preserve_material_and_own_halfkp_fixed_depth() {
-    struct Restore([i32; 3]);
+    struct Restore([i32; 4]);
     impl Drop for Restore {
         fn drop(&mut self) {
-            for (name, value) in ["V2_LAZY_QUIET_HKP", "V2_DIAG", "V2_CONT_SPLIT"]
+            for (name, value) in ["V2_LAZY_QUIET_HKP", "V2_DIAG", "V2_CONT_SPLIT", "V2_QS"]
                 .into_iter()
                 .zip(self.0)
             {
@@ -146,6 +149,7 @@ fn quiet_halfkp_edge_preserve_material_and_own_halfkp_fixed_depth() {
         params::V2_LAZY_QUIET_HKP(),
         params::V2_DIAG(),
         params::V2_CONT_SPLIT(),
+        params::V2_QS(),
     ]);
     let spec = params::ALL
         .iter()
@@ -156,6 +160,8 @@ fn quiet_halfkp_edge_preserve_material_and_own_halfkp_fixed_depth() {
     assert_eq!(params::V2_QUIET_TT_STAGE(), 0);
     assert_eq!(params::V2_QUIET_LMP_SKIP(), 0);
     assert_eq!(params::V2_SEE_BOUND_CACHE(), 0);
+    assert_eq!(params::V2_CONT_ROWS(), 0);
+    assert_eq!(params::COOP_PRESTART_CAP(), 0);
     assert!(!halfkp::is_active(), "run in an isolated process");
     std::thread::Builder::new()
         .stack_size(16 * 1024 * 1024)
@@ -165,7 +171,7 @@ fn quiet_halfkp_edge_preserve_material_and_own_halfkp_fixed_depth() {
             halfkp::install_network(HalfKpNetwork::random(11)).unwrap();
             assert!(halfkp::is_active());
             compare_evaluator("own HalfKP random11", &roots);
-            eprintln!("quiet halfkp edge total: 144 completed searches");
+            eprintln!("quiet halfkp qs prefix total: 288 completed searches");
         })
         .unwrap()
         .join()

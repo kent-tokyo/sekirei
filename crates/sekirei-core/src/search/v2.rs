@@ -34,8 +34,8 @@ use super::heuristics::{CorrKeys, HistoryTable};
 use super::params as p;
 use super::{
     MATE_SCORE, SearchHistory, SearchState, TtEntry, current_move_at, cut_at, evaluate_for_search,
-    play, probe_tt_for_search_pv, quiescence, repetition_score, score_from_tt, score_to_tt,
-    store_tt_for_search_pv, useless_non_promotion,
+    play, probe_tt_for_search_pv, quiescence_with_pending, repetition_score, score_from_tt,
+    score_to_tt, store_tt_for_search_pv, useless_non_promotion,
 };
 use crate::board::{Board, QuietHalfKpToken};
 use crate::color::Color;
@@ -926,6 +926,20 @@ fn qs(
     in_check: bool,
     history: &SearchHistory<'_>,
 ) -> i32 {
+    qs_with_pending(state, board, alpha, beta, ply, in_check, history, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn qs_with_pending(
+    state: &Arc<SearchState>,
+    board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    ply: u32,
+    in_check: bool,
+    history: &SearchHistory<'_>,
+    pending: Option<&mut QuietHalfKpToken>,
+) -> i32 {
     if state.budget.should_abort() {
         return 0;
     }
@@ -934,7 +948,17 @@ fn qs(
     if alpha >= beta {
         return alpha;
     }
-    quiescence(state, board, alpha, beta, ply, 0, Some(in_check), history)
+    quiescence_with_pending(
+        state,
+        board,
+        alpha,
+        beta,
+        ply,
+        0,
+        Some(in_check),
+        history,
+        pending,
+    )
 }
 
 /// SEARCH_V2's own quiescence (`V2_QS`). Every ply probes and stores the
@@ -952,11 +976,26 @@ fn qs2(
     d: &mut Data,
     state: &Arc<SearchState>,
     board: &mut Board,
+    alpha: i32,
+    beta: i32,
+    ply: u32,
+    qply: u32,
+    history: &SearchHistory<'_>,
+) -> i32 {
+    qs2_with_pending(d, state, board, alpha, beta, ply, qply, history, None)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn qs2_with_pending(
+    d: &mut Data,
+    state: &Arc<SearchState>,
+    board: &mut Board,
     mut alpha: i32,
     beta: i32,
     ply: u32,
     qply: u32,
     history: &SearchHistory<'_>,
+    pending: Option<&mut QuietHalfKpToken>,
 ) -> i32 {
     let i = ply as usize + OFF;
     if let Some(c) = state.counters() {
@@ -975,6 +1014,7 @@ fn qs2(
         return if in_check {
             0
         } else {
+            materialize_pending(board, pending);
             evaluate_for_search(state, board)
         };
     }
@@ -1001,8 +1041,14 @@ fn qs2(
             has_upper
         })
     {
+        #[cfg(test)]
+        super::record_quiet_halfkp_qs_tt_skip(pending.as_deref(), true);
         return tt_score;
     }
+
+    // Also flush in check: there is no stand-pat evaluation on that path,
+    // but all QS make/undo and recursive calls retain their eager contract.
+    materialize_pending(board, pending);
 
     // Stand-pat.
     let mut best;
@@ -1285,16 +1331,16 @@ fn search_with_pending(
 ) -> i32 {
     let i = ply as usize + OFF;
     if depth <= 0 {
-        // Quiescence retains its eager make/undo contract.
-        materialize_pending(board, pending);
+        // Keep this one main edge pending through the QS prefix only.
+        // QS descendants still make and undo their own moves eagerly.
         if let Some(c) = state.counters() {
             c.exit(0);
         }
         if p::V2_QS() != 0 {
-            return qs2(d, state, board, alpha, beta, ply, 0, history);
+            return qs2_with_pending(d, state, board, alpha, beta, ply, 0, history, pending);
         }
         let in_check = d.ss[i].in_check;
-        return qs(state, board, alpha, beta, ply, in_check, history);
+        return qs_with_pending(state, board, alpha, beta, ply, in_check, history, pending);
     }
     let p = ply as usize;
     let mut lists = (
@@ -2715,6 +2761,338 @@ mod tests {
                     eprintln!("quiet continuation rows actual own HalfKP random11 depth8 position={position} enabled={enabled} batches={batches}");
                 }
             }
+        }).unwrap().join().unwrap();
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: own synthetic evaluator and process-global tuning parameters"]
+    fn quiet_halfkp_qs_prefix_defers_tt_returns_and_restores_search() {
+        use super::super::{Budget, quiet_halfkp_qs_tt_skips, reset_quiet_halfkp_qs_tt_skips};
+        use crate::halfkp::{self, HalfKpNetwork};
+        use crate::sfen::{PositionHistory, board_to_sfen, move_from_usi};
+        use std::sync::atomic::AtomicBool;
+
+        struct Restore([i32; 3]);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                for (name, value) in ["V2_LAZY_QUIET_HKP", "V2_QS", "QS_TT"]
+                    .into_iter()
+                    .zip(self.0)
+                {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        #[derive(Clone, Copy, Debug)]
+        enum Case {
+            Tt { position: usize, bound: Bound },
+            Research,
+            Cap { in_check: bool, max_ply: bool },
+            Abort,
+            Evasion,
+            MateDistance,
+            Repetition,
+        }
+        struct Arm {
+            scores: Vec<i32>,
+            nodes: u64,
+            aborted: bool,
+            skips: [u64; 2],
+            calls: usize,
+        }
+        fn assert_geometry(a: &Board, b: &Board) {
+            assert_eq!(board_to_sfen(a), board_to_sfen(b));
+            assert_eq!(a.hash(), b.hash());
+            assert_eq!(a.ply, b.ply);
+            assert_eq!(a.side_to_move, b.side_to_move);
+            assert_eq!(a.acc, b.acc);
+            assert_eq!(a.occ(), b.occ());
+            for color in [Color::Black, Color::White] {
+                assert_eq!(a.king_square(color), b.king_square(color));
+            }
+        }
+        fn run_arm(qs_mode: i32, enabled: i32, case: Case) -> Arm {
+            assert!(p::set("V2_QS", qs_mode));
+            assert!(p::set("V2_LAZY_QUIET_HKP", enabled));
+            assert!(p::set("QS_TT", 0));
+            let checking = matches!(case, Case::Evasion | Case::Cap { in_check: true, .. });
+            let sfen = if checking {
+                "k8/9/9/9/1R7/9/9/9/8K b - 1"
+            } else if matches!(case, Case::Repetition) {
+                "k8/9/4g4/9/9/9/4G4/9/8K b - 1"
+            } else if matches!(case, Case::Tt { position: 1, .. }) {
+                "lnsgkgsnl/1r5b1/ppppppppp/9/9/2P6/PP1PPPPPP/1B5R1/LNSGKGSNL w - 2"
+            } else {
+                crate::sfen::STARTPOS_SFEN
+            };
+            let mut board = Board::from_sfen(sfen).unwrap();
+            board.refresh_acc();
+            let mut game = PositionHistory::initial(board.hash());
+            if matches!(case, Case::Repetition) {
+                // Eleven legal reversible gold moves precede the final quiet
+                // move completing the fourth occurrence. The parent itself
+                // has not yet reached fourfold repetition.
+                for usi in ["5g5f", "5c5d", "5f5g", "5d5c"]
+                    .into_iter()
+                    .cycle()
+                    .take(11)
+                {
+                    let m = move_from_usi(usi, &board).unwrap();
+                    let mover = board.side_to_move;
+                    let _ = board.do_move_for_search(m);
+                    game.push_after_move(board.hash(), mover, false);
+                }
+                assert!(game.outcome_at_current_position().is_none());
+            }
+            let parent = board.clone();
+            let usi = if checking {
+                "8e9e"
+            } else if matches!(case, Case::Repetition) {
+                "5d5c"
+            } else if matches!(case, Case::Tt { position: 1, .. }) {
+                "3c3d"
+            } else {
+                "7g7f"
+            };
+            let m = move_from_usi(usi, &board).unwrap();
+            let mut eager_child = parent.clone();
+            let _ = eager_child.do_move_for_search(m);
+            let history = SearchHistory::root(&game);
+            crate::board::reset_quiet_halfkp_counts();
+            reset_quiet_halfkp_qs_tt_skips();
+            let (mut token, in_check, child_history) = play_main(&mut board, m, &history);
+            assert_eq!(in_check, checking);
+            assert_geometry(&board, &eager_child);
+            if enabled != 0 {
+                assert!(matches!(&token, V2MoveToken::QuietHalfKp(_)));
+                assert_eq!(board.hkp.values, parent.hkp.values);
+                assert_eq!(board.hkp.dirty, [true; 2]);
+            }
+            let (mut state, diagnostics) = diagnostic_state();
+            if matches!(case, Case::Abort) {
+                Arc::get_mut(&mut state).unwrap().budget =
+                    Arc::new(Budget::new(None, Some(1), Arc::new(AtomicBool::new(false))));
+            }
+            let ply = if matches!(case, Case::Cap { max_ply: true, .. }) {
+                MAX_PLY as u32
+            } else {
+                1
+            };
+            let mut d = Data::new();
+            d.ss[OFF + ply as usize].in_check = in_check;
+            d.ss[OFF + ply as usize - 1].mv = Some(m);
+            d.ss[OFF + ply as usize - 1].pt = pt_key(parent.side_to_move, m);
+            let calls = if matches!(case, Case::Research) { 3 } else { 1 };
+            let mut scores = Vec::new();
+            let mut should_materialize = false;
+            for pass in 0..calls {
+                let (alpha, beta, exact_return) = match case {
+                    Case::Tt { bound, .. } => {
+                        let (score, alpha, beta) = match bound {
+                            Bound::Exact => (321, 100, 101),
+                            Bound::Lower => (1234, 1000, 1001),
+                            Bound::Upper => (-1234, -1001, -1000),
+                        };
+                        state.tt.store(
+                            board.hash(),
+                            TtEntry {
+                                score: score_to_tt(score, ply),
+                                depth: 0,
+                                bound,
+                                mv: None,
+                            },
+                        );
+                        (alpha, beta, Some(score))
+                    }
+                    Case::Research if pass == 0 => {
+                        state.tt.store(
+                            board.hash(),
+                            TtEntry {
+                                score: score_to_tt(321, ply),
+                                depth: 0,
+                                bound: Bound::Exact,
+                                mv: None,
+                            },
+                        );
+                        (100, 101, Some(321))
+                    }
+                    Case::MateDistance => (MATE_SCORE, INF, Some(MATE_SCORE)),
+                    _ => {
+                        state.tt.clear();
+                        (-INF, INF, None)
+                    }
+                };
+                let score = if let Case::Cap { max_ply, .. } = case {
+                    let qply = if max_ply {
+                        0
+                    } else if qs_mode == 0 {
+                        10
+                    } else {
+                        16
+                    };
+                    if qs_mode == 0 {
+                        quiescence_with_pending(
+                            &state,
+                            &mut board,
+                            alpha,
+                            beta,
+                            ply,
+                            qply,
+                            Some(in_check),
+                            &child_history,
+                            token.pending(),
+                        )
+                    } else {
+                        qs2_with_pending(
+                            &mut d,
+                            &state,
+                            &mut board,
+                            alpha,
+                            beta,
+                            ply,
+                            qply,
+                            &child_history,
+                            token.pending(),
+                        )
+                    }
+                } else {
+                    search_with_pending(
+                        &mut d,
+                        &state,
+                        &mut board,
+                        alpha,
+                        beta,
+                        0,
+                        ply,
+                        false,
+                        beta - alpha > 1,
+                        &child_history,
+                        token.pending(),
+                    )
+                };
+                if let Some(expected) = exact_return {
+                    assert_eq!(score, expected, "{case:?} qs={qs_mode} pass={pass}");
+                }
+                should_materialize = match case {
+                    Case::Tt { .. } | Case::Abort | Case::MateDistance | Case::Repetition => false,
+                    Case::Research => pass != 0,
+                    Case::Cap { in_check, .. } => qs_mode == 0 || !in_check,
+                    Case::Evasion => true,
+                };
+                assert_geometry(&board, &eager_child);
+                if enabled != 0 && !should_materialize {
+                    assert_eq!(board.hkp.values, parent.hkp.values);
+                    assert_eq!(board.hkp.king, parent.hkp.king);
+                    assert_eq!(board.hkp.dirty, [true; 2]);
+                } else {
+                    assert_eq!(board.hkp, eager_child.hkp);
+                }
+                let counts = crate::board::quiet_halfkp_counts();
+                assert_eq!(counts.made, u64::from(enabled != 0));
+                assert_eq!(
+                    counts.materialized,
+                    u64::from(enabled != 0 && should_materialize)
+                );
+                if matches!(case, Case::Repetition) {
+                    let outcome = child_history.outcome_at_current_position().unwrap();
+                    assert_eq!(score, repetition_score(outcome, board.side_to_move, ply));
+                }
+                if matches!(case, Case::Abort) {
+                    assert_eq!(score, 0);
+                }
+                if matches!(case, Case::Cap { in_check: true, .. }) && qs_mode == 1 {
+                    assert_eq!(score, 0);
+                }
+                scores.push(score);
+            }
+            if matches!(case, Case::Evasion) {
+                assert!(
+                    diagnostics.quiescence_calls.load(Ordering::Relaxed) > 1,
+                    "no eager evasion child was searched"
+                );
+            }
+            assert_eq!(state.budget.should_abort(), matches!(case, Case::Abort));
+            let skips = quiet_halfkp_qs_tt_skips();
+            let expected_skip =
+                u64::from(enabled != 0 && matches!(case, Case::Tt { .. } | Case::Research));
+            assert_eq!(skips[qs_mode as usize], expected_skip);
+            assert_eq!(skips[(1 - qs_mode) as usize], 0);
+            token.undo(&mut board);
+            assert_geometry(&board, &parent);
+            assert_eq!(board.hkp, parent.hkp);
+            let counts = crate::board::quiet_halfkp_counts();
+            assert_eq!(
+                counts.materialized,
+                u64::from(enabled != 0 && should_materialize)
+            );
+            assert_eq!(counts.applied_undos, counts.materialized);
+            assert_eq!(
+                counts.unapplied_undos,
+                u64::from(enabled != 0 && !should_materialize)
+            );
+            if let Case::Tt { position, bound } = case {
+                eprintln!(
+                    "quiet halfkp QS TT actual own random11 qs={qs_mode} position={position} bound={bound:?} enabled={enabled} unapplied_tt_returns={} materialized={}",
+                    skips[qs_mode as usize], counts.materialized
+                );
+            }
+            Arm {
+                scores,
+                nodes: state.budget.nodes(),
+                aborted: state.budget.should_abort(),
+                skips,
+                calls,
+            }
+        }
+        fn compare(qs_mode: i32, case: Case) -> (usize, [u64; 2]) {
+            let a = run_arm(qs_mode, 0, case);
+            let b = run_arm(qs_mode, 1, case);
+            assert_eq!(
+                (&a.scores, a.nodes, a.aborted, a.calls),
+                (&b.scores, b.nodes, b.aborted, b.calls),
+                "{case:?} qs={qs_mode}"
+            );
+            assert_eq!(a.skips, [0; 2]);
+            (a.calls + b.calls, b.skips)
+        }
+        let _restore = Restore([p::V2_LAZY_QUIET_HKP(), p::V2_QS(), p::QS_TT()]);
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_CONT_ROWS(), 0);
+        assert_eq!(p::COOP_PRESTART_CAP(), 0);
+        assert_eq!(p::V2_QUIET_TT_STAGE(), 0);
+        assert_eq!(p::V2_QUIET_LMP_SKIP(), 0);
+        assert_eq!(p::V2_SEE_BOUND_CACHE(), 0);
+        assert!(!halfkp::is_active(), "fresh isolated process required");
+        if cfg!(feature = "king_relative_b_small") {
+            return;
+        }
+        std::thread::Builder::new().stack_size(16 * 1024 * 1024).spawn(|| {
+            halfkp::install_network(HalfKpNetwork::random(11)).unwrap();
+            let mut calls = 0;
+            let mut returns = [0; 2];
+            for qs_mode in [0, 1] {
+                let mut cases = Vec::new();
+                for position in [0, 1] {
+                    for bound in [Bound::Exact, Bound::Lower, Bound::Upper] {
+                        cases.push(Case::Tt { position, bound });
+                    }
+                }
+                cases.push(Case::Research);
+                for in_check in [false, true] { cases.push(Case::Cap { in_check, max_ply: false }); }
+                if qs_mode == 1 {
+                    for in_check in [false, true] { cases.push(Case::Cap { in_check, max_ply: true }); }
+                }
+                cases.extend([Case::Abort, Case::Evasion, Case::MateDistance, Case::Repetition]);
+                for case in cases {
+                    let (n, skipped) = compare(qs_mode, case);
+                    calls += n;
+                    for (total, value) in returns.iter_mut().zip(skipped) { *total += value; }
+                }
+            }
+            assert_eq!(calls, 64);
+            assert_eq!(returns, [7, 7]);
+            eprintln!("quiet halfkp QS prefix total: {calls} completed calls; qs0_unapplied_tt_returns={} qs1_unapplied_tt_returns={}", returns[0], returns[1]);
         }).unwrap().join().unwrap();
     }
 

@@ -750,8 +750,8 @@ search_params! {
     /// Cache continuation-history row references once per nonempty quiet
     /// scoring batch (0: original per-move lookup; experimental, default off).
     V2_CONT_ROWS = 0, 0, 1;
-    /// Defer one eligible quiet HalfKP edge through the main node prefix.
-    /// Experimental: QS and the rest of the node retain eager updates.
+    /// Defer one eligible quiet HalfKP edge through main and QS prefixes.
+    /// Experimental: evaluation and eager descendants materialize it first.
     V2_LAZY_QUIET_HKP = 0, 0, 1;
     /// SEARCH_V2 weight (/64) of the evaluation correction keyed by the two
     /// moves before a node (0: not used).
