@@ -110,3 +110,91 @@ search. Retain original JSON bytes and original path aliases unchanged; the
 portable index maps aliases to copied hash-verified files. Verify the durable
 export before cleaning or archiving any local worktree/cache. This does not
 restore unavailable prior local artifacts or regenerate old measurements.
+
+## Outcome
+
+Measured source `955a3e98be6807e8d832f33c48e44612ecdc7e1b`; native engine SHA-256
+`d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313`. The production default remains 2.
+
+The original analyzer stopped after the completed 320-row keep-2/2 control:
+it incorrectly treated the engine's always-emitted basic Lazy SMP worker
+census as opt-in instrumentation. Preserve the original runner, failure log,
+36 frozen inputs and all control rows. A separately frozen parsing amendment
+was declared before any native keep-1 treatment search. It only distinguishes
+basic worker census from opt-in records, requires zero diagnostic placeholders
+and validates worker/node accounting. The control was reanalyzed without
+repeating its search or PV replay. Remaining lanes were first searches with
+the original options, budgets, ABBA schedule and advancement criteria.
+The supplemental collector and its exact static-copy delta are in the
+durable artifact inventory; the original runner was never resumed.
+
+All 1,920 native rows were retained and replayed:
+14,717 PV moves, zero violations. The 1T control
+has 20 exact signatures; parallel within-side variation is retained.
+
+The isolated test passed all 36 boundary and 160 search cases. Eligible-gap
+activity totals are instrumented observations, not native timing or benefit:
+
+| Threads | keep 2: replaced | keep 1: rejected |
+|---|---:|---:|
+| 1T | 190 | 154 |
+| 2T | 259 | 358 |
+| 4T | 247 | 882 |
+| 8T | 1497 | 2010 |
+
+The fixed-node lane does not qualify timing. Mean paired depth differences
+(candidate minus baseline) and position-bootstrap 95% intervals were:
+
+| Threads | Median | Mean | 95% interval |
+|---|---:|---:|---|
+| 1T | +0 | -0.05 | [-0.4, +0.3] |
+| 2T | +0 | +0.2 | [+0.0125, +0.375] |
+| 4T | +0 | -0.0125 | [-0.225, +0.175] |
+| 8T | +0 | +0.0375 | [-0.125, +0.2125] |
+
+The timed lane used one attempt after 8 prequiet snapshots
+(70.4 seconds, ending with five consecutive idle samples).
+Both pre/post idle guards passed. All 640 timed rows and their PVs completed.
+No retry was made; the timing protocol is closed.
+
+| Threads | Median | Quiet / tactical medians | Mean | 95% interval | Decision |
+|---|---:|---|---:|---|---|
+| 1T | +0 | -1 / +0 | -0.05 | [-0.45, +0.35] | descriptive |
+| 2T | +0 | +0 / +0 | -0.0125 | [-0.175, +0.15] | descriptive |
+| 4T | +0 | +0 / +0 | +0.025 | [-0.1375, +0.1875] | no advance |
+| 8T | +0 | +0 / +0 | -0.0125 | [-0.2125, +0.1625] | no advance |
+
+Both 4T and 8T miss the +0.5-ply median and positive bootstrap-lower-bound
+criteria. Neither advances to H1. Their directional medians are zero.
+This is a failed development depth screen, not Elo H0 or a general rejection
+of the TT policy. No default adoption or YaneuraOu superiority is established.
+
+In the separate instrumented depth-8 lane, worker-0 foreign known-hit ratios
+were 63.0% to 63.5% at 4T and 67.7% to 71.6% at 8T. All multithread arm
+aggregates had foreign hits; zero rows/workers were retained. These sampled
+ratios describe reuse and do not establish a causal benefit. The bucket-3
+equal-depth-counter limitation above remains unchanged.
+
+Validation: 436 core tests passed (9 ignored); the isolated activity test
+passed; 92 existing Python tooling tests, 12 driver tests, 17 portable-archive
+tests and 15 parsing-amendment tests passed. Workspace tune Clippy and fmt
+passed. Initial test-command/mock invocation errors are preserved separately
+in the hash inventory and are not counted as successful suites.
+
+## Durable evidence
+
+`results.json` binds 105 immutable artifacts. A separate fsynced
+copy includes those artifacts, the original result JSON bytes, the complete
+measured Git tree/raw commit and a standalone verifier. Its source tree is
+`c8cc56ed119134bf8d78e24a1b806e44b651b7de` (1,158 entries).
+
+Archive directory:
+`~/.local/state/sekirei/search-experiments/tt-keep-depth-v0.4.2/955a3e98be6807e8d832f33c48e44612ecdc7e1b/`
+
+Externally recorded manifest SHA-256:
+`3c957d9226c66872daad66b13ae42a3f84ed95db76a364a2955d412745aca39e`.
+The copied verifier passed outside the original worktree with Git absent
+from PATH. It checks all copied hashes/byte counts and reconstructs the
+Git tree from tar blobs against the raw commit. The final README appendix
+is recorded by the integration commit; it is outside the earlier source
+snapshot and does not create a self-hash cycle.
