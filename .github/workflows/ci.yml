@@ -411,6 +411,7 @@ jobs:
             scripts/test_nps_threads.py \
             scripts/test_yaneuraou_evaluator_binding.py \
             scripts/test_paired_search_diagnostics.py \
+            scripts/test_idle_search_admission.py \
             scripts/test_compare_yaneura_speed.py \
             scripts/test_freeze_material_gate_openings.py \
             scripts/test_export_opening_identity_exclusions.py

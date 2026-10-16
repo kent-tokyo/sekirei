@@ -89,6 +89,30 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
   default. See the
   [sampled-overlap report](../docs/experiments/lazy_smp_work_overlap_v0.3.72/README.md).
 
+### Waiting for a quiet host before timing
+
+Future counter-free `paired_search_diagnostics.py` movetime runs can opt into
+bounded admission with `--idle-wait-seconds 300`, `--idle-poll-seconds 10`
+and `--idle-stable-samples 3`. The default wait is zero and retains immediate
+preflight behavior. This option changes measurement admission, not search
+policy, the 25% per-process CPU threshold, an evaluator or a default.
+
+The enabled lane records every initial/busy/unknown/idle snapshot before any
+engine launch. Three consecutive idle snapshots are needed by default; a
+busy or unavailable snapshot resets the count. A deadline closes the new
+output as `blocked_host_busy` with zero searches. Interruption and frozen-input
+drift also refuse dispatch. No external process is stopped, and `--allow-busy`,
+fixed-depth/node budgets or counter-enabled lanes cannot use this admission.
+The wait deadline uses a monotonic clock; an OS inspection can add its command
+timeout, so it is not a hard real-time bound.
+
+The manifest retains the request, sample history and final admission decision.
+Frozen engines/corpus and measurement-source hashes are rechecked before
+searching. The usual postflight load guard remains required. Samples do not
+prove continuous host isolation. Use a new output directory under a prospective
+protocol; this feature does not reopen or qualify previously closed studies,
+and does not replace independent match-input/exclusion requirements.
+
 Historical reports in `benchmark_reports/` apply only to their recorded host,
 revision, corpus, and operation. They are neither general speed rankings nor
 Elo claims.
