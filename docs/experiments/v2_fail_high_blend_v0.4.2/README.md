@@ -99,3 +99,46 @@ and all hashes, saves exclusive results.json, and only verifies an existing
 output without replacing it. Exclude growing orchestration/collection/CI/PR/
 integration logs from immutable artifacts. Preserve failed diagnostics apart
 from completed evidence; do not pool different candidates or corpora.
+
+## Recorded outcome
+
+Measured source: `8843fd965d40a272fef2442b1f37f66f7f66a09d`.
+The production guard/formula and all parameter defaults are unchanged; the
+added observer exists only under `cfg(test)`. The frozen native tune engine
+SHA-256 is `9a96657dee46d36566c9e65095db73647f0085a358f9e04ca0b67e5a2cff5b9b`.
+Compiler, shared-cache attribution and native observer-symbol audits passed.
+
+Core tests:435 passed,9 ignored. The exact isolated tune test passed all160
+matrix cases and2 mate cases. Its real-score changes were2016/3192/7040/12230
+at1/2/4/8T respectively; every OFF counter was zero. These are instrumented
+libtest observations, not native performance counters. Workspace/tune Clippy,
+format checks,92 measurement-tool tests and the final14 driver tests passed.
+Earlier9/14-test logs remain preserved separately, not counted as additional
+unique final tests.
+
+Control320, node640 and timed640 searches completed. All1600 rows and12189
+PV moves passed legal replay. The1T OFF/OFF control matched exactly in all20
+positions. [results.json](results.json) binds78 artifacts and recomputes actual
+activity, every analysis, effective options, inputs and raw-result hashes.
+
+| Threads | Node depth delta median | Node mean | Position-bootstrap95% interval |
+|---|---:|---:|---:|
+|4T|0.0|0.0|[-0.2,+0.2125]|
+|8T|0.0|+0.05|[-0.15,+0.25]|
+
+The300ms attempt completed after17 prequiet samples over160.7seconds and
+passed its idle pre-guard. Its post-guard detected other CPU-active processes,
+so **timing_qualified=false**. The following values are retained unqualified
+observations; their intervals do not establish a timing/depth effect.
+
+| Threads | Raw depth delta median | Raw mean | Raw position-bootstrap95% interval | Quiet / tactical median | A-first / B-first median |
+|---|---:|---:|---:|---:|---:|
+|4T|0.0|-0.075|[-0.2625,+0.1375]|0.0 / -0.5|0.0 /0.0|
+|8T|-0.25|-0.225|[-0.3875,-0.0625]|0.0 / -0.5|0.0 /0.0|
+
+Neither thread count advances under the prospective development rule.
+A completed attempt is not retryable, including post-invalidated timing;
+there was no second attempt and this measurement protocol is closed.
+Default staysOFF. No FH playing-strength match or independentH1 was run;
+this is neither an Elo rejection nor evidence of YaneuraOu superiority.
+The existing independent aspiration/H1 candidate remains queued unchanged.
