@@ -1,0 +1,2855 @@
+{
+  "schema": "sekirei.cooperative-budget-batch-results.v1",
+  "source_ref": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+  "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+  "base_commit": "cd77f387fdaed25aa3667d7664c104e9681f5cce",
+  "binding": {
+    "schema": "sekirei.cooperative-budget-batch-binding.v1",
+    "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+    "source_tree": "70146fcd7c27e911ba2978d1ef7d1673b88a0c6e",
+    "base_commit": "cd77f387fdaed25aa3667d7664c104e9681f5cce",
+    "frozen_before_first_search": "2026-10-16T10:44:20.127060+00:00",
+    "prospective_source_doc_sha256": "22907c1c50e12dcc83158470d5e4ed9627ba4fa247e4e4737d3ef05263bb49d4",
+    "search_source_clean": true,
+    "test_logs": [
+      "target/coop-budget-v2-tests.log",
+      "target/coop-budget-archive-tests.log",
+      "target/coop-budget-v2-main-audit-tests-final.log"
+    ],
+    "inputs_sha256": {
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-build.py": "39bb7f8771b46f8f943aa4cc5d7a97efed0d74f803cb7b1068bcd3fcb9ba7180",
+      "docs/experiments/cooperative_budget_batch_v0.4.2/AMENDMENT.md": "da550d33d30e740f8f3ac3a6201ac23af5c7ecea164fd02da7bc797d88fb9260",
+      "docs/experiments/cooperative_budget_batch_v0.4.2/README.md": "22907c1c50e12dcc83158470d5e4ed9627ba4fa247e4e4737d3ef05263bb49d4",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "scripts/generate_search_diagnostic.py": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "scripts/nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "scripts/paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/coop-budget-analyze.py": "c83426ec2982d8a2b9debf9b0144cefc1048e90d77d5bdd7ac01f425d43db7c3",
+      "target/coop-budget-archive-tests.log": "9cb7ad48a48154859da9ca2e372defabb2d7e85301711ff2a09d72a8fe1d41ae",
+      "target/coop-budget-archive-tests.py": "0f4506905ebb3f950692aa2e9b4f218b707d23b301cc2860d40ef298e56572db",
+      "target/coop-budget-archive.py": "b7c53fd7ab1420d931299ab4c3187a7b72e03bae24b8de2b8c22af692bd39efd",
+      "target/coop-budget-build-run.log": "216d86bd94a8973a24e8fdfe61bad87a27ba9d3f5d48dbf41bb8d1877b08093b",
+      "target/coop-budget-build.json": "e742bea4d969ce77a6dd06ba510027d8fa58a31556ccb33a4fb74378c8b83932",
+      "target/coop-budget-build.py": "39bb7f8771b46f8f943aa4cc5d7a97efed0d74f803cb7b1068bcd3fcb9ba7180",
+      "target/coop-budget-build/engine.log": "9da3a84ce613e23c521a53d1e0cb17cdeed4c26257792ca811a34d7e42996086",
+      "target/coop-budget-build/legal_tool.log": "f06e4b3cd039549a087c4447014ab0f827d1a8433a931873424253e5c46b7495",
+      "target/coop-budget-build/sekirei": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "target/coop-budget-build/sekirei-core-tests": "0eb95aa69ae2dbf78a3cae31f778d93fc830a5c7a1a0866c130950a18bcef83c",
+      "target/coop-budget-build/sekirei-legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/coop-budget-build/usi.txt": "ff4d196b8f61e86a83fd233ecabf8df7d014520b70ff5420b86a18da586cd25a",
+      "target/coop-budget-cache-cleanup.json": "dddafa419ef62d7b0192f53d45302e506b8dcc8839f7ffae2bb83c860cd6fbc1",
+      "target/coop-budget-clippy-tune.log": "dd17f8b91320c40be1e422e8e9c723ea1f5112cb719ac4e6f211f953ef35845a",
+      "target/coop-budget-clippy.log": "183421227e31cbaad394371f6835bed871dbbc73e2beb034ed95c77ddc9f5477",
+      "target/coop-budget-collect.py": "af5e6b319b67befdd1879d0984528b42cce8acb54585b4038aee3ffb385b0b9f",
+      "target/coop-budget-core-default-release.log": "5ab2ff0772a4d61c47c3571f4d474ee63dab4048c6f71a1ab298c594b2e851e5",
+      "target/coop-budget-core-tune-release.log": "1e910949529c34d299c09c6491ed5017564e4728d828962e2bdfec6542aca902",
+      "target/coop-budget-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/coop-budget-lifecycle.log": "89c8d669f14cd7b3b10917c445e17cb4fbe8cbb17b40eda089b672690d3ec128",
+      "target/coop-budget-main-audit-tests-final.log": "6188606aebf1650a4cfe6799d8a8a1d4f4cda305e2e46b1ff96b7628e56e0037",
+      "target/coop-budget-main-audit-tests.log": "189882048fa50788c2b9b4bb9064a64e93985d75e921f6f56a562efb1eea69a7",
+      "target/coop-budget-main-audit-tests.py": "45514de8de07918e21dc78e6dc001ac2bba59de076876c046a3715e48a81e130",
+      "target/coop-budget-main-audit.py": "b6a61b307a1297941eec10855da3dccda03e55af87a331856fc317ed3bf7487e",
+      "target/coop-budget-natural-build.jsonl": "386c25c20ebb6e31349d24b9c9937b9a1df26924656e1de20afafb27c977ceae",
+      "target/coop-budget-natural-build.log": "222a02ed477d249a21359df8cae975864a62d848f4739cadc5b00b6190a963c6",
+      "target/coop-budget-natural-exposure-corrected.json": "c60a6a39bb06b95f97cbef5a5a51859c52aa64b64097d8b3ea5686ee232827b3",
+      "target/coop-budget-natural-exposure.json": "20e0a08f769ce13f3adcfa8f90804a8caab5a3ecce2dcb43a2f9ada307079492",
+      "target/coop-budget-natural-exposure.log": "43379acfbd26230ea9d9e6e246f1a691987e5341691fdebda995d5dd63dee093",
+      "target/coop-budget-natural-presearch.json": "7e31fa36e19a477732e7e016e33b5d4cc9cb64db17fd10580a416426a3e9e5e2",
+      "target/coop-budget-natural-run.log": "aef40bd4ac0f61d2f2a51b25ee402ecfb37d83d0af3f303981f693a5be40c6fe",
+      "target/coop-budget-natural.py": "61e6dda658eb335d67edd73c2ea7efacd750435e33d9014eac0214ac611b670b",
+      "target/coop-budget-presearch-validation.json": "c5c9e6f9db69c8188e792adb9ca9572d563670780e30e3579e169897be68acd3",
+      "target/coop-budget-primary-before.json": "d873cf26fdd5ff78af97ac8ea0a06233570a685c424cf0d3207ee9745fbd97a3",
+      "target/coop-budget-prospective.md": "22907c1c50e12dcc83158470d5e4ed9627ba4fa247e4e4737d3ef05263bb49d4",
+      "target/coop-budget-python-syntax.log": "288bebd067dc64e1d7c670d6c124303b02135db7937e2304a7041d3dbbbc2890",
+      "target/coop-budget-run.py": "3f27dee653de275ada75e1fdd3df411812d98684053fd625b997d470885cbc76",
+      "target/coop-budget-source-commit.log": "be54d22f08bd846e2055bf04c3fa624883dc3a04bc595c92eeaedb8937e0dd31",
+      "target/coop-budget-tests-final.log": "2876eff3d7ac004d9006c173c6536a70a365300e5478d3b267bd468e55ebb1b8",
+      "target/coop-budget-tests.log": "e300f117760bf63e7adb76ed38c12e09747bcb857adbce710b81180552454ef8",
+      "target/coop-budget-tests.py": "1681eb6abdfc111d59ec9601424b0ed5d091588c660240222bb9553c7a6e324a",
+      "target/coop-budget-v2-amendment-function.txt": "ad8c0b03e922fcd430c9b443f1ee4d234cc2358c816a6c3d4a3a8ceb7641cde1",
+      "target/coop-budget-v2-analyze.py": "66901a8350edd505c482cc27b967ae57ceb0cbaa7132026d61e5030d1351df29",
+      "target/coop-budget-v2-collect.py": "870288ee07b910e821ade43057d367fb84f4384b370e4b040a367c8810ba4e40",
+      "target/coop-budget-v2-main-audit-tests-final.log": "78b0d3a09b5573f2db3d5a4bb4b0c846ab4f5b1b3ae40bac544e881f369bc5a3",
+      "target/coop-budget-v2-main-audit-tests.log": "78b0d3a09b5573f2db3d5a4bb4b0c846ab4f5b1b3ae40bac544e881f369bc5a3",
+      "target/coop-budget-v2-main-audit-tests.py": "5b79645cb88455a6984eb8ca51a354fdd79d1d8a14a3deeaff0cebce8fab0f80",
+      "target/coop-budget-v2-main-audit.py": "132f3f2bf776c769d3105ace55851b5ab15a1de4d8864b257abbd5be3efa4061",
+      "target/coop-budget-v2-run.py": "f559003d7ab70f3cdaa197e24426b5e058fd66a992ede35ab0d7899327b3aae0",
+      "target/coop-budget-v2-tests.log": "bcbb62611162a9c388ef38f1c513b5868671b0faf4e82fc91b7affa9e184edb4",
+      "target/coop-budget-v2-tests.py": "8d527c75bcaec1e281715ba230a6946e1b861938ae97f814209cb91037d78aea",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8"
+    },
+    "retries_permitted": false,
+    "default_adopted": false,
+    "independent_h1": false,
+    "strength_claim": false
+  },
+  "pre_native_amendment": {
+    "schema": "sekirei.cooperative-budget-batch-pre-native-amendment.v1",
+    "source_ref": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+    "source_tree": "70146fcd7c27e911ba2978d1ef7d1673b88a0c6e",
+    "recorded_at_utc": "2026-10-16T10:38:52.485629+00:00",
+    "original_presearch": {
+      "path": "target/coop-budget-natural-presearch.json",
+      "sha256": "7e31fa36e19a477732e7e016e33b5d4cc9cb64db17fd10580a416426a3e9e5e2"
+    },
+    "original_natural_receipt": {
+      "path": "target/coop-budget-natural-exposure.json",
+      "sha256": "20e0a08f769ce13f3adcfa8f90804a8caab5a3ecce2dcb43a2f9ada307079492"
+    },
+    "corrected_natural_receipt": {
+      "path": "target/coop-budget-natural-exposure-corrected.json",
+      "sha256": "c60a6a39bb06b95f97cbef5a5a51859c52aa64b64097d8b3ea5686ee232827b3"
+    },
+    "schema_correction": {
+      "field": "schema",
+      "before": "sekirei.root-coop-budget-natural-exposure.v1",
+      "after": "sekirei.cooperative-budget-batch-natural-exposure.v1",
+      "reason": "Prospective root helper recorded the wrong schema name; natural search is not repeated."
+    },
+    "output_exception": {
+      "path": "target/coop-budget-natural-run.log",
+      "presearch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "completed_sha256": "aef40bd4ac0f61d2f2a51b25ee402ecfb37d83d0af3f303981f693a5be40c6fe",
+      "consumed_as_input": false,
+      "reason": "Outer stdout was mistakenly frozen while empty; only completed output is retained."
+    },
+    "unchanged_input_count": 45,
+    "original_input_count": 46,
+    "native_search_previously_started": false,
+    "natural_search_repeated": false,
+    "thresholds_budgets_options_schedules_changed": false
+  },
+  "build": {
+    "schema": "sekirei.cooperative-budget-batch-build.v1",
+    "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+    "source_tree": "70146fcd7c27e911ba2978d1ef7d1673b88a0c6e",
+    "base_commit": "cd77f387fdaed25aa3667d7664c104e9681f5cce",
+    "source_before": {
+      "head": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+      "tree": "70146fcd7c27e911ba2978d1ef7d1673b88a0c6e",
+      "status": ""
+    },
+    "compiler": {
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "pgo": false,
+      "overrides": {},
+      "jobs": 1,
+      "incremental": 0
+    },
+    "test_logs": [
+      "target/coop-budget-core-default-release.log",
+      "target/coop-budget-core-tune-release.log",
+      "target/coop-budget-lifecycle.log",
+      "target/coop-budget-clippy.log",
+      "target/coop-budget-clippy-tune.log",
+      "target/coop-budget-fmt.log",
+      "target/coop-budget-tests-final.log",
+      "target/coop-budget-archive-tests.log",
+      "target/coop-budget-main-audit-tests-final.log"
+    ],
+    "started_at_utc": "2026-10-16T10:29:18.734419+00:00",
+    "engine": {
+      "path": "target/coop-budget-build/sekirei",
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "features": [
+        "tune"
+      ],
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "sekirei",
+        "--features",
+        "tune"
+      ],
+      "bytes": 4783168
+    },
+    "legal_tool": {
+      "path": "target/coop-budget-build/sekirei-legal-moves",
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "features": [],
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "sekirei-core",
+        "--bin",
+        "sekirei-legal-moves"
+      ],
+      "bytes": 708720
+    },
+    "native_test_observer_absent": true,
+    "source_after": {
+      "head": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+      "tree": "70146fcd7c27e911ba2978d1ef7d1673b88a0c6e",
+      "status": ""
+    },
+    "status": "complete",
+    "completed_at_utc": "2026-10-16T10:31:11.339861+00:00",
+    "build_inputs": {
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-build.py": "39bb7f8771b46f8f943aa4cc5d7a97efed0d74f803cb7b1068bcd3fcb9ba7180",
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "target/coop-budget-archive-tests.log": "9cb7ad48a48154859da9ca2e372defabb2d7e85301711ff2a09d72a8fe1d41ae",
+      "target/coop-budget-build/engine.log": "9da3a84ce613e23c521a53d1e0cb17cdeed4c26257792ca811a34d7e42996086",
+      "target/coop-budget-build/legal_tool.log": "f06e4b3cd039549a087c4447014ab0f827d1a8433a931873424253e5c46b7495",
+      "target/coop-budget-build/sekirei": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "target/coop-budget-build/sekirei-legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/coop-budget-build/usi.txt": "ff4d196b8f61e86a83fd233ecabf8df7d014520b70ff5420b86a18da586cd25a",
+      "target/coop-budget-cache-cleanup.json": "dddafa419ef62d7b0192f53d45302e506b8dcc8839f7ffae2bb83c860cd6fbc1",
+      "target/coop-budget-clippy-tune.log": "dd17f8b91320c40be1e422e8e9c723ea1f5112cb719ac4e6f211f953ef35845a",
+      "target/coop-budget-clippy.log": "183421227e31cbaad394371f6835bed871dbbc73e2beb034ed95c77ddc9f5477",
+      "target/coop-budget-core-default-release.log": "5ab2ff0772a4d61c47c3571f4d474ee63dab4048c6f71a1ab298c594b2e851e5",
+      "target/coop-budget-core-tune-release.log": "1e910949529c34d299c09c6491ed5017564e4728d828962e2bdfec6542aca902",
+      "target/coop-budget-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/coop-budget-lifecycle.log": "89c8d669f14cd7b3b10917c445e17cb4fbe8cbb17b40eda089b672690d3ec128",
+      "target/coop-budget-main-audit-tests-final.log": "6188606aebf1650a4cfe6799d8a8a1d4f4cda305e2e46b1ff96b7628e56e0037",
+      "target/coop-budget-primary-before.json": "d873cf26fdd5ff78af97ac8ea0a06233570a685c424cf0d3207ee9745fbd97a3",
+      "target/coop-budget-tests-final.log": "2876eff3d7ac004d9006c173c6536a70a365300e5478d3b267bd468e55ebb1b8"
+    }
+  },
+  "closed": {
+    "schema": "sekirei.cooperative-budget-batch-closed.v1",
+    "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+    "prequiet_qualified": false,
+    "timed_attempts": 0,
+    "failed": true,
+    "error": "analysis failed; no retry",
+    "resume_permitted": false,
+    "retry_permitted": false,
+    "default_adopted": false,
+    "strength_claim": false
+  },
+  "reports": {
+    "control": {
+      "schema": "sekirei.cooperative-budget-batch-screen.v1",
+      "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+      "base_commit": "cd77f387fdaed25aa3667d7664c104e9681f5cce",
+      "mode": "control",
+      "rows": 80,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 596,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 59.01399035355881
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.4768151780992333
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 24.350502964189303
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.633406238953696
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.4625543819514975
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.0234274359701034
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 9.927227237416215
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.9196736863502428
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 5.682010290538275
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.725784381191986
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.276214845732381
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.0086234212194012
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.5852067060195383
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.42502279802104637
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.0689931691463261
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.9899318254143141
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.2489611414826065
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.621211107571007
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.114110595828933
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.6185852652865105
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.367313020739381
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.3621052465151662
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.5586300319088355
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.9596512275923397
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.7019966783657905
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.084560027719596
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.2267423676678657
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.47023971048676394
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.1979128394808969
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.8306284634903349
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.8896409614518208
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.32102503447146713
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.6055790155421792
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.426734702175093
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.2142340151413133
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.6304170775765838
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -14.673333924893617
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.0576512208480335
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -8.176488615798016
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.20790988309393743
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.8599462540192171
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.32467347587907813
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.6773923757136266
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.5415409827826743
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.6095428950402724
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.239949961509714
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.2493608315861437
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.9747589417941072
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.828133940406268
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.042700575947576
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.7136741190239233
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.6423149101941306
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.652861019811779
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.007674826876502561
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.0256595528162946
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.5660153274721367
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.7947654944073577
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.1959958605674217
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.4342318032276933
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.324772877229785
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": 0.47294229172504254,
+              "quiet": 0.23170707680207348,
+              "tactical": 0.47294229172504254
+            },
+            "directional_median_percent": {
+              "A_first": 0.6721557942799605,
+              "B_first": -0.37302391624625675
+            },
+            "per_position_mean_percent": [
+              24.350502964189303,
+              1.0234274359701034,
+              5.682010290538275,
+              -1.0086234212194012,
+              1.0689931691463261,
+              0.621211107571007,
+              2.367313020739381,
+              0.9596512275923397,
+              -1.2267423676678657,
+              0.8306284634903349,
+              -0.6055790155421792,
+              -0.6304170775765838,
+              -8.176488615798016,
+              0.32467347587907813,
+              -1.6095428950402724,
+              0.9747589417941072,
+              2.7136741190239233,
+              -0.007674826876502561,
+              -1.7947654944073577,
+              -1.324772877229785
+            ],
+            "bootstrap_mean_percent_95": [
+              -0.8622847298745294,
+              4.237025682871785
+            ]
+          }
+        }
+      },
+      "elapsed": {
+        "1": {
+          "median_paired_ratio": 0.9952357210275762,
+          "per_position_mean_ratio": [
+            0.7707307465038409,
+            0.9892538771522773,
+            0.9431818181818181,
+            1.0101878382680676,
+            0.9895242252291576,
+            0.9938526762056172,
+            0.9766430043508131,
+            0.9905171016372183,
+            1.01187565490744,
+            0.9917494158878504,
+            1.0060877350044763,
+            1.0062048621706845,
+            1.0983186092903963,
+            0.9966187658495351,
+            1.0164000809880542,
+            0.990422798411586,
+            0.9723661485319516,
+            1.0,
+            1.0182910182910183,
+            1.0135062128579146
+          ],
+          "bootstrap_mean_ratio_95": [
+            0.9605933519411461,
+            1.0106247349321982
+          ],
+          "directional_median_ratio": {
+            "A_first": 0.9933042522677887,
+            "B_first": 1.0038087865786216
+          },
+          "directional_ratios": {
+            "A_first": [
+              0.6289637136319058,
+              0.9649499284692418,
+              0.9098300073909831,
+              1.0176962676962675,
+              0.9748700173310226,
+              0.9902023429179978,
+              0.9790145985401458,
+              0.986569579288026,
+              0.9931412894375857,
+              0.9954297508477075,
+              1.0089605734767024,
+              1.0249484536082476,
+              1.1715550636413947,
+              1.0019774011299436,
+              1.0170247263883259,
+              0.9685185185185184,
+              0.9273333333333333,
+              0.9934672150979917,
+              1.0206521739130434,
+              1.0021424745581147
+            ],
+            "B_first": [
+              0.9856293359762143,
+              1.0147684605757197,
+              0.9808173477898248,
+              1.0028355387523629,
+              1.0043975373790677,
+              0.9974683544303796,
+              0.9742528735632185,
+              0.9944787268593698,
+              1.0313167259786478,
+              0.9881382901779256,
+              1.0032200357781753,
+              0.9879542260590244,
+              1.0205640423031728,
+              0.9912872400224846,
+              1.0157766990291264,
+              1.0127298444130128,
+              1.0207885304659499,
+              1.0065821550463188,
+              1.015907844212836,
+              1.025068119891008
+            ]
+          },
+          "paired_ratios": [
+            0.7707307465038409,
+            0.9892538771522773,
+            0.9431818181818181,
+            1.0101878382680676,
+            0.9895242252291576,
+            0.9938526762056172,
+            0.9766430043508131,
+            0.9905171016372183,
+            1.01187565490744,
+            0.9917494158878504,
+            1.0060877350044763,
+            1.0062048621706845,
+            1.0983186092903963,
+            0.9966187658495351,
+            1.0164000809880542,
+            0.990422798411586,
+            0.9723661485319516,
+            1.0,
+            1.0182910182910183,
+            1.0135062128579146
+          ],
+          "raw_ms_by_side": {
+            "A": {
+              "count": 40,
+              "minimum": 1.199,
+              "maximum": 9.48,
+              "mean": 3.31385,
+              "median": 2.4695,
+              "p95": 6.913,
+              "values": [
+                3.059,
+                2.018,
+                4.194,
+                3.995,
+                1.353,
+                1.199,
+                3.108,
+                3.174,
+                2.308,
+                2.274,
+                9.39,
+                9.48,
+                2.192,
+                2.175,
+                6.18,
+                6.158,
+                1.458,
+                1.405,
+                6.783,
+                6.913,
+                2.79,
+                2.795,
+                4.85,
+                4.981,
+                1.807,
+                1.702,
+                3.54,
+                3.558,
+                2.467,
+                2.472,
+                2.16,
+                2.121,
+                1.5,
+                1.395,
+                4.133,
+                4.102,
+                1.84,
+                1.823,
+                1.867,
+                1.835
+              ]
+            },
+            "B": {
+              "count": 40,
+              "minimum": 1.176,
+              "maximum": 9.456,
+              "mean": 3.2813,
+              "median": 2.3964999999999996,
+              "p95": 6.831,
+              "values": [
+                1.924,
+                1.989,
+                4.047,
+                4.054,
+                1.231,
+                1.176,
+                3.163,
+                3.183,
+                2.25,
+                2.284,
+                9.298,
+                9.456,
+                2.146,
+                2.119,
+                6.097,
+                6.124,
+                1.448,
+                1.449,
+                6.752,
+                6.831,
+                2.815,
+                2.804,
+                4.971,
+                4.921,
+                2.117,
+                1.737,
+                3.547,
+                3.527,
+                2.509,
+                2.511,
+                2.092,
+                2.148,
+                1.391,
+                1.424,
+                4.106,
+                4.129,
+                1.878,
+                1.852,
+                1.871,
+                1.881
+              ]
+            }
+          }
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_split::tests::budget_batch_natural_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "batched_nodes": 16442979,
+            "parent_reports": 33826,
+            "saved_reports": 16409153,
+            "active": true,
+            "per_position": [
+              {
+                "threads": 4,
+                "position": 0,
+                "batched_nodes": 633933,
+                "parent_reports": 1337,
+                "saved_reports": 632596
+              },
+              {
+                "threads": 4,
+                "position": 1,
+                "batched_nodes": 1259705,
+                "parent_reports": 2521,
+                "saved_reports": 1257184
+              },
+              {
+                "threads": 4,
+                "position": 2,
+                "batched_nodes": 709579,
+                "parent_reports": 1482,
+                "saved_reports": 708097
+              },
+              {
+                "threads": 4,
+                "position": 3,
+                "batched_nodes": 793978,
+                "parent_reports": 1630,
+                "saved_reports": 792348
+              },
+              {
+                "threads": 4,
+                "position": 4,
+                "batched_nodes": 717068,
+                "parent_reports": 1520,
+                "saved_reports": 715548
+              },
+              {
+                "threads": 4,
+                "position": 5,
+                "batched_nodes": 2014072,
+                "parent_reports": 3991,
+                "saved_reports": 2010081
+              },
+              {
+                "threads": 4,
+                "position": 6,
+                "batched_nodes": 806054,
+                "parent_reports": 1667,
+                "saved_reports": 804387
+              },
+              {
+                "threads": 4,
+                "position": 7,
+                "batched_nodes": 705929,
+                "parent_reports": 1452,
+                "saved_reports": 704477
+              },
+              {
+                "threads": 4,
+                "position": 8,
+                "batched_nodes": 779484,
+                "parent_reports": 1613,
+                "saved_reports": 777871
+              },
+              {
+                "threads": 4,
+                "position": 9,
+                "batched_nodes": 954247,
+                "parent_reports": 1931,
+                "saved_reports": 952316
+              },
+              {
+                "threads": 4,
+                "position": 10,
+                "batched_nodes": 666106,
+                "parent_reports": 1393,
+                "saved_reports": 664713
+              },
+              {
+                "threads": 4,
+                "position": 11,
+                "batched_nodes": 715608,
+                "parent_reports": 1494,
+                "saved_reports": 714114
+              },
+              {
+                "threads": 4,
+                "position": 12,
+                "batched_nodes": 627991,
+                "parent_reports": 1362,
+                "saved_reports": 626629
+              },
+              {
+                "threads": 4,
+                "position": 13,
+                "batched_nodes": 632271,
+                "parent_reports": 1290,
+                "saved_reports": 630981
+              },
+              {
+                "threads": 4,
+                "position": 14,
+                "batched_nodes": 722645,
+                "parent_reports": 1507,
+                "saved_reports": 721138
+              },
+              {
+                "threads": 4,
+                "position": 15,
+                "batched_nodes": 628427,
+                "parent_reports": 1318,
+                "saved_reports": 627109
+              },
+              {
+                "threads": 4,
+                "position": 16,
+                "batched_nodes": 687869,
+                "parent_reports": 1430,
+                "saved_reports": 686439
+              },
+              {
+                "threads": 4,
+                "position": 17,
+                "batched_nodes": 996117,
+                "parent_reports": 2009,
+                "saved_reports": 994108
+              },
+              {
+                "threads": 4,
+                "position": 18,
+                "batched_nodes": 743530,
+                "parent_reports": 1561,
+                "saved_reports": 741969
+              },
+              {
+                "threads": 4,
+                "position": 19,
+                "batched_nodes": 648366,
+                "parent_reports": 1318,
+                "saved_reports": 647048
+              }
+            ]
+          },
+          "8": {
+            "batched_nodes": 16345849,
+            "parent_reports": 34650,
+            "saved_reports": 16311199,
+            "active": true,
+            "per_position": [
+              {
+                "threads": 8,
+                "position": 0,
+                "batched_nodes": 643649,
+                "parent_reports": 1448,
+                "saved_reports": 642201
+              },
+              {
+                "threads": 8,
+                "position": 1,
+                "batched_nodes": 1213382,
+                "parent_reports": 2450,
+                "saved_reports": 1210932
+              },
+              {
+                "threads": 8,
+                "position": 2,
+                "batched_nodes": 709329,
+                "parent_reports": 1551,
+                "saved_reports": 707778
+              },
+              {
+                "threads": 8,
+                "position": 3,
+                "batched_nodes": 847813,
+                "parent_reports": 1818,
+                "saved_reports": 845995
+              },
+              {
+                "threads": 8,
+                "position": 4,
+                "batched_nodes": 716133,
+                "parent_reports": 1574,
+                "saved_reports": 714559
+              },
+              {
+                "threads": 8,
+                "position": 5,
+                "batched_nodes": 1937816,
+                "parent_reports": 3917,
+                "saved_reports": 1933899
+              },
+              {
+                "threads": 8,
+                "position": 6,
+                "batched_nodes": 728526,
+                "parent_reports": 1491,
+                "saved_reports": 727035
+              },
+              {
+                "threads": 8,
+                "position": 7,
+                "batched_nodes": 670618,
+                "parent_reports": 1387,
+                "saved_reports": 669231
+              },
+              {
+                "threads": 8,
+                "position": 8,
+                "batched_nodes": 807023,
+                "parent_reports": 1667,
+                "saved_reports": 805356
+              },
+              {
+                "threads": 8,
+                "position": 9,
+                "batched_nodes": 914339,
+                "parent_reports": 1887,
+                "saved_reports": 912452
+              },
+              {
+                "threads": 8,
+                "position": 10,
+                "batched_nodes": 651241,
+                "parent_reports": 1366,
+                "saved_reports": 649875
+              },
+              {
+                "threads": 8,
+                "position": 11,
+                "batched_nodes": 672090,
+                "parent_reports": 1445,
+                "saved_reports": 670645
+              },
+              {
+                "threads": 8,
+                "position": 12,
+                "batched_nodes": 636758,
+                "parent_reports": 1519,
+                "saved_reports": 635239
+              },
+              {
+                "threads": 8,
+                "position": 13,
+                "batched_nodes": 598830,
+                "parent_reports": 1299,
+                "saved_reports": 597531
+              },
+              {
+                "threads": 8,
+                "position": 14,
+                "batched_nodes": 750386,
+                "parent_reports": 1599,
+                "saved_reports": 748787
+              },
+              {
+                "threads": 8,
+                "position": 15,
+                "batched_nodes": 630520,
+                "parent_reports": 1392,
+                "saved_reports": 629128
+              },
+              {
+                "threads": 8,
+                "position": 16,
+                "batched_nodes": 776759,
+                "parent_reports": 1693,
+                "saved_reports": 775066
+              },
+              {
+                "threads": 8,
+                "position": 17,
+                "batched_nodes": 1006042,
+                "parent_reports": 2045,
+                "saved_reports": 1003997
+              },
+              {
+                "threads": 8,
+                "position": 18,
+                "batched_nodes": 803869,
+                "parent_reports": 1775,
+                "saved_reports": 802094
+              },
+              {
+                "threads": 8,
+                "position": 19,
+                "batched_nodes": 630726,
+                "parent_reports": 1327,
+                "saved_reports": 629399
+              }
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "counter_scope": "Logical parent node-report operations, not all shared atomics."
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261017,
+      "intrinsic_cooperative_accounting_present": false,
+      "selected_and_worker0_depth_same_root": true,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_cooperative_policy_qualified": false,
+      "interpretation": "Conditional batching screen within unqualified cooperative root policy. Intrinsic root/job accounting remains present in native timing. Selected depth and worker 0 depth share one root result. Duration gates prevent qualifying a longer-search artifact; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-control/engine-A": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-control/engine-B": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-control/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-v2-analyze.py": "66901a8350edd505c482cc27b967ae57ceb0cbaa7132026d61e5030d1351df29",
+        "target/coop-budget-binding.json": "437bcddda4cf6e473405772356c0fd471eb36662e333b97f0edda96ed760ed31",
+        "target/coop-budget-build.json": "e742bea4d969ce77a6dd06ba510027d8fa58a31556ccb33a4fb74378c8b83932",
+        "target/coop-budget-control/manifest.json": "490048d62caab355e37721814ff544fb213171b4ddc59dc05efc1546e4f81460",
+        "target/coop-budget-control/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/coop-budget-control/pv-validation.json": "766dba646744d95cb55275d93c643139946c45d549c91379dd6574832e623215",
+        "target/coop-budget-control/rows.jsonl": "addc357044eea02b6625187170441dea5040868d97f4708e9e6cff043a310e50",
+        "target/coop-budget-control/summary.json": "29b3e612d036e1231b8a329d4b0c73bd61cd8faf143b7a7ae808e81b415c676c",
+        "target/coop-budget-natural-exposure-corrected.json": "c60a6a39bb06b95f97cbef5a5a51859c52aa64b64097d8b3ea5686ee232827b3",
+        "target/coop-budget-natural-exposure.log": "43379acfbd26230ea9d9e6e246f1a691987e5341691fdebda995d5dd63dee093"
+      }
+    },
+    "equality": {
+      "schema": "sekirei.cooperative-budget-batch-screen.v1",
+      "source_commit": "4b4f2ce1fa095e2237ba4741052fe8618620b6c7",
+      "base_commit": "cd77f387fdaed25aa3667d7664c104e9681f5cce",
+      "mode": "equality",
+      "rows": 80,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 596,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 30.163560913962595
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.9715770113376005
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 9.910364840986174
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.1392985098314785
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.9971088959818242
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.0203802503780057
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 4.418543584744006
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.6069062424828973
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.011312460921789
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.45593301997028934
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 20.753277936120938
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 9.126617636414004
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.7291734861283539
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 11.683878741709886
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 5.982241706935509
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.41041876640780517
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.7291621725652342
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.5745767846940031
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.370150404279374
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.5718961210727791
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.2456757038588524
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.8835131632676583
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.33411367242421885
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.1086115004580455
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.4645325900811681
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.14785664295481338
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.3075778148893926
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -11.851333960613397
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.12017024475929894
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -5.887085859083485
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.009044929916425
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.6038425504819394
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.3185812050054424
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.004803512332632
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.6474418330166376
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.8278009495504843
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.951155820241369
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.015968023911022
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.9485788287099366
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -9.16686963307457
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.163957230400246
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.6283794991252654
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 14.382702696314741
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -19.354504474207722
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.6392652700314443
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.7658396419534252
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.8317675592354976
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.5727052723418558
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.430446816819168
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.3345243750170663
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.4984033188295776
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.2358077856739276
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.5393481496599684
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.3671045723841924
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 8.307643504192086
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 18.025147840392286
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 13.00855362547042
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.179439502141234
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -5.646819439965278
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.9074844583303903
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "mean": 8,
+                "median": 8.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": 0.35640121774430655,
+              "quiet": 3.1284940823903207,
+              "tactical": -0.8415941425760243
+            },
+            "directional_median_percent": {
+              "A_first": 0.7475065640408896,
+              "B_first": -0.453004896748499
+            },
+            "per_position_mean_percent": [
+              9.910364840986174,
+              1.0203802503780057,
+              3.011312460921789,
+              9.126617636414004,
+              5.982241706935509,
+              -0.5745767846940031,
+              3.2456757038588524,
+              -1.1086115004580455,
+              -0.3075778148893926,
+              -5.887085859083485,
+              -1.3185812050054424,
+              -1.8278009495504843,
+              3.9485788287099366,
+              1.6283794991252654,
+              -3.6392652700314443,
+              -0.5727052723418558,
+              1.4984033188295776,
+              -1.3671045723841924,
+              13.00855362547042,
+              -3.9074844583303903
+            ],
+            "bootstrap_mean_percent_95": [
+              -0.3763209580705013,
+              3.730581220660751
+            ]
+          }
+        }
+      },
+      "elapsed": {
+        "1": {
+          "median_paired_ratio": 0.996209587283189,
+          "per_position_mean_ratio": [
+            0.8700803212851406,
+            0.9893157262905161,
+            0.9709848794442175,
+            0.9077402009339182,
+            0.9422577422577423,
+            1.005648267008986,
+            0.9672638796726387,
+            1.0112934676633083,
+            1.0031034482758618,
+            1.066255778120185,
+            1.0133053221288517,
+            1.0187144019528072,
+            0.9614964500273074,
+            0.9888232271325795,
+            1.0446296296296296,
+            1.005410279531109,
+            0.9853492333901194,
+            1.0138639894824908,
+            0.8839662447257384,
+            1.0410596026490067
+          ],
+          "bootstrap_mean_ratio_95": [
+            0.9618000238580394,
+            1.0052404049286787
+          ],
+          "directional_median_ratio": {
+            "A_first": 0.9927400481189852,
+            "B_first": 1.0046980183562662
+          },
+          "directional_ratios": {
+            "A_first": [
+              0.7680683311432326,
+              0.9695336301851416,
+              0.9575510204081632,
+              1.0043845912934544,
+              0.9929166666666667,
+              1.004087736789631,
+              0.9314310051107325,
+              1.0191682910981157,
+              1.0048712595685456,
+              1.1343151693667157,
+              0.9899375433726579,
+              1.0309635363617846,
+              0.9711701526286037,
+              1.1009832580387988,
+              0.8741767764298094,
+              0.9925634295713036,
+              0.9481830417227457,
+              1.0333172380492515,
+              0.9229651162790697,
+              1.022328548644338
+            ],
+            "B_first": [
+              1.0304752066115703,
+              1.010091065714989,
+              0.9844517184942717,
+              0.8280846670108415,
+              0.8955854126679463,
+              1.007305452620434,
+              1.0059825126553152,
+              1.003413524057217,
+              1.001367053998633,
+              0.9986840181313057,
+              1.0371024734982333,
+              1.0065001015640869,
+              0.9524564183835181,
+              0.8838597363839841,
+              1.2401590457256462,
+              1.0190697674418605,
+              1.0234644582470669,
+              0.9947928994082842,
+              0.8474114441416895,
+              1.059662090813094
+            ]
+          },
+          "paired_ratios": [
+            0.8700803212851406,
+            0.9893157262905161,
+            0.9709848794442175,
+            0.9077402009339182,
+            0.9422577422577423,
+            1.005648267008986,
+            0.9672638796726387,
+            1.0112934676633083,
+            1.0031034482758618,
+            1.066255778120185,
+            1.0133053221288517,
+            1.0187144019528072,
+            0.9614964500273074,
+            0.9888232271325795,
+            1.0446296296296296,
+            1.005410279531109,
+            0.9853492333901194,
+            1.0138639894824908,
+            0.8839662447257384,
+            1.0410596026490067
+          ],
+          "raw_ms_by_side": {
+            "A": {
+              "count": 40,
+              "minimum": 1.222,
+              "maximum": 10.03,
+              "mean": 3.420775,
+              "median": 2.7175000000000002,
+              "p95": 6.839,
+              "values": [
+                3.044,
+                1.936,
+                4.267,
+                4.063,
+                1.225,
+                1.222,
+                3.193,
+                3.874,
+                2.4,
+                2.605,
+                10.03,
+                9.445,
+                2.348,
+                2.173,
+                6.156,
+                6.152,
+                1.437,
+                1.463,
+                6.79,
+                6.839,
+                2.882,
+                2.83,
+                4.909,
+                4.923,
+                1.769,
+                1.893,
+                3.763,
+                4.021,
+                2.885,
+                2.515,
+                2.286,
+                2.15,
+                1.486,
+                1.449,
+                4.142,
+                4.225,
+                2.064,
+                2.202,
+                1.881,
+                1.894
+              ]
+            },
+            "B": {
+              "count": 40,
+              "minimum": 1.173,
+              "maximum": 10.071,
+              "mean": 3.40315,
+              "median": 2.4524999999999997,
+              "p95": 7.702,
+              "values": [
+                2.338,
+                1.995,
+                4.137,
+                4.104,
+                1.173,
+                1.203,
+                3.207,
+                3.208,
+                2.383,
+                2.333,
+                10.071,
+                9.514,
+                2.187,
+                2.186,
+                6.274,
+                6.173,
+                1.444,
+                1.465,
+                7.702,
+                6.83,
+                2.853,
+                2.935,
+                5.061,
+                4.955,
+                1.718,
+                1.803,
+                4.143,
+                3.554,
+                2.522,
+                3.119,
+                2.269,
+                2.191,
+                1.409,
+                1.483,
+                4.28,
+                4.203,
+                1.905,
+                1.866,
+                1.923,
+                2.007
+              ]
+            }
+          }
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_split::tests::budget_batch_natural_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "batched_nodes": 16442979,
+            "parent_reports": 33826,
+            "saved_reports": 16409153,
+            "active": true,
+            "per_position": [
+              {
+                "threads": 4,
+                "position": 0,
+                "batched_nodes": 633933,
+                "parent_reports": 1337,
+                "saved_reports": 632596
+              },
+              {
+                "threads": 4,
+                "position": 1,
+                "batched_nodes": 1259705,
+                "parent_reports": 2521,
+                "saved_reports": 1257184
+              },
+              {
+                "threads": 4,
+                "position": 2,
+                "batched_nodes": 709579,
+                "parent_reports": 1482,
+                "saved_reports": 708097
+              },
+              {
+                "threads": 4,
+                "position": 3,
+                "batched_nodes": 793978,
+                "parent_reports": 1630,
+                "saved_reports": 792348
+              },
+              {
+                "threads": 4,
+                "position": 4,
+                "batched_nodes": 717068,
+                "parent_reports": 1520,
+                "saved_reports": 715548
+              },
+              {
+                "threads": 4,
+                "position": 5,
+                "batched_nodes": 2014072,
+                "parent_reports": 3991,
+                "saved_reports": 2010081
+              },
+              {
+                "threads": 4,
+                "position": 6,
+                "batched_nodes": 806054,
+                "parent_reports": 1667,
+                "saved_reports": 804387
+              },
+              {
+                "threads": 4,
+                "position": 7,
+                "batched_nodes": 705929,
+                "parent_reports": 1452,
+                "saved_reports": 704477
+              },
+              {
+                "threads": 4,
+                "position": 8,
+                "batched_nodes": 779484,
+                "parent_reports": 1613,
+                "saved_reports": 777871
+              },
+              {
+                "threads": 4,
+                "position": 9,
+                "batched_nodes": 954247,
+                "parent_reports": 1931,
+                "saved_reports": 952316
+              },
+              {
+                "threads": 4,
+                "position": 10,
+                "batched_nodes": 666106,
+                "parent_reports": 1393,
+                "saved_reports": 664713
+              },
+              {
+                "threads": 4,
+                "position": 11,
+                "batched_nodes": 715608,
+                "parent_reports": 1494,
+                "saved_reports": 714114
+              },
+              {
+                "threads": 4,
+                "position": 12,
+                "batched_nodes": 627991,
+                "parent_reports": 1362,
+                "saved_reports": 626629
+              },
+              {
+                "threads": 4,
+                "position": 13,
+                "batched_nodes": 632271,
+                "parent_reports": 1290,
+                "saved_reports": 630981
+              },
+              {
+                "threads": 4,
+                "position": 14,
+                "batched_nodes": 722645,
+                "parent_reports": 1507,
+                "saved_reports": 721138
+              },
+              {
+                "threads": 4,
+                "position": 15,
+                "batched_nodes": 628427,
+                "parent_reports": 1318,
+                "saved_reports": 627109
+              },
+              {
+                "threads": 4,
+                "position": 16,
+                "batched_nodes": 687869,
+                "parent_reports": 1430,
+                "saved_reports": 686439
+              },
+              {
+                "threads": 4,
+                "position": 17,
+                "batched_nodes": 996117,
+                "parent_reports": 2009,
+                "saved_reports": 994108
+              },
+              {
+                "threads": 4,
+                "position": 18,
+                "batched_nodes": 743530,
+                "parent_reports": 1561,
+                "saved_reports": 741969
+              },
+              {
+                "threads": 4,
+                "position": 19,
+                "batched_nodes": 648366,
+                "parent_reports": 1318,
+                "saved_reports": 647048
+              }
+            ]
+          },
+          "8": {
+            "batched_nodes": 16345849,
+            "parent_reports": 34650,
+            "saved_reports": 16311199,
+            "active": true,
+            "per_position": [
+              {
+                "threads": 8,
+                "position": 0,
+                "batched_nodes": 643649,
+                "parent_reports": 1448,
+                "saved_reports": 642201
+              },
+              {
+                "threads": 8,
+                "position": 1,
+                "batched_nodes": 1213382,
+                "parent_reports": 2450,
+                "saved_reports": 1210932
+              },
+              {
+                "threads": 8,
+                "position": 2,
+                "batched_nodes": 709329,
+                "parent_reports": 1551,
+                "saved_reports": 707778
+              },
+              {
+                "threads": 8,
+                "position": 3,
+                "batched_nodes": 847813,
+                "parent_reports": 1818,
+                "saved_reports": 845995
+              },
+              {
+                "threads": 8,
+                "position": 4,
+                "batched_nodes": 716133,
+                "parent_reports": 1574,
+                "saved_reports": 714559
+              },
+              {
+                "threads": 8,
+                "position": 5,
+                "batched_nodes": 1937816,
+                "parent_reports": 3917,
+                "saved_reports": 1933899
+              },
+              {
+                "threads": 8,
+                "position": 6,
+                "batched_nodes": 728526,
+                "parent_reports": 1491,
+                "saved_reports": 727035
+              },
+              {
+                "threads": 8,
+                "position": 7,
+                "batched_nodes": 670618,
+                "parent_reports": 1387,
+                "saved_reports": 669231
+              },
+              {
+                "threads": 8,
+                "position": 8,
+                "batched_nodes": 807023,
+                "parent_reports": 1667,
+                "saved_reports": 805356
+              },
+              {
+                "threads": 8,
+                "position": 9,
+                "batched_nodes": 914339,
+                "parent_reports": 1887,
+                "saved_reports": 912452
+              },
+              {
+                "threads": 8,
+                "position": 10,
+                "batched_nodes": 651241,
+                "parent_reports": 1366,
+                "saved_reports": 649875
+              },
+              {
+                "threads": 8,
+                "position": 11,
+                "batched_nodes": 672090,
+                "parent_reports": 1445,
+                "saved_reports": 670645
+              },
+              {
+                "threads": 8,
+                "position": 12,
+                "batched_nodes": 636758,
+                "parent_reports": 1519,
+                "saved_reports": 635239
+              },
+              {
+                "threads": 8,
+                "position": 13,
+                "batched_nodes": 598830,
+                "parent_reports": 1299,
+                "saved_reports": 597531
+              },
+              {
+                "threads": 8,
+                "position": 14,
+                "batched_nodes": 750386,
+                "parent_reports": 1599,
+                "saved_reports": 748787
+              },
+              {
+                "threads": 8,
+                "position": 15,
+                "batched_nodes": 630520,
+                "parent_reports": 1392,
+                "saved_reports": 629128
+              },
+              {
+                "threads": 8,
+                "position": 16,
+                "batched_nodes": 776759,
+                "parent_reports": 1693,
+                "saved_reports": 775066
+              },
+              {
+                "threads": 8,
+                "position": 17,
+                "batched_nodes": 1006042,
+                "parent_reports": 2045,
+                "saved_reports": 1003997
+              },
+              {
+                "threads": 8,
+                "position": 18,
+                "batched_nodes": 803869,
+                "parent_reports": 1775,
+                "saved_reports": 802094
+              },
+              {
+                "threads": 8,
+                "position": 19,
+                "batched_nodes": 630726,
+                "parent_reports": 1327,
+                "saved_reports": 629399
+              }
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "counter_scope": "Logical parent node-report operations, not all shared atomics."
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261017,
+      "intrinsic_cooperative_accounting_present": false,
+      "selected_and_worker0_depth_same_root": true,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_cooperative_policy_qualified": false,
+      "interpretation": "Conditional batching screen within unqualified cooperative root policy. Intrinsic root/job accounting remains present in native timing. Selected depth and worker 0 depth share one root result. Duration gates prevent qualifying a longer-search artifact; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-equality/engine-A": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-equality/engine-B": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-equality/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-v2-analyze.py": "66901a8350edd505c482cc27b967ae57ceb0cbaa7132026d61e5030d1351df29",
+        "target/coop-budget-binding.json": "437bcddda4cf6e473405772356c0fd471eb36662e333b97f0edda96ed760ed31",
+        "target/coop-budget-build.json": "e742bea4d969ce77a6dd06ba510027d8fa58a31556ccb33a4fb74378c8b83932",
+        "target/coop-budget-control/development-screen.json": "9a1a970b89a2416ad5a0a5293ab278755cbb3232655fe2d5a4e66a0217c124c0",
+        "target/coop-budget-equality/manifest.json": "2d7289c82c7e1bdf131f1637b86931708217bad0147d784d235aaef72c185b7d",
+        "target/coop-budget-equality/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/coop-budget-equality/pv-validation.json": "681a41425977963ca7d8e7f0352d23fd02251dd1a0255972cf7a681678a9ad7b",
+        "target/coop-budget-equality/rows.jsonl": "76fbc436e22b4d274b994d31a2ba28a6bba13894a23bbe171e1182c033181f94",
+        "target/coop-budget-equality/summary.json": "9cfe40852791a2a16ae7e908c947a624cab99f5b83e369a6b731803d331ca141",
+        "target/coop-budget-natural-exposure-corrected.json": "c60a6a39bb06b95f97cbef5a5a51859c52aa64b64097d8b3ea5686ee232827b3",
+        "target/coop-budget-natural-exposure.log": "43379acfbd26230ea9d9e6e246f1a691987e5341691fdebda995d5dd63dee093"
+      }
+    }
+  },
+  "lane_status": {
+    "control": "complete_validated",
+    "equality": "complete_validated",
+    "policy": "complete_unvalidated",
+    "timed": "not_started"
+  },
+  "timed_status": "prequiet_unqualified",
+  "rows": 400,
+  "validated_rows": 160,
+  "legal_pv_moves": 1192,
+  "all_rows_retained": true,
+  "default_adopted": false,
+  "independent_h1": false,
+  "strength_claim": false,
+  "combined_cooperative_policy_qualified": false,
+  "artifacts": {
+    ".cargo/config.toml": {
+      "sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "bytes": 48
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/coop-budget-build.py": {
+      "sha256": "39bb7f8771b46f8f943aa4cc5d7a97efed0d74f803cb7b1068bcd3fcb9ba7180",
+      "bytes": 3989
+    },
+    "docs/experiments/cooperative_budget_batch_v0.4.2/AMENDMENT.md": {
+      "sha256": "da550d33d30e740f8f3ac3a6201ac23af5c7ecea164fd02da7bc797d88fb9260",
+      "bytes": 2986
+    },
+    "docs/experiments/cooperative_budget_batch_v0.4.2/README.md": {
+      "sha256": "22907c1c50e12dcc83158470d5e4ed9627ba4fa247e4e4737d3ef05263bb49d4",
+      "bytes": 7132
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/generate_search_diagnostic.py": {
+      "sha256": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "bytes": 7895
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "bytes": 84246
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "bytes": 23956
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/coop-budget-analyze.py": {
+      "sha256": "c83426ec2982d8a2b9debf9b0144cefc1048e90d77d5bdd7ac01f425d43db7c3",
+      "bytes": 28910
+    },
+    "target/coop-budget-archive-tests.log": {
+      "sha256": "9cb7ad48a48154859da9ca2e372defabb2d7e85301711ff2a09d72a8fe1d41ae",
+      "bytes": 835
+    },
+    "target/coop-budget-archive-tests.py": {
+      "sha256": "0f4506905ebb3f950692aa2e9b4f218b707d23b301cc2860d40ef298e56572db",
+      "bytes": 3267
+    },
+    "target/coop-budget-archive.py": {
+      "sha256": "b7c53fd7ab1420d931299ab4c3187a7b72e03bae24b8de2b8c22af692bd39efd",
+      "bytes": 4485
+    },
+    "target/coop-budget-binding.json": {
+      "sha256": "437bcddda4cf6e473405772356c0fd471eb36662e333b97f0edda96ed760ed31",
+      "bytes": 7881
+    },
+    "target/coop-budget-build-run.log": {
+      "sha256": "216d86bd94a8973a24e8fdfe61bad87a27ba9d3f5d48dbf41bb8d1877b08093b",
+      "bytes": 241
+    },
+    "target/coop-budget-build.json": {
+      "sha256": "e742bea4d969ce77a6dd06ba510027d8fa58a31556ccb33a4fb74378c8b83932",
+      "bytes": 4384
+    },
+    "target/coop-budget-build.py": {
+      "sha256": "39bb7f8771b46f8f943aa4cc5d7a97efed0d74f803cb7b1068bcd3fcb9ba7180",
+      "bytes": 3989
+    },
+    "target/coop-budget-build/engine.log": {
+      "sha256": "9da3a84ce613e23c521a53d1e0cb17cdeed4c26257792ca811a34d7e42996086",
+      "bytes": 525
+    },
+    "target/coop-budget-build/legal_tool.log": {
+      "sha256": "f06e4b3cd039549a087c4447014ab0f827d1a8433a931873424253e5c46b7495",
+      "bytes": 184
+    },
+    "target/coop-budget-build/sekirei": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-build/sekirei-core-tests": {
+      "sha256": "0eb95aa69ae2dbf78a3cae31f778d93fc830a5c7a1a0866c130950a18bcef83c",
+      "bytes": 13119696
+    },
+    "target/coop-budget-build/sekirei-legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/coop-budget-build/usi.txt": {
+      "sha256": "ff4d196b8f61e86a83fd233ecabf8df7d014520b70ff5420b86a18da586cd25a",
+      "bytes": 17711
+    },
+    "target/coop-budget-cache-cleanup.json": {
+      "sha256": "dddafa419ef62d7b0192f53d45302e506b8dcc8839f7ffae2bb83c860cd6fbc1",
+      "bytes": 798
+    },
+    "target/coop-budget-clippy-tune.log": {
+      "sha256": "dd17f8b91320c40be1e422e8e9c723ea1f5112cb719ac4e6f211f953ef35845a",
+      "bytes": 248
+    },
+    "target/coop-budget-clippy.log": {
+      "sha256": "183421227e31cbaad394371f6835bed871dbbc73e2beb034ed95c77ddc9f5477",
+      "bytes": 5007
+    },
+    "target/coop-budget-closed.json": {
+      "sha256": "e3a20593cb2e324c41b5ddffccca572754df20e466850639c41c33c19f04f382",
+      "bytes": 348
+    },
+    "target/coop-budget-collect.py": {
+      "sha256": "af5e6b319b67befdd1879d0984528b42cce8acb54585b4038aee3ffb385b0b9f",
+      "bytes": 4152
+    },
+    "target/coop-budget-control-analysis.log": {
+      "sha256": "9a1a970b89a2416ad5a0a5293ab278755cbb3232655fe2d5a4e66a0217c124c0",
+      "bytes": 30660
+    },
+    "target/coop-budget-control-pv.log": {
+      "sha256": "b6789962bd27771720255887ebae635ce37b02738bbd440fd882a7927f1060be",
+      "bytes": 47
+    },
+    "target/coop-budget-control.log": {
+      "sha256": "73ad5b40f02164964ec97285c96f2c16e39ff543d0c3467885f82b2d8bfcc9c7",
+      "bytes": 14515
+    },
+    "target/coop-budget-control/development-screen.json": {
+      "sha256": "9a1a970b89a2416ad5a0a5293ab278755cbb3232655fe2d5a4e66a0217c124c0",
+      "bytes": 30660
+    },
+    "target/coop-budget-control/engine-A": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-control/engine-B": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-control/manifest.json": {
+      "sha256": "490048d62caab355e37721814ff544fb213171b4ddc59dc05efc1546e4f81460",
+      "bytes": 3628
+    },
+    "target/coop-budget-control/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/coop-budget-control/pv-validation.json": {
+      "sha256": "766dba646744d95cb55275d93c643139946c45d549c91379dd6574832e623215",
+      "bytes": 890
+    },
+    "target/coop-budget-control/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/coop-budget-control/rows.jsonl": {
+      "sha256": "addc357044eea02b6625187170441dea5040868d97f4708e9e6cff043a310e50",
+      "bytes": 206307
+    },
+    "target/coop-budget-control/summary.json": {
+      "sha256": "29b3e612d036e1231b8a329d4b0c73bd61cd8faf143b7a7ae808e81b415c676c",
+      "bytes": 72512
+    },
+    "target/coop-budget-core-default-release.log": {
+      "sha256": "5ab2ff0772a4d61c47c3571f4d474ee63dab4048c6f71a1ab298c594b2e851e5",
+      "bytes": 40571
+    },
+    "target/coop-budget-core-tune-release.log": {
+      "sha256": "1e910949529c34d299c09c6491ed5017564e4728d828962e2bdfec6542aca902",
+      "bytes": 43894
+    },
+    "target/coop-budget-equality-analysis.log": {
+      "sha256": "9b098099e9b3bd375cbb3c93d01ced3a9742dbdc439ecb70b88983f8012e43d1",
+      "bytes": 30834
+    },
+    "target/coop-budget-equality-pv.log": {
+      "sha256": "b6789962bd27771720255887ebae635ce37b02738bbd440fd882a7927f1060be",
+      "bytes": 47
+    },
+    "target/coop-budget-equality.log": {
+      "sha256": "266733297569c045c9112cb018547b10177476dea32e09d3373ca700563d6a39",
+      "bytes": 14525
+    },
+    "target/coop-budget-equality/development-screen.json": {
+      "sha256": "9b098099e9b3bd375cbb3c93d01ced3a9742dbdc439ecb70b88983f8012e43d1",
+      "bytes": 30834
+    },
+    "target/coop-budget-equality/engine-A": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-equality/engine-B": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-equality/manifest.json": {
+      "sha256": "2d7289c82c7e1bdf131f1637b86931708217bad0147d784d235aaef72c185b7d",
+      "bytes": 3678
+    },
+    "target/coop-budget-equality/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/coop-budget-equality/pv-validation.json": {
+      "sha256": "681a41425977963ca7d8e7f0352d23fd02251dd1a0255972cf7a681678a9ad7b",
+      "bytes": 892
+    },
+    "target/coop-budget-equality/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/coop-budget-equality/rows.jsonl": {
+      "sha256": "76fbc436e22b4d274b994d31a2ba28a6bba13894a23bbe171e1182c033181f94",
+      "bytes": 206312
+    },
+    "target/coop-budget-equality/summary.json": {
+      "sha256": "9cfe40852791a2a16ae7e908c947a624cab99f5b83e369a6b731803d331ca141",
+      "bytes": 72502
+    },
+    "target/coop-budget-fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "target/coop-budget-lifecycle.log": {
+      "sha256": "89c8d669f14cd7b3b10917c445e17cb4fbe8cbb17b40eda089b672690d3ec128",
+      "bytes": 544
+    },
+    "target/coop-budget-main-audit-tests-final.log": {
+      "sha256": "6188606aebf1650a4cfe6799d8a8a1d4f4cda305e2e46b1ff96b7628e56e0037",
+      "bytes": 1887
+    },
+    "target/coop-budget-main-audit-tests.log": {
+      "sha256": "189882048fa50788c2b9b4bb9064a64e93985d75e921f6f56a562efb1eea69a7",
+      "bytes": 1887
+    },
+    "target/coop-budget-main-audit-tests.py": {
+      "sha256": "45514de8de07918e21dc78e6dc001ac2bba59de076876c046a3715e48a81e130",
+      "bytes": 11704
+    },
+    "target/coop-budget-main-audit.py": {
+      "sha256": "b6a61b307a1297941eec10855da3dccda03e55af87a331856fc317ed3bf7487e",
+      "bytes": 20458
+    },
+    "target/coop-budget-natural-build.jsonl": {
+      "sha256": "386c25c20ebb6e31349d24b9c9937b9a1df26924656e1de20afafb27c977ceae",
+      "bytes": 10527
+    },
+    "target/coop-budget-natural-build.log": {
+      "sha256": "222a02ed477d249a21359df8cae975864a62d848f4739cadc5b00b6190a963c6",
+      "bytes": 62
+    },
+    "target/coop-budget-natural-exposure-corrected.json": {
+      "sha256": "c60a6a39bb06b95f97cbef5a5a51859c52aa64b64097d8b3ea5686ee232827b3",
+      "bytes": 9357
+    },
+    "target/coop-budget-natural-exposure.json": {
+      "sha256": "20e0a08f769ce13f3adcfa8f90804a8caab5a3ecce2dcb43a2f9ada307079492",
+      "bytes": 9349
+    },
+    "target/coop-budget-natural-exposure.log": {
+      "sha256": "43379acfbd26230ea9d9e6e246f1a691987e5341691fdebda995d5dd63dee093",
+      "bytes": 4775
+    },
+    "target/coop-budget-natural-presearch.json": {
+      "sha256": "7e31fa36e19a477732e7e016e33b5d4cc9cb64db17fd10580a416426a3e9e5e2",
+      "bytes": 6213
+    },
+    "target/coop-budget-natural-run.log": {
+      "sha256": "aef40bd4ac0f61d2f2a51b25ee402ecfb37d83d0af3f303981f693a5be40c6fe",
+      "bytes": 1614
+    },
+    "target/coop-budget-natural.py": {
+      "sha256": "61e6dda658eb335d67edd73c2ea7efacd750435e33d9014eac0214ac611b670b",
+      "bytes": 4272
+    },
+    "target/coop-budget-policy-analysis.log": {
+      "sha256": "869b93ad60ab8a97fe0f7f49c2c9e976bb121af8cf90f5dc8655dfcbc644fefe",
+      "bytes": 124
+    },
+    "target/coop-budget-policy-pv.log": {
+      "sha256": "2dc5dba7f12df83ea0254ba229d2e152ec896261df72cab79fd02f6e7f5a7314",
+      "bytes": 49
+    },
+    "target/coop-budget-policy.log": {
+      "sha256": "9356975d1ee69dc3c59765c38bdd17d494a30186d62f3335c40e3a8f044ef2fa",
+      "bytes": 76443
+    },
+    "target/coop-budget-policy/engine-A": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-policy/engine-B": {
+      "sha256": "602739336f20db15ce6916f510b4585bbed0f71dea5960f0383130b29d233d21",
+      "bytes": 4783168
+    },
+    "target/coop-budget-policy/manifest.json": {
+      "sha256": "fbc803e92026521d19ec211b3cc213120660a14f41bb397ba39d8a86418aabed",
+      "bytes": 3330
+    },
+    "target/coop-budget-policy/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/coop-budget-policy/pv-validation.json": {
+      "sha256": "331f011cedd72cf5eca2ca1415ff4a6df3c83afc86557a22176d9b26aeb32dd9",
+      "bytes": 891
+    },
+    "target/coop-budget-policy/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/coop-budget-policy/rows.jsonl": {
+      "sha256": "4da987cfc34af026805591a85aa4621c4dcb4f26a91efcca1ddbf12dc20ca4ae",
+      "bytes": 3319490
+    },
+    "target/coop-budget-policy/summary.json": {
+      "sha256": "6c0447fd9766d07a411e6604655ccb17c1d370529ee9348f48981a49545b4fed",
+      "bytes": 740457
+    },
+    "target/coop-budget-presearch-validation.json": {
+      "sha256": "c5c9e6f9db69c8188e792adb9ca9572d563670780e30e3579e169897be68acd3",
+      "bytes": 1662
+    },
+    "target/coop-budget-primary-before.json": {
+      "sha256": "d873cf26fdd5ff78af97ac8ea0a06233570a685c424cf0d3207ee9745fbd97a3",
+      "bytes": 370
+    },
+    "target/coop-budget-prospective.md": {
+      "sha256": "22907c1c50e12dcc83158470d5e4ed9627ba4fa247e4e4737d3ef05263bb49d4",
+      "bytes": 7132
+    },
+    "target/coop-budget-python-syntax.log": {
+      "sha256": "288bebd067dc64e1d7c670d6c124303b02135db7937e2304a7041d3dbbbc2890",
+      "bytes": 71
+    },
+    "target/coop-budget-run.py": {
+      "sha256": "3f27dee653de275ada75e1fdd3df411812d98684053fd625b997d470885cbc76",
+      "bytes": 7662
+    },
+    "target/coop-budget-source-commit.log": {
+      "sha256": "be54d22f08bd846e2055bf04c3fa624883dc3a04bc595c92eeaedb8937e0dd31",
+      "bytes": 290
+    },
+    "target/coop-budget-tests-final.log": {
+      "sha256": "2876eff3d7ac004d9006c173c6536a70a365300e5478d3b267bd468e55ebb1b8",
+      "bytes": 1812
+    },
+    "target/coop-budget-tests.log": {
+      "sha256": "e300f117760bf63e7adb76ed38c12e09747bcb857adbce710b81180552454ef8",
+      "bytes": 1647
+    },
+    "target/coop-budget-tests.py": {
+      "sha256": "1681eb6abdfc111d59ec9601424b0ed5d091588c660240222bb9553c7a6e324a",
+      "bytes": 10728
+    },
+    "target/coop-budget-v2-amendment-function.txt": {
+      "sha256": "ad8c0b03e922fcd430c9b443f1ee4d234cc2358c816a6c3d4a3a8ceb7641cde1",
+      "bytes": 3866
+    },
+    "target/coop-budget-v2-analyze.py": {
+      "sha256": "66901a8350edd505c482cc27b967ae57ceb0cbaa7132026d61e5030d1351df29",
+      "bytes": 32823
+    },
+    "target/coop-budget-v2-collect.py": {
+      "sha256": "870288ee07b910e821ade43057d367fb84f4384b370e4b040a367c8810ba4e40",
+      "bytes": 4249
+    },
+    "target/coop-budget-v2-main-audit-tests-final.log": {
+      "sha256": "78b0d3a09b5573f2db3d5a4bb4b0c846ab4f5b1b3ae40bac544e881f369bc5a3",
+      "bytes": 1887
+    },
+    "target/coop-budget-v2-main-audit-tests.log": {
+      "sha256": "78b0d3a09b5573f2db3d5a4bb4b0c846ab4f5b1b3ae40bac544e881f369bc5a3",
+      "bytes": 1887
+    },
+    "target/coop-budget-v2-main-audit-tests.py": {
+      "sha256": "5b79645cb88455a6984eb8ca51a354fdd79d1d8a14a3deeaff0cebce8fab0f80",
+      "bytes": 11882
+    },
+    "target/coop-budget-v2-main-audit.py": {
+      "sha256": "132f3f2bf776c769d3105ace55851b5ab15a1de4d8864b257abbd5be3efa4061",
+      "bytes": 20780
+    },
+    "target/coop-budget-v2-run.py": {
+      "sha256": "f559003d7ab70f3cdaa197e24426b5e058fd66a992ede35ab0d7899327b3aae0",
+      "bytes": 7523
+    },
+    "target/coop-budget-v2-runner.log": {
+      "sha256": "862b6e3a7bbbc53eb444de8088f74bfa3d72b6afb89d9cc06ed759b0b3f8f0e9",
+      "bytes": 1496
+    },
+    "target/coop-budget-v2-tests.log": {
+      "sha256": "bcbb62611162a9c388ef38f1c513b5868671b0faf4e82fc91b7affa9e184edb4",
+      "bytes": 2714
+    },
+    "target/coop-budget-v2-tests.py": {
+      "sha256": "8d527c75bcaec1e281715ba230a6946e1b861938ae97f814209cb91037d78aea",
+      "bytes": 16164
+    },
+    "target/tt-keep-archive.py": {
+      "sha256": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "bytes": 22844
+    }
+  }
+}
