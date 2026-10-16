@@ -4257,13 +4257,11 @@ mod tests {
         let _restore_observer = RestoreObserver(previous_observer);
         assert!(!previous_observer, "one isolated observer owner required");
 
-        let corpus: Vec<_> = include_str!(
-            "../../../../docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen"
-        )
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && !line.starts_with('#'))
-        .collect();
+        let corpus: Vec<_> = include_str!("fixtures/fh_blend_diagnostic.sfen")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
         assert_eq!(corpus.len(), 20, "retain the complete development corpus");
         let config = SearchConfig {
             max_depth: 6,

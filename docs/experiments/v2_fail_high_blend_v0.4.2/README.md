@@ -142,3 +142,22 @@ there was no second attempt and this measurement protocol is closed.
 Default staysOFF. No FH playing-strength match or independentH1 was run;
 this is neither an Elo rejection nor evidence of YaneuraOu superiority.
 The existing independent aspiration/H1 candidate remains queued unchanged.
+
+### Integration fixture repair
+
+After native measurement, the tune-only ignored test's workspace-relative
+`include_str!` was replaced with a crate-local
+`src/search/fixtures/fh_blend_diagnostic.sfen`. The fixture is byte-identical
+to the original20-position corpus (SHA-256 `de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad`).
+This permits standalone published-crate test compilation. The only additional
+Rust change is that test input path and its formatting; native code is unchanged.
+The original measured source,78 artifacts and closed timing protocol stay fixed.
+
+The integration source was packaged into a91-file crate, unpacked outside the
+workspace and tested directly: the exact isolated tune test passed all160
+matrix cases and2 mate cases. Its raw counters passed the same strict parser.
+The frozen crate SHA-256 is `72687769ca983ea5258d9e540d08dab2bd0e7345a265be5ad1eeb13e0f1af92f`.
+An initial workspace-local extraction was rejected by Cargo's workspace check;
+that setup log is retained separately from the successful standalone run.
+Packaging validation and the exact fixture repair are separate integration
+evidence; they do not alter or rerun the native development measurement.
