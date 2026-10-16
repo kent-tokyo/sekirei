@@ -90,7 +90,7 @@ remain in the frozen inventory; they preceded all native searches.
 The A/A control (80 rows) and A/B equality lane (160 rows) passed exact
 bestmove/score/PV/nodes/depth identity. All 720 rows and 6,544 PV moves passed
 the same-rules legal replay. All worker census, zero/aborted work and raw
-transcripts were retained.
+rows and driver logs were retained.
 
 The time lane completed its single 480-row attempt. Nine prequiet samples
 ended with five consecutive idle snapshots; the formal pre-search guard was
