@@ -207,6 +207,84 @@ mod fh_blend_test_observer {
     }
 }
 
+// Read-only shadow of the quiet-pruning branch skipped by PVQ. This module
+// and its call site are absent from native builds, including native tune builds.
+#[cfg(all(test, feature = "tune"))]
+mod pvq_test_observer {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    pub(super) static ACTIVE: AtomicBool = AtomicBool::new(false);
+    static COUNTERS: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(super) struct Snapshot {
+        pub candidates: u64,
+        pub history: u64,
+        pub futility: u64,
+        pub see: u64,
+        pub retained: u64,
+    }
+
+    impl Snapshot {
+        pub(super) fn rescued(self) -> u64 {
+            self.history + self.futility + self.see
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub(super) enum Rejection {
+        History,
+        Futility,
+        See,
+    }
+
+    pub(super) fn first_rejection(
+        history: bool,
+        futility: impl FnOnce() -> bool,
+        see: impl FnOnce() -> bool,
+    ) -> Option<Rejection> {
+        if history {
+            Some(Rejection::History)
+        } else if futility() {
+            Some(Rejection::Futility)
+        } else if see() {
+            Some(Rejection::See)
+        } else {
+            None
+        }
+    }
+
+    pub(super) fn record(rejection: Option<Rejection>) {
+        COUNTERS[0].fetch_add(1, Ordering::Relaxed);
+        let index = match rejection {
+            Some(Rejection::History) => 1,
+            Some(Rejection::Futility) => 2,
+            Some(Rejection::See) => 3,
+            None => 4,
+        };
+        COUNTERS[index].fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn reset() {
+        for counter in &COUNTERS {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    pub(super) fn snapshot() -> Snapshot {
+        let values = COUNTERS
+            .each_ref()
+            .map(|counter| counter.load(Ordering::Relaxed));
+        Snapshot {
+            candidates: values[0],
+            history: values[1],
+            futility: values[2],
+            see: values[3],
+            retained: values[4],
+        }
+    }
+}
+
 const MAIN_LIM: i32 = 7000;
 const CORR_CONT_BITS: u32 = 16;
 const CORR_CONT_NB: usize = 1 << CORR_CONT_BITS;
@@ -2272,6 +2350,45 @@ fn node(
                 0
             };
             let mut lmr_depth = new_depth - prune_r / 1024;
+            #[cfg(all(test, feature = "tune"))]
+            if !tactical
+                && !gives_check
+                && pv
+                && p::V2_PVQ() != 0
+                && pvq_test_observer::ACTIVE.load(Ordering::Relaxed)
+            {
+                // Mirror the first rejection in the OFF branch below, without
+                // changing best_value, histories, the board or search control.
+                // In-check quiet evasions can reach history/SEE; their futility
+                // predicate remains disabled, exactly as in the real OFF path.
+                let h = d.cont_at(i, 1, pt)
+                    + d.cont_at(i, 2, pt)
+                    + i32::from(d.pawn[pawn_bucket * PT_NB + pt as usize]);
+                let shadow_depth =
+                    lmr_depth + (h + 2 * i32::from(d.main[ft])) / p::V2_HIST_DIV().max(1);
+                let rejection = pvq_test_observer::first_rejection(
+                    h < -p::V2_HIST_PRUNE() * depth,
+                    || {
+                        if !in_check && static_eval != NO_EVAL && shadow_depth < 9 {
+                            let fut = static_eval
+                                + if best_value < static_eval - p::V2_FUT_GAP() {
+                                    p::V2_FUT_BASE() + p::V2_FUT_NOBEST()
+                                } else {
+                                    p::V2_FUT_BASE()
+                                }
+                                + p::V2_FUT_PER() * shadow_depth;
+                            fut <= alpha
+                        } else {
+                            false
+                        }
+                    },
+                    || {
+                        let ld = shadow_depth.max(0);
+                        see_below(board, -p::V2_SEE_Q() * ld * ld)
+                    },
+                );
+                pvq_test_observer::record(rejection);
+            }
             if tactical || gives_check {
                 let capt_hist = if tactical {
                     d.capt_score(board, stm, m)
@@ -4226,6 +4343,223 @@ mod tests {
         data.clear();
         assert_eq!(data.main[0], 0);
         assert_eq!(data.corr_cont[0], 0);
+    }
+
+    #[test]
+    fn pv_quiet_protection_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL.iter().find(|spec| spec.name == "V2_PVQ").unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    fn pvq_shadow_reports_only_first_off_rejection() {
+        use pvq_test_observer::{Rejection, first_rejection};
+        assert_eq!(
+            first_rejection(
+                true,
+                || panic!("history already rejected"),
+                || panic!("history already rejected")
+            ),
+            Some(Rejection::History)
+        );
+        assert_eq!(
+            first_rejection(false, || true, || panic!("futility already rejected")),
+            Some(Rejection::Futility)
+        );
+        assert_eq!(
+            first_rejection(false, || false, || true),
+            Some(Rejection::See)
+        );
+        assert_eq!(first_rejection(false, || false, || false), None);
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global tuning and cfg(test) PV quiet observations"]
+    fn tuned_pvq_exposure_isolated() {
+        use crate::search::{SearchBound, SearchConfig, SearchInfo, Searcher};
+        use crate::square::Square;
+        use crate::tt::Tt;
+
+        struct Restore {
+            parameter: i32,
+            observer: bool,
+        }
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                assert!(p::set("V2_PVQ", self.parameter));
+                pvq_test_observer::ACTIVE.store(self.observer, Ordering::Relaxed);
+                pvq_test_observer::reset();
+            }
+        }
+        fn check_restoration_and_pv(board: &mut Board, initial: &Board, info: &SearchInfo) {
+            assert_eq!(board.hash(), initial.hash());
+            assert_eq!(board.acc, initial.acc);
+            assert_eq!(board.side_to_move, initial.side_to_move);
+            assert_eq!(board.ply, initial.ply);
+            for color in [Color::Black, Color::White] {
+                assert_eq!(board.hand(color), initial.hand(color));
+            }
+            for index in 0..Square::NUM as u8 {
+                let square = Square::from_index(index);
+                assert_eq!(board.piece_at(square), initial.piece_at(square));
+            }
+            assert!(!info.aborted);
+            assert_eq!(info.abort_reason, "none");
+            assert_eq!(info.best_move, info.pv.first().copied());
+            assert!(!info.pv.is_empty());
+            let mut replay = initial.clone();
+            for &mv in &info.pv {
+                assert!(generate_legal_moves(&mut replay).contains(&mv));
+                replay.do_move(mv);
+            }
+            assert!(generate_legal_moves(board).contains(&info.best_move.unwrap()));
+        }
+        type Signature = (
+            Option<Move>,
+            i32,
+            u32,
+            u64,
+            SearchBound,
+            SearchBound,
+            bool,
+            &'static str,
+            Vec<Move>,
+        );
+        fn signature(info: &SearchInfo) -> Signature {
+            (
+                info.best_move,
+                info.score,
+                info.depth,
+                info.nodes,
+                info.bound,
+                info.completed_bound,
+                info.aborted,
+                info.abort_reason,
+                info.pv.clone(),
+            )
+        }
+
+        assert!(
+            !crate::halfkp::is_active() && !crate::nnue::weights_active(),
+            "material-only isolated process required"
+        );
+        assert_eq!(p::V2_PVQ(), 0, "start from the declared default");
+        assert_eq!(p::SEARCH_V2(), 1);
+        assert_eq!(p::V2_ROOT(), 1);
+        assert_eq!(p::V2_LMP_NODES(), 0);
+        assert_eq!(p::V2_SHAPE(), 0);
+        assert_eq!(p::V2_SORT(), 0);
+        let _restore = Restore {
+            parameter: p::V2_PVQ(),
+            observer: pvq_test_observer::ACTIVE.swap(false, Ordering::Relaxed),
+        };
+        assert!(!_restore.observer, "one isolated observer owner required");
+        let corpus: Vec<_> = include_str!("fixtures/fh_blend_diagnostic.sfen")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        assert_eq!(corpus.len(), 20, "retain the complete development corpus");
+        let pool = rayon::ThreadPoolBuilder::new()
+            .num_threads(1)
+            .stack_size(super::super::RECURSIVE_SEARCH_STACK_BYTES)
+            .build()
+            .unwrap();
+        let config = SearchConfig {
+            max_depth: 6,
+            ..SearchConfig::default()
+        };
+        let mut total = pvq_test_observer::Snapshot::default();
+        let mut cases = 0;
+        for (position, sfen) in corpus.iter().enumerate() {
+            let mut controls = [None, None];
+            for (enabled, observed) in [(0, false), (0, true), (1, false), (1, true)] {
+                assert!(p::set("V2_PVQ", enabled));
+                pvq_test_observer::ACTIVE.store(observed, Ordering::Relaxed);
+                pvq_test_observer::reset();
+                let mut board = Board::from_sfen(sfen).unwrap();
+                let initial = board.clone();
+                let info = pool.install(|| Searcher::new(Tt::new(64)).search(&mut board, config));
+                let sample = pvq_test_observer::snapshot();
+                check_restoration_and_pv(&mut board, &initial, &info);
+                assert!(info.depth <= 6, "retain valid early completions");
+                assert_eq!(sample.candidates, sample.rescued() + sample.retained);
+                if !observed || enabled == 0 {
+                    assert_eq!(sample, pvq_test_observer::Snapshot::default());
+                }
+                if observed {
+                    assert_eq!(
+                        controls[enabled as usize].as_ref().unwrap(),
+                        &signature(&info),
+                        "observer must preserve full signature at position {position}, enabled={enabled}"
+                    );
+                } else {
+                    controls[enabled as usize] = Some(signature(&info));
+                }
+                if enabled != 0 && observed {
+                    total.candidates += sample.candidates;
+                    total.history += sample.history;
+                    total.futility += sample.futility;
+                    total.see += sample.see;
+                    total.retained += sample.retained;
+                }
+                eprintln!(
+                    "PVQ_TEST case threads=1 position={position} enabled={enabled} observed={observed} requested_depth=6 completed_depth={} nodes={} hash_mb=64 candidates={} history={} futility={} see={} rescued={} retained={}",
+                    info.depth,
+                    info.nodes,
+                    sample.candidates,
+                    sample.history,
+                    sample.futility,
+                    sample.see,
+                    sample.rescued(),
+                    sample.retained
+                );
+                cases += 1;
+            }
+        }
+        assert_eq!(cases, 80);
+        assert!(
+            total.candidates > 0,
+            "ON must reach the actual PV quiet bypass"
+        );
+        assert!(
+            total.rescued() > 0,
+            "ON must retain actual candidates OFF would prune"
+        );
+        assert_eq!(total.candidates, total.rescued() + total.retained);
+        eprintln!(
+            "PVQ_TEST total threads=1 cases={cases} control_off_cases=20 observed_off_cases=20 control_on_cases=20 observed_on_cases=20 candidates={} history={} futility={} see={} rescued={} retained={}",
+            total.candidates,
+            total.history,
+            total.futility,
+            total.see,
+            total.rescued(),
+            total.retained
+        );
+
+        // Root mate-in-one bypasses ordinary interior pruning. This checks
+        // the root result contract, not a general internal mate-score guard.
+        let mut mate_results = Vec::new();
+        for enabled in [0, 1] {
+            assert!(p::set("V2_PVQ", enabled));
+            pvq_test_observer::ACTIVE.store(true, Ordering::Relaxed);
+            pvq_test_observer::reset();
+            let mut board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+            let initial = board.clone();
+            let info = pool.install(|| Searcher::new(Tt::new(64)).search(&mut board, config));
+            let sample = pvq_test_observer::snapshot();
+            check_restoration_and_pv(&mut board, &initial, &info);
+            assert!(is_decisive(info.score));
+            assert_eq!(sample, pvq_test_observer::Snapshot::default());
+            eprintln!(
+                "PVQ_TEST mate_bypass enabled={enabled} score={} depth={} candidates={}",
+                info.score, info.depth, sample.candidates
+            );
+            mate_results.push(signature(&info));
+        }
+        assert_eq!(mate_results[0], mate_results[1]);
     }
 
     #[test]
