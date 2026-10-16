@@ -13,6 +13,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import threading
 import time
 from collections import deque
@@ -128,6 +129,21 @@ def persist_child_terminal_diagnostics(
     return incomplete, errors
 
 
+def has_terminal_child_diagnostic(path: Path | None) -> bool:
+    """Recognize a previous child exit when its completion receipt was lost."""
+    if path is None:
+        return False
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError, json.JSONDecodeError):
+        return False
+    return (isinstance(document, dict)
+            and isinstance(document.get("child_exit_code"), int)
+            and not isinstance(document["child_exit_code"], bool)
+            and isinstance(document.get("terminal_stop_reason"), str)
+            and bool(document["terminal_stop_reason"]))
+
+
 def acquire_instance_lock(path: Path):
     """Keep one supervisor for a state directory, without deleting the lock."""
     lock = path.open("a+")
@@ -207,29 +223,43 @@ def _rotate_log(path: Path, max_rotations: int = 3) -> None:
         path.replace(path.with_name(f"{path.name}.1"))
 
 
-def _copy_to_rotating_log(pipe, path: Path, max_bytes: int) -> None:
-    """Drain a child pipe without allowing one log generation to grow unbounded."""
-    stream = path.open("ab")
+def _copy_to_rotating_log(pipe, path: Path, max_bytes: int,
+                          errors: list[str]) -> None:
+    """Drain a child pipe even when its bounded log becomes unwritable."""
+    stream = None
     try:
-        while True:
-            chunk = pipe.read(8192)
-            if not chunk:
-                break
-            offset = 0
-            while offset < len(chunk):
-                remaining = max_bytes - stream.tell()
-                if remaining <= 0:
-                    stream.close()
-                    _rotate_log(path)
-                    stream = path.open("ab")
-                    remaining = max_bytes
-                take = min(remaining, len(chunk) - offset)
-                stream.write(chunk[offset:offset + take])
-                stream.flush()
-                offset += take
+        try:
+            stream = path.open("ab")
+            while True:
+                chunk = pipe.read(8192)
+                if not chunk:
+                    break
+                offset = 0
+                while offset < len(chunk):
+                    remaining = max_bytes - stream.tell()
+                    if remaining <= 0:
+                        stream.close()
+                        stream = None
+                        _rotate_log(path)
+                        stream = path.open("ab")
+                        remaining = max_bytes
+                    take = min(remaining, len(chunk) - offset)
+                    stream.write(chunk[offset:offset + take])
+                    stream.flush()
+                    offset += take
+        except OSError as error:
+            errors.append(f"{path.name}: errno={error.errno}: {error}")
+            # A failed log must never leave the child blocked on a full pipe.
+            while pipe.read(8192):
+                pass
     finally:
-        stream.close()
-        pipe.close()
+        try:
+            if stream is not None:
+                stream.close()
+        except OSError as error:
+            errors.append(f"{path.name}: errno={error.errno}: {error}")
+        finally:
+            pipe.close()
 
 
 def operational_state(kind: str) -> str:
@@ -252,6 +282,7 @@ def operational_state(kind: str) -> str:
         "stop_after_game_pending": "stopping",
         "stop_after_game_complete": "stopping",
         "start_failed": "error",
+        "logging_failed": "error",
     }.get(kind, "unknown")
 
 
@@ -271,9 +302,21 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
     events_path = state_dir / "events.jsonl"
     state_path = state_dir / "state.json"
     one_shot_completion_path = state_dir / "one-shot-complete.json"
+    one_shot_started_path = state_dir / "one-shot-started.json"
     run_manifest_path = command_path_option(command, "--run-manifest")
     restart_times: deque[float] = deque()
     restart_count = 0
+    operational_errors: dict[str, str] = {}
+
+    def report_error(destination: str, kind: str, error: OSError) -> None:
+        key = f"{destination} ({kind})"
+        message = f"{key}: errno={error.errno}: {error}"
+        if key not in operational_errors:
+            try:
+                print(f"floodgate supervisor: {message}", file=sys.stderr, flush=True)
+            except OSError:
+                pass
+        operational_errors[key] = message
 
     def event(kind: str, **fields: object) -> None:
         value = {
@@ -284,13 +327,29 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
             "restart_count": restart_count,
             **fields,
         }
-        with events_path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(value, ensure_ascii=False) + "\n")
-        write_json(state_path, value)
+        try:
+            with events_path.open("a", encoding="utf-8") as stream:
+                stream.write(json.dumps(value, ensure_ascii=False) + "\n")
+        except OSError as error:
+            report_error("events.jsonl", kind, error)
+        try:
+            write_json(state_path, value)
+        except OSError as error:
+            report_error("state.json", kind, error)
 
     if one_shot and one_shot_completion_path.exists():
         event("one_shot_already_complete", completion_file=str(one_shot_completion_path))
         return 0
+    if one_shot and one_shot_started_path.exists():
+        event("terminal_error", reason="one_shot_started_without_completion",
+              started_file=str(one_shot_started_path))
+        return 1
+    if one_shot:
+        for diagnostic_path in (client_status_file, run_manifest_path):
+            if has_terminal_child_diagnostic(diagnostic_path):
+                event("terminal_error", reason="one_shot_receipt_missing",
+                      terminal_diagnostic_file=str(diagnostic_path))
+                return 1
 
     if stop_file.exists():
         event("explicit_stop_before_start", command=command)
@@ -310,6 +369,16 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
         stdout_path = state_dir / f"stdout-{attempt:04d}.log"
         stderr_path = state_dir / f"stderr-{attempt:04d}.log"
         started = time.time()
+        if one_shot:
+            try:
+                write_json(one_shot_started_path, {
+                    "schema": "sekirei.floodgate-one-shot-started.v1",
+                    "timestamp": started,
+                })
+            except OSError as error:
+                report_error("one-shot-started.json", "started", error)
+                event("start_failed", attempt=attempt, reason="one_shot_marker_write_failed")
+                return 1
         event("started", attempt=attempt, command=command, pid=None)
         try:
             process = subprocess.Popen(
@@ -319,11 +388,14 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
             event("start_failed", attempt=attempt, error=str(exc), returncode=None)
             return 1
         assert process.stdout is not None and process.stderr is not None
+        log_errors: list[str] = []
         stdout_pump = threading.Thread(
-            target=_copy_to_rotating_log, args=(process.stdout, stdout_path, max_log_bytes), daemon=True
+            target=_copy_to_rotating_log,
+            args=(process.stdout, stdout_path, max_log_bytes, log_errors), daemon=True
         )
         stderr_pump = threading.Thread(
-            target=_copy_to_rotating_log, args=(process.stderr, stderr_path, max_log_bytes), daemon=True
+            target=_copy_to_rotating_log,
+            args=(process.stderr, stderr_path, max_log_bytes, log_errors), daemon=True
         )
         stdout_pump.start()
         stderr_pump.start()
@@ -342,7 +414,13 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
             observed_status: tuple[object, object, object, object] | None = None
             latest_observation: dict[str, object] | None = None
             last_status_error: str | None = None
+            reported_log_errors = 0
             while process.poll() is None:
+                if len(log_errors) > reported_log_errors:
+                    for log_error in log_errors[reported_log_errors:]:
+                        event("logging_failed", attempt=attempt, pid=process.pid,
+                              error=log_error)
+                    reported_log_errors = len(log_errors)
                 observation: dict[str, object] | None = None
                 if client_status_file is not None:
                     observation = observe_client_status(
@@ -415,6 +493,11 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
         finally:
             stdout_pump.join()
             stderr_pump.join()
+        for log_error in log_errors:
+            try:
+                print(f"floodgate supervisor: {log_error}", file=sys.stderr, flush=True)
+            except OSError:
+                pass
         kind = exit_kind(returncode, stop_requested)
         if client_status_file is not None:
             final_observation = observe_client_status(
@@ -424,8 +507,9 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                 latest_observation = final_observation
         event("exited", attempt=attempt, pid=process.pid, returncode=returncode,
               child_exit_code=returncode,
-              child_started_at=started, exit_kind=kind,
+              child_started_at=started, exit_kind=kind, one_shot=one_shot,
               stdout_path=str(stdout_path), stderr_path=str(stderr_path),
+              logging_errors=log_errors,
               client_status_file=str(client_status_file) if client_status_file else None,
               elapsed_seconds=round(time.time() - started, 3))
         if one_shot:
@@ -450,10 +534,15 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                 terminal_reason = "child_exited_before_max_games"
             else:
                 terminal_reason = "child_exited"
+            child_terminal_reason = terminal_reason
+            if log_errors:
+                terminal_reason = "log_persistence_failed"
+            elif operational_errors and terminal_reason == "max_games_reached":
+                terminal_reason = "supervisor_persistence_failed"
             incomplete_game = None
-            persistence_errors: list[str] = []
+            persistence_errors: list[str] = list(operational_errors.values())
             if returncode not in {None, 0}:
-                incomplete_game, persistence_errors = persist_child_terminal_diagnostics(
+                incomplete_game, child_persistence_errors = persist_child_terminal_diagnostics(
                     client_status_file,
                     run_manifest_path,
                     latest_observation,
@@ -461,24 +550,40 @@ def run(command: list[str], state_dir: Path, stop_file: Path, max_restarts: int,
                     returncode,
                     kind,
                 )
+                persistence_errors.extend(child_persistence_errors)
             completion = {
                 "schema": "sekirei.floodgate-one-shot.v1",
                 "timestamp": time.time(),
                 "terminal_reason": terminal_reason,
+                "child_terminal_reason": child_terminal_reason,
                 "completed_attempts": completed_attempts,
                 "max_games": max_games,
                 "child_exit_code": returncode,
                 "exit_kind": kind,
                 "incomplete_game": incomplete_game,
+                "logging_errors": log_errors,
                 "persistence_errors": persistence_errors,
             }
-            write_json(one_shot_completion_path, completion)
+            receipt_written = False
+            try:
+                write_json(one_shot_completion_path, completion)
+                receipt_written = True
+            except OSError as error:
+                report_error("one-shot-complete.json", "one_shot_complete", error)
+            if not receipt_written:
+                event("terminal_error", attempt=attempt, pid=process.pid,
+                      exit_kind=kind, child_exit_code=returncode,
+                      reason="completion_receipt_write_failed",
+                      persistence_errors=list(operational_errors.values()))
+                return 1
             event("one_shot_complete", **completion,
                   completion_file=str(one_shot_completion_path))
             # A bounded launchd job must remain completed even if its child
             # disconnected before the requested game count. The durable reason
             # carries the failure; a zero supervisor exit prevents relaunch.
             return 0
+        if log_errors or operational_errors:
+            return 1
         if kind in {"normal_exit", "explicit_stop"}:
             return 0
         if kind in NON_RESTARTABLE_EXIT_KINDS:

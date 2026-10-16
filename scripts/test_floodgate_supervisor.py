@@ -1,11 +1,17 @@
 import importlib.util
+import errno
+import io
 import json
+import os
+import signal
 import sys
 import tempfile
 import threading
 import time
+from contextlib import redirect_stderr
 from collections import deque
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -429,6 +435,302 @@ def test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_ga
         assert events[-1]["kind"] == "one_shot_complete"
 
 
+def _run_faulted_mid_game_child(root: Path) -> tuple[int, Path, Path, Path]:
+    state_dir = root / "state"
+    status_file = root / "client-status.json"
+    manifest_file = root / "run-manifest.json"
+    child_runs = root / "child-runs.txt"
+    manifest_file.write_text(json.dumps({
+        "schema": "sekirei.csa-run-manifest.v1", "status": "active",
+        "completed_attempts": 2, "max_games": 10,
+        "games": [{"game_id": "completed-1"}, {"game_id": "completed-2"}],
+    }))
+    code = (
+        "import json, os, pathlib, time; "
+        f"p=pathlib.Path({str(status_file)!r}); "
+        f"runs=pathlib.Path({str(child_runs)!r}); "
+        "runs.write_text(runs.read_text()+'x' if runs.exists() else 'x'); "
+        "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+        "'state':'in_game','event':'start','timestamp_ms':int(time.time()*1000),"
+        "'pid':os.getpid(),'session_id':'session-live','active_game_id':'live-game',"
+        "'completed_attempts':2,'max_games':10,'terminal_stop_reason':None})); "
+        "time.sleep(0.08); raise SystemExit(3)"
+    )
+    command = [sys.executable, "-c", code, "--run-manifest", str(manifest_file)]
+    result = supervisor.run(
+        command, state_dir, root / "stop", max_restarts=5,
+        restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+        client_status_file=status_file, client_status_max_age=2.0, one_shot=True,
+    )
+    return result, state_dir, status_file, manifest_file
+
+
+def _assert_faulted_mid_game_terminal(root: Path, failed_destination: str) -> None:
+    state_dir = root / "state"
+    status = json.loads((root / "client-status.json").read_text())
+    manifest = json.loads((root / "run-manifest.json").read_text())
+    completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+    assert status["state"] == "client_error"
+    assert status["completed_attempts"] == 2
+    assert status["child_exit_code"] == 3
+    assert status["incomplete_game"]["counted"] is False
+    assert manifest["status"] == "failed"
+    assert manifest["completed_attempts"] == 2
+    assert len(manifest["games"]) == 2
+    assert manifest["incomplete_game"]["counted"] is False
+    assert completion["completed_attempts"] == 2
+    assert completion["max_games"] == 10
+    assert completion["child_exit_code"] == 3
+    assert completion["terminal_reason"] == "child_exited_before_max_games"
+    assert completion["incomplete_game"]["counted"] is False
+    assert any(failed_destination in error and "errno=28" in error
+               for error in completion["persistence_errors"])
+    assert (root / "child-runs.txt").read_text() == "x"
+    # A durable receipt prevents a second child, even with an event write fault.
+    assert supervisor.run(
+        [sys.executable, "-c", "raise SystemExit(99)"], state_dir,
+        root / "stop", max_restarts=5, restart_window=60.0,
+        restart_delay=0.0, poll_seconds=0.01, one_shot=True,
+    ) == 0
+    assert (root / "child-runs.txt").read_text() == "x"
+
+
+def test_one_shot_finalizes_after_exited_state_snapshot_failure():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        real_write_json = supervisor.write_json
+
+        def fail_exited_snapshot(path, value):
+            if path.name == "state.json" and value.get("kind") == "exited":
+                raise OSError(errno.ENOSPC, "injected state snapshot failure")
+            return real_write_json(path, value)
+
+        with patch.object(supervisor, "write_json", fail_exited_snapshot):
+            result, _, _, _ = _run_faulted_mid_game_child(root)
+        assert result == 0
+        _assert_faulted_mid_game_terminal(root, "state.json (exited)")
+
+
+def test_one_shot_finalizes_after_event_journal_failure():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        real_open = Path.open
+
+        def fail_event_journal(path, *args, **kwargs):
+            if path.name == "events.jsonl" and args[:1] == ("a",):
+                raise OSError(errno.ENOSPC, "injected journal failure")
+            return real_open(path, *args, **kwargs)
+
+        with patch.object(Path, "open", fail_event_journal):
+            result, _, _, _ = _run_faulted_mid_game_child(root)
+        assert result == 0
+        _assert_faulted_mid_game_terminal(root, "events.jsonl")
+
+
+def test_one_shot_reports_when_all_terminal_destinations_fail():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        real_open = Path.open
+        real_write_json = supervisor.write_json
+
+        def fail_event_journal(path, *args, **kwargs):
+            if path.name == "events.jsonl" and args[:1] == ("a",):
+                raise OSError(errno.ENOSPC, "injected journal failure")
+            return real_open(path, *args, **kwargs)
+
+        def fail_json_writes(path, value):
+            if path.name == "one-shot-started.json":
+                return real_write_json(path, value)
+            raise OSError(errno.ENOSPC, f"injected {path.name} failure")
+
+        fallback = io.StringIO()
+        with patch.object(Path, "open", fail_event_journal), \
+                patch.object(supervisor, "write_json", fail_json_writes), \
+                redirect_stderr(fallback):
+            result, state_dir, status_file, manifest_file = _run_faulted_mid_game_child(root)
+        assert result == 1
+        assert not (state_dir / "one-shot-complete.json").exists()
+        assert (state_dir / "one-shot-started.json").exists()
+        assert json.loads(status_file.read_text())["state"] == "in_game"
+        assert json.loads(manifest_file.read_text())["status"] == "active"
+        assert (root / "child-runs.txt").read_text() == "x"
+        assert "events.jsonl" in fallback.getvalue()
+        assert "one-shot-complete.json" in fallback.getvalue()
+        assert "errno=28" in fallback.getvalue()
+
+
+def test_missing_receipt_does_not_replay_a_terminal_child():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        real_write_json = supervisor.write_json
+
+        def fail_receipt(path, value):
+            if path.name == "one-shot-complete.json":
+                raise OSError(errno.ENOSPC, "injected receipt failure")
+            return real_write_json(path, value)
+
+        with patch.object(supervisor, "write_json", fail_receipt):
+            result, state_dir, status_file, manifest_file = _run_faulted_mid_game_child(root)
+        assert result == 1
+        assert not (state_dir / "one-shot-complete.json").exists()
+        assert json.loads(status_file.read_text())["child_exit_code"] == 3
+        assert json.loads(manifest_file.read_text())["child_exit_code"] == 3
+        command = [sys.executable, "-c", "raise SystemExit(99)",
+                   "--run-manifest", str(manifest_file)]
+        with patch.object(supervisor.subprocess, "Popen",
+                          side_effect=AssertionError("child replayed")):
+            repeated = supervisor.run(
+                command, state_dir, root / "stop", max_restarts=5,
+                restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+                client_status_file=status_file, one_shot=True,
+            )
+        assert repeated == 1
+        assert (root / "child-runs.txt").read_text() == "x"
+
+
+def test_missing_receipt_does_not_replay_a_successful_bounded_child():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        status_file = root / "client-status.json"
+        child_runs = root / "child-runs.txt"
+        code = (
+            "import json, os, pathlib, time; "
+            f"p=pathlib.Path({str(status_file)!r}); "
+            f"runs=pathlib.Path({str(child_runs)!r}); "
+            "runs.write_text(runs.read_text()+'x' if runs.exists() else 'x'); "
+            "p.write_text(json.dumps({'schema':'sekirei.csa-runtime-status.v1',"
+            "'state':'stopped','event':'max_games_reached',"
+            "'timestamp_ms':int(time.time()*1000),'pid':os.getpid(),"
+            "'session_id':'session-1','active_game_id':None,"
+            "'completed_attempts':3,'max_games':3,"
+            "'terminal_stop_reason':'max_games_reached'})); time.sleep(0.08)"
+        )
+        real_write_json = supervisor.write_json
+
+        def fail_receipt(path, value):
+            if path.name == "one-shot-complete.json":
+                raise OSError(errno.ENOSPC, "injected receipt failure")
+            return real_write_json(path, value)
+
+        with patch.object(supervisor, "write_json", fail_receipt):
+            result = supervisor.run(
+                [sys.executable, "-c", code], state_dir, root / "stop",
+                max_restarts=5, restart_window=60.0, restart_delay=0.0,
+                poll_seconds=0.01, client_status_file=status_file, one_shot=True,
+            )
+        assert result == 1
+        assert not (state_dir / "one-shot-complete.json").exists()
+        assert (state_dir / "one-shot-started.json").exists()
+        assert child_runs.read_text() == "x"
+        with patch.object(supervisor.subprocess, "Popen",
+                          side_effect=AssertionError("child replayed")):
+            repeated = supervisor.run(
+                [sys.executable, "-c", code], state_dir, root / "stop",
+                max_restarts=5, restart_window=60.0, restart_delay=0.0,
+                poll_seconds=0.01, client_status_file=status_file, one_shot=True,
+            )
+        assert repeated == 1
+        assert child_runs.read_text() == "x"
+
+
+def test_log_write_and_rotation_failures_close_pipe_and_report_errno():
+    with tempfile.TemporaryDirectory() as directory:
+        path = Path(directory) / "child.log"
+        real_open = Path.open
+
+        class BrokenWriter:
+            def __init__(self, stream):
+                self.stream = stream
+
+            def tell(self):
+                return self.stream.tell()
+
+            def write(self, _data):
+                raise OSError(errno.ENOSPC, "injected write failure")
+
+            def close(self):
+                self.stream.close()
+
+        def open_broken_writer(target, *args, **kwargs):
+            stream = real_open(target, *args, **kwargs)
+            return BrokenWriter(stream) if target == path else stream
+
+        pipe = io.BytesIO(b"x" * 16384)
+        errors = []
+        with patch.object(Path, "open", open_broken_writer):
+            supervisor._copy_to_rotating_log(pipe, path, 4096, errors)
+        assert pipe.closed
+        assert len(errors) == 1 and "errno=28" in errors[0]
+
+        def fail_rotation(_path):
+            raise OSError(errno.ENOSPC, "injected rotation failure")
+
+        pipe = io.BytesIO(b"y" * 16384)
+        errors = []
+        with patch.object(supervisor, "_rotate_log", fail_rotation):
+            supervisor._copy_to_rotating_log(pipe, path, 1, errors)
+        assert pipe.closed
+        assert len(errors) == 1 and "errno=28" in errors[0]
+
+
+def test_failed_log_open_drains_large_child_output_and_marks_run_failed():
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        state_dir = root / "state"
+        child_pid = []
+        result_holder = {}
+        real_open = Path.open
+        real_popen = supervisor.subprocess.Popen
+
+        def fail_stderr_log(path, *args, **kwargs):
+            if path.name == "stderr-0001.log":
+                raise OSError(errno.ENOSPC, "injected stderr log failure")
+            return real_open(path, *args, **kwargs)
+
+        def record_child(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            child_pid.append(process.pid)
+            return process
+
+        def supervise():
+            try:
+                result_holder["result"] = supervisor.run(
+                    [sys.executable, "-c",
+                     "import os, time; os.write(2, b'x' * 262144); time.sleep(0.2)"],
+                    state_dir, root / "stop", max_restarts=5,
+                    restart_window=60.0, restart_delay=0.0, poll_seconds=0.01,
+                    one_shot=True,
+                )
+            except BaseException as error:
+                result_holder["error"] = error
+
+        with patch.object(Path, "open", fail_stderr_log), \
+                patch.object(supervisor.subprocess, "Popen", record_child):
+            worker = threading.Thread(target=supervise)
+            worker.start()
+            worker.join(timeout=3.0)
+            blocked = worker.is_alive()
+            if blocked and child_pid:
+                os.killpg(child_pid[0], signal.SIGKILL)
+            worker.join(timeout=3.0)
+        assert not blocked, "supervisor blocked after log open failure"
+        assert not worker.is_alive(), "fixture could not clean up synthetic child"
+        assert "error" not in result_holder, result_holder
+        assert result_holder["result"] == 0
+        assert len(child_pid) == 1
+        completion = json.loads((state_dir / "one-shot-complete.json").read_text())
+        assert completion["terminal_reason"] == "log_persistence_failed"
+        assert completion["child_exit_code"] == 0
+        assert any("stderr-0001.log" in error and "errno=28" in error
+                   for error in completion["logging_errors"])
+        events = [json.loads(line) for line in (state_dir / "events.jsonl").read_text().splitlines()]
+        assert [event["kind"] for event in events].count("started") == 1
+        assert any(event["kind"] == "logging_failed" and "errno=28" in event["error"]
+                   for event in events)
+        assert all(event["kind"] != "restart_scheduled" for event in events)
+
+
 def test_runtime_explicit_stop_before_start_does_not_spawn_child():
     with tempfile.TemporaryDirectory() as directory:
         state_dir = Path(directory) / "state"
@@ -568,6 +870,13 @@ if __name__ == "__main__":
     test_one_shot_preserves_normal_max_games_terminal_reason()
     test_one_shot_preserves_reported_run_error_terminal_reason()
     test_one_shot_persists_mid_game_child_failure_without_counting_incomplete_game()
+    test_one_shot_finalizes_after_exited_state_snapshot_failure()
+    test_one_shot_finalizes_after_event_journal_failure()
+    test_one_shot_reports_when_all_terminal_destinations_fail()
+    test_missing_receipt_does_not_replay_a_terminal_child()
+    test_missing_receipt_does_not_replay_a_successful_bounded_child()
+    test_log_write_and_rotation_failures_close_pipe_and_report_errno()
+    test_failed_log_open_drains_large_child_output_and_marks_run_failed()
     test_runtime_explicit_stop_before_start_does_not_spawn_child()
     test_runtime_rejects_a_second_supervisor_for_the_same_state_directory()
     test_runtime_normal_exit_is_not_restarted()
