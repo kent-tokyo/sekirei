@@ -98,6 +98,104 @@ thread_local! {
     static CONT_ROW_BATCHES: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+// Test-only observations of the real guarded transform below. No observer,
+// atomic counters, or observer branches exist in normal or tune native builds.
+#[cfg(test)]
+mod fh_blend_test_observer {
+    use super::{is_decisive, p};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    pub(super) static ACTIVE: AtomicBool = AtomicBool::new(false);
+    static COUNTERS: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+
+    #[cfg(feature = "tune")]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(super) struct Snapshot {
+        pub samples: u64,
+        pub eligible: u64,
+        pub applied: u64,
+        pub changed: u64,
+        pub negative_beta: u64,
+        pub negative_window: u64,
+        pub negative_changed: u64,
+        pub decisive_guard_rejections: u64,
+    }
+
+    #[cfg(feature = "tune")]
+    pub(super) fn reset() {
+        for counter in &COUNTERS {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    pub(super) fn snapshot() -> Snapshot {
+        let values = COUNTERS
+            .each_ref()
+            .map(|counter| counter.load(Ordering::Relaxed));
+        Snapshot {
+            samples: values[0],
+            eligible: values[1],
+            applied: values[2],
+            changed: values[3],
+            negative_beta: values[4],
+            negative_window: values[5],
+            negative_changed: values[6],
+            decisive_guard_rejections: values[7],
+        }
+    }
+
+    pub(super) fn before(value: i32) -> Option<i32> {
+        // OFF records no samples or atomic writes. The isolated owner enables
+        // this observer only for its explicit test process, never benchmarks.
+        (p::V2_FH_BLEND() != 0 && ACTIVE.load(Ordering::Relaxed)).then_some(value)
+    }
+
+    pub(super) fn after(old: i32, new: i32, alpha: i32, beta: i32, applied: bool) {
+        COUNTERS[0].fetch_add(1, Ordering::Relaxed);
+        let decisive = is_decisive(old) || is_decisive(alpha) || is_decisive(beta);
+        let eligible = old >= beta && !decisive;
+        assert_eq!(
+            applied, eligible,
+            "actual FH blend branch differs from its guarded domain"
+        );
+        if eligible {
+            COUNTERS[1].fetch_add(1, Ordering::Relaxed);
+        }
+        if applied {
+            assert!(
+                beta <= new && new <= old,
+                "FH blend must preserve a conservative fail-high bound: alpha={alpha} beta={beta} old={old} new={new}"
+            );
+            assert!(
+                !is_decisive(new),
+                "FH blend must not create a decisive score"
+            );
+            COUNTERS[2].fetch_add(1, Ordering::Relaxed);
+            if new != old {
+                COUNTERS[3].fetch_add(1, Ordering::Relaxed);
+            }
+            if beta < 0 {
+                COUNTERS[4].fetch_add(1, Ordering::Relaxed);
+            }
+            if alpha < 0 && beta < 0 {
+                COUNTERS[5].fetch_add(1, Ordering::Relaxed);
+            }
+            if beta < 0 && new != old {
+                COUNTERS[6].fetch_add(1, Ordering::Relaxed);
+            }
+        } else {
+            assert_eq!(
+                new, old,
+                "guarded-out FH blend must leave the score unchanged"
+            );
+            if old >= beta && decisive {
+                COUNTERS[7].fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+}
+
 const MAIN_LIM: i32 = 7000;
 const CORR_CONT_BITS: u32 = 16;
 const CORR_CONT_NB: usize = 1 << CORR_CONT_BITS;
@@ -2563,6 +2661,10 @@ fn node(
     }
 
     // V2_FH_BLEND: a fail-high score is pulled toward beta, less so deeper.
+    #[cfg(test)]
+    let fh_blend_before = fh_blend_test_observer::before(best_value);
+    #[cfg(test)]
+    let mut fh_blend_applied = false;
     if p::V2_FH_BLEND() != 0
         && best_value >= beta
         && !is_decisive(best_value)
@@ -2570,6 +2672,14 @@ fn node(
         && !is_decisive(alpha)
     {
         best_value = (best_value * depth.max(1) + beta) / (depth.max(1) + 1);
+        #[cfg(test)]
+        {
+            fh_blend_applied = true;
+        }
+    }
+    #[cfg(test)]
+    if let Some(old) = fh_blend_before {
+        fh_blend_test_observer::after(old, best_value, alpha, beta, fh_blend_applied);
     }
 
     // A node failing low under a PV-like parent counts as PV-like.
@@ -4071,5 +4181,231 @@ mod tests {
         data.clear();
         assert_eq!(data.main[0], 0);
         assert_eq!(data.corr_cont[0], 0);
+    }
+
+    #[test]
+    fn fail_high_blend_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL
+            .iter()
+            .find(|spec| spec.name == "V2_FH_BLEND")
+            .unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global tuning and cfg(test) fail-high observations"]
+    fn tuned_fail_high_blend_exercises_real_branch_and_restores_search() {
+        use crate::lazy_smp::LazySmpSearcher;
+        use crate::search::{SearchConfig, Searcher};
+        use crate::tt::Tt;
+
+        struct RestoreParams(Vec<(&'static str, i32)>);
+        impl Drop for RestoreParams {
+            fn drop(&mut self) {
+                for &(name, value) in &self.0 {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        struct RestoreObserver(bool);
+        impl Drop for RestoreObserver {
+            fn drop(&mut self) {
+                fh_blend_test_observer::ACTIVE.store(self.0, Ordering::Relaxed);
+                fh_blend_test_observer::reset();
+            }
+        }
+        assert!(
+            !crate::halfkp::is_active() && !crate::nnue::weights_active(),
+            "material-only isolated process required"
+        );
+        let settings = [
+            ("V2_FH_BLEND", p::V2_FH_BLEND(), 0),
+            ("SEARCH_V2", p::SEARCH_V2(), 1),
+            ("ASP_VOLATILITY", p::ASP_VOLATILITY(), 0),
+            ("COOP_PERSISTENT", p::COOP_PERSISTENT(), 0),
+            ("COOP_MULTI", p::COOP_MULTI(), 0),
+            ("COOP_PRESTART", p::COOP_PRESTART(), 0),
+            ("COOP_PRESTART_CAP", p::COOP_PRESTART_CAP(), 0),
+            ("COOP_PRESTART_DIAG", p::COOP_PRESTART_DIAG(), 0),
+            ("COOP_DRAIN", p::COOP_DRAIN(), 0),
+            ("COOP_LATENCY", p::COOP_LATENCY(), 0),
+            ("COOP_PRIORITY", p::COOP_PRIORITY(), 0),
+            ("COOP_HELPER_LMR", p::COOP_HELPER_LMR(), 0),
+            ("ROOT_ORDER", p::ROOT_ORDER(), 0),
+            ("ROOT_LMR", p::ROOT_LMR(), 0),
+            ("V2_SORT", p::V2_SORT(), 0),
+            ("V2_HINDSIGHT", p::V2_HINDSIGHT(), 0),
+            ("V2_SHAPE", p::V2_SHAPE(), 0),
+            ("V2_PVQ", p::V2_PVQ(), 0),
+            ("V2_NMP_PRIOR", p::V2_NMP_PRIOR(), 0),
+            ("V2_QUIET_LMP_SKIP", p::V2_QUIET_LMP_SKIP(), 0),
+            ("V2_EAGER_LOSING_SORT", p::V2_EAGER_LOSING_SORT(), 0),
+            ("V2_QUIET_TT_STAGE", p::V2_QUIET_TT_STAGE(), 0),
+            ("V2_SEE_BOUND_CACHE", p::V2_SEE_BOUND_CACHE(), 0),
+            ("V2_CONT_ROWS", p::V2_CONT_ROWS(), 0),
+            ("V2_CONT_SPLIT", p::V2_CONT_SPLIT(), 0),
+            ("V2_LAZY_QUIET_HKP", p::V2_LAZY_QUIET_HKP(), 0),
+            ("V2_DIAG", p::V2_DIAG(), 0),
+        ];
+        let _restore_params =
+            RestoreParams(settings.iter().map(|&(name, old, _)| (name, old)).collect());
+        for &(name, _, value) in &settings {
+            assert!(p::set(name, value));
+        }
+        let previous_observer = fh_blend_test_observer::ACTIVE.swap(true, Ordering::Relaxed);
+        let _restore_observer = RestoreObserver(previous_observer);
+        assert!(!previous_observer, "one isolated observer owner required");
+
+        let corpus: Vec<_> = include_str!("fixtures/fh_blend_diagnostic.sfen")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        assert_eq!(corpus.len(), 20, "retain the complete development corpus");
+        let config = SearchConfig {
+            max_depth: 6,
+            ..SearchConfig::default()
+        };
+        let mut cases = 0;
+        for workers in [1, 2, 4, 8] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .stack_size(super::super::RECURSIVE_SEARCH_STACK_BYTES)
+                .build()
+                .unwrap();
+            let mut applied = 0;
+            let mut changed = 0;
+            let mut negative_beta = 0;
+            let mut negative_window = 0;
+            let mut negative_changed = 0;
+            let mut thread_cases = 0;
+            for (position, sfen) in corpus.iter().enumerate() {
+                for enabled in [0, 1] {
+                    assert!(p::set("V2_FH_BLEND", enabled));
+                    fh_blend_test_observer::reset();
+                    let mut board = Board::from_sfen(sfen).unwrap();
+                    let hash = board.hash();
+                    let accumulator = board.acc.clone();
+                    let root_moves = generate_legal_moves(&mut board);
+                    // This direct Lazy SMP entry never invokes speculative search
+                    // (SpecTopN=0); flags15 retain the existing baseline policy.
+                    let searcher =
+                        LazySmpSearcher::with_flags_and_hash_mb(Tt::new(64), workers, 15, 64);
+                    let info = pool.install(|| searcher.search(&board, config));
+                    let sample = fh_blend_test_observer::snapshot();
+                    assert_eq!(info.workers, workers);
+                    assert_eq!(info.worker_results.len(), workers);
+                    // Keep legal early terminal/mate completions and rows
+                    // with no observed transform; max_depth is a request.
+                    assert!(info.worker_results[0].depth <= 6);
+                    assert!(info.result.depth <= 7);
+                    assert!(root_moves.contains(&info.result.best_move.unwrap()));
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, accumulator);
+                    let mut replay = board.clone();
+                    for &mv in &info.result.pv {
+                        assert!(
+                            generate_legal_moves(&mut replay).contains(&mv),
+                            "illegal PV: threads={workers} position={position} enabled={enabled}"
+                        );
+                        replay.do_move(mv);
+                    }
+                    assert!(!info.result.pv.is_empty());
+                    assert!(
+                        info.worker_results.iter().all(|worker| worker
+                            .best_move
+                            .is_none_or(|mv| root_moves.contains(&mv)))
+                    );
+                    assert!(sample.changed <= sample.applied && sample.applied == sample.eligible);
+                    assert!(
+                        sample.negative_changed <= sample.negative_beta
+                            && sample.negative_window <= sample.negative_beta
+                    );
+                    if enabled == 0 {
+                        assert_eq!(sample, fh_blend_test_observer::Snapshot::default());
+                    } else {
+                        applied += sample.applied;
+                        changed += sample.changed;
+                        negative_beta += sample.negative_beta;
+                        negative_window += sample.negative_window;
+                        negative_changed += sample.negative_changed;
+                    }
+                    eprintln!(
+                        "FH_BLEND_TEST case threads={workers} position={position} enabled={enabled} requested_depth=6 completed_depth={} nodes={} participants={} hash_mb=64 lazy_flags=15 spec_top_n=0 samples={} eligible={} applied={} changed={} negative_beta={} negative_window={} negative_changed={} decisive_guard_rejections={}",
+                        info.result.depth,
+                        info.total_nodes,
+                        info.workers,
+                        sample.samples,
+                        sample.eligible,
+                        sample.applied,
+                        sample.changed,
+                        sample.negative_beta,
+                        sample.negative_window,
+                        sample.negative_changed,
+                        sample.decisive_guard_rejections
+                    );
+                    cases += 1;
+                    thread_cases += 1;
+                }
+            }
+            assert_eq!(thread_cases, 40, "include every zero-activity row");
+            assert!(applied > 0, "ON must reach the actual branch at {workers}T");
+            assert!(
+                changed > 0,
+                "ON must change actual returned scores at {workers}T"
+            );
+            eprintln!(
+                "FH_BLEND_TEST total threads={workers} cases={thread_cases} off_cases=20 on_cases=20 applied={applied} changed={changed} negative_beta={negative_beta} negative_window={negative_window} negative_changed={negative_changed}"
+            );
+            if workers == 1 {
+                // A mate-in-one root bypasses the ordinary V2 fail-high tail.
+                // The opt-in must preserve its decisive score and legal PV.
+                let mut mate_results = Vec::new();
+                for enabled in [0, 1] {
+                    assert!(p::set("V2_FH_BLEND", enabled));
+                    fh_blend_test_observer::reset();
+                    let mut board = Board::from_sfen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+                    let hash = board.hash();
+                    let accumulator = board.acc.clone();
+                    let info =
+                        pool.install(|| Searcher::new(Tt::new(64)).search(&mut board, config));
+                    let sample = fh_blend_test_observer::snapshot();
+                    assert!(is_decisive(info.score));
+                    assert_eq!(sample.applied, 0);
+                    assert_eq!(sample.changed, 0);
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, accumulator);
+                    let mut replay = board.clone();
+                    for &mv in &info.pv {
+                        assert!(generate_legal_moves(&mut replay).contains(&mv));
+                        replay.do_move(mv);
+                    }
+                    assert!(info.best_move.is_some() && !info.pv.is_empty());
+                    eprintln!(
+                        "FH_BLEND_TEST mate_guard enabled={enabled} score={} depth={} samples={} applied={} changed={} decisive_guard_rejections={}",
+                        info.score,
+                        info.depth,
+                        sample.samples,
+                        sample.applied,
+                        sample.changed,
+                        sample.decisive_guard_rejections
+                    );
+                    mate_results.push((
+                        info.best_move,
+                        info.score,
+                        info.depth,
+                        info.bound,
+                        info.completed_bound,
+                        info.pv,
+                    ));
+                }
+                assert_eq!(mate_results[0], mate_results[1]);
+            }
+        }
+        assert_eq!(
+            cases, 160,
+            "all requested corpus/thread/arm cases must participate"
+        );
     }
 }

@@ -66,6 +66,21 @@ cargo llvm-cov -p sekirei-core \
   -- tuned_public_search_matrix_exercises_alternative_policies \
   --exact
 
+# Exercise the existing default-off fail-high transform in a serial isolated
+# process. cfg(test) observations are excluded from all native measurements.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-fail-high-blend-summary.json" \
+  -- search::v2::tests::tuned_fail_high_blend_exercises_real_branch_and_restores_search \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # The disabled ancestor-NMP experiment must prove an actual correction in a
 # controlled verified-null position, rather than only traversing inactive flags.
 cargo llvm-cov -p sekirei-core \
