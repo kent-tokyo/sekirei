@@ -30,6 +30,115 @@ use crate::mv::Move;
 use crate::piece::PieceKind;
 use crate::square::Square;
 
+// Test-process-only observations of the existing same-position replacement
+// decision. The observer and its call site disappear from native builds.
+#[cfg(test)]
+mod tt_keep_depth_test_observer {
+    use super::{Bound, GEN_MASK_U64, TtEntry};
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+
+    pub(super) static ACTIVE: AtomicBool = AtomicBool::new(false);
+    static COUNTERS: [AtomicU64; 9] = [const { AtomicU64::new(0) }; 9];
+
+    #[cfg(feature = "tune")]
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    pub(super) struct Snapshot {
+        pub attempts: u64,
+        pub replaced: u64,
+        pub rejected: u64,
+        pub lower: u64,
+        pub upper: u64,
+        pub lower_replaced: u64,
+        pub lower_rejected: u64,
+        pub upper_replaced: u64,
+        pub upper_rejected: u64,
+    }
+
+    #[cfg(feature = "tune")]
+    pub(super) fn reset() {
+        for counter in &COUNTERS {
+            counter.store(0, Ordering::Relaxed);
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    pub(super) fn snapshot() -> Snapshot {
+        let v = COUNTERS
+            .each_ref()
+            .map(|counter| counter.load(Ordering::Relaxed));
+        Snapshot {
+            attempts: v[0],
+            replaced: v[1],
+            rejected: v[2],
+            lower: v[3],
+            upper: v[4],
+            lower_replaced: v[5],
+            lower_rejected: v[6],
+            upper_replaced: v[7],
+            upper_rejected: v[8],
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    pub(super) fn restore(snapshot: Snapshot) {
+        let values = [
+            snapshot.attempts,
+            snapshot.replaced,
+            snapshot.rejected,
+            snapshot.lower,
+            snapshot.upper,
+            snapshot.lower_replaced,
+            snapshot.lower_rejected,
+            snapshot.upper_replaced,
+            snapshot.upper_rejected,
+        ];
+        for (counter, value) in COUNTERS.iter().zip(values) {
+            counter.store(value, Ordering::Relaxed);
+        }
+    }
+
+    pub(super) fn observe(
+        existing: u64,
+        existing_depth: u8,
+        entry: &TtEntry,
+        mode: i32,
+        generation: u64,
+        replace: bool,
+    ) {
+        if !ACTIVE.load(Ordering::Relaxed)
+            || mode & 2 == 0
+            || existing & GEN_MASK_U64 != generation
+            || entry.bound == Bound::Exact
+            || existing_depth.checked_sub(entry.depth) != Some(2)
+        {
+            return;
+        }
+        let keep = crate::search::params::TT_KEEP_DEPTH();
+        assert!(
+            matches!(keep, 1 | 2),
+            "isolated observer expects only the declared one-factor arms"
+        );
+        assert_eq!(
+            replace,
+            keep == 2,
+            "actual same-generation non-Exact gap2 replacement differs"
+        );
+        COUNTERS[0].fetch_add(1, Ordering::Relaxed);
+        COUNTERS[if replace { 1 } else { 2 }].fetch_add(1, Ordering::Relaxed);
+        match entry.bound {
+            Bound::Lower => {
+                COUNTERS[3].fetch_add(1, Ordering::Relaxed);
+                COUNTERS[if replace { 5 } else { 6 }].fetch_add(1, Ordering::Relaxed);
+            }
+            Bound::Upper => {
+                COUNTERS[4].fetch_add(1, Ordering::Relaxed);
+                COUNTERS[if replace { 7 } else { 8 }].fetch_add(1, Ordering::Relaxed);
+            }
+            Bound::Exact => unreachable!("Exact is excluded from the observed domain"),
+        }
+    }
+}
+
 /// How the stored score should be interpreted relative to alpha/beta
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Bound {
@@ -402,6 +511,15 @@ impl Tt {
         } else {
             entry.depth >= existing_depth
         };
+        #[cfg(test)]
+        tt_keep_depth_test_observer::observe(
+            existing,
+            existing_depth,
+            entry,
+            mode,
+            generation,
+            replace,
+        );
         if !replace {
             if let Some(stats) = &self.write_stats {
                 stats.shallower_rejections.fetch_add(1, Ordering::Relaxed);
@@ -1061,5 +1179,297 @@ mod tests {
                 .join()
                 .expect("concurrent TT stress worker must not panic");
         }
+    }
+
+    #[test]
+    fn keep_depth_and_bucket_defaults_remain_the_existing_contract() {
+        use crate::search::params as p;
+        let keep = p::ALL
+            .iter()
+            .find(|spec| spec.name == "TT_KEEP_DEPTH")
+            .unwrap();
+        let bucket = p::ALL.iter().find(|spec| spec.name == "TT_BUCKET").unwrap();
+        assert_eq!((keep.default, keep.min, keep.max), (2, 0, 8));
+        assert_eq!((bucket.default, bucket.min, bucket.max), (3, 0, 3));
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: process-global parameters and cfg(test) TT replacement observations"]
+    fn tuned_keep_depth_one_exercises_same_generation_gap_and_searches() {
+        use crate::board::Board;
+        use crate::lazy_smp::LazySmpSearcher;
+        use crate::movegen::generate_legal_moves;
+        use crate::search::{SearchConfig, params as p};
+        use tt_keep_depth_test_observer::Snapshot;
+
+        struct RestoreParams(Vec<(&'static str, i32)>);
+        impl Drop for RestoreParams {
+            fn drop(&mut self) {
+                for &(name, value) in &self.0 {
+                    assert!(p::set(name, value));
+                }
+            }
+        }
+        struct RestoreObserver {
+            active: bool,
+            counters: Snapshot,
+        }
+        impl Drop for RestoreObserver {
+            fn drop(&mut self) {
+                tt_keep_depth_test_observer::ACTIVE.store(false, Ordering::Relaxed);
+                tt_keep_depth_test_observer::restore(self.counters);
+                tt_keep_depth_test_observer::ACTIVE.store(self.active, Ordering::Relaxed);
+            }
+        }
+        fn check_counts(sample: Snapshot, keep: i32) {
+            assert_eq!(sample.attempts, sample.replaced + sample.rejected);
+            assert_eq!(sample.attempts, sample.lower + sample.upper);
+            assert_eq!(sample.lower, sample.lower_replaced + sample.lower_rejected);
+            assert_eq!(sample.upper, sample.upper_replaced + sample.upper_rejected);
+            assert_eq!(
+                sample.replaced,
+                sample.lower_replaced + sample.upper_replaced
+            );
+            assert_eq!(
+                sample.rejected,
+                sample.lower_rejected + sample.upper_rejected
+            );
+            if keep == 2 {
+                assert_eq!(sample.replaced, sample.attempts);
+                assert_eq!(sample.rejected, 0);
+            } else {
+                assert_eq!(keep, 1);
+                assert_eq!(sample.rejected, sample.attempts);
+                assert_eq!(sample.replaced, 0);
+            }
+        }
+        fn log_counts(sample: Snapshot) -> String {
+            format!(
+                "attempts={} replaced={} rejected={} lower={} upper={} lower_replaced={} lower_rejected={} upper_replaced={} upper_rejected={}",
+                sample.attempts,
+                sample.replaced,
+                sample.rejected,
+                sample.lower,
+                sample.upper,
+                sample.lower_replaced,
+                sample.lower_rejected,
+                sample.upper_replaced,
+                sample.upper_rejected
+            )
+        }
+        fn add_counts(total: &mut Snapshot, sample: Snapshot) {
+            total.attempts += sample.attempts;
+            total.replaced += sample.replaced;
+            total.rejected += sample.rejected;
+            total.lower += sample.lower;
+            total.upper += sample.upper;
+            total.lower_replaced += sample.lower_replaced;
+            total.lower_rejected += sample.lower_rejected;
+            total.upper_replaced += sample.upper_replaced;
+            total.upper_rejected += sample.upper_rejected;
+        }
+        assert!(
+            !crate::halfkp::is_active() && !crate::nnue::weights_active(),
+            "material-only isolated process required"
+        );
+        let settings = [
+            ("TT_KEEP_DEPTH", p::TT_KEEP_DEPTH(), 2),
+            ("TT_BUCKET", p::TT_BUCKET(), 3),
+            ("SEARCH_V2", p::SEARCH_V2(), 1),
+            ("V2_FH_BLEND", p::V2_FH_BLEND(), 0),
+            ("ASP_VOLATILITY", p::ASP_VOLATILITY(), 0),
+            ("COOP_PERSISTENT", p::COOP_PERSISTENT(), 0),
+            ("COOP_MULTI", p::COOP_MULTI(), 0),
+            ("COOP_PRESTART", p::COOP_PRESTART(), 0),
+            ("COOP_PRESTART_CAP", p::COOP_PRESTART_CAP(), 0),
+            ("COOP_PRESTART_DIAG", p::COOP_PRESTART_DIAG(), 0),
+            ("COOP_DRAIN", p::COOP_DRAIN(), 0),
+            ("COOP_LATENCY", p::COOP_LATENCY(), 0),
+            ("COOP_PRIORITY", p::COOP_PRIORITY(), 0),
+            ("COOP_HELPER_LMR", p::COOP_HELPER_LMR(), 0),
+            ("ROOT_ORDER", p::ROOT_ORDER(), 0),
+            ("ROOT_LMR", p::ROOT_LMR(), 0),
+            ("V2_SORT", p::V2_SORT(), 0),
+            ("V2_HINDSIGHT", p::V2_HINDSIGHT(), 0),
+            ("V2_SHAPE", p::V2_SHAPE(), 0),
+            ("V2_PVQ", p::V2_PVQ(), 0),
+            ("V2_NMP_PRIOR", p::V2_NMP_PRIOR(), 0),
+            ("V2_QUIET_LMP_SKIP", p::V2_QUIET_LMP_SKIP(), 0),
+            ("V2_EAGER_LOSING_SORT", p::V2_EAGER_LOSING_SORT(), 0),
+            ("V2_QUIET_TT_STAGE", p::V2_QUIET_TT_STAGE(), 0),
+            ("V2_SEE_BOUND_CACHE", p::V2_SEE_BOUND_CACHE(), 0),
+            ("V2_CONT_ROWS", p::V2_CONT_ROWS(), 0),
+            ("V2_CONT_SPLIT", p::V2_CONT_SPLIT(), 0),
+            ("V2_LAZY_QUIET_HKP", p::V2_LAZY_QUIET_HKP(), 0),
+            ("V2_DIAG", p::V2_DIAG(), 0),
+        ];
+        let _restore_params =
+            RestoreParams(settings.iter().map(|&(name, old, _)| (name, old)).collect());
+        for &(name, _, value) in &settings {
+            assert!(p::set(name, value));
+        }
+        let previous_counters = tt_keep_depth_test_observer::snapshot();
+        let previous_active = tt_keep_depth_test_observer::ACTIVE.swap(true, Ordering::Relaxed);
+        let _restore_observer = RestoreObserver {
+            active: previous_active,
+            counters: previous_counters,
+        };
+        assert!(!previous_active, "one isolated observer owner required");
+
+        let old_move = Move::normal(
+            Square::from_index(10),
+            Square::from_index(11),
+            PieceKind::Fu,
+            false,
+        );
+        let mut boundary_cases = std::collections::HashSet::new();
+        for keep in [1, 2] {
+            assert!(p::set("TT_KEEP_DEPTH", keep));
+            for gap in [1u8, 2, 3] {
+                for bound in [Bound::Exact, Bound::Lower, Bound::Upper] {
+                    for new_generation in [false, true] {
+                        assert!(boundary_cases.insert((keep, gap, bound as u8, new_generation)));
+                        let table = Tt::new(1);
+                        let hash = 0x1234_5678;
+                        let old = TtEntry {
+                            score: 111,
+                            depth: 8,
+                            bound: Bound::Lower,
+                            mv: Some(old_move),
+                        };
+                        let incoming = TtEntry {
+                            score: -222,
+                            depth: 8 - gap,
+                            bound,
+                            mv: None,
+                        };
+                        table.store(hash, old);
+                        let before = table.probe(hash).unwrap();
+                        assert_eq!(
+                            (before.score, before.depth, before.bound, before.mv),
+                            (old.score, old.depth, old.bound, old.mv)
+                        );
+                        if new_generation {
+                            table.new_search();
+                        }
+                        tt_keep_depth_test_observer::reset();
+                        table.store(hash, incoming);
+                        let got = table.probe(hash).unwrap();
+                        let replaced = bound == Bound::Exact || gap <= keep as u8 || new_generation;
+                        let expected = if replaced { incoming } else { old };
+                        assert_eq!(
+                            (got.score, got.depth, got.bound),
+                            (expected.score, expected.depth, expected.bound)
+                        );
+                        assert_eq!(
+                            got.mv,
+                            Some(old_move),
+                            "replacement without a move retains the previous move"
+                        );
+                        let sample = tt_keep_depth_test_observer::snapshot();
+                        check_counts(sample, keep);
+                        let eligible = gap == 2 && bound != Bound::Exact && !new_generation;
+                        assert_eq!(sample.attempts, u64::from(eligible));
+                        assert_eq!(sample.lower, u64::from(eligible && bound == Bound::Lower));
+                        assert_eq!(sample.upper, u64::from(eligible && bound == Bound::Upper));
+                        eprintln!(
+                            "TT_KEEP_TEST boundary keep={keep} gap={gap} bound={bound:?} generation={} bucket=3 store_replaced={} score={} depth={} bound_after={:?} move_preserved=1 {}",
+                            if new_generation { "new" } else { "same" },
+                            u8::from(replaced),
+                            got.score,
+                            got.depth,
+                            got.bound,
+                            log_counts(sample)
+                        );
+                    }
+                }
+            }
+        }
+        assert_eq!(boundary_cases.len(), 36);
+
+        let corpus: Vec<_> = include_str!("search/fixtures/fh_blend_diagnostic.sfen")
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with('#'))
+            .collect();
+        assert_eq!(corpus.len(), 20, "retain the complete development corpus");
+        let config = SearchConfig {
+            max_depth: 6,
+            ..SearchConfig::default()
+        };
+        let mut matrix_cases = std::collections::HashSet::new();
+        for workers in [1, 2, 4, 8] {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(workers)
+                .stack_size(crate::search::RECURSIVE_SEARCH_STACK_BYTES)
+                .build()
+                .unwrap();
+            let mut totals = [Snapshot::default(); 2];
+            for (position, sfen) in corpus.iter().enumerate() {
+                for (arm, keep) in [2, 1].into_iter().enumerate() {
+                    assert!(matrix_cases.insert((workers, position, keep)));
+                    assert!(p::set("TT_KEEP_DEPTH", keep));
+                    tt_keep_depth_test_observer::reset();
+                    let mut board = Board::from_sfen(sfen).unwrap();
+                    let hash = board.hash();
+                    let accumulator = board.acc.clone();
+                    let root_moves = generate_legal_moves(&mut board);
+                    // Direct Lazy SMP is the SpecTopN=0 path; flags15 preserve
+                    // the existing independent-search baseline in both arms.
+                    let searcher =
+                        LazySmpSearcher::with_flags_and_hash_mb(Tt::new(64), workers, 15, 64);
+                    let info = pool.install(|| searcher.search(&board, config));
+                    let sample = tt_keep_depth_test_observer::snapshot();
+                    check_counts(sample, keep);
+                    assert_eq!(info.workers, workers);
+                    assert_eq!(info.worker_results.len(), workers);
+                    assert!(info.worker_results[0].depth <= 6);
+                    assert!(info.result.depth <= 7);
+                    assert!(root_moves.contains(&info.result.best_move.unwrap()));
+                    assert_eq!(board.hash(), hash);
+                    assert_eq!(board.acc, accumulator);
+                    let mut replay = board.clone();
+                    for &mv in &info.result.pv {
+                        assert!(
+                            generate_legal_moves(&mut replay).contains(&mv),
+                            "illegal PV: threads={workers} position={position} keep={keep}"
+                        );
+                        replay.do_move(mv);
+                    }
+                    assert!(!info.result.pv.is_empty());
+                    assert!(
+                        info.worker_results.iter().all(|worker| worker
+                            .best_move
+                            .is_none_or(|mv| root_moves.contains(&mv)))
+                    );
+                    eprintln!(
+                        "TT_KEEP_TEST case threads={workers} position={position} keep={keep} requested_depth=6 completed_depth={} nodes={} participants={} hash_mb=64 lazy_flags=15 spec_top_n=0 bucket=3 {}",
+                        info.result.depth,
+                        info.total_nodes,
+                        info.workers,
+                        log_counts(sample)
+                    );
+                    add_counts(&mut totals[arm], sample);
+                }
+            }
+            for (arm, keep) in [2, 1].into_iter().enumerate() {
+                let sample = totals[arm];
+                check_counts(sample, keep);
+                assert!(
+                    sample.attempts > 0,
+                    "actual gap2 same-generation non-Exact domain must be reached at {workers}T keep={keep}"
+                );
+                eprintln!(
+                    "TT_KEEP_TEST total threads={workers} keep={keep} cases=20 bucket=3 {}",
+                    log_counts(sample)
+                );
+            }
+        }
+        assert_eq!(
+            matrix_cases.len(),
+            160,
+            "retain all rows including inactive and early-terminal cases"
+        );
     }
 }

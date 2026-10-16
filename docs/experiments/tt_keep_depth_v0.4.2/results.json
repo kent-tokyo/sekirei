@@ -1,0 +1,5284 @@
+{
+  "schema": "sekirei.tt-keep-validation.v1",
+  "base_commit": "a855d6f1e98ed20e8afb90fbf6a8be8d01365800",
+  "frozen_source_commit": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+  "native_parsing_amendment": {
+    "schema": "sekirei.tt-native-parsing-amendment.v1",
+    "source": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+    "base": "a855d6f1e98ed20e8afb90fbf6a8be8d01365800",
+    "frozen_before_corrected_analysis_and_treatment": "2026-10-16T04:36:02.907362+00:00",
+    "original_binding_path": "target/tt-keep-presearch-binding.json",
+    "original_binding_sha256": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+    "original_runner_status": "closed after control parsing failure; never resumed",
+    "control_search_repeated": false,
+    "control_pv_repeated": false,
+    "treatment_previously_started": false,
+    "report_routing": "new tt-native-amendment-* reports; original raw/control files unchanged",
+    "permitted_analyzer_changes": [
+      "strict native basic-worker zero-counter assertion",
+      "supplemental hash/chronology validation",
+      "new report paths"
+    ],
+    "thresholds_budgets_options_schedules_changed": false,
+    "inputs_sha256": {
+      "crates/sekirei-core/src/bin/legal_moves.rs": "f3cdba292ce58bb932ca8ae30f90241435c7433cea86dbf88ea70369f1e56ba8",
+      "crates/sekirei-core/src/search/params.rs": "52b1ae630e47ef156225c1f818c88436dd48efb33a0629617daea1049c7d2054",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "scripts/nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "scripts/paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "scripts/test_nps_threads.py": "68c03ab5f80e8b3e3400dab78463fa146e663c338657bf0156cd2c709d5a6876",
+      "scripts/test_paired_search_diagnostics.py": "be689d0a7cd0468238c710bbd688c49aa53db1f6719f26310a3c3a4364f86377",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/tt-keep-activity-tests.log": "af2456688511eebf04bee7b6d9fe561fe67644c253ebcb32f1e8bfce14e8345f",
+      "target/tt-keep-analyze.py": "14ca057de017fd99b02fed8cb7ee4b6208b0d1645f4f692ddbe1dd6c4aa6cda3",
+      "target/tt-keep-archive-tests.log": "60557ad056049f5ba7e8ff2fe3597111e4acc9809e6b20527a06debd2b654438",
+      "target/tt-keep-archive-tests.py": "e5cea70dac8a2d7aedda47194c91a8ac8df7b2ae13be4bedefb6d4d3f9eda167",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "target/tt-keep-build.py": "fb4d721469277098a3b839607e1e66f6d7e84acdeedc9e41ffbdb8fb2120ac59",
+      "target/tt-keep-build/build.log": "cbb0f154423f2af984a611168532857fc962e6ea09d5fe4cf26248fc42279901",
+      "target/tt-keep-build/engine": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "target/tt-keep-build/legal-build.log": "70aea59063f3a4f550e2ac41456209bed76ce2d822b6b087741ebe071d71edcf",
+      "target/tt-keep-build/legal-moves": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+      "target/tt-keep-build/symbols.txt": "af7c833970c29c3d0508e872291b36ffcd2d3e87040caf7947dbee63272de965",
+      "target/tt-keep-clippy.log": "e215b0b8d07fdc3dc5f044a23dd1e1c9585b2bfcb2d6a8af20214314afcb60a0",
+      "target/tt-keep-collect.py": "ef0aa1429277165859891519c216e8d7689bc8417c1139dc56dc1b2578c90fae",
+      "target/tt-keep-common.py": "4b21b71c9eab8418f39a9d48de3c78235072d7098e94ca8c17b88302ced0f02c",
+      "target/tt-keep-control-analysis.log": "ebdba1ad9646388374ea008ffd84a229b525c2dfbe9e32d77eac99054667369a",
+      "target/tt-keep-control-pv.log": "a7d913452f56027dfcfbac95bab015dfd46ad45b487ddbecfb616a9930d326f0",
+      "target/tt-keep-control.log": "4aeacc74b58053dae95470f97c2de3165802e032ee82d72b9f9c18e2a9e66986",
+      "target/tt-keep-control/engine-A": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "target/tt-keep-control/engine-B": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "target/tt-keep-control/manifest.json": "33e73d370401cef5aad053023f9e488630321ed6a5cc2b1492650766af1c8b4a",
+      "target/tt-keep-control/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "target/tt-keep-control/pv-validation.json": "edd8b97099d5ff059cc3e5fb285ab07c9ccfe31ec91dbbf1ebcf277118c67eec",
+      "target/tt-keep-control/pv-validation.legal-moves": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "target/tt-keep-control/rows.jsonl": "70c0db8eb61427426f76e24c20028836c1cad89902ccdbe2ccd9d95fb5853671",
+      "target/tt-keep-control/summary.json": "cdee463d3757603f1d23a0cc3f48313a3247d18b0decabae01f479ed95988dec",
+      "target/tt-keep-defaults.json": "93b98ac8d110bdfecc32fde2bd4d9e5e684eaec327829742b2e13ecf8cd21f9c",
+      "target/tt-keep-driver-tests-boundary-v2.log": "133dfaabc815af7b648a9005385a176d218920c464403b7e882dd813762efb71",
+      "target/tt-keep-driver-tests-final.log": "b046982b725e23fa19cde6fab38193e2a10b6daf021565bce6d57f9ce69981cb",
+      "target/tt-keep-driver-tests.log": "3c4546d50591d7d5a1cbab25e6594ac67d09d6805af2912fa404d95a69217349",
+      "target/tt-keep-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/tt-keep-full-core.log": "2a272f6bf53d18479d8fa4f4414b2d2568a2b4eb2bee314968c0dc8a4f466da7",
+      "target/tt-keep-presearch-binding.json": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+      "target/tt-keep-prospective-protocol.md": "2e7d73541b340cd7df2c27efc077b06705f144b9dbab6b82af62c41e06e5498b",
+      "target/tt-keep-python-tests-invocation-error.log": "45c39c73615c088699df138c413780dad6076b9f3336fe1db07d424632119ff8",
+      "target/tt-keep-python-tests.log": "90d31265dd34fa8d568d8b0182399516724d69cb912e24c54906212b3334930d",
+      "target/tt-keep-run.py": "0301aec0557b0520e5416bf6f2fcceaa208548a2aeed25bfcbefacafca1909d6",
+      "target/tt-keep-runner.log": "5870d8733b9d65b6a829b263e8b8bd56739a68c45e9f759a4f6e4a7eb3044e7f",
+      "target/tt-keep-tests.py": "04e8a33ccf62623d293ff4ba0a9138502b37eabf3d2e34abef37f2f48e9e6d23",
+      "target/tt-keep-usi.txt": "d9b05fe7340d8a16b010c1896c14536cf5a93060322385f12d22e51f42ef14f8",
+      "target/tt-native-amendment-analyze.py": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+      "target/tt-native-amendment-collect.py": "19dbd4c636865d9cb9b8177994a1ca9fdcf449be1d6b4f5c62344ff02c420513",
+      "target/tt-native-amendment-common.py": "3d19bcc61183b8d794a22547b86bcad27084d7eb9a28c3eb66febe7941ebc93e",
+      "target/tt-native-amendment-control-census-validation.json": "92a73aed52fb562e2e9cea75c8e231c13e17d79a384c90bdf49df10592ff4d8d",
+      "target/tt-native-amendment-prospective-amendment.md": "b13fcf6a8a197d66657ef6cd4406fa56ac41a0fa9ebfdf4cf3caca728f31d32b",
+      "target/tt-native-amendment-run.py": "848ea150dbd6e1cf9caba6c806e26d81f88de6c59d9a6a62d38f75c8d83bc0ed",
+      "target/tt-native-amendment-tests-v2.log": "b7f09be5a989239e987302e8e590952ac79e9f9efb80d079e8072a7355b5ace9",
+      "target/tt-native-amendment-tests.log": "3bfa454846b834a5a7c537ffb9b8c0a2e19351d7bccf1a5d79389e0e2ea4fad9",
+      "target/tt-native-amendment-tests.py": "e6e60b9b2bbe06bf87aa42dae8b0beb60b31878ae9a08de17096e334f963c8e1"
+    }
+  },
+  "native_build": {
+    "schema": "sekirei.tt-keep-native-build.v1",
+    "base_commit": "a855d6f1e98ed20e8afb90fbf6a8be8d01365800",
+    "source_commit": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+    "source_ref_verified": true,
+    "source_dirty_before": "",
+    "features": [
+      "tune"
+    ],
+    "pgo": false,
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "cargo_config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+    "cargo_config_sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+    "build_environment": {},
+    "build_controls": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_TARGET_DIR": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target"
+    },
+    "build_command": [
+      "cargo",
+      "build",
+      "--release",
+      "--offline",
+      "-p",
+      "sekirei",
+      "--features",
+      "tune"
+    ],
+    "protocol_path": "docs/experiments/tt_keep_depth_v0.4.2/README.md",
+    "protocol_sha256": "2e7d73541b340cd7df2c27efc077b06705f144b9dbab6b82af62c41e06e5498b",
+    "driver_sha256": "fb4d721469277098a3b839607e1e66f6d7e84acdeedc9e41ffbdb8fb2120ac59",
+    "disk_free_before_bytes": 2546819072,
+    "target_usage_before": {
+      "available": true,
+      "unexpected_users": [],
+      "scope": "Filtered unexpected target users only; no global process arguments retained."
+    },
+    "serialized_build_contract": "Root serializes all team use of this target through both builds, executable copies and audits.",
+    "started_at": "2026-10-16T04:20:16.143949+00:00",
+    "exit_code": 0,
+    "source_commit_after": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+    "source_dirty_after": "",
+    "target_usage_after": {
+      "available": true,
+      "unexpected_users": [],
+      "scope": "Filtered unexpected target users only; no global process arguments retained."
+    },
+    "target_attribution_confirmed": true,
+    "build_log_sha256": "cbb0f154423f2af984a611168532857fc962e6ea09d5fe4cf26248fc42279901",
+    "completed_at": "2026-10-16T04:21:17.944881+00:00",
+    "status": "complete",
+    "engine_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine",
+    "engine_sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+    "native_symbols_sha256": "af7c833970c29c3d0508e872291b36ffcd2d3e87040caf7947dbee63272de965",
+    "native_observer_symbol_pattern": "tt_keep_depth_test_observer|TT_KEEP_TEST",
+    "native_observer_symbols_absent": true,
+    "legal_build_command": [
+      "cargo",
+      "build",
+      "--release",
+      "--offline",
+      "-p",
+      "sekirei-core",
+      "--features",
+      "tune",
+      "--bin",
+      "sekirei-legal-moves"
+    ],
+    "legal_build_exit_code": 0,
+    "legal_build_log_sha256": "70aea59063f3a4f550e2ac41456209bed76ce2d822b6b087741ebe071d71edcf",
+    "legal_source_sha256": "f3cdba292ce58bb932ca8ae30f90241435c7433cea86dbf88ea70369f1e56ba8",
+    "legal_tool_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/legal-moves",
+    "legal_tool_sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+    "target_usage_after_legal": {
+      "available": true,
+      "unexpected_users": [],
+      "scope": "Filtered unexpected target users only; no global process arguments retained."
+    }
+  },
+  "presearch_binding": {
+    "source": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+    "base": "a855d6f1e98ed20e8afb90fbf6a8be8d01365800",
+    "frozen_before_first_search": "2026-10-16T04:25:02.117156+00:00",
+    "inputs_sha256": {
+      "crates/sekirei-core/src/bin/legal_moves.rs": "f3cdba292ce58bb932ca8ae30f90241435c7433cea86dbf88ea70369f1e56ba8",
+      "crates/sekirei-core/src/search/params.rs": "52b1ae630e47ef156225c1f818c88436dd48efb33a0629617daea1049c7d2054",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "scripts/nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "scripts/paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "scripts/test_nps_threads.py": "68c03ab5f80e8b3e3400dab78463fa146e663c338657bf0156cd2c709d5a6876",
+      "scripts/test_paired_search_diagnostics.py": "be689d0a7cd0468238c710bbd688c49aa53db1f6719f26310a3c3a4364f86377",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/tt-keep-activity-tests.log": "af2456688511eebf04bee7b6d9fe561fe67644c253ebcb32f1e8bfce14e8345f",
+      "target/tt-keep-analyze.py": "14ca057de017fd99b02fed8cb7ee4b6208b0d1645f4f692ddbe1dd6c4aa6cda3",
+      "target/tt-keep-archive-tests.log": "60557ad056049f5ba7e8ff2fe3597111e4acc9809e6b20527a06debd2b654438",
+      "target/tt-keep-archive-tests.py": "e5cea70dac8a2d7aedda47194c91a8ac8df7b2ae13be4bedefb6d4d3f9eda167",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "target/tt-keep-build.py": "fb4d721469277098a3b839607e1e66f6d7e84acdeedc9e41ffbdb8fb2120ac59",
+      "target/tt-keep-build/build.log": "cbb0f154423f2af984a611168532857fc962e6ea09d5fe4cf26248fc42279901",
+      "target/tt-keep-build/engine": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "target/tt-keep-build/legal-build.log": "70aea59063f3a4f550e2ac41456209bed76ce2d822b6b087741ebe071d71edcf",
+      "target/tt-keep-build/legal-moves": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+      "target/tt-keep-build/symbols.txt": "af7c833970c29c3d0508e872291b36ffcd2d3e87040caf7947dbee63272de965",
+      "target/tt-keep-clippy.log": "e215b0b8d07fdc3dc5f044a23dd1e1c9585b2bfcb2d6a8af20214314afcb60a0",
+      "target/tt-keep-collect.py": "ef0aa1429277165859891519c216e8d7689bc8417c1139dc56dc1b2578c90fae",
+      "target/tt-keep-common.py": "4b21b71c9eab8418f39a9d48de3c78235072d7098e94ca8c17b88302ced0f02c",
+      "target/tt-keep-defaults.json": "93b98ac8d110bdfecc32fde2bd4d9e5e684eaec327829742b2e13ecf8cd21f9c",
+      "target/tt-keep-driver-tests-boundary-v2.log": "133dfaabc815af7b648a9005385a176d218920c464403b7e882dd813762efb71",
+      "target/tt-keep-driver-tests-final.log": "b046982b725e23fa19cde6fab38193e2a10b6daf021565bce6d57f9ce69981cb",
+      "target/tt-keep-driver-tests.log": "3c4546d50591d7d5a1cbab25e6594ac67d09d6805af2912fa404d95a69217349",
+      "target/tt-keep-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/tt-keep-full-core.log": "2a272f6bf53d18479d8fa4f4414b2d2568a2b4eb2bee314968c0dc8a4f466da7",
+      "target/tt-keep-prospective-protocol.md": "2e7d73541b340cd7df2c27efc077b06705f144b9dbab6b82af62c41e06e5498b",
+      "target/tt-keep-python-tests-invocation-error.log": "45c39c73615c088699df138c413780dad6076b9f3336fe1db07d424632119ff8",
+      "target/tt-keep-python-tests.log": "90d31265dd34fa8d568d8b0182399516724d69cb912e24c54906212b3334930d",
+      "target/tt-keep-run.py": "0301aec0557b0520e5416bf6f2fcceaa208548a2aeed25bfcbefacafca1909d6",
+      "target/tt-keep-tests.py": "04e8a33ccf62623d293ff4ba0a9138502b37eabf3d2e34abef37f2f48e9e6d23",
+      "target/tt-keep-usi.txt": "d9b05fe7340d8a16b010c1896c14536cf5a93060322385f12d22e51f42ef14f8"
+    }
+  },
+  "fixed_lanes": {
+    "control": {
+      "manifest": {
+        "schema": "sekirei.paired-search-manifest.v1",
+        "status": "complete",
+        "started_at_utc": "2026-10-16T04:25:02.199852+00:00",
+        "engines": {
+          "A": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-control/engine-A",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          },
+          "B": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-control/engine-B",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          }
+        },
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "source_ref_verified": false,
+        "measurement_source_sha256": {
+          "paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+          "nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c"
+        },
+        "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+        "effective_position_count": 20,
+        "threads": [
+          1,
+          2,
+          4,
+          8
+        ],
+        "repeats": 1,
+        "budget": {
+          "depth": 8,
+          "movetime_ms": null
+        },
+        "evaluator": {
+          "kind": "material-only"
+        },
+        "hash_mb": 64,
+        "common_options": [
+          "LazyFlags=15",
+          "MoveOverhead=0",
+          "T_SEARCH_V2=1",
+          "T_TT_BUCKET=3",
+          "T_ASP_VOLATILITY=0",
+          "T_COOP_PERSISTENT=0",
+          "T_COOP_MULTI=0",
+          "T_COOP_PRESTART=0",
+          "T_COOP_PRESTART_CAP=0",
+          "T_COOP_PRESTART_DIAG=0",
+          "T_COOP_DRAIN=0",
+          "T_COOP_LATENCY=0",
+          "T_COOP_PRIORITY=0",
+          "T_COOP_HELPER_LMR=0",
+          "T_ROOT_ORDER=0",
+          "T_ROOT_LMR=0",
+          "T_V2_LMP_NODES=0",
+          "T_V2_CHK=0",
+          "T_V2_NMP=0",
+          "T_V2_NMP_PRIOR=0",
+          "T_V2_SHAPE=0",
+          "T_V2_SORT=0",
+          "T_V2_QUIET_LMP_SKIP=0",
+          "T_V2_EAGER_LOSING_SORT=0",
+          "T_V2_QUIET_TT_STAGE=0",
+          "T_V2_SEE_BOUND_CACHE=0",
+          "T_V2_HINDSIGHT=0",
+          "T_V2_DIAG=0",
+          "T_V2_PVQ=0",
+          "T_V2_CONT_SPLIT=0",
+          "T_V2_CONT_ROWS=0",
+          "T_V2_LAZY_QUIET_HKP=0",
+          "T_V2_CORR_CONT_W=0",
+          "T_V2_QS=0",
+          "T_NNUE_REFRESH_TILE=0",
+          "T_V2_FH_BLEND=0"
+        ],
+        "A_options": [
+          "T_TT_KEEP_DEPTH=2"
+        ],
+        "B_options": [
+          "T_TT_KEEP_DEPTH=2"
+        ],
+        "changed_options": {},
+        "counter_lane": false,
+        "cooperative_latency_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_cap_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_priority_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_helper_lmr_requested": {
+          "A": false,
+          "B": false
+        },
+        "identity_policy": "require_1T_fixed_depth",
+        "host": {
+          "system": "Darwin",
+          "release": "27.0.0",
+          "machine": "arm64",
+          "cpu_count": 10
+        },
+        "schedule": "per-position ABBA; fresh process every slot",
+        "strength_gate_opened": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 84101,
+              "cpu_percent": 100.0,
+              "command": "/Users/k_tanabe/.rustup/toolchains/stable-aarch64-apple-darwin/bin/rustc"
+            }
+          ],
+          "load_average": [
+            2.28173828125,
+            2.49169921875,
+            2.7255859375
+          ]
+        },
+        "timing_qualified": false,
+        "configuration_sha256": "bccaf8e66c0781fac630e36556cf02d45aa24a2c5d274628a0c2731ae1c3cbe5",
+        "host_activity_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.767578125,
+            2.5888671875,
+            2.75439453125
+          ]
+        }
+      },
+      "development_screen": {
+        "schema": "sekirei.tt-keep-development-screen.v1",
+        "mode": "control",
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "rows": 320,
+        "all_positions_retained": true,
+        "legal_pv_replay_pass": true,
+        "legal_pv_moves": 1985,
+        "timing_qualified": false,
+        "by_threads": {
+          "1": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 20,
+            "within_side_nondeterministic_blocks": 0,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 1341,
+                "maximum": 35349,
+                "median": 5469.5,
+                "mean": 8875.8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 1341,
+                "maximum": 35349,
+                "median": 5469.5,
+                "mean": 8875.8
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            }
+          },
+          "2": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 2052,
+                "maximum": 60589,
+                "median": 8383.5,
+                "mean": 14357.5
+              },
+              "B": {
+                "count": 40,
+                "minimum": 1703,
+                "maximum": 63751,
+                "median": 9894.0,
+                "mean": 16528.25
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            }
+          },
+          "4": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 3791,
+                "maximum": 80612,
+                "median": 12826.5,
+                "mean": 22534.875
+              },
+              "B": {
+                "count": 40,
+                "minimum": 3199,
+                "maximum": 61501,
+                "median": 13909.0,
+                "mean": 20002.9
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            }
+          },
+          "8": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 1688,
+                "maximum": 151293,
+                "median": 24341.0,
+                "mean": 39654.425
+              },
+              "B": {
+                "count": 40,
+                "minimum": 3475,
+                "maximum": 97737,
+                "median": 23367.0,
+                "mean": 32620.35
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            }
+          }
+        },
+        "bootstrap_draws": 5000,
+        "bootstrap_seed": 20261016,
+        "independent_thread_screens": {},
+        "development_screen_advance": false,
+        "default_keep_depth": 2,
+        "independent_h1": false,
+        "strength_claim": false,
+        "default_adopted": false,
+        "interpretation": "Instrumented aggregate foreign TT reuse is descriptive, not gap2 eligibility or causal evidence. equal_depth counter does not cover bucket3 same-position writes and is not used to infer absence. Node/depth failures are not Elo H0 or proof of ineffectiveness; independent aspiration/H1 unchanged. All rows retained.",
+        "inputs_sha256": {
+          "target/tt-keep-presearch-binding.json": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+          "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-analyze.py": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+          "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+          "target/tt-keep-control/manifest.json": "33e73d370401cef5aad053023f9e488630321ed6a5cc2b1492650766af1c8b4a",
+          "target/tt-keep-control/rows.jsonl": "70c0db8eb61427426f76e24c20028836c1cad89902ccdbe2ccd9d95fb5853671",
+          "target/tt-keep-control/summary.json": "cdee463d3757603f1d23a0cc3f48313a3247d18b0decabae01f479ed95988dec",
+          "target/tt-keep-control/pv-validation.json": "edd8b97099d5ff059cc3e5fb285ab07c9ccfe31ec91dbbf1ebcf277118c67eec",
+          "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716"
+        }
+      },
+      "pv_validation": {
+        "schema": "sekirei.paired-pv-validation.v1",
+        "rows": 320,
+        "pv_moves": 1985,
+        "unique_board_probes": 621,
+        "violations": [],
+        "legal_tool_sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+        "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-control/pv-validation.legal-moves",
+        "runs": [
+          {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-control",
+            "engine_sha256": {
+              "A": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+              "B": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313"
+            },
+            "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+          }
+        ],
+        "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+      }
+    },
+    "mechanism": {
+      "manifest": {
+        "schema": "sekirei.paired-search-manifest.v1",
+        "status": "complete",
+        "started_at_utc": "2026-10-16T04:36:03.148348+00:00",
+        "engines": {
+          "A": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-mechanism/engine-A",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          },
+          "B": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-mechanism/engine-B",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          }
+        },
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "source_ref_verified": false,
+        "measurement_source_sha256": {
+          "paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+          "nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c"
+        },
+        "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+        "effective_position_count": 20,
+        "threads": [
+          1,
+          2,
+          4,
+          8
+        ],
+        "repeats": 1,
+        "budget": {
+          "depth": 8,
+          "movetime_ms": null
+        },
+        "evaluator": {
+          "kind": "material-only"
+        },
+        "hash_mb": 64,
+        "common_options": [
+          "LazyFlags=15",
+          "MoveOverhead=0",
+          "T_SEARCH_V2=1",
+          "T_TT_BUCKET=3",
+          "T_ASP_VOLATILITY=0",
+          "T_COOP_PERSISTENT=0",
+          "T_COOP_MULTI=0",
+          "T_COOP_PRESTART=0",
+          "T_COOP_PRESTART_CAP=0",
+          "T_COOP_PRESTART_DIAG=0",
+          "T_COOP_DRAIN=0",
+          "T_COOP_LATENCY=0",
+          "T_COOP_PRIORITY=0",
+          "T_COOP_HELPER_LMR=0",
+          "T_ROOT_ORDER=0",
+          "T_ROOT_LMR=0",
+          "T_V2_LMP_NODES=0",
+          "T_V2_CHK=0",
+          "T_V2_NMP=0",
+          "T_V2_NMP_PRIOR=0",
+          "T_V2_SHAPE=0",
+          "T_V2_SORT=0",
+          "T_V2_QUIET_LMP_SKIP=0",
+          "T_V2_EAGER_LOSING_SORT=0",
+          "T_V2_QUIET_TT_STAGE=0",
+          "T_V2_SEE_BOUND_CACHE=0",
+          "T_V2_HINDSIGHT=0",
+          "T_V2_DIAG=0",
+          "T_V2_PVQ=0",
+          "T_V2_CONT_SPLIT=0",
+          "T_V2_CONT_ROWS=0",
+          "T_V2_LAZY_QUIET_HKP=0",
+          "T_V2_CORR_CONT_W=0",
+          "T_V2_QS=0",
+          "T_NNUE_REFRESH_TILE=0",
+          "T_V2_FH_BLEND=0"
+        ],
+        "A_options": [
+          "T_TT_KEEP_DEPTH=2"
+        ],
+        "B_options": [
+          "T_TT_KEEP_DEPTH=1"
+        ],
+        "changed_options": {
+          "T_TT_KEEP_DEPTH": [
+            "2",
+            "1"
+          ]
+        },
+        "counter_lane": true,
+        "cooperative_latency_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_cap_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_priority_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_helper_lmr_requested": {
+          "A": false,
+          "B": false
+        },
+        "identity_policy": "observe_only_policy_change",
+        "host": {
+          "system": "Darwin",
+          "release": "27.0.0",
+          "machine": "arm64",
+          "cpu_count": 10
+        },
+        "schedule": "per-position ABBA; fresh process every slot",
+        "strength_gate_opened": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            1.96044921875,
+            2.71875,
+            2.83447265625
+          ]
+        },
+        "timing_qualified": false,
+        "configuration_sha256": "d895dd390b5dc2729f922a065834ad307c398750b343ad89f15be6d1ea7e223d",
+        "host_activity_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.05029296875,
+            2.68798828125,
+            2.8203125
+          ]
+        }
+      },
+      "development_screen": {
+        "schema": "sekirei.tt-keep-development-screen.v1",
+        "mode": "mechanism",
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "rows": 320,
+        "all_positions_retained": true,
+        "legal_pv_replay_pass": true,
+        "legal_pv_moves": 2040,
+        "timing_qualified": false,
+        "by_threads": {
+          "1": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 0,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 1341,
+                "maximum": 35349,
+                "median": 5469.5,
+                "mean": 8875.8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 1299,
+                "maximum": 23760,
+                "median": 7076.5,
+                "mean": 8194.35
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            },
+            "worker0_tt_reuse_totals": {
+              "A": {
+                "tt_local_hits": 492,
+                "tt_foreign_hits": 0,
+                "tt_unknown_hits": 0
+              },
+              "B": {
+                "tt_local_hits": 464,
+                "tt_foreign_hits": 0,
+                "tt_unknown_hits": 0
+              }
+            },
+            "worker0_foreign_known_hit_ratio": {
+              "A": 0.0,
+              "B": 0.0
+            },
+            "tt_write_totals": {
+              "A": {
+                "probes": 182802,
+                "hits": 80374,
+                "attempted": 124814,
+                "committed": 123014,
+                "same_hash": 55314,
+                "equal_depth": 0,
+                "shallower_rejected": 1800,
+                "collision_overwrites": 0
+              },
+              "B": {
+                "probes": 173702,
+                "hits": 73280,
+                "attempted": 122344,
+                "committed": 118274,
+                "same_hash": 51390,
+                "equal_depth": 0,
+                "shallower_rejected": 4070,
+                "collision_overwrites": 0
+              }
+            }
+          },
+          "2": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 2123,
+                "maximum": 91428,
+                "median": 8321.5,
+                "mean": 14655.55
+              },
+              "B": {
+                "count": 40,
+                "minimum": 2101,
+                "maximum": 51619,
+                "median": 11704.5,
+                "mean": 14897
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            },
+            "worker0_tt_reuse_totals": {
+              "A": {
+                "tt_local_hits": 280,
+                "tt_foreign_hits": 184,
+                "tt_unknown_hits": 0
+              },
+              "B": {
+                "tt_local_hits": 248,
+                "tt_foreign_hits": 186,
+                "tt_unknown_hits": 0
+              }
+            },
+            "worker0_foreign_known_hit_ratio": {
+              "A": 0.39655172413793105,
+              "B": 0.42857142857142855
+            },
+            "tt_write_totals": {
+              "A": {
+                "probes": 312333,
+                "hits": 149131,
+                "attempted": 206865,
+                "committed": 201657,
+                "same_hash": 110957,
+                "equal_depth": 0,
+                "shallower_rejected": 5208,
+                "collision_overwrites": 113
+              },
+              "B": {
+                "probes": 308404,
+                "hits": 148821,
+                "attempted": 205140,
+                "committed": 195378,
+                "same_hash": 114737,
+                "equal_depth": 0,
+                "shallower_rejected": 9762,
+                "collision_overwrites": 166
+              }
+            }
+          },
+          "4": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 3947,
+                "maximum": 143207,
+                "median": 17544.5,
+                "mean": 28642.925
+              },
+              "B": {
+                "count": 40,
+                "minimum": 3806,
+                "maximum": 148014,
+                "median": 18308.0,
+                "mean": 32734.5
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            },
+            "worker0_tt_reuse_totals": {
+              "A": {
+                "tt_local_hits": 182,
+                "tt_foreign_hits": 310,
+                "tt_unknown_hits": 0
+              },
+              "B": {
+                "tt_local_hits": 175,
+                "tt_foreign_hits": 305,
+                "tt_unknown_hits": 0
+              }
+            },
+            "worker0_foreign_known_hit_ratio": {
+              "A": 0.6300813008130082,
+              "B": 0.6354166666666666
+            },
+            "tt_write_totals": {
+              "A": {
+                "probes": 619379,
+                "hits": 318120,
+                "attempted": 394121,
+                "committed": 382407,
+                "same_hash": 248170,
+                "equal_depth": 0,
+                "shallower_rejected": 11714,
+                "collision_overwrites": 607
+              },
+              "B": {
+                "probes": 634259,
+                "hits": 325605,
+                "attempted": 411605,
+                "committed": 386442,
+                "same_hash": 255613,
+                "equal_depth": 0,
+                "shallower_rejected": 25163,
+                "collision_overwrites": 650
+              }
+            }
+          },
+          "8": {
+            "positions": 20,
+            "blocks": 20,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 20,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "quiet": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ],
+              "B_first": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.0,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0,
+              0.0
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 4157,
+                "maximum": 137471,
+                "median": 25334.5,
+                "mean": 37719.15
+              },
+              "B": {
+                "count": 40,
+                "minimum": 3629,
+                "maximum": 131706,
+                "median": 25580.0,
+                "mean": 38801.05
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              },
+              "B": {
+                "count": 40,
+                "minimum": 8,
+                "maximum": 8,
+                "median": 8.0,
+                "mean": 8
+              }
+            },
+            "worker0_tt_reuse_totals": {
+              "A": {
+                "tt_local_hits": 163,
+                "tt_foreign_hits": 341,
+                "tt_unknown_hits": 0
+              },
+              "B": {
+                "tt_local_hits": 147,
+                "tt_foreign_hits": 371,
+                "tt_unknown_hits": 0
+              }
+            },
+            "worker0_foreign_known_hit_ratio": {
+              "A": 0.6765873015873016,
+              "B": 0.7162162162162162
+            },
+            "tt_write_totals": {
+              "A": {
+                "probes": 879853,
+                "hits": 512400,
+                "attempted": 539507,
+                "committed": 509591,
+                "same_hash": 305207,
+                "equal_depth": 0,
+                "shallower_rejected": 29916,
+                "collision_overwrites": 93
+              },
+              "B": {
+                "probes": 912187,
+                "hits": 545427,
+                "attempted": 551044,
+                "committed": 490514,
+                "same_hash": 326246,
+                "equal_depth": 0,
+                "shallower_rejected": 60530,
+                "collision_overwrites": 185
+              }
+            }
+          }
+        },
+        "bootstrap_draws": 5000,
+        "bootstrap_seed": 20261016,
+        "independent_thread_screens": {},
+        "development_screen_advance": false,
+        "default_keep_depth": 2,
+        "independent_h1": false,
+        "strength_claim": false,
+        "default_adopted": false,
+        "interpretation": "Instrumented aggregate foreign TT reuse is descriptive, not gap2 eligibility or causal evidence. equal_depth counter does not cover bucket3 same-position writes and is not used to infer absence. Node/depth failures are not Elo H0 or proof of ineffectiveness; independent aspiration/H1 unchanged. All rows retained.",
+        "inputs_sha256": {
+          "target/tt-keep-presearch-binding.json": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+          "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-analyze.py": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+          "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+          "target/tt-keep-mechanism/manifest.json": "6d045a7138217fb3b29f995564fe70cd571c8c3eb5e64dfe0630279d6e4d9727",
+          "target/tt-keep-mechanism/rows.jsonl": "999c48e56c343eadba34f0776f796779af49587ed50759a5e8fbef0f60f38291",
+          "target/tt-keep-mechanism/summary.json": "f61f3dbfe11951699909cfd2938c07b7111afd233022be844bf78cb77f17c595",
+          "target/tt-keep-mechanism/pv-validation.json": "0b661474f8f2c786a287a8ea31df731418f981baa3a632def45a755736d5ea6e",
+          "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+          "target/tt-native-amendment-control-development-screen.json": "d19d3b31e7c5d533cf6a64a33a476a62c4c91900fc02b07e314a626e936b0c7b"
+        }
+      },
+      "pv_validation": {
+        "schema": "sekirei.paired-pv-validation.v1",
+        "rows": 320,
+        "pv_moves": 2040,
+        "unique_board_probes": 653,
+        "violations": [],
+        "legal_tool_sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+        "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-mechanism/pv-validation.legal-moves",
+        "runs": [
+          {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-mechanism",
+            "engine_sha256": {
+              "A": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+              "B": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313"
+            },
+            "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+          }
+        ],
+        "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+      }
+    },
+    "nodes": {
+      "manifest": {
+        "schema": "sekirei.paired-search-manifest.v1",
+        "status": "complete",
+        "started_at_utc": "2026-10-16T04:36:22.280608+00:00",
+        "engines": {
+          "A": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-nodes/engine-A",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          },
+          "B": {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-nodes/engine-B",
+            "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "source_path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-build/engine"
+          }
+        },
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "source_ref_verified": false,
+        "measurement_source_sha256": {
+          "paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+          "nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c"
+        },
+        "positions_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "effective_positions_sha256": "9861253ca2d05ececf1be3d2ab52073b2d7c2b195e0bc3488f7811a3c5fe5ff5",
+        "effective_position_count": 20,
+        "threads": [
+          1,
+          2,
+          4,
+          8
+        ],
+        "repeats": 2,
+        "budget": {
+          "depth": null,
+          "movetime_ms": null,
+          "node_limit": 20000
+        },
+        "evaluator": {
+          "kind": "material-only"
+        },
+        "hash_mb": 64,
+        "common_options": [
+          "LazyFlags=15",
+          "MoveOverhead=0",
+          "T_SEARCH_V2=1",
+          "T_TT_BUCKET=3",
+          "T_ASP_VOLATILITY=0",
+          "T_COOP_PERSISTENT=0",
+          "T_COOP_MULTI=0",
+          "T_COOP_PRESTART=0",
+          "T_COOP_PRESTART_CAP=0",
+          "T_COOP_PRESTART_DIAG=0",
+          "T_COOP_DRAIN=0",
+          "T_COOP_LATENCY=0",
+          "T_COOP_PRIORITY=0",
+          "T_COOP_HELPER_LMR=0",
+          "T_ROOT_ORDER=0",
+          "T_ROOT_LMR=0",
+          "T_V2_LMP_NODES=0",
+          "T_V2_CHK=0",
+          "T_V2_NMP=0",
+          "T_V2_NMP_PRIOR=0",
+          "T_V2_SHAPE=0",
+          "T_V2_SORT=0",
+          "T_V2_QUIET_LMP_SKIP=0",
+          "T_V2_EAGER_LOSING_SORT=0",
+          "T_V2_QUIET_TT_STAGE=0",
+          "T_V2_SEE_BOUND_CACHE=0",
+          "T_V2_HINDSIGHT=0",
+          "T_V2_DIAG=0",
+          "T_V2_PVQ=0",
+          "T_V2_CONT_SPLIT=0",
+          "T_V2_CONT_ROWS=0",
+          "T_V2_LAZY_QUIET_HKP=0",
+          "T_V2_CORR_CONT_W=0",
+          "T_V2_QS=0",
+          "T_NNUE_REFRESH_TILE=0",
+          "T_V2_FH_BLEND=0"
+        ],
+        "A_options": [
+          "T_TT_KEEP_DEPTH=2"
+        ],
+        "B_options": [
+          "T_TT_KEEP_DEPTH=1"
+        ],
+        "changed_options": {
+          "T_TT_KEEP_DEPTH": [
+            "2",
+            "1"
+          ]
+        },
+        "counter_lane": false,
+        "cooperative_latency_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_instrumentation_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_prestart_cap_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_priority_requested": {
+          "A": false,
+          "B": false
+        },
+        "cooperative_helper_lmr_requested": {
+          "A": false,
+          "B": false
+        },
+        "identity_policy": "observe_only_fixed_node_work",
+        "measurement_phase": "fixed_node_work_diagnostic",
+        "host": {
+          "system": "Darwin",
+          "release": "27.0.0",
+          "machine": "arm64",
+          "cpu_count": 10
+        },
+        "schedule": "per-position ABBA; fresh process every slot",
+        "strength_gate_opened": false,
+        "host_activity_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.05029296875,
+            2.68798828125,
+            2.8203125
+          ]
+        },
+        "timing_qualified": false,
+        "configuration_sha256": "4512afe3ac89073e84e649e71a235c6664446d72988610fcca7cd621fc53ca0d",
+        "host_activity_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.51708984375,
+            2.71337890625,
+            2.822265625
+          ]
+        }
+      },
+      "development_screen": {
+        "schema": "sekirei.tt-keep-development-screen.v1",
+        "mode": "nodes",
+        "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+        "rows": 640,
+        "all_positions_retained": true,
+        "legal_pv_replay_pass": true,
+        "legal_pv_moves": 4627,
+        "timing_qualified": false,
+        "by_threads": {
+          "1": {
+            "positions": 20,
+            "blocks": 40,
+            "exact_identity_blocks": 4,
+            "within_side_nondeterministic_blocks": 0,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0,
+                1.0,
+                1.0,
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0,
+                2.0,
+                2.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0
+              ],
+              "quiet": [
+                1.0,
+                1.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                2.0,
+                2.0,
+                0.0,
+                0.0
+              ],
+              "tactical": [
+                0.0,
+                0.0,
+                1.0,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                -1.0,
+                0.0,
+                0.0,
+                -1.0,
+                -1.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                1,
+                1,
+                0,
+                0,
+                -1,
+                -1,
+                1,
+                1,
+                -1,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                -1,
+                -1
+              ],
+              "B_first": [
+                1,
+                1,
+                0,
+                0,
+                -1,
+                -1,
+                1,
+                1,
+                -1,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                0,
+                -1,
+                -1,
+                2,
+                2,
+                0,
+                0,
+                0,
+                0,
+                -1,
+                -1
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              1.0,
+              0.0,
+              -1.0,
+              1.0,
+              -1.0,
+              0.0,
+              -1.0,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              -1.0,
+              0.0,
+              -1.0,
+              2.0,
+              0.0,
+              0.0,
+              -1.0
+            ],
+            "mean_position_completed_depth_delta": -0.05,
+            "position_bootstrap_depth_delta_95_percent": [
+              -0.4,
+              0.3
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 20000,
+                "maximum": 20001,
+                "median": 20000.0,
+                "mean": 20000.05
+              },
+              "B": {
+                "count": 80,
+                "minimum": 20000,
+                "maximum": 20001,
+                "median": 20000.0,
+                "mean": 20000.05
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 10
+              },
+              "B": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 9.5,
+                "mean": 9.95
+              }
+            },
+            "node_limit_overshoot_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 1,
+                "median": 0.0,
+                "mean": 0.05
+              },
+              "B": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 1,
+                "median": 0.0,
+                "mean": 0.05
+              }
+            },
+            "node_limit_shortfall_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              }
+            },
+            "under_requested_limit_rows": {
+              "A": 0,
+              "B": 0
+            },
+            "zero_completed_depth_rows": {
+              "A": 0,
+              "B": 0
+            }
+          },
+          "2": {
+            "positions": 20,
+            "blocks": 40,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 40,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.25,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                0.0,
+                1.5,
+                0.0,
+                1.0,
+                0.0,
+                0.5,
+                -0.5,
+                0.0,
+                -0.5,
+                -0.5,
+                0.5,
+                -0.5,
+                0.0,
+                0.5,
+                0.5,
+                1.5,
+                0.5,
+                0.5,
+                0.0,
+                0.0,
+                1.0,
+                -1.5,
+                -0.5,
+                -1.0,
+                0.0,
+                0.5,
+                1.0,
+                0.5,
+                -0.5,
+                1.0,
+                0.0,
+                1.0,
+                0.0,
+                1.0,
+                0.0,
+                0.5,
+                1.0,
+                -1.0,
+                -0.5,
+                0.5
+              ],
+              "quiet": [
+                0.0,
+                1.5,
+                0.0,
+                0.5,
+                -0.5,
+                -0.5,
+                0.0,
+                0.5,
+                0.5,
+                0.5,
+                1.0,
+                -1.5,
+                0.0,
+                0.5,
+                -0.5,
+                1.0,
+                0.0,
+                1.0,
+                1.0,
+                -1.0
+              ],
+              "tactical": [
+                0.0,
+                1.0,
+                -0.5,
+                0.0,
+                0.5,
+                -0.5,
+                0.5,
+                1.5,
+                0.0,
+                0.0,
+                -0.5,
+                -1.0,
+                1.0,
+                0.5,
+                0.0,
+                1.0,
+                0.0,
+                0.5,
+                -0.5,
+                0.5
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                -1,
+                2,
+                0,
+                1,
+                0,
+                2,
+                0,
+                -1,
+                -1,
+                -1,
+                1,
+                0,
+                -1,
+                1,
+                1,
+                2,
+                0,
+                0,
+                0,
+                0,
+                0,
+                -2,
+                -1,
+                0,
+                0,
+                0,
+                1,
+                1,
+                -1,
+                1,
+                0,
+                2,
+                1,
+                2,
+                0,
+                1,
+                1,
+                -1,
+                0,
+                1
+              ],
+              "B_first": [
+                1,
+                1,
+                0,
+                1,
+                0,
+                -1,
+                -1,
+                1,
+                0,
+                0,
+                0,
+                -1,
+                1,
+                0,
+                0,
+                1,
+                1,
+                1,
+                0,
+                0,
+                2,
+                -1,
+                0,
+                -2,
+                0,
+                1,
+                1,
+                0,
+                0,
+                1,
+                0,
+                0,
+                -1,
+                0,
+                0,
+                0,
+                1,
+                -1,
+                -1,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              0.75,
+              0.5,
+              0.25,
+              -0.25,
+              -0.5,
+              0.0,
+              0.25,
+              1.0,
+              0.5,
+              0.0,
+              -0.25,
+              -0.75,
+              0.25,
+              0.75,
+              0.25,
+              0.5,
+              0.5,
+              0.25,
+              0.0,
+              0.0
+            ],
+            "mean_position_completed_depth_delta": 0.2,
+            "position_bootstrap_depth_delta_95_percent": [
+              0.0125,
+              0.375
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 37223,
+                "maximum": 40001,
+                "median": 40000.0,
+                "mean": 39720.0625
+              },
+              "B": {
+                "count": 80,
+                "minimum": 36309,
+                "maximum": 40002,
+                "median": 40000.0,
+                "mean": 39597.9875
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 9.95
+              },
+              "B": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 10.15
+              }
+            },
+            "node_limit_overshoot_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 17223,
+                "maximum": 20001,
+                "median": 20000.0,
+                "mean": 19720.0625
+              },
+              "B": {
+                "count": 80,
+                "minimum": 16309,
+                "maximum": 20002,
+                "median": 20000.0,
+                "mean": 19597.9875
+              }
+            },
+            "node_limit_shortfall_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              }
+            },
+            "under_requested_limit_rows": {
+              "A": 0,
+              "B": 0
+            },
+            "zero_completed_depth_rows": {
+              "A": 0,
+              "B": 0
+            }
+          },
+          "4": {
+            "positions": 20,
+            "blocks": 40,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 40,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                -1.0,
+                0.0,
+                1.0,
+                -0.5,
+                0.0,
+                0.5,
+                -0.5,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                1.0,
+                0.5,
+                0.0,
+                -0.5,
+                0.5,
+                -1.0,
+                0.0,
+                0.0,
+                -2.0,
+                -0.5,
+                0.0,
+                1.0,
+                0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.0,
+                0.0,
+                -0.5,
+                -1.0,
+                0.0,
+                -0.5
+              ],
+              "quiet": [
+                -1.0,
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.5,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                -0.5,
+                0.0,
+                0.0,
+                0.0,
+                1.0,
+                0.5,
+                0.5,
+                -0.5,
+                -1.0
+              ],
+              "tactical": [
+                1.0,
+                -0.5,
+                -0.5,
+                0.0,
+                0.0,
+                0.0,
+                0.0,
+                0.5,
+                1.0,
+                0.5,
+                0.5,
+                -1.0,
+                -2.0,
+                -0.5,
+                0.5,
+                0.5,
+                0.0,
+                0.0,
+                0.0,
+                -0.5
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                -1,
+                0,
+                1,
+                -1,
+                1,
+                1,
+                0,
+                1,
+                0,
+                -1,
+                0,
+                0,
+                1,
+                -1,
+                1,
+                0,
+                1,
+                -1,
+                2,
+                0,
+                -1,
+                -2,
+                1,
+                -2,
+                0,
+                0,
+                -1,
+                0,
+                0,
+                2,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                -2,
+                0,
+                -1
+              ],
+              "B_first": [
+                -1,
+                0,
+                1,
+                0,
+                -1,
+                0,
+                -1,
+                -1,
+                0,
+                1,
+                0,
+                0,
+                0,
+                1,
+                -1,
+                1,
+                -1,
+                1,
+                0,
+                1,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                -3,
+                -1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                0,
+                -1,
+                0,
+                0,
+                0
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              -0.5,
+              0.25,
+              0.25,
+              -0.25,
+              0.0,
+              0.0,
+              0.25,
+              0.25,
+              0.0,
+              0.75,
+              -0.25,
+              -0.25,
+              0.0,
+              -1.25,
+              0.5,
+              0.5,
+              0.5,
+              0.0,
+              -0.75,
+              -0.25
+            ],
+            "mean_position_completed_depth_delta": -0.0125,
+            "position_bootstrap_depth_delta_95_percent": [
+              -0.225,
+              0.175
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 72604,
+                "maximum": 80002,
+                "median": 79487.5,
+                "mean": 78865.3125
+              },
+              "B": {
+                "count": 80,
+                "minimum": 69657,
+                "maximum": 80002,
+                "median": 79191.5,
+                "mean": 78567.075
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 10.1375
+              },
+              "B": {
+                "count": 80,
+                "minimum": 7,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 10.125
+              }
+            },
+            "node_limit_overshoot_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 52604,
+                "maximum": 60002,
+                "median": 59487.5,
+                "mean": 58865.3125
+              },
+              "B": {
+                "count": 80,
+                "minimum": 49657,
+                "maximum": 60002,
+                "median": 59191.5,
+                "mean": 58567.075
+              }
+            },
+            "node_limit_shortfall_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              }
+            },
+            "under_requested_limit_rows": {
+              "A": 0,
+              "B": 0
+            },
+            "zero_completed_depth_rows": {
+              "A": 0,
+              "B": 0
+            }
+          },
+          "8": {
+            "positions": 20,
+            "blocks": 40,
+            "exact_identity_blocks": 0,
+            "within_side_nondeterministic_blocks": 40,
+            "median_completed_depth_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "paired_completed_depth_deltas": {
+              "all": [
+                -0.5,
+                0.0,
+                0.0,
+                0.5,
+                0.5,
+                0.5,
+                0.0,
+                -0.5,
+                -1.0,
+                0.0,
+                0.5,
+                0.5,
+                0.0,
+                -0.5,
+                0.0,
+                0.0,
+                0.0,
+                -0.5,
+                0.0,
+                -0.5,
+                0.0,
+                0.5,
+                0.5,
+                1.0,
+                0.5,
+                -1.5,
+                0.0,
+                0.0,
+                -1.5,
+                0.5,
+                0.0,
+                -0.5,
+                0.5,
+                -0.5,
+                0.5,
+                0.5,
+                1.0,
+                0.5,
+                0.5,
+                0.0
+              ],
+              "quiet": [
+                -0.5,
+                0.0,
+                0.5,
+                0.5,
+                -1.0,
+                0.0,
+                0.0,
+                -0.5,
+                0.0,
+                -0.5,
+                0.0,
+                0.5,
+                0.5,
+                -1.5,
+                -1.5,
+                0.5,
+                0.5,
+                -0.5,
+                1.0,
+                0.5
+              ],
+              "tactical": [
+                0.0,
+                0.5,
+                0.0,
+                -0.5,
+                0.5,
+                0.5,
+                0.0,
+                0.0,
+                0.0,
+                -0.5,
+                0.5,
+                1.0,
+                0.0,
+                0.0,
+                0.0,
+                -0.5,
+                0.5,
+                0.5,
+                0.5,
+                0.0
+              ]
+            },
+            "directional_median_completed_depth_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "directional_completed_depth_deltas": {
+              "A_first": [
+                0,
+                0,
+                1,
+                0,
+                1,
+                0,
+                -1,
+                -1,
+                -1,
+                -1,
+                1,
+                0,
+                -1,
+                -1,
+                -1,
+                -1,
+                0,
+                -1,
+                0,
+                0,
+                1,
+                1,
+                0,
+                1,
+                0,
+                -2,
+                1,
+                0,
+                -1,
+                1,
+                0,
+                -1,
+                0,
+                -1,
+                0,
+                1,
+                2,
+                1,
+                -1,
+                1
+              ],
+              "B_first": [
+                -1,
+                0,
+                -1,
+                1,
+                0,
+                1,
+                1,
+                0,
+                -1,
+                1,
+                0,
+                1,
+                1,
+                0,
+                1,
+                1,
+                0,
+                0,
+                0,
+                -1,
+                -1,
+                0,
+                1,
+                1,
+                1,
+                -1,
+                -1,
+                0,
+                -2,
+                0,
+                0,
+                0,
+                1,
+                0,
+                1,
+                0,
+                0,
+                0,
+                2,
+                -1
+              ]
+            },
+            "per_position_mean_completed_depth_delta": [
+              -0.25,
+              0.25,
+              0.5,
+              -0.25,
+              -0.5,
+              0.5,
+              -0.25,
+              0.0,
+              -0.25,
+              -0.25,
+              0.25,
+              0.75,
+              -0.5,
+              0.0,
+              -0.5,
+              -0.25,
+              0.0,
+              0.5,
+              0.75,
+              0.25
+            ],
+            "mean_position_completed_depth_delta": 0.0375,
+            "position_bootstrap_depth_delta_95_percent": [
+              -0.125,
+              0.2125
+            ],
+            "actual_node_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 75136,
+                "maximum": 160002,
+                "median": 155486.0,
+                "mean": 143596.3
+              },
+              "B": {
+                "count": 80,
+                "minimum": 104147,
+                "maximum": 160001,
+                "median": 154102.5,
+                "mean": 145168.1625
+              }
+            },
+            "raw_depth_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 8,
+                "maximum": 13,
+                "median": 10.0,
+                "mean": 10.4
+              },
+              "B": {
+                "count": 80,
+                "minimum": 8,
+                "maximum": 12,
+                "median": 10.5,
+                "mean": 10.4375
+              }
+            },
+            "node_limit_overshoot_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 55136,
+                "maximum": 140002,
+                "median": 135486.0,
+                "mean": 123596.3
+              },
+              "B": {
+                "count": 80,
+                "minimum": 84147,
+                "maximum": 140001,
+                "median": 134102.5,
+                "mean": 125168.1625
+              }
+            },
+            "node_limit_shortfall_distribution": {
+              "A": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 0,
+                "maximum": 0,
+                "median": 0.0,
+                "mean": 0
+              }
+            },
+            "under_requested_limit_rows": {
+              "A": 0,
+              "B": 0
+            },
+            "zero_completed_depth_rows": {
+              "A": 0,
+              "B": 0
+            }
+          }
+        },
+        "bootstrap_draws": 5000,
+        "bootstrap_seed": 20261016,
+        "independent_thread_screens": {},
+        "development_screen_advance": false,
+        "default_keep_depth": 2,
+        "independent_h1": false,
+        "strength_claim": false,
+        "default_adopted": false,
+        "interpretation": "Instrumented aggregate foreign TT reuse is descriptive, not gap2 eligibility or causal evidence. equal_depth counter does not cover bucket3 same-position writes and is not used to infer absence. Node/depth failures are not Elo H0 or proof of ineffectiveness; independent aspiration/H1 unchanged. All rows retained.",
+        "inputs_sha256": {
+          "target/tt-keep-presearch-binding.json": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+          "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-analyze.py": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+          "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+          "target/tt-keep-nodes/manifest.json": "82b3ec4d0ec7cb1d32e43b97ded05e47fcd961f5b118f767dc93c9537848ec15",
+          "target/tt-keep-nodes/rows.jsonl": "e29184f17d15101838b092dadec4b0a5f51c548e861c6704afc4798c126d028a",
+          "target/tt-keep-nodes/summary.json": "71ca680e56e11447ed1cc31a53c426a23c61471bde31c37ba1c0a7d6898d7d77",
+          "target/tt-keep-nodes/pv-validation.json": "51c3b85a48f683190171ed0554bfd3f6c155a6218bd4e4610156772a9f95f98e",
+          "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+          "target/tt-native-amendment-control-development-screen.json": "d19d3b31e7c5d533cf6a64a33a476a62c4c91900fc02b07e314a626e936b0c7b",
+          "target/tt-native-amendment-mechanism-development-screen.json": "343825aff49e4ef6eade99aa979eee83d96609c491260a79106ee3ecd150e2bb"
+        }
+      },
+      "pv_validation": {
+        "schema": "sekirei.paired-pv-validation.v1",
+        "rows": 640,
+        "pv_moves": 4627,
+        "unique_board_probes": 1469,
+        "violations": [],
+        "legal_tool_sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+        "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-nodes/pv-validation.legal-moves",
+        "runs": [
+          {
+            "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-nodes",
+            "engine_sha256": {
+              "A": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+              "B": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313"
+            },
+            "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+          }
+        ],
+        "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+      }
+    }
+  },
+  "prequiet": {
+    "schema": "sekirei.tt-keep-prequiet.v1",
+    "started_at_utc": "2026-10-16T04:37:00.754586+00:00",
+    "completed_at_utc": "2026-10-16T04:38:11.182286+00:00",
+    "maximum_wait_seconds": 600,
+    "required_consecutive_idle": 5,
+    "sample_interval_seconds": 10,
+    "samples": [
+      {
+        "elapsed_seconds": 0.021019082982093096,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.51708984375,
+            2.71337890625,
+            2.822265625
+          ]
+        },
+        "consecutive_idle": 1
+      },
+      {
+        "elapsed_seconds": 10.076809416059405,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 82047,
+              "cpu_percent": 25.8,
+              "command": "/usr/libexec/mobileassetd"
+            },
+            {
+              "pid": 82059,
+              "cpu_percent": 94.2,
+              "command": "/System/Library/PrivateFrameworks/CacheDelete.framework/deleted"
+            }
+          ],
+          "load_average": [
+            2.2900390625,
+            2.65673828125,
+            2.80078125
+          ]
+        },
+        "consecutive_idle": 0
+      },
+      {
+        "elapsed_seconds": 20.113139499910176,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [
+            {
+              "pid": 82047,
+              "cpu_percent": 25.4,
+              "command": "/usr/libexec/mobileassetd"
+            },
+            {
+              "pid": 90133,
+              "cpu_percent": 65.2,
+              "command": "/System/Library/PrivateFrameworks/AMPLibrary.framework/Versions/A/Support/AMPLibraryAgent"
+            }
+          ],
+          "load_average": [
+            2.23876953125,
+            2.63427734375,
+            2.791015625
+          ]
+        },
+        "consecutive_idle": 0
+      },
+      {
+        "elapsed_seconds": 30.178602790925652,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.3486328125,
+            2.6455078125,
+            2.79296875
+          ]
+        },
+        "consecutive_idle": 1
+      },
+      {
+        "elapsed_seconds": 40.24162287497893,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.140625,
+            2.5908203125,
+            2.771484375
+          ]
+        },
+        "consecutive_idle": 2
+      },
+      {
+        "elapsed_seconds": 50.30255037499592,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            2.12451171875,
+            2.57080078125,
+            2.76171875
+          ]
+        },
+        "consecutive_idle": 3
+      },
+      {
+        "elapsed_seconds": 60.36183950002305,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            1.951171875,
+            2.5185546875,
+            2.740234375
+          ]
+        },
+        "consecutive_idle": 4
+      },
+      {
+        "elapsed_seconds": 70.42698458302766,
+        "host_activity": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            1.8046875,
+            2.46826171875,
+            2.7197265625
+          ]
+        },
+        "consecutive_idle": 5
+      }
+    ],
+    "idle_streak_passed": true,
+    "elapsed_seconds": 70.42714854096994
+  },
+  "tests": [
+    {
+      "kind": "rust",
+      "passed": 436,
+      "ignored": 9,
+      "raw_log": "target/tt-keep-full-core.log"
+    },
+    {
+      "kind": "rust",
+      "passed": 1,
+      "ignored": 0,
+      "raw_log": "target/tt-keep-activity-tests.log"
+    },
+    {
+      "kind": "python",
+      "passed": 92,
+      "raw_log": "target/tt-keep-python-tests.log"
+    },
+    {
+      "kind": "python",
+      "passed": 12,
+      "raw_log": "target/tt-keep-driver-tests-boundary-v2.log"
+    },
+    {
+      "kind": "python",
+      "passed": 17,
+      "raw_log": "target/tt-keep-archive-tests.log"
+    },
+    {
+      "kind": "python",
+      "passed": 15,
+      "raw_log": "target/tt-native-amendment-tests-v2.log"
+    }
+  ],
+  "test_log_paths": [
+    "target/tt-keep-full-core.log",
+    "target/tt-keep-activity-tests.log",
+    "target/tt-keep-python-tests.log",
+    "target/tt-keep-driver-tests-boundary-v2.log",
+    "target/tt-keep-archive-tests.log",
+    "target/tt-native-amendment-tests-v2.log"
+  ],
+  "actual_activity": {
+    "rust_test": "tt::tests::tuned_keep_depth_one_exercises_same_generation_gap_and_searches",
+    "boundary_cases": 36,
+    "search_matrix_cases": 160,
+    "total_cases": 196,
+    "per_thread_keep": {
+      "1T/keep2": {
+        "attempts": 190,
+        "replaced": 190,
+        "rejected": 0,
+        "lower": 121,
+        "upper": 69,
+        "lower_replaced": 121,
+        "lower_rejected": 0,
+        "upper_replaced": 69,
+        "upper_rejected": 0
+      },
+      "1T/keep1": {
+        "attempts": 154,
+        "replaced": 0,
+        "rejected": 154,
+        "lower": 76,
+        "upper": 78,
+        "lower_replaced": 0,
+        "lower_rejected": 76,
+        "upper_replaced": 0,
+        "upper_rejected": 78
+      },
+      "2T/keep2": {
+        "attempts": 259,
+        "replaced": 259,
+        "rejected": 0,
+        "lower": 175,
+        "upper": 84,
+        "lower_replaced": 175,
+        "lower_rejected": 0,
+        "upper_replaced": 84,
+        "upper_rejected": 0
+      },
+      "2T/keep1": {
+        "attempts": 358,
+        "replaced": 0,
+        "rejected": 358,
+        "lower": 233,
+        "upper": 125,
+        "lower_replaced": 0,
+        "lower_rejected": 233,
+        "upper_replaced": 0,
+        "upper_rejected": 125
+      },
+      "4T/keep2": {
+        "attempts": 247,
+        "replaced": 247,
+        "rejected": 0,
+        "lower": 155,
+        "upper": 92,
+        "lower_replaced": 155,
+        "lower_rejected": 0,
+        "upper_replaced": 92,
+        "upper_rejected": 0
+      },
+      "4T/keep1": {
+        "attempts": 882,
+        "replaced": 0,
+        "rejected": 882,
+        "lower": 575,
+        "upper": 307,
+        "lower_replaced": 0,
+        "lower_rejected": 575,
+        "upper_replaced": 0,
+        "upper_rejected": 307
+      },
+      "8T/keep2": {
+        "attempts": 1497,
+        "replaced": 1497,
+        "rejected": 0,
+        "lower": 1017,
+        "upper": 480,
+        "lower_replaced": 1017,
+        "lower_rejected": 0,
+        "upper_replaced": 480,
+        "upper_rejected": 0
+      },
+      "8T/keep1": {
+        "attempts": 2010,
+        "replaced": 0,
+        "rejected": 2010,
+        "lower": 1411,
+        "upper": 599,
+        "lower_replaced": 0,
+        "lower_rejected": 1411,
+        "upper_replaced": 0,
+        "upper_rejected": 599
+      }
+    },
+    "scope": "Isolated private cfg(test) exact gap2 eligible activity; not native diagnostic timing or causal strength evidence. Search depths have no lower-bound/equality requirement; no unexported worker0 depth inferred.",
+    "raw_log": "target/tt-keep-activity-tests.log",
+    "raw_log_sha256": "af2456688511eebf04bee7b6d9fe561fe67644c253ebcb32f1e8bfce14e8345f"
+  },
+  "pv_validation": {
+    "rows": 1920,
+    "moves": 14717,
+    "violations": 0
+  },
+  "timing": {
+    "attempts": [
+      {
+        "attempt": 1,
+        "status": "complete",
+        "started_at_utc": "2026-10-16T04:38:11.256287+00:00",
+        "host_before": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            1.8046875,
+            2.46826171875,
+            2.7197265625
+          ]
+        },
+        "host_after": {
+          "available": true,
+          "busy_process_threshold_percent": 25,
+          "busy_processes": [],
+          "load_average": [
+            6.15380859375,
+            3.9208984375,
+            3.25244140625
+          ]
+        },
+        "timing_qualified": true,
+        "completed_searches": 640
+      }
+    ],
+    "attempt_gap_seconds": null,
+    "qualified": true,
+    "completed_searches": 640,
+    "raw_development_screen": {
+      "schema": "sekirei.tt-keep-development-screen.v1",
+      "mode": "timed",
+      "source_ref": "955a3e98be6807e8d832f33c48e44612ecdc7e1b",
+      "rows": 640,
+      "all_positions_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 6065,
+      "timing_qualified": true,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 34,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": -1.0,
+            "tactical": 0.0
+          },
+          "paired_completed_depth_deltas": {
+            "all": [
+              1.0,
+              1.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              0.0,
+              0.0,
+              -1.0,
+              -1.0,
+              2.0,
+              2.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0,
+              -2.0,
+              -2.0,
+              1.0,
+              1.0,
+              -1.0,
+              -1.0,
+              1.0,
+              1.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "quiet": [
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0,
+              -1.0,
+              -1.0,
+              -2.0,
+              -2.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0
+            ],
+            "tactical": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              2.0,
+              2.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              0.0,
+              0.0,
+              1.0,
+              1.0,
+              1.0,
+              1.0,
+              -1.0,
+              -1.0,
+              0.0,
+              0.0
+            ]
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "directional_completed_depth_deltas": {
+            "A_first": [
+              1,
+              1,
+              0,
+              0,
+              1,
+              1,
+              0,
+              0,
+              -1,
+              -1,
+              2,
+              2,
+              -1,
+              -1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              -1,
+              -1,
+              0,
+              0,
+              -2,
+              -2,
+              1,
+              1,
+              -1,
+              -1,
+              1,
+              1,
+              -1,
+              -1,
+              -1,
+              -1,
+              0,
+              0,
+              0,
+              0
+            ],
+            "B_first": [
+              1,
+              1,
+              0,
+              0,
+              1,
+              1,
+              0,
+              0,
+              -1,
+              -1,
+              2,
+              2,
+              -1,
+              -1,
+              0,
+              0,
+              0,
+              0,
+              1,
+              1,
+              -1,
+              -1,
+              0,
+              0,
+              -2,
+              -2,
+              1,
+              1,
+              -1,
+              -1,
+              1,
+              1,
+              -1,
+              -1,
+              -1,
+              -1,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          "per_position_mean_completed_depth_delta": [
+            1.0,
+            0.0,
+            1.0,
+            0.0,
+            -1.0,
+            2.0,
+            -1.0,
+            0.0,
+            0.0,
+            1.0,
+            -1.0,
+            0.0,
+            -2.0,
+            1.0,
+            -1.0,
+            1.0,
+            -1.0,
+            -1.0,
+            0.0,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": -0.05,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.45,
+            0.35
+          ],
+          "actual_node_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 585728,
+              "maximum": 1323008,
+              "median": 696320.0,
+              "mean": 764620.8125
+            },
+            "B": {
+              "count": 80,
+              "minimum": 598016,
+              "maximum": 1409024,
+              "median": 700417.0,
+              "mean": 775680.1
+            }
+          },
+          "raw_depth_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 13,
+              "maximum": 22,
+              "median": 18.0,
+              "mean": 18.1875
+            },
+            "B": {
+              "count": 80,
+              "minimum": 15,
+              "maximum": 22,
+              "median": 17.5,
+              "mean": 18.1375
+            }
+          }
+        },
+        "2": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 40,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "paired_completed_depth_deltas": {
+            "all": [
+              -1.0,
+              0.0,
+              0.0,
+              -1.0,
+              -0.5,
+              -0.5,
+              0.0,
+              0.5,
+              0.5,
+              -0.5,
+              -1.5,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.0,
+              1.5,
+              -0.5,
+              0.5,
+              -1.0,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              -1.0,
+              -0.5,
+              0.0,
+              1.0,
+              -0.5,
+              -0.5,
+              0.0,
+              0.0,
+              0.0,
+              1.0,
+              0.5,
+              0.0,
+              -0.5,
+              0.0,
+              0.5
+            ],
+            "quiet": [
+              -1.0,
+              0.0,
+              -0.5,
+              -0.5,
+              0.5,
+              -0.5,
+              0.0,
+              0.5,
+              0.0,
+              1.5,
+              -1.0,
+              0.5,
+              0.5,
+              -1.0,
+              1.0,
+              -0.5,
+              0.0,
+              0.0,
+              0.0,
+              -0.5
+            ],
+            "tactical": [
+              0.0,
+              -1.0,
+              0.0,
+              0.5,
+              -1.5,
+              0.5,
+              0.5,
+              0.0,
+              -0.5,
+              0.5,
+              0.5,
+              0.0,
+              -0.5,
+              0.0,
+              -0.5,
+              0.0,
+              1.0,
+              0.5,
+              0.0,
+              0.5
+            ]
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "directional_completed_depth_deltas": {
+            "A_first": [
+              -1,
+              0,
+              0,
+              0,
+              -1,
+              0,
+              1,
+              0,
+              1,
+              0,
+              -3,
+              0,
+              0,
+              0,
+              0,
+              0,
+              -1,
+              2,
+              -1,
+              0,
+              -2,
+              1,
+              0,
+              1,
+              1,
+              -3,
+              0,
+              0,
+              2,
+              -2,
+              0,
+              0,
+              1,
+              -1,
+              2,
+              1,
+              0,
+              0,
+              1,
+              2
+            ],
+            "B_first": [
+              -1,
+              0,
+              0,
+              -2,
+              0,
+              -1,
+              -1,
+              1,
+              0,
+              -1,
+              0,
+              1,
+              0,
+              1,
+              1,
+              0,
+              1,
+              1,
+              0,
+              1,
+              0,
+              0,
+              1,
+              -1,
+              0,
+              1,
+              -1,
+              0,
+              0,
+              1,
+              -1,
+              0,
+              -1,
+              1,
+              0,
+              0,
+              0,
+              -1,
+              -1,
+              -1
+            ]
+          },
+          "per_position_mean_completed_depth_delta": [
+            -0.5,
+            -0.5,
+            -0.5,
+            0.25,
+            0.0,
+            -0.5,
+            0.25,
+            0.25,
+            0.75,
+            0.0,
+            -0.25,
+            0.25,
+            -0.25,
+            -0.25,
+            0.25,
+            -0.25,
+            0.0,
+            0.75,
+            -0.25,
+            0.25
+          ],
+          "mean_position_completed_depth_delta": -0.0125,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.175,
+            0.15
+          ],
+          "actual_node_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 1167360,
+              "maximum": 2691072,
+              "median": 1391039.5,
+              "mean": 1523139.775
+            },
+            "B": {
+              "count": 80,
+              "minimum": 1159293,
+              "maximum": 2674688,
+              "median": 1363231.5,
+              "mean": 1508043.25
+            }
+          },
+          "raw_depth_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 14,
+              "maximum": 23,
+              "median": 17.0,
+              "mean": 17.875
+            },
+            "B": {
+              "count": 80,
+              "minimum": 12,
+              "maximum": 23,
+              "median": 17.5,
+              "mean": 17.8625
+            }
+          }
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 40,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "paired_completed_depth_deltas": {
+            "all": [
+              0.5,
+              0.0,
+              0.0,
+              0.0,
+              -1.0,
+              0.5,
+              -0.5,
+              -0.5,
+              -0.5,
+              0.0,
+              1.0,
+              0.0,
+              0.0,
+              0.5,
+              -0.5,
+              0.0,
+              -1.0,
+              0.0,
+              0.5,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.5,
+              0.5,
+              -0.5,
+              0.5,
+              1.0,
+              0.0,
+              -0.5,
+              -1.0,
+              1.0,
+              1.5,
+              -1.0,
+              -0.5,
+              -1.0,
+              0.5,
+              -0.5
+            ],
+            "quiet": [
+              0.5,
+              0.0,
+              -1.0,
+              0.5,
+              -0.5,
+              0.0,
+              0.0,
+              0.5,
+              -1.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              0.5,
+              0.5,
+              1.0,
+              -1.0,
+              1.0,
+              -0.5,
+              -1.0
+            ],
+            "tactical": [
+              0.0,
+              0.0,
+              -0.5,
+              -0.5,
+              1.0,
+              0.0,
+              -0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.5,
+              0.0,
+              0.5,
+              -0.5,
+              0.0,
+              -0.5,
+              1.5,
+              -1.0,
+              0.5,
+              -0.5
+            ]
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "directional_completed_depth_deltas": {
+            "A_first": [
+              1,
+              -1,
+              0,
+              0,
+              -1,
+              1,
+              0,
+              -2,
+              0,
+              0,
+              1,
+              1,
+              0,
+              1,
+              0,
+              0,
+              -1,
+              0,
+              0,
+              2,
+              0,
+              1,
+              1,
+              -1,
+              1,
+              1,
+              1,
+              -1,
+              -2,
+              1,
+              -1,
+              0,
+              -1,
+              0,
+              1,
+              -1,
+              1,
+              0,
+              1,
+              -1
+            ],
+            "B_first": [
+              0,
+              1,
+              0,
+              0,
+              -1,
+              0,
+              -1,
+              1,
+              -1,
+              0,
+              1,
+              -1,
+              0,
+              0,
+              -1,
+              0,
+              -1,
+              0,
+              1,
+              -1,
+              1,
+              -1,
+              0,
+              1,
+              -1,
+              0,
+              0,
+              0,
+              3,
+              1,
+              1,
+              -1,
+              -1,
+              2,
+              2,
+              -1,
+              -2,
+              -2,
+              0,
+              0
+            ]
+          },
+          "per_position_mean_completed_depth_delta": [
+            0.25,
+            0.0,
+            -0.25,
+            -0.5,
+            -0.25,
+            0.5,
+            0.25,
+            -0.25,
+            -0.5,
+            0.5,
+            0.25,
+            0.25,
+            0.25,
+            0.0,
+            0.75,
+            -0.25,
+            0.0,
+            0.25,
+            -0.75,
+            0.0
+          ],
+          "mean_position_completed_depth_delta": 0.025,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.1375,
+            0.1875
+          ],
+          "actual_node_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 1744460,
+              "maximum": 4561877,
+              "median": 2229020.0,
+              "mean": 2432721.4625
+            },
+            "B": {
+              "count": 80,
+              "minimum": 1728512,
+              "maximum": 4622840,
+              "median": 2199378.5,
+              "mean": 2439593.8875
+            }
+          },
+          "raw_depth_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 12,
+              "maximum": 22,
+              "median": 17.0,
+              "mean": 17.35
+            },
+            "B": {
+              "count": 80,
+              "minimum": 13,
+              "maximum": 21,
+              "median": 17.0,
+              "mean": 17.375
+            }
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 40,
+          "exact_identity_blocks": 0,
+          "within_side_nondeterministic_blocks": 40,
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "paired_completed_depth_deltas": {
+            "all": [
+              0.0,
+              -0.5,
+              1.0,
+              0.0,
+              1.0,
+              0.0,
+              -0.5,
+              0.5,
+              -1.0,
+              -1.5,
+              0.0,
+              -0.5,
+              0.0,
+              -1.0,
+              -0.5,
+              0.0,
+              -0.5,
+              1.0,
+              -0.5,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              0.0,
+              0.0,
+              -1.0,
+              0.5,
+              -0.5,
+              -0.5,
+              0.5,
+              -0.5,
+              -0.5,
+              1.0,
+              0.0,
+              1.0
+            ],
+            "quiet": [
+              0.0,
+              -0.5,
+              1.0,
+              0.0,
+              -1.0,
+              -1.5,
+              0.0,
+              -1.0,
+              -0.5,
+              1.0,
+              0.0,
+              0.0,
+              0.0,
+              0.5,
+              0.0,
+              0.0,
+              -0.5,
+              -0.5,
+              -0.5,
+              1.0
+            ],
+            "tactical": [
+              1.0,
+              0.0,
+              -0.5,
+              0.5,
+              0.0,
+              -0.5,
+              -0.5,
+              0.0,
+              -0.5,
+              1.0,
+              0.0,
+              0.5,
+              0.5,
+              0.0,
+              -1.0,
+              0.5,
+              0.5,
+              -0.5,
+              0.0,
+              1.0
+            ]
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "directional_completed_depth_deltas": {
+            "A_first": [
+              -1,
+              0,
+              1,
+              -1,
+              1,
+              1,
+              0,
+              0,
+              -2,
+              -1,
+              0,
+              0,
+              1,
+              -1,
+              0,
+              0,
+              -1,
+              1,
+              -1,
+              1,
+              1,
+              1,
+              1,
+              0,
+              -1,
+              1,
+              2,
+              0,
+              2,
+              0,
+              -1,
+              1,
+              0,
+              0,
+              -1,
+              0,
+              0,
+              2,
+              0,
+              1
+            ],
+            "B_first": [
+              1,
+              -1,
+              1,
+              1,
+              1,
+              -1,
+              -1,
+              1,
+              0,
+              -2,
+              0,
+              -1,
+              -1,
+              -1,
+              -1,
+              0,
+              0,
+              1,
+              0,
+              1,
+              -1,
+              -1,
+              -1,
+              1,
+              1,
+              0,
+              -1,
+              0,
+              -2,
+              0,
+              -1,
+              0,
+              -1,
+              -1,
+              2,
+              -1,
+              -1,
+              0,
+              0,
+              1
+            ]
+          },
+          "per_position_mean_completed_depth_delta": [
+            -0.25,
+            0.5,
+            0.5,
+            0.0,
+            -1.25,
+            -0.25,
+            -0.5,
+            -0.25,
+            0.25,
+            0.25,
+            0.0,
+            0.25,
+            0.25,
+            0.25,
+            0.0,
+            -0.25,
+            -0.5,
+            0.0,
+            0.25,
+            0.5
+          ],
+          "mean_position_completed_depth_delta": -0.0125,
+          "position_bootstrap_depth_delta_95_percent": [
+            -0.2125,
+            0.1625
+          ],
+          "actual_node_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 2424157,
+              "maximum": 5970726,
+              "median": 3163269.0,
+              "mean": 3438792.3625
+            },
+            "B": {
+              "count": 80,
+              "minimum": 2342748,
+              "maximum": 6340608,
+              "median": 3194872.0,
+              "mean": 3427345.9875
+            }
+          },
+          "raw_depth_distribution": {
+            "A": {
+              "count": 80,
+              "minimum": 13,
+              "maximum": 20,
+              "median": 16.5,
+              "mean": 16.6375
+            },
+            "B": {
+              "count": 80,
+              "minimum": 12,
+              "maximum": 20,
+              "median": 16.5,
+              "mean": 16.625
+            }
+          }
+        }
+      },
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "independent_thread_screens": {
+        "4": {
+          "advance": false,
+          "reasons": [
+            "Overall depth median below +0.5.",
+            "Bootstrap lower bound not positive."
+          ]
+        },
+        "8": {
+          "advance": false,
+          "reasons": [
+            "Overall depth median below +0.5.",
+            "Bootstrap lower bound not positive."
+          ]
+        }
+      },
+      "development_screen_advance": false,
+      "default_keep_depth": 2,
+      "independent_h1": false,
+      "strength_claim": false,
+      "default_adopted": false,
+      "interpretation": "Instrumented aggregate foreign TT reuse is descriptive, not gap2 eligibility or causal evidence. equal_depth counter does not cover bucket3 same-position writes and is not used to infer absence. Node/depth failures are not Elo H0 or proof of ineffectiveness; independent aspiration/H1 unchanged. All rows retained.",
+      "inputs_sha256": {
+        "target/tt-keep-presearch-binding.json": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-analyze.py": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+        "target/tt-keep-build/receipt.json": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+        "target/tt-keep-timed-attempt1/manifest.json": "443fee8dddea8ae39a2cb58d9a987af80e9c8f6f0be3806b15d3b1055ae83916",
+        "target/tt-keep-timed-attempt1/rows.jsonl": "f3cda647fddc1c3ef0c94ae9c173db3b5ce712555cebf91c7d8ef8adf2bd40fb",
+        "target/tt-keep-timed-attempt1/summary.json": "c0a81aaeef1c7465d50358c69fc4bff9f1ad8c33b123233aeb0e6cae1491035b",
+        "target/tt-keep-timed-attempt1/pv-validation.json": "3e2906dcee3a49ee422d11b4d604560a11fc0a442466e0db443eedd87e834ab2",
+        "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+        "target/tt-native-amendment-control-development-screen.json": "d19d3b31e7c5d533cf6a64a33a476a62c4c91900fc02b07e314a626e936b0c7b",
+        "target/tt-native-amendment-mechanism-development-screen.json": "343825aff49e4ef6eade99aa979eee83d96609c491260a79106ee3ecd150e2bb",
+        "target/tt-native-amendment-nodes-development-screen.json": "ac945ab1c2ea27f6075dc85fb73815d55be7d889fa7b49cce63d8d206c025ef4"
+      }
+    },
+    "completed_run_pv_validation": {
+      "schema": "sekirei.paired-pv-validation.v1",
+      "rows": 640,
+      "pv_moves": 6065,
+      "unique_board_probes": 2232,
+      "violations": [],
+      "legal_tool_sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "legal_tool_frozen": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-timed-attempt1/pv-validation.legal-moves",
+      "runs": [
+        {
+          "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-timed-attempt1",
+          "engine_sha256": {
+            "A": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+            "B": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313"
+          },
+          "corpus_sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad"
+        }
+      ],
+      "interpretation": "Same-rules legal-PV check; not an independent oracle or mate-score proof."
+    },
+    "independent_thread_screens": {
+      "4": {
+        "advance": false,
+        "reasons": [
+          "Overall depth median below +0.5.",
+          "Bootstrap lower bound not positive."
+        ]
+      },
+      "8": {
+        "advance": false,
+        "reasons": [
+          "Overall depth median below +0.5.",
+          "Bootstrap lower bound not positive."
+        ]
+      }
+    },
+    "development_screen_advance": false,
+    "further_attempt_permitted": false
+  },
+  "default_keep_depth": 2,
+  "default_adopted": false,
+  "independent_h1": false,
+  "strength_claim": false,
+  "interpretation": "Mechanism is instrumented/descriptive; gap2 activation comes from separate196-case cfgtest log. Equal-depth write counter does not cover bucket3 same-position path. Useful-depth failure is not EloH0 or policy ineffectiveness. Fresh legal tool/driver from same source; old timing/evidence untouched; aspiration queue unchanged.",
+  "artifacts": {
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-control/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-mechanism/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-nodes/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-keep-timed-attempt1/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-analyze.py": {
+      "sha256": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+      "bytes": 12282
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/tt-native-amendment-collect.py": {
+      "sha256": "19dbd4c636865d9cb9b8177994a1ca9fdcf449be1d6b4f5c62344ff02c420513",
+      "bytes": 9577
+    },
+    "crates/sekirei-core/src/bin/legal_moves.rs": {
+      "sha256": "f3cdba292ce58bb932ca8ae30f90241435c7433cea86dbf88ea70369f1e56ba8",
+      "bytes": 1061
+    },
+    "crates/sekirei-core/src/search/params.rs": {
+      "sha256": "52b1ae630e47ef156225c1f818c88436dd48efb33a0629617daea1049c7d2054",
+      "bytes": 42429
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "bytes": 84246
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "bytes": 23956
+    },
+    "scripts/test_nps_threads.py": {
+      "sha256": "68c03ab5f80e8b3e3400dab78463fa146e663c338657bf0156cd2c709d5a6876",
+      "bytes": 79763
+    },
+    "scripts/test_paired_search_diagnostics.py": {
+      "sha256": "be689d0a7cd0468238c710bbd688c49aa53db1f6719f26310a3c3a4364f86377",
+      "bytes": 38689
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/tt-keep-activity-tests.log": {
+      "sha256": "af2456688511eebf04bee7b6d9fe561fe67644c253ebcb32f1e8bfce14e8345f",
+      "bytes": 55296
+    },
+    "target/tt-keep-analyze.py": {
+      "sha256": "14ca057de017fd99b02fed8cb7ee4b6208b0d1645f4f692ddbe1dd6c4aa6cda3",
+      "bytes": 12219
+    },
+    "target/tt-keep-archive-tests.log": {
+      "sha256": "60557ad056049f5ba7e8ff2fe3597111e4acc9809e6b20527a06debd2b654438",
+      "bytes": 116
+    },
+    "target/tt-keep-archive-tests.py": {
+      "sha256": "e5cea70dac8a2d7aedda47194c91a8ac8df7b2ae13be4bedefb6d4d3f9eda167",
+      "bytes": 13706
+    },
+    "target/tt-keep-archive.py": {
+      "sha256": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "bytes": 22844
+    },
+    "target/tt-keep-build.py": {
+      "sha256": "fb4d721469277098a3b839607e1e66f6d7e84acdeedc9e41ffbdb8fb2120ac59",
+      "bytes": 6902
+    },
+    "target/tt-keep-build/build.log": {
+      "sha256": "cbb0f154423f2af984a611168532857fc962e6ea09d5fe4cf26248fc42279901",
+      "bytes": 525
+    },
+    "target/tt-keep-build/engine": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-build/legal-build.log": {
+      "sha256": "70aea59063f3a4f550e2ac41456209bed76ce2d822b6b087741ebe071d71edcf",
+      "bytes": 183
+    },
+    "target/tt-keep-build/legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "target/tt-keep-build/receipt.json": {
+      "sha256": "749a0c3d9581f5e0417e43868e4257bf51d43360d25b0556ccaa3a0d6855cd4e",
+      "bytes": 3426
+    },
+    "target/tt-keep-build/symbols.txt": {
+      "sha256": "af7c833970c29c3d0508e872291b36ffcd2d3e87040caf7947dbee63272de965",
+      "bytes": 265170
+    },
+    "target/tt-keep-clippy.log": {
+      "sha256": "e215b0b8d07fdc3dc5f044a23dd1e1c9585b2bfcb2d6a8af20214314afcb60a0",
+      "bytes": 5007
+    },
+    "target/tt-keep-collect.py": {
+      "sha256": "ef0aa1429277165859891519c216e8d7689bc8417c1139dc56dc1b2578c90fae",
+      "bytes": 9116
+    },
+    "target/tt-keep-common.py": {
+      "sha256": "4b21b71c9eab8418f39a9d48de3c78235072d7098e94ca8c17b88302ced0f02c",
+      "bytes": 12660
+    },
+    "target/tt-keep-control-analysis.log": {
+      "sha256": "ebdba1ad9646388374ea008ffd84a229b525c2dfbe9e32d77eac99054667369a",
+      "bytes": 84
+    },
+    "target/tt-keep-control-pv.log": {
+      "sha256": "a7d913452f56027dfcfbac95bab015dfd46ad45b487ddbecfb616a9930d326f0",
+      "bytes": 49
+    },
+    "target/tt-keep-control.log": {
+      "sha256": "4aeacc74b58053dae95470f97c2de3165802e032ee82d72b9f9c18e2a9e66986",
+      "bytes": 58748
+    },
+    "target/tt-keep-control/engine-A": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-control/engine-B": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-control/manifest.json": {
+      "sha256": "33e73d370401cef5aad053023f9e488630321ed6a5cc2b1492650766af1c8b4a",
+      "bytes": 3954
+    },
+    "target/tt-keep-control/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/tt-keep-control/pv-validation.json": {
+      "sha256": "edd8b97099d5ff059cc3e5fb285ab07c9ccfe31ec91dbbf1ebcf277118c67eec",
+      "bytes": 884
+    },
+    "target/tt-keep-control/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "target/tt-keep-control/rows.jsonl": {
+      "sha256": "70c0db8eb61427426f76e24c20028836c1cad89902ccdbe2ccd9d95fb5853671",
+      "bytes": 1181166
+    },
+    "target/tt-keep-control/summary.json": {
+      "sha256": "cdee463d3757603f1d23a0cc3f48313a3247d18b0decabae01f479ed95988dec",
+      "bytes": 325364
+    },
+    "target/tt-keep-defaults.json": {
+      "sha256": "93b98ac8d110bdfecc32fde2bd4d9e5e684eaec327829742b2e13ecf8cd21f9c",
+      "bytes": 19504
+    },
+    "target/tt-keep-driver-tests-boundary-v2.log": {
+      "sha256": "133dfaabc815af7b648a9005385a176d218920c464403b7e882dd813762efb71",
+      "bytes": 111
+    },
+    "target/tt-keep-driver-tests-final.log": {
+      "sha256": "b046982b725e23fa19cde6fab38193e2a10b6daf021565bce6d57f9ce69981cb",
+      "bytes": 110
+    },
+    "target/tt-keep-driver-tests.log": {
+      "sha256": "3c4546d50591d7d5a1cbab25e6594ac67d09d6805af2912fa404d95a69217349",
+      "bytes": 110
+    },
+    "target/tt-keep-fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "target/tt-keep-full-core.log": {
+      "sha256": "2a272f6bf53d18479d8fa4f4414b2d2568a2b4eb2bee314968c0dc8a4f466da7",
+      "bytes": 39427
+    },
+    "target/tt-keep-mechanism/engine-A": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-mechanism/engine-B": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-mechanism/manifest.json": {
+      "sha256": "6d045a7138217fb3b29f995564fe70cd571c8c3eb5e64dfe0630279d6e4d9727",
+      "bytes": 3843
+    },
+    "target/tt-keep-mechanism/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/tt-keep-mechanism/pv-validation.json": {
+      "sha256": "0b661474f8f2c786a287a8ea31df731418f981baa3a632def45a755736d5ea6e",
+      "bytes": 888
+    },
+    "target/tt-keep-mechanism/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "target/tt-keep-mechanism/rows.jsonl": {
+      "sha256": "999c48e56c343eadba34f0776f796779af49587ed50759a5e8fbef0f60f38291",
+      "bytes": 3916058
+    },
+    "target/tt-keep-mechanism/summary.json": {
+      "sha256": "f61f3dbfe11951699909cfd2938c07b7111afd233022be844bf78cb77f17c595",
+      "bytes": 911609
+    },
+    "target/tt-keep-nodes/engine-A": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-nodes/engine-B": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-nodes/manifest.json": {
+      "sha256": "82b3ec4d0ec7cb1d32e43b97ded05e47fcd961f5b118f767dc93c9537848ec15",
+      "bytes": 3923
+    },
+    "target/tt-keep-nodes/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/tt-keep-nodes/pv-validation.json": {
+      "sha256": "51c3b85a48f683190171ed0554bfd3f6c155a6218bd4e4610156772a9f95f98e",
+      "bytes": 881
+    },
+    "target/tt-keep-nodes/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "target/tt-keep-nodes/rows.jsonl": {
+      "sha256": "e29184f17d15101838b092dadec4b0a5f51c548e861c6704afc4798c126d028a",
+      "bytes": 2460038
+    },
+    "target/tt-keep-nodes/summary.json": {
+      "sha256": "71ca680e56e11447ed1cc31a53c426a23c61471bde31c37ba1c0a7d6898d7d77",
+      "bytes": 707916
+    },
+    "target/tt-keep-prequiet.json": {
+      "sha256": "50cfe13bff964e214d9835ba95f0f43803509ae249c5074d2967d39f8179fca1",
+      "bytes": 3633
+    },
+    "target/tt-keep-presearch-binding.json": {
+      "sha256": "4731c6b0a2926e1bcc1819025fa59878afc93f838617cbd18550d9129fb1c61b",
+      "bytes": 4115
+    },
+    "target/tt-keep-primary-before.json": {
+      "sha256": "7e5c66ea2cf0e4e0442735ae82431504a5301659d5c382c812aab52b5525d747",
+      "bytes": 246
+    },
+    "target/tt-keep-prospective-protocol.md": {
+      "sha256": "2e7d73541b340cd7df2c27efc077b06705f144b9dbab6b82af62c41e06e5498b",
+      "bytes": 7151
+    },
+    "target/tt-keep-python-tests-invocation-error.log": {
+      "sha256": "45c39c73615c088699df138c413780dad6076b9f3336fe1db07d424632119ff8",
+      "bytes": 796
+    },
+    "target/tt-keep-python-tests.log": {
+      "sha256": "90d31265dd34fa8d568d8b0182399516724d69cb912e24c54906212b3334930d",
+      "bytes": 191
+    },
+    "target/tt-keep-run.py": {
+      "sha256": "0301aec0557b0520e5416bf6f2fcceaa208548a2aeed25bfcbefacafca1909d6",
+      "bytes": 7906
+    },
+    "target/tt-keep-runner.log": {
+      "sha256": "5870d8733b9d65b6a829b263e8b8bd56739a68c45e9f759a4f6e4a7eb3044e7f",
+      "bytes": 500
+    },
+    "target/tt-keep-tests.py": {
+      "sha256": "04e8a33ccf62623d293ff4ba0a9138502b37eabf3d2e34abef37f2f48e9e6d23",
+      "bytes": 8138
+    },
+    "target/tt-keep-timed-attempt1/engine-A": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-timed-attempt1/engine-B": {
+      "sha256": "d3bb20bd95cb2eb67b3ceecf7ddc60a36cd2750b99d83c16a58706a7c64e4313",
+      "bytes": 4782432
+    },
+    "target/tt-keep-timed-attempt1/manifest.json": {
+      "sha256": "443fee8dddea8ae39a2cb58d9a987af80e9c8f6f0be3806b15d3b1055ae83916",
+      "bytes": 3855
+    },
+    "target/tt-keep-timed-attempt1/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/tt-keep-timed-attempt1/pv-validation.json": {
+      "sha256": "3e2906dcee3a49ee422d11b4d604560a11fc0a442466e0db443eedd87e834ab2",
+      "bytes": 899
+    },
+    "target/tt-keep-timed-attempt1/pv-validation.legal-moves": {
+      "sha256": "7e1ed23dad311d04785999139a89bad79ca02bea19ffa10f8dd86f8cde44a5e3",
+      "bytes": 775312
+    },
+    "target/tt-keep-timed-attempt1/rows.jsonl": {
+      "sha256": "f3cda647fddc1c3ef0c94ae9c173db3b5ce712555cebf91c7d8ef8adf2bd40fb",
+      "bytes": 2401086
+    },
+    "target/tt-keep-timed-attempt1/summary.json": {
+      "sha256": "c0a81aaeef1c7465d50358c69fc4bff9f1ad8c33b123233aeb0e6cae1491035b",
+      "bytes": 658424
+    },
+    "target/tt-keep-usi.txt": {
+      "sha256": "d9b05fe7340d8a16b010c1896c14536cf5a93060322385f12d22e51f42ef14f8",
+      "bytes": 17585
+    },
+    "target/tt-native-amendment-analyze.py": {
+      "sha256": "446de6301a6f833a31f8f758ff025b16409622dd71e522488e88014f30aacf7e",
+      "bytes": 12282
+    },
+    "target/tt-native-amendment-binding.json": {
+      "sha256": "ce56825b87709a05606a24a8d3253fe0eabcef84430291bad4e21f43a3b73e62",
+      "bytes": 7342
+    },
+    "target/tt-native-amendment-collect.py": {
+      "sha256": "19dbd4c636865d9cb9b8177994a1ca9fdcf449be1d6b4f5c62344ff02c420513",
+      "bytes": 9577
+    },
+    "target/tt-native-amendment-common.py": {
+      "sha256": "3d19bcc61183b8d794a22547b86bcad27084d7eb9a28c3eb66febe7941ebc93e",
+      "bytes": 8326
+    },
+    "target/tt-native-amendment-control-analysis.log": {
+      "sha256": "d19d3b31e7c5d533cf6a64a33a476a62c4c91900fc02b07e314a626e936b0c7b",
+      "bytes": 13428
+    },
+    "target/tt-native-amendment-control-census-validation.json": {
+      "sha256": "92a73aed52fb562e2e9cea75c8e231c13e17d79a384c90bdf49df10592ff4d8d",
+      "bytes": 331
+    },
+    "target/tt-native-amendment-control-development-screen.json": {
+      "sha256": "d19d3b31e7c5d533cf6a64a33a476a62c4c91900fc02b07e314a626e936b0c7b",
+      "bytes": 13428
+    },
+    "target/tt-native-amendment-mechanism-analysis.log": {
+      "sha256": "343825aff49e4ef6eade99aa979eee83d96609c491260a79106ee3ecd150e2bb",
+      "bytes": 17516
+    },
+    "target/tt-native-amendment-mechanism-development-screen.json": {
+      "sha256": "343825aff49e4ef6eade99aa979eee83d96609c491260a79106ee3ecd150e2bb",
+      "bytes": 17516
+    },
+    "target/tt-native-amendment-mechanism-pv.log": {
+      "sha256": "8e7f20556f84006505266724f8d04c84a0f8b069e84eda77f303166833c3f658",
+      "bytes": 49
+    },
+    "target/tt-native-amendment-mechanism.log": {
+      "sha256": "ecdbb394dba1638f15db10021b6fa9ba804b6026def8afc0dba61b1010dfe239",
+      "bytes": 98950
+    },
+    "target/tt-native-amendment-nodes-analysis.log": {
+      "sha256": "ac945ab1c2ea27f6075dc85fb73815d55be7d889fa7b49cce63d8d206c025ef4",
+      "bytes": 21946
+    },
+    "target/tt-native-amendment-nodes-development-screen.json": {
+      "sha256": "ac945ab1c2ea27f6075dc85fb73815d55be7d889fa7b49cce63d8d206c025ef4",
+      "bytes": 21946
+    },
+    "target/tt-native-amendment-nodes-pv.log": {
+      "sha256": "e85cd1d157d858b57c00a84194f484511b605c64ff00996edebed26a17aeebdc",
+      "bytes": 49
+    },
+    "target/tt-native-amendment-nodes.log": {
+      "sha256": "e00cbd7dca85868d379db64f42417088e417cd625b42a3b95064b6a7a2c7a629",
+      "bytes": 108480
+    },
+    "target/tt-native-amendment-prospective-amendment.md": {
+      "sha256": "b13fcf6a8a197d66657ef6cd4406fa56ac41a0fa9ebfdf4cf3caca728f31d32b",
+      "bytes": 3173
+    },
+    "target/tt-native-amendment-run.py": {
+      "sha256": "848ea150dbd6e1cf9caba6c806e26d81f88de6c59d9a6a62d38f75c8d83bc0ed",
+      "bytes": 6747
+    },
+    "target/tt-native-amendment-tests-v2.log": {
+      "sha256": "b7f09be5a989239e987302e8e590952ac79e9f9efb80d079e8072a7355b5ace9",
+      "bytes": 2052
+    },
+    "target/tt-native-amendment-tests.log": {
+      "sha256": "3bfa454846b834a5a7c537ffb9b8c0a2e19351d7bccf1a5d79389e0e2ea4fad9",
+      "bytes": 4284
+    },
+    "target/tt-native-amendment-tests.py": {
+      "sha256": "e6e60b9b2bbe06bf87aa42dae8b0beb60b31878ae9a08de17096e334f963c8e1",
+      "bytes": 8774
+    },
+    "target/tt-native-amendment-timed-attempt1-analysis.log": {
+      "sha256": "0d15e51bea89eedbea2e98ca41a3dc63076bf6fd78000d737457c6d2edd18949",
+      "bytes": 19115
+    },
+    "target/tt-native-amendment-timed-attempt1-development-screen.json": {
+      "sha256": "0d15e51bea89eedbea2e98ca41a3dc63076bf6fd78000d737457c6d2edd18949",
+      "bytes": 19115
+    },
+    "target/tt-native-amendment-timed-attempt1-pv.log": {
+      "sha256": "5ade2d0e3991d1c5bebf799717feb930ef666199b92a5272efaa61584d315544",
+      "bytes": 49
+    },
+    "target/tt-native-amendment-timed-attempt1.log": {
+      "sha256": "396097734a5329550acb4473b5ab04fb18cc5564ac5ece9208d3a873fde98ce3",
+      "bytes": 107696
+    }
+  }
+}
