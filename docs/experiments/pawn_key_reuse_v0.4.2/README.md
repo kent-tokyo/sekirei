@@ -72,3 +72,55 @@ qualification are separate work.
 Freeze drivers and inputs before search. Retain failed logs. Publish all raw
 records, both binaries, source snapshot, legal replay and hashes in a durable
 archive outside the worktree, then integrate concise results through a PR.
+
+## Closed outcome
+
+Source `049ffcd578191c4bf681e9968bec8869cc65b747`, tree
+`32cb1874073b8fdf906cb2b4ba07e03f5c0880e0`. Both release engines use this
+source and differ only by the default-off feature. Their complete USI replies
+are identical; native test-observer symbols are absent. Baseline SHA-256
+`f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e`;
+candidate `6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285`.
+
+Both core configurations passed 441 tests (nine ignored each). Formatting,
+workspace Clippy, feature Clippy, fifteen final protocol tests and eleven
+final archive tests passed. Two unsuccessful archive-fixture preparation logs
+remain in the frozen inventory; they preceded all native searches.
+
+The A/A control (80 rows) and A/B equality lane (160 rows) passed exact
+bestmove/score/PV/nodes/depth identity. All 720 rows and 6,544 PV moves passed
+the same-rules legal replay. All worker census, zero/aborted work and raw
+transcripts were retained.
+
+The time lane completed its single 480-row attempt. Nine prequiet samples
+ended with five consecutive idle snapshots; the formal pre-search guard was
+also idle. The post-search guard found a `rustc` process at 99.5% CPU.
+Consequently **timing is unqualified**, and no speed claim follows. No
+process was interrupted and no search or timing attempt was repeated.
+
+The following values describe the retained unqualified observations only:
+
+| Threads | Median paired wall-NPS difference | Mean-position NPS 95% interval | Median completed-depth difference |
+|---|---:|---:|---:|
+| 1T | -0.09% | -0.54% to +0.27% | 0.00 ply |
+| 4T | +0.86% | -3.42% to +1.11% | 0.00 ply |
+| 8T | -0.42% | -0.79% to +3.64% | 0.00 ply |
+
+Both independent speed screens declined advancement. In addition to invalid
+timing, neither NPS interval has a positive lower bound and the directional
+checks fail. The feature remains **default-off**. No H1 was run, no strength
+improvement was established, and YaneuraOu superiority was not measured.
+This closes this preregistered observation; its results are not pooled with
+other studies or used to justify a new timing attempt.
+
+[Machine-readable results](results.json) binds 84 original artifacts. The
+external durable archive contains 89 files, including both binaries, raw
+records, failed preparation logs, the full Git source tree/raw commit and a
+standard-library-only verifier. Archive manifest SHA-256:
+`c5078723bd9b44fa4b515559f41d4019590164efee17fe016f8069813f042f49`.
+Archive path:
+`~/.local/state/sekirei/search-experiments/pawn-key-reuse-v0.4.2/049ffcd578191c4bf681e9968bec8869cc65b747/`.
+Verification passed outside the worktree with `PATH=/nonexistent`, without
+Git or reading the original raw paths. The prospective README is preserved
+in the source snapshot and input binding. Source-to-final changes after the
+measurement are limited to this outcome appendix and `results.json`.
