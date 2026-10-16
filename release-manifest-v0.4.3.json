@@ -1,0 +1,76 @@
+{
+  "schema": "sekirei.release-manifest.v1",
+  "release": "v0.4.3",
+  "commit": "c8c3c2e18f98a443d2ba692d1534b6cdafedb91d",
+  "branch_at_release": "main",
+  "candidate_state": "verified release candidate awaiting tag publication",
+  "packages": {
+    "sekirei": "0.4.3",
+    "sekirei-core": "0.4.3",
+    "sekirei-bench": "0.4.3",
+    "sekirei-csa": "0.4.3",
+    "sekirei-match-runner": "0.4.3",
+    "sekirei-train": "0.4.3"
+  },
+  "dependencies": {
+    "lineprior": "0.12.6",
+    "shogiesa-core": "0.11.6",
+    "veridict": "0.19.5"
+  },
+  "toolchain": "rustc 1.97.0 (2d8144b78 2026-07-07); crates.io workflow uses stable",
+  "binary": {
+    "path": "target/release/sekirei",
+    "sha256": "1c7396698be0e87856990e9288e571db54e96b7b533c1208c11731ec617f3df3"
+  },
+  "publish": {
+    "workflow_run": null,
+    "registry": "crates.io",
+    "status": "planned",
+    "crates": [
+      "sekirei",
+      "sekirei-core",
+      "sekirei-bench",
+      "sekirei-csa",
+      "sekirei-match-runner",
+      "sekirei-train"
+    ]
+  },
+  "webassembly": {
+    "package": "sekirei-wasm",
+    "version": "0.4.3",
+    "registry": "github-release",
+    "asset": "sekirei-wasm-0.4.3.tgz",
+    "url": "https://github.com/kent-tokyo/sekirei/releases/download/v0.4.3/sekirei-wasm-0.4.3.tgz",
+    "sha256": "3fa1887040abd6657cbda5bf720a08ba8bebaaf8b477220be4e7982c4dc7dd28",
+    "size": 547225,
+    "npm_registry_status": "not_published"
+  },
+  "internal_measurement": {
+    "spec_top_n": 0,
+    "threads": 1,
+    "parallel": 1,
+    "status": "release_validation",
+    "strength_claim": false,
+    "evaluator": "material-only release validation; no new evaluator adopted",
+    "results": "Workspace release tests, rustfmt, clippy, opening-book release tests, release-workflow contract tests, a native material-only USI smoke, WebAssembly package generation, browser tests, package metadata validation, and generated JavaScript contracts passed. Version 0.4.3 improves bounded CSA supervision, eight-thread PGO evidence, and fail-closed qualification for disabled search experiments without adopting a new default evaluator or making a general playing-strength claim.",
+    "usi_smoke": {
+      "position": "startpos",
+      "limit": "depth 1",
+      "bestmove": "9g9f",
+      "score_cp": 0,
+      "nodes": 90
+    }
+  },
+  "external_opponents": {
+    "status": "excluded_from_release_evidence",
+    "configuration": "No external engine, evaluator, weights, labels, Suisho5-derived scores, or Suisho5-derived opening positions are used as release evidence for v0.4.3. PGO throughput evidence remains a separate fixed-condition performance result, not a playing-strength claim."
+  },
+  "known_limitations": [
+    "No new NNUE checkpoint is bundled or adopted, and this release makes no general playing-strength claim.",
+    "New search and Lazy SMP policies without an independent H1 remain disabled-by-default experiments.",
+    "The qualified PGO throughput results apply only to the recorded Apple M4 four-thread and eight-thread configurations; ordinary release builds do not embed those profiles.",
+    "Parallel search can vary by scheduler; deterministic diagnostics require one thread and SpecTopN=0.",
+    "The WebAssembly package is distributed as a GitHub Release asset and is not published to the npm registry.",
+    "External HalfKP inference remains optional and requires a separately obtained, license-compatible nn.bin file with its own provenance and operating scale."
+  ]
+}
