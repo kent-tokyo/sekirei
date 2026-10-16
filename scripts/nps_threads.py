@@ -1052,6 +1052,122 @@ def summarize_selected_tt_reuse(rows: list[dict]) -> dict[str, float | int] | No
     return totals
 
 
+def summarize_lazy_worker_balance(rows: list[dict]) -> dict[str, float | int] | None:
+    """Summarize per-search Lazy SMP worker node balance.
+
+    The worker records are emitted only by the opt-in diagnostic lane. A high
+    coefficient of variation is an observation about scheduled work, not a
+    verdict about useful search or playing strength.
+    """
+    samples = []
+    for row in rows:
+        lazy_smp = row.get("lazy_smp")
+        workers = lazy_smp.get("worker_stats") if lazy_smp else None
+        if not workers:
+            continue
+        nodes = [int(worker["nodes"]) for worker in workers]
+        total = sum(nodes)
+        if total <= 0:
+            continue
+        mean = total / len(nodes)
+        samples.append(
+            {
+                "coefficient_of_variation": statistics.pstdev(nodes) / mean if mean else 0.0,
+                "max_node_share": max(nodes) / total,
+                "min_node_share": min(nodes) / total,
+                "stop_lag_ms": lazy_smp["stop_lag_ms"],
+            }
+        )
+    if not samples:
+        return None
+    return {
+        "searches": len(samples),
+        "median_worker_node_coefficient_of_variation": statistics.median(
+            item["coefficient_of_variation"] for item in samples
+        ),
+        "median_max_worker_node_share": statistics.median(
+            item["max_node_share"] for item in samples
+        ),
+        "median_min_worker_node_share": statistics.median(
+            item["min_node_share"] for item in samples
+        ),
+        "median_stop_lag_ms": statistics.median(item["stop_lag_ms"] for item in samples),
+    }
+
+
+def summarize_thread_measurements(rows: list[dict]) -> dict[str, object]:
+    """Return a conservative, machine-readable per-thread diagnostic summary."""
+    if not rows:
+        raise ValueError("cannot summarize an empty measurement lane")
+    moves_by_position: dict[int, list[str]] = {}
+    for row in rows:
+        moves_by_position.setdefault(int(row["position"]), []).append(str(row["bestmove"]))
+    stability = [
+        max(moves.count(move) for move in set(moves)) / len(moves)
+        for moves in moves_by_position.values()
+    ]
+    return {
+        "searches": len(rows),
+        "median_engine_nps": statistics.median(row["nps"] for row in rows),
+        "median_wall_nps": statistics.median(
+            row["wall_nps"] for row in rows if row["wall_nps"] is not None
+        ),
+        "median_completed_depth": statistics.median(row["depth"] for row in rows),
+        "completed_depth_range": {
+            "min": min(row["depth"] for row in rows),
+            "max": max(row["depth"] for row in rows),
+        },
+        "mean_bestmove_stability": statistics.mean(stability),
+        "lazy_tt": summarize_lazy_tt(rows),
+        "sampled_overlap": summarize_lazy_overlap(rows),
+        "root_result_disposition": summarize_lazy_root_work(rows),
+        "selected_worker_tt_reuse": summarize_selected_tt_reuse(rows),
+        "worker_balance": summarize_lazy_worker_balance(rows),
+    }
+
+
+def parallel_profile(results: dict[int, list[dict]], args: argparse.Namespace) -> dict:
+    """Bind 4T/8T parallel observations without inferring speed or strength.
+
+    This script does not admit or monitor an idle host, so even counter-free
+    runs remain observations until a dedicated speed gate validates host
+    conditions. Counter-enabled runs additionally include engine-side overhead.
+    """
+    return {
+        "schema": "sekirei.parallel-search-profile.v1",
+        "measurement_kind": "parallel_diagnostic",
+        "timing_qualified": False,
+        "timing_scope": (
+            "counter_overhead_included"
+            if args.lazy_diagnostics or args.require_lazy_diagnostics
+            else "counter_free_host_unqualified"
+        ),
+        "interpretation": (
+            "TT reuse, sampled overlap, discarded root work, and worker-node "
+            "balance are diagnostic observations. This report does not estimate "
+            "Elo, qualify a compiler profile, or authorize a search default."
+        ),
+        "provenance": {
+            "engine": args.provenance["engine"],
+            "engine_sha256": args.provenance["engine_sha256"],
+            "positions": args.provenance["positions"],
+            "positions_file_sha256": args.provenance["positions_file_sha256"],
+            "effective_positions_sha256": args.provenance["effective_positions_sha256"],
+            "effective_position_count": args.provenance["effective_position_count"],
+            "evaluator": args.provenance["evaluator"],
+            "options": engine_options(args, 1),
+            "budget": go_command(args),
+            "hash_mb": args.hash,
+            "started_at_utc": args.provenance["started_at_utc"],
+            "host": args.provenance["host"],
+        },
+        "threads": {
+            str(threads): summarize_thread_measurements(rows)
+            for threads, rows in sorted(results.items())
+        },
+    }
+
+
 def summarize_lazy_root_hints(
     rows: list[dict], *, require_all: bool = False
 ) -> dict[str, float | int | None] | None:
@@ -1532,6 +1648,13 @@ def main() -> int:
         "--option", action="append", default=[], help="extra USI option Name=Value"
     )
     parser.add_argument("--json", help="write one JSON line per measurement")
+    parser.add_argument(
+        "--summary-json",
+        help=(
+            "write a versioned parallel-search diagnostic summary; this never "
+            "qualifies timing or a playing-strength change"
+        ),
+    )
     args = parser.parse_args()
     if args.yaneuraou and args.evalfile is None:
         parser.error("--yaneuraou requires --evalfile")
@@ -1608,6 +1731,12 @@ def main() -> int:
             for rows in results.values():
                 for row in rows:
                     out.write(json.dumps(row) + "\n")
+
+    if args.summary_json:
+        Path(args.summary_json).write_text(
+            json.dumps(parallel_profile(results, args), indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     base = statistics.median(r["nps"] for r in results[thread_counts[0]])
     label = Path(args.engine).name + (" " + " ".join(args.option) if args.option else "")
