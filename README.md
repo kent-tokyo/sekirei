@@ -95,10 +95,12 @@ v0.3.73 before merge and again before publication; the 0.4 version bump does
 not by itself authorize a compatibility break. Component timings are not
 overall speed or strength rankings.
 
-A source-identical PGO binary exceeded the pinned YaneuraOu build by 7.1%
-in a completed Apple M4 4T wall-NPS study (95% interval: +5.1% to +9.0%).
-[Conditions and evidence](docs/experiments/compiler_pgo_4t_v0.4.1/README.md)
-apply to that binary and workload; ordinary Cargo builds do not use its profile.
+Dedicated PGO binaries exceeded the pinned YaneuraOu build on Apple M4:
+**8T +4.65%** (95% interval: +2.55% to +6.69%) and **4T +7.1%**
+(+5.1% to +9.0%). The [8T study](docs/experiments/compiler_pgo_8t_v0.4.2/README.md)
+and [4T study](docs/experiments/compiler_pgo_4t_v0.4.1/README.md) independently
+qualify their pinned binaries and workloads. Ordinary Cargo builds do not use
+these profiles.
 
 ## Matches and training
 
