@@ -269,7 +269,7 @@ def yaneuraou_options(
         "BookFile=no_book",
         "NetworkDelay=0",
         "NetworkDelay2=0",
-        "MinimumThinkingTime=0",
+        "MinimumThinkingTime=1",
         "RoundUpToFullSecond=false",
         f"NodesLimit={nodes_limit}",
     ]
