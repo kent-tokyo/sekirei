@@ -286,6 +286,15 @@ protocol, recording, and mid-game failures remain terminal. Exhausted recovery
 is recorded as `post_game_reconnect_exhausted` without discarding completed
 records. A non-zero one-shot child exit is also persisted to status and the
 run manifest; an active game is retained as an uncounted `incomplete_game`.
+The supervisor records event and log write failures with their errno in the
+one-shot receipt and on stderr. It emits `logging_failed` while the child is
+running. If a child log fails, it still drains the
+pipe and marks the receipt `log_persistence_failed`; the child is not replayed.
+If the completion receipt itself cannot be saved, the supervisor exits with
+an error instead of claiming a durable completion. A pre-spawn marker prevents
+automatic or manual replay when the receipt is missing; such a run needs
+operator inspection. Existing terminal client status or run manifests also
+prevent replay when a run predates the marker.
 For launchd, render the one-shot template with `KeepAlive=false` and start it
 through the idempotent helper:
 

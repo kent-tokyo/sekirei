@@ -13,6 +13,8 @@ TERMINAL_KINDS = {
     "circuit_breaker",
     "terminal_error",
     "start_failed",
+    "one_shot_complete",
+    "one_shot_already_complete",
 }
 
 
@@ -22,6 +24,7 @@ def validate(events: object) -> list[str]:
 
     errors: list[str] = []
     seen_terminal = False
+    seen_one_shot_receipt = False
     running_attempts: set[int] = set()
     restart_count = 0
     for index, event in enumerate(events):
@@ -32,7 +35,7 @@ def validate(events: object) -> list[str]:
         if not isinstance(kind, str) or not kind:
             errors.append(f"event {index}: missing kind")
             continue
-        if seen_terminal:
+        if seen_terminal and not (kind == "one_shot_already_complete" and seen_one_shot_receipt):
             errors.append(f"event {index}: event after terminal {kind}")
         if kind == "started":
             attempt = event.get("attempt")
@@ -54,17 +57,20 @@ def validate(events: object) -> list[str]:
                 running_attempts.remove(attempt)
             if "child_exit_code" not in event:
                 errors.append(f"event {index}: exited missing child_exit_code")
-            if event.get("exit_kind") in {"normal_exit", "explicit_stop"}:
+            if event.get("exit_kind") in {"normal_exit", "explicit_stop"} and not event.get("one_shot"):
                 seen_terminal = True
         elif kind == "restart_scheduled":
             restart_count += 1
             if event.get("restart_count") != restart_count:
                 errors.append(f"event {index}: restart_count is not monotonic")
         elif kind in {"explicit_stop", "client_status_invalid", "client_status_observed",
-                      "client_status_changed", "client_session_changed", "stop_requested"}:
+                      "client_status_changed", "client_session_changed", "stop_requested",
+                      "logging_failed"}:
             pass
         elif kind in TERMINAL_KINDS:
             seen_terminal = True
+            if kind in {"one_shot_complete", "one_shot_already_complete"}:
+                seen_one_shot_receipt = True
         else:
             errors.append(f"event {index}: unknown kind {kind!r}")
 

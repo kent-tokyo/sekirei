@@ -33,6 +33,15 @@ class SupervisorEventTests(unittest.TestCase):
     def test_normal_exit_stream_is_valid(self) -> None:
         self.assertEqual(validate(event_stream("started", "running", "exited")), [])
 
+    def test_one_shot_completion_after_normal_child_exit_is_valid(self) -> None:
+        events = event_stream("started", "running", "exited", "one_shot_complete")
+        events[2]["one_shot"] = True
+        self.assertEqual(validate(events), [])
+        events.append({"kind": "one_shot_already_complete"})
+        self.assertEqual(validate(events), [])
+        events.append({"kind": "started", "attempt": 2})
+        self.assertTrue(any("after terminal" in error for error in validate(events)))
+
     def test_bounded_restart_stream_is_valid(self) -> None:
         events = event_stream("started", "running", "exited", "restart_scheduled",
                               "started", "running", "exited", "circuit_breaker")
