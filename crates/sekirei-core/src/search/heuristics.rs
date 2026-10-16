@@ -204,6 +204,14 @@ pub(super) struct CorrKeys {
 }
 
 impl CorrKeys {
+    /// The pawn history uses the same hash's top nine bits, without the
+    /// correction table's side-to-move offset.
+    #[cfg(any(feature = "pawn_key_reuse", test))]
+    #[inline]
+    pub(super) fn pawn_history_bucket(self) -> usize {
+        (self.pawn & (CORR_BUCKETS - 1)) >> 5
+    }
+
     /// Keys of the position on `board` with `stm` to move.
     pub(super) fn of(board: &crate::board::Board, stm: Color) -> Self {
         fn fold(x: u128) -> u64 {
@@ -620,6 +628,123 @@ mod tests {
     fn assert_correction_keys(board: &Board) {
         for stm in [Color::Black, Color::White] {
             assert_eq!(CorrKeys::of(board, stm), legacy_correction_keys(board, stm));
+        }
+    }
+
+    fn assert_pawn_history_bucket(board: &Board) {
+        // Independent reference starts from the board, rather than truncating
+        // the correction key or calling the optimized getter.
+        let black = board.pieces(Color::Black, PieceKind::Fu).0;
+        let white = board.pieces(Color::White, PieceKind::Fu).0;
+        let black_fold = black as u64 ^ ((black >> 64) as u64).rotate_left(29);
+        let white_fold = white as u64 ^ ((white >> 64) as u64).rotate_left(29);
+        let expected = ((black_fold ^ white_fold.rotate_left(17))
+            .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+            >> 55) as usize;
+        assert_eq!(HistoryTable::pawn_bucket(board), expected);
+        for stm in [Color::Black, Color::White] {
+            assert_eq!(CorrKeys::of(board, stm).pawn_history_bucket(), expected);
+        }
+    }
+
+    #[test]
+    fn pawn_key_reuse_masks_side_for_every_correction_bucket() {
+        for stm in [Color::Black, Color::White] {
+            for bucket in 0..CORR_BUCKETS {
+                let keys = CorrKeys {
+                    pawn: stm.index() * CORR_BUCKETS + bucket,
+                    ..CorrKeys::default()
+                };
+                assert_eq!(keys.pawn_history_bucket(), bucket / 32);
+                assert!(keys.pawn_history_bucket() < PAWN_HIST_BUCKETS);
+            }
+        }
+    }
+
+    #[test]
+    fn pawn_key_reuse_matches_empty_single_and_mixed_bitboards() {
+        use crate::piece::Piece;
+
+        assert_pawn_history_bucket(&Board::empty());
+        for color in [Color::Black, Color::White] {
+            for index in 0..Square::NUM {
+                let mut board = Board::empty();
+                board.setup_piece(
+                    Square::from_index(index as u8),
+                    Piece::new(color, PieceKind::Fu),
+                );
+                assert_pawn_history_bucket(&board);
+            }
+        }
+        let mut board = Board::empty();
+        for (color, squares) in [
+            (Color::Black, [0, 29, 64, 80]),
+            (Color::White, [1, 47, 65, 79]),
+        ] {
+            for index in squares {
+                board.setup_piece(Square::from_index(index), Piece::new(color, PieceKind::Fu));
+            }
+        }
+        assert_pawn_history_bucket(&board);
+        // Both halves can cancel in fold(), although pawns are still present.
+        let mut board = Board::empty();
+        for index in [29, 64] {
+            board.setup_piece(
+                Square::from_index(index),
+                Piece::new(Color::White, PieceKind::Fu),
+            );
+        }
+        assert_pawn_history_bucket(&board);
+    }
+
+    #[test]
+    fn pawn_key_reuse_preserves_push_capture_promotion_drop_and_undo() {
+        use crate::movegen::generate_legal_moves;
+        use crate::sfen::{board_to_sfen, move_from_usi};
+
+        for (sfen, usi) in [
+            (crate::sfen::STARTPOS_SFEN, "7g7f"),
+            ("4k4/9/4p4/4P4/9/9/9/9/4K4 b - 1", "5d5c"),
+            ("k8/9/4P4/9/9/9/9/9/4K4 b - 1", "5c5b+"),
+            ("4k4/9/9/9/9/9/9/9/4K4 b P 1", "P*5e"),
+        ] {
+            let mut board = Board::from_sfen_rules_only(sfen).unwrap();
+            let initial = board_to_sfen(&board);
+            let mv = move_from_usi(usi, &board).unwrap();
+            assert!(generate_legal_moves(&mut board).contains(&mv), "{usi}");
+            assert_pawn_history_bucket(&board);
+            let token = board.do_move_for_search(mv);
+            assert_pawn_history_bucket(&board);
+            board.undo_move_for_search(token);
+            assert_pawn_history_bucket(&board);
+            assert_eq!(board_to_sfen(&board), initial);
+        }
+    }
+
+    #[test]
+    fn pawn_key_reuse_preserves_deterministic_legal_play_and_undo() {
+        use crate::movegen::generate_legal_moves;
+
+        for seed in 1..=8u64 {
+            let mut board = Board::startpos();
+            let initial = crate::sfen::board_to_sfen(&board);
+            let mut tokens = Vec::new();
+            let mut rng = seed;
+            assert_pawn_history_bucket(&board);
+            for _ in 0..64 {
+                let moves = generate_legal_moves(&mut board);
+                if moves.is_empty() {
+                    break;
+                }
+                rng = rng.wrapping_mul(6364136223846793005).wrapping_add(1);
+                tokens.push(board.do_move_for_search(moves[rng as usize % moves.len()]));
+                assert_pawn_history_bucket(&board);
+            }
+            while let Some(token) = tokens.pop() {
+                board.undo_move_for_search(token);
+                assert_pawn_history_bucket(&board);
+            }
+            assert_eq!(crate::sfen::board_to_sfen(&board), initial);
         }
     }
 

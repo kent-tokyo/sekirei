@@ -1,0 +1,4130 @@
+{
+  "schema": "sekirei.pawn-key-reuse-results.v1",
+  "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+  "source_ref": "049ffcd578191c4bf681e9968bec8869cc65b747",
+  "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+  "binding": {
+    "schema": "sekirei.pawn-key-reuse-binding.v1",
+    "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+    "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+    "frozen_before_first_search": "2026-10-16T06:13:53.363522+00:00",
+    "prospective_source_doc_sha256": "41308d606a1c6470e4ff2e3bb22dcded416512a80acc2dd7436781835497d062",
+    "search_source_clean": true,
+    "test_logs": [
+      "target/pawn-reuse-tests-v3.log",
+      "target/pawn-reuse-archive-tests-v3.log"
+    ],
+    "inputs_sha256": {
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build.py": "f97e3af3f18dab4298a3423ec3062e77c28fa9b521e75a2408f313bce30a4383",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/baseline": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/candidate": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/legal_tool": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "scripts/generate_search_diagnostic.py": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "scripts/nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "scripts/paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/pawn-reuse-analyze.py": "80cdcfc20b9299df0e1d532664384c58d4107a3602ffac6818b9023de1e8bc71",
+      "target/pawn-reuse-archive-tests-v2.log": "41567e0497866943bc125eae927972756c088623745fa6777a7cb054e560e1fb",
+      "target/pawn-reuse-archive-tests-v3.log": "b0518c752a51766fd7c76723d21d634027dcda3bee91f049f324867d6c384681",
+      "target/pawn-reuse-archive-tests.log": "ba9f3f39e89fcd87593504a733715ee6f19dcee9964470efa5d788cb0962fb13",
+      "target/pawn-reuse-archive.py": "9c543f31cf27912846971952e3b018756c7ad11c3407bd962d6fc17ee107e184",
+      "target/pawn-reuse-build-orchestration.log": "b6d19b075b8bb312bff680636c5bb3767cf7be617cafa7d1d4736c49cff7a1b9",
+      "target/pawn-reuse-build.json": "a8c564111133ba2575c6216667d7af8031f141b95c45c31590e4ac8936725b1a",
+      "target/pawn-reuse-build/baseline": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "target/pawn-reuse-build/baseline-symbols.txt": "8a99b5c46229b6a6c99706d09ce4164e40babe1232040bcc905cf220cc2817ca",
+      "target/pawn-reuse-build/baseline-usi.txt": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "target/pawn-reuse-build/baseline.log": "3096746e6f6bf5d511934ed9befcf323acd0b8e55fe20322c7ff1963fa085431",
+      "target/pawn-reuse-build/candidate": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "target/pawn-reuse-build/candidate-symbols.txt": "374bec7f63dc36068628676d5a0826babdf445f593c661ac689dd214aa7baa52",
+      "target/pawn-reuse-build/candidate-usi.txt": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "target/pawn-reuse-build/candidate.log": "2ff704374bbeb06f969ac0fa01b09e770b4f6c3a34f4ab4f1842622b1d272946",
+      "target/pawn-reuse-build/legal_tool": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/pawn-reuse-build/legal_tool-symbols.txt": "86ae379a0ea0cccb27a09d2ffeb8f600482649e66ddc7f1e38f5dcb711dc9c49",
+      "target/pawn-reuse-build/legal_tool.log": "8eddcfea6a573bec1c5181f6fc2ba3419ef462bd1ef40085a52cb8c46612ca12",
+      "target/pawn-reuse-clippy-feature.log": "72d241d05f0d334a174a0a1f3400d46e3772d1520a1515eff7b9f289ec3e592d",
+      "target/pawn-reuse-collect.py": "2930785b1690def60e7c2b9e11b4c58ab397d121444e9f08956a6d5f7da685e1",
+      "target/pawn-reuse-common.py": "0e68a09b898ed40d4fc52bfff226da7a942eb01483cee79da6fd628cb430dcd3",
+      "target/pawn-reuse-core-default.log": "3c829a58d2d694460a09fd2d73673ff1c7fd313f259a11baa3634a86d390c1fe",
+      "target/pawn-reuse-core-feature.log": "79b93acbf5007cf30c70d7952708ffedf16980dac9d5b8c472b60c978467b54a",
+      "target/pawn-reuse-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/pawn-reuse-primary-before.json": "f3382fb6a5b310eb1ed5f8b1df912cf3942ff7b669711f35de2181b134146814",
+      "target/pawn-reuse-prospective.md": "41308d606a1c6470e4ff2e3bb22dcded416512a80acc2dd7436781835497d062",
+      "target/pawn-reuse-run.py": "d88c43d85fa2f7945803b6a8a291f84d539bbcf8d36c7f87c02e389a3d68a1cf",
+      "target/pawn-reuse-source-commit.log": "3ddf8b98dc967026436202f44e5644e1432d0c9e7a4d6890f05d644c54265962",
+      "target/pawn-reuse-tests-v2.log": "d91c476b0b0c7ed18be4462575d06d450b2b853113bb57ebccf47b04b8c19a9a",
+      "target/pawn-reuse-tests-v3.log": "9ac35b6edc838e50da09e41e8d1a2dcca21fd3e2c48e2cf43539a9ca156c0df3",
+      "target/pawn-reuse-tests.log": "08a354f14f22be709c3d27c3db74fb260dd476d8ca9394271c3f32b37b641f69",
+      "target/pawn-reuse-tests.py": "938d7540918be558d51626cfb1c2a134e78555c57404458a040f045d50e639ca",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8"
+    },
+    "retries_permitted": false,
+    "default_feature_enabled": false,
+    "independent_h1": false,
+    "strength_claim": false
+  },
+  "build": {
+    "schema": "sekirei.pawn-key-reuse-build.v1",
+    "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+    "source_tree": "32cb1874073b8fdf906cb2b4ba07e03f5c0880e0",
+    "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+    "compiler_config_equal": true,
+    "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+    "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+    "config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+    "compiler_overrides": {},
+    "pgo": false,
+    "build_controls": {
+      "CARGO_BUILD_JOBS": "1",
+      "CARGO_INCREMENTAL": "0",
+      "CARGO_TARGET_DIR": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target"
+    },
+    "started_at_utc": "2026-10-16T06:11:35.907354+00:00",
+    "source_before": {
+      "head": "049ffcd578191c4bf681e9968bec8869cc65b747",
+      "tree": "32cb1874073b8fdf906cb2b4ba07e03f5c0880e0",
+      "status": ""
+    },
+    "build_commands": {
+      "baseline": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "--no-default-features",
+        "-p",
+        "sekirei"
+      ],
+      "candidate": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "--no-default-features",
+        "-p",
+        "sekirei",
+        "--features",
+        "pawn_key_reuse"
+      ],
+      "legal_tool": [
+        "cargo",
+        "build",
+        "--release",
+        "--offline",
+        "--no-default-features",
+        "-p",
+        "sekirei-core",
+        "--bin",
+        "sekirei-legal-moves"
+      ]
+    },
+    "test_logs": [
+      "target/pawn-reuse-fmt.log",
+      "target/pawn-reuse-core-default.log",
+      "target/pawn-reuse-core-feature.log",
+      "target/pawn-reuse-clippy-feature.log",
+      "target/pawn-reuse-tests-v2.log",
+      "target/pawn-reuse-archive-tests-v3.log"
+    ],
+    "baseline": {
+      "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/baseline",
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "features": [],
+      "test_observer_symbols_absent": true
+    },
+    "candidate": {
+      "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/candidate",
+      "sha256": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "features": [
+        "pawn_key_reuse"
+      ],
+      "test_observer_symbols_absent": true
+    },
+    "legal_tool": {
+      "path": "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/legal_tool",
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "features": [],
+      "test_observer_symbols_absent": true
+    },
+    "source_after": {
+      "head": "049ffcd578191c4bf681e9968bec8869cc65b747",
+      "tree": "32cb1874073b8fdf906cb2b4ba07e03f5c0880e0",
+      "status": ""
+    },
+    "target_idle_after": true,
+    "completed_at_utc": "2026-10-16T06:13:12.476840+00:00",
+    "status": "complete",
+    "build_inputs": {
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build.py": "f97e3af3f18dab4298a3423ec3062e77c28fa9b521e75a2408f313bce30a4383",
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "target/pawn-reuse-archive-tests-v3.log": "b0518c752a51766fd7c76723d21d634027dcda3bee91f049f324867d6c384681",
+      "target/pawn-reuse-build/baseline": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "target/pawn-reuse-build/baseline-symbols.txt": "8a99b5c46229b6a6c99706d09ce4164e40babe1232040bcc905cf220cc2817ca",
+      "target/pawn-reuse-build/baseline-usi.txt": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "target/pawn-reuse-build/baseline.log": "3096746e6f6bf5d511934ed9befcf323acd0b8e55fe20322c7ff1963fa085431",
+      "target/pawn-reuse-build/candidate": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "target/pawn-reuse-build/candidate-symbols.txt": "374bec7f63dc36068628676d5a0826babdf445f593c661ac689dd214aa7baa52",
+      "target/pawn-reuse-build/candidate-usi.txt": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "target/pawn-reuse-build/candidate.log": "2ff704374bbeb06f969ac0fa01b09e770b4f6c3a34f4ab4f1842622b1d272946",
+      "target/pawn-reuse-build/legal_tool": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/pawn-reuse-build/legal_tool-symbols.txt": "86ae379a0ea0cccb27a09d2ffeb8f600482649e66ddc7f1e38f5dcb711dc9c49",
+      "target/pawn-reuse-build/legal_tool.log": "8eddcfea6a573bec1c5181f6fc2ba3419ef462bd1ef40085a52cb8c46612ca12",
+      "target/pawn-reuse-clippy-feature.log": "72d241d05f0d334a174a0a1f3400d46e3772d1520a1515eff7b9f289ec3e592d",
+      "target/pawn-reuse-core-default.log": "3c829a58d2d694460a09fd2d73673ff1c7fd313f259a11baa3634a86d390c1fe",
+      "target/pawn-reuse-core-feature.log": "79b93acbf5007cf30c70d7952708ffedf16980dac9d5b8c472b60c978467b54a",
+      "target/pawn-reuse-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/pawn-reuse-primary-before.json": "f3382fb6a5b310eb1ed5f8b1df912cf3942ff7b669711f35de2181b134146814",
+      "target/pawn-reuse-tests-v2.log": "d91c476b0b0c7ed18be4462575d06d450b2b853113bb57ebccf47b04b8c19a9a",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8"
+    }
+  },
+  "closed": {
+    "schema": "sekirei.pawn-key-reuse-closed.v1",
+    "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+    "prequiet_qualified": true,
+    "timed_attempts": 1,
+    "resume_permitted": false,
+    "retry_permitted": false,
+    "default_adopted": false,
+    "strength_claim": false
+  },
+  "reports": {
+    "control": {
+      "schema": "sekirei.pawn-key-reuse-screen.v1",
+      "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+      "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+      "mode": "control",
+      "rows": 80,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 744,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 9.84767428309059,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 21.229337954606464,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.4384158731770338,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.16918555931549895,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.6301590245088251,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.9622758735556847,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.41835127012304074,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.45374731624827636,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.3828889460303131,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.5133757165573849,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.689845030589642,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.33523650452734755,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.2894903913570168,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.40764397684590614,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.17098583562759062,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -1.8347736366818634,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.23774704154212456,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -3.435123183556976,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.0033523645608167,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.3384829580522117,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.6711600140227203,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.31056413585480724,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.2901088286267228,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.3309469083462524,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.08689874681480081,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.3144979881936072,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.4929353179688123,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.6582437275548525,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.4685618022229443,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.7760611118708414,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.1121584980028345,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.0345432669470744,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7987980858868204,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.005586344620378547,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.6902336917463225,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.6974998203216787,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.5595243863185662,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.600552023758727,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.5188397587970073,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.03286871135270708,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.46533142512903414,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.4018813436527324,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -1.8432627121409473,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.949166853711649,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7332655423918477,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.2588767785430601,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.04527200749305793,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.5645462337919405,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.30174000991296523,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.5501509223774015,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.1564855741265756,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.31726098926696533,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.21703011252376392,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.41787684609428943,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.01964076016434113,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.016071276809515034,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.02321789877459679,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.5217204576887569,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.1141136167627685,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.0813840195330151,
+                  "completed_depth_delta": 0
+                }
+              }
+            }
+          ],
+          "median_wall_nps_percent": {
+            "all": -0.019227527986542814,
+            "quiet": 0.20694925395789987,
+            "tactical": -0.2398748475851531
+          },
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_wall_nps_percent": {
+            "A_first": 0.11655069466663948,
+            "B_first": -0.07388396842649692
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_wall_nps_percent": [
+            9.84767428309059,
+            -0.16918555931549895,
+            0.41835127012304074,
+            -0.5133757165573849,
+            -0.2894903913570168,
+            -1.8347736366818634,
+            1.0033523645608167,
+            -0.31056413585480724,
+            -0.08689874681480081,
+            -0.6582437275548525,
+            0.1121584980028345,
+            -0.005586344620378547,
+            0.5595243863185662,
+            -0.03286871135270708,
+            -1.8432627121409473,
+            0.2588767785430601,
+            0.30174000991296523,
+            0.31726098926696533,
+            0.01964076016434113,
+            -0.5217204576887569
+          ],
+          "per_position_mean_completed_depth_delta": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "mean_position_wall_nps_percent": 0.3286304600022083,
+          "mean_position_completed_depth_delta": 0,
+          "position_bootstrap_wall_nps_percent_95": [
+            -0.4162319866075215,
+            1.4641774964403402
+          ],
+          "position_bootstrap_completed_depth_delta_95": [
+            0,
+            0
+          ]
+        }
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "default_feature_enabled": false,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Fresh-process ABBA speed/depth development screen. Same-rules PV replay, no independent rules oracle. 1T, 4T and 8T reported separately. No Elo inference or automatic adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-analyze.py": "80cdcfc20b9299df0e1d532664384c58d4107a3602ffac6818b9023de1e8bc71",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-common.py": "0e68a09b898ed40d4fc52bfff226da7a942eb01483cee79da6fd628cb430dcd3",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-control/engine-A": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-control/engine-B": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-control/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/pawn-reuse-binding.json": "1dea292db6c33d20bd246d66aa0441c9df5d57c54e77e9117a59911514a2c68c",
+        "target/pawn-reuse-build.json": "a8c564111133ba2575c6216667d7af8031f141b95c45c31590e4ac8936725b1a",
+        "target/pawn-reuse-control/manifest.json": "925a474c8c9dbd3f3cba676c5de409bb1a413cce0cb80bc95bed62e46f92bcfb",
+        "target/pawn-reuse-control/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/pawn-reuse-control/pv-validation.json": "e1efb837fb7b8896806e97ac1f00cbf1031ed1cf807af2196d54699f5eadb0d5",
+        "target/pawn-reuse-control/rows.jsonl": "d4fff81e21978f9a6638ec2b95bc63e629e3c11e0241ef67d51158cc6a45820d",
+        "target/pawn-reuse-control/summary.json": "1841326e51f2e02c08257d4a59eca08b9d47230ff1c5617c2f8e3a29bcbc2cf0"
+      }
+    },
+    "equality": {
+      "schema": "sekirei.pawn-key-reuse-screen.v1",
+      "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+      "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+      "mode": "equality",
+      "rows": 160,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 1488,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -2.7798934340884984,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.237284093054827,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.4835116448856933,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.6457958927608365,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.42966020499699553,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.8605113318316593,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.2284638103540404,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.188071979254123,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.2687381779620468,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.5526520380114475,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.782709926503844,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.3223311365292192,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.407699634140013,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.6913095302721439,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.5028989026770745,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.6863732296608194,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.3858754632757764,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.008226900165086981,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.3908153896655664,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6196253432949828,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.1601202868432683,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.268377788999663,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.5425427544763495,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.007818739235299077,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.48539564604890284,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.22503318622614232,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7481022762993783,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.3844433246268819,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.8880321069226316,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.11398957972197366,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.07574913213658219,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.15669792213561795,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.30653713773781677,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.429381947911478,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6172965798778463,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.2410788369467065,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.7208133523040283,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.20009344589141387,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.6729929911706298,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.34489437838827186,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.0777721876998214,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.39281219356313013,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.5048076261701562,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.8419665289707279,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.16940694904554743,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.2505205719982029,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.14793868294334933,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.35320704984816986,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.5823305907771035,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.6606580902773782,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.5040296441830137,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.3146812638597294,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.3757741865547901,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.2535764784046388,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.27562817844254406,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6654224845399903,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.11296156016991077,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.4631086195515888,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.38229835546969015,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.5440623347154672,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.48650784702229943,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.3833248992565208,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.58894587218703,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.45707920997656304,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.9047161604682774,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.8060863906677382,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.37447940002593993,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.4255743032997583,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.32349388142626223,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.827467918730974,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.1670178700624265,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.4878691651739606,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.206194617213451,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.7366873751300629,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.3241734658300466,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.33944985080774925,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.2008286769818013,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.47765833536186353,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.09996840576772525,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.5649776463898748,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7594019004113384,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 0.2701013366223082,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.08609733064628422,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.45529195959301827,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.464913734785167,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.673967312909009,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.2861643747626541,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.11497121416664813,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.5332992964713013,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.3041753320641494,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.804414233678763,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.44720105185909187,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.1629473564736648,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.381365608952334,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.89979110713543,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.14982516008705815,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.06963221942908326,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.1742895068825856,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.31601988102918366,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.28757238396914797,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.33874236496403975,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.923348176456118,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.0026461692619328403,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.41214246451646286,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.4206497893174399,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 0.060082081087675654,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.35928077500286815,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.23673203476440863,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.27896975269330326,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.2015468924784547,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.35657204191343883,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.6034385385587981,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.025299847282211907,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.1824384560053414,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.477452729078931,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.3199493629294281,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.2802581352234332,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.025542171195924723,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.044266844370488556,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.006878352060146753,
+                  "completed_depth_delta": 0
+                }
+              }
+            }
+          ],
+          "median_wall_nps_percent": {
+            "all": -0.27200298372110354,
+            "quiet": -0.30920980175052626,
+            "tactical": -0.25944918049893295
+          },
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_wall_nps_percent": {
+            "A_first": -0.32934586394673393,
+            "B_first": -0.19842616080383846
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_wall_nps_percent": [
+            -1.7128446634246675,
+            -0.39055792418274393,
+            -0.5470364319004162,
+            -0.3295965893326147,
+            -0.050476160711010465,
+            -0.2525655400240301,
+            0.18795948695787823,
+            0.12714352708597665,
+            0.13382466345868704,
+            -0.3693683989970664,
+            -0.47179352849943124,
+            -1.100973659378457,
+            -0.27282223401060013,
+            0.08506646542729146,
+            0.6749712603092595,
+            -1.0928899213155485,
+            0.17860230169911562,
+            0.03136412517480425,
+            0.16223439293274744,
+            0.22595527894150313
+          ],
+          "per_position_mean_completed_depth_delta": [
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "mean_position_wall_nps_percent": -0.23919017748946614,
+          "mean_position_completed_depth_delta": 0,
+          "position_bootstrap_wall_nps_percent_95": [
+            -0.4874591690000979,
+            -0.014862299630498121
+          ],
+          "position_bootstrap_completed_depth_delta_95": [
+            0,
+            0
+          ]
+        }
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "default_feature_enabled": false,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Fresh-process ABBA speed/depth development screen. Same-rules PV replay, no independent rules oracle. 1T, 4T and 8T reported separately. No Elo inference or automatic adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-analyze.py": "80cdcfc20b9299df0e1d532664384c58d4107a3602ffac6818b9023de1e8bc71",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-common.py": "0e68a09b898ed40d4fc52bfff226da7a942eb01483cee79da6fd628cb430dcd3",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-equality/engine-A": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-equality/engine-B": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-equality/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/pawn-reuse-binding.json": "1dea292db6c33d20bd246d66aa0441c9df5d57c54e77e9117a59911514a2c68c",
+        "target/pawn-reuse-build.json": "a8c564111133ba2575c6216667d7af8031f141b95c45c31590e4ac8936725b1a",
+        "target/pawn-reuse-control/development-screen.json": "c83b3dd89ce9a4be3bca7bf6cd6810083a730a7c0bded09f7a9784d3525f38ee",
+        "target/pawn-reuse-equality/manifest.json": "b29a997e21ec4f47543454eb09cdfdaab39e9ef71ecf49c5a60e6616c0cd1276",
+        "target/pawn-reuse-equality/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/pawn-reuse-equality/pv-validation.json": "e380ee67b7f21c582c5be0824f2ae0e62d839902f1d1bd6c98b6034583b71853",
+        "target/pawn-reuse-equality/rows.jsonl": "a57aedca89b54cec75090395f955d94db86c3303633edb2934977a17faa66c79",
+        "target/pawn-reuse-equality/summary.json": "b89b51e66cfa76a3d903727a35a9677903d30e5fb8003e8ad5deefa197865e05"
+      }
+    },
+    "timed": {
+      "schema": "sekirei.pawn-key-reuse-screen.v1",
+      "source_commit": "049ffcd578191c4bf681e9968bec8869cc65b747",
+      "base_commit": "feeb9bde52619d0ecbf0bc2b93ac5067eeb46220",
+      "mode": "timed",
+      "rows": 480,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 4312,
+      "fixed_depth_identity_pass": null,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -2.2029200670314775,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.2578783459975873,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -3.1229922823520107,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 1.0804564519794058,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.1445924517514916,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.285856410548016,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.4219375455786545,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.3952619523858947,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.44860801515201887,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 0.6999833015498336,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.19884955073738997,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.188645676377842,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.24845178061004836,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.36099466701597915,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.13561697463162492,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.1738926830387122,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -3.4164638992320917,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.1362902829139117,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.22734321451364226,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.06608926402871251,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.5197411791929674,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 2.4766227857692558,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 5.955478526121771,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7957909851387557,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.5893166872880773,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.35315448248141035,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.8279266820853559,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -2.60276100947916,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.406550075601611,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.840282460271502,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.9807812195514187,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.4258810416628687,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.5381982415106679,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.5759537138750335,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.920754645952929,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.812367643691748,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.1976500069458496,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.9347435119045686,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.4758066776883174,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.4291618064553804,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.6507068709916695,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7838223053894477,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.08933692046961816,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.20137022750159606,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.022538263794824598,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.5437612665569969,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.5083259233402138,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.5784962106165414,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.2172560139637847,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.2500846578202376,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.18428590778754028,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 1.8349076472208292,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 3.3802278940761044,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.3624464124553084,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.4342628384111702,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.30722110679612946,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.5616148708644575,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -2.469217971782478,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.3994862134023798,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -2.538143820012295,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.30301017816160014,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.053588020736849984,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.659495194509685,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -3.078428222992957,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -3.2974742837986515,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -2.8525940569771535,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.3168230505955938,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.23407221799665034,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.8720249730395757,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.0844474135686002,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.7255686825420549,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.8913307419958438,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.3994781261997593,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.2688116910106175,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.0749628370579911,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 2.2986067350199146,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 6.292425227201548,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.5187217132311304,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.11417819130999929,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.45548349528246046,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.6786524765671209,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -2.1580575728471496,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.6679687964069156,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -2.63538089223625,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.1461823656904171,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.47151634216631155,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.7717889149587043,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.010697242880186586,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.07625230923407056,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.05621928455574743,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.2980883472764151,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.2707310539671326,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.8648639091470622,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.9390689925195548,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.270845830448334,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.4796217593447514,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.22212537402579446,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.8035249247524412,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.36446444414957035,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.5607503558437532,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.8229027446462718,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 4.203139173390813,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.0914831057347465,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.051539312719373065,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.23560310385105643,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 3.431692319855628,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.7014161852782825,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 4.192977242715967,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.27860307656533134,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.32989550854232164,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.22709688080215784,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -2.1695668019295677,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.954001903651282,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.3741967639077979,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.5549883322204519,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.5967734055092322,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.5131427764119678,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.9571519815951501,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.1513873347786419,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -3.05861430241402,
+                  "completed_depth_delta": 0
+                }
+              }
+            }
+          ],
+          "median_wall_nps_percent": {
+            "all": -0.08796525965167334,
+            "quiet": 0.1817191898271009,
+            "tactical": -0.17076070291182077
+          },
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_wall_nps_percent": {
+            "A_first": 0.052563666728111524,
+            "B_first": -0.09591812959368617
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_wall_nps_percent": [
+            -0.5612318075260359,
+            0.13902287798558954,
+            -0.21117223182438027,
+            1.1246397856278068,
+            -1.0067221610955412,
+            -1.278367466713226,
+            0.813405906700615,
+            -0.22721217304368935,
+            1.026081830592307,
+            -1.017477566685654,
+            -1.6907192005772786,
+            0.1161878185134968,
+            1.349042430609837,
+            -1.1361178820785744,
+            0.07843980428530184,
+            -1.118578669897985,
+            0.16931249090897937,
+            1.6701046070604408,
+            -0.9454818626821182,
+            -0.20108182468734914
+          ],
+          "per_position_mean_completed_depth_delta": [
+            0.25,
+            -0.5,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0
+          ],
+          "mean_position_wall_nps_percent": -0.1453962647263729,
+          "mean_position_completed_depth_delta": -0.0125,
+          "position_bootstrap_wall_nps_percent_95": [
+            -0.5411204869330946,
+            0.26800845320743505
+          ],
+          "position_bootstrap_completed_depth_delta_95": [
+            -0.075,
+            0.0375
+          ]
+        },
+        "4": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 2.089387038757562,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 4.968305749681345,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7969465921011554,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.34805289712966925,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.2324124861161181,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.9691336118893723,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.19867778097313327,
+              "completed_depth_delta": 1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.2840199145665725,
+                  "completed_depth_delta": 2
+                },
+                "B_first": {
+                  "wall_nps_percent": 5.146444256855198,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -4.687616236208248,
+              "completed_depth_delta": 1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.8514533946538672,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -8.427571907370247,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.1698565277159734,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.8743201323629934,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.2679971295768384,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.8974398024849117,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.8657446739934533,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.0814657817305062,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.8263702543634732,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.0924149916071046,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.5559399901452045,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 3.7905462273305934,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.49574125456275375,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 7.180920763509713,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.2729213899365766,
+              "completed_depth_delta": 1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.5243723121245676,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.032546200533234426,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 2.3440987968680993,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.3805184868276097,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 2.3086200264177625,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.8068380035125777,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6714696742120552,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.9428223727077079,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 2.066079035966717,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.4330438402297085,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 5.749433080082711,
+                  "completed_depth_delta": -2
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 3.9020637597123375,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 4.593376409974814,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.203550052731119,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -7.249351811994476,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -9.922312978375992,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.652087134890481,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -4.358124378980543,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.303041690421827,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.414038944024501,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.426234453428843,
+              "completed_depth_delta": 1.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.6875583768968148,
+                  "completed_depth_delta": 3
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.07980240944868155,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.8433093543469337,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.261592630236552,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 5.051823232952857,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -3.530869922845581,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 4.322218509871045,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -11.032185383090031,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 0.4040978730992739,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.7868397277843506,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 2.6861092636641493,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.8098795588066374,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.05632655096095007,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -3.655702603883648,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.745657104661058,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 5.423559316924909,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.77893030586469,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.595784636411445,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.4613024490876545,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.2915778878284767,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 6.856966918502949,
+              "completed_depth_delta": -1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 6.188187230849751,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 7.549460997282531,
+                  "completed_depth_delta": -2
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -7.496312509585223,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -8.793826762220036,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -6.122751309941843,
+                  "completed_depth_delta": -2
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -2.1603010404008804,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.647121892377093,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.35553535770738165,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.3113568463130942,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.8477638493833326,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7878600563706595,
+                  "completed_depth_delta": 2
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 2.9792080340826477,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.1959134471915553,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 8.53962745279424,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 1.093554506718819,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6210283834757302,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 2.891646290953087,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 2.023515908492479,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.286366603139414,
+                  "completed_depth_delta": 2
+                },
+                "B_first": {
+                  "wall_nps_percent": 9.884238864013085,
+                  "completed_depth_delta": -3
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.358058460481537,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.613145428624,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.8959287067112474,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 7.881775933665991,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.09132341763575802,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 17.10477228527583,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 3.3676175424327326,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.045046921795656,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 5.833089907252398,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -42.56277130724151,
+              "completed_depth_delta": -2,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -87.77754645398328,
+                  "completed_depth_delta": -5
+                },
+                "B_first": {
+                  "wall_nps_percent": -11.935172917785753,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.3394122558568422,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.018929584271678,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.655590697205477,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 4.9781057053317035,
+              "completed_depth_delta": 1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 3.6128452920465737,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 6.505044898727075,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 5.700416548019205,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 7.916109947253691,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.5604330330016865,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 2.741302695772685,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 3.1336997028703184,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 2.3488065268386205,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -2.7048202901808427,
+              "completed_depth_delta": 1.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.303191701789234,
+                  "completed_depth_delta": 2
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.09559144880287862,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -12.655389878105405,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -20.907383666979218,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -3.2027744473529185,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 1.9802348558660254,
+              "completed_depth_delta": 1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 3.0866995983158896,
+                  "completed_depth_delta": 3
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.88736080002636,
+                  "completed_depth_delta": -1
+                }
+              }
+            }
+          ],
+          "median_wall_nps_percent": {
+            "all": 0.8619050284241925,
+            "quiet": 0.6227463498072905,
+            "tactical": 0.9599623805411461
+          },
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.25
+          },
+          "directional_median_wall_nps_percent": {
+            "A_first": -0.7614615344329612,
+            "B_first": 0.9282472059578661
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_wall_nps_percent": [
+            1.2187199679436156,
+            -2.2444692276175573,
+            1.0336481651004426,
+            2.3084582408470333,
+            1.808510093402338,
+            0.6296205162270696,
+            -1.6736440261410692,
+            -2.892179416204693,
+            -0.8437802842493236,
+            -0.7028908428536818,
+            0.5749362341248065,
+            -0.31967279554113714,
+            -1.7358289433569873,
+            2.0363812704007334,
+            0.33272872400547104,
+            5.624696738049362,
+            -21.951091781549177,
+            5.339261126675455,
+            0.01824120279592112,
+            -5.33757751111969
+          ],
+          "per_position_mean_completed_depth_delta": [
+            0.0,
+            1.0,
+            -0.75,
+            0.5,
+            0,
+            -0.5,
+            0.25,
+            1.0,
+            0,
+            0.0,
+            0.25,
+            -1.0,
+            0.5,
+            0.25,
+            -0.5,
+            0.25,
+            -0.75,
+            0.5,
+            0.75,
+            0.5
+          ],
+          "mean_position_wall_nps_percent": -0.8387966274530534,
+          "mean_position_completed_depth_delta": 0.1125,
+          "position_bootstrap_wall_nps_percent_95": [
+            -3.424471658746128,
+            1.1080809768260735
+          ],
+          "position_bootstrap_completed_depth_delta_95": [
+            -0.1375,
+            0.35
+          ]
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 41.0154837659493,
+              "completed_depth_delta": 2,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 13.009315603147886,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 87.31040866633589,
+                  "completed_depth_delta": 4
+                }
+              }
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.7257657262281456,
+              "completed_depth_delta": 1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -3.6957889504138697,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.2390128418573889,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 16.28492994474202,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 38.68991240074138,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.17222438167037168,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -6.295611691521874,
+              "completed_depth_delta": -1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -7.824763763703668,
+                  "completed_depth_delta": -2
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.696828248071149,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 10.10259979264485,
+              "completed_depth_delta": -1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 12.850661999962476,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 7.580374448764515,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.898220912940507,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.9824669127474945,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7984845720879874,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 8.163337905137325,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.46804435329488303,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 17.211201649573617,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.676300238528472,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.291310652331279,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -2.0647988903629066,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.3897881488683086,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.40876236335864,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.61429003969109,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -1.1869441760863242,
+              "completed_depth_delta": 1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.5915198183821135,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.758432507540364,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.28386868336750526,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.7860242938154793,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.2429706548824795,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 1.4163334524290638,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.4583422897435083,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.3742650821485292,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 0.7222967795640134,
+              "completed_depth_delta": 1.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 6.353793986004153,
+                  "completed_depth_delta": 2
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.901828988743939,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 12.027384233594951,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 10.934987840832044,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 13.122907680970219,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": 1.97255223319881,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.881176975067289,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 2.0611246512954207,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 1.8889731679358812,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 4.212099868014718,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.42061665336557974,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 1.1019096069946999,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.8975580639541958,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.3028672036421884,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -2.36184755871649,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.42543779044402763,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.345720403357312,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -7.541936740172595,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.364621696322713,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -9.801136969205682,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.14522156521816765,
+              "completed_depth_delta": -1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.7366206184768687,
+                  "completed_depth_delta": -2
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.4514070548998106,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 6.75162852803417,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 9.40529809811923,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 4.276365800016602,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -2.7772430097137035,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -4.446603170875518,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.1038184513289306,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -6.921215357553767,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -6.189389395694478,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -7.659678960184568,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.30115970101574074,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 6.385182161966085,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -6.61936838727758,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -2.427665321654726,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -9.409471329213204,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 4.877894294775276,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 1.1893788815355189,
+              "completed_depth_delta": -1.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.44809319417036253,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.9371316671388472,
+                  "completed_depth_delta": -2
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -7.210518165784485,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.7641872498579283,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -12.992223759070075,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": 0.8858954882753123,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.2592743103034145,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": 1.5367434742592279,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -3.548162905754182,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.414955914172992,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.6815239900757062,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": 0.8965842153024539,
+              "completed_depth_delta": -1,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 3.1866735214228337,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.4039569950834219,
+                  "completed_depth_delta": -1
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.18538429627288355,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 1.3287336520277027,
+                  "completed_depth_delta": 1
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.78162093333728,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.6973802885838265,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.6592243290280742,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7364990452688791,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": -0.89062862414232,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 0.15717366769623098,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.9483021935209455,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -4.629705561608876,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -5.050152158270849,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -4.198103914978358,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -4.951504552300079,
+              "completed_depth_delta": -0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -8.66429889933884,
+                  "completed_depth_delta": -1
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.1605316175462344,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -1.1571370532424075,
+              "completed_depth_delta": 0.5,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -2.5945669726540888,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.2929697300712464,
+                  "completed_depth_delta": 1
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "wall_nps_percent": 3.296459091802606,
+              "completed_depth_delta": 1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": 2.853588915997163,
+                  "completed_depth_delta": 2
+                },
+                "B_first": {
+                  "wall_nps_percent": 3.7312302515162488,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "wall_nps_percent": -0.6163258546478034,
+              "completed_depth_delta": 0.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -1.3508820831464652,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": 0.12138910017669424,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "wall_nps_percent": -0.8645792527120943,
+              "completed_depth_delta": 0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.30194164626614617,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -1.402200405354237,
+                  "completed_depth_delta": 0
+                }
+              }
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "wall_nps_percent": -0.4402765384026175,
+              "completed_depth_delta": -1.0,
+              "directional": {
+                "A_first": {
+                  "wall_nps_percent": -0.0974164279142431,
+                  "completed_depth_delta": 0
+                },
+                "B_first": {
+                  "wall_nps_percent": -0.7721417476353909,
+                  "completed_depth_delta": -2
+                }
+              }
+            }
+          ],
+          "median_wall_nps_percent": {
+            "all": -0.41503234363546304,
+            "quiet": -0.503057001758056,
+            "tactical": -0.3707181197091791
+          },
+          "median_completed_depth_delta": {
+            "all": 0.0,
+            "quiet": 0.0,
+            "tactical": 0.0
+          },
+          "directional_median_wall_nps_percent": {
+            "A_first": -0.3636897183550869,
+            "B_first": -0.5785578493172294
+          },
+          "directional_median_completed_depth_delta": {
+            "A_first": 0.0,
+            "B_first": 0.0
+          },
+          "per_position_mean_wall_nps_percent": [
+            19.644859019860576,
+            4.994659126610074,
+            4.102189439852172,
+            3.2435188333044267,
+            -0.7883661624773164,
+            0.5662323845307793,
+            6.374840506579482,
+            1.9307627005673456,
+            -0.6299689758608951,
+            -3.8435791526953813,
+            1.9871927591602334,
+            -3.611187529284754,
+            -0.6191432200596036,
+            -3.1623113387545865,
+            -1.325789345225864,
+            -0.441382292428355,
+            -2.760167092875598,
+            -3.0543208027712434,
+            1.3400666185774013,
+            -0.6524278955573559
+          ],
+          "per_position_mean_completed_depth_delta": [
+            1.5,
+            -0.25,
+            -0.5,
+            0.5,
+            0.5,
+            0,
+            0.75,
+            0.25,
+            -0.25,
+            -0.5,
+            -0.25,
+            0.0,
+            -0.5,
+            0.25,
+            -0.75,
+            0.25,
+            0.25,
+            0.0,
+            0.5,
+            -0.5
+          ],
+          "mean_position_wall_nps_percent": 1.1647838790525769,
+          "mean_position_completed_depth_delta": 0.0625,
+          "position_bootstrap_wall_nps_percent_95": [
+            -0.7895631371371107,
+            3.642526203739797
+          ],
+          "position_bootstrap_completed_depth_delta_95": [
+            -0.15,
+            0.3
+          ]
+        }
+      },
+      "independent_thread_screens": {
+        "4": {
+          "advance": false,
+          "reasons": [
+            "Timing prequiet and both idle guards did not pass.",
+            "NPS bootstrap lower bound is not positive.",
+            "An ABBA NPS direction is not positive."
+          ]
+        },
+        "8": {
+          "advance": false,
+          "reasons": [
+            "Timing prequiet and both idle guards did not pass.",
+            "Overall wall NPS median below +0.5 percent.",
+            "NPS bootstrap lower bound is not positive.",
+            "An ABBA NPS direction is not positive."
+          ]
+        }
+      },
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "default_feature_enabled": false,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "interpretation": "Fresh-process ABBA speed/depth development screen. Same-rules PV replay, no independent rules oracle. 1T, 4T and 8T reported separately. No Elo inference or automatic adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-analyze.py": "80cdcfc20b9299df0e1d532664384c58d4107a3602ffac6818b9023de1e8bc71",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-common.py": "0e68a09b898ed40d4fc52bfff226da7a942eb01483cee79da6fd628cb430dcd3",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-timed/engine-A": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-timed/engine-B": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-timed/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/pawn-reuse-binding.json": "1dea292db6c33d20bd246d66aa0441c9df5d57c54e77e9117a59911514a2c68c",
+        "target/pawn-reuse-build.json": "a8c564111133ba2575c6216667d7af8031f141b95c45c31590e4ac8936725b1a",
+        "target/pawn-reuse-control/development-screen.json": "c83b3dd89ce9a4be3bca7bf6cd6810083a730a7c0bded09f7a9784d3525f38ee",
+        "target/pawn-reuse-equality/development-screen.json": "ec67026ce8bf53094813329a1d6dea3d9af508bdcc686529b241b21bb0ab44ba",
+        "target/pawn-reuse-prequiet.json": "846574bc8d854683fa7004190e6bc67fef58c1d653494d35986320e7cecb6f52",
+        "target/pawn-reuse-timed/manifest.json": "b2ab72b0a079863f55c12fa59f24b61d2ab565d58c71e00b29c24851db816d91",
+        "target/pawn-reuse-timed/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/pawn-reuse-timed/pv-validation.json": "1fc210996e6450c43ff9797a421c5806a9f218368045987def52f9acd436d3cb",
+        "target/pawn-reuse-timed/rows.jsonl": "9698332e2b6c77dcfcad38fcb553287c319054446129aa4f538bf379b83f539c",
+        "target/pawn-reuse-timed/summary.json": "2ba01afdfab76da67ff540d93443c8976cee6f64d2b0ceea011f42ec024c065b"
+      }
+    }
+  },
+  "timed_status": "complete_unqualified",
+  "rows": 720,
+  "validated_rows": 720,
+  "lane_status": {
+    "control": "complete_validated",
+    "equality": "complete_validated",
+    "timed": "complete_validated"
+  },
+  "legal_pv_moves": 6544,
+  "all_rows_retained": true,
+  "default_feature_enabled": false,
+  "default_adopted": false,
+  "independent_h1": false,
+  "strength_claim": false,
+  "artifacts": {
+    ".cargo/config.toml": {
+      "sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "bytes": 48
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build.py": {
+      "sha256": "f97e3af3f18dab4298a3423ec3062e77c28fa9b521e75a2408f313bce30a4383",
+      "bytes": 4936
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/baseline": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/candidate": {
+      "sha256": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "bytes": 4179456
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/pawn-reuse-build/legal_tool": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "scripts/generate_search_diagnostic.py": {
+      "sha256": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "bytes": 7895
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "bytes": 84246
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "bytes": 23956
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/pawn-reuse-analyze.py": {
+      "sha256": "80cdcfc20b9299df0e1d532664384c58d4107a3602ffac6818b9023de1e8bc71",
+      "bytes": 7014
+    },
+    "target/pawn-reuse-archive-tests-v2.log": {
+      "sha256": "41567e0497866943bc125eae927972756c088623745fa6777a7cb054e560e1fb",
+      "bytes": 3011
+    },
+    "target/pawn-reuse-archive-tests-v3.log": {
+      "sha256": "b0518c752a51766fd7c76723d21d634027dcda3bee91f049f324867d6c384681",
+      "bytes": 835
+    },
+    "target/pawn-reuse-archive-tests.log": {
+      "sha256": "ba9f3f39e89fcd87593504a733715ee6f19dcee9964470efa5d788cb0962fb13",
+      "bytes": 379
+    },
+    "target/pawn-reuse-archive.py": {
+      "sha256": "9c543f31cf27912846971952e3b018756c7ad11c3407bd962d6fc17ee107e184",
+      "bytes": 4449
+    },
+    "target/pawn-reuse-binding.json": {
+      "sha256": "1dea292db6c33d20bd246d66aa0441c9df5d57c54e77e9117a59911514a2c68c",
+      "bytes": 5746
+    },
+    "target/pawn-reuse-build-orchestration.log": {
+      "sha256": "b6d19b075b8bb312bff680636c5bb3767cf7be617cafa7d1d4736c49cff7a1b9",
+      "bytes": 243
+    },
+    "target/pawn-reuse-build.json": {
+      "sha256": "a8c564111133ba2575c6216667d7af8031f141b95c45c31590e4ac8936725b1a",
+      "bytes": 5432
+    },
+    "target/pawn-reuse-build/baseline": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "target/pawn-reuse-build/baseline-symbols.txt": {
+      "sha256": "8a99b5c46229b6a6c99706d09ce4164e40babe1232040bcc905cf220cc2817ca",
+      "bytes": 247182
+    },
+    "target/pawn-reuse-build/baseline-usi.txt": {
+      "sha256": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "bytes": 1043
+    },
+    "target/pawn-reuse-build/baseline.log": {
+      "sha256": "3096746e6f6bf5d511934ed9befcf323acd0b8e55fe20322c7ff1963fa085431",
+      "bytes": 299
+    },
+    "target/pawn-reuse-build/candidate": {
+      "sha256": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "bytes": 4179456
+    },
+    "target/pawn-reuse-build/candidate-symbols.txt": {
+      "sha256": "374bec7f63dc36068628676d5a0826babdf445f593c661ac689dd214aa7baa52",
+      "bytes": 247182
+    },
+    "target/pawn-reuse-build/candidate-usi.txt": {
+      "sha256": "1aa897a4e83a3deeb7511c3bae3698dbaf33c191030f05275e5340ed0777fd80",
+      "bytes": 1043
+    },
+    "target/pawn-reuse-build/candidate.log": {
+      "sha256": "2ff704374bbeb06f969ac0fa01b09e770b4f6c3a34f4ab4f1842622b1d272946",
+      "bytes": 299
+    },
+    "target/pawn-reuse-build/legal_tool": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/pawn-reuse-build/legal_tool-symbols.txt": {
+      "sha256": "86ae379a0ea0cccb27a09d2ffeb8f600482649e66ddc7f1e38f5dcb711dc9c49",
+      "bytes": 108561
+    },
+    "target/pawn-reuse-build/legal_tool.log": {
+      "sha256": "8eddcfea6a573bec1c5181f6fc2ba3419ef462bd1ef40085a52cb8c46612ca12",
+      "bytes": 183
+    },
+    "target/pawn-reuse-clippy-feature.log": {
+      "sha256": "72d241d05f0d334a174a0a1f3400d46e3772d1520a1515eff7b9f289ec3e592d",
+      "bytes": 780
+    },
+    "target/pawn-reuse-closed.json": {
+      "sha256": "2be94e48ec30ed31079059237afbed977bf53d706c8b690f8ac3dbc01934607e",
+      "bytes": 279
+    },
+    "target/pawn-reuse-collect.py": {
+      "sha256": "2930785b1690def60e7c2b9e11b4c58ab397d121444e9f08956a6d5f7da685e1",
+      "bytes": 4343
+    },
+    "target/pawn-reuse-common.py": {
+      "sha256": "0e68a09b898ed40d4fc52bfff226da7a942eb01483cee79da6fd628cb430dcd3",
+      "bytes": 12955
+    },
+    "target/pawn-reuse-control-analysis.log": {
+      "sha256": "c83b3dd89ce9a4be3bca7bf6cd6810083a730a7c0bded09f7a9784d3525f38ee",
+      "bytes": 14369
+    },
+    "target/pawn-reuse-control-pv.log": {
+      "sha256": "23c04177eb1b32443ddcb3d7e7da65a8b961897d420a0689235b6fc309b06777",
+      "bytes": 47
+    },
+    "target/pawn-reuse-control.log": {
+      "sha256": "c187f92310cc2419f758aac83fa06bccd72d5479018ea9f7b46be04ae3889346",
+      "bytes": 14513
+    },
+    "target/pawn-reuse-control/development-screen.json": {
+      "sha256": "c83b3dd89ce9a4be3bca7bf6cd6810083a730a7c0bded09f7a9784d3525f38ee",
+      "bytes": 14369
+    },
+    "target/pawn-reuse-control/engine-A": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "target/pawn-reuse-control/engine-B": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "target/pawn-reuse-control/manifest.json": {
+      "sha256": "925a474c8c9dbd3f3cba676c5de409bb1a413cce0cb80bc95bed62e46f92bcfb",
+      "bytes": 2828
+    },
+    "target/pawn-reuse-control/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/pawn-reuse-control/pv-validation.json": {
+      "sha256": "e1efb837fb7b8896806e97ac1f00cbf1031ed1cf807af2196d54699f5eadb0d5",
+      "bytes": 888
+    },
+    "target/pawn-reuse-control/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/pawn-reuse-control/rows.jsonl": {
+      "sha256": "d4fff81e21978f9a6638ec2b95bc63e629e3c11e0241ef67d51158cc6a45820d",
+      "bytes": 183008
+    },
+    "target/pawn-reuse-control/summary.json": {
+      "sha256": "1841326e51f2e02c08257d4a59eca08b9d47230ff1c5617c2f8e3a29bcbc2cf0",
+      "bytes": 72755
+    },
+    "target/pawn-reuse-core-default.log": {
+      "sha256": "3c829a58d2d694460a09fd2d73673ff1c7fd313f259a11baa3634a86d390c1fe",
+      "bytes": 39753
+    },
+    "target/pawn-reuse-core-feature.log": {
+      "sha256": "79b93acbf5007cf30c70d7952708ffedf16980dac9d5b8c472b60c978467b54a",
+      "bytes": 39527
+    },
+    "target/pawn-reuse-equality-analysis.log": {
+      "sha256": "ec67026ce8bf53094813329a1d6dea3d9af508bdcc686529b241b21bb0ab44ba",
+      "bytes": 24546
+    },
+    "target/pawn-reuse-equality-pv.log": {
+      "sha256": "707842e1a6228113c36c832a45b02abc3012d883322505c289e21107420a804a",
+      "bytes": 49
+    },
+    "target/pawn-reuse-equality.log": {
+      "sha256": "5bc36fee08019e21b351d83c47bdc84c0c5231c0e823e7ffe85dea5b7a3ac53c",
+      "bytes": 26775
+    },
+    "target/pawn-reuse-equality/development-screen.json": {
+      "sha256": "ec67026ce8bf53094813329a1d6dea3d9af508bdcc686529b241b21bb0ab44ba",
+      "bytes": 24546
+    },
+    "target/pawn-reuse-equality/engine-A": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "target/pawn-reuse-equality/engine-B": {
+      "sha256": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "bytes": 4179456
+    },
+    "target/pawn-reuse-equality/manifest.json": {
+      "sha256": "b29a997e21ec4f47543454eb09cdfdaab39e9ef71ecf49c5a60e6616c0cd1276",
+      "bytes": 2829
+    },
+    "target/pawn-reuse-equality/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/pawn-reuse-equality/pv-validation.json": {
+      "sha256": "e380ee67b7f21c582c5be0824f2ae0e62d839902f1d1bd6c98b6034583b71853",
+      "bytes": 892
+    },
+    "target/pawn-reuse-equality/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/pawn-reuse-equality/rows.jsonl": {
+      "sha256": "a57aedca89b54cec75090395f955d94db86c3303633edb2934977a17faa66c79",
+      "bytes": 366077
+    },
+    "target/pawn-reuse-equality/summary.json": {
+      "sha256": "b89b51e66cfa76a3d903727a35a9677903d30e5fb8003e8ad5deefa197865e05",
+      "bytes": 142720
+    },
+    "target/pawn-reuse-fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "target/pawn-reuse-prequiet.json": {
+      "sha256": "846574bc8d854683fa7004190e6bc67fef58c1d653494d35986320e7cecb6f52",
+      "bytes": 3091
+    },
+    "target/pawn-reuse-primary-before.json": {
+      "sha256": "f3382fb6a5b310eb1ed5f8b1df912cf3942ff7b669711f35de2181b134146814",
+      "bytes": 192
+    },
+    "target/pawn-reuse-prospective.md": {
+      "sha256": "41308d606a1c6470e4ff2e3bb22dcded416512a80acc2dd7436781835497d062",
+      "bytes": 4231
+    },
+    "target/pawn-reuse-run.py": {
+      "sha256": "d88c43d85fa2f7945803b6a8a291f84d539bbcf8d36c7f87c02e389a3d68a1cf",
+      "bytes": 6923
+    },
+    "target/pawn-reuse-runner.log": {
+      "sha256": "a1c86e38f296ba336fbe396e5f1bbf302db09beb1df53885035c58d61b184b65",
+      "bytes": 2038
+    },
+    "target/pawn-reuse-source-commit.log": {
+      "sha256": "3ddf8b98dc967026436202f44e5644e1432d0c9e7a4d6890f05d644c54265962",
+      "bytes": 4899
+    },
+    "target/pawn-reuse-tests-v2.log": {
+      "sha256": "d91c476b0b0c7ed18be4462575d06d450b2b853113bb57ebccf47b04b8c19a9a",
+      "bytes": 1419
+    },
+    "target/pawn-reuse-tests-v3.log": {
+      "sha256": "9ac35b6edc838e50da09e41e8d1a2dcca21fd3e2c48e2cf43539a9ca156c0df3",
+      "bytes": 1568
+    },
+    "target/pawn-reuse-tests.log": {
+      "sha256": "08a354f14f22be709c3d27c3db74fb260dd476d8ca9394271c3f32b37b641f69",
+      "bytes": 1316
+    },
+    "target/pawn-reuse-tests.py": {
+      "sha256": "938d7540918be558d51626cfb1c2a134e78555c57404458a040f045d50e639ca",
+      "bytes": 9818
+    },
+    "target/pawn-reuse-timed-analysis.log": {
+      "sha256": "03098b5165f6e74ff9a4b709953115e9f5786c4617a899c818d5a5a8f2354d79",
+      "bytes": 69026
+    },
+    "target/pawn-reuse-timed-pv.log": {
+      "sha256": "eaf81281e0ceb8e1a840189a7b70234d438187ece0158c131884d454013db7ca",
+      "bytes": 49
+    },
+    "target/pawn-reuse-timed.log": {
+      "sha256": "c3ea340992dc632f53770efebbcd2df616227b9daebaeed7d3145424cf1f5112",
+      "bytes": 80741
+    },
+    "target/pawn-reuse-timed/development-screen.json": {
+      "sha256": "03098b5165f6e74ff9a4b709953115e9f5786c4617a899c818d5a5a8f2354d79",
+      "bytes": 69026
+    },
+    "target/pawn-reuse-timed/engine-A": {
+      "sha256": "f4e4f3195fb45a50ed0a37b75f035a3e309cf4cc27e9b199aa01e46be0aff66e",
+      "bytes": 4179472
+    },
+    "target/pawn-reuse-timed/engine-B": {
+      "sha256": "6ab973ed3fb1713d8d3682f182a034cebd39dd76e2fa86e5ba73aca0f7317285",
+      "bytes": 4179456
+    },
+    "target/pawn-reuse-timed/manifest.json": {
+      "sha256": "b2ab72b0a079863f55c12fa59f24b61d2ab565d58c71e00b29c24851db816d91",
+      "bytes": 3009
+    },
+    "target/pawn-reuse-timed/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/pawn-reuse-timed/pv-validation.json": {
+      "sha256": "1fc210996e6450c43ff9797a421c5806a9f218368045987def52f9acd436d3cb",
+      "bytes": 887
+    },
+    "target/pawn-reuse-timed/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/pawn-reuse-timed/rows.jsonl": {
+      "sha256": "9698332e2b6c77dcfcad38fcb553287c319054446129aa4f538bf379b83f539c",
+      "bytes": 1510846
+    },
+    "target/pawn-reuse-timed/summary.json": {
+      "sha256": "2ba01afdfab76da67ff540d93443c8976cee6f64d2b0ceea011f42ec024c065b",
+      "bytes": 487408
+    },
+    "target/tt-keep-archive.py": {
+      "sha256": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "bytes": 22844
+    }
+  }
+}

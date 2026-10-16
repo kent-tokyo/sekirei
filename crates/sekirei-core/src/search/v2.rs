@@ -64,6 +64,17 @@ const FT_NB: usize = 2 * (SQ + 7) * SQ;
 const PAWN_NB: usize = 512;
 const LOW_PLIES: usize = 4;
 
+/// At the parent move-ordering boundary, correction keys are still valid
+/// after ProbCut has undone its children. In-check nodes have no such keys.
+#[cfg(any(feature = "pawn_key_reuse", test))]
+#[inline]
+fn parent_pawn_history_bucket(board: &Board, corr: Option<&(CorrKeys, i32)>) -> usize {
+    corr.map_or_else(
+        || HistoryTable::pawn_bucket(board),
+        |(keys, _)| keys.pawn_history_bucket(),
+    )
+}
+
 /// References remain live only while one quiet batch is scored; no history
 /// update or recursive search runs during that batch.
 struct ContRows<'a>([Option<&'a [i16; PT_NB]>; 5]);
@@ -1966,6 +1977,9 @@ fn node(
     // Preserve eager losing-sort experiments and every other TT path. A
     // quiet hint exists only for the enabled non-PV staged path.
     let mut pending_tacticals = quiet_tt.is_some() && p::V2_EAGER_LOSING_SORT() == 0;
+    #[cfg(feature = "pawn_key_reuse")]
+    let pawn_bucket = parent_pawn_history_bucket(board, corr.as_ref());
+    #[cfg(not(feature = "pawn_key_reuse"))]
     let pawn_bucket = HistoryTable::pawn_bucket(board);
     let low_ply = (ply as usize) < LOW_PLIES;
     let mut first_sorted = 0;
@@ -2735,6 +2749,37 @@ fn node(
 mod tests {
     use super::*;
     use crate::movegen::{generate_legal_captures, generate_legal_moves};
+
+    #[test]
+    fn pawn_key_reuse_selects_cached_parent_or_recomputed_check_bucket() {
+        let mut board = Board::startpos();
+        let keys = CorrKeys::of(&board, Color::White);
+        let cached = Some((keys, 123));
+        let expected = HistoryTable::pawn_bucket(&board);
+        assert_eq!(
+            parent_pawn_history_bucket(&board, cached.as_ref()),
+            expected
+        );
+        assert_eq!(parent_pawn_history_bucket(&board, None), expected);
+
+        // A different board deliberately distinguishes the two branches.
+        // Real search restores the parent before this lookup; this test
+        // verifies that Some does not silently recompute from the board.
+        board = Board::empty();
+        assert_ne!(expected, HistoryTable::pawn_bucket(&board));
+        assert_eq!(
+            parent_pawn_history_bucket(&board, cached.as_ref()),
+            expected
+        );
+        assert_eq!(parent_pawn_history_bucket(&board, None), 0);
+
+        let board = Board::from_sfen_rules_only("4k4/9/9/9/4r4/9/9/9/4K4 b - 1").unwrap();
+        assert!(is_in_check(&board, board.side_to_move));
+        assert_eq!(
+            parent_pawn_history_bucket(&board, None),
+            HistoryTable::pawn_bucket(&board)
+        );
+    }
 
     #[test]
     fn quiet_cont_rows_are_disabled_and_boolean_by_default() {

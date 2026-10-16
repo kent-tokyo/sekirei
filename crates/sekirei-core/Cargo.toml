@@ -19,6 +19,8 @@ tune = []
 repetition_filter2 = []
 # Opt-in CPU experiment: expand the ordered non-pawn correction-key fold.
 correction_key_unroll = []
+# Opt-in CPU experiment: reuse the existing correction pawn key in V2.
+pawn_key_reuse = []
 king_relative_b_small = []
 nnue_l1_384 = []
 nnue_l1_128 = []
