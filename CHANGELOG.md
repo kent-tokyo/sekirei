@@ -8,6 +8,41 @@ preserves older per-change notes.
 
 No changes yet.
 
+## [0.4.3] – 2026-10-16
+
+Version 0.4.3 improves bounded CSA supervision, records independently
+qualified eight-thread PGO throughput, and adds fail-closed qualification for
+disabled search experiments. The default evaluator and ordinary search policy
+remain unchanged, so this release does not claim a general playing-strength
+gain.
+
+### Changed
+
+- Record an independent Apple M4 eight-thread PGO comparison against the
+  pinned YaneuraOu binary. The result applies only to the recorded profile,
+  evaluator, corpus, and host; ordinary release builds do not embed that PGO
+  profile.
+- Extend the 98% Rust coverage contract to the isolated tune-only search
+  qualification paths added in this release.
+
+### Added
+
+- Add deterministic activity and correctness qualification for the existing
+  V2 fail-high blend and transposition-table depth-retention policies. Neither
+  result changes a production default or constitutes an Elo decision.
+- Add a default-off correction pawn-key reuse experiment. Exact one-thread
+  search equivalence passed, but timing did not qualify it for adoption.
+- Add default-off helper-hint refresh at aspiration retries and cooperative
+  parent-budget batching experiments. The former was declined by the 4T/8T
+  depth screen; the latter stopped before timing after a diagnostic validator
+  error. Both defaults remain off.
+
+### Fixed
+
+- Preserve one-shot Floodgate completion and finalization across bounded
+  supervisor I/O failures, without counting failed sessions as completed
+  games or starting an unbounded restart loop.
+
 ## [0.4.2] – 2026-10-16
 
 Version 0.4.2 improves search-boundary correctness, bounded training-data
