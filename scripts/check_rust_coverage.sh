@@ -347,6 +347,19 @@ cargo llvm-cov -p sekirei-core \
   -- correction_key_fold \
   --test-threads=1
 
+# Reusing the correction pawn key preserves the parent history bucket; cover
+# the feature-only reuse and in-check fallback without changing exclusions.
+cargo llvm-cov -p sekirei-core \
+  --features pawn_key_reuse \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/pawn-key-reuse-summary.json" \
+  -- pawn_key_reuse \
+  --test-threads=1
+
 # Multi-worker cooperative activation is opt-in and uses global tune state.
 cargo llvm-cov -p sekirei-core \
   --features tune \
