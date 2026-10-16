@@ -111,6 +111,46 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Exercise timed child accounting, exact fallbacks, stop/deadline and unwind.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-budget-batch-unit-summary.json" \
+  -- budget::tests::batching \
+  --test-threads=1
+
+# Verify parent settlement before helper completion, including dispatch failures.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-budget-batch-lifecycle-summary.json" \
+  -- search::root_split::tests::budget_batch_lifecycle_isolated \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+# Cover the private batch observer separately; this is never native timing.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-budget-batch-exposure-summary.json" \
+  -- search::root_split::tests::budget_batch_natural_exposure_isolated \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Observe the unchanged TT_KEEP_DEPTH guard in one isolated test process.
 # The 36 boundary cases and 160 full searches are diagnostics, never timing.
 cargo llvm-cov -p sekirei-core \

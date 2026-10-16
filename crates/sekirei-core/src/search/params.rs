@@ -88,6 +88,8 @@ search_params! {
     COOP_PERSISTENT = 0, 0, 1;
     /// Opt-in cooperative root groups for exactly four or eight workers.
     COOP_MULTI = 0, 0, 1;
+    /// Tune-only timed cooperative parent node accounting in 512-node batches.
+    COOP_BUDGET_BATCH = 0, 0, 1;
     /// Opt-in persistent root helpers before the first finite-window root child.
     COOP_PRESTART = 0, 0, 1;
     /// Limit helper root claims before the first child returns (0: unbounded).
