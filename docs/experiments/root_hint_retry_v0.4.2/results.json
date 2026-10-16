@@ -1,0 +1,5359 @@
+{
+  "schema": "sekirei.root-hint-retry-results.v1",
+  "source_ref": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+  "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+  "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+  "binding": {
+    "schema": "sekirei.root-hint-retry-binding.v1",
+    "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+    "source_tree": "9007bf7f4a9929df6f1b01157ca1d4b7c4828f93",
+    "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+    "frozen_before_first_search": "2026-10-16T08:27:51.460793+00:00",
+    "prospective_source_doc_sha256": "a008159fb35d212bdc9a9a1e5dadc51ed25429ca2d98c9e80713f9ced5cab34a",
+    "search_source_clean": true,
+    "test_logs": [
+      "target/hint-retry-protocol-tests-presearch.log",
+      "target/hint-retry-archive-tests.log"
+    ],
+    "inputs_sha256": {
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-build.py": "52a7fe93c1bba690c55de7e3ce9993cff92d93a01a1f6ac17bb3b8ef396d0897",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "docs/experiments/root_hint_retry_v0.4.2/README.md": "a008159fb35d212bdc9a9a1e5dadc51ed25429ca2d98c9e80713f9ced5cab34a",
+      "scripts/generate_search_diagnostic.py": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "scripts/nps_threads.py": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "scripts/paired_search_diagnostics.py": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "scripts/validate_paired_pv.py": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "target/hint-retry-archive-tests.log": "5c7edba9529e38b1c330c0d16078eb02c0c608f4f1b36b13bc7937acfb5df07b",
+      "target/hint-retry-archive-tests.py": "5948019d1e24b7621fb1f8160d0e817574afd9c13a909591fd881761b9cf9bb9",
+      "target/hint-retry-archive.py": "13381eed7cb84b53d28059e7ad1c75beb0b1a57ec13736dc3fd4bc89fd9ae8e6",
+      "target/hint-retry-build-orchestration.log": "c357eab6238c07940673d47fbea59fbf27b01463c0499e339ce9cc4b9bd1eeaa",
+      "target/hint-retry-build.json": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+      "target/hint-retry-build.py": "52a7fe93c1bba690c55de7e3ce9993cff92d93a01a1f6ac17bb3b8ef396d0897",
+      "target/hint-retry-build/engine.log": "1dd458552d3ebbbfbea967b7408a9823ed56fa50b5ef6da7350f39a16e8200f5",
+      "target/hint-retry-build/legal_tool.log": "538220abc619c0dcd166d1d8a51e447a3ff03de450978cb6993fe0f012b46ad0",
+      "target/hint-retry-build/sekirei": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "target/hint-retry-build/sekirei-core-tests": "393a2217a69c7b6c51867b94117bf5f8e787ce935f96ed19b1d51d1730a56c98",
+      "target/hint-retry-build/sekirei-legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/hint-retry-build/usi.txt": "fd601685a6a630c43290e61244a85c4771851a30f79a7d1f7121b5f05a0b9353",
+      "target/hint-retry-cache-cleanup.json": "6ab487b727623106d5ab3032a1c92baf39e123b8d42e190b74e69cdb3a008778",
+      "target/hint-retry-clippy-tune.log": "5e624a1032905c076410e35da8fa233bb79401d4a581e827ed36ac0acc9f65f8",
+      "target/hint-retry-clippy.log": "d2d03c70730e3ee5e11b46f02b124176dd9cb428f9b2eeaf0e2f0deea4980be5",
+      "target/hint-retry-core-default-release.log": "295dd26de6d3608d9e8ee1ddcfeb6267fe5c8da27c0ae8f197069fb2643d2172",
+      "target/hint-retry-core-default.log": "01fb10049513add3696c0f9675cb8df6d77f9491da064419308710fe499d0b0a",
+      "target/hint-retry-core-tune-release.log": "47d6c8399b4c2acb40f21ee932dd17c46227d4b0cb01d2f95c3709750dec0eac",
+      "target/hint-retry-default-debug-stop.json": "c542b498ab4c0260a089b257c3c2d406310839b07545dd95cf3a4ccdcfcd9956",
+      "target/hint-retry-fmt-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/hint-retry-fmt.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/hint-retry-main-audit-tests.log": "b17f266e8f6945674ca54a118cfde99e888256dfc3c6aff0a21ab21342dafe75",
+      "target/hint-retry-main-audit-tests.py": "579e7b968cb7e574cef99b82747dab44aa4ff2c892b11cc52885a0ee3ad99f2c",
+      "target/hint-retry-main-audit.py": "70bd620241d804b395c5cb49a1ba54bb7663472311ac2ed41e8d285161ffbaaa",
+      "target/hint-retry-mechanism.log": "6b70f2236cea0bd01e3aeb10efd5fc1bf9f4b5999af807eeaebd4e9dc73ff409",
+      "target/hint-retry-natural-build.jsonl": "386c25c20ebb6e31349d24b9c9937b9a1df26924656e1de20afafb27c977ceae",
+      "target/hint-retry-natural-build.log": "7a7bb64a28cdda9b91e6e27f41be455104d929b5d7ad6dd5beca75fc5a47f1f4",
+      "target/hint-retry-natural-exposure.json": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+      "target/hint-retry-natural-exposure.log": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+      "target/hint-retry-natural-orchestration.log": "894ffd6f1fbf12e619819f17465ada87f152f7738842ff9c7532e5394adede0c",
+      "target/hint-retry-natural-presearch.json": "801436d496439f16c7611b124a2dbe2bb22b265824b04c87ab6a8651b8b0d24a",
+      "target/hint-retry-natural.py": "5af23e6b9391b714c7436aa1a2b9a8b32fb8cebd0bb1bfeb93a9dd72e4f3ad7a",
+      "target/hint-retry-primary-before.json": "645be5c314289dc10f41db58afdb3570cc111514b8e06c1cda33d4401497e4c6",
+      "target/hint-retry-protocol-analyze.py": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+      "target/hint-retry-protocol-collect.py": "3cc1b00348eda6dba319fa3d5965e938e9d6f09ebef1c16379c683c486a00bb0",
+      "target/hint-retry-protocol-prospective.md": "a008159fb35d212bdc9a9a1e5dadc51ed25429ca2d98c9e80713f9ced5cab34a",
+      "target/hint-retry-protocol-run.py": "0644cb15bcee79c6a1fc06a1b08705a923d3e2b056b3d9a1217779b21876824e",
+      "target/hint-retry-protocol-tests-final.log": "745c4639b4e579e32619a34ab373ad0b15e3601316d7b177ce5e0a099316450a",
+      "target/hint-retry-protocol-tests-presearch.log": "8d698a4125e99bb7ac715419c7f13632ba1cddb24fe3cd891336e2784831382b",
+      "target/hint-retry-protocol-tests-v2.log": "9be6749cd65e92e5a15a50bfe84d59110a865ec818fd4359aec14451fd9d3f7b",
+      "target/hint-retry-protocol-tests-v3.log": "e72873fdf0b515647a2b7e4632e6aa3ff2483152b74ef80af21b8a54bba4e601",
+      "target/hint-retry-protocol-tests.log": "a12df934f5db5354a306e3ecc271fc44ae03a1ed0793e1adb83f8061642c2b1f",
+      "target/hint-retry-protocol-tests.py": "5d6c45771b29736fa8bff53ccc78145c2ec922b6256e775fe0b88fc472dde7b7",
+      "target/hint-retry-source-commit.log": "a7ee3161b94cc2acccc1041347696911eda62a328204d40c274d6e442b9c38cc",
+      "target/tt-keep-archive.py": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8"
+    },
+    "retries_permitted": false,
+    "default_adopted": false,
+    "independent_h1": false,
+    "strength_claim": false
+  },
+  "build": {
+    "schema": "sekirei.root-hint-retry-build.v1",
+    "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+    "source_tree": "9007bf7f4a9929df6f1b01157ca1d4b7c4828f93",
+    "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+    "source_before": {
+      "head": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "tree": "9007bf7f4a9929df6f1b01157ca1d4b7c4828f93",
+      "status": ""
+    },
+    "compiler": {
+      "rustc": "rustc 1.97.0 (2d8144b78 2026-07-07)\nbinary: rustc\ncommit-hash: 2d8144b7880597b6e6d3dfd63a9a9efae3f533d3\ncommit-date: 2026-07-07\nhost: aarch64-apple-darwin\nrelease: 1.97.0\nLLVM version: 22.1.6",
+      "cargo": "cargo 1.97.0 (c980f4866 2026-06-30)",
+      "config": "[build]\nrustflags = [\"-C\", \"target-cpu=native\"]\n",
+      "pgo": false,
+      "overrides": {},
+      "jobs": 1,
+      "incremental": 0
+    },
+    "test_logs": [
+      "target/hint-retry-core-default-release.log",
+      "target/hint-retry-core-tune-release.log",
+      "target/hint-retry-mechanism.log",
+      "target/hint-retry-clippy.log",
+      "target/hint-retry-clippy-tune.log",
+      "target/hint-retry-fmt-final.log"
+    ],
+    "started_at_utc": "2026-10-16T08:22:25.912131+00:00",
+    "engine": {
+      "path": "target/hint-retry-build/sekirei",
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "features": [
+        "tune"
+      ],
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "sekirei",
+        "--features",
+        "tune"
+      ],
+      "bytes": 4782640
+    },
+    "legal_tool": {
+      "path": "target/hint-retry-build/sekirei-legal-moves",
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "features": [],
+      "argv": [
+        "cargo",
+        "build",
+        "--release",
+        "--locked",
+        "-p",
+        "sekirei-core",
+        "--bin",
+        "sekirei-legal-moves"
+      ],
+      "bytes": 708720
+    },
+    "native_test_observer_absent": true,
+    "source_after": {
+      "head": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "tree": "9007bf7f4a9929df6f1b01157ca1d4b7c4828f93",
+      "status": ""
+    },
+    "status": "complete",
+    "completed_at_utc": "2026-10-16T08:23:42.679153+00:00",
+    "build_inputs": {
+      "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-build.py": "52a7fe93c1bba690c55de7e3ce9993cff92d93a01a1f6ac17bb3b8ef396d0897",
+      ".cargo/config.toml": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "target/hint-retry-build/engine.log": "1dd458552d3ebbbfbea967b7408a9823ed56fa50b5ef6da7350f39a16e8200f5",
+      "target/hint-retry-build/legal_tool.log": "538220abc619c0dcd166d1d8a51e447a3ff03de450978cb6993fe0f012b46ad0",
+      "target/hint-retry-build/sekirei": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "target/hint-retry-build/sekirei-legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "target/hint-retry-build/usi.txt": "fd601685a6a630c43290e61244a85c4771851a30f79a7d1f7121b5f05a0b9353",
+      "target/hint-retry-cache-cleanup.json": "6ab487b727623106d5ab3032a1c92baf39e123b8d42e190b74e69cdb3a008778",
+      "target/hint-retry-clippy-tune.log": "5e624a1032905c076410e35da8fa233bb79401d4a581e827ed36ac0acc9f65f8",
+      "target/hint-retry-clippy.log": "d2d03c70730e3ee5e11b46f02b124176dd9cb428f9b2eeaf0e2f0deea4980be5",
+      "target/hint-retry-core-default-release.log": "295dd26de6d3608d9e8ee1ddcfeb6267fe5c8da27c0ae8f197069fb2643d2172",
+      "target/hint-retry-core-tune-release.log": "47d6c8399b4c2acb40f21ee932dd17c46227d4b0cb01d2f95c3709750dec0eac",
+      "target/hint-retry-default-debug-stop.json": "c542b498ab4c0260a089b257c3c2d406310839b07545dd95cf3a4ccdcfcd9956",
+      "target/hint-retry-fmt-final.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "target/hint-retry-mechanism.log": "6b70f2236cea0bd01e3aeb10efd5fc1bf9f4b5999af807eeaebd4e9dc73ff409",
+      "target/hint-retry-primary-before.json": "645be5c314289dc10f41db58afdb3570cc111514b8e06c1cda33d4401497e4c6"
+    }
+  },
+  "closed": {
+    "schema": "sekirei.root-hint-retry-closed.v1",
+    "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+    "prequiet_qualified": true,
+    "timed_attempts": 1,
+    "failed": false,
+    "error": null,
+    "resume_permitted": false,
+    "retry_permitted": false,
+    "default_adopted": false,
+    "strength_claim": false
+  },
+  "reports": {
+    "control": {
+      "schema": "sekirei.root-hint-retry-screen.v1",
+      "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+      "mode": "control",
+      "rows": 80,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 744,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 6.384268197245957
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -20.516170403618172
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -7.572475499024001
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.5914148970902726
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.6534947913704903
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.0733201734830953
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.489288212138263
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.1172884822373783
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 5.129900657282893
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.0325334496440686
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.1650113415243246
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.0970202694549624
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.974326048879816
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.07293179812257744
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.451541119697719
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.5327187091914616
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.763095360032919
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.10739473058214433
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.21314048330639546
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.20858942571144734
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.2108222821829986
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.35997007057992914
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.952427278022744
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.3657256869274566
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.1761282528449537
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 6.490202000491907
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.1084650062604746
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.022455520188102707
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.677852950633496
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.843026312065176
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.961536372960605
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.301911211294142
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -4.600891826313347
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.11584826267898585
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.724562810589472
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.4743722129681234
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.5009544476344727
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.20459346025214487
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.8289296904702592
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.6982878531196066
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.1192015205731654
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.25167416058047287
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.34818693085296726
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -5.397881637686163
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.9219924642117867
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.44180599235355
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.433310277704597
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.9090501158168367
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.828040617481101
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.937264746000645
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 4.40576525000107
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.3079799933266254
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -5.134242421703483
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.721845733121709
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.824745078439562
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.39420778258680844
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.112585173371717
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -5.2369777816092755
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.6469410042893262
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.4577599938935166
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": -0.5269242971240873,
+              "quiet": 0.3090537041436303,
+              "tactical": -0.9700232907600692
+            },
+            "directional_median_percent": {
+              "A_first": -0.06915189143354428,
+              "B_first": -1.142106431048745
+            },
+            "per_position_mean_percent": [
+              -7.572475499024001,
+              2.0733201734830953,
+              5.129900657282893,
+              -1.0970202694549624,
+              1.451541119697719,
+              0.10739473058214433,
+              -0.2108222821829986,
+              -3.3657256869274566,
+              3.1084650062604746,
+              -0.843026312065176,
+              -4.600891826313347,
+              -2.4743722129681234,
+              0.8289296904702592,
+              0.25167416058047287,
+              -2.9219924642117867,
+              3.9090501158168367,
+              4.40576525000107,
+              -3.721845733121709,
+              -2.112585173371717,
+              -3.4577599938935166
+            ],
+            "bootstrap_mean_percent_95": [
+              -2.01287634897946,
+              0.8404599658925699
+            ]
+          }
+        }
+      },
+      "root_hint_effectiveness": {
+        "1": {
+          "A": null,
+          "B": null
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_hint_retry::tests::natural_retry_hint_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              2,
+              0,
+              3,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7,
+              0,
+              0,
+              0,
+              3,
+              0
+            ]
+          },
+          "8": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              1,
+              0,
+              0,
+              2,
+              1,
+              4,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              3,
+              1,
+              2,
+              0,
+              2,
+              0
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "receipt_path": "target/hint-retry-natural-exposure.json"
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "existing_hint_counter_bookkeeping_present": false,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_root_hint_policy_qualified": false,
+      "interpretation": "Conditional retry screen within unqualified opt-in root hints. Existing hint counters remain present in native timing. Fixed-depth diagnostics and NPS are descriptive; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-analyze.py": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-control/engine-A": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-control/engine-B": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-control/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/hint-retry-build.json": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+        "target/hint-retry-natural-exposure.json": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+        "target/hint-retry-natural-exposure.log": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+        "target/hint-retry-protocol-binding.json": "8c94cd93039a0bba55e37a5ae5009eafddd1c019b7f7c692afbc9d783967cad8",
+        "target/hint-retry-protocol-control/manifest.json": "dcca2056795d7dda2c98f7d929d40e1a92fa6418422a8014917627baf5132d10",
+        "target/hint-retry-protocol-control/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/hint-retry-protocol-control/pv-validation.json": "8af212332f41151120c80ea5eecead60a4bb67fd66a6e1f3b2531689732029f0",
+        "target/hint-retry-protocol-control/rows.jsonl": "79ba9f932b32c0a20a98233e99861e8b06cf20284052a38f6d98523b0011df97",
+        "target/hint-retry-protocol-control/summary.json": "57af101ca6a22353744124b8ba2e41711fa3cc2c58d153c42b7f69b7ab6217db"
+      }
+    },
+    "equality": {
+      "schema": "sekirei.root-hint-retry-screen.v1",
+      "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+      "mode": "equality",
+      "rows": 80,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 744,
+      "fixed_depth_identity_pass": true,
+      "timing_qualified": false,
+      "by_threads": {
+        "1": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 4.950985878909675
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.5478330882032756
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.685352331038704
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.1867273927997255
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.3632292866622375
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.39346011504870493
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.08101642499623
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.22827332688521995
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.6254769762444221
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 8.4057106839309
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.5923737096711346
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.7193867953669857
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.6721482534602057
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.1462148866667308
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.7353031731668791
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.4282493505687777
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.7732282903553784
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.0933331458209636
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.0364858220893725
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.3558400203394818
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.6897980791162439
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.8735895427489981
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.6416588861368311
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.12224136435937671
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.6935535741836372
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.1548131345797907
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.4213546500503327
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.03404685605885582
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.3648214994912746
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.16575764866669784
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.33719415252024
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.3714448566459647
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.862244872017672
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.490028687032301
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.519155440385525
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -5.4825625387409875
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.553355697123241
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.6319935765782159
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.9451338599061674
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -8.082920883750466
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.113249304294874
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -5.6356767010120485
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.2143987202560602
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.794060977509284
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.858006538319601
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.2324732148200068
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.1426508766208423
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.5429093897367787
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.377892606600689
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.6182413707680374
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.3806437698774774
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.24343686983225865
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.3730132231241523
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.0662964759955531
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.196440800030101
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.779070908394631
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -4.036100753682925
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.0718584764438766
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.1636984731710811
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.4619554983659735
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": -0.14399950651303728,
+              "quiet": 0.7125506261415615,
+              "tactical": -0.2796088818577014
+            },
+            "directional_median_percent": {
+              "A_first": 0.13874186294555724,
+              "B_first": -0.11108531143521616
+            },
+            "per_position_mean_percent": [
+              2.685352331038704,
+              -0.39346011504870493,
+              1.6254769762444221,
+              3.7193867953669857,
+              0.7353031731668791,
+              2.0933331458209636,
+              0.6897980791162439,
+              -0.12224136435937671,
+              1.4213546500503327,
+              -0.16575764866669784,
+              -2.862244872017672,
+              -5.4825625387409875,
+              -1.9451338599061674,
+              -5.6356767010120485,
+              -1.858006538319601,
+              -0.5429093897367787,
+              2.3806437698774774,
+              -0.0662964759955531,
+              -4.036100753682925,
+              -0.4619554983659735
+            ],
+            "bootstrap_mean_percent_95": [
+              -1.5630409888140422,
+              0.6893675759632528
+            ]
+          }
+        }
+      },
+      "root_hint_effectiveness": {
+        "1": {
+          "A": null,
+          "B": null
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_hint_retry::tests::natural_retry_hint_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              2,
+              0,
+              3,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7,
+              0,
+              0,
+              0,
+              3,
+              0
+            ]
+          },
+          "8": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              1,
+              0,
+              0,
+              2,
+              1,
+              4,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              3,
+              1,
+              2,
+              0,
+              2,
+              0
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "receipt_path": "target/hint-retry-natural-exposure.json"
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "existing_hint_counter_bookkeeping_present": false,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_root_hint_policy_qualified": false,
+      "interpretation": "Conditional retry screen within unqualified opt-in root hints. Existing hint counters remain present in native timing. Fixed-depth diagnostics and NPS are descriptive; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-analyze.py": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-equality/engine-A": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-equality/engine-B": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-equality/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/hint-retry-build.json": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+        "target/hint-retry-natural-exposure.json": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+        "target/hint-retry-natural-exposure.log": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+        "target/hint-retry-protocol-binding.json": "8c94cd93039a0bba55e37a5ae5009eafddd1c019b7f7c692afbc9d783967cad8",
+        "target/hint-retry-protocol-control/development-screen.json": "7101385c13742f95a0abcd7e40513693d78c01c030e031431d01434a6d647d05",
+        "target/hint-retry-protocol-equality/manifest.json": "a3aff8dfa571e7800107fc0da42bf97ef9072a0e2987badf4e7ea16bc0c32e3c",
+        "target/hint-retry-protocol-equality/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/hint-retry-protocol-equality/pv-validation.json": "d384c0cf710ec8af4a4188008dcbdfaa0e350dbeb7c77d584148eb1f07f92266",
+        "target/hint-retry-protocol-equality/rows.jsonl": "2f46930f26d158527c30e09e191ad9e4818f799ec846aac4b3ddca37276e5bf6",
+        "target/hint-retry-protocol-equality/summary.json": "0c591a0188909b16baf1613cd076b0bd11638acebef92b9281c97c49c83c9324"
+      }
+    },
+    "policy": {
+      "schema": "sekirei.root-hint-retry-screen.v1",
+      "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+      "mode": "policy",
+      "rows": 160,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 1161,
+      "fixed_depth_identity_pass": null,
+      "timing_qualified": false,
+      "by_threads": {
+        "4": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -13.596932509084292
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 6.006259750412091
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -4.351052196861782
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.780263068720044
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 21.741925455889486
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 17.650159648652775
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 25.43420605518847
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -16.73242946905038
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.172087119802125
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.8667765157931013
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 10.393743565875436
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.199203947735696
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 6.612444339337098
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -20.75877054654195
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -7.398003972008816
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.7604684640941457
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.190851185852876
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 4.960534211810352
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.3555909553829135
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.3305279087008968
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.342791620612683
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 20.001913676543538
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -14.489002254060724
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.8721977374827947
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.520194325063217
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.237190143736824
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.7970494601939686
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.61027782044695
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.5595523016292985
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.09831398034714223
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -31.698832473369066
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -19.046890670724903
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -25.448442741048094
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 15.275432697748759
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.556457204055809
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 4.4198462129104055
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -7.079257724811006
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -10.674703724265665
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -8.913944493274585
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -26.57985968243991
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -11.613666285397596
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -19.34152991045126
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.7683484185374354
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.154962617585013
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.4344025867328654
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.483862354194067
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 11.390692286426107
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 7.435879460085082
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -15.725756619262565
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.8239401379954057
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -8.813022171414964
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -33.144603861152866
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.456453625129354
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -20.10633054142762
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.6282990294799857
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.3369771824235257
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.1978326949192208
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -8.302189565397743
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.42458677671984857
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -4.5292701110982385
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": 0.5497593572860393,
+              "quiet": -3.3469219087372326,
+              "tactical": 2.5357008426092453
+            },
+            "directional_median_percent": {
+              "A_first": -0.29362126842273906,
+              "B_first": -2.077234023348151
+            },
+            "per_position_mean_percent": [
+              -4.351052196861782,
+              17.650159648652775,
+              3.172087119802125,
+              3.199203947735696,
+              -7.398003972008816,
+              4.960534211810352,
+              -2.342791620612683,
+              1.8721977374827947,
+              3.7970494601939686,
+              -0.09831398034714223,
+              -25.448442741048094,
+              4.4198462129104055,
+              -8.913944493274585,
+              -19.34152991045126,
+              3.4344025867328654,
+              7.435879460085082,
+              -8.813022171414964,
+              -20.10633054142762,
+              1.1978326949192208,
+              -4.5292701110982385
+            ],
+            "bootstrap_mean_percent_95": [
+              -6.938291008253239,
+              1.6616539138454867
+            ]
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 20,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.053819000554059
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.35118020063773
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.5262139071243075
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.8804033386380166
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 42.25458789165584
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 20.642256609141096
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.682398660080423
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 18.22695272445838
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 11.339492945391338
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 25.1699038488834
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.1039327026902246
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 11.92411722860669
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -9.119859177791945
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.871250209991492
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.5931944805144482
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.832789638533774
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -8.410430942326508
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -6.720615944529862
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.8539605845875107
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 12.108284649998758
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 7.291631684801225
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.9927118042166505
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -12.86145135817307
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -7.246486030349397
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 16.274941293066526
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 13.781087087719456
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 15.048161426761553
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 7.957497055850138
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -11.502124639527366
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.200851867223619
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -5.970366071833444
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.623804979296056
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -6.307734886196769
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.1740181416581619
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -6.6929490833539385
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.2662715220571403
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.5492453049770445
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.3674388180790285
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.9462022729596313
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.115117481352911
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.9290181603946679
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.3899155600928239
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 33.00895026798105
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 17.02926660667665
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 24.191507648395017
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 19.2696596397961
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.6691211880631727
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 10.651539985941572
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -8.115069886554071
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 9.075298861778492
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.11027443306184104
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 15.274034620419119
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 8.158101391397832
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 11.831948433616812
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.337568516611489
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.392706342728502
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.04153137456481826
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.114264589414552
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.606450379850722
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 3.7130076115816646
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": 0.0,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0,
+              0.0
+            ],
+            "mean_position_delta": 0.0,
+            "bootstrap_mean_delta_95": [
+              0.0,
+              0.0
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              },
+              "B": {
+                "count": 40,
+                "minimum": 12,
+                "maximum": 12,
+                "mean": 12,
+                "median": 12.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": 0.8517344567881446,
+              "quiet": 0.8517344567881446,
+              "tactical": 1.6615460257444203
+            },
+            "directional_median_percent": {
+              "A_first": 3.195693758582774,
+              "B_first": 1.8551915412704734
+            },
+            "per_position_mean_percent": [
+              -1.5262139071243075,
+              20.642256609141096,
+              11.339492945391338,
+              11.92411722860669,
+              1.5931944805144482,
+              -6.720615944529862,
+              7.291631684801225,
+              -7.246486030349397,
+              15.048161426761553,
+              -2.200851867223619,
+              -6.307734886196769,
+              -3.2662715220571403,
+              -3.9462022729596313,
+              -0.3899155600928239,
+              24.191507648395017,
+              10.651539985941572,
+              0.11027443306184104,
+              11.831948433616812,
+              0.04153137456481826,
+              3.7130076115816646
+            ],
+            "bootstrap_mean_percent_95": [
+              0.5051768156057075,
+              8.391904920817055
+            ]
+          }
+        }
+      },
+      "root_hint_effectiveness": {
+        "4": {
+          "A": {
+            "publications": 674,
+            "eligible_reads": 69,
+            "applied": 11,
+            "first_move_beta_cuts": 2,
+            "researches": 14,
+            "research_nodes": 114221,
+            "stale_research_nodes": 54560,
+            "stale_reads": 353,
+            "depth_gap_sum": 14,
+            "depth_gap_max": 1,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.18181818181818182,
+            "mean_depth_gap": 0.2028985507246377,
+            "searches": 40,
+            "searches_with_publication": 40,
+            "searches_with_application": 8,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.2,
+            "reads_per_publication": 0.10237388724035608,
+            "application_rate": 0.15942028985507245
+          },
+          "B": {
+            "publications": 727,
+            "eligible_reads": 84,
+            "applied": 10,
+            "first_move_beta_cuts": 3,
+            "researches": 37,
+            "research_nodes": 163447,
+            "stale_research_nodes": 27680,
+            "stale_reads": 340,
+            "depth_gap_sum": 10,
+            "depth_gap_max": 2,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.3,
+            "mean_depth_gap": 0.11904761904761904,
+            "searches": 40,
+            "searches_with_publication": 40,
+            "searches_with_application": 9,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.225,
+            "reads_per_publication": 0.1155433287482806,
+            "application_rate": 0.11904761904761904
+          }
+        },
+        "8": {
+          "A": {
+            "publications": 774,
+            "eligible_reads": 165,
+            "applied": 25,
+            "first_move_beta_cuts": 4,
+            "researches": 33,
+            "research_nodes": 196555,
+            "stale_research_nodes": 42058,
+            "stale_reads": 258,
+            "depth_gap_sum": 142,
+            "depth_gap_max": 7,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.16,
+            "mean_depth_gap": 0.8606060606060606,
+            "searches": 40,
+            "searches_with_publication": 40,
+            "searches_with_application": 9,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.225,
+            "reads_per_publication": 0.2131782945736434,
+            "application_rate": 0.15151515151515152
+          },
+          "B": {
+            "publications": 793,
+            "eligible_reads": 135,
+            "applied": 11,
+            "first_move_beta_cuts": 2,
+            "researches": 33,
+            "research_nodes": 254426,
+            "stale_research_nodes": 148937,
+            "stale_reads": 290,
+            "depth_gap_sum": 131,
+            "depth_gap_max": 8,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.18181818181818182,
+            "mean_depth_gap": 0.9703703703703703,
+            "searches": 40,
+            "searches_with_publication": 40,
+            "searches_with_application": 4,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.1,
+            "reads_per_publication": 0.17023959646910466,
+            "application_rate": 0.08148148148148149
+          }
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_hint_retry::tests::natural_retry_hint_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              2,
+              0,
+              3,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7,
+              0,
+              0,
+              0,
+              3,
+              0
+            ]
+          },
+          "8": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              1,
+              0,
+              0,
+              2,
+              1,
+              4,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              3,
+              1,
+              2,
+              0,
+              2,
+              0
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "receipt_path": "target/hint-retry-natural-exposure.json"
+      },
+      "independent_thread_screens": {},
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "existing_hint_counter_bookkeeping_present": true,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_root_hint_policy_qualified": false,
+      "interpretation": "Conditional retry screen within unqualified opt-in root hints. Existing hint counters remain present in native timing. Fixed-depth diagnostics and NPS are descriptive; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-analyze.py": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-policy/engine-A": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-policy/engine-B": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-policy/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/hint-retry-build.json": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+        "target/hint-retry-natural-exposure.json": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+        "target/hint-retry-natural-exposure.log": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+        "target/hint-retry-protocol-binding.json": "8c94cd93039a0bba55e37a5ae5009eafddd1c019b7f7c692afbc9d783967cad8",
+        "target/hint-retry-protocol-control/development-screen.json": "7101385c13742f95a0abcd7e40513693d78c01c030e031431d01434a6d647d05",
+        "target/hint-retry-protocol-equality/development-screen.json": "fffd160fd988bf3d237ed4ae6bbfa8878346af094b204a5edfc1cb4224055faa",
+        "target/hint-retry-protocol-policy/manifest.json": "e6a398f89ac11a4a34857786993858e16a3fb95c20bd61e41813b5baf79da44f",
+        "target/hint-retry-protocol-policy/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/hint-retry-protocol-policy/pv-validation.json": "9b38a503b2a5d09a0a56b024e32517c77bceee2d3d11962b611e6b7e427e8609",
+        "target/hint-retry-protocol-policy/rows.jsonl": "4b0de2491908dc0d8067c1e9177a4dac72ef9df71858b9a6c191db9a0e0dcfab",
+        "target/hint-retry-protocol-policy/summary.json": "42b9c91232559dbe31fffc3b36209cfe6e8c3493efa757789705e6ead69743b9"
+      }
+    },
+    "timed": {
+      "schema": "sekirei.root-hint-retry-screen.v1",
+      "source_commit": "188083e40539ab381d3f43e737aa6b7bd14108b9",
+      "base_commit": "cfa03162b6f7da8094ab1c11ae8aaf1933948f77",
+      "mode": "timed",
+      "rows": 320,
+      "all_rows_retained": true,
+      "legal_pv_replay_pass": true,
+      "legal_pv_moves": 2139,
+      "fixed_depth_identity_pass": null,
+      "timing_qualified": true,
+      "by_threads": {
+        "4": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -3.9766349439431026
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.1766646861914754
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -2.632766871407799
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.9665550739061279
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.9232917099271098
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.94464666704972
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 4.908894142850295
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -7.528168826945714
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -1.4241048083251662
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.1931699786430938
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -2.0393687447976316
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -0.46003956163497284
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.664627351139616
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.7137262417651336
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.0618797037766923
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.986282327956257
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -0.43549216270512003
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": 0.7881413040072616
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 8.10333215368293
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 7.771864579985732
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 7.93651442140233
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -4.089938065432596
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.9023084416569969
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.9498471187681989
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -8.670264143813377
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.724432434732239
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -2.579553963215686
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.8648046903623214
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 0.7486550542314951
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -1.071913921028833
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 3.5777411232722267
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 5.7341629006376404
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 4.680055453721921
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -0.33652190346064037
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 4.821187884196898
+                }
+              },
+              "selected_depth": 1.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 2.223920778603383
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -9.91242270928685
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 19.75951257062143
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 3.1189875532803724
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -2.1989617880279866
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.951391357883649
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -3.0862779853351285
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -0.5427074284326538
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -4.842882979213403
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -2.6531444886897293
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 0.8544578877079045
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -0.23355012502485062
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 0.30867941794565645
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -5.219306541466862
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.0794118838720834
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -2.0519160283849813
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.5774099717205439
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.6878867311368007
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 0.5419893976334134
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -3,
+                  "wall_nps_percent": -4.555381652963463
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.944338866379546
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": -1.8660492455279454
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -5.863343038803404
+                },
+                "B_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -2.3592547120380947
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -4.092435258448035
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 3.3836656938514897
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.5947783342084456
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 1.3531029166391928
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -0.3834809518691529
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -4.204871981698055
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -2.3031856879381363
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.1510757789994774
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.3183310181773433
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -1.23610647647453
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.29138942574535864
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 1.890028276749245
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 1.0910988519703846
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 1.6384246863039742
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -0.18021287855412016
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": 0.7256683533261254
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -0.6645642403300567
+                },
+                "B_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 0.3426490506624358
+                }
+              },
+              "selected_depth": -1.5,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": -0.1630659429583181
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.957297982235275
+                },
+                "B_first": {
+                  "selected_depth": 3,
+                  "worker0_depth": 3,
+                  "wall_nps_percent": 0.7296523532572818
+                }
+              },
+              "selected_depth": 1.5,
+              "worker0_depth": 1.5,
+              "wall_nps_percent": 2.3748837351458496
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.7493282856968606
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -3.0699836056804486
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -2.4103956437290797
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -3.4763400608823214
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -14.76826319659762
+                }
+              },
+              "selected_depth": 1.5,
+              "worker0_depth": 2.0,
+              "wall_nps_percent": -9.105666273289803
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -3,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 5.527913928500783
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 4.3038941181004375
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 4.932310921614613
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.8445265866262162
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -1.3960449166913858
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.6182988596393222
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -7.702804014741305
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.34525814941358535
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -4.199165512532332
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 0.030248451836123458
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.8753673757200486
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 0.4494350460709784
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -3.040586178529925
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 4.209051336337644
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 0.4370781086431075
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -1.951013093865983
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -7.558864535654076
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -4.796505187094002
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 14.796971311937046
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 0.6824908583318523
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": 7.622938435500548
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.8487806817377384
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 1.5738527003150482
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -0.1633168251244821
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -4.0207786651081605
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.6948322496544757
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -2.352161993585422
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -2.0092442244970865
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": 4.394684151839923
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 1.1488138709664364
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 3.0613380600394313
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": 8.648890013745358
+                }
+              },
+              "selected_depth": 1.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 5.7564414121547225
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": -0.25,
+              "quiet": -0.5,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              -0.25,
+              0.0,
+              0.25,
+              -0.25,
+              0.0,
+              0.5,
+              -0.25,
+              -0.25,
+              -0.25,
+              -0.75,
+              0.0,
+              0.0,
+              -1.0,
+              0.5,
+              0.5,
+              0.0,
+              -0.75,
+              -0.5,
+              0.5,
+              0.75
+            ],
+            "mean_position_delta": -0.0625,
+            "bootstrap_mean_delta_95": [
+              -0.2625,
+              0.1375
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 80,
+                "minimum": 13,
+                "maximum": 21,
+                "mean": 17.4125,
+                "median": 17.0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 13,
+                "maximum": 21,
+                "mean": 17.35,
+                "median": 17.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": -0.25,
+              "quiet": 0.0,
+              "tactical": -0.5
+            },
+            "directional_median_delta": {
+              "A_first": -1.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              -0.5,
+              -0.25,
+              0.5,
+              -0.5,
+              0.5,
+              -0.5,
+              -0.75,
+              0.25,
+              0.25,
+              -1.0,
+              0.0,
+              -1.0,
+              -0.25,
+              0.5,
+              0.75,
+              -0.25,
+              -1.0,
+              0.0,
+              0.75,
+              0.5
+            ],
+            "mean_position_delta": -0.1,
+            "bootstrap_mean_delta_95": [
+              -0.35,
+              0.15
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 80,
+                "minimum": 12,
+                "maximum": 21,
+                "mean": 16.7625,
+                "median": 17.0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 12,
+                "maximum": 21,
+                "mean": 16.6625,
+                "median": 16.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": -0.31167819337972746,
+              "quiet": -0.1631913840414001,
+              "tactical": -0.7049433402015859
+            },
+            "directional_median_percent": {
+              "A_first": -0.9078200096647671,
+              "B_first": 0.6981085500484929
+            },
+            "per_position_mean_percent": [
+              -0.8440601021790395,
+              -0.9420721849800695,
+              -0.6368691998847154,
+              3.4933336513170654,
+              -1.8257339421222596,
+              3.451988116162652,
+              0.01635478397262191,
+              -1.1722325353720364,
+              -0.754963315375784,
+              -2.9792422519879898,
+              -0.47504138564947174,
+              -0.0725038122520727,
+              0.28130120518390367,
+              -0.017755954291615028,
+              -2.0866776758375947,
+              -2.9087321860858273,
+              0.44325657735704294,
+              1.4132166242032729,
+              -1.257739409354952,
+              3.4526276415605794
+            ],
+            "bootstrap_mean_percent_95": [
+              -0.9293106481808339,
+              0.6769652551955205
+            ]
+          }
+        },
+        "8": {
+          "positions": 20,
+          "blocks": 40,
+          "paired_blocks": [
+            {
+              "position": 0,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -6.4755405038884
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -0.8148690988162288
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -3.701052347620093
+            },
+            {
+              "position": 0,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.82057741031868
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.0818636520085079
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -0.3729120750393222
+            },
+            {
+              "position": 1,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -1.4244009844165517
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -3.6702774813257677
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.5399065134322107
+            },
+            {
+              "position": 1,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -7.470900202312036
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -3,
+                  "wall_nps_percent": -4.014427095747164
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": -5.759301531415506
+            },
+            {
+              "position": 2,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 2.659221361499875
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -1.483388582442402
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 0.583131887259003
+            },
+            {
+              "position": 2,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -0.6803330751827485
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.277838970912205
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 0.7819158578915575
+            },
+            {
+              "position": 3,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.9538222489128731
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -4.085829140071318
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -1.1246044663676402
+            },
+            {
+              "position": 3,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 2.235761518535284
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 0.7039585885866506
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 1.4510742830812662
+            },
+            {
+              "position": 4,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.4811536535663574
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -3,
+                  "wall_nps_percent": 3.7472726107754983
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": 2.094893183981239
+            },
+            {
+              "position": 4,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -7.942328489319461
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 0.8000673391409086
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": 1.5,
+              "wall_nps_percent": -3.6575221574706607
+            },
+            {
+              "position": 5,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": 2.2556456722950147
+                },
+                "B_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -3.208543817899523
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.4864644688681419
+            },
+            {
+              "position": 5,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 1.2586622613267595
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.402002602998853
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": 1.329376479598321
+            },
+            {
+              "position": 6,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -11.062204787139896
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": 3.0399774360295506
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": 1.5,
+              "wall_nps_percent": -4.104574492966084
+            },
+            {
+              "position": 6,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 3,
+                  "wall_nps_percent": 4.4175225094130965
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": -3.6977844496937418
+                }
+              },
+              "selected_depth": 0.5,
+              "worker0_depth": 2.5,
+              "wall_nps_percent": 0.13913838665464695
+            },
+            {
+              "position": 7,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.3904842434775855
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 1.4895220361126782
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": 0.033798596178780116
+            },
+            {
+              "position": 7,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 0.467153540506704
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 3,
+                  "wall_nps_percent": -0.41706990900211016
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": 0.014516840683209686
+            },
+            {
+              "position": 8,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -3.127804477901075
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.6452165337172966
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -1.891483868623789
+            },
+            {
+              "position": 8,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -1.0902597370205491
+                },
+                "B_first": {
+                  "selected_depth": -2,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 3.4745437820006275
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 1.1392597738681065
+            },
+            {
+              "position": 9,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.7454897551225201
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 2.188183511523012
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 0.1976834515075243
+            },
+            {
+              "position": 9,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -3.6730294475713188
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -0.44872648506699697
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -2.05362033416544
+            },
+            {
+              "position": 10,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 4.648894142599924
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 3.6745181067512345
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 4.15557257980228
+            },
+            {
+              "position": 10,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 0.034513562327931346
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.5904557573925615
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 0.8095348615473785
+            },
+            {
+              "position": 11,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.9030751517128288
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 2.153520119012353
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": 0.6036918077279463
+            },
+            {
+              "position": 11,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -3.7164769768644135
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.7662475090744802
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -1.4796510788193995
+            },
+            {
+              "position": 12,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.906706484940502
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 0.0975290353141034
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -1.4238597948956988
+            },
+            {
+              "position": 12,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.1314888078766128
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 0.8416824660344435
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -0.13343095788519443
+            },
+            {
+              "position": 13,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -11.444956434654486
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -2.913731977511058
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -7.1218875274216
+            },
+            {
+              "position": 13,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.2419889241471749
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": -6.885239612101168
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -0.5,
+              "wall_nps_percent": -2.772596022636742
+            },
+            {
+              "position": 14,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 12.843685702062245
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 0.3740484537965161
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 6.463605810501782
+            },
+            {
+              "position": 14,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -3,
+                  "worker0_depth": -3,
+                  "wall_nps_percent": 7.623111201163013
+                },
+                "B_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -8.103542323817624
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -1.5,
+              "wall_nps_percent": -0.785546856886643
+            },
+            {
+              "position": 15,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 3.5272998563884883
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -4.655974015649056
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -0.6315925620622442
+            },
+            {
+              "position": 15,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": 1.6810553478747492
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -0.37358774846167897
+                }
+              },
+              "selected_depth": 1.5,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": 0.6502398025791889
+            },
+            {
+              "position": 16,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 2.594158037066485
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -1,
+                  "wall_nps_percent": 2.531810451888683
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": 2.562707788136409
+            },
+            {
+              "position": 16,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 1.1060521022244973
+                },
+                "B_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 1.5161095870952934
+                }
+              },
+              "selected_depth": -1.0,
+              "worker0_depth": -2.0,
+              "wall_nps_percent": 1.3096296963638343
+            },
+            {
+              "position": 17,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.802234768959755
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -1.1696501500349177
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.0,
+              "wall_nps_percent": -1.9930237760823366
+            },
+            {
+              "position": 17,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -7.0947777456098144
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -1.5107363504888727
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 1.0,
+              "wall_nps_percent": -4.337039264560882
+            },
+            {
+              "position": 18,
+              "repeat": 0,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -1.5020147479695267
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": 1.10770538737337
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": 0.5,
+              "wall_nps_percent": -0.20899831106192535
+            },
+            {
+              "position": 18,
+              "repeat": 1,
+              "category": "quiet",
+              "directional": {
+                "A_first": {
+                  "selected_depth": -1,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": 0.5126083962730732
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -1.3355100865845349
+                }
+              },
+              "selected_depth": -0.5,
+              "worker0_depth": -2.0,
+              "wall_nps_percent": -0.41544326599719517
+            },
+            {
+              "position": 19,
+              "repeat": 0,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 1,
+                  "wall_nps_percent": -2.5071262682688
+                },
+                "B_first": {
+                  "selected_depth": 2,
+                  "worker0_depth": 2,
+                  "wall_nps_percent": 1.8428586813418635
+                }
+              },
+              "selected_depth": 1.0,
+              "worker0_depth": 1.5,
+              "wall_nps_percent": -0.4358206525873376
+            },
+            {
+              "position": 19,
+              "repeat": 1,
+              "category": "tactical",
+              "directional": {
+                "A_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": 0,
+                  "wall_nps_percent": -2.0126358195061145
+                },
+                "B_first": {
+                  "selected_depth": 0,
+                  "worker0_depth": -2,
+                  "wall_nps_percent": -0.05927655211578342
+                }
+              },
+              "selected_depth": 0.0,
+              "worker0_depth": -1.0,
+              "wall_nps_percent": -1.0375453894007292
+            }
+          ],
+          "selected_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": -0.5,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              0.25,
+              0.0,
+              0.5,
+              0.0,
+              0.25,
+              -0.25,
+              0.5,
+              -0.25,
+              -0.75,
+              -0.25,
+              -0.25,
+              0.0,
+              -0.5,
+              -0.25,
+              -0.75,
+              0.75,
+              -0.5,
+              0.0,
+              -0.25,
+              0.5
+            ],
+            "mean_position_delta": -0.0625,
+            "bootstrap_mean_delta_95": [
+              -0.2375,
+              0.125
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 80,
+                "minimum": 13,
+                "maximum": 20,
+                "mean": 16.65,
+                "median": 16.0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 12,
+                "maximum": 20,
+                "mean": 16.5875,
+                "median": 17.0
+              }
+            }
+          },
+          "worker0_depth": {
+            "median_delta": {
+              "all": 0.0,
+              "quiet": -0.5,
+              "tactical": 0.0
+            },
+            "directional_median_delta": {
+              "A_first": 0.0,
+              "B_first": 0.0
+            },
+            "per_position_mean_delta": [
+              -0.25,
+              -0.75,
+              0.0,
+              -0.25,
+              0.0,
+              -0.75,
+              2.0,
+              0.25,
+              -1.0,
+              0.25,
+              0.5,
+              -0.25,
+              -0.5,
+              0.25,
+              -1.25,
+              0.75,
+              -1.5,
+              0.5,
+              -0.75,
+              0.25
+            ],
+            "mean_position_delta": -0.125,
+            "bootstrap_mean_delta_95": [
+              -0.45,
+              0.2125
+            ],
+            "raw_depth_by_side": {
+              "A": {
+                "count": 80,
+                "minimum": 10,
+                "maximum": 20,
+                "mean": 15.7375,
+                "median": 16.0
+              },
+              "B": {
+                "count": 80,
+                "minimum": 11,
+                "maximum": 19,
+                "mean": 15.6125,
+                "median": 16.0
+              }
+            }
+          },
+          "wall_nps": {
+            "median_percent": {
+              "all": -0.3941776705182587,
+              "quiet": 0.002853714384726258,
+              "tactical": -0.8345689757314867
+            },
+            "directional_median_percent": {
+              "A_first": -0.996667444366689,
+              "B_first": 0.23578874455530974
+            },
+            "per_position_mean_percent": [
+              -2.0369822113297076,
+              -4.149604022423858,
+              0.6825238725752802,
+              0.16323490835681298,
+              -0.7813144867447108,
+              0.42145600536508954,
+              -1.9827180531557187,
+              0.0241577184309949,
+              -0.3761120473778412,
+              -0.927968441328958,
+              2.4825537206748294,
+              -0.4379796355457266,
+              -0.7786453763904466,
+              -4.947241775029171,
+              2.8390294768075695,
+              0.009323620258472332,
+              1.9361687422501217,
+              -3.1650315203216097,
+              -0.31222078852956026,
+              -0.7366830209940334
+            ],
+            "bootstrap_mean_percent_95": [
+              -1.4316379866566096,
+              0.21368279595590148
+            ]
+          }
+        }
+      },
+      "root_hint_effectiveness": {
+        "4": {
+          "A": {
+            "publications": 2185,
+            "eligible_reads": 264,
+            "applied": 45,
+            "first_move_beta_cuts": 9,
+            "researches": 79,
+            "research_nodes": 1207902,
+            "stale_research_nodes": 548259,
+            "stale_reads": 1053,
+            "depth_gap_sum": 38,
+            "depth_gap_max": 2,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.2,
+            "mean_depth_gap": 0.14393939393939395,
+            "searches": 80,
+            "searches_with_publication": 80,
+            "searches_with_application": 18,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.225,
+            "reads_per_publication": 0.1208237986270023,
+            "application_rate": 0.17045454545454544
+          },
+          "B": {
+            "publications": 2151,
+            "eligible_reads": 266,
+            "applied": 33,
+            "first_move_beta_cuts": 9,
+            "researches": 118,
+            "research_nodes": 2548345,
+            "stale_research_nodes": 273078,
+            "stale_reads": 1045,
+            "depth_gap_sum": 29,
+            "depth_gap_max": 1,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.2727272727272727,
+            "mean_depth_gap": 0.10902255639097744,
+            "searches": 80,
+            "searches_with_publication": 80,
+            "searches_with_application": 20,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.25,
+            "reads_per_publication": 0.12366341236634124,
+            "application_rate": 0.12406015037593984
+          }
+        },
+        "8": {
+          "A": {
+            "publications": 2392,
+            "eligible_reads": 450,
+            "applied": 77,
+            "first_move_beta_cuts": 13,
+            "researches": 105,
+            "research_nodes": 1508425,
+            "stale_research_nodes": 812991,
+            "stale_reads": 793,
+            "depth_gap_sum": 208,
+            "depth_gap_max": 6,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.16883116883116883,
+            "mean_depth_gap": 0.4622222222222222,
+            "searches": 80,
+            "searches_with_publication": 80,
+            "searches_with_application": 36,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.45,
+            "reads_per_publication": 0.18812709030100336,
+            "application_rate": 0.1711111111111111
+          },
+          "B": {
+            "publications": 2304,
+            "eligible_reads": 473,
+            "applied": 74,
+            "first_move_beta_cuts": 16,
+            "researches": 223,
+            "research_nodes": 3114356,
+            "stale_research_nodes": 980177,
+            "stale_reads": 741,
+            "depth_gap_sum": 266,
+            "depth_gap_max": 5,
+            "generation_gap_sum": 0,
+            "generation_gap_max": 0,
+            "first_move_beta_cut_rate": 0.21621621621621623,
+            "mean_depth_gap": 0.5623678646934461,
+            "searches": 80,
+            "searches_with_publication": 80,
+            "searches_with_application": 30,
+            "publication_search_rate": 1.0,
+            "application_search_rate": 0.375,
+            "reads_per_publication": 0.2052951388888889,
+            "application_rate": 0.15644820295983086
+          }
+        }
+      },
+      "isolated_natural_exposure": {
+        "test_name": "search::root_hint_retry::tests::natural_retry_hint_exposure_isolated",
+        "case_count": 40,
+        "per_thread": {
+          "4": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              0,
+              0,
+              0,
+              2,
+              0,
+              2,
+              0,
+              3,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              7,
+              0,
+              0,
+              0,
+              3,
+              0
+            ]
+          },
+          "8": {
+            "promotions": 17,
+            "active": true,
+            "per_position_promotions": [
+              1,
+              0,
+              0,
+              2,
+              1,
+              4,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              1,
+              0,
+              3,
+              1,
+              2,
+              0,
+              2,
+              0
+            ]
+          }
+        },
+        "timing_statistics_used": false,
+        "receipt_path": "target/hint-retry-natural-exposure.json"
+      },
+      "independent_thread_screens": {
+        "4": {
+          "advance": false,
+          "reasons": [
+            "Selected completed-depth median below +0.5 ply.",
+            "Selected-depth bootstrap lower bound is not positive.",
+            "Selected depth regressed in a category/direction.",
+            "Worker 0 depth regressed overall or in a category/direction."
+          ]
+        },
+        "8": {
+          "advance": false,
+          "reasons": [
+            "Selected completed-depth median below +0.5 ply.",
+            "Selected-depth bootstrap lower bound is not positive.",
+            "Selected depth regressed in a category/direction.",
+            "Worker 0 depth regressed overall or in a category/direction."
+          ]
+        }
+      },
+      "development_screen_advance": false,
+      "bootstrap_draws": 5000,
+      "bootstrap_seed": 20261016,
+      "existing_hint_counter_bookkeeping_present": true,
+      "default_adopted": false,
+      "independent_h1": false,
+      "strength_claim": false,
+      "combined_root_hint_policy_qualified": false,
+      "interpretation": "Conditional retry screen within unqualified opt-in root hints. Existing hint counters remain present in native timing. Fixed-depth diagnostics and NPS are descriptive; no Elo inference or adoption.",
+      "inputs_sha256": {
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-analyze.py": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-timed/engine-A": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-timed/engine-B": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+        "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-protocol-timed/pv-validation.legal-moves": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+        "target/hint-retry-build.json": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+        "target/hint-retry-natural-exposure.json": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+        "target/hint-retry-natural-exposure.log": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+        "target/hint-retry-protocol-binding.json": "8c94cd93039a0bba55e37a5ae5009eafddd1c019b7f7c692afbc9d783967cad8",
+        "target/hint-retry-protocol-control/development-screen.json": "7101385c13742f95a0abcd7e40513693d78c01c030e031431d01434a6d647d05",
+        "target/hint-retry-protocol-equality/development-screen.json": "fffd160fd988bf3d237ed4ae6bbfa8878346af094b204a5edfc1cb4224055faa",
+        "target/hint-retry-protocol-policy/development-screen.json": "fe8471546cfe71c1dc1c6399509c38c4bfccd05ab8645a0ec311d12d565721e4",
+        "target/hint-retry-protocol-prequiet.json": "a16d5d4e97d50984ea84b720c0117ea56e318631563ccd6609f701b6e905cde5",
+        "target/hint-retry-protocol-timed/manifest.json": "90dbe73b3499c6215d304b206b556575ad85c875ab3dfe7c55ef3c0861061a56",
+        "target/hint-retry-protocol-timed/positions.input": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+        "target/hint-retry-protocol-timed/pv-validation.json": "02fc9ed413454053123a08671654ef58c138d94d71df6065065f1669b2d1b3df",
+        "target/hint-retry-protocol-timed/rows.jsonl": "9c7226808071f95277bc67d107aa4c34ee718d9909d2cd33a261dc54a6118eaf",
+        "target/hint-retry-protocol-timed/summary.json": "9d76bf4497e2278a80e111cc4a0b25d92c9a83b0d10fd075b2c7779b6ae948bd"
+      }
+    }
+  },
+  "lane_status": {
+    "control": "complete_validated",
+    "equality": "complete_validated",
+    "policy": "complete_validated",
+    "timed": "complete_validated"
+  },
+  "timed_status": "qualified",
+  "rows": 640,
+  "validated_rows": 640,
+  "legal_pv_moves": 4788,
+  "all_rows_retained": true,
+  "default_adopted": false,
+  "independent_h1": false,
+  "strength_claim": false,
+  "combined_root_hint_policy_qualified": false,
+  "artifacts": {
+    ".cargo/config.toml": {
+      "sha256": "8ea425180afe0e2fc0cd930d9a5dbd4da07aebe14263eeec4d6df9c7ab996a20",
+      "bytes": 48
+    },
+    "/Users/k_tanabe/.codex/worktrees/search-useful-depth-next/sekirei/target/hint-retry-build.py": {
+      "sha256": "52a7fe93c1bba690c55de7e3ce9993cff92d93a01a1f6ac17bb3b8ef396d0897",
+      "bytes": 3933
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.manifest.json": {
+      "sha256": "6c9c8a66551ed555e3d7d13d421e6df2baa3b66167a0b88c613cbd5ba930f716",
+      "bytes": 20592
+    },
+    "docs/experiments/lazy_smp_useful_depth_v0.4.0/diagnostic.sfen": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "docs/experiments/root_hint_retry_v0.4.2/README.md": {
+      "sha256": "a008159fb35d212bdc9a9a1e5dadc51ed25429ca2d98c9e80713f9ced5cab34a",
+      "bytes": 7659
+    },
+    "scripts/generate_search_diagnostic.py": {
+      "sha256": "55167b7e354fbf2a4ec76ebf69966b0e10130f958d226d5648e5905935b64d68",
+      "bytes": 7895
+    },
+    "scripts/nps_threads.py": {
+      "sha256": "ed0d6ca638a11752afbcd3c92a1b3106631031787eb44ba2bda184a4362b4d7c",
+      "bytes": 84246
+    },
+    "scripts/paired_search_diagnostics.py": {
+      "sha256": "0c8c94adaa842a0e63fb2ba2c81bbb43d41b4670e00e4e15ad30da40e3f73fc5",
+      "bytes": 23956
+    },
+    "scripts/validate_paired_pv.py": {
+      "sha256": "633814efc84366cb49c1f031b85807de81dae522fd6ef5af0de167ef628a3661",
+      "bytes": 3623
+    },
+    "target/hint-retry-archive-tests.log": {
+      "sha256": "5c7edba9529e38b1c330c0d16078eb02c0c608f4f1b36b13bc7937acfb5df07b",
+      "bytes": 835
+    },
+    "target/hint-retry-archive-tests.py": {
+      "sha256": "5948019d1e24b7621fb1f8160d0e817574afd9c13a909591fd881761b9cf9bb9",
+      "bytes": 3256
+    },
+    "target/hint-retry-archive.py": {
+      "sha256": "13381eed7cb84b53d28059e7ad1c75beb0b1a57ec13736dc3fd4bc89fd9ae8e6",
+      "bytes": 4458
+    },
+    "target/hint-retry-build-orchestration.log": {
+      "sha256": "c357eab6238c07940673d47fbea59fbf27b01463c0499e339ce9cc4b9bd1eeaa",
+      "bytes": 241
+    },
+    "target/hint-retry-build.json": {
+      "sha256": "89330c1e29e2d80634f84618a012efdadb9c2e9308c0c4e3deb91299a621b1fb",
+      "bytes": 4000
+    },
+    "target/hint-retry-build.py": {
+      "sha256": "52a7fe93c1bba690c55de7e3ce9993cff92d93a01a1f6ac17bb3b8ef396d0897",
+      "bytes": 3933
+    },
+    "target/hint-retry-build/engine.log": {
+      "sha256": "1dd458552d3ebbbfbea967b7408a9823ed56fa50b5ef6da7350f39a16e8200f5",
+      "bytes": 525
+    },
+    "target/hint-retry-build/legal_tool.log": {
+      "sha256": "538220abc619c0dcd166d1d8a51e447a3ff03de450978cb6993fe0f012b46ad0",
+      "bytes": 184
+    },
+    "target/hint-retry-build/sekirei": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-build/sekirei-core-tests": {
+      "sha256": "393a2217a69c7b6c51867b94117bf5f8e787ce935f96ed19b1d51d1730a56c98",
+      "bytes": 13029392
+    },
+    "target/hint-retry-build/sekirei-legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/hint-retry-build/usi.txt": {
+      "sha256": "fd601685a6a630c43290e61244a85c4771851a30f79a7d1f7121b5f05a0b9353",
+      "bytes": 17647
+    },
+    "target/hint-retry-cache-cleanup.json": {
+      "sha256": "6ab487b727623106d5ab3032a1c92baf39e123b8d42e190b74e69cdb3a008778",
+      "bytes": 266
+    },
+    "target/hint-retry-clippy-tune.log": {
+      "sha256": "5e624a1032905c076410e35da8fa233bb79401d4a581e827ed36ac0acc9f65f8",
+      "bytes": 236
+    },
+    "target/hint-retry-clippy.log": {
+      "sha256": "d2d03c70730e3ee5e11b46f02b124176dd9cb428f9b2eeaf0e2f0deea4980be5",
+      "bytes": 4995
+    },
+    "target/hint-retry-core-default-release.log": {
+      "sha256": "295dd26de6d3608d9e8ee1ddcfeb6267fe5c8da27c0ae8f197069fb2643d2172",
+      "bytes": 40484
+    },
+    "target/hint-retry-core-default.log": {
+      "sha256": "01fb10049513add3696c0f9675cb8df6d77f9491da064419308710fe499d0b0a",
+      "bytes": 28179
+    },
+    "target/hint-retry-core-tune-release.log": {
+      "sha256": "47d6c8399b4c2acb40f21ee932dd17c46227d4b0cb01d2f95c3709750dec0eac",
+      "bytes": 42547
+    },
+    "target/hint-retry-default-debug-stop.json": {
+      "sha256": "c542b498ab4c0260a089b257c3c2d406310839b07545dd95cf3a4ccdcfcd9956",
+      "bytes": 424
+    },
+    "target/hint-retry-fmt-final.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "target/hint-retry-fmt.log": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "target/hint-retry-main-audit-tests.log": {
+      "sha256": "b17f266e8f6945674ca54a118cfde99e888256dfc3c6aff0a21ab21342dafe75",
+      "bytes": 1887
+    },
+    "target/hint-retry-main-audit-tests.py": {
+      "sha256": "579e7b968cb7e574cef99b82747dab44aa4ff2c892b11cc52885a0ee3ad99f2c",
+      "bytes": 11665
+    },
+    "target/hint-retry-main-audit.py": {
+      "sha256": "70bd620241d804b395c5cb49a1ba54bb7663472311ac2ed41e8d285161ffbaaa",
+      "bytes": 20365
+    },
+    "target/hint-retry-mechanism.log": {
+      "sha256": "6b70f2236cea0bd01e3aeb10efd5fc1bf9f4b5999af807eeaebd4e9dc73ff409",
+      "bytes": 1703
+    },
+    "target/hint-retry-natural-build.jsonl": {
+      "sha256": "386c25c20ebb6e31349d24b9c9937b9a1df26924656e1de20afafb27c977ceae",
+      "bytes": 10527
+    },
+    "target/hint-retry-natural-build.log": {
+      "sha256": "7a7bb64a28cdda9b91e6e27f41be455104d929b5d7ad6dd5beca75fc5a47f1f4",
+      "bytes": 62
+    },
+    "target/hint-retry-natural-exposure.json": {
+      "sha256": "98db865e2b76d2a0beeba094e9ee886dba9b25b227e13e62ac7b3d063fdb704c",
+      "bytes": 2715
+    },
+    "target/hint-retry-natural-exposure.log": {
+      "sha256": "307aa5792f8f34fd1ff01f0e38caea6470e4f65fc80d06f0cd63df09fe1faabb",
+      "bytes": 2870
+    },
+    "target/hint-retry-natural-orchestration.log": {
+      "sha256": "894ffd6f1fbf12e619819f17465ada87f152f7738842ff9c7532e5394adede0c",
+      "bytes": 390
+    },
+    "target/hint-retry-natural-presearch.json": {
+      "sha256": "801436d496439f16c7611b124a2dbe2bb22b265824b04c87ab6a8651b8b0d24a",
+      "bytes": 4804
+    },
+    "target/hint-retry-natural.py": {
+      "sha256": "5af23e6b9391b714c7436aa1a2b9a8b32fb8cebd0bb1bfeb93a9dd72e4f3ad7a",
+      "bytes": 4017
+    },
+    "target/hint-retry-primary-before.json": {
+      "sha256": "645be5c314289dc10f41db58afdb3570cc111514b8e06c1cda33d4401497e4c6",
+      "bytes": 478
+    },
+    "target/hint-retry-protocol-analyze.py": {
+      "sha256": "99971ed82642a65ae456f5eb199756e0196c36d94a204bb892ca31da7c820d37",
+      "bytes": 27387
+    },
+    "target/hint-retry-protocol-binding.json": {
+      "sha256": "8c94cd93039a0bba55e37a5ae5009eafddd1c019b7f7c692afbc9d783967cad8",
+      "bytes": 6812
+    },
+    "target/hint-retry-protocol-closed.json": {
+      "sha256": "8686b3d0a861c3bdbea123d20087752b412648ed799445748ae45ddacce658b0",
+      "bytes": 316
+    },
+    "target/hint-retry-protocol-collect.py": {
+      "sha256": "3cc1b00348eda6dba319fa3d5965e938e9d6f09ebef1c16379c683c486a00bb0",
+      "bytes": 4140
+    },
+    "target/hint-retry-protocol-control-analysis.log": {
+      "sha256": "7101385c13742f95a0abcd7e40513693d78c01c030e031431d01434a6d647d05",
+      "bytes": 18788
+    },
+    "target/hint-retry-protocol-control-pv.log": {
+      "sha256": "23c04177eb1b32443ddcb3d7e7da65a8b961897d420a0689235b6fc309b06777",
+      "bytes": 47
+    },
+    "target/hint-retry-protocol-control.log": {
+      "sha256": "091549a74c418202c17170d5e6cdad50cf9b94d90e6c41f10671e668e0da8154",
+      "bytes": 14513
+    },
+    "target/hint-retry-protocol-control/development-screen.json": {
+      "sha256": "7101385c13742f95a0abcd7e40513693d78c01c030e031431d01434a6d647d05",
+      "bytes": 18788
+    },
+    "target/hint-retry-protocol-control/engine-A": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-control/engine-B": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-control/manifest.json": {
+      "sha256": "dcca2056795d7dda2c98f7d929d40e1a92fa6418422a8014917627baf5132d10",
+      "bytes": 4361
+    },
+    "target/hint-retry-protocol-control/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/hint-retry-protocol-control/pv-validation.json": {
+      "sha256": "8af212332f41151120c80ea5eecead60a4bb67fd66a6e1f3b2531689732029f0",
+      "bytes": 906
+    },
+    "target/hint-retry-protocol-control/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/hint-retry-protocol-control/rows.jsonl": {
+      "sha256": "79ba9f932b32c0a20a98233e99861e8b06cf20284052a38f6d98523b0011df97",
+      "bytes": 185030
+    },
+    "target/hint-retry-protocol-control/summary.json": {
+      "sha256": "57af101ca6a22353744124b8ba2e41711fa3cc2c58d153c42b7f69b7ab6217db",
+      "bytes": 72955
+    },
+    "target/hint-retry-protocol-equality-analysis.log": {
+      "sha256": "fffd160fd988bf3d237ed4ae6bbfa8878346af094b204a5edfc1cb4224055faa",
+      "bytes": 18936
+    },
+    "target/hint-retry-protocol-equality-pv.log": {
+      "sha256": "23c04177eb1b32443ddcb3d7e7da65a8b961897d420a0689235b6fc309b06777",
+      "bytes": 47
+    },
+    "target/hint-retry-protocol-equality.log": {
+      "sha256": "6335cdb5ed2e087b0676d662d7fc3ce54be0482661129c444c7dd38944e341c3",
+      "bytes": 14509
+    },
+    "target/hint-retry-protocol-equality/development-screen.json": {
+      "sha256": "fffd160fd988bf3d237ed4ae6bbfa8878346af094b204a5edfc1cb4224055faa",
+      "bytes": 18936
+    },
+    "target/hint-retry-protocol-equality/engine-A": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-equality/engine-B": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-equality/manifest.json": {
+      "sha256": "a3aff8dfa571e7800107fc0da42bf97ef9072a0e2987badf4e7ea16bc0c32e3c",
+      "bytes": 3993
+    },
+    "target/hint-retry-protocol-equality/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/hint-retry-protocol-equality/pv-validation.json": {
+      "sha256": "d384c0cf710ec8af4a4188008dcbdfaa0e350dbeb7c77d584148eb1f07f92266",
+      "bytes": 908
+    },
+    "target/hint-retry-protocol-equality/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/hint-retry-protocol-equality/rows.jsonl": {
+      "sha256": "2f46930f26d158527c30e09e191ad9e4818f799ec846aac4b3ddca37276e5bf6",
+      "bytes": 185031
+    },
+    "target/hint-retry-protocol-equality/summary.json": {
+      "sha256": "0c591a0188909b16baf1613cd076b0bd11638acebef92b9281c97c49c83c9324",
+      "bytes": 73045
+    },
+    "target/hint-retry-protocol-policy-analysis.log": {
+      "sha256": "fe8471546cfe71c1dc1c6399509c38c4bfccd05ab8645a0ec311d12d565721e4",
+      "bytes": 36975
+    },
+    "target/hint-retry-protocol-policy-pv.log": {
+      "sha256": "935d799e5ab829a5aa27fe77b4789ef6ca63ac5e53d9a40456af3a497143c7a5",
+      "bytes": 49
+    },
+    "target/hint-retry-protocol-policy.log": {
+      "sha256": "d85cd679eb4cb77340df2ef414417baaaf2595d8f1c6787d33c997073c2c02a0",
+      "bytes": 59794
+    },
+    "target/hint-retry-protocol-policy/development-screen.json": {
+      "sha256": "fe8471546cfe71c1dc1c6399509c38c4bfccd05ab8645a0ec311d12d565721e4",
+      "bytes": 36975
+    },
+    "target/hint-retry-protocol-policy/engine-A": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-policy/engine-B": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-policy/manifest.json": {
+      "sha256": "e6a398f89ac11a4a34857786993858e16a3fb95c20bd61e41813b5baf79da44f",
+      "bytes": 3136
+    },
+    "target/hint-retry-protocol-policy/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/hint-retry-protocol-policy/pv-validation.json": {
+      "sha256": "9b38a503b2a5d09a0a56b024e32517c77bceee2d3d11962b611e6b7e427e8609",
+      "bytes": 906
+    },
+    "target/hint-retry-protocol-policy/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/hint-retry-protocol-policy/rows.jsonl": {
+      "sha256": "4b0de2491908dc0d8067c1e9177a4dac72ef9df71858b9a6c191db9a0e0dcfab",
+      "bytes": 2806091
+    },
+    "target/hint-retry-protocol-policy/summary.json": {
+      "sha256": "42b9c91232559dbe31fffc3b36209cfe6e8c3493efa757789705e6ead69743b9",
+      "bytes": 492639
+    },
+    "target/hint-retry-protocol-prequiet.json": {
+      "sha256": "a16d5d4e97d50984ea84b720c0117ea56e318631563ccd6609f701b6e905cde5",
+      "bytes": 16825
+    },
+    "target/hint-retry-protocol-prospective.md": {
+      "sha256": "a008159fb35d212bdc9a9a1e5dadc51ed25429ca2d98c9e80713f9ced5cab34a",
+      "bytes": 7659
+    },
+    "target/hint-retry-protocol-run.py": {
+      "sha256": "0644cb15bcee79c6a1fc06a1b08705a923d3e2b056b3d9a1217779b21876824e",
+      "bytes": 7685
+    },
+    "target/hint-retry-protocol-runner.log": {
+      "sha256": "87d7cbf03d23d0a01d60fdb1352bf8012e791458904e688a1e3b26a206c94947",
+      "bytes": 4426
+    },
+    "target/hint-retry-protocol-tests-final.log": {
+      "sha256": "745c4639b4e579e32619a34ab373ad0b15e3601316d7b177ce5e0a099316450a",
+      "bytes": 2328
+    },
+    "target/hint-retry-protocol-tests-presearch.log": {
+      "sha256": "8d698a4125e99bb7ac715419c7f13632ba1cddb24fe3cd891336e2784831382b",
+      "bytes": 2328
+    },
+    "target/hint-retry-protocol-tests-v2.log": {
+      "sha256": "9be6749cd65e92e5a15a50bfe84d59110a865ec818fd4359aec14451fd9d3f7b",
+      "bytes": 2328
+    },
+    "target/hint-retry-protocol-tests-v3.log": {
+      "sha256": "e72873fdf0b515647a2b7e4632e6aa3ff2483152b74ef80af21b8a54bba4e601",
+      "bytes": 2328
+    },
+    "target/hint-retry-protocol-tests.log": {
+      "sha256": "a12df934f5db5354a306e3ecc271fc44ae03a1ed0793e1adb83f8061642c2b1f",
+      "bytes": 1848
+    },
+    "target/hint-retry-protocol-tests.py": {
+      "sha256": "5d6c45771b29736fa8bff53ccc78145c2ec922b6256e775fe0b88fc472dde7b7",
+      "bytes": 14705
+    },
+    "target/hint-retry-protocol-timed-analysis.log": {
+      "sha256": "e8763d288514a04715bb09d98a8cec22a3a05ca5ab7eafe2773fe875b8805ebb",
+      "bytes": 61500
+    },
+    "target/hint-retry-protocol-timed-pv.log": {
+      "sha256": "4c0c109aa28866f7c6d033d6fe252fd699535c84ad27bdd2cf36f5aab42bca9e",
+      "bytes": 49
+    },
+    "target/hint-retry-protocol-timed.log": {
+      "sha256": "0433524cdd6163398ca995d61d26dba6941cee16b2b24a3825d46bd8e39fe98e",
+      "bytes": 67939
+    },
+    "target/hint-retry-protocol-timed/development-screen.json": {
+      "sha256": "e8763d288514a04715bb09d98a8cec22a3a05ca5ab7eafe2773fe875b8805ebb",
+      "bytes": 61500
+    },
+    "target/hint-retry-protocol-timed/engine-A": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-timed/engine-B": {
+      "sha256": "2ebda3e448929bfc17268d67df8b3d35ddd45cd5bffea6881b039960b6b1c6e2",
+      "bytes": 4782640
+    },
+    "target/hint-retry-protocol-timed/manifest.json": {
+      "sha256": "90dbe73b3499c6215d304b206b556575ad85c875ab3dfe7c55ef3c0861061a56",
+      "bytes": 2966
+    },
+    "target/hint-retry-protocol-timed/positions.input": {
+      "sha256": "de70936824cd695f67a03093faa0980a00913544043057931941788fd0eaf5ad",
+      "bytes": 1556
+    },
+    "target/hint-retry-protocol-timed/pv-validation.json": {
+      "sha256": "02fc9ed413454053123a08671654ef58c138d94d71df6065065f1669b2d1b3df",
+      "bytes": 905
+    },
+    "target/hint-retry-protocol-timed/pv-validation.legal-moves": {
+      "sha256": "166327c474d9d4a010252a3e211bc5c45768977bb0f087a574dc915ca8cc37c0",
+      "bytes": 708720
+    },
+    "target/hint-retry-protocol-timed/rows.jsonl": {
+      "sha256": "9c7226808071f95277bc67d107aa4c34ee718d9909d2cd33a261dc54a6118eaf",
+      "bytes": 1235988
+    },
+    "target/hint-retry-protocol-timed/summary.json": {
+      "sha256": "9d76bf4497e2278a80e111cc4a0b25d92c9a83b0d10fd075b2c7779b6ae948bd",
+      "bytes": 344480
+    },
+    "target/hint-retry-source-commit.log": {
+      "sha256": "a7ee3161b94cc2acccc1041347696911eda62a328204d40c274d6e442b9c38cc",
+      "bytes": 350
+    },
+    "target/tt-keep-archive.py": {
+      "sha256": "641a969e794142162c1c5cc3d19d2b3cd62ce2b03124df989e2a3b34907d50c8",
+      "bytes": 22844
+    }
+  }
+}

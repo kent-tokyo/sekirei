@@ -75,7 +75,9 @@ pub struct LazySmpWorkOverlap {
 /// Invocation-scoped evidence for helper-to-main root-order hints.
 ///
 /// The counters exist only when [`LAZY_FOREIGN_ROOT_HINT`] is enabled with a
-/// shared transposition table and at least two workers.
+/// shared transposition table and at least two workers. Reads and applications
+/// describe the first aspiration attempt of each root iteration. The opt-in
+/// retry refresh does not add to these counters.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LazySmpRootHintStats {
     /// Helper publications accepted as lock-free hint-slot updates.
@@ -88,6 +90,8 @@ pub struct LazySmpRootHintStats {
 
 /// Additional invocation-bound effectiveness counters, separate from the stable
 /// three-field [`LazySmpRootHintStats`] public literal contract.
+/// Read/application/first-move-cut counters describe initial root attempts;
+/// re-search counters follow the promoted hint actually used in each retry.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct LazySmpRootHintEffectiveness {
     /// Helper publications accepted by the hint slot.
