@@ -81,6 +81,21 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Observe the existing default-off PV quiet policy in an isolated process.
+# Test-only counterfactual classification is excluded from native timing.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-pvq-exposure-summary.json" \
+  -- search::v2::tests::tuned_pvq_exposure_isolated \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Exercise root-hint retry promotion at deterministic completed-pass boundaries.
 # The observer is cfg(test) only; native timing contains no retry observer.
 cargo llvm-cov -p sekirei-core \
