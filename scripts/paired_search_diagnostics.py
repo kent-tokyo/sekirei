@@ -10,11 +10,13 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import platform
 import shutil
 import subprocess
 import statistics
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -53,11 +55,32 @@ def side_changes(a: list[str], b: list[str]) -> dict[str, tuple[str | None, str 
     return changes
 
 
-def host_activity() -> dict:
+def host_activity(strict: bool = False) -> dict:
     """Record a read-only process snapshot; never stop another task's process."""
     try:
         result = subprocess.run(["ps", "-Ao", "pid,pcpu,comm"], capture_output=True,
                                 text=True, check=True, timeout=10)
+        if strict:
+            lines = result.stdout.splitlines()
+            if not lines or lines[0].split() not in (["PID", "%CPU", "COMM"], ["PID", "%CPU", "COMMAND"]):
+                raise ValueError("unsupported process snapshot header")
+            processes = []
+            for line in lines[1:]:
+                if not line.strip():
+                    continue
+                fields = line.strip().split(None, 2)
+                if len(fields) != 3:
+                    raise ValueError("malformed process snapshot row")
+                pid, cpu, command = int(fields[0]), float(fields[1]), fields[2]
+                if pid < 1 or not math.isfinite(cpu) or cpu < 0 or not command:
+                    raise ValueError("invalid process snapshot values")
+                processes.append({"pid": pid, "cpu_percent": cpu, "command": command})
+            if not processes:
+                raise ValueError("empty process snapshot")
+            return {"available": True, "busy_process_threshold_percent": 25,
+                    "busy_processes": [process for process in processes
+                                       if process["pid"] != os.getpid() and process["cpu_percent"] >= 25],
+                    "load_average": list(os.getloadavg())}
         active = []
         for line in result.stdout.splitlines()[1:]:
             fields = line.strip().split(None, 2)
@@ -80,6 +103,104 @@ def freeze(source: Path, destination: Path) -> str:
             saved.write(chunk)
     shutil.copymode(source, destination)
     return digest.hexdigest()
+
+
+def idle_snapshot_state(snapshot) -> str:
+    """Only complete, finite snapshots from host_activity can admit a run."""
+    if not isinstance(snapshot, dict) or snapshot.get("available") is not True:
+        return "unknown"
+    if snapshot.get("busy_process_threshold_percent") != 25:
+        return "unknown"
+    load = snapshot.get("load_average")
+    processes = snapshot.get("busy_processes")
+    if (not isinstance(load, list) or len(load) != 3
+            or any(isinstance(value, bool) or not isinstance(value, (int, float))
+                   or not math.isfinite(value) or value < 0 for value in load)
+            or not isinstance(processes, list)):
+        return "unknown"
+    for process in processes:
+        if not isinstance(process, dict):
+            return "unknown"
+        pid, cpu, command = (process.get(key) for key in ("pid", "cpu_percent", "command"))
+        if (type(pid) is not int or pid < 1 or isinstance(cpu, bool)
+                or not isinstance(cpu, (int, float)) or not math.isfinite(cpu)
+                or cpu < 25 or not isinstance(command, str) or not command):
+            return "unknown"
+    return "busy" if processes else "idle"
+
+
+def wait_for_idle(manifest: dict, save_manifest, initial_activity: dict,
+                  started: float, request: dict) -> bool:
+    """Bounded preflight admission, not continuous host isolation."""
+    admission = manifest["idle_admission"]
+    deadline = started + request["wait_seconds"]
+    activity = initial_activity
+    consecutive = 0
+    while True:
+        elapsed = time.monotonic() - started
+        saved_activity, state = record_idle_snapshot(activity)
+        consecutive = consecutive + 1 if state == "idle" else 0
+        admission["samples"].append({"sample_index": len(admission["samples"]),
+                                     "observed_at_utc": datetime.now(timezone.utc).isoformat(),
+                                     "elapsed_seconds": elapsed, "state": state,
+                                     "consecutive_idle_samples": consecutive,
+                                     "host_activity": saved_activity})
+        admission.update(elapsed_seconds=elapsed, consecutive_idle_samples=consecutive)
+        if time.monotonic() > deadline:
+            admission["status"] = "timeout"
+        elif consecutive >= request["stable_samples"]:
+            admission["status"] = "admitted"
+            manifest["host_activity_before"] = saved_activity
+            save_manifest()
+            return True
+        elif time.monotonic() >= deadline:
+            admission["status"] = "timeout"
+        if admission["status"] == "timeout":
+            manifest.update(status="blocked_host_busy", timing_qualified=False,
+                            error="idle admission timed out; no processes stopped")
+            save_manifest()
+            return False
+        save_manifest()
+        remaining = deadline - time.monotonic()
+        if remaining < request["poll_seconds"]:
+            time.sleep(max(0, remaining))
+            admission.update(status="timeout", elapsed_seconds=time.monotonic() - started)
+            manifest.update(status="blocked_host_busy", timing_qualified=False,
+                            error="idle admission timed out; no processes stopped")
+            save_manifest()
+            return False
+        time.sleep(request["poll_seconds"])
+        if time.monotonic() > deadline:
+            admission.update(status="timeout", elapsed_seconds=time.monotonic() - started)
+            manifest.update(status="blocked_host_busy", timing_qualified=False,
+                            error="idle admission timed out; no processes stopped")
+            save_manifest()
+            return False
+        activity = host_activity(strict=True)
+
+
+def record_idle_snapshot(activity):
+    """Copy observations and reject nonstandard JSON constants in evidence."""
+    state = idle_snapshot_state(activity)
+    try:
+        saved = json.loads(json.dumps(activity, allow_nan=False))
+    except (TypeError, ValueError) as error:
+        state = "unknown"
+        saved = {"available": False, "busy_processes": None,
+                 "error": f"snapshot cannot be recorded as strict JSON: {error}"}
+    return saved, state
+
+
+def verify_admission_inputs(manifest: dict, output: Path) -> None:
+    """Fail closed if any identity frozen before admission has drifted."""
+    expected = [(Path(engine["path"]), engine["sha256"])
+                for engine in manifest["engines"].values()]
+    expected += [(output / "positions.input", manifest["positions_sha256"])]
+    expected += [(Path(__file__).with_name(name), digest)
+                 for name, digest in manifest["measurement_source_sha256"].items()]
+    for path, digest in expected:
+        if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+            raise ValueError(f"idle admission input changed: {path}")
 
 
 def signature(row: dict) -> str:
@@ -252,6 +373,12 @@ def main() -> int:
     parser.add_argument("--require-transfer", action="store_true")
     parser.add_argument("--policy-diagnostic", action="store_true", help="fixed-depth counter lane with intentionally changed search trees; identity is recorded but not required")
     parser.add_argument("--allow-busy", action="store_true", help="run on a busy/unknown host, recording timing as unqualified")
+    parser.add_argument("--idle-wait-seconds", type=float, default=0,
+                        help="opt-in bounded idle admission for counter-free movetime runs (0..3600)")
+    parser.add_argument("--idle-poll-seconds", type=float, default=10,
+                        help="interval between idle snapshots (1..60 seconds)")
+    parser.add_argument("--idle-stable-samples", type=int, default=3,
+                        help="consecutive idle snapshots required (2..60)")
     parser.add_argument("--source-ref", help="document actual built source state; never inferred from binary timestamp")
     args = parser.parse_args()
     if option_value(args.option, "MoveOverhead") is None:
@@ -263,6 +390,22 @@ def main() -> int:
             raise ValueError("thread counts must be positive and unique")
         if min(args.repeats, args.count, args.movetime, args.hash, args.timeout) < 1 or (args.depth is not None and args.depth < 1):
             raise ValueError("search sizes must be positive")
+        if not math.isfinite(args.idle_wait_seconds) or not 0 <= args.idle_wait_seconds <= 3600:
+            raise ValueError("idle wait must be finite and between 0 and 3600 seconds")
+        if not math.isfinite(args.idle_poll_seconds) or not 1 <= args.idle_poll_seconds <= 60:
+            raise ValueError("idle poll must be finite and between 1 and 60 seconds")
+        if not 2 <= args.idle_stable_samples <= 60:
+            raise ValueError("idle stable samples must be between 2 and 60")
+        if args.idle_wait_seconds:
+            if not math.isfinite(args.timeout) or args.timeout <= 0:
+                raise ValueError("idle admission requires a finite positive timeout")
+            instrumented = any(option_value(args.option + side_options, key) not in (None, "0")
+                               for side_options in (args.a_option, args.b_option)
+                               for key in ("T_COOP_LATENCY", "T_COOP_PRESTART_DIAG", "T_COOP_DIAG"))
+            if args.allow_busy or args.depth is not None or args.nodes is not None or args.diagnostics or instrumented:
+                raise ValueError("idle admission requires counter-free movetime without --allow-busy")
+            if args.idle_wait_seconds < args.idle_poll_seconds * (args.idle_stable_samples - 1):
+                raise ValueError("idle wait must cover poll * (stable samples - 1)")
         if args.policy_diagnostic and (args.depth is None or not args.diagnostics or not changes):
             raise ValueError("policy diagnostic requires fixed depth, counters and one changed factor")
         if args.require_transfer and (not args.diagnostics or min(threads) < 2):
@@ -291,7 +434,8 @@ def main() -> int:
             binary_hash = freeze(source, destination)
         frozen[side] = {"path": str(destination.resolve()), "sha256": binary_hash, "source_path": str(source.resolve())}
     (args.output / "positions.input").write_bytes(source_data)
-    activity = host_activity()
+    activity = ({"available": False, "busy_processes": None, "error": "idle admission not started"}
+                if args.idle_wait_seconds else host_activity())
     latency_requested = {side: option_value(args.option + side_options, "T_COOP_LATENCY") not in (None, "0")
                          for side, side_options in (("A", args.a_option), ("B", args.b_option))}
     priority_requested = {side: option_value(args.option + side_options, "T_COOP_PRIORITY") not in (None, "0")
@@ -333,10 +477,35 @@ def main() -> int:
         "host_activity_before": activity, "timing_qualified": timing_qualified,
     }
     configuration = {key: manifest[key] for key in ("threads", "repeats", "budget", "evaluator", "hash_mb", "common_options", "A_options", "B_options", "counter_lane", "identity_policy")}
+    if args.idle_wait_seconds:
+        request = {"wait_seconds": args.idle_wait_seconds, "poll_seconds": args.idle_poll_seconds,
+                   "stable_samples": args.idle_stable_samples}
+        configuration["idle_admission_request"] = request
+        manifest["idle_admission"] = {"schema": "sekirei.idle-search-admission.v1",
+                                      "request": request, "status": "waiting", "samples": [],
+                                      "elapsed_seconds": 0, "consecutive_idle_samples": 0}
+        manifest.update(status="waiting_idle_admission", timing_qualified=False, completed_searches=0)
     manifest["configuration_sha256"] = hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     def save_manifest():
         (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     save_manifest()
+    if args.idle_wait_seconds:
+        idle_started = time.monotonic()
+        try:
+            activity = host_activity(strict=True)
+            if not wait_for_idle(manifest, save_manifest, activity, idle_started, request):
+                print(json.dumps({"error": manifest["error"], "idle_admission": manifest["idle_admission"]}))
+                return 2
+            verify_admission_inputs(manifest, args.output)
+            activity = manifest["host_activity_before"]
+            host_idle = True
+            manifest.update(status="running", timing_qualified=True)
+            save_manifest()
+        except BaseException as error:
+            manifest["idle_admission"].update(status="incomplete", elapsed_seconds=time.monotonic() - idle_started)
+            manifest.update(status="incomplete", error=str(error), completed_searches=0, timing_qualified=False)
+            save_manifest()
+            raise
     if args.depth is None and args.nodes is None and not args.diagnostics and not host_idle and not args.allow_busy:
         manifest.update(status="blocked_host_busy", error="timing requires an idle host; no processes stopped")
         save_manifest()
@@ -373,9 +542,16 @@ def main() -> int:
         summary = summarize(rows, fixed_depth=args.depth is not None, require_identity=not args.policy_diagnostic)
         (args.output / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
         manifest["status"] = "complete"
-        manifest["host_activity_after"] = host_activity()
-        if not manifest["host_activity_after"]["available"] or manifest["host_activity_after"]["busy_processes"]:
-            manifest["timing_qualified"] = False
+        if args.idle_wait_seconds:
+            manifest["completed_searches"] = len(rows)
+        if args.idle_wait_seconds:
+            manifest["host_activity_after"], state = record_idle_snapshot(host_activity(strict=True))
+            if state != "idle":
+                manifest["timing_qualified"] = False
+        else:
+            manifest["host_activity_after"] = host_activity()
+            if not manifest["host_activity_after"]["available"] or manifest["host_activity_after"]["busy_processes"]:
+                manifest["timing_qualified"] = False
         save_manifest()
         failed_identity = any(item["identity_pass"] is False for item in summary["by_threads"].values())
         print(json.dumps(summary["by_threads"], indent=2))
