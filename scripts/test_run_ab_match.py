@@ -166,6 +166,19 @@ class SprtTest(unittest.TestCase):
         self.assertIn("USI_Hash=256", yaneuraou)
         self.assertIn("NodesLimit=20000", yaneuraou)
 
+    def test_yaneuraou_minimum_thinking_time_uses_declared_lower_bound(self):
+        # Pinned YaneuraOu c1b80e source/timeman.cpp declares
+        # Option(2000, 1, 100000). Its parser silently ignores 0, so the
+        # wrapper must request the valid lower bound rather than leave 2000.
+        options = yaneuraou_options("weights.nnue", 24, 0)
+        self.assertTrue(all(option == "--engine-option2" for option in options[::2]))
+        values = [
+            int(option.split("=", 1)[1])
+            for option in options[1::2]
+            if option.startswith("MinimumThinkingTime=")
+        ]
+        self.assertEqual(values, [1])
+
     def test_material_only_options_omit_evalfile_and_unadvertised_book_option(self):
         options = sekirei_options(
             "--engine-option1", None, 24, 1, "Speculative", 0, 64

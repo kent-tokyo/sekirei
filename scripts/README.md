@@ -55,6 +55,11 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 
 ## Measurement and rules diagnostics
 
+YaneuraOu match comparisons request `MinimumThinkingTime=1`, the valid
+lower bound in the pinned reference. Zero is silently rejected there. Equal
+requested byoyomi is distinct from a hard per-move wall-time limit; the runner
+retains its separate hang timeout.
+
 - `run_component_benchmark.py`, `component_benchmark_preflight.py`, and
   `run_component_aa_batch.py` capture component timing with provenance and an
   A/A noise floor. `compare_component_benchmarks.py` compares compatible
