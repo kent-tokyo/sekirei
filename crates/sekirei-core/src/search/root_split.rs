@@ -753,6 +753,8 @@ struct MainAccounting<'a> {
 
 impl Drop for MainAccounting<'_> {
     fn drop(&mut self) {
+        #[cfg(feature = "tune")]
+        self.budget.finish_cooperative_job();
         self.counters
             .main_nodes
             .fetch_add(self.budget.nodes(), Ordering::Relaxed);
@@ -798,6 +800,10 @@ impl Invocation {
         works: Vec<HelperWork>,
         leases: Vec<HelperLease>,
     ) -> Vec<mpsc::Receiver<()>> {
+        #[cfg(feature = "tune")]
+        let mut leases = leases;
+        #[cfg(feature = "tune")]
+        bind_work_budgets(&works, &mut leases);
         assert_eq!(works.len(), self.helpers);
         assert_eq!(leases.len(), self.helpers);
         let mut executors = self.group_executors.borrow_mut();
@@ -806,6 +812,8 @@ impl Invocation {
         }
         let mut completions = Vec::with_capacity(self.helpers);
         for ((executor, work), lease) in executors.iter().zip(works).zip(leases) {
+            #[cfg(feature = "tune")]
+            let lease = lease.with_budget(work.state.budget.clone());
             let Some(sender) = &executor.sender else {
                 self.counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
                 drop(lease);
@@ -1508,14 +1516,53 @@ impl Generation {
 
 /// Owns one reservation even before the OS thread starts. Spawn failure or
 /// dropping an unstarted closure releases it just like normal return/unwind.
-struct HelperLease(Arc<Generation>);
+struct HelperLease {
+    generation: Arc<Generation>,
+    #[cfg(feature = "tune")]
+    budget: Option<Arc<Budget>>,
+}
+
+impl HelperLease {
+    #[inline]
+    fn new(generation: Arc<Generation>) -> Self {
+        Self {
+            generation,
+            #[cfg(feature = "tune")]
+            budget: None,
+        }
+    }
+
+    #[cfg(feature = "tune")]
+    fn with_budget(mut self, budget: Arc<Budget>) -> Self {
+        self.bind_budget(budget);
+        self
+    }
+
+    #[cfg(feature = "tune")]
+    fn bind_budget(&mut self, budget: Arc<Budget>) {
+        if let Some(previous) = &self.budget {
+            assert!(
+                Arc::ptr_eq(previous, &budget),
+                "one budget per helper reservation"
+            );
+        } else {
+            self.budget = Some(budget);
+        }
+    }
+}
 
 impl Drop for HelperLease {
     fn drop(&mut self) {
-        if std::thread::panicking() {
-            self.0.stop();
+        // Also owns unstarted/disconnected work: capture destruction order
+        // must never publish helper_finished before its budget is finalized.
+        #[cfg(feature = "tune")]
+        if let Some(budget) = &self.budget {
+            budget.finish_cooperative_job();
         }
-        self.0.finish_helper();
+        if std::thread::panicking() {
+            self.generation.stop();
+        }
+        self.generation.finish_helper();
     }
 }
 
@@ -1560,6 +1607,22 @@ struct HelperWork {
     history: PositionHistory,
     depth: u32,
     helper_lmr: bool,
+}
+
+#[cfg(feature = "tune")]
+impl Drop for HelperWork {
+    fn drop(&mut self) {
+        // Includes work dropped before a worker starts. A running job's guard
+        // has already finished before HelperLease publishes completion.
+        self.state.budget.finish_cooperative_job();
+    }
+}
+
+#[cfg(feature = "tune")]
+fn bind_work_budgets(works: &[HelperWork], leases: &mut [HelperLease]) {
+    for (work, lease) in works.iter().zip(leases) {
+        lease.bind_budget(work.state.budget.clone());
+    }
 }
 
 struct HelperJob {
@@ -1639,7 +1702,9 @@ impl Drop for HelperExecutor {
 }
 
 fn run_helper(work: HelperWork, counters: &Counters) {
-    let finished = HelperLease(work.generation.clone());
+    let finished = HelperLease::new(work.generation.clone());
+    #[cfg(feature = "tune")]
+    let finished = finished.with_budget(work.state.budget.clone());
     run_helper_with_lease(work, counters, finished);
 }
 
@@ -1647,6 +1712,10 @@ fn run_helper_with_lease(mut work: HelperWork, counters: &Counters, finished: He
     // Declared first so participation is released before completion is visible,
     // including when the helper panics before or during its first probe.
     let _finished = finished;
+    // Declared after the lease: flush before helper_finished/wake/completion,
+    // even when a probe or a pre-entry test hook unwinds.
+    #[cfg(feature = "tune")]
+    let _budget_job = crate::budget::CooperativeBudgetJob::new(work.state.budget.clone());
     let _participation = Participation::new(&work.generation);
     let mut gate_wait = work.generation.cap.as_ref().map(|gate| GateWaitAccounting {
         generation: &work.generation,
@@ -2287,6 +2356,10 @@ impl GenerationJobs<'_> {
         works: Vec<HelperWork>,
         leases: Vec<HelperLease>,
     ) {
+        #[cfg(feature = "tune")]
+        let mut leases = leases;
+        #[cfg(feature = "tune")]
+        bind_work_budgets(&works, &mut leases);
         assert_eq!(works.len(), invocation.helpers);
         assert_eq!(leases.len(), invocation.helpers);
         let mut executors = invocation.group_executors.borrow_mut();
@@ -2322,6 +2395,8 @@ impl GenerationJobs<'_> {
             })
         };
         for ((executor, work), lease) in jobs {
+            #[cfg(feature = "tune")]
+            let lease = lease.with_budget(work.state.budget.clone());
             let Some(sender) = &executor.sender else {
                 self.counters.spawn_failures.fetch_add(1, Ordering::Relaxed);
                 drop(lease);
@@ -2455,7 +2530,7 @@ fn search_prestart(
         nodes: 0,
     };
     let leases: Vec<_> = (0..invocation.helpers)
-        .map(|_| HelperLease(generation.clone()))
+        .map(|_| HelperLease::new(generation.clone()))
         .collect();
     let mut works = Vec::with_capacity(invocation.helpers);
     debug_assert!(history.entry.is_none() && history.parent.is_none());
@@ -2475,6 +2550,10 @@ fn search_prestart(
         });
         jobs.budgets.push(budget);
     }
+    #[cfg(feature = "tune")]
+    let mut leases = leases;
+    #[cfg(feature = "tune")]
+    bind_work_budgets(&works, &mut leases);
     counters.generations.fetch_add(1, Ordering::Relaxed);
     prestart.passes.fetch_add(1, Ordering::Relaxed);
     if let Some(cap) = &prestart.cap {
@@ -2729,7 +2808,7 @@ pub(super) fn search(
                 .remaining_helpers
                 .store(invocation.helpers, Ordering::Release);
             let leases: Vec<_> = (0..invocation.helpers)
-                .map(|_| HelperLease(generation.clone()))
+                .map(|_| HelperLease::new(generation.clone()))
                 .collect();
             let mut budgets = Vec::with_capacity(invocation.helpers);
             let mut works = Vec::with_capacity(invocation.helpers);
@@ -2751,6 +2830,10 @@ pub(super) fn search(
                 });
                 budgets.push(budget);
             }
+            #[cfg(feature = "tune")]
+            let mut leases = leases;
+            #[cfg(feature = "tune")]
+            bind_work_budgets(&works, &mut leases);
             if invocation.persistent {
                 // This guard precedes dispatch: a worker or dispatch failure
                 // must cancel the generation before invocation teardown joins.
@@ -2804,6 +2887,8 @@ pub(super) fn search(
                     let _cancel_on_drop = CancelOnDrop(&generation);
                     let mut helpers = Vec::with_capacity(invocation.helpers);
                     for (work, lease) in works.into_iter().zip(leases) {
+                        #[cfg(feature = "tune")]
+                        let lease = lease.with_budget(work.state.budget.clone());
                         let worker_counters = counters.clone();
                         let spawn_start = Instant::now();
                         let helper = std::thread::Builder::new()
@@ -4746,7 +4831,7 @@ mod tests {
                 // soon as it starts. Other reservations are still unstarted.
                 generation.next.store(2, Ordering::Relaxed);
                 let mut leases: Vec<_> = (0..count)
-                    .map(|_| HelperLease(generation.clone()))
+                    .map(|_| HelperLease::new(generation.clone()))
                     .collect();
                 let main = Participation::new(&generation);
                 let state = test_state();
@@ -4804,7 +4889,7 @@ mod tests {
                 generation.remaining_helpers.store(count, Ordering::Release);
                 generation.next.store(2, Ordering::Relaxed);
                 let leases: Vec<_> = (0..count)
-                    .map(|_| HelperLease(generation.clone()))
+                    .map(|_| HelperLease::new(generation.clone()))
                     .collect();
                 let counters = Counters::default();
                 let state = test_state();
@@ -4864,7 +4949,7 @@ mod tests {
                     .remaining_helpers
                     .store(participants - 1, Ordering::Release);
                 let mut leases: Vec<_> = (1..participants)
-                    .map(|_| HelperLease(generation.clone()))
+                    .map(|_| HelperLease::new(generation.clone()))
                     .collect();
                 let barrier = std::sync::Barrier::new(participants);
                 let mut tasks = Vec::new();
@@ -4931,7 +5016,7 @@ mod tests {
             let generation = Arc::new(Generation::with_wake(0, 2, Some(wake)));
             generation.remaining_helpers.store(count, Ordering::Release);
             let leases: Vec<_> = (0..count)
-                .map(|_| HelperLease(generation.clone()))
+                .map(|_| HelperLease::new(generation.clone()))
                 .collect();
             let parent = test_state().budget.clone();
             let (started, starts) = mpsc::channel();
@@ -4984,7 +5069,7 @@ mod tests {
             let generation = Arc::new(Generation::with_wake(0, 2, Some(wake)));
             generation.remaining_helpers.store(count, Ordering::Release);
             let mut leases: Vec<_> = (0..count)
-                .map(|_| HelperLease(generation.clone()))
+                .map(|_| HelperLease::new(generation.clone()))
                 .collect();
             let parent = test_state().budget.clone();
             let (started, starts) = mpsc::channel();
@@ -5258,7 +5343,7 @@ mod tests {
             .remaining_helpers
             .store(invocation.helpers, Ordering::Release);
         let leases = (0..invocation.helpers)
-            .map(|_| HelperLease(generation.clone()))
+            .map(|_| HelperLease::new(generation.clone()))
             .collect();
         // Empty task set deliberately covers helpers arriving after main has
         // claimed everything; every reserved job must still complete exactly once.
@@ -5495,7 +5580,9 @@ mod tests {
     fn persistent_multi_queued_job_owns_lease_until_disconnect() {
         let generation = Arc::new(Generation::new(0, 2));
         generation.remaining_helpers.store(3, Ordering::Release);
-        let mut leases: Vec<_> = (0..3).map(|_| HelperLease(generation.clone())).collect();
+        let mut leases: Vec<_> = (0..3)
+            .map(|_| HelperLease::new(generation.clone()))
+            .collect();
         let (sender, receiver) = mpsc::sync_channel(1);
         let (finished, completion) = mpsc::sync_channel(1);
         sender
@@ -7018,6 +7105,327 @@ mod tests {
                         }
                     }
                 }
+            }
+        });
+    }
+
+    #[test]
+    fn budget_batch_is_disabled_and_boolean_by_default() {
+        let spec = p::ALL
+            .iter()
+            .find(|spec| spec.name == "COOP_BUDGET_BATCH")
+            .unwrap();
+        assert_eq!((spec.default, spec.min, spec.max), (0, 0, 1));
+        #[cfg(not(feature = "tune"))]
+        assert_eq!(p::COOP_BUDGET_BATCH(), 0);
+    }
+
+    #[cfg(feature = "tune")]
+    fn batch_test_in_subprocess(name: &str, marker: &str) -> bool {
+        if std::env::var_os(marker).is_some() {
+            return false;
+        }
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                name,
+                "--ignored",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(marker, "1")
+            .output()
+            .expect("spawn isolated budget batch test");
+        assert!(
+            output.status.success(),
+            "isolated budget batch test failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        // Keep one outer harness in the raw log; diagnostics use stderr.
+        eprint!("{}", String::from_utf8_lossy(&output.stderr));
+        true
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "run alone: isolated cooperative budget flag and lifecycle observer"]
+    fn budget_batch_lifecycle_isolated() {
+        if batch_test_in_subprocess(
+            "search::root_split::tests::budget_batch_lifecycle_isolated",
+            "SEKIREI_COOP_BUDGET_LIFECYCLE_CHILD",
+        ) {
+            return;
+        }
+        on_search_stack(|| {
+            use crate::budget::batch_test_observer;
+            assert!(!crate::halfkp::is_active() && !crate::nnue::weights_active());
+            assert!(p::set("COOP_BUDGET_BATCH", 1));
+            assert!(p::set("COOP_PRESTART", 0));
+            let _observer = batch_test_observer::activate();
+
+            // Main's explicit accounting must publish while the Arc survives.
+            let parent = Arc::new(Budget::new(
+                Some(Duration::from_secs(60)),
+                None,
+                Arc::new(AtomicBool::new(false)),
+            ));
+            let main = Arc::new(Budget::cooperative_child(
+                parent.clone(),
+                Arc::new(AtomicBool::new(false)),
+            ));
+            let counters = Counters::default();
+            {
+                let _accounting = MainAccounting {
+                    counters: &counters,
+                    budget: main.clone(),
+                };
+                for _ in 0..17 {
+                    assert!(!main.tick());
+                }
+                assert_eq!(parent.nodes(), 0);
+            }
+            assert_eq!((parent.nodes(), counters.snapshot().main_nodes), (17, 17));
+
+            // A helper panic must flush before its lease's cancellation hook,
+            // while neither the worker's nor the caller's Budget Arc is gone.
+            let helper = Arc::new(Budget::cooperative_child(
+                parent.clone(),
+                Arc::new(AtomicBool::new(false)),
+            ));
+            let mut state = test_state();
+            Arc::get_mut(&mut state).unwrap().budget = helper.clone();
+            let mut generation = Generation::new(0, 2);
+            let entry_budget = helper.clone();
+            let cancelled_parent = parent.clone();
+            generation.prestart_hooks = Some(Arc::new(PrestartGenerationHooks {
+                helper_entry: Arc::new(move |_| {
+                    for _ in 0..19 {
+                        assert!(!entry_budget.tick());
+                    }
+                    panic!("helper entry aborts");
+                }),
+                cancelled: Arc::new(move || assert_eq!(cancelled_parent.nodes(), 36)),
+            }));
+            let generation = Arc::new(generation);
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_helper(work(state, generation.clone(), 2), &counters);
+            }));
+            assert!(result.is_err());
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!((parent.nodes(), helper.nodes()), (36, 19));
+            assert_eq!(batch_test_observer::snapshot().panic_finalizations, 1);
+            drop(generation);
+
+            // Even dropping a lease before its unstarted work must finalize
+            // the corresponding prefix; retained work cannot delay notification.
+            let pending = Arc::new(Budget::cooperative_child(
+                parent.clone(),
+                Arc::new(AtomicBool::new(false)),
+            ));
+            for _ in 0..23 {
+                assert!(!pending.tick());
+            }
+            let generation = Arc::new(Generation::new(0, 2));
+            let mut state = test_state();
+            Arc::get_mut(&mut state).unwrap().budget = pending.clone();
+            let unstarted = work(state, generation.clone(), 2);
+            let mut leases = vec![HelperLease::new(generation.clone())];
+            bind_work_budgets(std::slice::from_ref(&unstarted), &mut leases);
+            drop(leases);
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!(parent.nodes(), 59);
+            drop(unstarted);
+            assert_eq!(parent.nodes(), 59);
+
+            // Receiver destruction drops queued work before completion becomes
+            // disconnected. Its child Budget remains explicitly retained here.
+            let pending = Arc::new(Budget::cooperative_child(
+                parent.clone(),
+                Arc::new(AtomicBool::new(false)),
+            ));
+            for _ in 0..29 {
+                assert!(!pending.tick());
+            }
+            let generation = Arc::new(Generation::new(0, 2));
+            let mut state = test_state();
+            Arc::get_mut(&mut state).unwrap().budget = pending.clone();
+            let queued = work(state, generation.clone(), 2);
+            let lease = HelperLease::new(generation.clone()).with_budget(pending.clone());
+            let (sender, receiver) = mpsc::sync_channel(1);
+            let (finished, completion) = mpsc::sync_channel(1);
+            sender
+                .send(HelperJob {
+                    work: queued,
+                    finished,
+                    dispatched: Instant::now(),
+                    lease: Some(lease),
+                })
+                .unwrap_or_else(|_| panic!("queue accepts one unstarted job"));
+            drop(receiver);
+            assert!(completion.recv().is_err());
+            assert!(generation.helper_finished.load(Ordering::Acquire));
+            assert_eq!(parent.nodes(), 88);
+
+            for helpers in [1, 3, 7] {
+                for persistent in [false, true] {
+                    for prestart in [false, true] {
+                        if prestart && (!persistent || helpers == 1) {
+                            continue;
+                        }
+                        assert!(p::set("COOP_PRESTART", i32::from(prestart)));
+                        batch_test_observer::reset();
+                        let mut board = Board::startpos();
+                        let hash = board.hash();
+                        let accumulator = board.acc.clone();
+                        let history = PositionHistory::initial(hash);
+                        let (info, stats, wait) = Searcher::new(Tt::new(2))
+                            .search_cooperative_root_group_controls(
+                                &mut board,
+                                SearchConfig {
+                                    max_depth: 2,
+                                    time_limit: Some(Duration::from_secs(60)),
+                                    ..SearchConfig::default()
+                                },
+                                &history,
+                                persistent,
+                                false,
+                                false,
+                                false,
+                                false,
+                                helpers,
+                            );
+                        let observation = batch_test_observer::snapshot();
+                        assert_eq!(info.depth, 2);
+                        assert!(!info.aborted);
+                        assert_eq!(
+                            observation.batched_nodes,
+                            stats.main_nodes + stats.helper_nodes
+                        );
+                        assert!(info.nodes >= observation.batched_nodes);
+                        assert!(observation.parent_reports <= observation.batched_nodes);
+                        assert!(observation.jobs_finalized > 0);
+                        assert_eq!(observation.panic_finalizations, 0);
+                        assert_eq!(
+                            stats.helper_nodes,
+                            stats.helper_completed_nodes + stats.helper_aborted_nodes
+                        );
+                        assert_eq!(
+                            stats.physical_helper_threads_started,
+                            stats.physical_helper_threads_joined
+                        );
+                        assert_eq!(wait.workers, helpers as u32 + 1);
+                        assert_eq!(board.hash(), hash);
+                        assert_eq!(board.acc, accumulator);
+                        let mut replay = board.clone();
+                        for mv in info.pv {
+                            assert!(generate_legal_moves(&mut replay).contains(&mv));
+                            replay.do_move(mv);
+                        }
+                    }
+                }
+            }
+            assert!(p::set("COOP_PRESTART", 0));
+            assert!(p::set("COOP_BUDGET_BATCH", 0));
+        });
+    }
+
+    #[cfg(feature = "tune")]
+    #[test]
+    #[ignore = "exposure only: run once after source commit, before native measurement freeze"]
+    fn budget_batch_natural_exposure_isolated() {
+        if batch_test_in_subprocess(
+            "search::root_split::tests::budget_batch_natural_exposure_isolated",
+            "SEKIREI_COOP_BUDGET_NATURAL_CHILD",
+        ) {
+            return;
+        }
+        on_search_stack(|| {
+            use crate::budget::batch_test_observer;
+            use crate::lazy_smp::{LAZY_DEFAULT_FLAGS, LAZY_ROOT_SPLIT, LazySmpSearcher};
+            assert!(
+                !crate::halfkp::is_active() && !crate::nnue::weights_active(),
+                "material-only isolated process required"
+            );
+            for (name, value) in [
+                ("COOP_BUDGET_BATCH", 1),
+                ("COOP_MULTI", 1),
+                ("COOP_PERSISTENT", 1),
+                ("COOP_PRESTART", 0),
+                ("COOP_PRESTART_CAP", 0),
+                ("COOP_PRESTART_DIAG", 0),
+                ("COOP_DRAIN", 0),
+                ("COOP_LATENCY", 0),
+                ("COOP_PRIORITY", 0),
+                ("COOP_HELPER_LMR", 0),
+                ("ROOT_HINT_RETRY", 0),
+                ("ASP_VOLATILITY", 0),
+            ] {
+                assert!(p::set(name, value));
+            }
+            let corpus = include_str!("fixtures/fh_blend_diagnostic.sfen");
+            let positions: Vec<_> = corpus.lines().filter(|line| !line.is_empty()).collect();
+            assert_eq!(positions.len(), 20);
+            let _observer = batch_test_observer::activate();
+            let mut totals = Vec::new();
+            for threads in [4, 8] {
+                let pool = rayon::ThreadPoolBuilder::new()
+                    .num_threads(threads)
+                    .stack_size(super::super::RECURSIVE_SEARCH_STACK_BYTES)
+                    .build()
+                    .unwrap();
+                let mut total_nodes = 0u64;
+                let mut total_reports = 0u64;
+                for (position, sfen) in positions.iter().enumerate() {
+                    let board = Board::from_sfen(sfen).unwrap();
+                    let searcher = LazySmpSearcher::with_flags_and_hash_mb(
+                        Tt::new(64),
+                        threads,
+                        LAZY_DEFAULT_FLAGS | LAZY_ROOT_SPLIT,
+                        64,
+                    );
+                    searcher.new_search();
+                    searcher.reset_abort_flag();
+                    batch_test_observer::reset();
+                    let result = pool.install(|| {
+                        searcher.search(
+                            &board,
+                            SearchConfig {
+                                max_depth: 64,
+                                time_limit: Some(Duration::from_millis(300)),
+                                ..SearchConfig::default()
+                            },
+                        )
+                    });
+                    let stats = searcher.cooperative_root_stats().unwrap();
+                    let observation = batch_test_observer::snapshot();
+                    assert_eq!(result.workers, threads);
+                    assert_eq!(
+                        observation.batched_nodes,
+                        stats.main_nodes + stats.helper_nodes
+                    );
+                    assert!(result.total_nodes >= observation.batched_nodes);
+                    assert_eq!(
+                        stats.helper_nodes,
+                        stats.helper_completed_nodes + stats.helper_aborted_nodes
+                    );
+                    assert_eq!(observation.panic_finalizations, 0);
+                    let batched_nodes = observation.batched_nodes;
+                    let parent_reports = observation.parent_reports;
+                    let saved_reports = batched_nodes.checked_sub(parent_reports).unwrap();
+                    total_nodes = total_nodes.checked_add(batched_nodes).unwrap();
+                    total_reports = total_reports.checked_add(parent_reports).unwrap();
+                    eprintln!(
+                        "COOP_BUDGET_NATURAL case threads={threads} position={position} batched_nodes={batched_nodes} parent_reports={parent_reports} saved_reports={saved_reports}"
+                    );
+                }
+                totals.push((threads, total_nodes, total_reports));
+            }
+            for (threads, batched_nodes, parent_reports) in totals {
+                let saved_reports = batched_nodes.checked_sub(parent_reports).unwrap();
+                eprintln!(
+                    "COOP_BUDGET_NATURAL total threads={threads} positions=20 batched_nodes={batched_nodes} parent_reports={parent_reports} saved_reports={saved_reports}"
+                );
             }
         });
     }
