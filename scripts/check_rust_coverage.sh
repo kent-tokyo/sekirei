@@ -81,6 +81,36 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Exercise root-hint retry promotion at deterministic completed-pass boundaries.
+# The observer is cfg(test) only; native timing contains no retry observer.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-root-hint-retry-summary.json" \
+  -- search::root_hint_retry::tests::retry_boundary_integration_isolated \
+  --ignored \
+  --exact \
+  --test-threads=1
+
+# Cover the private exposure observer separately; zero exposure is a valid
+# diagnostic result, and hosted timing is never used as performance evidence.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-root-hint-exposure-summary.json" \
+  -- search::root_hint_retry::tests::natural_retry_hint_exposure_isolated \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # Observe the unchanged TT_KEEP_DEPTH guard in one isolated test process.
 # The 36 boundary cases and 160 full searches are diagnostics, never timing.
 cargo llvm-cov -p sekirei-core \

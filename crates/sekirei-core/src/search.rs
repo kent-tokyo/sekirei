@@ -84,6 +84,7 @@ mod node_moves;
 pub mod params;
 mod path;
 mod pruning;
+mod root_hint_retry;
 mod root_safety;
 mod root_split;
 mod singular;
@@ -2286,6 +2287,18 @@ impl Searcher {
                             })
                     })
                 });
+                // Keep eligibility even if the first helper publication arrives on retry.
+                let root_hint_context = if p::ROOT_HINT_RETRY() != 0 {
+                    root_hint_retry::Context::eligible(
+                        self.root_hint.as_ref(),
+                        root_hint_generation.unwrap_or(0),
+                        rank,
+                        config.multi_pv.max(1),
+                        root_move,
+                    )
+                } else {
+                    None
+                };
                 let candidate = root_search_with_window(
                     &state,
                     board,
@@ -2300,6 +2313,7 @@ impl Searcher {
                     Some(&mut root_mate_safety_cache),
                     root_hint,
                     adaptive_aspiration.then(|| score_changes.initial_delta(p::ASP_DELTA())),
+                    root_hint_context,
                 );
                 if rank == 1 {
                     primary = Some(candidate);
@@ -2679,6 +2693,11 @@ fn root_search(
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
     root_hint: Option<RootHintOrder>,
 ) -> (Option<Move>, i32, SearchBound) {
+    let root_hint_context = if p::ROOT_HINT_RETRY() != 0 && root_move.is_none() {
+        root_hint.as_ref().map(root_hint_retry::Context::from_hint)
+    } else {
+        None
+    };
     root_search_with_window(
         state,
         board,
@@ -2693,6 +2712,7 @@ fn root_search(
         root_mate_safety_cache,
         root_hint,
         None,
+        root_hint_context,
     )
 }
 
@@ -2711,6 +2731,7 @@ fn root_search_with_window(
     root_mate_safety_cache: Option<&mut RootMateSafetyCache>,
     root_hint: Option<RootHintOrder>,
     initial_delta: Option<i32>,
+    root_hint_context: Option<root_hint_retry::Context>,
 ) -> (Option<Move>, i32, SearchBound) {
     if let Some(outcome) = history.outcome_at_current_position() {
         return (
@@ -2834,6 +2855,8 @@ fn root_search_with_window(
     let ordered: &[Move] = diversified.as_deref().unwrap_or(ordered);
     let hinted = apply_root_hint(ordered, root_hint.clone());
     let ordered: &[Move] = hinted.as_deref().unwrap_or(ordered);
+    let mut active_hint = root_hint.filter(|_| hinted.is_some());
+    let mut retry_order: Option<Vec<Move>> = None;
     // Aspiration window: start tight around prev_score; widen on fail
     let use_asp = depth >= 2 && prev_score.abs() < MATE_SCORE - 1000;
     let initial_delta = initial_delta.unwrap_or_else(p::ASP_DELTA);
@@ -2853,7 +2876,32 @@ fn root_search_with_window(
     let mut delta = initial_delta;
     let mut attempt = 0;
     loop {
-        let used_hint = root_hint.as_ref().filter(|_| hinted.is_some());
+        #[cfg(test)]
+        root_hint_retry::test_observer::boundary(depth, attempt);
+        if attempt > 0 && p::ROOT_HINT_RETRY() != 0 && root_hint_context.is_some() {
+            let current_order = retry_order.as_deref().unwrap_or(ordered);
+            if let Some((promoted, hint)) = root_hint_retry::refresh(
+                root_hint_context.as_ref(),
+                depth,
+                current_order,
+                true,
+                state.budget.should_abort(),
+            ) {
+                retry_order = Some(promoted);
+                active_hint = Some(hint);
+            }
+        }
+        let ordered = retry_order.as_deref().unwrap_or(ordered);
+        let used_hint = active_hint.as_ref();
+        #[cfg(test)]
+        root_hint_retry::test_observer::pass(
+            depth,
+            attempt,
+            ordered,
+            lo,
+            hi,
+            used_hint.map(|hint| hint.mv),
+        );
         let before = state.budget.nodes();
         let (m, score) = root_search_inner_tracked(
             state,

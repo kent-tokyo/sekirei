@@ -82,6 +82,8 @@ search_params! {
     ASP_DELTA = 50, 10, 200;
     /// Widen initial root aspiration by within-go completed-score changes only.
     ASP_VOLATILITY = 0, 0, 1;
+    /// Refresh eligible helper root ordering only at aspiration retry boundaries.
+    ROOT_HINT_RETRY = 0, 0, 1;
     /// Opt-in root-split executor reuse within one go; requires cooperative root mode.
     COOP_PERSISTENT = 0, 0, 1;
     /// Opt-in cooperative root groups for exactly four or eight workers.
