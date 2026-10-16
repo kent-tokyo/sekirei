@@ -81,6 +81,21 @@ cargo llvm-cov -p sekirei-core \
   --exact \
   --test-threads=1
 
+# Observe the unchanged TT_KEEP_DEPTH guard in one isolated test process.
+# The 36 boundary cases and 160 full searches are diagnostics, never timing.
+cargo llvm-cov -p sekirei-core \
+  --features tune \
+  --lib \
+  --no-clean \
+  --json \
+  --summary-only \
+  --ignore-filename-regex "${COVERAGE_IGNORE_REGEX}" \
+  --output-path "${COVERAGE_DIR}/tuned-tt-keep-depth-summary.json" \
+  -- tt::tests::tuned_keep_depth_one_exercises_same_generation_gap_and_searches \
+  --ignored \
+  --exact \
+  --test-threads=1
+
 # The disabled ancestor-NMP experiment must prove an actual correction in a
 # controlled verified-null position, rather than only traversing inactive flags.
 cargo llvm-cov -p sekirei-core \
