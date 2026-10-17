@@ -5,6 +5,7 @@ python3 scripts/check_release_metadata.py
 python3 scripts/check_documentation_references.py
 python3 -m unittest scripts/test_api_compatibility_workflow.py
 python3 scripts/test_validate_nnue_release_artifact.py
+python3 scripts/test_validate_nnue_cpu_pilot.py
 python3 scripts/validate_nnue_release_artifact.py \
   weights/sekirei-nnue-v0.3.38.json
 python3 -m unittest scripts/test_validate_nnue_candidate_card.py
