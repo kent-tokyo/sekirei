@@ -2865,17 +2865,13 @@ fn root_search_with_window(
             .aspiration
             .window(depth, use_asp, initial_delta, p::ASP_DELTA());
     }
-    let (mut lo, mut hi) = if use_asp {
+    let (lo, hi) = if use_asp {
         (prev_score - initial_delta, prev_score + initial_delta)
     } else {
         (NEG_INF, POS_INF)
     };
 
-    // The window grows geometrically around the score that fell outside it,
-    // so a large swing costs a few re-searches instead of one per step.
-    let mut delta = initial_delta;
-    let mut attempt = 0;
-    loop {
+    aspiration::search_window(lo, hi, initial_delta, |attempt, lo, hi| {
         #[cfg(test)]
         root_hint_retry::test_observer::boundary(depth, attempt);
         if attempt > 0 && p::ROOT_HINT_RETRY() != 0 && root_hint_context.is_some() {
@@ -2940,34 +2936,8 @@ fn root_search_with_window(
                     .add(hint.generation, nodes);
             }
         }
-        attempt += 1;
-
-        if state.budget.should_abort() {
-            return (m, score, SearchBound::Unknown);
-        }
-
-        delta = delta.saturating_mul(2);
-        if score <= lo {
-            lo = if score.abs() >= MATE_SCORE - 1000 {
-                NEG_INF
-            } else {
-                (score - delta).max(NEG_INF)
-            };
-        } else if score >= hi {
-            hi = if score.abs() >= MATE_SCORE - 1000 {
-                POS_INF
-            } else {
-                (score + delta).min(POS_INF)
-            };
-        } else {
-            return (m, score, SearchBound::Exact);
-        }
-
-        // Full window fallback
-        if lo <= NEG_INF && hi >= POS_INF {
-            return (m, score, SearchBound::Exact);
-        }
-    }
+        (m, score, state.budget.should_abort())
+    })
 }
 
 /// Move a legal, non-excluded helper hint to the front without disturbing the
