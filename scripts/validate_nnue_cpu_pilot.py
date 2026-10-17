@@ -42,8 +42,8 @@ REQUIRED_REFERENCES = {
     "whole_game_holdout_manifest",
     "checkpoint_resume_manifest",
     "material_gate_evidence",
-    "local_cpu_measurement",
 }
+CPU_MEASUREMENT_SCHEMA = "sekirei.nnue-cpu-measurement.v1"
 
 
 def digest(path: Path) -> str:
@@ -77,6 +77,49 @@ def validate_reference(root: Path, value: object, field: str) -> list[str]:
 def includes_required_names(value: object, required: set[str]) -> bool:
     """Return false, rather than raising, for malformed JSON arrays."""
     return isinstance(value, list) and all(isinstance(item, str) for item in value) and required <= set(value)
+
+
+def load_reference(root: Path, value: object, field: str) -> tuple[list[str], Path | None]:
+    errors = validate_reference(root, value, field)
+    if errors or not isinstance(value, dict):
+        return errors, None
+    return [], root / value["path"]
+
+
+def validate_cpu_measurement(root: Path, reference: object, candidate_sha256: object) -> list[str]:
+    errors, path = load_reference(root, reference, "evidence.bottleneck.measurement")
+    if errors or path is None:
+        return errors
+    try:
+        measurement = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ["evidence.bottleneck.measurement.json"]
+    if not isinstance(measurement, dict):
+        return ["evidence.bottleneck.measurement.document"]
+    if measurement.get("schema") != CPU_MEASUREMENT_SCHEMA:
+        errors.append("evidence.bottleneck.measurement.schema")
+    if measurement.get("status") != "complete":
+        errors.append("evidence.bottleneck.measurement.status")
+    if measurement.get("candidate_sha256") != candidate_sha256:
+        errors.append("evidence.bottleneck.measurement.candidate_sha256")
+    if measurement.get("phase") not in {"label_generation", "self_play", "training"}:
+        errors.append("evidence.bottleneck.measurement.phase")
+    for name in ("positions", "peak_rss_bytes"):
+        if not isinstance(measurement.get(name), int) or measurement[name] <= 0:
+            errors.append(f"evidence.bottleneck.measurement.{name}")
+    for name in ("cpu_seconds", "wall_seconds"):
+        if not isinstance(measurement.get(name), (int, float)) or measurement[name] <= 0:
+            errors.append(f"evidence.bottleneck.measurement.{name}")
+    if (
+        isinstance(measurement.get("cpu_seconds"), (int, float))
+        and isinstance(measurement.get("wall_seconds"), (int, float))
+        and measurement["wall_seconds"] > 0
+        and measurement["cpu_seconds"] < measurement["wall_seconds"] * 0.75
+    ):
+        errors.append("evidence.bottleneck.cpu_not_dominant")
+    if not SHA256.fullmatch(measurement.get("output_sha256", "")):
+        errors.append("evidence.bottleneck.measurement.output_sha256")
+    return errors
 
 
 def validate(plan: object, root: Path) -> list[str]:
@@ -117,18 +160,8 @@ def validate(plan: object, root: Path) -> list[str]:
             for name in ("code_correctness", "teacher_quality", "model_design"):
                 if bottleneck.get(name) != "resolved":
                     errors.append(f"evidence.bottleneck.{name}")
-            if bottleneck.get("cpu_dominant_phase") not in {
-                "label_generation",
-                "self_play",
-                "training",
-            }:
-                errors.append("evidence.bottleneck.cpu_dominant_phase")
-            if not isinstance(bottleneck.get("local_cpu_seconds"), (int, float)) or bottleneck["local_cpu_seconds"] <= 0:
-                errors.append("evidence.bottleneck.local_cpu_seconds")
-            if not isinstance(bottleneck.get("local_wall_seconds"), (int, float)) or bottleneck["local_wall_seconds"] <= 0:
-                errors.append("evidence.bottleneck.local_wall_seconds")
-            elif bottleneck.get("local_cpu_seconds", 0) < bottleneck["local_wall_seconds"] * 0.75:
-                errors.append("evidence.bottleneck.cpu_not_dominant")
+            candidate_sha256 = candidate.get("sha256") if isinstance(candidate, dict) else None
+            errors.extend(validate_cpu_measurement(root, bottleneck.get("measurement"), candidate_sha256))
 
     pilot = plan.get("pilot")
     if not isinstance(pilot, dict):
