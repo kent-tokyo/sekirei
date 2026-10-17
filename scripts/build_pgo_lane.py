@@ -197,6 +197,10 @@ def main() -> int:
         parser.error("--count and --movetime must be positive")
     if args.output.exists():
         parser.error("--output must not exist")
+    # Cargo invokes rustc from multiple package-specific working directories.
+    # Every path passed through CARGO_ENCODED_RUSTFLAGS must therefore be
+    # absolute; otherwise profile-use resolves it relative to a dependency.
+    args.output = args.output.resolve()
     positions = args.training_positions.resolve()
     if not positions.is_file() or not positions.read_text(encoding="utf-8").strip():
         parser.error("--training-positions must be a nonempty UTF-8 file")

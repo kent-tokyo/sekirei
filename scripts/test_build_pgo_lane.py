@@ -63,6 +63,13 @@ class PgoLaneTests(unittest.TestCase):
                 str((Path(tmp) / "raw-profdata" / "train-%m.profraw").resolve()),
             )
 
+    def test_profile_pattern_keeps_an_absolute_receipt_root_absolute(self):
+        root = Path("/private/tmp/pgo-receipt").resolve()
+        self.assertEqual(
+            profile_output_pattern(root / "raw-profdata"),
+            str(root / "raw-profdata" / "train-%m.profraw"),
+        )
+
     def test_failed_command_preserves_captured_diagnostics(self):
         error = subprocess.CalledProcessError(
             101,
