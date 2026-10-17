@@ -2,6 +2,7 @@
 """Unit tests for the fail-closed compiler PGO lane."""
 
 import argparse
+import subprocess
 import sys
 import unittest
 from pathlib import Path
@@ -9,7 +10,13 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from build_pgo_lane import cargo_build, encoded_rustflags, parse_threads, require_clean_source  # noqa: E402
+from build_pgo_lane import (  # noqa: E402
+    cargo_build,
+    encoded_rustflags,
+    failure_record,
+    parse_threads,
+    require_clean_source,
+)
 
 
 class PgoLaneTests(unittest.TestCase):
@@ -36,6 +43,25 @@ class PgoLaneTests(unittest.TestCase):
         expected = target_dir / "release" / "sekirei"
         with patch("build_pgo_lane.checked"), patch.object(Path, "is_file", return_value=True):
             self.assertEqual(cargo_build(target_dir, None), expected)
+
+    def test_failed_command_preserves_captured_diagnostics(self):
+        error = subprocess.CalledProcessError(
+            101,
+            ["cargo", "build"],
+            output="compiler stdout",
+            stderr="compiler stderr",
+        )
+        self.assertEqual(
+            failure_record(error),
+            {
+                "type": "CalledProcessError",
+                "message": "Command '['cargo', 'build']' returned non-zero exit status 101.",
+                "command": ["cargo", "build"],
+                "returncode": 101,
+                "stdout": "compiler stdout",
+                "stderr": "compiler stderr",
+            },
+        )
 
 
 if __name__ == "__main__":

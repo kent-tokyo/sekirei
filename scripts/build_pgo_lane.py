@@ -44,6 +44,30 @@ def checked(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None 
     return result.stdout
 
 
+def failure_record(error: BaseException) -> dict[str, object]:
+    """Return bounded command context for an incomplete lane manifest.
+
+    A failed compiler/profile command is evidence, not a reason to discard the
+    manifest.  ``CalledProcessError`` preserves the captured streams from
+    :func:`checked`; keep them in the receipt so a rerun can distinguish a
+    source/toolchain failure from a missing profile artifact.
+    """
+    record: dict[str, object] = {
+        "type": type(error).__name__,
+        "message": str(error),
+    }
+    if isinstance(error, subprocess.CalledProcessError):
+        record.update(
+            {
+                "command": list(error.cmd) if isinstance(error.cmd, (list, tuple)) else error.cmd,
+                "returncode": error.returncode,
+                "stdout": error.stdout or "",
+                "stderr": error.stderr or "",
+            }
+        )
+    return record
+
+
 def git_output(*args: str) -> str:
     return checked(["git", *args]).strip()
 
@@ -260,6 +284,7 @@ def main() -> int:
     except BaseException as error:
         manifest["status"] = "incomplete"
         manifest["error"] = str(error)
+        manifest["failure"] = failure_record(error)
         write_manifest(manifest_path, manifest)
         raise
     write_manifest(manifest_path, manifest)
