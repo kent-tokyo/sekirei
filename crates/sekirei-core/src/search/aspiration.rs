@@ -6,7 +6,47 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::{MATE_SCORE, SearchBound};
+use super::{MATE_SCORE, NEG_INF, POS_INF, SearchBound};
+use crate::mv::Move;
+
+/// Retry failed root windows until a searched pass establishes an exact score.
+/// The callback retains root ordering and diagnostics; its final flag reports
+/// whether that pass was interrupted.
+pub(super) fn search_window(
+    mut lo: i32,
+    mut hi: i32,
+    mut delta: i32,
+    mut pass: impl FnMut(u32, i32, i32) -> (Option<Move>, i32, bool),
+) -> (Option<Move>, i32, SearchBound) {
+    // Grow geometrically around the failed score, preserving the other bound.
+    let mut attempt = 0;
+    loop {
+        let (mv, score, aborted) = pass(attempt, lo, hi);
+        attempt += 1;
+        if aborted {
+            return (mv, score, SearchBound::Unknown);
+        }
+
+        delta = delta.saturating_mul(2);
+        if score <= lo {
+            lo = if score.abs() >= MATE_SCORE - 1000 {
+                NEG_INF
+            } else {
+                (score - delta).max(NEG_INF)
+            };
+        } else if score >= hi {
+            hi = if score.abs() >= MATE_SCORE - 1000 {
+                POS_INF
+            } else {
+                (score + delta).min(POS_INF)
+            };
+        } else {
+            return (mv, score, SearchBound::Exact);
+        }
+        // Widening both limits to infinity does not make this failed pass
+        // exact. Search the full window on the next iteration.
+    }
+}
 
 /// Columns of each aspiration depth bucket, in schema order:
 /// roots, aspirated, adapted, delta_sum, passes, fail_low, fail_high,
@@ -113,6 +153,105 @@ impl AspirationDiagnostics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn full_window_fallback_searches_again_before_returning_exact() {
+        use crate::{piece::PieceKind, square::Square};
+
+        let lower_move = Move::drop(Square::from_shogi(5, 5), PieceKind::Fu);
+        let exact_move = Move::drop(Square::from_shogi(4, 5), PieceKind::Fu);
+        let mut windows = Vec::new();
+        let result = search_window(-50, 50, 50, |attempt, lo, hi| {
+            windows.push((attempt, lo, hi));
+            match attempt {
+                // Root fail lows return the incoming alpha, even if the
+                // underlying child scores are lower.
+                0..=13 => (None, lo, false),
+                14 => (Some(lower_move), 100, false),
+                15 => (Some(exact_move), 150, false),
+                _ => panic!("the full-window pass must finish the retry"),
+            }
+        });
+
+        assert_eq!(windows.len(), 16);
+        assert_eq!(windows[13], (13, -819_150, 50));
+        assert_eq!(windows[14], (14, NEG_INF, 50));
+        assert_eq!(windows[15], (15, NEG_INF, POS_INF));
+        assert_eq!(result, (Some(exact_move), 150, SearchBound::Exact));
+    }
+
+    #[test]
+    fn mate_band_failures_research_with_only_the_failed_side_opened() {
+        use crate::{piece::PieceKind, square::Square};
+
+        let bound_move = Move::drop(Square::from_shogi(4, 5), PieceKind::Fu);
+        let exact_move = Move::drop(Square::from_shogi(5, 5), PieceKind::Fu);
+        for (lo, hi, failed_score, exact_score, expected_window) in [
+            (
+                MATE_SCORE - 1100,
+                MATE_SCORE - 1000,
+                MATE_SCORE - 1,
+                MATE_SCORE - 1,
+                (MATE_SCORE - 1100, POS_INF),
+            ),
+            (
+                -MATE_SCORE + 1000,
+                -MATE_SCORE + 1100,
+                -MATE_SCORE + 1000,
+                -MATE_SCORE + 1,
+                (NEG_INF, -MATE_SCORE + 1100),
+            ),
+        ] {
+            let mut windows = Vec::new();
+            let result = search_window(lo, hi, 50, |attempt, a, b| {
+                windows.push((a, b));
+                match attempt {
+                    0 => (
+                        (failed_score >= hi).then_some(bound_move),
+                        failed_score,
+                        false,
+                    ),
+                    1 => (Some(exact_move), exact_score, false),
+                    _ => panic!("the searched mate score must finish the retry"),
+                }
+            });
+            assert_eq!(windows, vec![(lo, hi), expected_window]);
+            assert_eq!(result, (Some(exact_move), exact_score, SearchBound::Exact));
+        }
+    }
+
+    #[test]
+    fn ordinary_root_window_success_and_fail_directions_keep_their_windows() {
+        for (scores, expected) in [
+            (vec![0], vec![(-50, 50)]),
+            (vec![-50, -100], vec![(-50, 50), (-150, 50)]),
+            (vec![50, 100], vec![(-50, 50), (-50, 150)]),
+            (vec![-50, 50, 0], vec![(-50, 50), (-150, 50), (-150, 250)]),
+        ] {
+            let mut windows = Vec::new();
+            let result = search_window(-50, 50, 50, |attempt, lo, hi| {
+                windows.push((lo, hi));
+                (None, scores[attempt as usize], false)
+            });
+            assert_eq!(windows, expected);
+            assert_eq!(result, (None, *scores.last().unwrap(), SearchBound::Exact));
+        }
+    }
+
+    #[test]
+    fn aborted_root_window_returns_last_pass_as_unknown_without_retry() {
+        let mut windows = Vec::new();
+        let result = search_window(-50, 50, 50, |attempt, lo, hi| {
+            windows.push((lo, hi));
+            if attempt == 0 {
+                (None, -50, false)
+            } else {
+                (None, 50, true)
+            }
+        });
+        assert_eq!(windows, vec![(-50, 50), (-150, 50)]);
+        assert_eq!(result, (None, 50, SearchBound::Unknown));
+    }
 
     #[test]
     fn successive_exact_scores_use_integer_smoothed_changes() {
