@@ -8,6 +8,25 @@ preserves older per-change notes.
 
 No changes yet.
 
+## [0.4.4] – 2026-10-17
+
+Version 0.4.4 fixes an aspiration-window boundary and strengthens the
+reproducibility of PGO and CPU-pilot evidence. The default evaluator and
+ordinary search policy remain unchanged, so this release makes no general
+playing-strength claim.
+
+### Fixed
+
+- Re-search the full aspiration window before returning an exact score after a
+  widened window, including mate-band retries.
+- Preserve bounded compiler/profile command diagnostics and absolute profile
+  paths in incomplete PGO-lane receipts.
+
+### Changed
+
+- Require a hashed, candidate-bound CPU measurement record before an EC2 NNUE
+  pilot can be considered ready.
+
 ## [0.4.3] – 2026-10-16
 
 Version 0.4.3 improves bounded CSA supervision, records independently

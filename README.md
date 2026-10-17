@@ -3,17 +3,16 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.3-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.3)
+[![Release](https://img.shields.io/badge/release-v0.4.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.4)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [日本語](README_ja.md)
 
-Sekirei is an experimental Pure Rust shogi engine. Release `0.4.3` improves
-bounded CSA supervision, records independently qualified eight-thread PGO
-throughput, and adds fail-closed qualification for disabled search experiments.
-The default search policy and evaluator are unchanged, so this release does
-not claim a general playing-strength gain.
+Sekirei is an experimental Pure Rust shogi engine. Release `0.4.4` fixes an
+aspiration-window search boundary and strengthens reproducible PGO and CPU-pilot
+evidence. The default search policy and evaluator are unchanged, so this
+release does not claim a general playing-strength gain.
 
 ## Quick start
 
@@ -41,9 +40,9 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 Set `EvalFile` and `NnueOutput=absolute` before `isready`. External HalfKP
 256x2-32-32 files use `FV_SCALE` and remain subject to their own licenses.
 [NNUE weights](docs/nnue_weights.md) records supported formats, checksums, and
-the evidence boundary. The unpublished `nn_r3` candidate passed two pinned
-one-worker material gates on v0.3.68, but remains unbundled and non-default
-until the missing provenance and current-main qualification are complete.
+the evidence boundary. In-house NNUE candidates remain unbundled and
+non-default until their frozen provenance and current-main qualification are
+complete.
 
 ## Components
 
@@ -70,9 +69,9 @@ deterministic diagnostics, use `Threads=1` and `SpecTopN=0`.
 [`sekirei-wasm`](crates/sekirei-wasm/README.md) provides SFEN parsing, legal
 moves, validated move application, bounded one-worker search with an optional
 caller-supplied evaluator, up to four MultiPV lines, and bounded shortest-mate
-analysis. The prebuilt v0.4.3 ES-module
+analysis. The prebuilt v0.4.4 ES-module
 package is attached to the
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.3/sekirei-wasm-0.4.3.tgz).
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.4/sekirei-wasm-0.4.4.tgz).
 
 ## Build and verify
 

@@ -3,16 +3,15 @@
 [![CI](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml/badge.svg)](https://github.com/kent-tokyo/sekirei/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/kent-tokyo/sekirei/branch/main/graph/badge.svg?flag=rust-engine)](https://codecov.io/gh/kent-tokyo/sekirei)
 [![Ask DeepWiki](docs/assets/ask-deepwiki.svg)](https://deepwiki.com/kent-tokyo/sekirei)
-[![Release](https://img.shields.io/badge/release-v0.4.3-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.3)
+[![Release](https://img.shields.io/badge/release-v0.4.4-blue)](https://github.com/kent-tokyo/sekirei/releases/tag/v0.4.4)
 [![crates.io](https://img.shields.io/crates/v/sekirei.svg)](https://crates.io/crates/sekirei)
 [![License](https://img.shields.io/crates/l/sekirei.svg)](https://github.com/kent-tokyo/sekirei/blob/main/LICENSE)
 
 [English](README.md)
 
-SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.4.3`では、
-上限付きCSA監督処理、独立確認した8スレッドPGO性能証跡、既定で無効な探索実験の
-fail-closedな適格性確認を改善します。既定の探索方針と評価器は変更しておらず、
-一般的な棋力向上は主張しません。
+SekireiはPure Rustで実装した実験的な将棋エンジンです。リリース`0.4.4`では、
+aspiration windowの探索境界を修正し、再現可能なPGOとCPU pilotの証跡を強化します。
+既定の探索方針と評価器は変更しておらず、一般的な棋力向上は主張しません。
 
 ## まず動かす
 
@@ -39,9 +38,8 @@ sekirei /path/to/sekirei-nnue-v0.3.38.bin
 GUIでは`isready`より前に`EvalFile`と`NnueOutput=absolute`を設定します。
 外部HalfKP 256x2-32-32では`FV_SCALE`を使い、そのファイルのライセンスに
 従ってください。対応形式、SHA-256、測定範囲は
-[NNUE重み](docs/nnue_weights.md)にまとめています。未公開候補`nn_r3`は
-v0.3.68固定・1スレッドの駒得評価ゲート2件に合格しています。ただし、来歴情報の
-不足と現行mainでの再確認が残るため、同梱せず、既定評価器にもしていません。
+[NNUE重み](docs/nnue_weights.md)にまとめています。自前NNUE候補は、凍結した来歴と
+現行mainでの適格性確認が済むまで、同梱せず、既定評価器にもしていません。
 
 ## 構成
 
@@ -66,8 +64,8 @@ USIの`usi`で全オプションを確認できます。`SearchMode=Auto`は1ワ
 
 [`sekirei-wasm`](crates/sekirei-wasm/README.md)は、SFEN解析、合法手、
 検証付き着手、呼出側が渡す任意評価器を使う上限付き1ワーカー探索、最大4本の
-MultiPV、最短詰み解析を提供します。ビルド済みのv0.4.3 ESモジュールパッケージは
-[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.3/sekirei-wasm-0.4.3.tgz)
+MultiPV、最短詰み解析を提供します。ビルド済みのv0.4.4 ESモジュールパッケージは
+[GitHub Release](https://github.com/kent-tokyo/sekirei/releases/download/v0.4.4/sekirei-wasm-0.4.4.tgz)
 から取得できます。
 
 ## ビルドと検証
