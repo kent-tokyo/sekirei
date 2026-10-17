@@ -85,7 +85,7 @@ class ProbeReadinessTests(unittest.TestCase):
             self.assertTrue(readiness["strict_probe"]["passed"])
             output = directory / "release-with-readiness.json"
             attach(
-                root / "release-manifest-v0.3.29.json",
+                root / "docs/releases/manifests/release-manifest-v0.3.29.json",
                 report,
                 output,
             )

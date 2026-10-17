@@ -15,3 +15,8 @@ test_b_repeat2/
 sprint_gate_runs_*.log
 ROADMAP.md
 docs/
+!docs/
+!docs/releases/
+!docs/releases/manifests/
+!docs/releases/manifests/README.md
+!docs/releases/manifests/release-manifest-v*.json

@@ -82,7 +82,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/check_rust_coverage.sh
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
+python3 scripts/check_release_manifest_layout.py
 ```
+
+The current release manifest stays in the repository root; earlier verified
+evidence is kept in [the manifest archive](docs/releases/manifests/README.md).
 
 The coverage command requires `cargo-llvm-cov 0.8.7`,
 `llvm-tools-preview`, and `jq`. It enforces at least 98% line coverage for
