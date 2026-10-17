@@ -25,15 +25,35 @@ def reference(root: Path, relative: str) -> dict[str, str]:
     return {"path": relative, "sha256": hashlib.sha256(payload).hexdigest()}
 
 
+def json_reference(root: Path, relative: str, document: dict) -> dict[str, str]:
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(document, sort_keys=True).encode("utf-8")
+    path.write_bytes(payload)
+    return {"path": relative, "sha256": hashlib.sha256(payload).hexdigest()}
+
+
 def valid_plan(root: Path) -> dict:
     evidence = {name: reference(root, f"evidence/{name}.json") for name in PILOT.REQUIRED_REFERENCES}
     evidence["bottleneck"] = {
         "code_correctness": "resolved",
         "teacher_quality": "resolved",
         "model_design": "resolved",
-        "cpu_dominant_phase": "label_generation",
-        "local_cpu_seconds": 900,
-        "local_wall_seconds": 1000,
+        "measurement": json_reference(
+            root,
+            "evidence/local-cpu.json",
+            {
+                "schema": PILOT.CPU_MEASUREMENT_SCHEMA,
+                "status": "complete",
+                "candidate_sha256": "a" * 64,
+                "phase": "label_generation",
+                "positions": 200000,
+                "cpu_seconds": 900,
+                "wall_seconds": 1000,
+                "peak_rss_bytes": 1024,
+                "output_sha256": "c" * 64,
+            },
+        ),
     }
     return {
         "schema": PILOT.SCHEMA,
@@ -74,6 +94,19 @@ class CpuPilotTests(unittest.TestCase):
             errors = PILOT.validate(plan, root)
             self.assertIn("candidate.material_gate_verdict", errors)
             self.assertIn("evidence.bottleneck.teacher_quality", errors)
+
+    def test_rejects_non_cpu_dominant_measurement(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plan = valid_plan(root)
+            measurement = root / plan["evidence"]["bottleneck"]["measurement"]["path"]
+            document = json.loads(measurement.read_text(encoding="utf-8"))
+            document["cpu_seconds"] = 700
+            measurement.write_text(json.dumps(document), encoding="utf-8")
+            plan["evidence"]["bottleneck"]["measurement"]["sha256"] = hashlib.sha256(
+                measurement.read_bytes()
+            ).hexdigest()
+            self.assertIn("evidence.bottleneck.cpu_not_dominant", PILOT.validate(plan, root))
 
     def test_rejects_missing_integrity_and_stop_contracts(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
