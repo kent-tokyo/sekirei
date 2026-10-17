@@ -106,10 +106,13 @@ def llvm_profdata() -> Path:
     return candidate
 
 
-def encoded_rustflags(*flags: str) -> str:
+def encoded_rustflags(*codegen_options: str) -> str:
     # Set the complete flag list because CARGO_ENCODED_RUSTFLAGS takes
     # precedence over .cargo/config.toml. Keep native CPU code explicit.
-    return "\x1f".join(("-C", "target-cpu=native", *flags))
+    flags = ["-C", "target-cpu=native"]
+    for option in codegen_options:
+        flags.extend(("-C", option))
+    return "\x1f".join(flags)
 
 
 def build_env(target_dir: Path, *flags: str) -> dict[str, str]:

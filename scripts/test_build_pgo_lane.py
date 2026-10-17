@@ -27,10 +27,20 @@ class PgoLaneTests(unittest.TestCase):
                 parse_threads(value)
 
     def test_encoded_flags_preserve_native_cpu_and_do_not_depend_on_config_precedence(self):
-        flags = encoded_rustflags("-C", "profile-generate=/tmp/raw")
+        flags = encoded_rustflags(
+            "profile-generate=/tmp/raw",
+            "llvm-args=-pgo-warn-missing-function",
+        )
         self.assertEqual(
             flags.split("\x1f"),
-            ["-C", "target-cpu=native", "-C", "profile-generate=/tmp/raw"],
+            [
+                "-C",
+                "target-cpu=native",
+                "-C",
+                "profile-generate=/tmp/raw",
+                "-C",
+                "llvm-args=-pgo-warn-missing-function",
+            ],
         )
 
     def test_dirty_source_is_rejected_before_any_build(self):
