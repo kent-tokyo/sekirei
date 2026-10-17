@@ -44,6 +44,30 @@ def checked(command: list[str], *, cwd: Path = ROOT, env: dict[str, str] | None 
     return result.stdout
 
 
+def failure_record(error: BaseException) -> dict[str, object]:
+    """Return bounded command context for an incomplete lane manifest.
+
+    A failed compiler/profile command is evidence, not a reason to discard the
+    manifest.  ``CalledProcessError`` preserves the captured streams from
+    :func:`checked`; keep them in the receipt so a rerun can distinguish a
+    source/toolchain failure from a missing profile artifact.
+    """
+    record: dict[str, object] = {
+        "type": type(error).__name__,
+        "message": str(error),
+    }
+    if isinstance(error, subprocess.CalledProcessError):
+        record.update(
+            {
+                "command": list(error.cmd) if isinstance(error.cmd, (list, tuple)) else error.cmd,
+                "returncode": error.returncode,
+                "stdout": error.stdout or "",
+                "stderr": error.stderr or "",
+            }
+        )
+    return record
+
+
 def git_output(*args: str) -> str:
     return checked(["git", *args]).strip()
 
@@ -82,10 +106,13 @@ def llvm_profdata() -> Path:
     return candidate
 
 
-def encoded_rustflags(*flags: str) -> str:
+def encoded_rustflags(*codegen_options: str) -> str:
     # Set the complete flag list because CARGO_ENCODED_RUSTFLAGS takes
     # precedence over .cargo/config.toml. Keep native CPU code explicit.
-    return "\x1f".join(("-C", "target-cpu=native", *flags))
+    flags = ["-C", "target-cpu=native"]
+    for option in codegen_options:
+        flags.extend(("-C", option))
+    return "\x1f".join(flags)
 
 
 def build_env(target_dir: Path, *flags: str) -> dict[str, str]:
@@ -115,6 +142,11 @@ def copy_bound(source: Path, destination: Path) -> dict[str, object]:
     }
 
 
+def profile_output_pattern(raw_dir: Path) -> str:
+    """Return an absolute LLVM profile pattern for USI child processes."""
+    return str(raw_dir.resolve() / "train-%m.profraw")
+
+
 def run_profile_training(
     binary: Path,
     positions: Path,
@@ -125,7 +157,9 @@ def run_profile_training(
     raw_dir: Path,
 ) -> None:
     env = dict(os.environ)
-    env["LLVM_PROFILE_FILE"] = str(raw_dir / "train-%m.profraw")
+    # ``nps_threads.py`` starts the engine from the binary's directory.  A
+    # relative profile path would therefore escape the lane's receipt tree.
+    env["LLVM_PROFILE_FILE"] = profile_output_pattern(raw_dir)
     command = [
         sys.executable,
         str(ROOT / "scripts" / "nps_threads.py"),
@@ -163,6 +197,10 @@ def main() -> int:
         parser.error("--count and --movetime must be positive")
     if args.output.exists():
         parser.error("--output must not exist")
+    # Cargo invokes rustc from multiple package-specific working directories.
+    # Every path passed through CARGO_ENCODED_RUSTFLAGS must therefore be
+    # absolute; otherwise profile-use resolves it relative to a dependency.
+    args.output = args.output.resolve()
     positions = args.training_positions.resolve()
     if not positions.is_file() or not positions.read_text(encoding="utf-8").strip():
         parser.error("--training-positions must be a nonempty UTF-8 file")
@@ -260,6 +298,7 @@ def main() -> int:
     except BaseException as error:
         manifest["status"] = "incomplete"
         manifest["error"] = str(error)
+        manifest["failure"] = failure_record(error)
         write_manifest(manifest_path, manifest)
         raise
     write_manifest(manifest_path, manifest)
