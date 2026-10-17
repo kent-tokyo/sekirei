@@ -78,7 +78,11 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 bash scripts/check_rust_coverage.sh
 python3 scripts/check_release_metadata.py --allow-planned-release-manifest
+python3 scripts/check_release_manifest_layout.py
 ```
+
+現行リリースのmanifestだけをリポジトリ直下に置き、検証済みの過去証跡は
+[manifestアーカイブ](docs/releases/manifests/README.md)に保存します。
 
 カバレッジ確認には`cargo-llvm-cov 0.8.7`、`llvm-tools-preview`、`jq`が
 必要です。再利用可能なRustコードと配布するUSI実行系の行カバレッジを98%以上に

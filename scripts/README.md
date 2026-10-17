@@ -40,6 +40,7 @@ Sekirei then checks its own depth, `UseBook=false`, and diagnostic-only policy.
 | `check_public_surface.py` | Prevents internal roadmap material from entering Git and checks license references. |
 | `check_documentation_references.py` | Verifies local links in both READMEs. |
 | `validate_release_manifest.py` | Validates release-manifest schema and referenced artifacts. |
+| `check_release_manifest_layout.py` | Requires only the current manifest in the repository root and verified historical manifests under `docs/releases/manifests/`. |
 | `verify_release_publication.py` | After publication, checks every crate on crates.io (present, not yanked) and the WebAssembly asset's SHA-256 and size; `--write` records `publish.status=verified` and the workflow run in the manifest. |
 | `validate_nnue_release_artifact.py` | Validates a versioned NNUE file, checksum, model card, license boundary, and declared gate scope. The v2 HalfKP contract additionally requires hashed training-shard and whole-game hold-out manifests, raw 1/4-thread current-engine gate evidence, and an exact engine commit. |
 | `validate_nnue_candidate_card.py` | Validates an unpublished self-NNUE candidate card and, with `--artifact`, its size, SHA-256, HalfKP header, descriptor, and FV scale. It cannot authorize distribution or a default evaluator. |
@@ -375,6 +376,7 @@ until their archived evidence no longer depends on their exact behavior.
 python3 scripts/check_documentation_references.py
 python3 scripts/check_public_surface.py
 python3 scripts/check_release_metadata.py
+python3 scripts/check_release_manifest_layout.py
 ```
 
 Prefer one parameterized tool over near-duplicate wrappers. Retire one-off
